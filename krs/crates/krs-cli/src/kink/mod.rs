@@ -258,8 +258,8 @@ fn selection_refused(
             outcome.json(&document, EXIT_UNASKED)
         }
         KinkVerb::Flow { verb, options } => {
-            if let Ok(command) =
-                FlowCommand::parse(verb.as_str(), layout_files(&corpus, *verb), options)
+            if let Ok(command) = command_files(&corpus, *verb, options)
+                .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
             {
                 let document = refused(&command, "krs-build", "krs-refused", &detail);
                 finish(outcome, &document, EXIT_UNASKED, command.output())
@@ -297,7 +297,9 @@ fn flow_command(
 ) -> KinkOutcome {
     let corpus = paths.corpus;
     let spelling = spelling::KrsSpelling::new(request);
-    let command = match FlowCommand::parse(verb.as_str(), layout_files(corpus, verb), options) {
+    let command = match command_files(corpus, verb, options)
+        .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
+    {
         Ok(command) => command,
         Err(message) => return outcome.usage(message),
     };
@@ -672,11 +674,57 @@ fn emit_command(
     }
 }
 
+/// The flag by which `krs kink <verb>` names a list that kink-flow's verb takes as an operand:
+/// `run --mutations`, `query --patterns`, `fuzz --templates`. kink-flow's own parser takes the
+/// other list flags (`check` and `results --mutations`, `fuzz --mutations` and `--patterns`).
+const fn operand_flag(verb: Verb) -> Option<&'static str> {
+    match verb {
+        Verb::Run => Some("--mutations"),
+        Verb::Query => Some("--patterns"),
+        Verb::Fuzz => Some("--templates"),
+        Verb::Check | Verb::Results | Verb::Report => None,
+    }
+}
+
+/// The files `verb` reads ([`layout_files`]), the list its [`operand_flag`] names replacing the
+/// layout's, and the options left for kink-flow's parser; the error is the usage message.
+fn command_files(
+    corpus: &Path,
+    verb: Verb,
+    options: &[String],
+) -> Result<(CommandFiles, Vec<String>), String> {
+    let mut files = layout_files(corpus, verb);
+    let Some(flag) = operand_flag(verb) else {
+        return Ok((files, options.to_vec()));
+    };
+    let mut rest = Vec::with_capacity(options.len());
+    let mut given = None;
+    let mut args = options.iter();
+    while let Some(arg) = args.next() {
+        if arg != flag {
+            rest.push(arg.clone());
+        } else if given.is_some() {
+            return Err(format!("{flag} is given twice"));
+        } else {
+            let path = args.next().ok_or_else(|| format!("{flag} needs a path"))?;
+            given = Some(PathBuf::from(path));
+        }
+    }
+    if let Some(path) = given {
+        match verb {
+            Verb::Run => files.mutations = Some(path),
+            Verb::Query => files.patterns = Some(path),
+            _ => files.templates = Some(path),
+        }
+    }
+    Ok((files, rest))
+}
+
 /// The files a verb reads from the corpus layout: the mutations directory `mutations/`, else
 /// `MUTATIONS.toml`; `PATTERNS.toml`; `TEMPLATES.toml`. A verb that needs a list gets its
 /// layout path even when it is missing, so that kink-flow's refusal names the file the layout
 /// expects; a verb that only may read one gets it only when it exists. A verb's own flag
-/// (`--mutations`, `--patterns`) takes precedence.
+/// (`--mutations`, `--patterns`, `--templates`) takes precedence ([`command_files`]).
 fn layout_files(corpus: &Path, verb: Verb) -> CommandFiles {
     let directory = corpus.join("mutations");
     let single = corpus.join("MUTATIONS.toml");
@@ -831,5 +879,70 @@ fn finish(
                 outcome
             }
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Verb, command_files};
+    use std::path::{Path, PathBuf};
+
+    fn strings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|arg| (*arg).to_owned()).collect()
+    }
+
+    /// `run --mutations`, `query --patterns` and `fuzz --templates` name the list kink-flow's
+    /// verb takes as an operand, in place of the layout's; kink-flow's parser reads the rest.
+    #[test]
+    fn a_list_flag_names_the_list_kink_flow_takes_as_an_operand() {
+        let corpus = Path::new("no-such-corpus");
+        let (files, rest) = command_files(
+            corpus,
+            Verb::Run,
+            &strings(&[
+                "--full",
+                "--mutations",
+                "other.toml",
+                "--output",
+                "verdicts",
+            ]),
+        )
+        .unwrap();
+        assert_eq!(files.mutations, Some(PathBuf::from("other.toml")));
+        assert_eq!(rest, strings(&["--full", "--output", "verdicts"]));
+
+        let (files, rest) =
+            command_files(corpus, Verb::Query, &strings(&["--patterns", "p.toml"])).unwrap();
+        assert_eq!(files.patterns, Some(PathBuf::from("p.toml")));
+        assert!(rest.is_empty());
+
+        let (files, rest) = command_files(
+            corpus,
+            Verb::Fuzz,
+            &strings(&["--templates", "t.toml", "--template", "a"]),
+        )
+        .unwrap();
+        assert_eq!(files.templates, Some(PathBuf::from("t.toml")));
+        assert_eq!(rest, strings(&["--template", "a"]));
+
+        // check's flag is kink-flow's own, so it stays among the options.
+        let (files, rest) =
+            command_files(corpus, Verb::Check, &strings(&["--mutations", "m.toml"])).unwrap();
+        assert_eq!(files.mutations, None);
+        assert_eq!(rest, strings(&["--mutations", "m.toml"]));
+
+        // Without the flag the layout's list stands.
+        let (files, _) = command_files(corpus, Verb::Run, &[]).unwrap();
+        assert_eq!(files.mutations, Some(corpus.join("mutations")));
+
+        assert!(command_files(corpus, Verb::Run, &strings(&["--mutations"])).is_err());
+        assert!(
+            command_files(
+                corpus,
+                Verb::Run,
+                &strings(&["--mutations", "a", "--mutations", "b"])
+            )
+            .is_err()
+        );
     }
 }

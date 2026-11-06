@@ -1134,6 +1134,17 @@ fn query_and_fuzz_name_rules_by_their_items() {
         ["crate::step", "crate::step", "crate::step", "crate::stop"],
         "{row:#}"
     );
+    // `--patterns PATH` names another list than the layout's PATTERNS.toml.
+    project.write(
+        "kink/other-patterns.toml",
+        "[[pattern]]\nid = \"elsewhere\"\npattern = \"<k> done </k>\"\nprograms = [\"c3\"]\n",
+    );
+    let output = project.kink("query", &["--patterns", "kink/other-patterns.toml"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let rows = document["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{document:#}");
+    assert_eq!(rows[0]["pattern"], "elsewhere", "{document:#}");
 
     project.write(
         "kink/TEMPLATES.toml",
@@ -1149,6 +1160,33 @@ fn query_and_fuzz_name_rules_by_their_items() {
     assert_eq!(
         document["job"]["rule"]["krs"]["item"], "crate::stop",
         "the rule job's target is named by its item: {document:#}"
+    );
+    assert_status(&output, 3);
+    // `--templates PATH` names another list than the layout's TEMPLATES.toml, which has no
+    // template `elsewhere`: the job runs, as the one above, instead of being refused.
+    project.write(
+        "kink/other-templates.toml",
+        "[[template]]\nid = \"elsewhere\"\nprogram = \"c3\"\n\n  [[template.hole]]\n  name = \"N\"\n  \
+         sort = \"Int\"\n  find = \"3\"\n  literal = \"3\"\n  range = { min = 0, max = 4 }\n",
+    );
+    let output = project.kink(
+        "fuzz",
+        &[
+            "--templates",
+            "kink/other-templates.toml",
+            "--template",
+            "elsewhere",
+            "--matched",
+            "stop",
+            "--cases",
+            "4",
+        ],
+    );
+    let document = json(&output);
+    assert_eq!(document["schema"], "kink-flow-fuzz", "{document:#}");
+    assert_eq!(
+        document["job"]["rule"]["krs"]["item"], "crate::stop",
+        "{document:#}"
     );
     assert_status(&output, 3);
 }
@@ -1769,6 +1807,31 @@ fn run_refuses_what_check_refuses() {
         rows[0]["reason"], "krs::analysis::overlapping-rule-heads",
         "{document:#}"
     );
+    // `--mutations PATH` names another list than the layout's: only its mutation is judged.
+    project.write(
+        "kink/run-other.toml",
+        mutation(
+            "elsewhere",
+            "step_nonneg",
+            "Value:Int >=Int 0",
+            "Value:Int >=Int -1",
+        ),
+    );
+    let output = project.kink(
+        "run",
+        &[
+            "--mutations",
+            "kink/run-other.toml",
+            "--cache",
+            "kink/other-cache",
+        ],
+    );
+    assert_status(&output, 2);
+    let document = json(&output);
+    let rows = document["mutations"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{document:#}");
+    assert_eq!(rows[0]["id"], "elsewhere", "{document:#}");
+    assert_eq!(rows[0]["status"], "invalid-mutation", "{document:#}");
 }
 
 /// The mutation ids the cache at `cache` holds an outcome file or a hint for.
