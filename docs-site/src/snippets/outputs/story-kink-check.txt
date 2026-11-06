@@ -1,7 +1,7 @@
 $ krs kink --package story-plus --definition main check --locked  # the document's "mutations"
 [
   {
-    "digest": "8b11ff5550a8f2a17a3a678e8fe7a324cd4d6f54e1c2111c58a3526114876364",
+    "digest": "1b2c1628dd9ea389c4f3b6be4dee7e4a9e6dacf852e356d286f0392b3ffb9de7",
     "id": "plus/a",
     "krs": {
       "edits": [
@@ -54,7 +54,7 @@ $ krs kink --package story-plus --definition main check --locked  # the document
     "warnings": []
   },
   {
-    "digest": "da0189665bca28b22570eed7d13a0527292ca20cbef43a0388ed4ea6ba3530d0",
+    "digest": "bd93a3b218a2a7aa0300af8c5904a45fe008a0ac4797d8ce19c9e28e6c7153f0",
     "id": "plus/b",
     "krs": {
       "edits": [
@@ -107,7 +107,7 @@ $ krs kink --package story-plus --definition main check --locked  # the document
     "warnings": []
   },
   {
-    "digest": "0b3519a3bb8a7232a2d4f77f01cbf02ddce4fce9f921fe6a8998d0c6bbbbcefd",
+    "digest": "c98dcb06cd2e7569ef5d06e53695c7452f97c2c919ff5a5fa77d4242b2025b3d",
     "id": "plus/c",
     "krs": {
       "edits": [

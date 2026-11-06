@@ -7,9 +7,9 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
     "outcome": "refused",
     "refusals": [
       {
-        "detail": "no rule is labelled \"plus_one\", and no label ends with it as a whole component",
+        "detail": "no rule is labelled \"plus_one\", and no label ends with it as a whole component; near labels: nat--plus_succ, nat--plus_zero",
         "edit": 0,
-        "next": "the rule was renamed or removed, or the anchor is misspelt: find the rule's current label in the K (the detail lists near labels) and rewrite `rule`, or drop the mutation if the rule is gone",
+        "next": "the rule was renamed or removed, or the anchor is misspelt: find the rule's current label in the K (the detail names the labels near the anchor, when there are any) and rewrite `rule`, or drop the mutation if the rule is gone",
         "reason": "unknown-label",
         "rule": null
       }
@@ -49,7 +49,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
     "warnings": []
   },
   {
-    "digest": "1741d2c345201ed9514ac8c406b31528c84078c58120ef8a9b5feebca458a81f",
+    "digest": "c741b93818cdacb160407d6e7f8d8506cb6e4eba3e4dbb573fbf5ef2cbbf67bb",
     "id": "renamed-variables",
     "krs": {
       "edits": [
@@ -131,7 +131,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
     "warnings": []
   },
   {
-    "digest": "e2f8f1888e49e406ec24c701da9febb4e4709c5f47ae6008a374001c52ec724b",
+    "digest": "f92366d17ee3602c13e7e1754c93cad208bbcb0fd1c43fa7c4aaad673d806320",
     "id": "overlap",
     "krs": {
       "edits": [
@@ -160,7 +160,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
       {
         "detail": "KRS refuses the Rust source this mutation stands for: krs::analysis::overlapping-equations: equations `plus_succ` and `plus_zero` of `Plus` both apply to `Plus(NatSyntax::Succ(_), _)` at the same priority and give it different results, `NatSyntax::Succ(Plus(_, _))` and `_`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`). Sentences: `nat--plus_succ` (crate::plus_succ, src/lib.rs:38), not edited; `nat--plus_zero` (crate::plus_zero, src/lib.rs:31), edited. No sentence KRS names holds another rendering of a construct this mutation edits, so no Rust edit of these constructs avoids the refusal by itself",
         "edit": 0,
-        "next": "two equations now give different results at the argument the detail names: also make the edits the detail lists as siblings (an if/else condition is rendered, negated, in every later branch), or make the equations disjoint",
+        "next": "two equations now give different results at the argument the detail names: make the equations disjoint, or change the other equation the detail names in the same mutation (a correlated edit)",
         "reason": "krs::analysis::overlapping-equations",
         "rule": {
           "index": 2,

@@ -5,7 +5,7 @@
   },
   "definitions-compile-into-tools-emit-k": {
     "inputs": "44797d61aab2b21642af807c219dafef3e737f27dc182a11ffc2750526f068cc",
-    "output": "ad565f14d67a794c8b44278c3dbb5e528b5bee30e351be8989d7ba2c294ead92"
+    "output": "02fadff29adad97fe21a1b1d6291617c1602f64d1be1a579335c3365d25aaf22"
   },
   "definitions-compile-into-tools-parse-blue": {
     "inputs": "bf358c462c2530af5d11cf7211d1eedb0fdc056dd7a59b9837e59562e60d88a8",
@@ -33,7 +33,7 @@
   },
   "functions-defined-by-rules-emit-k": {
     "inputs": "4128ae601a8a7e120ce611672a6fc1526fc17cdfece51d7f9fdc5957094ec5ab",
-    "output": "012d0c1ef0bceef671cbd4be0206ffda85309e168d9e9e3146a36fab04093f1e"
+    "output": "e31c32ee56b9f737de99fcefa179a2cf682fb26d9c83162aa39a92047a41b284"
   },
   "functions-defined-by-rules-parse": {
     "inputs": "3761958842df66525c7090ffb824f76c7dd89e90e719de167bd38eaa8b6ca5fa",
@@ -52,15 +52,15 @@
     "output": "b15fcaaa3fcd07e2b556091bd0c18895fb2bf9bf4e79484c3bf31518a7134f11"
   },
   "mutation-testing-check": {
-    "inputs": "43dcd5575d5ee011fbbd42712ee2f9fb6f86dc9193fe428c66fba087cba08844",
-    "output": "f6854e71c309c9c0e1c3eeb0fd449b9aace7276c5b6eafb7cecdc3c38cd01b4d"
+    "inputs": "7a52eaa7d4d8ef3dd0b07344d3f12dbadaee72668b11e7f516ef870f31ee3b00",
+    "output": "accc0848bb7d4cbfb88630a05e9235d72c36df9e73f1a97abd24396741ba254d"
   },
   "mutation-testing-check-refused": {
-    "inputs": "def826219ea1896e936c9ccd0bbb17d9b3e06f62515877a8b92c95a0bff89a3c",
-    "output": "9390115aca55cc2d2f9c0b9e614185ca56c21b8e3504f30b800f72f7deed702c"
+    "inputs": "65ca6b510b319ba754d333661bf8e179305aa5677913f968f653e8c17a081550",
+    "output": "8114acaab30571c8dda12389608adff0f2d130927bdeb0dc16bf9ed93666d3c4"
   },
   "mutation-testing-emit-check": {
-    "inputs": "bff7ade436814b8d1b1c3c9803bd615dbc3342474fc27f48ebd30d2475dbc04a",
+    "inputs": "639b3005057ecd120f99f1bb638ab213e4b84bd28f57052e5c125d4bbbad586c",
     "output": "9876fb332bdbcc489aae3f86633fad02d8e421e25f53536cfdc2133c34b8703b"
   },
   "mutation-testing-fuzz": {
@@ -68,24 +68,24 @@
     "output": "1cb5be946364b4ab1a9ca5d094872c4dde03dd70919b079d83b29a520111ead8"
   },
   "mutation-testing-results": {
-    "inputs": "5829a6a3ed2896651a6a9e060898798e221a55f22151d836d3c5508d007e7f8e",
-    "output": "9414a515daba50e691fa87db59bc4515cbe54dc4ab17be7df1e51d7b0a5200f0"
+    "inputs": "398dc322732b981e43c37afe5fff61e02dddcc4d6e2a9c801975033d23ce46fa",
+    "output": "dbcd3107b0a5a4f69e7fbcc64f398b5097e7bd049a8898fbb76708aabe4f8f82"
   },
   "mutation-testing-run-after": {
-    "inputs": "fa7f3e44cc5d7dbc9cf77b6868cd8a32bfad32d6442553445677a5b6be41119e",
+    "inputs": "136842ba47f69978947d7825f6c889d977c6cce40bb9d0eaa50f632003049d4d",
     "output": "275f3a6a1e2b52b1f040c4613fb14468e725f6cd7d94ad4f19593d1bdb495969"
   },
   "mutation-testing-run-before": {
-    "inputs": "d664dac5ad46ad0cff26380aab71c4cb22dc7a62ac91ddaa20b461669a180f7c",
+    "inputs": "a2374ec8033d7a13902e31dc6df41837ab9e0f8ce74df255dea1aa8cf1b65d89",
     "output": "7349bb948e5be79884c4ce51b47396106a9b248ac7e84e930bd0f8f6ba5237f4"
   },
   "mutation-testing-run-refused": {
-    "inputs": "751d5baf03de3a6c7cfae155e0ea12efff570bf010f2ab8e4a15e4d4022feab7",
+    "inputs": "9091bc9bafd942ffdf874ed1e29e02b48a229062be19bc466921fca0b69a20ed",
     "output": "5d60344fbdeed30767facac6fcb4c84398b9726fd2ec02562b5e82cffe9d41df"
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",
-    "output": "5731886f30f21cb0c6cf61a62ed8b1ff2d3de8fd3e89b3090d7e56e2f2ee0148"
+    "output": "8e22ae397434f4439c5f98656a17422fe74dd57e8aaa9bce2077db79229125d6"
   },
   "patterns-and-substitution-run-differ": {
     "inputs": "74eb791baa48f116acf1a38aa89f7124101b6ad280dc30a2d08c27ba235b849a",
@@ -101,7 +101,7 @@
   },
   "sorts-and-constructors-emit-k": {
     "inputs": "7fabbc6bf84d74c4f66f3a2ae3167db069ade6edd5fcb5e675283fe5ddaa9f27",
-    "output": "3c2b977df127ed4f0a7e28977c7b6f50c67c0ab781444c33060b218ad9313852"
+    "output": "2afbc008a52b87fe7d9fd13def3391a5506bfbf337334c2395162c9db327c9a0"
   },
   "sorts-and-constructors-parse": {
     "inputs": "a4bfd572dad3c9410ca2c87de1e01b65771361eb1bf71ba64946cf475189217d",
@@ -148,19 +148,19 @@
     "output": "109a73ae914de407bccc610f7945de7e5c976689712b8f47e993de3b49c74d74"
   },
   "story-base-t1": {
-    "inputs": "a2f3d7b1b8e2e82ad72398bec9d6a0b3d6f3ec0f57ad4da77b98076a7aedbb40",
+    "inputs": "1afc67f89a3067ccaa1b632b9f78fd920478fb8b47938ab91b51bcabf810919f",
     "output": "020f7f0dcbc6b34f64b043b5c8c2606b8f195ad197c39691fe91e2e2476e5e3f"
   },
   "story-base-t2": {
-    "inputs": "b29481a71c0bac63d8efec23f45cca3975f71602c73ca6bebbc99c89eeef5562",
+    "inputs": "b516577bb9fdebe422e33552facff94dd8ad02bab1f0f168e6e08582de2072f3",
     "output": "efe4d427eba16c2cb97499acb62e7de3873eeb2984c52a4b1aac9a533cec9d33"
   },
   "story-base-t3": {
-    "inputs": "2f99dd7d463b6775493343a02edad3f8c0b31cc053d9530cdb0e31052e2cbdc0",
+    "inputs": "c55a6c3f5593121fcbae62797a6c4b465771957b20c1df694003e856a85668b1",
     "output": "789c9b32c47d89ba2d980bff534a92004e2cfb9bebdbcf652719b346267b4512"
   },
   "story-base-t4": {
-    "inputs": "7456f21e5f86fe3dbd8f336202ee9b96808eec53c4b6b888e4747a567be2727b",
+    "inputs": "1d78bbcff8c7a994206497b925e2d55ab3bb2db98f3391119d9306083f658bad",
     "output": "c2581d9c46f1abf6ce3c2b61afe791aed567e71ca8d9bcca89c28621d69fb99d"
   },
   "story-c-t1": {
@@ -180,47 +180,47 @@
     "output": "fd4cdeec7d1f7d67317605bfe3c67cefe9ec794a3c8c7e0e3acb228ce603ee58"
   },
   "story-check": {
-    "inputs": "e48f9acd5dcb461dfd8de454501ac5344d0991f489a72558125fb769a0d1a220",
+    "inputs": "41c6e83243053b85c7c2c14270301984c224ef161539034774c2e9eb4a41e5b6",
     "output": "24cd61b9680e34d74ce4c1c1c11e91b94c313e8b19046f5ffb04fb164f7bab33"
   },
   "story-emit-k": {
-    "inputs": "96e41cce5477c50fd5a7a12e99486ab923eaa2c0cb152ca44b5cc086211bcf00",
-    "output": "f7437ff72afe0ed34ffbd5689a85597ba29fc051abc1295aff6a38a3fa75ab3d"
+    "inputs": "238a2f2312ec2f5c8f6f14923d0b074902e14887bf8ef882f62b3e9c1c74f3b3",
+    "output": "dfd33881eb602c5feb331adaceeae2ecefcc4206116d07406d1fb9f1b74e7286"
   },
   "story-emit-k-a": {
     "inputs": "c9c9b35c97350bc7649554c3644bdb70630acb8fde14e55035bd84c554cdcff5",
-    "output": "a2399c95b4b4b28f89e22ca0aba743d62a9f8ed3a6c8d6446c13008cc595f518"
+    "output": "95ccc7292f6b9984021769d747edb11a6740c3a9f63396b5a65b226ab99c1967"
   },
   "story-emit-k-b": {
     "inputs": "8819ba6c4fb2e320075b986eef5b45dcbf20e0c1ceae9c493fb095a41621ca18",
-    "output": "f223b2c03c9df39cec24a48c1dec85a38948a1d545eaa7f04ec26fb54716393b"
+    "output": "bdeab54c8f923c62c93cc8b1da74cb1235edf448a7a8570ff26f9854868cc543"
   },
   "story-emit-k-c": {
     "inputs": "3fff09da9980e88559feea93fef10798f81f8a53918c01992a4b2bd6f9ea0aba",
-    "output": "e4f8c79c6da31f09c3435a3b0423d97d169affee2dc993b1069a0349a87c50ce"
+    "output": "ec47a5a4d37b155facc81d1f445f66a7a24bd094530e308c488d4724079af2bf"
   },
   "story-kink-check": {
-    "inputs": "9981e1d7fe556b96905ca5a1b1427564c6f9d42817d712e65f0c9a6091353c9d",
-    "output": "981c2dfe0c17c86bbdccbd430b4adcaf9047077702b2fe40a6abc70e268e288e"
+    "inputs": "baf61f72af3ee8e5aa89170c9eb1fa42e5536a01808bf8cb6935ed55f08821cc",
+    "output": "f6179270dfbb9581b5eb0a74d935b0753417b6407658a08a9b7881c1fcdf0fe0"
   },
   "story-kink-results": {
-    "inputs": "cbd2c95597c71df59517d7d17d0856c9e7b20b962616a50520e1a01cc8c21e87",
+    "inputs": "38409c72714f93c0276fd1ca86a3e1dedd2d9aea71aa723ef6ef57e9960a5eac",
     "output": "e4089f2f34c207809b68ca8a37a73f1efc3fdca0a3312fae9ebe0d9fc6f8861a"
   },
   "story-kink-run": {
-    "inputs": "d1b1baa665284b49b7e4de1b5a16f0a4db3f359f22da179e2800e3922b5cddbf",
+    "inputs": "7d376f72151164cb4cab743cb28e61076a4fefac484afb007d6aa4d347ef2861",
     "output": "dd2f206825123b1a4ec9e7b7cd204149186bb85a56dff160087d9e585481f09d"
   },
   "story-parse": {
-    "inputs": "6a09c3c4e9df9295376b45ee0850cd7c13df27285c55b427305bdeef91d823f0",
+    "inputs": "d482426601da2f897d6cc83ad9e290eaf8ff050c0e560eaa1299910b0b5eba00",
     "output": "e2a7d6b8346bb96906c20bb15e2043962d8ed85aea0c741821a952852358b296"
   },
   "story-prove": {
-    "inputs": "dc08e6ec13bd71b57646b15648c3e3f30cc78b4748252d6d6483b5113553e157",
+    "inputs": "4cf2df073931ce519c45d204c505f04233d95603923129320f305f402ad82095",
     "output": "8c98514144063d2433a5e958200e77bd2b290f2df5d3e271635d37b25c2fa1a4"
   },
   "story-search": {
-    "inputs": "aa53b57004d5dccb2e423b48d6c6d85bec49bbfba6c8d013f3fde0a21fb70349",
+    "inputs": "466ad4e0026d2ec3e527e778addcc3beb1c505cb5883facfbb70c6be1c97ac0e",
     "output": "a93378b39088e12b88415d89bf6336a155727ef1b1a6a04422cc8092c3fea12f"
   },
   "tour-minimal-depth-0": {

@@ -1,7 +1,7 @@
-$ krs kink --package story-plus --definition main check --corpus guide --locked  # the document's "mutations"
+$ krs kink --package story-plus --definition main check --mutations guide/mutations --locked  # the document's "mutations"
 [
   {
-    "digest": "f3806852eb23d4af39e3dd2b9eb5f002a1e7a1797297671efde5f19f83980b64",
+    "digest": "1523ad4032bd7866e8aed3caf45b6002e6219308a060471c1c84b0cfbfbff8e9",
     "id": "correlated/off-by-one",
     "krs": {
       "edits": [
@@ -93,7 +93,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --locked 
     "warnings": []
   },
   {
-    "digest": "8b57af483df6e4b5d09178a09300e0081f62baae8c98ca1e242970118125cc39",
+    "digest": "7f6857487c062127352fa4b9d26c732b0fe9fe480b30dbb5714bd1a9e107928c",
     "id": "survivors/one",
     "krs": {
       "edits": [
@@ -146,7 +146,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --locked 
     "warnings": []
   },
   {
-    "digest": "da37192c4c880256cdb6e874242bb38564cefe0edcf4b7355583a230116f01a5",
+    "digest": "03de9c543f35ebaec43f43ce3f55b294a0e5ebfa57b567d77dc26fab4f3a8f7b",
     "id": "survivors/swap",
     "krs": {
       "edits": [

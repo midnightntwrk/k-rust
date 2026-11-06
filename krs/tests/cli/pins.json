@@ -9,16 +9,16 @@
   },
   "artifacts_sha256": {
     "definition-ir.json": "c1d2aaee552794e4e149dd9ec7aa8b59c6d53096b289f6a9bd8eba8f3b0fcafd",
-    "definition.k": "4a2e1647050251a242f9f693cd24e78dab2cb18d34c5a4fe8fccb3c09b5d7fe8",
+    "definition.k": "028180e70e5957b9080273ba2b1a29814a5148e81696467110a45326180e3223",
     "descriptor-bundle.json": "08aafdc5db58d2d57652ce41fdf8b87b83d599e0825620a1cb5e55db8a993893",
-    "dollar-ids/definition.k": "3b55a2f034abfa285d4db1324af0adfa529255aa11ed32fd23eefba2a1139539",
+    "dollar-ids/definition.k": "a06ef67f343247bb77d2d059fb3956731f0c172823a0c3f3e660775e7f6a1b00",
     "dollar-ids/spec.k": "49b4faa6cf51ac95a34be5a810bb7b645edf2501185666e0b8bd02976e3be61a",
     "expand.rs": "7297130c999b0aedb41e9797b190673b43600f66471710feab6bb5756910b0f2",
     "native/.krs-artifacts": "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5",
     "semantic-ir.json": "352c9bb97bc1fc015642afc854dc1d29f2d262c0f3fc81a63bafced63edc1dc9",
-    "sources.json": "5e0f19852ecdd23d7db69cae26f51d81181beb0ff4be3c61f4efcf17b44da76f",
+    "sources.json": "2cbb21728b791288251cfb4ad84ff298b6f87499ecc601c74c16726e58f7c9bd",
     "symbols.json": "d2039faf81551df6ed9f8029ab42cb3fc8053954255bda15c40dbd7acc844b1f",
-    "claims/definition.k": "79f7d3aea1fcb2a03bb566b4005cf3314baaf0a3dc3f03e137b92b5f0fe5ca67",
+    "claims/definition.k": "d1d8d91a8d929405dbe0dc9ea310baef7f367d810d68647b2418128ca46e71b5",
     "claims/prove.json": "da8d728b3b1dc42e2563a6804ba0ad6766242a03b1cf8e38f94aaca0c705b006",
     "claims/spec.k": "612d8d52b134aecb8a8ed45c9356cd27d03607f7823351cac4efc27c29824721",
     "native-run/final.kore": "5c170f35fbde622dd438fbb05111698597f0263a5c674600ef268c313811cdcf",
@@ -31,8 +31,8 @@
     "native/k2lean-sidecar.json": "e7bc68668bb26a0e32b1c9c0218a49f2e3d580755a8ed3d61488bedbffdb6850"
   },
   "reference_sha256": {
-    "execution": "5848e16025dea066e961aa0503d0443a73de90c96a8d07a3770891cc84a63b2e",
-    "dollar-id-claims": "df5147d072900edf9ea63c2776f8bd5f0c094bdbbbf2d9351c0830903e0f5c43",
-    "claims-prove": "a0685fb0e5dad9d4d3effa801283f0fc89672b1ad53a03e178abae37c3621d01"
+    "execution": "dc76c2bc9900f081c6727ad15ff7c9c8d0a6e67383740291fe1c61594ffad6dc",
+    "dollar-id-claims": "8db6964260fc4f6be4533e261ddfc4f17c514700b3e855fd412aa94a1eeea963",
+    "claims-prove": "863f5f1459a2ba8f29d46976606e1d91c601702f8d8f60f53027e388ff4d77ff"
   }
 }

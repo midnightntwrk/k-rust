@@ -17,66 +17,66 @@
   },
   "emitted": {
     "krs-rule-forms-priority": {
-      "definition.k": "6f1f9809df970c50793f9b07d441555aaf041ec5894693ced5c7c46388cd9d70"
+      "definition.k": "1190181de24e304dea38447f2d770689bc1d9e6163ef6f5dc3e3449731eb926a"
     },
     "krs-rule-forms-nondet": {
-      "definition.k": "79f8b53c6487fe0592e7787f85244b8e1a0fbf242ca53297f37822f454adcd24"
+      "definition.k": "291abc7d3712c18e8d943caad340b664bd60c499239b15a409a8f0096a0ce734"
     },
     "krs-rule-forms-anywhere": {
-      "definition.k": "92ce6362dc1dd3e78e0a0a40ed0f510a9f47bfdcc172622fc3dca7d8d54e73a3"
+      "definition.k": "1d5501f84b76e6219b221f9f183d9165b6810d7ff4da2edba5689ce88313657d"
     },
     "krs-rule-forms-casts": {
-      "definition.k": "6461b57677174794c0135e234050fcf09cb7c171e06c29ba0b598e6fa1268f02"
+      "definition.k": "228ec4c051bb63cd800ba4797d1c9f701787beca0854ccb4139091a1a2029354"
     },
     "krs-rule-forms-fresh": {
-      "definition.k": "632f8f75ec9b5988b56b4d05e79e2c07357047104b3cc3384a60f5522e618313"
+      "definition.k": "a0b263352fd88c6c1de303d0843cc4a81488060b393583aafc32c8fa09d3b251"
     },
     "krs-rule-forms-macros": {
-      "definition.k": "6b59d02fd7d606821df5bcf62756e9aec13bdc60b20bd8ebac85a6cdf0d9115c"
+      "definition.k": "423229c616deae4480a213ff3d8ab3e7e4252deb9e67e8b2ce70be9a50ce0d6f"
     },
     "krs-rule-forms-local-rewrite": {
-      "definition.k": "aa578abc4e829d6fe9fcdcb2f145d15d6b6a931d47847ef93baa9e7c5a4ab574"
+      "definition.k": "dcf3ca0aa5fa66c140a5d18ccf106699986b4afad6f0bfafc0a0e68c821309d8"
     },
     "krs-rule-forms-restating-imp": {
-      "definition.k": "d784550c0f0fc7aea8fcd19f7dad7d98e17142b6961ea0a04fa86a6dbb88381e"
+      "definition.k": "a39f0257a2462991718dbadca3368637230ed129c3a00cbb58b5b28426fe083d"
     },
     "krs-rule-forms-local-term": {
-      "definition.k": "46e7729158178e5757b7c155cd2989738ef0d2b9033dd9728826fdbd7ae3168a"
+      "definition.k": "fbaf1921794231da2099ed0691db71a23bf4197e46b7abf53841c2baed0187dd"
     },
     "krs-rule-forms-heat-cool": {
-      "definition.k": "850b1588d314ee73697a741c910e62b25bdfdb78bf401c6ce0214d42d7944dfe"
+      "definition.k": "e6a1141ae821d5113059b7d6ac2e4f6f52e17215c73e55e63fdee50b6f5b665f"
     },
     "krs-rule-forms-heat-cool-strict": {
-      "definition.k": "207d78519adba3ff6f38ee9157fea06f364246a423ebb652547cd9f46ae1f395"
+      "definition.k": "68ad7acf6dfcbc0f7254aca367576c8d7776d64ba975cdc39e163a79e2d48b40"
     },
     "krs-rule-forms-contexts": {
-      "definition.k": "be7e17dde027a2071b44c345ea7e6fad35cc1bf67c7a4e7b49f4d974c3c658b8"
+      "definition.k": "59d11e0b902c5fd8729a136eff4fe8d469209bf48a961885dab77703c83e0559"
     },
     "krs-rule-forms-contexts-lvalue": {
-      "definition.k": "6c770a7c2356b2aa39743eb2772b2c921870018365672344243b1684e0b78dbd"
+      "definition.k": "a7142ae55bbe21933f1d2875e4ed65ddab75821fb69c5b444c7fae3125da7a65"
     },
     "krs-rule-forms-contexts-evaluate": {
-      "definition.k": "ea788e51b042eff95b6d559a05f1e4eb434bcfdb2890957dbc8cc0ff92a97a32"
+      "definition.k": "39a1c6fac0a64443f4f4a3ad9b5d2bc0c8047c824472ec5c2731a57ad2580fe9"
     },
     "krs-rule-forms-anywhere-stutter": {
-      "definition.k": "c2ad2305e0a9af55534ab550db48f8a24994b6be8e5d18edc8873e7c3b48be36"
+      "definition.k": "4ddb8fb12e42f50e7a9cdac30d3aac69d16471baa13cfbc502d7a07412b7792f"
     }
   },
   "reference_sha256": {
-    "krs-rule-forms-nondet": "a5aa3191b7e724bf82f94b1b26a020a31d31b750f2a3f505994094a4c28a513a",
-    "krs-rule-forms-anywhere": "6b40610afc48b37b460a27d3b633161ad5a36c5bc5a3a095594adf8befd4ad19",
-    "krs-rule-forms-fresh": "6638357f19b9a07f62152823e664ece36bdd30493913eed6c2f2cd5f1416e1dc",
-    "krs-rule-forms-macros": "b41f598851db0e0d99501eec089a041f9660b74d9754f59be02a0a47739e8205",
-    "krs-rule-forms-local-rewrite": "6c8e1578fc7a2b5eeec4057138f27592f81ad99d044e1116fded1394385dbeab",
-    "krs-rule-forms-restating-imp": "9172aadc8256e60e65791b1b5989e1f900776d5506b0058a13ff851e2997c459",
-    "krs-rule-forms-local-term": "4e0536bef51049f1d7fe5923c6f23c9feb51c88736162514a421e9ace659740f",
-    "krs-rule-forms-heat-cool": "5987d42003a4414cca7832d196b12a32af7494bda02082f20cc30c876edf4a0a",
-    "krs-rule-forms-heat-cool-strict": "86c3747830b62cb6b1204a3bbdffd437b8ab8306381841e283fe8915a349a527",
-    "krs-rule-forms-contexts": "19d83c5454bbdb4bfe3934a914cb5cf629afc22252967050fcd0bfd7a8ee8dbd",
-    "krs-rule-forms-contexts-lvalue": "ad3733cea646aa49fd433099602540b83796eeb55117767185ab3e219d2f01af",
-    "krs-rule-forms-contexts-evaluate": "9bdd6816d1cbbc17bdb0eceff7254e8f9346137546ec6df45ef80ffafe2a63f4",
-    "krs-rule-forms-casts": "140de129f8813cd22c5d05c57293d9fcd424ebd86b29c45ed8f153c57ab403e7",
-    "krs-rule-forms-priority": "d56cf1bd95eb187467e1336ac9411425d023b604c7dc1f1c9ced7ede1a63aaba"
+    "krs-rule-forms-nondet": "2673e281e7193e0b79f7b1b9760fb905011215df586185598b20dc03363639c8",
+    "krs-rule-forms-anywhere": "16b38470e751dbe907b3aaf866caf26fc28705bf564bd7c889aecba9a49495fb",
+    "krs-rule-forms-fresh": "e8f7d9723dab2a6a80fe8b91b533ef2a4939d96d9cba153521187dfc28972058",
+    "krs-rule-forms-macros": "0731a52302d8ae1e176c242be1f077b60949b8fe9ef1138b82b1985df97a7337",
+    "krs-rule-forms-local-rewrite": "32fbffb9dbae857d0e225e6e812dfd80af6c80722210badfe4f6edae0f4555e0",
+    "krs-rule-forms-restating-imp": "2d6514ea44c26d34a4392aab4ed24b3f0b3d95e0547d339f881123290a464f95",
+    "krs-rule-forms-local-term": "9f1b6de4847db2d1c6334b07c56743ac7698a80178e2886f8fdfbfb4e440a3e5",
+    "krs-rule-forms-heat-cool": "ac58512809c997cb0a0ea019bab3c5fe992f174af6d047735144f90eb8eef571",
+    "krs-rule-forms-heat-cool-strict": "f06108d0a0b49b406a1e5abec02c72377c5dfd0ceb7d8894bb93f7518c53c0fe",
+    "krs-rule-forms-contexts": "78c02ff86c0f8f0bfbb818d14cb36557137672c7ce650c73a2db0f47baac51ac",
+    "krs-rule-forms-contexts-lvalue": "95bfb6d9a298393fd899d6032c017f74200fced9a1b5f56e775b8fdd0883e631",
+    "krs-rule-forms-contexts-evaluate": "70dad141b0363960c3a0f2ec78692aa037f331329b90e82cbec312fe7e73f21e",
+    "krs-rule-forms-casts": "177e5d90dc22c48b4be5232586260757969fbc5beb5b63213e0f6d046203b3e5",
+    "krs-rule-forms-priority": "6049b89bebdc576978c4723e075449c6f95634bbf67c8778da1d5385591a02f5"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
