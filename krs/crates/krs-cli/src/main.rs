@@ -211,24 +211,27 @@ const KINK_USAGE: &str = "\
 krs kink: the corpus loop over a KRS package, with kink as its engine
 
 Usage:
-  krs kink emit    --package P --definition D [--check]
-  krs kink check   --package P --definition D [--mutations PATH] [--locked]
-  krs kink results --package P --definition D [--verify] [--mutations PATH] [--cache DIR]
-                   [--output json|verdicts] [--locked]
-  krs kink run     --package P --definition D [--mutations PATH] [--only ID]... [--verify]
-                   [--order cost|corpus] [--full] [--compile-workers N] [--no-memo]
+  krs kink emit    --package P --definition D [--corpus DIR] [--check]
+  krs kink check   --package P --definition D [--corpus DIR] [--mutations PATH] [--locked]
+  krs kink results --package P --definition D [--corpus DIR] [--verify] [--mutations PATH]
+                   [--cache DIR] [--output json|verdicts] [--locked]
+  krs kink run     --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]...
+                   [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo]
                    [--progress] [--cache DIR] [--output json|verdicts] [--locked]
-  krs kink report  --package P --definition D [--cache DIR] [--output json|verdicts]
-  krs kink query   --package P --definition D [--patterns PATH] [--only ID]... [--verify]
-                   [--cache DIR] [--locked]
-  krs kink fuzz    --package P --definition D [--templates PATH] --template ID
+  krs kink report  --package P --definition D [--corpus DIR] [--cache DIR]
+                   [--output json|verdicts]
+  krs kink query   --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]...
+                   [--verify] [--cache DIR] [--locked]
+  krs kink fuzz    --package P --definition D [--corpus DIR] [--templates PATH] --template ID
                    (--kill MUTATION | --matched RULE | --fired RULE | --pattern ID) [kink-flow's
                    fuzz options] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
-                    kink-flow's manifest; a case's paths stay inside the corpus directory;
-                    [result] cells names cells by Rust path (cpu.regs), as krs compare does
+                    kink-flow's manifest: each case is a [[program]] entry, and kink's
+                    documents list the cases under `programs`; a case's paths stay inside
+                    the corpus directory; [result] cells names cells by Rust path
+                    (cpu.regs), as krs compare does
   cases/            the cases' program files and typed-input documents; a program file
                     binds the main parameter, as krs run FILE does
   mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or
@@ -236,13 +239,20 @@ The corpus is <package>/kink (or --corpus DIR):
   PATTERNS.toml     patterns of interest, for query
   TEMPLATES.toml    case templates with holes, for fuzz
   definition.k      the package's emitted K, which kink judges; written by krs kink
-  .kink-flow/       kink-flow's caches
+  .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
+                    holding /.kink-flow/ keeps them out)
 
 The loop:
-  1. write cases (FLOW.toml, cases/); krs kink results until no rule is uncovered
+  1. write cases (FLOW.toml, cases/); krs kink results until no rule in scope is
+     uncovered: its JSON document's rules[].status is covered, uncovered (write a case
+     that reaches the rule), claim-helper (the claims serve it: krs prove checks them) or
+     no-coverage-signal (no run can show it matched: a macro or alias), and a
+     simplification equation needs no case; the verdicts rendering lists cases, not
+     rule statuses
   2. write mutations (mutations/<topic>.toml); krs kink check until it exits 0
-  3. krs kink run; for each survivor write a case that kills it, or argue that the
-     mutation is equivalent and drop it; run again (cached outcomes are not re-run)
+  3. krs kink run; for each survivor write a case that kills it, or argue that no case
+     can and drop the mutation, or keep it with the argument in its misunderstanding
+     (its status stays survived); run again (cached outcomes are not re-run)
   4. commit definition.k with the corpus; CI runs krs kink emit --check, and
      krs kink run --full --output verdicts --locked against a committed verdicts.lock
 
@@ -259,7 +269,8 @@ A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
 check shows each edited rule before and after with its Rust item and line, and refuses an
 edit no Rust source emits (a node KRS inserted, a derived test that does not follow the
 edit, an overlap KRS refuses) with the next step.
-Guide: docs-site/src/pages/verification/mutation-testing.mdx
+Guide: \"Mutation testing a KRS specification\", /verification/mutation-testing on KRS's
+documentation site (docs-site/src/pages/verification/mutation-testing.mdx in k-rust)
 
 Every verb but emit and report builds the package, writes kink/definition.k when it differs
 from the emission (the document's `definition.status` says `written`), and runs kink-flow's
@@ -268,33 +279,34 @@ line, column, kind, claim_helper}`. --locked refuses a stale definition.k instea
 it, and emit --check exits 2 when it is stale: the gate a CI runs. report builds nothing: it
 prints the last run's stored document (or its verdicts) as that run printed it, exits as
 that run did, and takes no --locked. run --progress prints a line on stderr as each phase
-starts (the build, the binding, the checks of the list), as each program's baseline and
+starts (the build, the binding, the checks of the list), as each case's baseline and
 each mutation is decided (also without the flag when stderr is a terminal); stdout stays
 the document.
 
 Exit status, by what the caller does next, as krs run's (krs --help):
-  0  yes: every program is comparable and meets its expectation (results), every mutation
-     got a verdict, killed or survived (run, report), every pattern answered (query), the
-     fuzz found a witness or proved the mutant equivalent, verdicts are possible (check),
-     definition.k is fresh (emit)
+  0  yes: every case is comparable and meets its expectation (results), every mutation
+     got a verdict, killed, survived, equivalent or unkillable (run, report), every pattern
+     answered (query), the fuzz found a witness or proved the mutant equivalent, verdicts
+     are possible (check), definition.k is fresh (emit)
   1  a finding: a --verify mismatch, an unmet expectation (results), a refuted pattern
-     claim (query), a program excluded on the baseline or a baseline without data (check)
+     claim (query), a case excluded on the baseline or a baseline without data (check)
   2  the question could not be asked: a usage error, a package krs refuses, a stale
-     definition.k (--locked, emit --check), a refused manifest, specification, program,
+     definition.k (--locked, emit --check), a refused manifest, specification, case,
      mutation list, mutation, pattern or template, hole values the fuzz mostly rejected, a
      failed run or cache write
-  3  no answer: a program or mutation that timed out or is unknown, an inconclusive
+  3  no answer: a case or mutation that timed out or is unknown, an inconclusive
      expectation, an unknown pattern answer, a fuzz that ended without a witness kink accepts
 A command with several parts exits 2 when one could not be asked, else 1 when one is a
 finding, else 3 when one has no answer, else 0.
 Under the Z3 solver profile, which krs builds kink with by default, query answers no pair
-`no`: a pattern a program does not reach is unknown (3) and a claim it does not reach
+`no`: a pattern a case does not reach is unknown (3) and a claim it does not reach
 unconfirmed, not refuted, so query exits 0 only when every pair asked hits.
 
 The selection options (--manifest-path, --package, --package-id, --definition,
---dependency, --cfg, --profile, --registration, --message-format, --timings, --counters)
-are krs's, before or after the verb; every other option is the kink-flow verb's own. Every
-command that builds the package builds it in process, so krs kink takes no --no-reuse.
+--dependency, --cfg, --profile, --message-format, --timings, --counters), --corpus and
+--locked are krs's, before or after the verb; every other option is the kink-flow verb's
+own. Every command that builds the package builds it in process, so krs kink takes no
+--no-reuse.
 ";
 
 fn main() {

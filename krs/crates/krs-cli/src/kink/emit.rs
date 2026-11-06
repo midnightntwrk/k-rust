@@ -113,8 +113,11 @@ pub(super) fn definition_value(shown: &str, status: DefinitionStatus) -> Value {
 pub const EMIT_VERSION: u64 = 1;
 
 /// The document of `krs kink emit`: the definition's path and status (`null` when krs refused
-/// the package or the file could not be written, with the reason as `refusal`), and whether it
-/// was `--check`.
+/// the package or the file could not be read or written, with the reason as `refusal`; `stale`
+/// under `--check`, with the command that writes the file as `refusal`), and whether it was
+/// `--check`. `refusal` is non-null exactly when the command exits 2; the status tells a refused
+/// package from a stale file. It follows the kink-flow documents it sits beside: a bare schema
+/// name and an integer `version`.
 pub(super) fn emit_document(
     shown: &str,
     status: Option<DefinitionStatus>,

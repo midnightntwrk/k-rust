@@ -116,13 +116,22 @@ const fn generated_only_next(kind: InsertedNode) -> &'static str {
 }
 
 /// What the author does next for KRS's refusal `code` of the source a mutation stands for.
-fn krs_next(code: &str) -> &'static str {
+/// `siblings` says whether the detail lists siblings, renderings of an edited construct that the
+/// mutation leaves unchanged: only then is making their edits a step the detail supports; without
+/// them, the other sentence the detail names is changed in the same mutation (a correlated edit).
+fn krs_next(code: &str, siblings: bool) -> &'static str {
     match code {
-        "krs::analysis::overlapping-rule-heads" => {
+        "krs::analysis::overlapping-rule-heads" if siblings => {
             "KRS accepts these rules only if they cannot apply to one configuration: also make \
              the edits the detail lists as siblings (an author's Rust edit changes every sentence \
              that renders the edited construct), or change the edit so that the guards stay \
              complementary; a nondet group would change the specification, not the mutation"
+        }
+        "krs::analysis::overlapping-rule-heads" => {
+            "KRS accepts these rules only if they cannot apply to one configuration: change the \
+             edit so that the guards stay complementary, or change the other rule the detail \
+             names in the same mutation (a correlated edit); a nondet group would change the \
+             specification, not the mutation"
         }
         "krs::analysis::nondet-group" => {
             "the edit contradicts the specification's nondet group: a member must still overlap \
@@ -133,10 +142,17 @@ fn krs_next(code: &str) -> &'static str {
             "keep the priority below 200, or make the rule unable to apply where the `owise` rule \
              does"
         }
-        "krs::analysis::overlapping-equations" | "krs::analysis::overlapping-match-arms" => {
+        "krs::analysis::overlapping-equations" | "krs::analysis::overlapping-match-arms"
+            if siblings =>
+        {
             "two equations now give different results at the argument the detail names: also \
              make the edits the detail lists as siblings (an if/else condition is rendered, \
              negated, in every later branch), or make the equations disjoint"
+        }
+        "krs::analysis::overlapping-equations" | "krs::analysis::overlapping-match-arms" => {
+            "two equations now give different results at the argument the detail names: make \
+             the equations disjoint, or change the other equation the detail names in the same \
+             mutation (a correlated edit)"
         }
         _ => {
             "the detail is KRS's message for the Rust source this mutation stands for; change the \
@@ -968,7 +984,7 @@ impl<'a> KrsChecks<'a> {
                          {code}: {refusal}"
                     );
                     match krs_diagnostic::codes::static_spelling(&code) {
-                        Some(code) => judged.refuse(code, krs_next(code), edit, detail),
+                        Some(code) => judged.refuse(code, krs_next(code, false), edit, detail),
                         None => judged.not_judged(edit, detail),
                     }
                 }
@@ -1069,7 +1085,9 @@ impl<'a> KrsChecks<'a> {
         siblings.sort_by_key(|sibling| !sibling.named_by_krs);
         judged.siblings = Some(siblings.iter().map(Sibling::value).collect());
         let detail = self.theory_detail(&refusal, &named, &edited, &deleted, &siblings);
-        judged.refuse(refusal.code, krs_next(refusal.code), first, detail);
+        // The detail lists the renderings the mutation leaves unchanged as its siblings.
+        let listed = siblings.iter().any(|sibling| !sibling.changed);
+        judged.refuse(refusal.code, krs_next(refusal.code, listed), first, detail);
     }
 
     /// The detail of KRS's refusal of the mutation's source: its code and message, the sentences
@@ -1589,7 +1607,22 @@ mod tests {
             "krs::analysis::overlapping-match-arms",
         ] {
             assert_eq!(static_spelling(code), Some(code), "{code} is registered");
-            assert!(!krs_next(code).starts_with("the detail is KRS's message"));
+            for siblings in [false, true] {
+                assert!(!krs_next(code, siblings).starts_with("the detail is KRS's message"));
+            }
+        }
+        // Without siblings in the detail, the next step does not send the author to them.
+        for code in [
+            "krs::analysis::overlapping-rule-heads",
+            "krs::analysis::overlapping-equations",
+            "krs::analysis::overlapping-match-arms",
+        ] {
+            assert!(krs_next(code, true).contains("siblings"), "{code}");
+            assert!(!krs_next(code, false).contains("siblings"), "{code}");
+            assert!(
+                krs_next(code, false).contains("a correlated edit"),
+                "{code}"
+            );
         }
         assert_eq!(static_spelling("krs::analysis::no-such-code"), None);
     }

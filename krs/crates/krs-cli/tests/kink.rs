@@ -1347,16 +1347,32 @@ fn query_and_fuzz_name_rules_by_their_items() {
     assert_status(&output, 3);
 }
 
-/// `emit --check` is the gate: it fails when `kink/definition.k` differs from the emission and
-/// writes nothing; `--locked` refuses a stale file; without it a command writes the file and
-/// says so.
+/// `emit --check` is the gate: it fails when `kink/definition.k` differs from the emission,
+/// writes nothing and names the command that writes it; `--locked` refuses a stale file; without
+/// it a command writes the file and says so.
 #[test]
 fn a_stale_definition_is_written_or_refused() {
     let project = project_of("story-plus-edit", "NAT", &story_files());
     let check = project.kink("emit", &["--check"]);
     assert_status(&check, 2);
-    assert_eq!(json(&check)["definition"]["status"], "stale");
+    let document = json(&check);
+    assert_eq!(document["definition"]["status"], "stale");
+    // The refusal names the next step, as `--locked`'s does.
+    assert!(
+        document["refusal"].as_str().unwrap().contains(
+            "(emit --check); run `krs kink emit --package story-plus-edit --definition main`"
+        ),
+        "{document:#}"
+    );
     assert!(!project.path().join("kink/definition.k").exists());
+    // A usage error kink-flow's parser finds carries the front end's prefix, as its own do.
+    let bogus = project.kink("check", &["--bogus"]);
+    assert_status(&bogus, 2);
+    assert!(
+        stderr(&bogus).starts_with("krs kink: "),
+        "{}",
+        stderr(&bogus)
+    );
 
     let emit = project.kink("emit", &[]);
     assert_status(&emit, 0);
@@ -1819,13 +1835,14 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
         detail.contains("no Rust edit of these constructs avoids the refusal by itself"),
         "{detail}"
     );
+    // The overlap leaves no rendering unchanged, so its next step names no siblings.
+    let next = overlap["next"].as_str().unwrap();
     assert!(
-        overlap["next"]
-            .as_str()
-            .unwrap()
-            .starts_with("KRS accepts these rules only if they cannot apply"),
+        next.starts_with("KRS accepts these rules only if they cannot apply"),
         "{overlap:#}"
     );
+    assert!(next.contains("a correlated edit"), "{overlap:#}");
+    assert!(!next.contains("siblings"), "{overlap:#}");
     // The edited branch condition is rendered, negated, in the later branches: they are the
     // siblings, the one KRS names first.
     let branch = row(&document, "branch-one");
@@ -1849,6 +1866,9 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
         ],
         "{branch:#}"
     );
+    // The detail lists the unchanged siblings, and the next step names them.
+    let next = branch["refusals"][0]["next"].as_str().unwrap();
+    assert!(next.contains("siblings"), "{branch:#}");
     // The generated-only refusal names the authored construct and its Rust.
     let generated = &row(&document, "test-only")["refusals"][0];
     let detail = generated["detail"].as_str().unwrap();

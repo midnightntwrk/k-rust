@@ -163,8 +163,10 @@ impl KinkOutcome {
         }
     }
 
-    fn usage(mut self, message: String) -> Self {
-        self.notes.push(message);
+    /// A usage error: `message` on stderr with the `krs kink:` prefix every usage error of the
+    /// front end carries, whether its parser or kink-flow's found it, then the usage.
+    fn usage(mut self, message: &str) -> Self {
+        self.notes.push(format!("krs kink: {message}"));
         self.status = EXIT_UNASKED;
         self.usage = true;
         self
@@ -192,7 +194,7 @@ pub fn execute_kink(request: &KinkRequest, measurement: &mut Measurement) -> Kin
         (Some(corpus), _) => corpus.clone(),
         (None, Some(root)) => root.join(CORPUS_DIRECTORY),
         (None, None) => {
-            return outcome.usage("the root package has no directory; give --corpus DIR".into());
+            return outcome.usage("the root package has no directory; give --corpus DIR");
         }
     };
     match &request.verb {
@@ -201,6 +203,7 @@ pub fn execute_kink(request: &KinkRequest, measurement: &mut Measurement) -> Kin
             &corpus,
             root.as_deref(),
             *check,
+            &spelling::KrsSpelling::new(request),
             outcome,
             measurement,
         ),
@@ -303,7 +306,7 @@ fn flow_command(
         .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
     {
         Ok(command) => command,
-        Err(message) => return outcome.usage(message),
+        Err(message) => return outcome.usage(&message),
     };
     let output = command.output();
     // The corpus manifest is read before the package is built, so a corpus that cannot run is
@@ -366,11 +369,7 @@ fn flow_command(
             &command,
             "definition",
             "definition-stale",
-            &format!(
-                "{shown} differs from the K this krs emits for the package's current sources \
-                 (--locked); run `{}` and commit the file",
-                spelling.emit()
-            ),
+            &stale_detail(&shown, "--locked", &spelling),
         );
         document["definition"] = emit::definition_value(&shown, status);
         return finish(outcome, &document, EXIT_UNASKED, output);
@@ -684,12 +683,23 @@ fn build(
     Ok(built)
 }
 
+/// Why a stale `definition.k` at `shown` stops a command run with `flag` (`--locked`, `emit
+/// --check`), and the command that writes it.
+fn stale_detail(shown: &str, flag: &str, spelling: &spelling::KrsSpelling) -> String {
+    format!(
+        "{shown} differs from the K this krs emits for the package's current sources ({flag}); \
+         run `{}` and commit the file",
+        spelling.emit()
+    )
+}
+
 /// `krs kink emit [--check]`.
 fn emit_command(
     planned: crate::command::PlannedCollection,
     corpus: &Path,
     root: Option<&Path>,
     check: bool,
+    spelling: &spelling::KrsSpelling,
     outcome: KinkOutcome,
     measurement: &mut Measurement,
 ) -> KinkOutcome {
@@ -710,15 +720,15 @@ fn emit_command(
     });
     match status {
         Ok(status) => {
-            let document = emit::emit_document(&shown, Some(status), check, None);
             // A stale file is an input to regenerate, as `--locked` refuses it: no answer about
-            // the package or its corpus.
-            let code = if status == DefinitionStatus::Stale {
-                EXIT_UNASKED
-            } else {
-                EXIT_YES
-            };
-            outcome.json(&document, code)
+            // the package or its corpus, and the refusal names the command that regenerates it.
+            if status == DefinitionStatus::Stale {
+                let detail = stale_detail(&shown, "emit --check", spelling);
+                let document = emit::emit_document(&shown, Some(status), check, Some(&detail));
+                return outcome.json(&document, EXIT_UNASKED);
+            }
+            let document = emit::emit_document(&shown, Some(status), check, None);
+            outcome.json(&document, EXIT_YES)
         }
         Err(error) => {
             let document = emit::emit_document(&shown, None, check, Some(&error.detail(&shown)));
