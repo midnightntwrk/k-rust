@@ -871,6 +871,34 @@ impl Descriptor {
     }
 
     /// Returns this descriptor with `payload` in place of its own, where
+    /// `payload` is the sentence its own payload means, in a notation that
+    /// writes nodes the authored sentence leaves implicit (a field an update
+    /// keeps, a field a pattern leaves out). `origins` gives one origin per
+    /// such node, under a key of its own: an ordinal of its role past every
+    /// key this descriptor holds, with the origin of the authored node the
+    /// implicit one stands at. Those keys are outside the parser's canonical
+    /// numbering, so the grammar and state contracts, which check that
+    /// numbering, are not checked again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DescriptorProvenanceError`] when an origin repeats a key.
+    pub fn with_generated_nodes(
+        &self,
+        payload: DescriptorPayload,
+        origins: Vec<DescriptorNodeOrigin>,
+    ) -> Result<Self, DescriptorProvenanceError> {
+        let mut all = self.provenance.origins().to_vec();
+        all.extend(origins);
+        Ok(Self {
+            id: self.id.clone(),
+            cfg: self.cfg.clone(),
+            provenance: DescriptorProvenance::new(self.provenance.primary_key().clone(), all)?,
+            payload,
+        })
+    }
+
+    /// Returns this descriptor with `payload` in place of its own, where
     /// `payload` is its own payload with the alternatives at an equation's
     /// subject root moved into the one argument where they differ. The move
     /// adds no node, so every key `payload` holds is one of this descriptor's,

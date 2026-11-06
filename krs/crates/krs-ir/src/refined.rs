@@ -53,6 +53,12 @@ impl<T> AtLeastTwo<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         std::iter::once(self.first.as_ref()).chain(self.tail())
     }
+    /// Traverses all operands in source order, mutably, without changing cardinality.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        [self.first.as_mut(), self.second.as_mut()]
+            .into_iter()
+            .chain(&mut self.rest)
+    }
     /// Returns the number of operands.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -160,6 +166,10 @@ impl<T> NonEmpty<T> {
     /// Traverses elements in source order.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         std::iter::once(&self.first).chain(&self.rest)
+    }
+    /// Traverses elements in source order, mutably, without changing cardinality.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        std::iter::once(&mut self.first).chain(&mut self.rest)
     }
     /// Maps every element without changing cardinality or order.
     /// # Errors

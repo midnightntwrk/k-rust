@@ -12,12 +12,12 @@ use std::sync::OnceLock;
 use krs_ir::{
     CellWrapper, ConfigurationSentenceKind, Descriptor, DescriptorClaim, DescriptorClaimBinder,
     DescriptorConfigurationReference, DescriptorConfigurationRule, DescriptorHeadRule,
-    DescriptorIndex, DescriptorKSequenceNotation, DescriptorRuleCells, DescriptorSortRef,
-    DescriptorSortReference, DescriptorTerm, ProtocolCellContent, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult, ProtocolInstanceRest, ProtocolRuleBinding, ProtocolRuleBindingKind,
-    ProtocolRuleFrame, ProtocolRuleInstances, ProtocolRuleKSequence, ProtocolRuleKSequenceItem,
-    ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm,
-    ProvenanceKey, SentenceKind, StableItemId,
+    DescriptorIndex, DescriptorKSequenceNotation, DescriptorNodeOrigin, DescriptorPayload,
+    DescriptorRuleCells, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
+    ProtocolCellContent, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProtocolInstanceRest,
+    ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleFrame, ProtocolRuleInstances,
+    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
+    ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, StableItemId,
 };
 use krs_ir_levels::{SemanticRule, SemanticSortRef};
 
@@ -57,14 +57,16 @@ pub(super) struct Unelaborated(&'static str);
 /// The `cells!` rule `rule` means, its binders at the sorts `inferred` (inference's, before any
 /// state is lowered): the rule `krs expand` prints for it (`reference.rs` `render_rule`), taken
 /// in the long form of its record updates, whose hidden binders are declared at their fields'
-/// declared sorts.
+/// declared sorts. It comes as a copy of `descriptor` whose payload is that rule and whose
+/// provenance gives each node the elaboration adds a key of its own ([`NodeKeys`]).
 pub(super) fn elaborate(
     descriptor: &Descriptor,
     rule: &DescriptorHeadRule,
     inferred: &BTreeMap<String, SemanticSortRef>,
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-) -> Result<Result<DescriptorConfigurationRule, Unelaborated>, DescriptorLoweringError> {
+) -> Result<Result<(Descriptor, DescriptorConfigurationRule), Unelaborated>, DescriptorLoweringError>
+{
     let (mut rule, hidden) =
         super::record_updates::head_rule_long_form_in(descriptor, rule, catalog, declarations)?;
     let closing = Closing {
@@ -72,10 +74,10 @@ pub(super) fn elaborate(
         key: &rule.pattern_key.clone(),
     };
     closing.rule(&mut rule);
+    let mut keys = NodeKeys::new(descriptor);
+    keys.rule(&mut rule);
     let mut sorts = inferred.clone();
-    let mut hidden_names = BTreeSet::new();
     for (id, sort) in hidden {
-        hidden_names.insert(id.as_str().to_owned());
         // A parametric production's field has its instance's sort, which only the lowering of
         // the occurrence fixes.
         let Some(sort) = sort else {
@@ -85,22 +87,31 @@ pub(super) fn elaborate(
         };
         sorts.insert(id.as_str().to_owned(), sort);
     }
-    Ok(Elaborator {
+    let elaborated = match (Elaborator {
         rule: &rule,
         declarations,
         sorts: &sorts,
-        hidden: &hidden_names,
     }
-    .rule())
+    .rule(&mut keys))
+    {
+        Ok(elaborated) => elaborated,
+        Err(unelaborated) => return Ok(Err(unelaborated)),
+    };
+    let copy = descriptor
+        .with_generated_nodes(
+            DescriptorPayload::ConfigurationRule(Box::new(elaborated.clone())),
+            keys.origins,
+        )
+        .map_err(|error| {
+            DescriptorLoweringError::unsupported_shape("elaborated rule", error.to_string())
+        })?;
+    Ok(Ok((copy, elaborated)))
 }
 
 struct Elaborator<'a> {
     rule: &'a DescriptorHeadRule,
     declarations: &'a DescriptorIndex<'a>,
     sorts: &'a BTreeMap<String, SemanticSortRef>,
-    /// The long form's hidden binders: a record update's kept fields, which no node of the
-    /// readable rule writes.
-    hidden: &'a BTreeSet<String>,
 }
 
 type Elaborated<T> = Result<T, Unelaborated>;
@@ -152,7 +163,7 @@ impl Elaborator<'_> {
         clippy::too_many_lines,
         reason = "Each field of the `cells!` rule is set once, in the rule's order."
     )]
-    fn rule(&self) -> Elaborated<DescriptorConfigurationRule> {
+    fn rule(&self, keys: &mut NodeKeys<'_>) -> Elaborated<DescriptorConfigurationRule> {
         let rule = self.rule;
         let sentence_kind = match rule.sentence_kind {
             SentenceKind::Transition => ConfigurationSentenceKind::Transition,
@@ -193,11 +204,10 @@ impl Elaborator<'_> {
                 key,
                 sort: descriptor_sort(sort),
             };
-            // A claim quantifies every variable it has; it lists each binder the author wrote,
-            // at the node that declares it. A hidden binder has no node of its own: the long
-            // form writes every hidden binder of an update at the update's base, so listing
-            // them would declare several binders at one node.
-            if rule.claim.is_some() && !self.hidden.contains(&binding.name) {
+            // A claim quantifies every variable it has, and lists each at the node that
+            // declares it: a binder the author wrote, or an update's hidden binder at the node
+            // the long form writes for it.
+            if rule.claim.is_some() {
                 universals.push(DescriptorClaimBinder {
                     declaration_key: sort.key.clone(),
                     name_key: sort.key.clone(),
@@ -229,7 +239,7 @@ impl Elaborator<'_> {
             frames: Vec::new(),
         };
         let state = names.fresh("state");
-        let (subject, result) = self.cells(&mut names)?;
+        let (subject, result) = self.cells(&mut names, keys)?;
         bindings.append(&mut names.frames);
         bindings.push(ProtocolRuleBinding {
             name: state.clone(),
@@ -291,6 +301,7 @@ impl Elaborator<'_> {
     fn cells(
         &self,
         names: &mut Names,
+        keys: &mut NodeKeys<'_>,
     ) -> Elaborated<(Vec<DescriptorRuleCell>, Vec<DescriptorRuleCell>)> {
         let rule = self.rule;
         let mut subject = Vec::new();
@@ -347,7 +358,7 @@ impl Elaborator<'_> {
             }
         }
         for (ordinal, extra) in rule.extras.iter().enumerate() {
-            let (before, after) = self.extra(extra, ordinal, names)?;
+            let (before, after) = self.extra(extra, ordinal, names, keys)?;
             subject.push(before);
             result.extend(after);
         }
@@ -363,6 +374,7 @@ impl Elaborator<'_> {
         extra: &ProtocolHeadRuleExtra<krs_ir::DescriptorCellReference, DescriptorTerm>,
         ordinal: usize,
         names: &mut Names,
+        keys: &mut NodeKeys<'_>,
     ) -> Elaborated<(DescriptorRuleCell, Option<DescriptorRuleCell>)> {
         let cell = |field: &krs_ir::DescriptorCellReference, value| -> Elaborated<_> {
             let declared = require_cell_field(&field.cell, self.declarations)
@@ -424,11 +436,7 @@ impl Elaborator<'_> {
                         key_key: entry.key_key.clone(),
                         key: entry.key.clone(),
                         value_key: entry.value_key.clone(),
-                        value: DescriptorTerm::Variable {
-                            key: entry.value_key.clone(),
-                            path_key: entry.value_key.clone(),
-                            name: entry.value_binding.clone(),
-                        },
+                        value: keys.variable(&entry.value_key, &entry.value_binding),
                     })
                     .collect();
                 // A read leaves the other entries as they are.
@@ -450,11 +458,7 @@ impl Elaborator<'_> {
             } => Ok((
                 cell(
                     field,
-                    ProtocolRuleStateTerm::Term(DescriptorTerm::Variable {
-                        key: field.key.clone(),
-                        path_key: field.key.clone(),
-                        name: base_binding.clone(),
-                    }),
+                    ProtocolRuleStateTerm::Term(keys.variable(&field.key, base_binding)),
                 )?,
                 Some(cell(field, ProtocolRuleStateTerm::Term(update.clone()))?),
             )),
@@ -507,10 +511,10 @@ impl Elaborator<'_> {
                 after,
                 ..
             } => Ok((
-                cell(field, content(field, &list_notation(field, before))?)?,
+                cell(field, content(field, &list_notation(field, before, keys))?)?,
                 after
                     .as_ref()
-                    .map(|after| cell(field, content(field, &list_notation(field, after))?))
+                    .map(|after| cell(field, content(field, &list_notation(field, after, keys))?))
                     .transpose()?,
             )),
         }
@@ -722,32 +726,123 @@ fn instances(
 fn list_notation(
     field: &krs_ir::DescriptorCellReference,
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    keys: &mut NodeKeys<'_>,
 ) -> DescriptorTerm {
-    let level = |notation, arguments: Vec<DescriptorTerm>| DescriptorTerm::Application {
-        head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
-        reference: krs_ir::DescriptorApplicationReference {
-            key: field.key.clone(),
-            application: krs_ir::DescriptorApplicationRef::ListNotation(notation),
-        },
-        path_key: field.key.clone(),
-        arguments: krs_ir::Arguments::Positional(arguments.into_iter().map(Box::new).collect()),
-        instance: Vec::new(),
-        update: None,
-        open: false,
+    let level = |keys: &mut NodeKeys<'_>, notation, arguments: Vec<DescriptorTerm>| {
+        let mut key = field.key.clone();
+        let mut path_key = field.key.clone();
+        keys.key("application", &mut key);
+        keys.key("application-path", &mut path_key);
+        DescriptorTerm::Application {
+            head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+            reference: krs_ir::DescriptorApplicationReference {
+                key,
+                application: krs_ir::DescriptorApplicationRef::ListNotation(notation),
+            },
+            path_key,
+            arguments: krs_ir::Arguments::Positional(arguments.into_iter().map(Box::new).collect()),
+            instance: Vec::new(),
+            update: None,
+            open: false,
+        }
     };
     let rest = match &list.rest {
-        krs_ir::ProtocolHeadRuleListRest::Exact => level(krs_ir::ListNotation::Empty, Vec::new()),
-        krs_ir::ProtocolHeadRuleListRest::Shared(key) => DescriptorTerm::KeptRest {
-            key: key.clone().unwrap_or_else(|| field.key.clone()),
-        },
+        krs_ir::ProtocolHeadRuleListRest::Exact => {
+            level(keys, krs_ir::ListNotation::Empty, Vec::new())
+        }
+        krs_ir::ProtocolHeadRuleListRest::Shared(key) => {
+            let mut key = key.clone().unwrap_or_else(|| field.key.clone());
+            keys.key("kept-rest", &mut key);
+            DescriptorTerm::KeptRest { key }
+        }
         krs_ir::ProtocolHeadRuleListRest::Term(rest) => rest.clone(),
     };
     let back = list.back.iter().fold(rest, |list, item| {
-        level(krs_ir::ListNotation::Snoc, vec![list, item.clone()])
+        level(keys, krs_ir::ListNotation::Snoc, vec![list, item.clone()])
     });
     list.items.iter().rev().fold(back, |list, item| {
-        level(krs_ir::ListNotation::Cons, vec![item.clone(), list])
+        level(keys, krs_ir::ListNotation::Cons, vec![item.clone(), list])
     })
+}
+
+/// Visits each term of `rule` in the order written: the head's items, its result, each extra's
+/// subject side then its result side, then the conditions; `pattern` says whether the term
+/// matches.
+fn each_term(rule: &mut DescriptorHeadRule, visit: &mut impl FnMut(&mut DescriptorTerm, bool)) {
+    if let Some(head) = &mut rule.head {
+        for item in &mut head.items {
+            visit(item, true);
+        }
+        match &mut head.result {
+            Some(ProtocolHeadRuleResult::Replace(term)) => visit(term, false),
+            Some(ProtocolHeadRuleResult::Splice(splice)) => {
+                for term in splice.terms_mut() {
+                    visit(term, false);
+                }
+            }
+            Some(ProtocolHeadRuleResult::Erase) | None => {}
+        }
+    }
+    for extra in &mut rule.extras {
+        match extra {
+            ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                for entry in entries {
+                    visit(&mut entry.key, true);
+                }
+            }
+            ProtocolHeadRuleExtra::UpdateMap { update, .. } => visit(update, false),
+            ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
+                visit(before, true);
+                if let Some(after) = after {
+                    visit(after, false);
+                }
+            }
+            ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                state_terms(before, &mut |term| visit(term, true));
+                if let Some(after) = after {
+                    state_terms(after, &mut |term| visit(term, false));
+                }
+            }
+            ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
+                for term in before.terms_mut() {
+                    visit(term, true);
+                }
+                for term in after
+                    .iter_mut()
+                    .flat_map(krs_ir::ProtocolHeadRuleList::terms_mut)
+                {
+                    visit(term, false);
+                }
+            }
+        }
+    }
+    for condition in rule.requires.iter_mut().chain(&mut rule.ensures) {
+        visit(&mut condition.term, false);
+    }
+}
+
+/// Visits each term of a cell state.
+fn state_terms(
+    state: &mut ProtocolRuleStateTerm<DescriptorTerm>,
+    visit: &mut impl FnMut(&mut DescriptorTerm),
+) {
+    match state {
+        ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => visit(term),
+        ProtocolRuleStateTerm::Present { value } => state_terms(value, visit),
+        ProtocolRuleStateTerm::KSequence(sequence) => {
+            for item in &mut sequence.items {
+                visit(&mut item.value);
+            }
+        }
+        ProtocolRuleStateTerm::Instances(instances) => {
+            for instance in instances.front.iter_mut().chain(&mut instances.back) {
+                for field in &mut instance.fields {
+                    state_terms(&mut field.value, visit);
+                }
+            }
+        }
+        ProtocolRuleStateTerm::Map(_) | ProtocolRuleStateTerm::Absent => {}
+    }
 }
 
 /// Closes a rule's constructor records, as the print writes them: a constructor applied to named
@@ -764,7 +859,7 @@ struct Closing<'a> {
 
 impl Closing<'_> {
     fn rule(&self, rule: &mut DescriptorHeadRule) {
-        let close = |term: &mut DescriptorTerm, pattern: bool| {
+        each_term(rule, &mut |term, pattern| {
             let open = std::mem::replace(
                 term,
                 DescriptorTerm::Wildcard {
@@ -772,83 +867,7 @@ impl Closing<'_> {
                 },
             );
             *term = self.term(open, pattern);
-        };
-        if let Some(head) = &mut rule.head {
-            for item in &mut head.items {
-                close(item, true);
-            }
-            match &mut head.result {
-                Some(ProtocolHeadRuleResult::Replace(term)) => close(term, false),
-                Some(ProtocolHeadRuleResult::Splice(splice)) => {
-                    for term in splice.terms_mut() {
-                        close(term, false);
-                    }
-                }
-                Some(ProtocolHeadRuleResult::Erase) | None => {}
-            }
-        }
-        let state = |state: &mut ProtocolRuleStateTerm<DescriptorTerm>, pattern: bool| {
-            Self::state(state, &mut |term| close(term, pattern));
-        };
-        for extra in &mut rule.extras {
-            match extra {
-                ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
-                    for entry in entries {
-                        close(&mut entry.key, true);
-                    }
-                }
-                ProtocolHeadRuleExtra::UpdateMap { update, .. } => close(update, false),
-                ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
-                    close(before, true);
-                    if let Some(after) = after {
-                        close(after, false);
-                    }
-                }
-                ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
-                    state(before, true);
-                    if let Some(after) = after {
-                        state(after, false);
-                    }
-                }
-                ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
-                    for term in before.terms_mut() {
-                        close(term, true);
-                    }
-                    for term in after
-                        .iter_mut()
-                        .flat_map(krs_ir::ProtocolHeadRuleList::terms_mut)
-                    {
-                        close(term, false);
-                    }
-                }
-            }
-        }
-        for condition in rule.requires.iter_mut().chain(&mut rule.ensures) {
-            close(&mut condition.term, false);
-        }
-    }
-
-    fn state(
-        state: &mut ProtocolRuleStateTerm<DescriptorTerm>,
-        close: &mut impl FnMut(&mut DescriptorTerm),
-    ) {
-        match state {
-            ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => close(term),
-            ProtocolRuleStateTerm::Present { value } => Self::state(value, close),
-            ProtocolRuleStateTerm::KSequence(sequence) => {
-                for item in &mut sequence.items {
-                    close(&mut item.value);
-                }
-            }
-            ProtocolRuleStateTerm::Instances(instances) => {
-                for instance in instances.front.iter_mut().chain(&mut instances.back) {
-                    for field in &mut instance.fields {
-                        Self::state(&mut field.value, close);
-                    }
-                }
-            }
-            ProtocolRuleStateTerm::Map(_) | ProtocolRuleStateTerm::Absent => {}
-        }
+        });
     }
 
     /// `term` with its constructor records closed; `pattern` says whether it matches.
@@ -1059,6 +1078,185 @@ impl Closing<'_> {
     }
 }
 
+/// Gives each node of an elaborated rule a provenance key of its own. The long form and
+/// [`Closing`] write each node they add (a field an update keeps, a field a pattern leaves out, a
+/// rebuilt group's children) at the key of the authored node it stands at, so several nodes of one
+/// kind can share a key; a `cells!` rule has one key per node, as its print would when parsed. The
+/// first node of a kind at a key keeps the key, so every authored node keeps its own; each later
+/// one gets the next ordinal of the key's role past every key the descriptor holds (the parser
+/// numbers a role's occurrences from zero), with the origin of the node it stands at, so a
+/// diagnostic on it reports that node's range.
+struct NodeKeys<'a> {
+    descriptor: &'a Descriptor,
+    /// Each (kind of node, key) given so far.
+    taken: BTreeSet<(&'static str, ProvenanceKey)>,
+    /// The next free ordinal of each role a key has been made for.
+    next: BTreeMap<ProvenanceRole, u32>,
+    /// The origin of each key made.
+    origins: Vec<DescriptorNodeOrigin>,
+}
+
+impl<'a> NodeKeys<'a> {
+    fn new(descriptor: &'a Descriptor) -> Self {
+        Self {
+            descriptor,
+            taken: BTreeSet::new(),
+            next: BTreeMap::new(),
+            origins: Vec::new(),
+        }
+    }
+
+    /// Keys the nodes of `rule`'s terms, in the order written.
+    fn rule(&mut self, rule: &mut DescriptorHeadRule) {
+        each_term(rule, &mut |term, _| self.term(term));
+    }
+
+    /// A variable term naming `name`, which the elaboration writes at the node `key` names.
+    fn variable(&mut self, key: &ProvenanceKey, name: &str) -> DescriptorTerm {
+        let mut term = DescriptorTerm::Variable {
+            key: key.clone(),
+            path_key: key.clone(),
+            name: name.to_owned(),
+        };
+        self.term(&mut term);
+        term
+    }
+
+    /// `key`, a key of a node of kind `node`, or a fresh key located where `key` is when a node of
+    /// that kind already has it.
+    fn key(&mut self, node: &'static str, key: &mut ProvenanceKey) {
+        if self.taken.insert((node, key.clone())) {
+            return;
+        }
+        // A key the descriptor does not hold is refused where the lowering looks it up.
+        let Some(origin) = self.descriptor.provenance().origin_for(key) else {
+            return;
+        };
+        let role = key.role();
+        let provenance = self.descriptor.provenance();
+        let ordinal = self.next.entry(role).or_insert_with(|| {
+            provenance
+                .origins()
+                .iter()
+                .filter(|node| node.key.role() == role)
+                .map(|node| node.key.ordinal() + 1)
+                .max()
+                .unwrap_or(0)
+        });
+        let fresh = ProvenanceKey::new(role, *ordinal);
+        *ordinal += 1;
+        self.origins
+            .push(DescriptorNodeOrigin::new(fresh.clone(), origin.clone()));
+        self.taken.insert((node, fresh.clone()));
+        *key = fresh;
+    }
+
+    fn term(&mut self, term: &mut DescriptorTerm) {
+        match term {
+            DescriptorTerm::Variable { key, path_key, .. } => {
+                self.key("variable", key);
+                self.key("variable-path", path_key);
+            }
+            DescriptorTerm::Application {
+                reference,
+                path_key,
+                arguments,
+                update,
+                ..
+            } => {
+                self.key("application", &mut reference.key);
+                self.key("application-path", path_key);
+                match arguments {
+                    krs_ir::Arguments::Positional(values) => {
+                        for value in values {
+                            self.term(value);
+                        }
+                    }
+                    krs_ir::Arguments::Named(values) => {
+                        for argument in values.iter_mut() {
+                            self.key("argument", &mut argument.key);
+                            self.term(&mut argument.value);
+                        }
+                    }
+                }
+                if let Some(update) = update {
+                    self.term(update);
+                }
+            }
+            DescriptorTerm::Wildcard { key } => self.key("wildcard", key),
+            DescriptorTerm::KeptRest { key } => self.key("kept-rest", key),
+            DescriptorTerm::Cell {
+                key,
+                path_key,
+                fields,
+                update,
+                ..
+            } => {
+                self.key("cell", key);
+                self.key("cell-path", path_key);
+                for field in fields {
+                    self.key("cell-field", &mut field.key);
+                    self.term(&mut field.value);
+                }
+                if let Some(update) = update {
+                    self.term(update);
+                }
+            }
+            DescriptorTerm::As {
+                key,
+                binding_key,
+                pattern,
+                ..
+            } => {
+                self.key("as", key);
+                // The name an alias binds is a variable as a variable term is: one node names
+                // one binder.
+                self.key("variable", binding_key);
+                self.term(pattern);
+            }
+            DescriptorTerm::OrBool { arguments, .. } => {
+                for argument in arguments.iter_mut() {
+                    self.term(argument);
+                }
+            }
+            DescriptorTerm::Or { alternatives, .. } => {
+                for alternative in alternatives.iter_mut() {
+                    self.term(alternative);
+                }
+            }
+            DescriptorTerm::SortTest { operand, .. } => self.term(operand),
+            DescriptorTerm::Matches {
+                subject, pattern, ..
+            } => {
+                self.term(subject);
+                self.term(pattern);
+            }
+            DescriptorTerm::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                self.term(pattern);
+                self.term(value);
+                self.term(body);
+            }
+            DescriptorTerm::Closure { body, .. } => self.term(body),
+            DescriptorTerm::Rewrite { from, to, .. } => {
+                self.term(from);
+                if let Some(to) = to {
+                    self.term(to);
+                }
+            }
+            // No pass adds one of these: each is the authored node.
+            DescriptorTerm::Literal { .. }
+            | DescriptorTerm::BuiltinToken { .. }
+            | DescriptorTerm::Anonymous { .. }
+            | DescriptorTerm::Lexeme { .. } => {}
+        }
+    }
+}
+
 fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
     match sort {
         SemanticSortRef::Declared(id) => DescriptorSortRef::Declared(id.clone()),
@@ -1097,9 +1295,9 @@ pub(super) fn shadow_check(
         range: key_range(descriptor, &rule.pattern_key).map(Box::new),
     };
     let (elaborated, cells) = match elaborate(descriptor, rule, inferred, declarations, catalog) {
-        Ok(Ok(elaborated)) => {
+        Ok(Ok((copy, elaborated))) => {
             let cells = super::configuration_rules::lower_configuration_rule_descriptor(
-                descriptor,
+                &copy,
                 &elaborated,
                 declarations,
                 sort_parents,
@@ -1153,7 +1351,9 @@ pub(super) fn shadow_check(
             )));
         }
     };
-    if let Some(universals) = unlisted_universals(rule, readable, &cells) {
+    if let Some(elaborated) = &elaborated
+        && let Some(universals) = unlisted_universals(elaborated, readable, &cells)
+    {
         return Err(disagreement(format!(
             "lists other claim universals on the `cells!` route: {universals}"
         )));
@@ -1193,13 +1393,13 @@ pub(super) fn shadow_check(
     }
 }
 
-/// Where a `cells!` claim's universals are not the binders the readable claim's author wrote,
-/// each at the sort the readable lowering declares it: what the `cells!` route lists, and what
-/// it should. A readable claim lists none (its variables are quantified as every claim
-/// variable is), so the list is checked against the readable rule's variables. A record
-/// update's hidden binders are no authored binders.
+/// Where a `cells!` claim's universals are not the elaborated rule's binders (the readable
+/// claim's authored binders and its updates' hidden ones), each at the sort the readable lowering
+/// declares it: what the `cells!` route lists, and what it should. A readable claim lists none
+/// (its variables are quantified as every claim variable is), so the list is checked against
+/// the readable rule's variables.
 fn unlisted_universals(
-    rule: &DescriptorHeadRule,
+    elaborated: &DescriptorConfigurationRule,
     readable: &SemanticRule,
     cells: &SemanticRule,
 ) -> Option<String> {
@@ -1209,9 +1409,10 @@ fn unlisted_universals(
         .iter()
         .map(|binder| (binder.id().as_str().to_owned(), binder.sort().clone()))
         .collect::<Vec<_>>();
-    let authored = rule
+    let authored = elaborated
         .bindings
         .iter()
+        .filter(|binding| matches!(binding.kind, ProtocolRuleBindingKind::Term { .. }))
         .map(|binding| binding.name.as_str())
         .collect::<BTreeSet<_>>();
     let expected = readable
