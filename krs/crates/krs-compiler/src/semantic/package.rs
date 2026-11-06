@@ -292,21 +292,22 @@ fn lower_module_descriptor(
                 production_catalog,
             )?;
             // Scaffolding (S6-2a), removed with the readable lowering in S6-2b: under
-            // `KRS_READABLE_SHADOW` (`1`; `2` compares locations too) the rule is also lowered
-            // as its elaborated `cells!` rule, and refused where the two lowerings differ.
+            // `KRS_READABLE_SHADOW` (`1`; `2` compares locations too) a rule whose sorts are
+            // inferred is also lowered as its elaborated `cells!` rule, whether the readable
+            // lowering accepts it or refuses it, and refused where the two lowerings differ.
             if let Some(shadow) = super::elaborate::shadow() {
                 super::elaborate::shadow_check(
                     shadow,
                     descriptor,
                     rule,
-                    &lowered,
+                    lowered.as_ref(),
                     &inferred,
                     declarations.descriptors,
                     semantic_sort_parents,
                     production_catalog,
                 )?;
             }
-            sentences.rules.push(lowered);
+            sentences.rules.push(lowered?);
         }
         DescriptorPayload::ContextAlias(alias) => {
             sentences

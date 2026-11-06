@@ -486,16 +486,18 @@ fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellRefer
     clippy::too_many_lines,
     reason = "The completed rewrite, its conditions, and its binders are lowered in one ordered pass."
 )]
-/// Lowers a readable rule, and returns with it the sort inference gave each
-/// binder (`where` binders, existentials and fresh binders at their declared
-/// sorts) before any state was lowered.
+/// Lowers a readable rule in two steps, inference and then the lowering of its
+/// state. An error inference gives is returned as the error; once inference
+/// succeeds, the lowering's result is returned with the sort inference gave
+/// each binder (`where` binders, existentials and fresh binders at their
+/// declared sorts), whether the lowering then accepts the rule or refuses it.
 pub(super) fn lower_head_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-) -> Result<(SemanticRule, BTreeMap<String, SemanticSortRef>), DescriptorLoweringError> {
+) -> Result<HeadRuleLowering, DescriptorLoweringError> {
     let configuration = head_rule_configuration(rule, declarations)?;
     let seeds = seed_head_rule_sorts(descriptor, rule, declarations, sort_parents)?;
     let typing = head_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
@@ -569,162 +571,172 @@ pub(super) fn lower_head_rule_descriptor(
         .map(|sort| semantic_sort_ref(&sort.sort));
     infer_head_rule(&mut builder, rule, head_sort.as_ref(), &seeds)?;
     let inferred = builder.binding_sorts.clone();
-
-    let mut clauses = Vec::new();
-    let mut selected = BTreeSet::new();
-    if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
-        let clause = lower_head_rule_computation_clause(
-            &mut builder,
-            rule,
-            head,
-            computation,
-            head_sort.as_ref(),
-            sort_parents,
-        )?;
-        clauses.push(ConfigurationClause::Fixed(clause));
-        selected.insert(computation.cell.clone());
-    }
-    for extra in &rule.extras {
-        // An error that names no narrower node is located at the extra's cell entry.
-        clauses.push(
-            lower_head_rule_extra(
+    let lowered = (|| -> Result<SemanticRule, DescriptorLoweringError> {
+        let mut clauses = Vec::new();
+        let mut selected = BTreeSet::new();
+        if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
+            let clause = lower_head_rule_computation_clause(
                 &mut builder,
-                extra,
-                declarations,
-                configuration,
-                &mut selected,
-            )
-            .map_err(|error| {
-                error.within(
-                    descriptor.id(),
-                    key_range(descriptor, &head_rule_extra_cell(extra).key).as_ref(),
+                rule,
+                head,
+                computation,
+                head_sort.as_ref(),
+                sort_parents,
+            )?;
+            clauses.push(ConfigurationClause::Fixed(clause));
+            selected.insert(computation.cell.clone());
+        }
+        for extra in &rule.extras {
+            // An error that names no narrower node is located at the extra's cell entry.
+            clauses.push(
+                lower_head_rule_extra(
+                    &mut builder,
+                    extra,
+                    declarations,
+                    configuration,
+                    &mut selected,
                 )
-            })?,
-        );
-    }
-    // Every rule is checked, a `for Sort` table's clause too: the rewrite of
-    // its subject into a result that restates it, with no other cell changed,
-    // is the same step from a configuration to itself. A claim is no step of
-    // execution, so neither check applies to it: it may state that a
-    // configuration reaches itself.
-    if rule.claim.is_none() {
-        check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
-    }
-    super::cell_states::check_implicit_and_explicit_instances(
-        descriptor,
-        &rule.pattern_key,
-        declarations,
-        &clauses,
-        &rule
-            .extras
-            .iter()
-            .map(|extra| {
-                (
-                    head_rule_extra_cell(extra).clone(),
-                    matches!(
-                        extra,
-                        krs_ir::ProtocolHeadRuleExtra::RewriteState {
-                            before: krs_ir::ProtocolRuleStateTerm::Instances(_),
-                            ..
-                        }
-                    ),
-                )
-            })
-            .collect::<Vec<_>>(),
-    )?;
-    check_group_descendants(
-        descriptor,
-        &rule.pattern_key,
-        &configuration.declaration,
-        declarations,
-        &selected,
-    )?;
-    let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
-    // A claim keeps its stream cells as ordinary List cells: `prove` performs no console I/O.
-    if rule.sentence_kind != krs_ir::SentenceKind::Claim {
-        let stdin = stdin_cells(&configuration.declaration, declarations)?;
-        check_stdin_reads(&clauses, &stdin)?;
-    }
-    let body = FixedConfigurationRewrite::new(
-        semantic_origin(
+                .map_err(|error| {
+                    error.within(
+                        descriptor.id(),
+                        key_range(descriptor, &head_rule_extra_cell(extra).key).as_ref(),
+                    )
+                })?,
+            );
+        }
+        // Every rule is checked, a `for Sort` table's clause too: the rewrite of
+        // its subject into a result that restates it, with no other cell changed,
+        // is the same step from a configuration to itself. A claim is no step of
+        // execution, so neither check applies to it: it may state that a
+        // configuration reaches itself.
+        if rule.claim.is_none() {
+            check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
+        }
+        super::cell_states::check_implicit_and_explicit_instances(
             descriptor,
-            rule.pattern_key.clone(),
-            "completed-configuration-rewrite",
-        )?,
-        generated_semantic_id("configuration", &rule.configuration, None)?,
-        clauses,
-        omitted_siblings,
-    )?;
-    let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
-    let guards = builder
-        .instance_guards
-        .take()
-        .map(super::set_instances::InstanceGuards::into_guards)
-        .unwrap_or_default();
-    let guard_variables = guards
-        .iter()
-        .filter_map(super::set_instances::Guard::variable)
-        .collect::<Vec<_>>();
-    let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
-    let (existentials, ensures) =
-        lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
-    let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
-    let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
-    // An alias used only as a record update's base is matched without
-    // `#as`, so it names no variable (F5).
-    let mut variables = rule
-        .bindings
-        .iter()
-        .map(|binding| &binding.name)
-        .filter(|name| !builder.record_updates.updates.is_dropped(name))
-        .chain(
-            rule.existentials
+            &rule.pattern_key,
+            declarations,
+            &clauses,
+            &rule
+                .extras
                 .iter()
-                .chain(&rule.fresh)
-                .map(|binder| &binder.name),
-        )
-        .map(|name| {
-            Ok(SemanticVariable::new(
-                SemanticId::new(name.clone())?,
-                builder
-                    .binding_sorts
-                    .get(name)
-                    .cloned()
-                    .expect("all binding sorts were inferred"),
-            ))
-        })
-        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
-    variables.append(&mut builder.wildcards);
-    variables.extend(guard_variables);
-    // A readable claim's declaration has the claim role (F7).
-    let declaration = if rule.claim.is_some() {
-        ProvenanceRole::ClaimDeclaration
-    } else {
-        ProvenanceRole::RuleDeclaration
-    };
-    let claim = rule
-        .claim
-        .as_ref()
-        .map(|claim| lower_head_rule_claim(descriptor, claim))
-        .transpose()?;
-    let rule = SemanticRule::new_configuration(
-        semantic_origin(descriptor, role_key(declaration, 0), "head-anchored-rule")?,
-        descriptor.id().clone(),
-        rule.sentence_kind,
-        variables,
-        body,
-    )?
-    .with_claim(claim)
-    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
-    .with_priority(priority)?
-    .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
-    .with_existentials(existentials)
-    .with_ensures(ensures)
-    .with_fresh(fresh)
-    .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
-    .with_requires(requires)?;
-    Ok((rule, inferred))
+                .map(|extra| {
+                    (
+                        head_rule_extra_cell(extra).clone(),
+                        matches!(
+                            extra,
+                            krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                                before: krs_ir::ProtocolRuleStateTerm::Instances(_),
+                                ..
+                            }
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )?;
+        check_group_descendants(
+            descriptor,
+            &rule.pattern_key,
+            &configuration.declaration,
+            declarations,
+            &selected,
+        )?;
+        let omitted_siblings =
+            omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
+        // A claim keeps its stream cells as ordinary List cells: `prove` performs no console I/O.
+        if rule.sentence_kind != krs_ir::SentenceKind::Claim {
+            let stdin = stdin_cells(&configuration.declaration, declarations)?;
+            check_stdin_reads(&clauses, &stdin)?;
+        }
+        let body = FixedConfigurationRewrite::new(
+            semantic_origin(
+                descriptor,
+                rule.pattern_key.clone(),
+                "completed-configuration-rewrite",
+            )?,
+            generated_semantic_id("configuration", &rule.configuration, None)?,
+            clauses,
+            omitted_siblings,
+        )?;
+        let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+        let guards = builder
+            .instance_guards
+            .take()
+            .map(super::set_instances::InstanceGuards::into_guards)
+            .unwrap_or_default();
+        let guard_variables = guards
+            .iter()
+            .filter_map(super::set_instances::Guard::variable)
+            .collect::<Vec<_>>();
+        let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
+        let (existentials, ensures) =
+            lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
+        let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
+        let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
+        // An alias used only as a record update's base is matched without
+        // `#as`, so it names no variable (F5).
+        let mut variables = rule
+            .bindings
+            .iter()
+            .map(|binding| &binding.name)
+            .filter(|name| !builder.record_updates.updates.is_dropped(name))
+            .chain(
+                rule.existentials
+                    .iter()
+                    .chain(&rule.fresh)
+                    .map(|binder| &binder.name),
+            )
+            .map(|name| {
+                Ok(SemanticVariable::new(
+                    SemanticId::new(name.clone())?,
+                    builder
+                        .binding_sorts
+                        .get(name)
+                        .cloned()
+                        .expect("all binding sorts were inferred"),
+                ))
+            })
+            .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+        variables.append(&mut builder.wildcards);
+        variables.extend(guard_variables);
+        // A readable claim's declaration has the claim role (F7).
+        let declaration = if rule.claim.is_some() {
+            ProvenanceRole::ClaimDeclaration
+        } else {
+            ProvenanceRole::RuleDeclaration
+        };
+        let claim = rule
+            .claim
+            .as_ref()
+            .map(|claim| lower_head_rule_claim(descriptor, claim))
+            .transpose()?;
+        let rule = SemanticRule::new_configuration(
+            semantic_origin(descriptor, role_key(declaration, 0), "head-anchored-rule")?,
+            descriptor.id().clone(),
+            rule.sentence_kind,
+            variables,
+            body,
+        )?
+        .with_claim(claim)
+        .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
+        .with_priority(priority)?
+        .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
+        .with_existentials(existentials)
+        .with_ensures(ensures)
+        .with_fresh(fresh)
+        .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
+        .with_requires(requires)?;
+        Ok(rule)
+    })();
+    Ok((lowered, inferred))
 }
+
+/// What [`lower_head_rule_descriptor`] returns once inference succeeds: the
+/// readable lowering's result, and the sort inference gave each binder.
+pub(super) type HeadRuleLowering = (
+    Result<SemanticRule, DescriptorLoweringError>,
+    BTreeMap<String, SemanticSortRef>,
+);
 
 /// Lowers a readable claim's modality and flags (F7). Its binders are the
 /// rule's inferred variables, so it declares no universal binder.

@@ -1050,7 +1050,9 @@ fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
 }
 
 /// Lowers `rule`'s elaboration through the `cells!` lowering and refuses the rule where it
-/// differs from `readable`, the readable lowering of the same rule.
+/// differs from `readable`, the readable lowering of the same rule, accepted or refused: a rule
+/// one lowering accepts and the other refuses is a disagreement, and so is a rule both refuse
+/// with different codes (under [`Shadow::Located`], or at different ranges).
 #[expect(
     clippy::too_many_arguments,
     reason = "Scaffolding: the readable lowering's inputs and both of its outputs."
@@ -1059,7 +1061,7 @@ pub(super) fn shadow_check(
     shadow: Shadow,
     descriptor: &Descriptor,
     rule: &DescriptorHeadRule,
-    readable: &SemanticRule,
+    readable: Result<&SemanticRule, &DescriptorLoweringError>,
     inferred: &BTreeMap<String, SemanticSortRef>,
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
@@ -1074,29 +1076,63 @@ pub(super) fn shadow_check(
         ),
         range: key_range(descriptor, &rule.pattern_key).map(Box::new),
     };
-    let elaborated = match elaborate(descriptor, rule, inferred, declarations, catalog)? {
-        Ok(elaborated) => elaborated,
-        Err(Unelaborated(form)) => return Err(disagreement(format!("has no elaboration: {form}"))),
+    let (elaborated, cells) = match elaborate(descriptor, rule, inferred, declarations, catalog) {
+        Ok(Ok(elaborated)) => {
+            let cells = super::configuration_rules::lower_configuration_rule_descriptor(
+                descriptor,
+                &elaborated,
+                declarations,
+                sort_parents,
+                catalog,
+            );
+            (Some(elaborated), cells)
+        }
+        Ok(Err(Unelaborated(form))) => {
+            return Err(disagreement(format!("has no elaboration: {form}")));
+        }
+        // The long form the elaboration starts from refuses the rule: the `cells!` route does.
+        Err(error) => (None, Err(error)),
     };
-    let cells = super::configuration_rules::lower_configuration_rule_descriptor(
-        descriptor,
-        &elaborated,
-        declarations,
-        sort_parents,
-        catalog,
-    )
-    .map_err(|error| {
-        dump(
-            descriptor,
-            rule,
-            &elaborated,
-            &normalized(readable, false, shadow),
-            &Value::String(error.to_string()),
-        );
-        disagreement(format!(
-            "is accepted by the readable lowering and refused by the `cells!` one: {error}"
-        ))
-    })?;
+    let dump = |readable: &Value, cells: &Value| {
+        dump(descriptor, rule, elaborated.as_ref(), readable, cells);
+    };
+    let refusal = |error: &DescriptorLoweringError| Value::String(error.to_string());
+    let (readable, cells) = match (readable, cells) {
+        (Ok(readable), Ok(cells)) => (readable, cells),
+        (Ok(readable), Err(error)) => {
+            dump(&normalized(readable, false, shadow), &refusal(&error));
+            return Err(disagreement(format!(
+                "is accepted by the readable lowering and refused by the `cells!` one: {error}"
+            )));
+        }
+        (Err(error), Ok(cells)) => {
+            dump(&refusal(error), &normalized(&cells, true, shadow));
+            return Err(disagreement(format!(
+                "is refused by the readable lowering ({}: {error}) and accepted by the `cells!` one",
+                codes(error).join(", ")
+            )));
+        }
+        (Err(readable), Err(cells)) => {
+            let (left, right) = (codes(readable), codes(&cells));
+            let located = shadow == Shadow::Located && readable.range() != cells.range();
+            if left == right && !located {
+                return Ok(());
+            }
+            dump(&refusal(readable), &refusal(&cells));
+            let at = |error: &DescriptorLoweringError| {
+                error
+                    .range()
+                    .map_or_else(|| "no range".to_owned(), |range| format!("{range:?}"))
+            };
+            return Err(disagreement(format!(
+                "is refused by both lowerings, differently: readable {} at {} ({readable}), `cells!` {} at {} ({cells})",
+                left.join(", "),
+                at(readable),
+                right.join(", "),
+                at(&cells),
+            )));
+        }
+    };
     let mut readable = normalized(readable, false, shadow);
     let mut cells = normalized(&cells, true, shadow);
     for (route, value) in [("readable", &mut readable), ("`cells!`", &mut cells)] {
@@ -1111,7 +1147,7 @@ pub(super) fn shadow_check(
     }
     let difference = first_difference(&readable, &cells, "rule");
     if difference.is_some() {
-        dump(descriptor, rule, &elaborated, &readable, &cells);
+        dump(&readable, &cells);
     }
     match difference {
         None => Ok(()),
@@ -1121,12 +1157,21 @@ pub(super) fn shadow_check(
     }
 }
 
+/// The codes of the diagnostics a refusal gives, in order.
+fn codes(error: &DescriptorLoweringError) -> Vec<String> {
+    error
+        .to_diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.code.to_string())
+        .collect()
+}
+
 /// Under `KRS_READABLE_SHADOW_DUMP=<directory>`, writes a disagreeing rule's elaboration and both
 /// compared lowerings there, one file each, named by the item and the rule's pattern key.
 fn dump(
     descriptor: &Descriptor,
     rule: &DescriptorHeadRule,
-    elaborated: &DescriptorConfigurationRule,
+    elaborated: Option<&DescriptorConfigurationRule>,
     readable: &Value,
     cells: &Value,
 ) {
@@ -1144,10 +1189,12 @@ fn dump(
     let pretty = |value: &Value| serde_json::to_string_pretty(value).unwrap_or_default();
     // Best effort: a dump that cannot be written leaves the disagreement itself reported.
     let _ = std::fs::create_dir_all(directory);
-    let _ = std::fs::write(
-        directory.join(format!("{stem}.elaborated.txt")),
-        format!("{elaborated:#?}"),
-    );
+    if let Some(elaborated) = elaborated {
+        let _ = std::fs::write(
+            directory.join(format!("{stem}.elaborated.txt")),
+            format!("{elaborated:#?}"),
+        );
+    }
     let _ = std::fs::write(
         directory.join(format!("{stem}.readable.json")),
         pretty(readable),
@@ -1370,10 +1417,10 @@ fn first_difference(left: &Value, right: &Value, path: &str) -> Option<(String, 
             || "nothing".to_owned(),
             |value| {
                 let text = value.to_string();
-                if text.len() > 400 {
-                    format!("{}..", &text[..400])
-                } else {
-                    text
+                // The first 400 bytes, cut at a character's start.
+                match text.char_indices().map(|(at, _)| at).find(|at| *at >= 400) {
+                    Some(at) if at < text.len() => format!("{}..", &text[..at]),
+                    _ => text,
                 }
             },
         )
