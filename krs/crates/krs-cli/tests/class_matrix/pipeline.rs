@@ -2271,15 +2271,29 @@ fn base_sentences(collected: &CollectedDefinition, all: &[Placed<'_>]) -> Option
 /// a function and its equation), the first with the case's command variant; a case that it holds
 /// no item for, at its command variant alone. The IDs of the cases it holds neither for are the
 /// error.
+///
+/// A constructors family is the base's, which declares one variant per case's command, unless
+/// the family's own name names a case: a family a case declares beside its sentence (a production
+/// strict in a position) is that case's item, as every other item it writes is, so that what the
+/// family declares is what the case adds and not the base's.
 fn locate<'a>(printed: &str, cases: &[&'a Case]) -> Result<Vec<Placed<'a>>, Vec<String>> {
     use syn::spanned::Spanned as _;
     let Ok(file) = syn::parse_file(printed) else {
         return Err(cases.iter().map(|case| case.id.clone()).collect());
     };
+    let names_a_case = |name: &syn::Ident| {
+        let name = name.to_string();
+        cases.iter().any(|case| {
+            let tag = case.tag();
+            name.contains(&tag) || name.contains(&tag.to_uppercase())
+        })
+    };
     let mut items = Vec::new();
     let mut variants = BTreeMap::new();
     for item in &file.items {
-        if let syn::Item::Enum(family) = item {
+        if let syn::Item::Enum(family) = item
+            && !names_a_case(&family.ident)
+        {
             for pair in family.variants.pairs() {
                 // The variant with its comma, so that cutting it leaves a list.
                 let mut range = pair.value().span().byte_range();

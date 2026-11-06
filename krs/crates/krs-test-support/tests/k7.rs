@@ -192,7 +192,7 @@ const STATUSES: &[&str] = &[
     "26 no driver: a malformed attribute is refused",
     "26 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "79 no driver: the base applies no function but Probe, ProbeK and Size from a rule",
-    "4 no driver: the case's hole has a sort the context form's driver does not write in all its fields, or a production of the case's own no driver writes; whether a hole is ever cooled is a fact of sorts, which no finite run shows",
+    "10 no driver: the case's hole has a sort the context form's driver does not write in all its fields, or a production of the case's own no driver writes; whether a hole is ever cooled is a fact of sorts, which no finite run shows",
     "3559 no driver: the compiled sweep's cases witness the compiler's verdict on each root sweep cell; the sweep base has no driver commands to set its cells up",
     "186 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",

@@ -436,7 +436,7 @@ advice = "none"
 [class.never-cools]
 code = "krs::analysis::never-cools"
 doc = "a lint, never a refusal: a context, or a position of a strict production, heats its hole while it is no result and cools it once it is a result of the step's sort `R` (`result = R` on the context, the strictness or the context alias the position is evaluated through, `KResult` otherwise); both steps match the hole at its sort `H`, so where no sort that has terms is below both `H` and `R` nothing the heating moves is ever plugged back, and a run that reaches it stays under the freezer; `krs check` reports it as a warning at the context's `hole` key or at the strict position"
-examples = ["attrs/context/hole of sort Word", "attrs/context/hole of sort Int with result = Word"]
+examples = ["attrs/context/hole of sort Word", "attrs/context/hole of sort Int with result = Word", "attrs/context/strict position of sort Word"]
 advice = "none"
 
 [class.no-effect-entry]

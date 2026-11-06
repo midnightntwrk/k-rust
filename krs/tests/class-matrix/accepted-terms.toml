@@ -457,6 +457,29 @@ context alias [caseTAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/context-alias/strict position of sort Word using an alias with result = Value"]
+lint = "never-cools"
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+[result(Value)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "stTAG" "(" Word ")" [symbol(strictTAGPTAG), format(%1%2%3%4), strict(caseTAG; 1), result(KResult)]
+"""
+
+[accept."attrs/context-alias/strict position of sort Word using an alias with result = Word"]
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+[result(Word)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "stTAG" "(" Word ")" [symbol(strictTAGPTAG), format(%1%2%3%4), strict(caseTAG; 1), result(KResult)]
+"""
+
 [accept."attrs/context/#[k::requires(k::is!(Int, x))]"]
 k = """
 context [case-TAG]: cTAG ( V0:KItem , V1:KItem , _ )
@@ -518,6 +541,36 @@ context [case-TAG]: cTAG ( V0:KItem , V1:KItem , _ )
 [result(KResult)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."attrs/context/strict position of sort Int"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+
+syntax Stmt ::= "stTAG" "(" Int ")" [symbol(strictTAGPTAG), format(%1%2%3%4), strict, result(KResult)]
+"""
+
+[accept."attrs/context/strict position of sort Int with result = Word"]
+lint = "never-cools"
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+
+syntax Stmt ::= "stTAG" "(" Int ")" [symbol(strictTAGPTAG), format(%1%2%3%4), strict, result(Word)]
+"""
+
+[accept."attrs/context/strict position of sort Word"]
+lint = "never-cools"
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+
+syntax Stmt ::= "stTAG" "(" Word ")" [symbol(strictTAGPTAG), format(%1%2%3%4), strict, result(KResult)]
+"""
+
+[accept."attrs/context/strict position of sort Word with result = Word"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+
+syntax Stmt ::= "stTAG" "(" Word ")" [symbol(strictTAGPTAG), format(%1%2%3%4), strict, result(Word)]
 """
 
 [accept."attrs/desugar/recursive production"]

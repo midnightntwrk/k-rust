@@ -7,7 +7,8 @@ use std::path::Path;
 use krs_test_support::class_matrix::attributes::{
     Attribute, BASE_KEYS, CASE_PRIORITY, COOLINGS, DECLARATION_MACROS, DRIVER_PRIORITY, EXTRAS,
     FORMS, LATE_CASE_PRIORITY, MALFORMED, NEVER_COOLS, OWISE_SIBLING_PRIORITY,
-    PRIORITY_SIBLING_PRIORITY, Pair, SENTENCE_MACROS, TOGETHER, Written, cools, pairs,
+    PRIORITY_SIBLING_PRIORITY, Pair, SENTENCE_MACROS, STRICT_COOLINGS, TOGETHER, Written, cools,
+    pairs,
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::oracle::Outcome;
@@ -507,6 +508,7 @@ fn every_term_slot_form_has_an_attribute_form_and_every_pair_a_case() {
             + EXTRAS.len()
             + TOGETHER.len()
             + COOLINGS.len()
+            + STRICT_COOLINGS.len()
     );
     assert_eq!(attribute_cases.len(), pairs().len());
     for case in &attribute_cases {
@@ -1148,6 +1150,7 @@ fn every_attribute_case_owes_the_oracles_lint() {
         warned.len(),
         COOLINGS
             .iter()
+            .chain(&STRICT_COOLINGS)
             .filter(|cooling| !cools(cooling.hole, cooling.result_sort()))
             .count(),
         "only cooling cases are warned: {warned:#?}"
@@ -1168,9 +1171,10 @@ fn every_attribute_case_owes_the_oracles_lint() {
             "the terms base declares {declared}"
         );
     }
-    for cooling in COOLINGS {
+    let coolings = || COOLINGS.iter().chain(&STRICT_COOLINGS);
+    for cooling in coolings() {
         let result = cooling.result_sort();
-        let control = COOLINGS.iter().any(|other| {
+        let control = coolings().any(|other| {
             other.step == cooling.step
                 && (other.hole == cooling.hole) != (other.result_sort() == result)
                 && cools(other.hole, other.result_sort()) != cools(cooling.hole, result)

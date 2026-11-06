@@ -929,10 +929,10 @@ const fn cooling(
     }
 }
 
-/// The cooling cases [`pairs`] generates, each warned one beside a control that differs in one
-/// sort: a context whose hole is a `Word` (no `Word` is below `KResult`) and one whose
-/// `result = Word`; a context whose hole is an `Int` (below `KResult`) and one whose
-/// `result = Word`, which no `Int` is. The strict positions' are [`STRICT_COOLINGS`].
+/// The cooling cases of contexts, each warned one beside a control that differs in one sort: a
+/// context whose hole is a `Word` (no `Word` is below `KResult`) and one whose `result = Word`; a
+/// context whose hole is an `Int` (below `KResult`) and one whose `result = Word`, which no `Int`
+/// is. The strict positions' are [`STRICT_COOLINGS`]; [`pairs`] generates both.
 pub const COOLINGS: [Cooling; 4] = [
     cooling(
         "context",
@@ -972,10 +972,8 @@ pub const COOLINGS: [Cooling; 4] = [
 /// sort `Word` and one of sort `Int` with the production's `result = KResult`, each beside the
 /// same position with `result = Word` (on the production's constructors), and a `Word` position
 /// evaluated through the form's context alias, whose `result = Value` no `Word` is and whose
-/// `result = Word` every `Word` is. [`pairs`] does not generate them yet: K3's printed surface
-/// leaves out the production a case declares beside its sentence (`different` alone,
-/// `invalid-semantic-theory` in a batch), a printer deviation of its own. krs-cli
-/// `framework_sorts.rs` pins the lint on each of these steps meanwhile.
+/// `result = Word` every `Word` is. Each case declares its production in a constructors family
+/// of its own, which K3 places as the case's item (krs-cli `class_matrix/pipeline.rs` `locate`).
 pub const STRICT_COOLINGS: [Cooling; 6] = [
     cooling(
         "context",
@@ -1161,6 +1159,7 @@ pub fn pairs() -> Vec<Pair> {
     pairs.extend(
         COOLINGS
             .iter()
+            .chain(STRICT_COOLINGS.iter())
             .map(|cooling| Pair::Cooling(form_named(cooling.form), *cooling)),
     );
     pairs
