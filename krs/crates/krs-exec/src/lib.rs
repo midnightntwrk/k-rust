@@ -15,7 +15,7 @@
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/3` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/4` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 //!
 //! # Report versions
@@ -94,7 +94,7 @@ pub use k_rust::backend::{
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
-pub use origin::Origins;
+pub use origin::{Origins, item_spelling};
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
@@ -2654,6 +2654,17 @@ impl Semantics {
         self.rules.stop_name(rule_id)
     }
 
+    /// Whether a reader names the sentence `rule_id` by its K label beside its KRS item's spelling
+    /// (a coverage row's `item`): the item's spelling names some other item too, as where two
+    /// packages of one crate name each have an item at its path, or the main package has an item
+    /// at the whole of a dependency item's spelling, so the spelling alone does not tell which
+    /// item wrote the sentence. `false` for an identity no item wrote or that is no sentence of
+    /// the definition.
+    #[must_use]
+    pub fn keeps_label(&self, rule_id: &str) -> bool {
+        self.rules.needs_label(rule_id)
+    }
+
     /// The `UNIQUE_ID`s of a run's stop rules, each name resolved among the rewrite rules
     /// ([`StopRules`]), and the arrival the run ends at.
     fn stop_ids(&self, criterion: &StopCriterion) -> Result<StopIds, ExecError> {
@@ -2783,7 +2794,8 @@ impl Semantics {
                 CoveredRule {
                     label: catalog.and_then(|rule| rule.label.clone()),
                     kind: catalog.map(|rule| rule.kind),
-                    item: origin::item(provenance),
+                    item: origin::item_path(provenance, self.rules.crate_names())
+                        .map(|item| self.rules.spelling(&item)),
                     origin: self.origins.step_origin(provenance),
                     matched: is_applied || matched.contains(&id),
                     applied: is_applied,

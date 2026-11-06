@@ -980,7 +980,7 @@ def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifac
             timeout=900, environment=env,
         )
         printed = json.loads(process.stdout)
-        if printed.get("schema") != "krs-exec/3" or printed.get("run") != summary.reports[name]:
+        if printed.get("schema") != "krs-exec/4" or printed.get("run") != summary.reports[name]:
             raise GateError(f"krs run --output json differs from the session's krs-exec report for {name}")
         cli_digests[name] = sha256_text(process.stdout)
         # The real `krs run` prints the final state as `krun --output pretty` does (its default output, KF-017).

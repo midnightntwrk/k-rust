@@ -70,12 +70,15 @@ pub struct RetainedEmission {
 /// One rule-like sentence of the emitted K (a rule, equation, simplification, alias, desugar,
 /// context or claim), as every report of the krs front end names it.
 ///
-/// `item`, `package`, `file` and `claim_helper` are those of the `// KRS` line the emission
-/// writes above the sentence ([`krs_compiler::SentenceSources`], the one function that computes
-/// that line), so a report and the K name a sentence identically; they are `None` (and
-/// `claim_helper` false) for a sentence the emission writes no such line for, which no Rust
-/// item names. `line` and `column` position the start of the sentence's first authored range
-/// in the package's current source, as `krs run --trace` positions a rule's step.
+/// `item` names the KRS item that wrote the sentence as a run's report and a stop name it
+/// ([`krs_exec::item_spelling`], the one function that spells it), so a name a krs kink document
+/// gives a rule is one `krs run --stop-before` reads as the same item. `source_item`, `package`,
+/// `file` and `claim_helper` are those of the `// KRS` line the emission writes above the
+/// sentence ([`krs_compiler::SentenceSources`], the one function that computes that line), so a
+/// report and the K describe a sentence identically; they are `None` (and `claim_helper` false)
+/// for a sentence the emission writes no such line for, which no Rust item names. `line` and
+/// `column` position the start of the sentence's first authored range in the package's current
+/// source, as `krs run --trace` positions a rule's step.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedRule {
     /// The emitted K module that holds the sentence: its own module, or, for a claim of a
@@ -85,10 +88,15 @@ pub struct EmittedRule {
     pub label: String,
     /// The sentence's kind.
     pub kind: SentenceKind,
-    /// The Rust item as the `// KRS` line spells it after the file: the item, then `, branch
-    /// <b>` and `, local function` where the line has them (`plus_zero`,
-    /// `InterruptVector, branch 3`).
+    /// The KRS item that wrote the sentence, spelled as a stop reads it: `crate::` and its Rust
+    /// path for an item of the root package (`crate::plus_zero`), the crate name of the package
+    /// that declares it and its path otherwise (`lang::step`); `None` where the sentence's origin
+    /// names no authored item.
     pub item: Option<String>,
+    /// The Rust item as the `// KRS` line spells it after the file: the item's own name, then
+    /// `, branch <b>` and `, local function` where the line has them (`plus_zero`,
+    /// `InterruptVector, branch 3`).
+    pub source_item: Option<String>,
     /// The Cargo package of the authored file.
     pub package: Option<String>,
     /// The authored file, package-relative and slash-separated (`src/lib.rs`).
@@ -418,7 +426,9 @@ impl CollectedDefinition {
 /// The rule table of `definition`'s emission ([`EmittedRule`]): every rule-like sentence of
 /// every module, a claim of a module that is not a spec module under `generated_spec` (the
 /// generated `<MAIN>-SPEC` the emission moves it to), positioned in the source `sources`
-/// reads by [`krs_exec::Origins`], as `krs run --trace` positions a step's rule.
+/// reads by [`krs_exec::Origins`], as `krs run --trace` positions a step's rule, and its item
+/// spelled by [`krs_exec::item_spelling`] with the crate names the definition records, as a
+/// run's report spells it.
 fn emitted_rules(
     definition: &DefinitionIr,
     generated_spec: Option<&str>,
@@ -445,7 +455,8 @@ fn emitted_rules(
                 module: module_name,
                 label: rule.label().emitted_name().to_owned(),
                 kind: rule.kind(),
-                item: source.as_ref().map(SentenceSource::item_spelling),
+                item: krs_exec::item_spelling(definition, sentence.origin()),
+                source_item: source.as_ref().map(SentenceSource::item_spelling),
                 package: source.as_ref().map(|source| source.package().to_owned()),
                 file: source.as_ref().map(|source| source.file().to_owned()),
                 line: span.as_ref().and_then(|span| span.line),

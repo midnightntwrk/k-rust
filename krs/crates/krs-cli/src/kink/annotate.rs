@@ -4,9 +4,20 @@
 //! ([`kink_flow::visit_rules`]). The emission's rule table ([`EmittedRule`]) names the same
 //! sentences by K module and label, labels being unique in the emitted K, so `(module, label)`
 //! names one sentence of both, and the front end adds to its object
-//! `krs = {item, package, file, line, column, kind, claim_helper}` from the table: the item the
-//! `// KRS` line above the sentence names, and its Rust position. A sentence the emission wrote
-//! no `// KRS` line for (KRS generated it, no Rust item is its author) has `null` there.
+//! `krs = {item, source_item, package, file, line, column, kind, claim_helper}` from the table.
+//! `item` names the KRS item that wrote the sentence as `krs run` names it in its coverage and its
+//! stop and as a stop reads it ([`krs_exec::item_spelling`]): `crate::` and its Rust path for an
+//! item of the root package (`crate::plus_zero`), the declaring crate's name and its path for a
+//! dependency's (`lang::step`), so a name copied from a document selects, as `krs run
+//! --stop-before` or a corpus's `[stop]`, the item the document names. The path is the item's in
+//! the source `krs expand` prints, so a function's equation is the item the expansion names after
+//! the function and its branch (`crate::clamp_2` for `Clamp, branch 2`). The name is the item's,
+//! shared by every sentence the item lowers to; the object the `krs` object is added to keeps the
+//! sentence's label beside it, which names the sentence where the item's name does not name the
+//! item alone. `source_item` is the item as the `// KRS` line above the sentence names it (with
+//! a function's branch, or `local function`), and the rest its Rust position. A sentence the
+//! emission wrote no `// KRS` line for (KRS generated it, no Rust item is its author) has `null`
+//! there, and `null` as its `item` where its origin names no authored item.
 //!
 //! A document also names compiled rules by their label alone, where no baseline position is
 //! known: a specification diagnostic's `rule_label` and `observing_rule_label`, the `rule` of
@@ -35,6 +46,11 @@
 //! A corpus's `[stop]` names rules by KRS item or label, which the front end maps to K labels
 //! before kink-flow reads them, so every document's `stop` names the labels; the front end adds
 //! `krs = {items}` to it, each name as the corpus wrote it with the labels it selects.
+//!
+//! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
+//! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
+//! names an item as above, while the annotation before it, which carried no version, named it as
+//! the `// KRS` line does (`plus_zero`, `Clamp, branch 3`), now `source_item`.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -72,10 +88,17 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
     }
 }
 
+/// The version of the annotation a document's `krs` objects follow, which every annotated document
+/// carries as `krs.version` (module documentation). It changes when a reader of the previous
+/// version would read an annotated document falsely, a field that keeps its name and changes
+/// what it denotes included.
+pub(crate) const ANNOTATION_VERSION: u64 = 2;
+
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
     json!({
         "item": rule.item,
+        "source_item": rule.source_item,
         "package": rule.package,
         "file": rule.file,
         "line": rule.line,
@@ -303,11 +326,12 @@ impl Annotator {
         unnamed.sort_by_key(ToString::to_string);
         unnamed.dedup();
         if let Some(top) = document.as_object_mut() {
-            if unnamed.is_empty() {
-                top.remove("krs");
-            } else {
-                top.insert("krs".into(), json!({ "unnamed_rules": unnamed }));
+            let mut krs = Map::new();
+            krs.insert("version".into(), json!(ANNOTATION_VERSION));
+            if !unnamed.is_empty() {
+                krs.insert("unnamed_rules".into(), json!(unnamed));
             }
+            top.insert("krs".into(), Value::Object(krs));
         }
     }
 
@@ -398,7 +422,7 @@ fn anchored_rule(
 
 #[cfg(test)]
 mod tests {
-    use super::Annotator;
+    use super::{ANNOTATION_VERSION, Annotator};
     use crate::EmittedRule;
     use serde_json::{Value, json};
     use std::collections::BTreeMap;
@@ -408,7 +432,8 @@ mod tests {
             module: "NAT".into(),
             label: label.into(),
             kind: krs_ir::SentenceKind::Equation,
-            item: Some(item.into()),
+            item: Some(format!("crate::{item}")),
+            source_item: Some(item.into()),
             package: Some("story-plus".into()),
             file: Some("src/lib.rs".into()),
             line: Some(line),
@@ -462,18 +487,19 @@ mod tests {
         });
         annotator().annotate(&mut document);
         let diagnostic = &document["diagnostics"][0];
-        assert_eq!(diagnostic["krs_rule"]["item"], "plus_zero");
-        assert_eq!(diagnostic["krs_observing_rule"]["item"], "plus_succ");
+        assert_eq!(diagnostic["krs_rule"]["item"], "crate::plus_zero");
+        assert_eq!(diagnostic["krs_rule"]["source_item"], "plus_zero");
+        assert_eq!(diagnostic["krs_observing_rule"]["item"], "crate::plus_succ");
         assert_eq!(diagnostic["krs_observing_rule"]["line"], 38);
         assert!(document["diagnostics"][1].get("krs_rule").is_none());
         let readings = &document["short_circuit_readings"];
-        assert_eq!(item(&readings[0]["rule"]), "plus_zero");
+        assert_eq!(item(&readings[0]["rule"]), "crate::plus_zero");
         assert!(readings[1]["rule"].get("krs").is_none());
         assert_eq!(readings[2]["rule"], Value::Null);
         let steps = &document["witness"]["krs_rules"];
-        assert_eq!(steps[0]["item"], "plus_succ");
+        assert_eq!(steps[0]["item"], "crate::plus_succ");
         assert_eq!(steps[1], Value::Null);
-        assert!(document.get("krs").is_none());
+        assert_eq!(document["krs"], json!({"version": ANNOTATION_VERSION}));
     }
 
     #[test]
@@ -489,15 +515,18 @@ mod tests {
         let annotator = annotator();
         annotator.annotate(&mut document);
         let rules = &document["rules"];
-        assert_eq!(item(&rules[0]), "plus_zero");
+        assert_eq!(item(&rules[0]), "crate::plus_zero");
         // No object of the document labels NAT#7; the loaded definition does.
-        assert_eq!(item(&rules[1]), "plus_succ");
+        assert_eq!(item(&rules[1]), "crate::plus_succ");
         assert!(rules[2].get("krs").is_none());
         // A sentence with no label anywhere is no rule KRS emitted, and is not listed.
         assert!(rules[3].get("krs").is_none());
         assert_eq!(
             document["krs"],
-            json!({"unnamed_rules": [{"sentence": "NAT#9", "label": "nat--gone"}]})
+            json!({
+                "version": ANNOTATION_VERSION,
+                "unnamed_rules": [{"sentence": "NAT#9", "label": "nat--gone"}],
+            })
         );
         let once = document.clone();
         annotator.annotate(&mut document);
@@ -526,11 +555,11 @@ mod tests {
         let annotator = annotator();
         annotator.annotate(&mut document);
         let rows = &document["mutations"];
-        assert_eq!(item(&rows[0]["anchor"]), "plus_succ");
+        assert_eq!(item(&rows[0]["anchor"]), "crate::plus_succ");
         assert_eq!(rows[0]["anchor"]["label"], "nat--plus_succ");
-        assert_eq!(item(&rows[0]["refusals"][0]["rule"]), "plus_succ");
+        assert_eq!(item(&rows[0]["refusals"][0]["rule"]), "crate::plus_succ");
         // A refusal that names its rule keeps it.
-        assert_eq!(item(&rows[0]["refusals"][1]["rule"]), "plus_zero");
+        assert_eq!(item(&rows[0]["refusals"][1]["rule"]), "crate::plus_zero");
         // An edit whose anchor names no rule, and a mutation that ran, gain nothing.
         assert!(rows[1].get("anchor").is_none());
         assert_eq!(rows[1]["refusals"][0]["rule"], Value::Null);

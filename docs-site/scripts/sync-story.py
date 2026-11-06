@@ -10,8 +10,9 @@ names, and the edits as K patches in `mutations/plus.toml`). `--write` generates
 
 Neither the rules each test fires nor the tests that catch each edit are written by hand.
 A test's rules are the `fired` list of its case in the recorded `krs kink results --output
-verdicts` (`story-kink-results`), named by KRS item and put in the order of the scenes'
-`ruleNames`; a story test with no case there, a case that is not `comparable`, or a case or a
+verdicts` (`story-kink-results`), named by KRS item as a stop names it, `crate::` and the item's
+path in the story's package (`crate::plus_zero`), each read as the scenes' rule of that path and
+put in the order of the scenes' `ruleNames`; a story test with no case there, a case that is not `comparable`, or a case or a
 fired rule the story does not know fails the script, naming it, as does a FLOW.toml that lists
 its cases in another order than story.toml's tests. The tests that catch an edit are the
 `killed_by` of its mutation in the recorded `krs kink run --full --output verdicts`
@@ -265,10 +266,14 @@ def fired_rules(story: dict) -> dict[str, list[str]]:
         fired = case.get("fired")
         if not isinstance(fired, list):
             fail(f"test {test}: its case in {VERDICTS} has no `fired` list")
-        unknown = [name for name in fired if name not in known]
+        # The story is one package, so each rule is an item of it, `crate::` and its path; the
+        # scenes name it by that path.
+        paths = [name.removeprefix("crate::") if name.startswith("crate::") else None for name in fired]
+        unknown = [name for name, path in zip(fired, paths) if path not in known]
         if unknown:
-            fail(f"test {test} fires {unknown}, which the scenes' ruleNames ({DATA.name}) do not list")
-        rules[test] = [name for name in known if name in fired]
+            fail(f"test {test} fires {unknown}, which are not `crate::` and one of the scenes' "
+                 f"ruleNames ({DATA.name})")
+        rules[test] = [name for name in known if name in paths]
     return rules
 
 

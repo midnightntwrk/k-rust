@@ -115,18 +115,32 @@ pub(crate) struct ItemPath {
     /// never a name a depending package's manifest renames the dependency to.
     pub(crate) krate: String,
     /// The item's Rust path below its crate root (`interrupt::boundary_fetch`, `Arith::Add`
-    /// for a variant of the enum family `Arith`).
+    /// for a variant of the enum family `Arith`), in the source `krs expand` prints: a function's
+    /// equation is the item the expansion names after the function and its branch (`clamp_2`
+    /// for the second branch of `fn Clamp`).
     pub(crate) path: String,
 }
 
-/// The KRS item that wrote an emitted rule identity ([`ItemPath`]), with its package's crate
-/// name as `crate_names` records it (a definition's [`krs_ir_levels::DefinitionIr::crate_names`]):
-/// the item the first frame of its first KRS author's origin that names an authored item names. An item whose name holds
-/// KRS's reserved marker (`__krs_`) is one the expansion generated, such as a production's
-/// grammar registration, which no author writes and no Rust path of the source names; the
-/// origin names the authored item it serves in a later frame (a strict variant's heat and cool
-/// rules name the variant once the production is lowered). `None` for a rule of K's builtin
-/// closure, or one whose origin names no authored item.
+impl ItemPath {
+    /// The name of the item that a stop reads as it whatever else the definition declares
+    /// ([`crate::rules::Rules::resolve_item`]), in the definition whose main module is `root` (the
+    /// root package's K namespace): `crate::` and its path for an item of the root package, its
+    /// crate name and its path otherwise. It names the item alone except where two packages of
+    /// one crate name each have an item at its path, or the root package has an item at the whole
+    /// of a dependency item's spelling.
+    pub(crate) fn spelling(&self, root: &str) -> String {
+        let krate = if self.namespace == root {
+            "crate"
+        } else {
+            &self.krate
+        };
+        format!("{krate}::{}", self.path)
+    }
+}
+
+/// The KRS item that wrote an emitted rule identity ([`ItemPath`]), from its first KRS author's
+/// origin ([`origin_item_path`]), with its package's crate name as `crate_names` records it;
+/// `None` for a rule of K's builtin closure.
 pub(crate) fn item_path(
     provenance: Option<&EmittedProvenance>,
     crate_names: &[PackageCrateName],
@@ -134,6 +148,21 @@ pub(crate) fn item_path(
     let Some(Author::Krs { origin, .. }) = provenance?.authors().first() else {
         return None;
     };
+    origin_item_path(origin, crate_names)
+}
+
+/// The KRS item a sentence's origin names ([`ItemPath`]): the item the first frame of the origin
+/// that names an authored item names. An item whose name holds KRS's reserved marker (`__krs_`)
+/// is one the expansion generated, such as a production's grammar registration, which no author
+/// writes and no Rust path of the source names; the origin names the authored item it serves in
+/// a later frame (a strict variant's heat and cool rules name the variant once the production is
+/// lowered). Its package's crate name is the one `crate_names` records for it (a definition's
+/// [`krs_ir_levels::DefinitionIr::crate_names`]), or the package's default crate name where
+/// `crate_names` records none. `None` for an origin that names no authored item.
+pub(crate) fn origin_item_path(
+    origin: &NodeOrigin,
+    crate_names: &[PackageCrateName],
+) -> Option<ItemPath> {
     let item = origin
         .origin()
         .frames()
@@ -229,10 +258,24 @@ fn packages_of<'o>(
     packages
 }
 
-/// The Rust path below its crate root of the KRS item that wrote an emitted rule identity
-/// ([`item_path`]).
-pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
-    item_path(provenance, &[]).map(|item| item.path)
+/// The name of the KRS item that wrote a sentence of `definition`, from the sentence's origin, as a run's report names it (a coverage row's and a
+/// stop rule's `item`) and as a stop reads it (`krs run --stop-before`): `crate::` and the item's
+/// Rust path below its crate root for an item of the root package (`crate::plus_succ`), the
+/// crate name of the package that declares it, as the definition records it, and its path
+/// otherwise (`lang::step`). `None` for an origin that names no authored item.
+///
+/// The name is the item's, not the sentence's: an item that lowers to several sentences (a
+/// context's heat and cool rules) gives each of them the one name. It names the item alone
+/// except where two packages of one crate name each have an item at its path, or the root
+/// package has an item at the whole of a dependency item's spelling; a reader that must name
+/// the sentence there names it by its K label.
+#[must_use]
+pub fn item_spelling(
+    definition: &krs_ir_levels::DefinitionIr,
+    origin: &NodeOrigin,
+) -> Option<String> {
+    origin_item_path(origin, definition.crate_names())
+        .map(|item| item.spelling(definition.main_module().as_str()))
 }
 
 /// The pass that turns a non-rule input sentence into rules.

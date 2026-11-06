@@ -95,7 +95,7 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     );
     assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
     let report = json(&run);
-    assert_eq!(report["schema"], "krs-exec/3");
+    assert_eq!(report["schema"], "krs-exec/4");
     let run_report = &report["run"];
     assert_eq!(run_report["halt"], "stuck");
     assert_eq!(run_report["steps"], 1);
@@ -377,7 +377,8 @@ impl Machine {
 
 /// `krs run --coverage` reports the equations a run applied, by KRS item and authored line,
 /// with how many times; `plus(s(zero), s(zero))` applies `plus_succ` once, then `plus_zero`
-/// once, and takes no step (CF-15).
+/// once, and takes no step (CF-15). Each item is spelled as a stop reads it (`crate::plus_succ`),
+/// and a stop reads it as the same item: an equation's, which takes no step.
 #[test]
 fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
     let target = shared_fixture_target();
@@ -408,10 +409,11 @@ fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
     assert_eq!(coverage["offered"], false);
     let rules = coverage["rules"].as_array().unwrap();
     let mut positions = Vec::new();
-    for item in ["plus_succ", "plus_zero"] {
+    for name in ["plus_succ", "plus_zero"] {
+        let item = format!("crate::{name}");
         let rule = rules
             .iter()
-            .find(|rule| rule["item"] == item)
+            .find(|rule| rule["item"] == item.as_str())
             .unwrap_or_else(|| panic!("{item} is not covered: {coverage:#}"));
         assert_eq!(rule["kind"], "equation", "{rule:#}");
         assert_eq!(rule["matched"], true, "{rule:#}");
@@ -422,7 +424,7 @@ fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
         // does for the `label(..)` attribute the emitted K writes it in.
         assert_eq!(
             rule["label"],
-            format!("org_krs_cli_exec--{item}"),
+            format!("org_krs_cli_exec--{name}"),
             "{rule:#}"
         );
         assert_eq!(rule["origin"]["kind"], "authored", "{rule:#}");
@@ -430,7 +432,7 @@ fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
         // The origin is the item: its attribute or its `fn` line.
         let line = rule["origin"]["line"].as_u64().unwrap();
         assert!(
-            [line_of(item), line_of(item) + 1].contains(&line),
+            [line_of(name), line_of(name) + 1].contains(&line),
             "{rule:#}"
         );
         positions.push(format!("src/lib.rs:{line}:{}", rule["origin"]["column"]));
@@ -458,7 +460,10 @@ fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
     let human = krs(target.path(), &manifest, "run", &[program, "--coverage"]);
     assert_eq!(human.status.code(), Some(0), "{}", stderr(&human));
     let text = stderr(&human);
-    for (item, position) in ["plus_succ", "plus_zero"].iter().zip(&positions) {
+    for (item, position) in ["crate::plus_succ", "crate::plus_zero"]
+        .iter()
+        .zip(&positions)
+    {
         let line = format!("coverage  applied ×1  {item}  (equation)  {position}\n");
         assert!(text.contains(&line), "{line:?} is not in\n{text}");
     }
@@ -466,6 +471,112 @@ fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
         text.ends_with("krs run: stuck after 0 steps; <k> starts with `s(s(zero))`\n"),
         "{text}"
     );
+
+    // The name a coverage row gives selects its item as a stop: an equation, so the stop is
+    // refused for the item's kind, not as a name no item has.
+    let stop = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program, "--stop-before", "crate::plus_succ"],
+    );
+    assert!(!stop.status.success(), "{}", stderr(&stop));
+    assert!(
+        stderr(&stop).contains(
+            "no rewrite rule is written by KRS item `crate::plus_succ`: each of its sentences is"
+        ),
+        "{}",
+        stderr(&stop)
+    );
+}
+
+/// [`PLUS`] with `plus` a constructor its two rules rewrite, so a run of `plus(s(zero), zero)`
+/// takes a step by `plus_succ`, then one by `plus_zero`.
+const PLUS_RULES: &str = r#"
+use krs::builtin::KSequence;
+use krs::{KItem, Term};
+
+krs::sorts! {
+    Nat: KItem;
+}
+
+#[krs::constructors(sort = Nat, result = KResult)]
+#[rustfmt::skip]
+pub enum NatSyntax {
+    #[krs::syntax("zero")] Zero(),
+    #[krs::syntax("s({n})")] Succ { n: Nat },
+    #[krs::syntax("plus({lhs}, {rhs})")] Plus { lhs: Nat, rhs: Nat },
+}
+
+#[krs::rule]
+fn plus_zero(krs::term![NatSyntax::Plus(NatSyntax::Zero(), n)]: Term<Nat>) -> Term<Nat> {
+    n
+}
+
+#[krs::rule]
+fn plus_succ(krs::term![NatSyntax::Plus(NatSyntax::Succ(m), n)]: Term<Nat>) -> Term<Nat> {
+    NatSyntax::Plus(m, NatSyntax::Succ(n))
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Nat) -> Self {
+        Self { k: krs::k![pgm] }
+    }
+}
+"#;
+
+/// A coverage row names its rule as `--stop-before` reads it: the name `krs run --coverage
+/// --output json` gives `plus_succ`, `crate::plus_succ`, stops a run before that rule's step, and
+/// the stopped run's report names its stop rule by the same name.
+#[test]
+fn a_rule_named_by_its_coverage_row_is_a_stop_at_that_rule() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), PLUS_RULES);
+    let program = manifest.parent().unwrap().join("t.nat");
+    fs::write(&program, "plus(s(zero), zero)\n").unwrap();
+    let program = program.to_str().unwrap();
+
+    let run = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program, "--coverage", "--output", "json"],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    let report = &json(&run)["run"];
+    assert_eq!(report["steps"], 2, "{report:#}");
+    let rules = report["coverage"]["rules"].as_array().unwrap();
+    let covered = rules
+        .iter()
+        .find(|rule| rule["label"] == "org_krs_cli_exec--plus_succ")
+        .unwrap_or_else(|| panic!("plus_succ is not covered: {rules:#?}"));
+    assert_eq!(covered["kind"], "rule", "{covered:#}");
+    assert_eq!(covered["committed"], true, "{covered:#}");
+    let name = covered["item"].as_str().unwrap();
+    assert_eq!(name, "crate::plus_succ", "{covered:#}");
+
+    let stopped = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program, "--stop-before", name, "--output", "json"],
+    );
+    assert_eq!(stopped.status.code(), Some(0), "{}", stderr(&stopped));
+    let report = &json(&stopped)["run"];
+    assert_eq!(report["halt"], "stopped", "{report:#}");
+    assert_eq!(report["steps"], 0, "{report:#}");
+    let stop = &report["stop"];
+    assert_eq!(stop["at"], "before", "{stop:#}");
+    assert_eq!(stop["rule"]["rule_id"], covered["rule_id"], "{stop:#}");
+    assert_eq!(stop["rule"]["item"], name, "{stop:#}");
 }
 
 #[test]

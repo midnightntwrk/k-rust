@@ -192,7 +192,7 @@
 //! No other difference is normalized.
 //! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove_kore`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
 //! The loaded definition is a [`krs_exec::Semantics`], compiled exactly as `krs run` compiles it; `execute`, `search`, and `prove` issue raw k-rust requests to its backend.
-//! `exec.run`, `exec.search`, and `exec.prove` run the `krs run`, `krs search`, and `krs prove` code paths of [`krs_exec`] and return their reports as [`krs_exec`] serializes them (`exec.prove` an array of proof reports): the shapes that the `krs-exec/3` run documents, the `krs-exec/1` search documents and the `krs-exec/2` proof documents hold, with no `schema` field of their own.
+//! `exec.run`, `exec.search`, and `exec.prove` run the `krs run`, `krs search`, and `krs prove` code paths of [`krs_exec`] and return their reports as [`krs_exec`] serializes them (`exec.prove` an array of proof reports): the shapes that the `krs-exec/4` run documents, the `krs-exec/1` search documents and the `krs-exec/2` proof documents hold, with no `schema` field of their own.
 //! `exec.run` and `exec.search` accept `program` (surface text bound to `$PGM`) with an optional `program_name`, `variables` (an object of `-c` bindings by K name, `$`-prefixed name, or init parameter), and `depth` (unsigned integer or null); `exec.run` also accepts `trace` (boolean), and `exec.search` accepts `mode` (`final`, `all`, `one-step`, or `one-or-more-steps`) and `max_solutions`.
 //! `exec.prove` accepts `claims` (labels resolved by exact match or unique suffix; empty proves every claim) and `depth`.
 //!

@@ -6,9 +6,10 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 3
+//! version = 4
 //! document = "results"
 //! profile = "no-z3"
+//! krs_annotation = 2
 //!
 //! [spec]
 //! outcome = "admitted"
@@ -16,14 +17,19 @@
 //! [[case]]
 //! id = "t1"
 //! class = "comparable"
-//! fired = ["plus_zero"]
-//! matched = ["plus_zero"]
+//! fired = ["crate::plus_zero"]
+//! matched = ["crate::plus_zero"]
 //! ```
 //!
 //! The header names the document, a run document's `schedule` (`first-kill`, or `full` for `run
 //! --full`) and the build's solver `profile` (`no-z3` or `z3`): under Z3 a class, a status and a
 //! cell can move between `killed`, `unknown` and `survived` with the order and the solver's
-//! timing, so a diff of two renderings across profiles shows why.
+//! timing, so a diff of two renderings across profiles shows why. A document the KRS front end
+//! annotated also has `krs_annotation`, the version of that annotation (the document's
+//! `krs.version`), since a rule's KRS item is spelled as the annotation spells it: from version
+//! 2 as a stop reads it (`crate::plus_zero`, `lang::step`), before it as the `// KRS` line names
+//! it (`plus_zero`). Two renderings of the same verdicts under different annotation versions
+//! differ in that line and in the names, not in a class, a rule set or a status.
 //!
 //! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
 //! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`), each
@@ -61,8 +67,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// The version of the rendering: 1, the first; 2 since CF-23 added the header's `schedule` (run
 /// documents) and `profile`, and a full run's `killed_by`; 3 since a mutation's `status` names
 /// the runner status version 2 rendered `invalid` `not-admitted` (run document version 18), so a
-/// lock that moves from one name to the other shows a new version, not a moved verdict.
-pub const VERDICTS_VERSION: u64 = 3;
+/// lock that moves from one name to the other shows a new version, not a moved verdict; 4 since
+/// the header's `krs_annotation` names the front end's annotation version, which a rule's KRS
+/// item is spelled by, so that a lock whose names move with the annotation shows why.
+pub const VERDICTS_VERSION: u64 = 4;
 
 /// The rendering of a `results` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -102,6 +110,9 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
         if let Some(value) = document[key].as_str() {
             line(&mut text, key, &string(value));
         }
+    }
+    if let Some(annotation) = document["krs"]["version"].as_u64() {
+        line(&mut text, "krs_annotation", &annotation.to_string());
     }
     for section in ["spec", "mutation_list"] {
         let Some(object) = document[section].as_object() else {
@@ -235,7 +246,8 @@ fn mutations(text: &mut String, document: &Value, full: bool) {
     }
 }
 
-/// A rule's name: its KRS item, its label, or its `file:line` (`module#index` without a file).
+/// A rule's name: its KRS item, as the document's annotation version spells it (the header's
+/// `krs_annotation`), its label, or its `file:line` (`module#index` without a file).
 fn rule_name(rule: &Value) -> String {
     if let Some(item) = rule["krs"]["item"].as_str() {
         return item.to_owned();

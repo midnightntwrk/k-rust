@@ -631,7 +631,7 @@ fn coverage_counts_the_rewrite_rules_a_run_committed() {
             )
             .unwrap();
         let coverage = report.coverage.unwrap();
-        for item in ["boundary", "work"] {
+        for item in ["crate::boundary", "crate::work"] {
             let rule = coverage
                 .rules
                 .iter()

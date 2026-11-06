@@ -5,7 +5,7 @@
 //! what krs-exec reads both from: each identity's label and kind, as the backend loaded them
 //! (`Backend::rule_catalog`), and the KRS item that wrote it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::backend::{Backend, CompiledRuleKind};
 
@@ -42,6 +42,36 @@ pub(crate) struct Rules {
     /// The crate names the definition records, of the packages whose libraries' crate names
     /// are not their defaults ([`krs_ir_levels::DefinitionIr::crate_names`]).
     crate_names: Vec<PackageCrateName>,
+    /// The spellings ([`Self::spelling`]) that name items of more than one package
+    /// ([`shared_spellings`]), so that a reader names their sentences by label too.
+    shared: BTreeSet<String>,
+}
+
+/// The spellings of `by_id`'s items that a stop reads as items of more than one package, in the
+/// definition whose root package's K namespace is `root`, computed in one pass over the catalog.
+///
+/// A root item's spelling, `crate::` and its path, is read as root items alone, so it is never
+/// shared. A dependency item's spelling `krate::path` is read as the item at `path` of every
+/// package of crate name `krate` and as the root item whose path is the whole spelling
+/// ([`Rules::resolve_item_named`]). A crate name holds no `::`, so the spelling determines
+/// `krate` and `path`: grouping each dependency item's namespace under its spelling and each root
+/// item's under its bare path gathers, under a dependency spelling, every package a stop reading
+/// it selects from.
+fn shared_spellings(by_id: &BTreeMap<String, CatalogRule>, root: &str) -> BTreeSet<String> {
+    let mut packages = BTreeMap::<String, BTreeSet<&str>>::new();
+    for item in by_id.values().filter_map(|rule| rule.item.as_ref()) {
+        let read_as = if item.namespace == root {
+            item.path.clone()
+        } else {
+            item.spelling(root)
+        };
+        packages.entry(read_as).or_default().insert(&item.namespace);
+    }
+    packages
+        .into_iter()
+        .filter(|(_, namespaces)| namespaces.len() > 1)
+        .map(|(spelling, _)| spelling)
+        .collect()
 }
 
 impl Rules {
@@ -73,6 +103,7 @@ impl Rules {
         // KRS names a package's module by the package's K namespace (`<NS>`), so the main
         // module's name is the root package's namespace.
         Ok(Self {
+            shared: shared_spellings(&by_id, main_module),
             by_id,
             root: main_module.to_owned(),
             packages: crate::origin::packages(definition),
@@ -105,6 +136,7 @@ impl Rules {
             })
             .collect();
         Self {
+            shared: shared_spellings(&by_id, root),
             by_id,
             root: root.to_owned(),
             packages,
@@ -355,17 +387,31 @@ impl Rules {
     }
 
     /// The name of `item` that [`Self::resolve_item`] reads as it whatever else the definition
-    /// declares: `crate::` and its path for an item of the root package, its crate name and its
-    /// path otherwise. It names the item alone except where two packages of one crate name each
-    /// have an item at its path, or the root package has an item at the whole of a dependency
-    /// item's spelling.
+    /// declares ([`ItemPath::spelling`]): `crate::` and its path for an item of the root package,
+    /// its crate name and its path otherwise. It names the item alone except where two packages of
+    /// one crate name each have an item at its path, or the root package has an item at the whole
+    /// of a dependency item's spelling ([`Self::names_alone`]).
     pub(crate) fn spelling(&self, item: &ItemPath) -> String {
-        let krate = if item.namespace == self.root {
-            "crate"
-        } else {
-            &item.krate
-        };
-        format!("{krate}::{}", item.path)
+        item.spelling(&self.root)
+    }
+
+    /// Whether `item`'s spelling ([`Self::spelling`]) names `item` alone: no sentence of any kind
+    /// of another package's item is at the path it names, so a stop reading it selects no other
+    /// item's rules and refuses it only where the item wrote no rewrite rule. A lookup in the
+    /// spellings the catalog's construction found shared ([`shared_spellings`]), so that a report
+    /// asking it of every row reads the catalog once.
+    pub(crate) fn names_alone(&self, item: &ItemPath) -> bool {
+        item.namespace == self.root || !self.shared.contains(&self.spelling(item))
+    }
+
+    /// Whether the sentence `id` keeps its K label beside its item's spelling for a reader to name
+    /// it by: it has an item, and that item's spelling does not name it alone
+    /// ([`Self::names_alone`]). `false` for an identity the catalog lacks or no item wrote.
+    pub(crate) fn needs_label(&self, id: &str) -> bool {
+        self.by_id
+            .get(id)
+            .and_then(|rule| rule.item.as_ref())
+            .is_some_and(|item| !self.names_alone(item))
     }
 
     /// A name for the rewrite rule `id` that a stop accepts ([`crate::StopRules`]) and that
@@ -743,6 +789,27 @@ mod tests {
         assert_eq!(rules.stop_name("o2").as_deref(), Some("lang::tick"));
         assert_eq!(rules.stop_name("l1").as_deref(), Some("LANG.step"));
         assert_eq!(rules.stop_name("o1").as_deref(), Some("OLD.frame"));
+        // A report keeps the label beside the item's spelling exactly where the spelling names
+        // another item too.
+        for (id, keeps) in [
+            ("v1", false),
+            ("v2", false),
+            ("o2", false),
+            ("l1", true),
+            ("o1", true),
+        ] {
+            assert_eq!(rules.needs_label(id), keeps, "{id}");
+        }
+        assert!(!rules.needs_label("absent"));
+        // The lookup agrees with what a stop reading each item's spelling resolves.
+        for rule in rules.by_id.values() {
+            let Some(item) = &rule.item else { continue };
+            let ambiguous = matches!(
+                rules.resolve_item_named(&rules.spelling(item)),
+                Err(ExecError::AmbiguousItem { .. })
+            );
+            assert_eq!(rules.names_alone(item), !ambiguous, "{item:?}");
+        }
         // A root item's name written as a label is pointed at the item.
         let bare = Rules::from_entries(
             "VM",

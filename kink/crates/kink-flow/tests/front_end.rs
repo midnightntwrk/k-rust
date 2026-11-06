@@ -620,6 +620,18 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
     let rendered = verdicts(&results).unwrap();
     assert!(rendered.contains("fired = [\"item-"), "{rendered}");
     assert!(rendered.contains("matched = [\"item-"), "{rendered}");
+    // The header names the annotation's version exactly when the document carries one.
+    assert!(!rendered.contains("krs_annotation"), "{rendered}");
+    let mut versioned = results.clone();
+    versioned["krs"] = json!({"version": 2});
+    let rendered = verdicts(&versioned).unwrap();
+    assert!(
+        rendered.contains(&format!(
+            "profile = \"{}\"\nkrs_annotation = 2\n",
+            kink_native::execution::SolverProfile::BUILD.name()
+        )),
+        "{rendered}"
+    );
 }
 
 /// A front end's spelling: its program, then its selection of the corpus.
@@ -772,7 +784,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // CF-23: version 2 names the schedule and the solver profile.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 3\ndocument = \"run\"\nschedule = \
+            "schema = \"kink-flow-verdicts\"\nversion = 4\ndocument = \"run\"\nschedule = \
              \"first-kill\"\nprofile = \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )),
@@ -836,7 +848,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 3\ndocument = \"run\"\nschedule = \
+            "schema = \"kink-flow-verdicts\"\nversion = 4\ndocument = \"run\"\nschedule = \
              \"first-kill\"\nprofile = \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )

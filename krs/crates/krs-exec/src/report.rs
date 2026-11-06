@@ -1,7 +1,7 @@
 //! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
 //!
-//! A run document is `krs-exec/3` ([`RUN_REPORT_SCHEMA`]), whose stop rule's item names the
-//! item with its package; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
+//! A run document is `krs-exec/4` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
+//! their item with its package; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
 //! document is `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and
 //! `timeout` and which names the solver its claims were proved with ([`SolverReport`]).
 //!
@@ -18,13 +18,16 @@ use serde::{Deserialize, Serialize, Serializer};
 /// The schema name a serialized run envelope carries (`krs run`; [report
 /// versions](crate#report-versions)).
 ///
-/// A run document's stop rule names its item with the package that declares it, as a stop names
-/// an item ([`NamedRule::item`]: `crate::boundary`), and the difference of its expectation names
-/// its own format (`format`, [`crate::DIFFERENCE_FORMAT`]); a `krs-exec/1` run document named
-/// the item by its Rust path below its crate root (`boundary`). A reader of `krs-exec/1` would
-/// read `crate::boundary` as a path through a module `crate`, so a run document is a format of
-/// its own version.
-pub const RUN_REPORT_SCHEMA: &str = "krs-exec/3";
+/// A run document's stop rule and each row of its coverage name their item with the package that
+/// declares it, as a stop names an item ([`NamedRule::item`], [`CoveredRule::item`]:
+/// `crate::boundary`, `lang::step`), and the difference of its expectation names its own format
+/// (`format`, [`crate::DIFFERENCE_FORMAT`]). A `krs-exec/1` run document named both items by
+/// their Rust path below their crate root (`boundary`), and a `krs-exec/3` one named the stop
+/// rule's item with its package and a coverage row's still below its crate root. A reader of
+/// either would read `crate::boundary` in a coverage row as a path through a module `crate`, and
+/// could not tell a dependency's `step` from the main package's, so a run document is a format
+/// of its own version.
+pub const RUN_REPORT_SCHEMA: &str = "krs-exec/4";
 
 /// The schema name a serialized search envelope carries (`krs search`; [report
 /// versions](crate#report-versions)).
@@ -390,8 +393,24 @@ pub struct CoveredRule {
     /// K's label, as the definition carries it (`SM83.boundary-fetch`, or KRS's default `nat--plus_zero`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// The KRS item that wrote the sentence, as a Rust path below its crate root
-    /// (`interrupt::boundary_fetch`); absent for a sentence of K's builtin closure.
+    /// The KRS item that wrote the sentence, with the package that declares it, spelled as a stop
+    /// spells an item ([`crate::StopRules`], [`crate::item_spelling`]): its Rust path with
+    /// `crate::` for an item of the definition's main package (`crate::interrupt::boundary_fetch`),
+    /// with its crate's name for a dependency's (`lang::step`). Absent for a sentence of K's
+    /// builtin closure, or one a compiler pass generated from no authored item.
+    ///
+    /// The path is the item's in the source `krs expand` prints, which is the authored source
+    /// except where the expansion writes items of its own for one authored item: a function's
+    /// equation is the item the expansion names after the function and its branch
+    /// (`crate::expected` for the one equation of `fn Expected`, `crate::clamp_2` for the second
+    /// branch of `fn Clamp`), and a stop reads that name, not the function's.
+    ///
+    /// The name is the item's: every sentence an item lowers to (a context's heat and cool rules)
+    /// has it, and `label` tells the sentences apart. A stop reads it as
+    /// this item alone except where two packages of one crate name each have an item at the path,
+    /// or the main package has an item at the whole of a dependency item's spelling; there the
+    /// sentence's `label` names it ([`crate::Semantics::keeps_label`]). A stop refuses the name of
+    /// an item that wrote no rewrite rule, naming the kinds of its sentences.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item: Option<String>,
     /// What kind of sentence it is; absent for an identity the backend's catalog lacks.

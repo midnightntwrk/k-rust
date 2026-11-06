@@ -1335,15 +1335,22 @@ impl<'a> KrsChecks<'a> {
             if !emitted.claim_helper {
                 continue;
             }
+            // The function is named as a stop reads its item, and as the `// KRS` line writes
+            // it beside that, since the item's name is the expansion's (`crate::expected` for
+            // `Expected`).
+            let function = match (&emitted.item, &emitted.source_item) {
+                (Some(item), Some(source)) => format!("`{item}` (`{source}`)"),
+                (Some(name), None) | (None, Some(name)) => format!("`{name}`"),
+                (None, None) => "`?`".to_owned(),
+            };
             judged.warnings.push(Finding::warning(
                 CLAIM_HELPER,
                 rule.edits.first().copied(),
                 Some(rule.at.clone()),
                 format!(
-                    "`{}` is an equation of `{}`, which only claims apply (claim helper): no \
-                     program of the corpus reaches it",
+                    "`{}` is an equation of {function}, which only claims apply (claim helper): \
+                     no program of the corpus reaches it",
                     emitted.label,
-                    emitted.item.as_deref().unwrap_or("?")
                 ),
                 Some(NEXT_CLAIM_HELPER.to_owned()),
             ));

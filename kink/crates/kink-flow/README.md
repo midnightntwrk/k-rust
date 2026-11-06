@@ -1087,10 +1087,11 @@ It is meant as the format of recorded outputs and of a corpus's optional committ
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 3
+version = 4
 document = "results"          # or "run"
 schedule = "full"             # run: "first-kill", or "full" for run --full
 profile = "no-z3"             # or "z3"
+krs_annotation = 2            # a document the KRS front end annotated: its krs.version
 
 [spec]
 outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below
@@ -1112,6 +1113,8 @@ a run that a corpus error stopped ends with `[stopped]`, the mutation and the re
 A refusal's or a stop's text is not part of the rendering, since it explains a refusal rather than records a verdict: `kink-flow` prints it on stderr (`kink_flow::verdicts::refusal_details`).
 
 A rule is named by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line`; the names of a case are ordered by module name, then by position in the module.
+The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`).
+Two renderings of the same verdicts under different annotation versions differ in that line and in the rule names only.
 A first-kill run's killer and a status's reason are left out: under the first-kill search the killer is the first killing program the search reached, which depends on the order (`--order cost` reads wall times) and on the outcomes the cache holds,
 and the reason of `unknown` is the first exclusion in run order.
 A status does not depend on either while no `budget.time_ms` bound fires ("Cost model"); a `timeout` depends on the host by its nature.
@@ -1119,6 +1122,7 @@ A full run's `killed_by` does not either ("The full matrix"), so a `run --full` 
 A corpus's `verdicts.lock`, which records each mutation's status and killers, is therefore the full rendering (`kink-flow run FLOW.toml MUTATIONS --full --output verdicts > verdicts.lock`); a first-kill rendering is a cheaper lock of the statuses alone, and its `schedule` line says which it is.
 The `profile` line is there because the two profiles decide solver questions differently (without Z3 none is decided, and under Z3 within `budget.smt_resource_limit` on the Z3 build), so a class, a status and a cell can differ between them, and a diff of two renderings across profiles shows why.
 Version 2 (CF-23) added `schedule`, `profile` and `killed_by`, and version 3 (CF-40c2) renders the status version 2 rendered `invalid` as `not-admitted`, as the run document names it since its version 18; the rendering's shape is unchanged, and a lock recorded at version 2 differs from a version 3 rendering of the same verdicts in its `version` line and in that status's name only.
+Version 4 adds the header's `krs_annotation`, so that a lock whose rule names move with the KRS annotation (version 2 of it spells `plus_zero` as `crate::plus_zero`) says why; a version 3 rendering of a KRS document named its rules as the document did, without saying which annotation version that was.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 

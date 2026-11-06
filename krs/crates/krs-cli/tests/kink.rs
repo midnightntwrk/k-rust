@@ -495,10 +495,16 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     );
     assert_eq!(document["definition"]["path"], "kink/definition.k");
     for (item, function) in [
-        ("plus_zero", "fn plus_zero("),
-        ("plus_succ", "fn plus_succ("),
+        ("crate::plus_zero", "fn plus_zero("),
+        ("crate::plus_succ", "fn plus_succ("),
     ] {
         let krs = &rule(&document, item)["krs"];
+        // The `// KRS` line names the item as the source writes it.
+        assert_eq!(
+            krs["source_item"],
+            item.strip_prefix("crate::").unwrap(),
+            "{krs:#}"
+        );
         assert_eq!(krs["file"], "src/lib.rs", "{krs:#}");
         assert_eq!(krs["package"], "story-plus", "{krs:#}");
         assert_eq!(krs["kind"], "equation", "{krs:#}");
@@ -507,20 +513,20 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
         assert!(krs["column"].as_u64().is_some(), "{krs:#}");
     }
     assert_eq!(
-        strings(&rule(&document, "plus_zero")["fired_by"]),
+        strings(&rule(&document, "crate::plus_zero")["fired_by"]),
         ["t1", "t2", "t3", "t4"]
     );
     assert_eq!(
-        strings(&rule(&document, "plus_succ")["fired_by"]),
+        strings(&rule(&document, "crate::plus_succ")["fired_by"]),
         ["t3", "t4"]
     );
     for program in document["programs"].as_array().unwrap() {
         assert_eq!(program["class"], "comparable", "{program:#}");
     }
-    assert!(
-        document.get("krs").is_none(),
-        "every rule is named: {:#}",
-        document["krs"]
+    assert_eq!(
+        document["krs"],
+        serde_json::json!({"version": 2}),
+        "every rule is named, by version 2 of the annotation"
     );
 
     // The verdicts rendering names the rules by the same items, as the docs-site's recorded
@@ -528,6 +534,11 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     let output = project.kink("results", &["--output", "verdicts"]);
     assert_status(&output, 0);
     let verdicts = stdout(&output);
+    // Its header says which annotation version spells the names.
+    assert!(
+        verdicts.lines().any(|line| line == "krs_annotation = 2"),
+        "{verdicts}"
+    );
     // The story's rules are equations, each fired where it applies, and each case matches
     // exactly the rules it fires.
     for predicate in ["fired", "matched"] {
@@ -538,14 +549,54 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
         assert_eq!(
             lines,
             [
-                "[\"plus_zero\"]",
-                "[\"plus_zero\"]",
-                "[\"plus_succ\", \"plus_zero\"]",
-                "[\"plus_succ\", \"plus_zero\"]",
+                "[\"crate::plus_zero\"]",
+                "[\"crate::plus_zero\"]",
+                "[\"crate::plus_succ\", \"crate::plus_zero\"]",
+                "[\"crate::plus_succ\", \"crate::plus_zero\"]",
             ],
             "{predicate}: {verdicts}"
         );
     }
+
+    coverage_and_stops_name_rules_as_the_document_does(&project, &document);
+}
+
+/// `krs run --coverage` names each rule of the story's results `document` by the string the
+/// document names it by, and a stop reads that string as the same item.
+fn coverage_and_stops_name_rules_as_the_document_does(project: &Project, document: &Value) {
+    let output = project.krs(&["run", "kink/cases/t3.nat", "--coverage", "--output", "json"]);
+    assert_status(&output, 0);
+    let run = json(&output);
+    for label in ["nat--plus_zero", "nat--plus_succ"] {
+        let covered = run["run"]["coverage"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["label"] == label)
+            .unwrap_or_else(|| panic!("{label} is not covered: {run:#}"));
+        let named = document["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["label"] == label)
+            .unwrap_or_else(|| panic!("{label} is not named: {document:#}"));
+        assert_eq!(
+            covered["item"], named["krs"]["item"],
+            "{covered:#}\n{named:#}"
+        );
+    }
+    // The story's rules are equations, which take no step, so the stop names the item it read.
+    let output = project.krs(&[
+        "run",
+        "kink/cases/t3.nat",
+        "--stop-before",
+        "crate::plus_succ",
+    ]);
+    assert!(
+        stderr(&output).contains("KRS item `crate::plus_succ`: each of its sentences is"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 /// `run` kills the story's three edits, written as K patches anchored by the Rust items, and a
@@ -725,9 +776,9 @@ fn run_kills_the_story_edits() {
     assert_eq!(
         named,
         [
-            ("plus/a", "plus_zero"),
-            ("plus/b", "plus_succ"),
-            ("plus/c", "plus_succ")
+            ("plus/a", "crate::plus_zero"),
+            ("plus/b", "crate::plus_succ"),
+            ("plus/c", "crate::plus_succ")
         ],
         "{check:#}"
     );
@@ -742,14 +793,19 @@ fn run_kills_the_story_edits() {
     // plus_zero returns, the `NatSyntax::Succ(..)` call plus/b unwraps, and the `Plus(m, n)` call
     // plus/c replaces by `n`, each in the body of its function, the line after its signature.
     for (row, (label, item, function, text)) in check["mutations"].as_array().unwrap().iter().zip([
-        ("nat--plus_zero", "plus_zero", "fn plus_zero(", "n"),
+        ("nat--plus_zero", "crate::plus_zero", "fn plus_zero(", "n"),
         (
             "nat--plus_succ",
-            "plus_succ",
+            "crate::plus_succ",
             "fn plus_succ(",
             "NatSyntax::Succ(Plus(m, n))",
         ),
-        ("nat--plus_succ", "plus_succ", "fn plus_succ(", "Plus(m, n)"),
+        (
+            "nat--plus_succ",
+            "crate::plus_succ",
+            "fn plus_succ(",
+            "Plus(m, n)",
+        ),
     ]) {
         let edits = row["krs"]["edits"].as_array().unwrap();
         assert_eq!(edits.len(), 1, "{row:#}");
@@ -1000,7 +1056,7 @@ fn an_edit_of_the_specification_leaves_patches_running_or_stale() {
         assert_eq!(row["edit"], 0, "{row:#}");
         let anchor = &row["anchor"];
         assert_eq!(anchor["label"], "nat--plus_succ", "{row:#}");
-        assert_eq!(anchor["krs"]["item"], "plus_succ", "{row:#}");
+        assert_eq!(anchor["krs"]["item"], "crate::plus_succ", "{row:#}");
         assert_eq!(anchor["krs"]["file"], "src/lib.rs", "{row:#}");
         assert_eq!(
             anchor["krs"]["line"],
@@ -1032,7 +1088,10 @@ fn an_edit_of_the_specification_leaves_patches_running_or_stale() {
     for row in &check["mutations"].as_array().unwrap()[1..] {
         let refusal = &row["refusals"][0];
         assert_eq!(refusal["reason"], "find-not-found", "{row:#}");
-        assert_eq!(refusal["rule"]["krs"]["item"], "plus_succ", "{row:#}");
+        assert_eq!(
+            refusal["rule"]["krs"]["item"], "crate::plus_succ",
+            "{row:#}"
+        );
         assert_eq!(
             refusal["rule"]["krs"]["line"],
             line_of(&edited, "fn plus_succ("),
@@ -1062,7 +1121,11 @@ fn query_and_fuzz_name_rules_by_their_items() {
         .iter()
         .map(|step| step["item"].as_str().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(steps, ["step", "step", "step", "stop"], "{row:#}");
+    assert_eq!(
+        steps,
+        ["crate::step", "crate::step", "crate::step", "crate::stop"],
+        "{row:#}"
+    );
 
     project.write(
         "kink/TEMPLATES.toml",
@@ -1076,7 +1139,7 @@ fn query_and_fuzz_name_rules_by_their_items() {
     let document = json(&output);
     assert_eq!(document["schema"], "kink-flow-fuzz", "{document:#}");
     assert_eq!(
-        document["job"]["rule"]["krs"]["item"], "stop",
+        document["job"]["rule"]["krs"]["item"], "crate::stop",
         "the rule job's target is named by its item: {document:#}"
     );
     assert_status(&output, 3);
@@ -1252,6 +1315,7 @@ fn the_emitted_definition_is_the_one_emit_k_writes() {
                 rule.module.as_str(),
                 rule.label.as_str(),
                 rule.item.as_deref(),
+                rule.source_item.as_deref(),
                 rule.file.as_deref(),
             )
         })
@@ -1263,12 +1327,14 @@ fn the_emitted_definition_is_the_one_emit_k_writes() {
             (
                 "NAT",
                 "nat--plus_succ",
+                Some("crate::plus_succ"),
                 Some("plus_succ"),
                 Some("src/lib.rs")
             ),
             (
                 "NAT",
                 "nat--plus_zero",
+                Some("crate::plus_zero"),
                 Some("plus_zero"),
                 Some("src/lib.rs")
             ),
@@ -1278,7 +1344,7 @@ fn the_emitted_definition_is_the_one_emit_k_writes() {
     for rule in &emitted.rules {
         let comment = format!(
             "// KRS story-plus/src/lib.rs: {}\n",
-            rule.item.as_deref().unwrap()
+            rule.source_item.as_deref().unwrap()
         );
         let sentence = format!("[label({})]", rule.label);
         let at = emit_k.find(&comment).unwrap();
@@ -1529,12 +1595,21 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
     }
     // A mutation that does not resolve gets no KRS judgement: no finding and no `krs` value.
     assert_eq!(row(&document, "label")["krs"], Value::Null, "{document:#}");
+    // The claim helper's function is named as a stop reads its item, and as its source names it.
+    let helper = &row(&document, "helper")["warnings"][1];
+    assert!(
+        helper["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("`checks--expected` is an equation of `crate::expected` (`Expected`),"),
+        "{helper:#}"
+    );
     // The overlap names both rules and says no Rust edit of the edited construct avoids it.
     let overlap = &row(&document, "overlap")["refusals"][0];
     let detail = overlap["detail"].as_str().unwrap();
     for named in [
-        "`checks--step_neg` (step_neg",
-        "`checks--step_nonneg` (step_nonneg",
+        "`checks--step_neg` (crate::step_neg",
+        "`checks--step_nonneg` (crate::step_nonneg",
     ] {
         assert!(detail.contains(named), "{detail}");
     }
@@ -1593,7 +1668,7 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
     // Each edit's Rust: the guard's literal, the deleted rule's item.
     let edit = &row(&document, "overlap")["krs"]["edits"][0];
     assert_eq!(edit["judged"], "authored", "{edit:#}");
-    assert_eq!(edit["item"], "step_nonneg", "{edit:#}");
+    assert_eq!(edit["item"], "crate::step_nonneg", "{edit:#}");
     assert_eq!(edit["rust"][0]["text"], "0", "{edit:#}");
     assert_eq!(
         edit["rust"][0]["line"].as_u64(),
@@ -1860,11 +1935,18 @@ fn results_give_a_claim_helper_its_own_status() {
         .map(|rule| {
             (
                 rule["krs"]["item"].as_str().unwrap(),
+                rule["krs"]["source_item"].as_str().unwrap(),
                 rule["status"].as_str().unwrap(),
             )
         })
         .collect::<Vec<_>>();
-    assert_eq!(helpers, [("Expected", "claim-helper")], "{document:#}");
+    // The function's one equation is the item `expected`, as `krs run --coverage` names it; the
+    // `// KRS` line names the function.
+    assert_eq!(
+        helpers,
+        [("crate::expected", "Expected", "claim-helper")],
+        "{document:#}"
+    );
     for rule in rules {
         if rule["status"] == "claim-helper" {
             assert_eq!(rule["krs"]["claim_helper"], true, "{rule:#}");
@@ -1956,17 +2038,18 @@ impl Machine {
         panic!("one record: {program:#}")
     };
     assert_eq!(record["claim"], "total", "{record:#}");
-    assert_eq!(record["krs_rule"]["item"], "Div", "{record:#}");
+    assert_eq!(record["krs_rule"]["item"], "crate::div", "{record:#}");
+    assert_eq!(record["krs_rule"]["source_item"], "Div", "{record:#}");
     assert_eq!(record["krs_rule"]["file"], "src/lib.rs", "{record:#}");
     // The equation's authored source starts at the function or in its body.
     let line = record["krs_rule"]["line"].as_u64().unwrap();
     let function = line_of(LIBRARY, "pub fn Div(");
     assert!((function..=function + 1).contains(&line), "{record:#}");
     assert_eq!(
-        record["krs_observing_rule"]["item"], "sib_div",
+        record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert!(document.get("krs").is_none(), "{:#}", document["krs"]);
+    assert_eq!(document["krs"], serde_json::json!({"version": 2}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
@@ -2274,7 +2357,9 @@ fn a_mutation_of_a_group_rule_is_judged_in_every_definition_that_holds_the_group
         assert_eq!(
             rule["krs"],
             serde_json::json!({
-                "item": "reply",
+                // The library's item, by its crate name, as a stop names it.
+                "item": "krs_configuration_cells_group_core::reply",
+                "source_item": "reply",
                 "package": GROUP_CORE_PACKAGE,
                 "file": "src/lib.rs",
                 "line": line_of(GROUP_CORE, "    reply: {"),
@@ -2485,6 +2570,56 @@ fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     labels.push("LANG.step");
     labels.sort_unstable();
     assert_eq!(strings(&check["stop"]["after"]), labels, "{check:#}");
+
+    // A rule a document names is named as the stop names it: a dependency's item by its crate
+    // name, the console's by `crate::`. `krs run --coverage` names the rules the run took by the
+    // same strings.
+    let items = document["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|rule| rule["krs"]["item"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for item in ["crate::frame", "lang::step", "lang::add"] {
+        assert!(items.contains(item), "{item} in {items:?}");
+    }
+    let output = project.krs(&[
+        "run",
+        "kink/cases/t0.op",
+        "--dependency",
+        "lang:main",
+        "--stop-after",
+        "crate::frame",
+        "--stop-count",
+        "2",
+        "--coverage",
+        "--output",
+        "json",
+    ]);
+    assert_status(&output, 0);
+    let run = json(&output);
+    let covered = run["run"]["coverage"]["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|rule| rule["committed"] == true)
+        .filter_map(|rule| rule["item"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for item in [
+        "crate::frame",
+        "lang::step",
+        "lang::tick_value",
+        "lang::add",
+    ] {
+        assert!(covered.contains(item), "{item} in {covered:?}");
+    }
+    // The context's heat and cool rules are K's, generated from the context sentence, which a
+    // document lists as no rule; every other rule the run took is named by the same string.
+    let covered = covered
+        .into_iter()
+        .filter(|item| *item != "lang::tick_value")
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(covered.is_subset(&items), "{covered:?} named in {items:?}");
 }
 
 /// The case documents of [`LEFT_OUT`]'s expectation corpora: `run(1)` ends in `done(2)` and
