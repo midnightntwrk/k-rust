@@ -20747,7 +20747,7 @@ rule [case-TAG]:
 
 rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in <frame> <ret> 1 </ret> </frame> ) [label(krsRule_DIGEST)]
 
-syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+syntax FrameCell ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
