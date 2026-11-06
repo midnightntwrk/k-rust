@@ -4309,8 +4309,7 @@ fn views_refuse_a_function_evaluated_in_one_instance(
 /// `smt`: cores in a Map collection keyed by `cid`, each with its computation
 /// cell `k`, a map `cenv` and threads in a Map collection keyed by `tid`, each
 /// with `tv` and the maps `tenv` and `tmem`; beside them a memory and devices
-/// in a Map collection. `tvPlus(n)` reads the thread's `tv`, so it receives
-/// the core's and the thread's keys.
+/// in a Map collection.
 const SMT: &str = r#"
 use k::Term;
 use k::builtin::{Int, KSequence};
@@ -4395,7 +4394,11 @@ impl Smt {
         }
     }
 }
+"#;
 
+/// `tvPlus(n)` reads the thread's `tv`, so it receives the core's and the
+/// thread's keys.
+const TV_PLUS: &str = r#"
 #[k::function(total, sort = Int, syntax = "tvPlus ( {n} )")]
 pub struct TvPlus {
     pub n: Term<Int>,
@@ -4438,10 +4441,10 @@ fn cid_plus(
 
 /// The cases of [`a_rule_is_inside_the_deepest_instance_its_cells_lie_in`]:
 /// a table clause at the main cell, inside a core, whose `have` names one or
-/// two cells of a thread, or a device's cell; a rule for the configuration
+/// two cells of a thread; a rule for the configuration
 /// that matches a core through the cores' instance list, readable and
 /// `cells!`.
-const DEEPEST_CASES: [(&str, &str); 5] = [
+const DEEPEST_CASES: [(&str, &str); 4] = [
     (
         "thread-cell",
         r"
@@ -4461,17 +4464,6 @@ k::rules! {
     use Step::*;
 
     go: Go() => Done { n: crate::TvPlus(k::builtin::int::add(a, b)) } where have tenv[0 -> let a], have tmem[1 -> let b];
-}
-",
-    ),
-    (
-        "sibling",
-        r"
-k::rules! {
-    for lib::Instr;
-    use Step::*;
-
-    go: Go() => Done { n: v } where have denv[0 -> let v];
 }
 ",
     ),
@@ -4515,8 +4507,7 @@ pub fn go(
 /// thread too, and applies `tvPlus`, passing the core's and the thread's
 /// keys: from `tv` 5 with `tenv` 0 |-> 7 it ends at `done ( 12 )`, and with
 /// `tmem` 1 |-> 20 read beside it, in the same thread, at `done ( 32 )`. A
-/// clause that also reads a device's map, beside the cores, is inside no one
-/// instance (`collection-entry`, at the device's cell). A rule for the
+/// rule for the
 /// configuration that matches a core through the cores' instance list is
 /// about the collection whole, so it is inside no core and cannot apply
 /// `cidPlus`, in either spelling: no `cells!` rule matches a computation cell
@@ -4532,7 +4523,7 @@ fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
             let manifest = instance_definitions(
                 &temporary.path().join(name),
                 "",
-                &[("smt", &format!("{SMT}{CID_PLUS}{rules}"))],
+                &[("smt", &format!("{SMT}{TV_PLUS}{CID_PLUS}{rules}"))],
             )
             .remove(0);
             let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
@@ -4570,11 +4561,6 @@ fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
                 "done ( 32 ) ~> .K",
             ],
             [
-                "sibling",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`, and neither instance holds the other: a rule is a local step of one instance of each holder on one chain of nested instances, the one holding every cell it matches, and no such instance holds both cells; match the other instance through its holder's instance list in a rule for the configuration",
-                "--> smt/src/lib.rs: `denv[0 -> let v]`",
-            ],
-            [
                 "instance-list",
                 "error[krs::analysis::instance-context-caller]: `CidPlus` reads the cell group `Core` through its function context in one instance of the Map collection cell `core`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
                 "--> smt/src/lib.rs: `crate::CidPlus(1`",
@@ -4583,6 +4569,73 @@ fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
                 "instance-list-cells",
                 "error[krs::analysis::instance-context-caller]: `CidPlus` reads the cell group `Core` through its function context in one instance of the Map collection cell `core`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
                 "--> smt/src/lib.rs: `crate::CidPlus(1`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// The clauses of [`a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet`]:
+/// a table clause at the main cell, inside a core, whose `have` reads a
+/// device's map, beside the cores, or the memory, outside every instance.
+const UNNESTED_CASES: [(&str, &str); 2] = [
+    ("sibling", "have denv[0 -> let v]"),
+    ("top-level", "have mem[0 -> let v]"),
+];
+
+/// A rule whose cells lie in instances of two holders neither of which holds
+/// the other (a core's computation cell and a device's map), or both inside
+/// an instance and outside every instance (a core's computation cell and the
+/// memory), would match one instance of each, or the memory beside one core:
+/// no one nesting of instance cells holds its clauses, and writing them
+/// otherwise is not supported yet. Each is refused at the cell that leaves
+/// the core (`collection-entry`), the same whether or not the definition has
+/// a function context typed by a group in an instance, never with the
+/// emitter's internal error.
+#[test]
+fn a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let outcomes = UNNESTED_CASES
+        .iter()
+        .flat_map(|(name, have)| {
+            [("contexts", TV_PLUS), ("no contexts", "")].map(|(contexts, functions)| {
+                let directory = temporary.path().join(format!("{name}-{}", functions.len()));
+                let rules = format!(
+                    "k::rules! {{\n    for lib::Instr;\n    use Step::*;\n\n    go: Go() => Done {{ n: v }} where {have};\n}}\n"
+                );
+                let manifest = instance_definitions(
+                    &directory,
+                    "",
+                    &[("smt", &format!("{SMT}{functions}{rules}"))],
+                )
+                .remove(0);
+                let mut report = vec![format!("{name}, {contexts}")];
+                report.extend(check_report(target.path(), &manifest, "smt"));
+                report
+            })
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            [
+                "sibling, contexts",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
+                "--> smt/src/lib.rs: `denv[0 -> let v]`",
+            ],
+            [
+                "sibling, no contexts",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
+                "--> smt/src/lib.rs: `denv[0 -> let v]`",
+            ],
+            [
+                "top-level, contexts",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
+                "--> smt/src/lib.rs: `mem[0 -> let v];`",
+            ],
+            [
+                "top-level, no contexts",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
+                "--> smt/src/lib.rs: `mem[0 -> let v];`",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
