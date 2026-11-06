@@ -14,9 +14,10 @@ use krs_ir::{
     DescriptorConfigurationReference, DescriptorConfigurationRule, DescriptorHeadRule,
     DescriptorIndex, DescriptorKSequenceNotation, DescriptorRuleCells, DescriptorSortRef,
     DescriptorSortReference, DescriptorTerm, ProtocolCellContent, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleFrame,
-    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
-    ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, StableItemId,
+    ProtocolHeadRuleResult, ProtocolInstanceRest, ProtocolRuleBinding, ProtocolRuleBindingKind,
+    ProtocolRuleFrame, ProtocolRuleInstances, ProtocolRuleKSequence, ProtocolRuleKSequenceItem,
+    ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm,
+    ProvenanceKey, SentenceKind, StableItemId,
 };
 use krs_ir_levels::{SemanticRule, SemanticSortRef};
 
@@ -98,6 +99,48 @@ struct Elaborator<'a> {
 
 type Elaborated<T> = Result<T, Unelaborated>;
 
+/// The names the elaborated rule introduces beside the readable binders: the remainders a
+/// collection entry's `..` and an instance's `k` tail stand for, named as the print names them,
+/// each fresh against every name taken before it.
+struct Names {
+    reserved: BTreeSet<String>,
+    /// Instance `k` tails named so far (`tail0`, `tail1`, ..), across the rule's entries.
+    tails: usize,
+    /// The frames these names bind, in the order named.
+    frames: Vec<ProtocolRuleBinding<DescriptorSortReference>>,
+}
+
+impl Names {
+    fn fresh(&mut self, base: &str) -> String {
+        // One of `reserved.len() + 1` candidates is free.
+        let name = (0..=self.reserved.len())
+            .map(|ordinal| {
+                if ordinal == 0 {
+                    base.to_owned()
+                } else {
+                    format!("{base}{ordinal}")
+                }
+            })
+            .find(|name| !self.reserved.contains(name))
+            .expect("one of more names than the reserved ones is free");
+        self.reserved.insert(name.clone());
+        name
+    }
+
+    fn frame(
+        &mut self,
+        base: &str,
+        kind: ProtocolRuleBindingKind<DescriptorSortReference>,
+    ) -> String {
+        let name = self.fresh(base);
+        self.frames.push(ProtocolRuleBinding {
+            name: name.clone(),
+            kind,
+        });
+        name
+    }
+}
+
 impl Elaborator<'_> {
     #[expect(
         clippy::too_many_lines,
@@ -154,32 +197,29 @@ impl Elaborator<'_> {
         }
         // The cells the rule leaves out, a configuration frame the subject binds and the
         // result keeps, under a name no binder has.
-        let reserved = rule
-            .bindings
-            .iter()
-            .map(|binding| binding.name.as_str())
-            .chain(
-                rule.existentials
-                    .iter()
-                    .chain(&rule.fresh)
-                    .map(|binder| binder.name.as_str()),
-            )
-            .collect::<BTreeSet<_>>();
-        let state = (0..=reserved.len())
-            .map(|n| {
-                if n == 0 {
-                    "state".to_owned()
-                } else {
-                    format!("state{n}")
-                }
-            })
-            .find(|name| !reserved.contains(name.as_str()))
-            .expect("one of more names than the reserved ones is free");
+        let mut names = Names {
+            reserved: rule
+                .bindings
+                .iter()
+                .map(|binding| binding.name.as_str())
+                .chain(
+                    rule.existentials
+                        .iter()
+                        .chain(&rule.fresh)
+                        .map(|binder| binder.name.as_str()),
+                )
+                .map(str::to_owned)
+                .collect(),
+            tails: 0,
+            frames: Vec::new(),
+        };
+        let state = names.fresh("state");
+        let (subject, result) = self.cells(&mut names)?;
+        bindings.append(&mut names.frames);
         bindings.push(ProtocolRuleBinding {
             name: state.clone(),
             kind: ProtocolRuleBindingKind::ConfigurationFrame,
         });
-        let (subject, result) = self.cells()?;
         let claim = rule.claim.as_ref().map(|claim| DescriptorClaim {
             declaration_key: role_key(ProvenanceRole::ClaimDeclaration, 0),
             modality_key: claim.modality_key.clone(),
@@ -233,7 +273,10 @@ impl Elaborator<'_> {
 
     /// The subject's and the result's cells: the computation cell's head first, then each
     /// extra in the order written.
-    fn cells(&self) -> Elaborated<(Vec<DescriptorRuleCell>, Vec<DescriptorRuleCell>)> {
+    fn cells(
+        &self,
+        names: &mut Names,
+    ) -> Elaborated<(Vec<DescriptorRuleCell>, Vec<DescriptorRuleCell>)> {
         let rule = self.rule;
         let mut subject = Vec::new();
         let mut result = Vec::new();
@@ -288,8 +331,8 @@ impl Elaborator<'_> {
                 result.push(sequence(rule.result_key.clone(), items));
             }
         }
-        for extra in &rule.extras {
-            let (before, after) = self.extra(extra)?;
+        for (ordinal, extra) in rule.extras.iter().enumerate() {
+            let (before, after) = self.extra(extra, ordinal, names)?;
             subject.push(before);
             result.extend(after);
         }
@@ -303,15 +346,20 @@ impl Elaborator<'_> {
     fn extra(
         &self,
         extra: &ProtocolHeadRuleExtra<krs_ir::DescriptorCellReference, DescriptorTerm>,
+        ordinal: usize,
+        names: &mut Names,
     ) -> Elaborated<(DescriptorRuleCell, Option<DescriptorRuleCell>)> {
         let cell = |field: &krs_ir::DescriptorCellReference, value| -> Elaborated<_> {
             let declared = require_cell_field(&field.cell, self.declarations)
                 .map_err(|_| Unelaborated("a cell the declarations lack"))?;
-            let group = matches!(declared.content, ProtocolCellContent::Nested { .. });
+            // A leaf's content is wrapped in its cell; a group, an absent cell and an instance
+            // list are written without one.
+            let wrapped = !matches!(declared.content, ProtocolCellContent::Nested { .. })
+                && !matches!(value, ProtocolRuleStateTerm::Absent);
             Ok(DescriptorRuleCell {
                 field: field.clone(),
-                wrapper_key: (!group).then(|| field.key.clone()),
-                wrapper: (!group).then_some(CellWrapper::Cell),
+                wrapper_key: wrapped.then(|| field.key.clone()),
+                wrapper: wrapped.then_some(CellWrapper::Cell),
                 value,
             })
         };
@@ -397,6 +445,25 @@ impl Elaborator<'_> {
             )),
             ProtocolHeadRuleExtra::RewriteState {
                 cell: field,
+                before: ProtocolRuleStateTerm::Instances(before),
+                after,
+                ..
+            } => {
+                let after = match after {
+                    None => None,
+                    Some(ProtocolRuleStateTerm::Instances(after)) => Some(after),
+                    Some(_) => return Err(Unelaborated("an instance list rewritten to no list")),
+                };
+                let (before, after) = instances(before, after, ordinal, names)?;
+                Ok((
+                    cell(field, ProtocolRuleStateTerm::Instances(before))?,
+                    after
+                        .map(|after| cell(field, ProtocolRuleStateTerm::Instances(after)))
+                        .transpose()?,
+                ))
+            }
+            ProtocolHeadRuleExtra::RewriteState {
+                cell: field,
                 before,
                 after,
                 ..
@@ -433,6 +500,116 @@ impl Elaborator<'_> {
             )),
         }
     }
+}
+
+/// A readable collection entry as `cells!` writes it: the other instances, `..` on both sides, are
+/// one instances frame the subject binds (`instances<ordinal> @ ..`) and the result keeps
+/// (`..instances<ordinal>`); an instance's open `k` is a sequence frame its pattern binds
+/// (`tail<n> @ ..`), which the result instance updating it (`..label`) keeps. Every other part
+/// of an instance is written as the readable entry writes it.
+fn instances(
+    before: &ProtocolRuleInstances<DescriptorTerm>,
+    after: Option<&ProtocolRuleInstances<DescriptorTerm>>,
+    ordinal: usize,
+    names: &mut Names,
+) -> Elaborated<(
+    ProtocolRuleInstances<DescriptorTerm>,
+    Option<ProtocolRuleInstances<DescriptorTerm>>,
+)> {
+    let rest = (!matches!(before.rest, ProtocolRuleFrame::Exact)).then(|| {
+        names.frame(
+            &format!("instances{ordinal}"),
+            ProtocolRuleBindingKind::InstancesFrame,
+        )
+    });
+    // Each labelled subject instance's `k` tail, which the result instance updating it reuses.
+    let mut tails = BTreeMap::new();
+    let mut side = |instances: &ProtocolRuleInstances<DescriptorTerm>,
+                    pattern: bool,
+                    tails: &mut BTreeMap<String, String>|
+     -> Elaborated<ProtocolRuleInstances<DescriptorTerm>> {
+        let mut instance = |instance: &krs_ir::ProtocolRuleInstance<DescriptorTerm>| {
+            let reused = match &instance.rest {
+                ProtocolInstanceRest::Update { label } => tails.get(label).cloned(),
+                _ => None,
+            };
+            let mut instance = instance.clone();
+            for field in &mut instance.fields {
+                let ProtocolRuleStateTerm::KSequence(sequence) = &mut field.value else {
+                    continue;
+                };
+                sequence.notation = DescriptorKSequenceNotation::Comma;
+                let key = match &sequence.tail {
+                    ProtocolRuleFrame::Exact => continue,
+                    ProtocolRuleFrame::Anonymous { key }
+                    | ProtocolRuleFrame::Bind { key, .. }
+                    | ProtocolRuleFrame::Reuse { key, .. } => key.clone(),
+                };
+                sequence.tail = if pattern {
+                    let tail = names.frame(
+                        &format!("tail{}", names.tails),
+                        ProtocolRuleBindingKind::KSequenceFrame,
+                    );
+                    names.tails += 1;
+                    if let Some(label) = &instance.label {
+                        tails.insert(label.clone(), tail.clone());
+                    }
+                    ProtocolRuleFrame::Bind { key, binding: tail }
+                } else {
+                    let tail = reused.clone().ok_or(Unelaborated(
+                        "an open instance `k` no updated instance keeps",
+                    ))?;
+                    ProtocolRuleFrame::Reuse { key, binding: tail }
+                };
+            }
+            Ok(instance)
+        };
+        let front = instances
+            .front
+            .iter()
+            .map(&mut instance)
+            .collect::<Elaborated<Vec<_>>>()?;
+        let back = instances
+            .back
+            .iter()
+            .map(&mut instance)
+            .collect::<Elaborated<Vec<_>>>()?;
+        let rest = match (&instances.rest, &rest) {
+            (ProtocolRuleFrame::Exact, _) => ProtocolRuleFrame::Exact,
+            (
+                ProtocolRuleFrame::Anonymous { key }
+                | ProtocolRuleFrame::Bind { key, .. }
+                | ProtocolRuleFrame::Reuse { key, .. },
+                Some(rest),
+            ) => {
+                let binding = rest.clone();
+                if pattern {
+                    ProtocolRuleFrame::Bind {
+                        key: key.clone(),
+                        binding,
+                    }
+                } else {
+                    ProtocolRuleFrame::Reuse {
+                        key: key.clone(),
+                        binding,
+                    }
+                }
+            }
+            // `..` on the result side only: the readable lowering refuses it, as cells! does.
+            (open, None) => open.clone(),
+        };
+        Ok(ProtocolRuleInstances {
+            delimiter: instances.delimiter,
+            front,
+            rest,
+            back,
+        })
+    };
+    let before = side(before, true, &mut tails)?;
+    let after = after
+        .map(|after| side(after, false, &mut tails))
+        .transpose()?;
+    Ok((before, after))
 }
 
 /// One side of a readable list cell as the `cells!` term its brackets are: the list-notation
@@ -900,6 +1077,7 @@ fn dump(
 fn normalized(rule: &SemanticRule, cells: bool, shadow: Shadow) -> Value {
     let mut value = json(rule);
     unlabelled(&mut value, shadow);
+    unread_frames(&mut value);
     if cells
         && let Some(claim) = rule.claim()
         && !claim.universals().is_empty()
@@ -921,6 +1099,75 @@ fn normalized(rule: &SemanticRule, cells: bool, shadow: Shadow) -> Value {
         }
     }
     value
+}
+
+/// Drops the name of each K-sequence tail or map remainder frame of `rule` (its JSON) that no other
+/// node reads, and its declaration. A clause's frame is one node standing for the content its
+/// pattern leaves out and its result keeps; a name only that frame bears binds nothing a term or
+/// a condition refers to, so the frame matches and keeps the same content named or not (K's
+/// `<k> A => B ... </k>` and `<k> A ~> T => B ~> T </k>`). The routes differ there: the print
+/// names an instance's open `k` (`tail0 @ ..`, `..tail0`), the readable entry leaves it unnamed.
+fn unread_frames(rule: &mut Value) {
+    fn frames(value: &Value, found: &mut Vec<String>) {
+        match value {
+            Value::Array(items) => items.iter().for_each(|item| frames(item, found)),
+            Value::Object(fields) => {
+                if let (Some(Value::String(kind)), Some(Value::String(binding))) =
+                    (fields.get("frame_kind"), fields.get("binding"))
+                    && matches!(kind.as_str(), "k_sequence_tail" | "map_remainder")
+                {
+                    found.push(binding.clone());
+                }
+                fields.values().for_each(|field| frames(field, found));
+            }
+            _ => {}
+        }
+    }
+    fn count(value: &Value, name: &str) -> usize {
+        match value {
+            Value::String(text) => usize::from(text == name),
+            Value::Array(items) => items.iter().map(|item| count(item, name)).sum(),
+            Value::Object(fields) => fields.values().map(|field| count(field, name)).sum(),
+            _ => 0,
+        }
+    }
+    fn unname(value: &mut Value, name: &str) {
+        match value {
+            Value::Array(items) => items.iter_mut().for_each(|item| unname(item, name)),
+            Value::Object(fields) => {
+                if fields.get("frame_kind").is_some()
+                    && fields.get("binding").and_then(Value::as_str) == Some(name)
+                {
+                    fields.remove("binding");
+                }
+                fields.values_mut().for_each(|field| unname(field, name));
+            }
+            _ => {}
+        }
+    }
+    let Value::Object(fields) = rule else {
+        return;
+    };
+    let mut found = Vec::new();
+    frames(&Value::Object(fields.clone()), &mut found);
+    for name in found {
+        let reads = fields
+            .iter()
+            .filter(|(field, _)| *field != "variables")
+            .map(|(_, value)| count(value, &name))
+            .sum::<usize>();
+        if reads != 1 {
+            continue;
+        }
+        for (field, value) in fields.iter_mut() {
+            if field != "variables" {
+                unname(value, &name);
+            }
+        }
+        if let Some(Value::Array(variables)) = fields.get_mut("variables") {
+            variables.retain(|variable| variable.get("id").and_then(Value::as_str) != Some(&name));
+        }
+    }
 }
 
 /// Renames the wildcards of `rule` (its JSON) `__krs_wildcard_0`, `_1`, .. in the order they
