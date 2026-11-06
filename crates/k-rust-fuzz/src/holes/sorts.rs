@@ -276,6 +276,12 @@ impl SortRule {
             .collect()
     }
 
+    /// The K names of the cell sorts (`TextSyntax::new`'s `computations`), which the rule
+    /// refuses as computations.
+    pub(super) fn cell_sorts(&self) -> Vec<String> {
+        self.cells.iter().cloned().collect()
+    }
+
     fn kind(&self, head: &str) -> Kind {
         if head == BuiltinSort::K.k_name()
             || head == BuiltinSort::KItem.k_name()

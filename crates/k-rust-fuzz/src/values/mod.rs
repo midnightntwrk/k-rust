@@ -29,6 +29,8 @@ mod test_definition;
 mod tests;
 pub mod text;
 
+use std::collections::BTreeSet;
+
 use k_rust::{
     k_rust_backend::{
         definition::BackendDefinition,
@@ -504,16 +506,18 @@ pub(crate) fn resolve_value_sort(
     constraints: &Constraints,
     definition: &BackendDefinition,
 ) -> Result<ValueSort, SortRefusal> {
-    resolve_with(sort, constraints, definition, None)
+    resolve_with(sort, constraints, definition, None, &BTreeSet::new())
 }
 
 /// [`resolve_value_sort`], with the K-text syntax `text` attached to collection and data sorts
-/// and its excluded sorts left out of data tables.
+/// and its excluded sorts left out of data tables, but those of `admitted` (KORE names), which a
+/// hole's override admits ([`TextSyntax::resolve_admitting`]).
 pub(super) fn resolve_with(
     sort: &str,
     constraints: &Constraints,
     definition: &BackendDefinition,
     text: Option<&TextSyntax>,
+    admitted: &BTreeSet<String>,
 ) -> Result<ValueSort, SortRefusal> {
     let text_sort = sort.trim();
     let kast = parse_sort(text_sort).map_err(|_| SortRefusal::Unknown)?;
@@ -542,28 +546,39 @@ pub(super) fn resolve_with(
         Some(_) => Err(SortRefusal::NoGenerator),
         None => match hook {
             None if !info.has_domain_values => {
-                // `K`, `KItem` and K's internal sorts are computations whatever the syntax.
+                // `K`, `KItem` and K's internal sorts are computations whatever the syntax, and
+                // so are the cell sorts the syntax names; no override makes a computation data.
                 let internal = |name: &str| text::is_always_excluded(name);
-                if internal(name) {
+                if internal(name) || text.is_some_and(|text| text.is_computation(name)) {
                     return Err(SortRefusal::Computation);
                 }
                 if !arguments.is_empty() || !info.parameters.is_empty() {
                     return Err(SortRefusal::NoGenerator);
                 }
-                if text.is_some_and(|text| text.is_excluded(name)) {
+                let excluded = |name: &str| {
+                    text.map_or_else(
+                        || internal(name),
+                        |text| text.is_excluded(name) && !admitted.contains(name),
+                    )
+                };
+                if text.is_some() && excluded(name) {
                     return Err(SortRefusal::ProgramSyntax);
                 }
-                let excluded =
-                    |name: &str| text.map_or_else(|| internal(name), |text| text.is_excluded(name));
                 Ok(ValueSort::Data {
                     sort: text_sort.to_owned(),
                     table: data::data_table(name, definition, &excluded)?,
                     text: text.cloned(),
                 })
             }
-            Some(hook @ ("LIST.List" | "SET.Set" | "MAP.Map")) => {
-                resolve_collection(text_sort, name, hook, constraints, definition, text)
-            }
+            Some(hook @ ("LIST.List" | "SET.Set" | "MAP.Map")) => resolve_collection(
+                text_sort,
+                name,
+                hook,
+                constraints,
+                definition,
+                text,
+                admitted,
+            ),
             _ => Err(SortRefusal::NoGenerator),
         },
     }
@@ -578,10 +593,11 @@ fn resolve_collection(
     constraints: &Constraints,
     definition: &BackendDefinition,
     text: Option<&TextSyntax>,
+    admitted: &BTreeSet<String>,
 ) -> Result<ValueSort, SortRefusal> {
     // A refused element sort refuses the collection with its own reason (FZ-G6+09 review N7).
     let element = |sort: &str| {
-        resolve_with(sort, &Constraints::default(), definition, text)
+        resolve_with(sort, &Constraints::default(), definition, text, admitted)
             .map(Box::new)
             .map_err(|reason| SortRefusal::ElementRefused {
                 element: sort.to_owned(),

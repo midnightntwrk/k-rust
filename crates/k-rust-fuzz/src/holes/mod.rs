@@ -31,7 +31,8 @@
 //! Builtin sorts with a generator are admitted although programs contain their literals; `K`,
 //! `KItem`, `KResult`, cell sorts, the sorts programs are written in and token sorts such as
 //! `Id` are refused. An override (`allow-refused-sort`) admits all but an undeclared sort and a
-//! collection element sort the collection cannot hold, and the report records it. A template
+//! collection element sort the collection cannot hold, and the report records it; an admitted
+//! sort programs are written in is generated from its own constructors. A template
 //! hole's sort must be its variable's sort, and a configuration-variable hole's sort the
 //! variable's declared sort or a subsort of it.
 
@@ -326,6 +327,7 @@ pub(crate) fn resolve(
             &definition.syntax_definition_kore,
             &definition.macros_kore,
             rule.excluded(),
+            rule.cell_sorts(),
         )
         .map_err(|message| CampaignError::Definition {
             message: format!("the definition's K-text syntax: {message}"),
@@ -369,11 +371,7 @@ pub(crate) fn resolve(
                 sort: decl.sort.clone(),
             }
         } else {
-            match &text {
-                Some(text) => text.resolve(&decl.sort, &decl.constraints, backend),
-                None => resolve_value_sort(&decl.sort, &decl.constraints, backend),
-            }
-            .map_err(refuse)?
+            resolve_admitted(decl, &refusals, text.as_ref(), backend).map_err(refuse)?
         };
         // The backend may see a token sort the frontend's token declarations do not name; a
         // token hole is admitted only with a recorded override, whichever side saw it.
@@ -404,6 +402,27 @@ pub(crate) fn resolve(
         });
     }
     Ok(ResolvedHoles { holes, text })
+}
+
+/// The value sort of `decl`, whose override admitted `refusals` (none without one). The override
+/// admits each program-syntax sort it was given for, so the hole's values are built from those
+/// sorts' constructors as from any data sort's; a sort it was not given for stays out of them
+/// ([`TextSyntax::resolve_admitting`]).
+fn resolve_admitted(
+    decl: &HoleDecl,
+    refusals: &[(String, SortRefusal)],
+    text: Option<&TextSyntax>,
+    backend: &BackendDefinition,
+) -> Result<ValueSort, SortRefusal> {
+    let Some(text) = text else {
+        return resolve_value_sort(&decl.sort, &decl.constraints, backend);
+    };
+    let admitted = refusals
+        .iter()
+        .filter(|(_, reason)| *reason == SortRefusal::ProgramSyntax)
+        .map(|(sort, _)| sort.clone())
+        .collect::<Vec<_>>();
+    text.resolve_admitting(&decl.sort, &decl.constraints, backend, &admitted)
 }
 
 /// The hole-sort rule (ARCHITECTURE 2.4 as amended by D17, R-11, T-9). Refused: `K`, `KItem`,

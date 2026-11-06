@@ -66,6 +66,9 @@ struct Inner {
     main_module: String,
     /// KORE names of sorts whose values are not data: a data table never enters them.
     excluded: BTreeSet<String>,
+    /// KORE names of the excluded sorts that are computations (cell sorts and
+    /// [`ALWAYS_EXCLUDED`]): a hole of one is refused as a computation, which no override admits.
+    computations: BTreeSet<String>,
 }
 
 impl fmt::Debug for TextSyntax {
@@ -102,6 +105,8 @@ impl TextSyntax {
     /// sorts are affected: a builtin or collection sort in `excluded` (the program grammar
     /// mentions `Int`) is still generated, since ARCHITECTURE 2.4 exempts builtins. `K`,
     /// `KItem` and K's internal sorts (`KResult`, `KBott`, `KConfigVar`) are always excluded.
+    /// `computations` names the cell sorts: they are excluded too, and a hole of one is refused
+    /// as a computation ([`SortRefusal::Computation`]), as `K` is, not as program syntax.
     ///
     /// # Errors
     ///
@@ -113,25 +118,24 @@ impl TextSyntax {
         syntax_definition_kore: &str,
         macros_kore: &str,
         excluded: impl IntoIterator<Item = String>,
+        computations: impl IntoIterator<Item = String>,
     ) -> Result<Self, String> {
         let unparser = Unparser::from_kore(syntax_definition_kore, macros_kore)
             .map_err(|error| error.to_string())?
             .with_program_grammar(frontend);
         let grammar = ProgramGrammar::new(frontend).map_err(|error| error.to_string())?;
         let macros = MacroExpansionDefinition::prepare(grammar.definition())?;
-        let mut names = excluded.into_iter().collect::<BTreeSet<_>>();
-        names.extend(ALWAYS_EXCLUDED.map(str::to_owned));
-        let excluded = names
-            .iter()
-            .map(|name| {
-                let sort = parse_sort(name).map_err(|error| format!("sort `{name}`: {error}"))?;
-                match &encode_kore_sort(&sort) {
-                    KoreSort::Application { name, .. } | KoreSort::Variable(name) => {
-                        Ok(name.clone())
-                    }
-                }
-            })
-            .collect::<Result<BTreeSet<_>, String>>()?;
+        let kore_names = |names: BTreeSet<String>| {
+            names
+                .iter()
+                .map(|name| kore_name(name))
+                .collect::<Result<BTreeSet<_>, String>>()
+        };
+        let mut computations = computations.into_iter().collect::<BTreeSet<_>>();
+        computations.extend(ALWAYS_EXCLUDED.map(str::to_owned));
+        let computations = kore_names(computations)?;
+        let mut excluded = kore_names(excluded.into_iter().collect())?;
+        excluded.extend(computations.iter().cloned());
         Ok(Self(Arc::new(Inner {
             unparser,
             grammar,
@@ -139,6 +143,7 @@ impl TextSyntax {
             parser: OnceLock::new(),
             main_module: main_module.to_owned(),
             excluded,
+            computations,
         })))
     }
 
@@ -147,10 +152,16 @@ impl TextSyntax {
         self.0.excluded.contains(name)
     }
 
+    /// Whether the sort whose KORE name is `name` is a computation: a cell sort, `K`, `KItem` or
+    /// one of K's internal sorts.
+    pub(crate) fn is_computation(&self, name: &str) -> bool {
+        self.0.computations.contains(name)
+    }
+
     /// Resolve a hole's sort as `super::resolve_value_sort` does, with this syntax attached to
     /// collection and data sorts (so that their values print and read back as K text) and the
     /// excluded sorts left out of data tables. A data hole of an excluded sort is refused with
-    /// [`SortRefusal::Computation`] (`K`, `KItem`) or [`SortRefusal::ProgramSyntax`].
+    /// [`SortRefusal::Computation`] (`K`, `KItem`, a cell sort) or [`SortRefusal::ProgramSyntax`].
     ///
     /// # Errors
     ///
@@ -161,7 +172,31 @@ impl TextSyntax {
         constraints: &Constraints,
         definition: &BackendDefinition,
     ) -> Result<ValueSort, SortRefusal> {
-        resolve_with(sort, constraints, definition, Some(self))
+        resolve_with(sort, constraints, definition, Some(self), &BTreeSet::new())
+    }
+
+    /// [`Self::resolve`] for a hole whose override (`allow-refused-sort`) admits the
+    /// program-syntax sorts `admitted` (K names): each of them is generated from its own
+    /// constructors, as a data sort outside the program syntax is, wherever the hole's values
+    /// hold it, the hole's own sort included. Every other excluded sort stays out of the data
+    /// tables, so a value holds no sort the override did not admit.
+    ///
+    /// # Errors
+    ///
+    /// The refusals of [`Self::resolve`], but [`SortRefusal::ProgramSyntax`] for a sort of
+    /// `admitted`.
+    pub fn resolve_admitting(
+        &self,
+        sort: &str,
+        constraints: &Constraints,
+        definition: &BackendDefinition,
+        admitted: &[String],
+    ) -> Result<ValueSort, SortRefusal> {
+        let admitted = admitted
+            .iter()
+            .filter_map(|name| kore_name(name).ok())
+            .collect::<BTreeSet<_>>();
+        resolve_with(sort, constraints, definition, Some(self), &admitted)
     }
 
     /// `pattern`, a value at its own sort below the sort whose K name is `sort`, as one line of
@@ -274,6 +309,14 @@ impl TextSyntax {
             pattern = inner;
         }
         Ok(pattern)
+    }
+}
+
+/// The KORE name of the sort whose K name is `name` (`SortNat` for `Nat`).
+fn kore_name(name: &str) -> Result<String, String> {
+    let sort = parse_sort(name).map_err(|error| format!("sort `{name}`: {error}"))?;
+    match &encode_kore_sort(&sort) {
+        KoreSort::Application { name, .. } | KoreSort::Variable(name) => Ok(name.clone()),
     }
 }
 

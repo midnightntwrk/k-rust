@@ -508,6 +508,78 @@ fn an_id_hole_is_refused_unless_overridden() {
     );
 }
 
+/// An override of a sort programs are written in is honoured where the hole's values are
+/// built, not only by the sort rule: the hole resolves to a data sort generated from that sort's
+/// own constructors, and the data table enters no other program-syntax sort, which the override
+/// was not given for.
+#[test]
+fn an_overridden_program_sort_is_generated_from_its_constructors() {
+    let definition = imp();
+    let program = program("imp/commute.imp", COMMUTE_IMP, &[]);
+    let decl = HoleDecl {
+        allow_refused_sort: true,
+        ..span("H", "AExp", "imp/commute.imp", None, "x = 3;", "3")
+    };
+    assert_eq!(
+        check_hole_sort(&decl, &program, definition),
+        Ok(Some(SortRefusal::ProgramSyntax))
+    );
+    let holes = resolve_ok(&[decl], &program, definition);
+    let [hole] = holes.holes.as_slice() else {
+        panic!("one hole: {holes:?}");
+    };
+    assert_eq!(
+        hole.refusals,
+        [("AExp".to_owned(), SortRefusal::ProgramSyntax)]
+    );
+    let ValueSort::Data { table, .. } = &hole.sort else {
+        panic!("a data sort: {:?}", hole.sort);
+    };
+    let entered = table
+        .sorts
+        .iter()
+        .map(|sort| sort.kore_sort.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(entered.first(), Some(&"SortAExp"), "{entered:?}");
+    assert!(
+        !table.sorts[0].constructors.is_empty(),
+        "AExp's constructors build its values: {table:?}"
+    );
+    for excluded in ["SortBExp", "SortStmt", "SortBlock"] {
+        assert!(!entered.contains(&excluded), "{excluded}: {entered:?}");
+    }
+    assert!(hole.anchor.is_some(), "the anchor `3` reads at AExp");
+}
+
+/// A cell-sort hole the override lets past the sort rule is refused where its values are built
+/// with the rule's own reason, a computation, never as a sort programs are written in: that
+/// reason would name the override the hole already carries.
+#[test]
+fn an_overridden_cell_sort_is_refused_as_a_computation() {
+    let definition = imp();
+    let program = program("imp/commute.imp", COMMUTE_IMP, &[]);
+    for sort in ["KCell", "StateCell"] {
+        let decl = HoleDecl {
+            allow_refused_sort: true,
+            ..span("H", sort, "imp/commute.imp", None, "x = 3;", "3")
+        };
+        assert_eq!(
+            check_hole_sort(&decl, &program, definition),
+            Ok(Some(SortRefusal::Computation)),
+            "{sort}"
+        );
+        assert_eq!(
+            resolve_err(&[decl], &program, definition),
+            CampaignError::RefusedHoleSort {
+                hole: "H".to_owned(),
+                sort: sort.to_owned(),
+                reason: SortRefusal::Computation,
+            },
+            "{sort}"
+        );
+    }
+}
+
 #[test]
 fn record_sorts_outside_the_program_closure_are_admitted() {
     let definition = ledger();

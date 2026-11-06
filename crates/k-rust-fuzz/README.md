@@ -150,6 +150,7 @@ The rule applies to every sort a value of the hole's sort may contain: collectio
 When the start sort is `K` or `KItem`, the closure is every non-hooked sort of the syntax module.
 User token sorts such as `Id` are refused, because an identifier names a declaration of the program.
 `allow_refused_sort` (`allow-refused-sort = true` in a campaign file) overrides a refusal, and the report records the override; the refusal itself says why the sort is refused and, where an override applies, names it.
+A sort programs are written in that the override admits is then generated from its own constructors, as a data sort is, wherever the hole's values hold it; a program sort it was not given for stays out of the values, so a `Nat` hole of a program written in `Nat` is built from `zero` and `s`.
 The values of an admitted token sort are tokens, written `{ token = { sort = "Id", text = "n" } }` in a campaign file (`{"token": {"sort": "Id", "text": "n"}}` in JSON), in `choices` too; a plain string there is refused with that form.
 
 ## Pattern targets at any state

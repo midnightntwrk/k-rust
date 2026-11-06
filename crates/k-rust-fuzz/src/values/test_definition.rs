@@ -58,6 +58,7 @@ impl TestDefinition {
             &self.artifacts.syntax_definition_kore,
             &self.artifacts.macros_kore,
             excluded.iter().map(|sort| (*sort).to_owned()),
+            std::iter::empty(),
         )
         .unwrap_or_else(|error| panic!("no text syntax: {error}"))
     }

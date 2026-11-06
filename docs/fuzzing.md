@@ -90,7 +90,7 @@ Keep ranges small when the values have no meaning beyond their size (0 to 8 for 
 
 Some limits of holes:
 
-- A hole holds data, never program syntax. A sort in which programs are written (`AExp`, `Stmt`) is refused, and so is `Id`, since a name refers to a declaration; `allow-refused-sort = true` overrides the refusal for a value you know is data (the `sum-redeclare` template does it for an `Id`).
+- A hole holds data, never program syntax. A sort in which programs are written (`AExp`, `Stmt`) is refused, and so is `Id`, since a name refers to a declaration; `allow-refused-sort = true` overrides the refusal for a value you know is data (the `sum-redeclare` template does it for an `Id`), and the values of an admitted program sort are then built from its own constructors.
 - Every value is printed into the program and read back. IMP's grammar has no negative literals (`-1` is the unary minus applied to `1`), so a negative value cannot be written at an `Int` hole; the campaign narrows such a hole to start at 0 and warns. Write the minus into the program (`w = -0;` in `straight.imp`) and keep the hole on the digits.
 - kink compares a `String` value only when it is ASCII. Generated strings rarely are: `kink-flow fuzz` repairs a refused candidate by replacing its non-ASCII characters, and you can also give the hole ASCII `choices`.
 - A value beyond 64 bits is written as a decimal string, for example a range bound `max = "115792089237316195423570985008687907853269984665640564039457584007913129639935"`.
