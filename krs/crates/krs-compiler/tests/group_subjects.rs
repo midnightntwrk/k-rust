@@ -12,21 +12,22 @@ use std::collections::BTreeSet;
 use krs_compiler::{
     DescriptorLoweringError, emit_k, lower_descriptor_bundle, lower_semantic_theory,
 };
+use krs_ir::cell_kind::{Multiplicity, Order, declared_multiplicity};
 use krs_ir::testing::{self, DescriptorBundleInputs, DescriptorInputs};
 use krs_ir::{
-    BuiltinSort, CellWrapper, DescriptorCellCollectionType, DescriptorCellDeclarationReference,
-    DescriptorCellIdentity, DescriptorCellMultiplicity, DescriptorCellReference,
-    DescriptorCellType, DescriptorComputationCell, DescriptorConfigurationDeclaration,
-    DescriptorConfigurationInitializer, DescriptorConfigurationReference,
-    DescriptorConfigurationRoot, DescriptorContextAlias, DescriptorFixedConfiguration,
-    DescriptorHeadRule, DescriptorInitializerCell, DescriptorKSequenceNotation, DescriptorPayload,
-    DescriptorRuleCells, DescriptorSubject, DescriptorTerm, ItemKind, PackageId,
-    ProtocolCellContent, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
-    ProtocolKSequence, ProtocolKSequenceItem, ProtocolRuleFrame, ProtocolRuleKSequence,
-    ProtocolRuleKSequenceItem, ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole, SentenceKind,
-    SortDescriptor, StableItemId,
+    BuiltinSort, CellCollectionType, CellWrapper, DescriptorCellCollectionType,
+    DescriptorCellDeclarationReference, DescriptorCellIdentity, DescriptorCellMultiplicity,
+    DescriptorCellReference, DescriptorCellType, DescriptorComputationCell,
+    DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
+    DescriptorConfigurationReference, DescriptorConfigurationRoot, DescriptorContextAlias,
+    DescriptorFixedConfiguration, DescriptorHeadRule, DescriptorInitializerCell,
+    DescriptorKSequenceNotation, DescriptorPayload, DescriptorRuleCells, DescriptorSubject,
+    DescriptorTerm, ItemKind, PackageId, ProtocolCellContent, ProtocolContextAliasBinding,
+    ProtocolContextAliasBindingKind, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
+    ProtocolHeadRuleResult, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolRuleFrame,
+    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleStateTerm, ProvenanceKey,
+    ProvenanceRole, SentenceKind, SortDescriptor, StableItemId,
 };
 
 #[path = "fixtures/configuration.rs"]
@@ -47,13 +48,40 @@ enum Cell {
         &'static str,
         Vec<(&'static str, &'static str, CellWrapper, BuiltinSort)>,
     ),
-    /// A field holding a group with this multiplicity: `?`, `*` (a `List` collection), or `*`
-    /// with a collection type (`*Map`, `*Set`).
+    /// A field holding a group with this multiplicity: `?`, `*` with a collection type (`*List`,
+    /// `*Map`, `*Set`), or a bare `*`, read as [`declared_multiplicity`] reads it.
     Held(
         &'static str,
         &'static str,
         Vec<(&'static str, &'static str, CellWrapper, BuiltinSort)>,
     ),
+}
+
+/// The declared multiplicity mark and collection type of a [`Cell::Held`] multiplicity: the
+/// mark, then the collection type named after it, read by [`declared_multiplicity`], so the
+/// fixture declares the configuration KRS reads from the same text. A collection carries its
+/// collection type explicitly, as a validated descriptor does.
+fn held_multiplicity(multiplicity: &str) -> (&'static str, Option<DescriptorCellCollectionType>) {
+    let (mark, order) = multiplicity.split_at(1);
+    let cell_type = match order {
+        "" => None,
+        "List" => Some(CellCollectionType::List),
+        "Map" => Some(CellCollectionType::Map),
+        "Set" => Some(CellCollectionType::Set),
+        other => panic!("`{other}` is not a collection type"),
+    };
+    match declared_multiplicity(Some(mark), cell_type) {
+        Multiplicity::Optional => ("?", None),
+        Multiplicity::Many(order) => (
+            "*",
+            Some(match order {
+                Order::List => DescriptorCellCollectionType::List,
+                Order::Map => DescriptorCellCollectionType::Map,
+                Order::Set => DescriptorCellCollectionType::Set,
+            }),
+        ),
+        Multiplicity::One => panic!("`{multiplicity}` declares no held group"),
+    }
 }
 
 /// A definition package's identity: `KRS-<NAME>`.
@@ -175,21 +203,15 @@ fn configuration(name: &str, cells: &[Cell]) -> DescriptorInputs {
                     },
                 };
                 if let Cell::Held(_, multiplicity, _) = cell {
-                    let (mark, order) = multiplicity.split_at(1);
+                    let (mark, collection) = held_multiplicity(multiplicity);
                     declared.multiplicity = Some(DescriptorCellMultiplicity {
                         key: key(ProvenanceRole::ConfigurationCellMultiplicity, field_ordinal),
                         value: mark.to_owned(),
                     });
-                    if mark == "*" {
-                        declared.cell_type = Some(DescriptorCellType {
-                            key: key(ProvenanceRole::ConfigurationCellType, field_ordinal),
-                            value: match order {
-                                "Map" => DescriptorCellCollectionType::Map,
-                                "Set" => DescriptorCellCollectionType::Set,
-                                _ => DescriptorCellCollectionType::List,
-                            },
-                        });
-                    }
+                    declared.cell_type = collection.map(|value| DescriptorCellType {
+                        key: key(ProvenanceRole::ConfigurationCellType, field_ordinal),
+                        value,
+                    });
                 }
                 initializer.push(DescriptorInitializerCell {
                     absent: None,
@@ -863,7 +885,7 @@ fn a_context_alias_about_a_group_is_judged_against_its_scope() {
 /// disagreement, naming the collection.
 #[test]
 fn a_rule_about_a_group_in_a_set_or_a_list_collection_is_refused() {
-    let details = ["*Set", "*"].map(|multiplicity| {
+    let details = ["*Set", "*List"].map(|multiplicity| {
         let error = refusal(&definition(
             "small",
             &[
