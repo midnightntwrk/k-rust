@@ -222,9 +222,12 @@ k::rules! {
 }
 ";
 
-/// The console package, which depends on its language crate `lang` (`--dependency lang:main`),
-/// with a corpus that stops after the console's own `frame` (`kink`) and one that stops at the
-/// language crate's items (`corpora/lang`).
+/// The console package, which depends on its language crate `lang` (`--dependency
+/// lang-core:main`), with a corpus that stops after the console's own `frame` (`kink`) and one
+/// that stops at the language crate's items (`corpora/lang`). The language package is
+/// `lang-core`, whose `[lib]` section names its library `lang`, so a name that spells a
+/// dependency's item by its package name (`lang_core::step`) rather than its library's crate
+/// name is told apart.
 fn console() -> Arc<Project> {
     static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
     Project::shared(&PROJECT, || {
@@ -257,20 +260,24 @@ fn console() -> Arc<Project> {
             .canonicalize()
             .unwrap();
         let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
-        let package = |name: &str, namespace: &str, dependencies: &str| {
+        let package = |name: &str, library: &str, namespace: &str, dependencies: &str| {
             format!(
-                "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n"
+                "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n{library}\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n"
             )
         };
-        project.write("lang/Cargo.toml", package("lang", "LANG", ""));
+        project.write(
+            "lang/Cargo.toml",
+            package("lang-core", "\n[lib]\nname = \"lang\"\n", "LANG", ""),
+        );
         project.write(
             "Cargo.toml",
             format!(
                 "{}\n[workspace]\n",
                 package(
                     "krs-cli-kink-console",
+                    "",
                     "CONSOLE",
-                    "lang = { path = \"lang\" }\n"
+                    "lang-core = { path = \"lang\" }\n"
                 )
             ),
         );
@@ -2527,7 +2534,7 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
 #[test]
 fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     let project = console();
-    let dependency = ["--dependency", "lang:main"];
+    let dependency = ["--dependency", "lang-core:main"];
     let output = project.kink("results", &dependency);
     assert_status(&output, 0);
     let document = json(&output);
@@ -2571,8 +2578,8 @@ fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     labels.sort_unstable();
     assert_eq!(strings(&check["stop"]["after"]), labels, "{check:#}");
 
-    // A rule a document names is named as the stop names it: a dependency's item by its crate
-    // name, the console's by `crate::`. `krs run --coverage` names the rules the run took by the
+    // A rule a document names is named as the stop names it: a dependency's item by its
+    // library's crate name, the console's by `crate::`. `krs run --coverage` names the rules the run took by the
     // same strings.
     let items = document["rules"]
         .as_array()
@@ -2583,11 +2590,17 @@ fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     for item in ["crate::frame", "lang::step", "lang::add"] {
         assert!(items.contains(item), "{item} in {items:?}");
     }
+    // The language crate's items are named by its library's crate name, never by its package
+    // name.
+    assert!(
+        !items.iter().any(|item| item.starts_with("lang_core::")),
+        "{items:?}"
+    );
     let output = project.krs(&[
         "run",
         "kink/cases/t0.op",
         "--dependency",
-        "lang:main",
+        "lang-core:main",
         "--stop-after",
         "crate::frame",
         "--stop-count",

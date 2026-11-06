@@ -7,7 +7,7 @@
 //! `krs = {item, source_item, package, file, line, column, kind, claim_helper}` from the table.
 //! `item` names the KRS item that wrote the sentence as `krs run` names it in its coverage and its
 //! stop and as a stop reads it ([`krs_exec::item_spelling`]): `crate::` and its Rust path for an
-//! item of the root package (`crate::plus_zero`), the declaring crate's name and its path for a
+//! item of the root package (`crate::plus_zero`), its library's crate name and its path for a
 //! dependency's (`lang::step`), so a name copied from a document selects, as `krs run
 //! --stop-before` or a corpus's `[stop]`, the item the document names. The path is the item's in
 //! the source `krs expand` prints, so a function's equation is the item the expansion names after
