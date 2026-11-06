@@ -70,16 +70,16 @@
 //!
 //! A view with no value at one viewed value refuses the comparison even where the evaluation at
 //! another value stopped: the refusal holds whatever the budget, and no more work at the other
-//! value makes the missing observation exist. So the error a comparison reports is a refusal
-//! when any viewed value has no value, and a stop only when none has none. Which of the two it
-//! is depends on each value's own result, never on the order the sides or a repeated cell's
-//! instances are given in, which only chooses the value the error names; the exception is a
-//! value whose evaluation ends, within the budget or without an `Unknown` answer, only because
-//! it reuses an answer the observer's solver decided for a value evaluated before it. To find
-//! whether any value has no value, a comparison whose evaluations stop evaluates every distinct
-//! viewed value, so its cost grows with their number, up to one budget for each. A value with a
-//! part that has no KRS description refuses without an evaluation, and since it decides that the
-//! comparison is refused, no value is evaluated when one does.
+//! value makes the missing observation exist. So the error a comparison reports is a refusal when
+//! any viewed value has no value, and a stop only when every value has one or stopped. Which of the
+//! two it is depends on each value's own result, never on the order the sides or a repeated cell's
+//! instances are given in, which only chooses the value the error names; the exception is a value
+//! whose evaluation ends, within the budget or without an `Unknown` answer, only because it reuses
+//! an answer the observer's solver decided for a value evaluated before it. To find whether any
+//! value has no value, a comparison whose evaluations stop evaluates every distinct viewed value,
+//! so its cost grows with their number, up to one budget for each. A value with a part that has no
+//! KRS description refuses without an evaluation, and since it decides that the comparison is
+//! refused, no value is evaluated when one does.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
