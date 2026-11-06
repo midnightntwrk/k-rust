@@ -898,7 +898,7 @@ Every command that builds the package builds it in process, so `krs kink` takes 
 A verb that answers for several cases or mutations exits as a batch does.
 Under the Z3 solver profile, which `krs` builds kink with by default, `query` answers no pair `no`, since a solver query it leaves undecided cannot be shown absent from a search: a pattern a case does not reach is `unknown` (3), and a claim it does not reach is `unconfirmed`, not refuted, so `krs kink query` exits 0 only when every pair asked hits, and 1 only for a `--verify` mismatch.
 A package `krs` refuses, from an unknown package or facet to a failed emission, prints krs's diagnostics on stderr and exits 2: a kink-flow verb prints its document with its `spec` refused at stage `krs-build`, reason `krs-refused`, and `krs kink emit` prints its own document (`krs-kink-emit`), whose `definition.status` is `null` and whose `refusal` says why.
-`krs kink --help` lists the verbs, their options and the corpus layout.
+`krs kink --help` lists the verbs, their options, the corpus layout, the loop and the mutation format.
 
 ## Read failures by stage
 

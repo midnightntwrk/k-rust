@@ -236,13 +236,36 @@ The corpus is <package>/kink (or --corpus DIR):
   definition.k      the package's emitted K, which kink judges; written by krs kink
   .kink-flow/       kink-flow's caches
 
+The loop:
+  1. write cases (FLOW.toml, cases/); krs kink results until no rule is uncovered
+  2. write mutations (mutations/<topic>.toml); krs kink check until it exits 0
+  3. krs kink run; for each survivor write a case that kills it, or argue that the
+     mutation is equivalent and drop it; run again (cached outcomes are not re-run)
+  4. commit definition.k with the corpus; CI runs krs kink emit --check, and
+     krs kink run --full --output verdicts --locked against a committed verdicts.lock
+
+A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
+  [[mutation]]
+  id = \"drops-succ\"
+  misunderstanding = \"loses one at every step\"   # required: the mistake it writes down
+    [[mutation.edit]]                            # one or more, applied together
+    rule = \"plus_succ\"                           # the label, or a suffix of its -- components;
+                                                 # never line =, which moves with every emission
+    find = \"s ( plus ( M:Nat , N:Nat ) )\"        # exact text, once in that rule
+    replace = \"plus ( M:Nat , N:Nat )\"           # its replacement
+    # or, in place of find and replace: delete = true, which removes the rule
+check shows each edited rule before and after with its Rust item and line, and refuses an
+edit no Rust source emits (a node KRS inserted, a derived test that does not follow the
+edit, an overlap KRS refuses) with the next step.
+Guide: docs-site/src/pages/verification/mutation-testing.mdx
+
 Every verb but emit and report builds the package, writes kink/definition.k when it differs
 from the emission (the document's `definition.status` says `written`), and runs kink-flow's
-verb on it; every rule a document names gains `krs = {item, package, file, line, column,
-kind, claim_helper}`. --locked refuses a stale definition.k instead of writing it, and
-emit --check exits 2 when it is stale: the gate a CI runs. report builds nothing: it prints
-the last run's stored document (or its verdicts) as that run printed it, exits as that run
-did, and takes no --locked.
+verb on it; every rule a document names gains `krs = {item, source_item, package, file,
+line, column, kind, claim_helper}`. --locked refuses a stale definition.k instead of writing
+it, and emit --check exits 2 when it is stale: the gate a CI runs. report builds nothing: it
+prints the last run's stored document (or its verdicts) as that run printed it, exits as
+that run did, and takes no --locked.
 
 Exit status, by what the caller does next, as krs run's (krs --help):
   0  yes: every program is comparable and meets its expectation (results), every mutation
