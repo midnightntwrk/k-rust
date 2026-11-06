@@ -16,6 +16,7 @@ mod instance_keys;
 mod int_facts;
 mod lowering;
 mod mutant_theory;
+mod never_cools;
 mod overlap;
 pub mod partition;
 mod rederivation;
@@ -44,6 +45,7 @@ pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_s
 pub use mutant_theory::{
     MutantTheory, TheoryChanges, TheoryCheckError, TheoryRefusal, rule_sentence_key,
 };
+pub use never_cools::never_cooling_warnings;
 pub use rederivation::{
     IndexedProduction, KLabelIndex, Rederivation, RederivationError, RederiveFailure, Rederived,
     Site,
