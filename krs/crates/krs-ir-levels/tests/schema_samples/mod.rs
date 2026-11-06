@@ -756,6 +756,7 @@ impl Sample for PackageSettings {
     fn samples() -> Vec<Self> {
         vec![Self {
             package: sample::<PackageId>(),
+            crate_name: Some("schema_language".to_owned()),
             int_literals: IntLiterals::Unsigned,
             allow_raw_k: true,
             profile: RawKProfile::Strict,
@@ -4637,6 +4638,7 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
     insert::<IrEvaluationResult<SemanticLevel>>(corpus, "IrEvaluationResult");
     insert::<IrRewrite<SemanticLevel>>(corpus, "IrRewrite");
     insert::<TermMapOperation>(corpus, "TermMapOperation");
+    insert::<PackageCrateName>(corpus, "PackageCrateName");
     insert::<DefinitionTerm>(corpus, "DefinitionTerm");
     insert::<Descriptor>(corpus, "Descriptor");
     insert::<GrammarProductionItem<SemanticSortRef>>(corpus, "GrammarProductionItem");

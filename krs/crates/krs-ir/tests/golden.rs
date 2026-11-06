@@ -8,8 +8,9 @@ use krs_ir::{
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorProvenanceError, DescriptorSortParent, DescriptorSortRef,
     DescriptorSortReference, ExplicitSymbol, IdentityError, ItemKind, OriginFrame, OriginStack,
-    OriginStackError, ProvenanceKey, ProvenanceRole, RangedOriginKind, RustVisibility,
-    SchemaVersion, SortDescriptor, StableItemId, TransformationOriginKind,
+    OriginStackError, PackageCrateName, PackageId, PackageSettings, ProvenanceKey, ProvenanceRole,
+    RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor, StableItemId,
+    TransformationOriginKind,
 };
 use krs_test_support::{assert_rejects, assert_rejects_with_message};
 use serde::Serialize;
@@ -400,6 +401,59 @@ fn restricted_visibility_wire_data_is_exact_and_validated() {
             expected_kind,
         );
     }
+}
+
+/// A package's settings record the crate name of its library only where it is not the package's
+/// default, so a default one is dropped; the bundle's crate names round-trip; and two packages
+/// of one crate name, or a crate name that is no Rust identifier, are refused.
+#[test]
+fn bundles_record_crate_names_once_and_refuse_a_shared_one() {
+    let bundle = populated_bundle();
+    let package = bundle.descriptors()[0].id().package().clone();
+    let settings = |crate_name: &str| PackageSettings {
+        package: package.clone(),
+        crate_name: Some(crate_name.to_owned()),
+        int_literals: krs_ir::IntLiterals::default(),
+        allow_raw_k: false,
+        profile: krs_ir::RawKProfile::default(),
+    };
+    let default = bundle
+        .clone()
+        .with_package_settings([settings(&package.default_crate_name())])
+        .unwrap();
+    assert_eq!(default, bundle);
+    let named = bundle
+        .clone()
+        .with_package_settings([settings("test_language")])
+        .unwrap();
+    assert_eq!(named.crate_name(&package), "test_language");
+    assert_eq!(
+        named.crate_names(),
+        [PackageCrateName::new(package.clone(), "test_language").unwrap()]
+    );
+    let json = serde_json::to_value(&named).unwrap();
+    assert_eq!(json["package_settings"][0]["crate_name"], "test_language");
+    assert_eq!(
+        serde_json::from_value::<DescriptorBundle>(json).unwrap(),
+        named
+    );
+    assert!(matches!(
+        bundle
+            .clone()
+            .with_package_settings([settings("test-language")]),
+        Err(DescriptorDeclarationError::InvalidCrateName(..))
+    ));
+    // `other-test` names its library as the bundle's package's crate is named by default.
+    let other = PackageId::new("OTHER", "other-test", "0.1.0", "workspace").unwrap();
+    let shared = bundle.with_package_settings([PackageSettings {
+        package: other,
+        ..settings(&package.default_crate_name())
+    }]);
+    assert!(
+        matches!(&shared, Err(DescriptorDeclarationError::DuplicateCrateName { crate_name, .. })
+            if *crate_name == package.default_crate_name()),
+        "{shared:?}"
+    );
 }
 
 #[test]

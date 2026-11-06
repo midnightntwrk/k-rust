@@ -99,8 +99,8 @@ pub use host::{
     HostTypeKey, HostTypeReference, ProvenanceKey,
 };
 pub use identity::{
-    ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
-    StableItemId, lower_hex,
+    ExplicitSymbol, IdentityError, ItemKind, PackageCrateName, PackageId, RustVisibility,
+    Sha256Digest, SourceFileId, StableItemId, canonical_crate_names, crate_name_in, lower_hex,
 };
 pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
 pub use list_notation::ListNotation;
@@ -220,7 +220,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(79);
+    pub const CURRENT: Self = Self(80);
 }
 
 impl Default for SchemaVersion {

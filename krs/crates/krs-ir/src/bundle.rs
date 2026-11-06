@@ -109,12 +109,17 @@ impl<'de> Deserialize<'de> for DescriptorBundle {
     }
 }
 
-/// Non-default `package.metadata.krs` settings of one collected package.
+/// Non-default settings of one collected package: its `package.metadata.krs` settings and the
+/// crate name its `[lib]` section gives its library.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackageSettings {
     /// Package the settings belong to.
     pub package: crate::PackageId,
+    /// The crate name of the package's library where it is not the package's default crate
+    /// name ([`crate::PackageId::default_crate_name`]); `None` for the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crate_name: Option<String>,
     /// Program-syntax integer literal module (`int-literals`).
     pub int_literals: crate::IntLiterals,
     /// Whether quoted hooks and `raw_k!` are allowed (`allow-raw-k`).
@@ -145,7 +150,8 @@ impl PackageSettings {
     /// Whether every setting has its default value.
     #[must_use]
     pub fn is_default(&self) -> bool {
-        self.int_literals == crate::IntLiterals::default()
+        self.crate_name.is_none()
+            && self.int_literals == crate::IntLiterals::default()
             && !self.allow_raw_k
             && self.profile == crate::RawKProfile::default()
     }
@@ -228,18 +234,29 @@ impl DescriptorBundle {
         })
     }
 
-    /// Replaces the bundle's package settings. Default-valued entries are
-    /// dropped, so a bundle whose packages all use defaults stays unchanged.
+    /// Replaces the bundle's package settings. A crate name equal to its package's default
+    /// crate name is the default, and default-valued entries are dropped, so a bundle whose
+    /// packages all use defaults stays unchanged.
     ///
     /// # Errors
     ///
-    /// Rejects two entries for one package.
+    /// Rejects two entries for one package, a crate name that is not a Rust identifier, and two
+    /// packages of the bundle with one crate name: a package's items are named by its crate
+    /// name, so a name two packages share would name neither's items alone.
     pub fn with_package_settings(
         mut self,
         settings: impl IntoIterator<Item = PackageSettings>,
     ) -> Result<Self, DescriptorDeclarationError> {
         let mut settings = settings
             .into_iter()
+            .map(|mut setting| {
+                if setting.crate_name.as_deref()
+                    == Some(setting.package.default_crate_name().as_str())
+                {
+                    setting.crate_name = None;
+                }
+                setting
+            })
             .filter(|setting| !setting.is_default())
             .collect::<Vec<_>>();
         settings.sort();
@@ -250,8 +267,74 @@ impl DescriptorBundle {
                 ));
             }
         }
+        for setting in &settings {
+            if let Some(name) = &setting.crate_name {
+                crate::PackageCrateName::new(setting.package.clone(), name.clone()).map_err(
+                    |error| {
+                        DescriptorDeclarationError::InvalidCrateName(
+                            setting.package.to_string(),
+                            error.to_string(),
+                        )
+                    },
+                )?;
+            }
+        }
         self.package_settings = settings;
+        self.check_crate_names()?;
         Ok(self)
+    }
+
+    /// The crate names the bundle's package settings record, in package order: each package's
+    /// whose library's crate name is not its default.
+    #[must_use]
+    pub fn crate_names(&self) -> Vec<crate::PackageCrateName> {
+        self.package_settings
+            .iter()
+            .filter_map(|setting| {
+                crate::PackageCrateName::new(setting.package.clone(), setting.crate_name.clone()?)
+                    .ok()
+            })
+            .collect()
+    }
+
+    /// The crate name of `package`'s library: the one its settings record, or else its default
+    /// crate name.
+    #[must_use]
+    pub fn crate_name(&self, package: &crate::PackageId) -> String {
+        self.package_settings
+            .iter()
+            .find(|setting| &setting.package == package)
+            .and_then(|setting| setting.crate_name.clone())
+            .unwrap_or_else(|| package.default_crate_name())
+    }
+
+    /// Rejects two packages of the bundle, those of its descriptors and of its settings, that
+    /// have one crate name.
+    fn check_crate_names(&self) -> Result<(), DescriptorDeclarationError> {
+        let packages = self
+            .descriptors
+            .iter()
+            .map(|descriptor| descriptor.id.package())
+            .chain(self.package_settings.iter().map(|setting| &setting.package))
+            .collect::<BTreeSet<_>>();
+        let mut names = BTreeMap::<String, &crate::PackageId>::new();
+        for package in packages {
+            if let Some(other) = names.insert(self.crate_name(package), package) {
+                let describe = |package: &crate::PackageId| {
+                    format!(
+                        "`{} {}` (K namespace `{}`)",
+                        package.cargo_name(),
+                        package.cargo_version(),
+                        package.k_namespace()
+                    )
+                };
+                return Err(DescriptorDeclarationError::DuplicateCrateName {
+                    crate_name: self.crate_name(package),
+                    packages: [describe(other), describe(package)],
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Returns the non-default package settings in canonical order.
@@ -457,6 +540,15 @@ pub enum DescriptorDeclarationError {
     Duplicate(Box<StableItemId>),
     /// A package received more than one settings entry.
     DuplicatePackageSettings(String),
+    /// A package's settings record a crate name that is not one (package, reason).
+    InvalidCrateName(String, String),
+    /// Two packages of the bundle have one crate name.
+    DuplicateCrateName {
+        /// The crate name.
+        crate_name: String,
+        /// The two packages, described.
+        packages: [String; 2],
+    },
     /// An explicit symbol had no exact parser-owned origin.
     MissingSymbolOrigin(Box<StableItemId>),
     /// A stable-symbol origin existed without explicit symbol metadata.
@@ -479,6 +571,16 @@ impl fmt::Display for DescriptorDeclarationError {
             Self::DuplicatePackageSettings(package) => {
                 write!(formatter, "duplicate package settings for {package}")
             }
+            Self::InvalidCrateName(package, reason) => {
+                write!(formatter, "package settings for {package}: {reason}")
+            }
+            Self::DuplicateCrateName {
+                crate_name,
+                packages: [first, second],
+            } => write!(
+                formatter,
+                "packages {first} and {second} both have the crate name `{crate_name}`, which names a package's items, so it must name one package"
+            ),
             Self::MissingSymbolOrigin(id) => {
                 write!(
                     formatter,

@@ -16,6 +16,10 @@ leaf!(
     PackageId::new("ORG-EXAMPLE-SCHEMA", "schema", "0.1.0", "workspace").unwrap()
 );
 leaf!(
+    PackageCrateName,
+    PackageCrateName::new(sample::<PackageId>(), "schema_language").unwrap()
+);
+leaf!(
     Sha256Digest,
     Sha256Digest::new(format!("a{}", "0".repeat(63))).unwrap()
 );
@@ -130,13 +134,23 @@ impl Sample for SemanticTerm {
 
 impl Sample for SemanticTheory {
     fn samples() -> Vec<Self> {
-        vec![Self::new(sample::<Vec<SemanticModule>>()).unwrap()]
+        vec![
+            Self::new(sample::<Vec<SemanticModule>>())
+                .unwrap()
+                .with_crate_names([sample::<PackageCrateName>()])
+                .unwrap(),
+        ]
     }
 }
 
 impl Sample for DefinitionIr {
     fn samples() -> Vec<Self> {
-        vec![Self::new(sample::<ModuleId>(), sample::<Vec<DefinitionModule>>()).unwrap()]
+        vec![
+            Self::new(sample::<ModuleId>(), sample::<Vec<DefinitionModule>>())
+                .unwrap()
+                .with_crate_names([sample::<PackageCrateName>()])
+                .unwrap(),
+        ]
     }
 }
 

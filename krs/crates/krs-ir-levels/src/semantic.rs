@@ -25,8 +25,9 @@ use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellSortArgument, FixedConfiguration,
     FixedConfigurationRewrite, GrammarProductionItem, GrammarProductionItemKind,
     GroupAssociativitySentence, HookOperation, ItemKind, ListOperation, MapOperation, ModuleId,
-    NodeOrigin, PrecedenceRelation, ProductionAttribute, ProductionGroupId, SchemaVersion,
-    SemanticId, SentenceKind, SetOperation, SourceMapKey, StableItemId,
+    NodeOrigin, PackageCrateName, PackageId, PrecedenceRelation, ProductionAttribute,
+    ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation, SourceMapKey,
+    StableItemId,
 };
 
 impl SortKey for SemanticModule {
@@ -73,12 +74,15 @@ pub type SemanticSortRef = crate::IrSortRef<StableItemId>;
 
 /// A checked resolved semantic theory.
 ///
-/// Its JSON is `{schema_version, provenance, modules}`: the nodes' origin
-/// stacks refer to the provenance tables ([`krs_ir::provenance_table`]).
+/// Its JSON is `{schema_version, provenance, modules, crate_names}`: the nodes' origin
+/// stacks refer to the provenance tables ([`krs_ir::provenance_table`]), and `crate_names`,
+/// omitted when empty, records the crate name of each package whose library's crate name is
+/// not its default ([`PackageCrateName`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticTheory {
     schema_version: SchemaVersion,
     modules: SortedByKey<SemanticModule>,
+    crate_names: Vec<PackageCrateName>,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +90,8 @@ pub struct SemanticTheory {
 struct SemanticTheoryWire {
     schema_version: SchemaVersion,
     modules: Vec<SemanticModule>,
+    #[serde(default)]
+    crate_names: Vec<PackageCrateName>,
 }
 
 impl<'de> Deserialize<'de> for SemanticTheory {
@@ -101,14 +107,17 @@ impl<'de> Deserialize<'de> for SemanticTheory {
                 wire.schema_version,
             )));
         }
-        Self::new(wire.modules).map_err(serde::de::Error::custom)
+        Self::new(wire.modules)
+            .map_err(serde::de::Error::custom)?
+            .with_crate_names(wire.crate_names)
+            .map_err(serde::de::Error::custom)
     }
 }
 
 impl krs_ir::provenance_table::ArtifactRoot for SemanticTheory {
     const NAME: &'static str = "SemanticTheory";
     const VERSION_FIELD: &'static str = "schema_version";
-    const BODY_FIELDS: usize = 1;
+    const BODY_FIELDS: usize = 2;
     type Version = SchemaVersion;
 
     fn version(&self) -> &SchemaVersion {
@@ -120,6 +129,11 @@ impl krs_ir::provenance_table::ArtifactRoot for SemanticTheory {
         fields: &mut M,
     ) -> Result<(), M::Error> {
         fields.serialize_field("modules", &self.modules)?;
+        if self.crate_names.is_empty() {
+            fields.skip_field("crate_names")?;
+        } else {
+            fields.serialize_field("crate_names", &self.crate_names)?;
+        }
         Ok(())
     }
 
@@ -170,9 +184,39 @@ impl SemanticTheory {
         let theory = Self {
             schema_version: SchemaVersion::CURRENT,
             modules: SortedByKey::new(modules),
+            crate_names: Vec::new(),
         };
         crate::ir_validation::located(|| theory.validate())?;
         Ok(theory)
+    }
+
+    /// The theory with `names` as the crate names of its packages whose libraries' crate names
+    /// are not their defaults.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`krs_ir::IdentityError::DuplicateCrateNameRecord`] when `names` records two crate
+    /// names for one package.
+    pub fn with_crate_names(
+        mut self,
+        names: impl IntoIterator<Item = PackageCrateName>,
+    ) -> Result<Self, krs_ir::IdentityError> {
+        self.crate_names = krs_ir::canonical_crate_names(names)?;
+        Ok(self)
+    }
+
+    /// The crate names of the packages whose libraries' crate names are not their defaults, in
+    /// package order.
+    #[must_use]
+    pub fn crate_names(&self) -> &[PackageCrateName] {
+        &self.crate_names
+    }
+
+    /// The crate name of `package`'s library, by which its items are named: the one the theory
+    /// records for it, or else its default crate name ([`PackageId::default_crate_name`]).
+    #[must_use]
+    pub fn crate_name(&self, package: &PackageId) -> String {
+        krs_ir::crate_name_in(&self.crate_names, package)
     }
 
     /// Rebuilds the theory and its modules from permuted set-like inputs.
@@ -189,9 +233,18 @@ impl SemanticTheory {
             .map(|module| module.permute_sets(seed))
             .collect::<Vec<_>>();
         krs_ir::testing::permute(&mut modules, seed);
-        Self::new(modules).unwrap_or_else(|error| {
-            panic!("SemanticTheory seed {seed}: permuted rebuild failed: {error}")
-        })
+        let mut crate_names = self.crate_names.clone();
+        krs_ir::testing::permute(&mut crate_names, seed);
+        Self::new(modules)
+            .map_err(|error| error.to_string())
+            .and_then(|theory| {
+                theory
+                    .with_crate_names(crate_names)
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap_or_else(|error| {
+                panic!("SemanticTheory seed {seed}: permuted rebuild failed: {error}")
+            })
     }
 
     /// The validator's subsort judge: whether a term of `candidate` may stand where

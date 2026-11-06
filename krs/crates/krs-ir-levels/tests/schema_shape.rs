@@ -115,6 +115,7 @@ const UNSUPPORTED_REFINED: &[&str] = &[
     "ConfigurationSentenceKind",
     "IrRewrite",
     "TermMapOperation",
+    "PackageCrateName",
 ];
 
 // Validated deserializers that reach unsupported descendants must remain outside reflection.
@@ -909,6 +910,7 @@ fn registry() -> Registry {
     refined!(ConfigurationSentenceKind: ConfigurationSentenceKind);
     refined!(IrRewrite: IrRewrite<SemanticLevel>);
     refined!(TermMapOperation: TermMapOperation);
+    refined!(PackageCrateName: PackageCrateName);
     unsupported!(CellAttribute: CellAttribute);
     unsupported!(CellContentFrame: CellContentFrame);
     unsupported!(ConfigurationRoot: ConfigurationRoot);

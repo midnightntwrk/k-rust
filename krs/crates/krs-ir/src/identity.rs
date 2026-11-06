@@ -216,6 +216,123 @@ impl PackageId {
     pub fn cargo_source(&self) -> &str {
         &self.cargo_source
     }
+
+    /// Returns the crate name Cargo gives the package's library when the package's `[lib]`
+    /// section does not name it otherwise: the package name with `-` written `_`.
+    #[must_use]
+    pub fn default_crate_name(&self) -> String {
+        self.cargo_name.replace('-', "_")
+    }
+}
+
+/// The crate name of a package's library where the package's `[lib]` section gives it one other
+/// than [`PackageId::default_crate_name`].
+///
+/// Rust names a crate by its library's crate name, which the package itself sets, so every
+/// reader of a definition names the package's items alike by it, whatever a depending manifest
+/// renames the dependency to. A package that records none has its default crate name, so the
+/// default is never recorded: one crate name has one encoding.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(try_from = "PackageCrateNameWire")]
+pub struct PackageCrateName {
+    /// The package.
+    package: PackageId,
+    /// Its library's crate name.
+    crate_name: String,
+}
+
+impl PackageCrateName {
+    /// Records `crate_name` as the crate name of `package`'s library.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidCrateName`] when `crate_name` is not a Rust identifier,
+    /// and [`IdentityError::DefaultCrateName`] when it is the package's default crate name.
+    pub fn new(package: PackageId, crate_name: impl Into<String>) -> Result<Self, IdentityError> {
+        let crate_name = crate_name.into();
+        if !is_rust_identifier(&crate_name) {
+            return Err(IdentityError::InvalidCrateName(crate_name));
+        }
+        if crate_name == package.default_crate_name() {
+            return Err(IdentityError::DefaultCrateName(crate_name));
+        }
+        Ok(Self {
+            package,
+            crate_name,
+        })
+    }
+
+    /// Returns the package.
+    #[must_use]
+    pub const fn package(&self) -> &PackageId {
+        &self.package
+    }
+
+    /// Returns the crate name of the package's library.
+    #[must_use]
+    pub fn crate_name(&self) -> &str {
+        &self.crate_name
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PackageCrateNameWire {
+    package: PackageId,
+    crate_name: String,
+}
+
+impl TryFrom<PackageCrateNameWire> for PackageCrateName {
+    type Error = IdentityError;
+
+    fn try_from(wire: PackageCrateNameWire) -> Result<Self, Self::Error> {
+        Self::new(wire.package, wire.crate_name)
+    }
+}
+
+/// The crate names of the packages `names` records, one per package, in package order.
+///
+/// # Errors
+///
+/// Returns [`IdentityError::DuplicateCrateNameRecord`] when `names` records two crate names for
+/// one package.
+pub fn canonical_crate_names(
+    names: impl IntoIterator<Item = PackageCrateName>,
+) -> Result<Vec<PackageCrateName>, IdentityError> {
+    let mut names = names.into_iter().collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    if let Some(pair) = names
+        .windows(2)
+        .find(|pair| pair[0].package == pair[1].package)
+    {
+        return Err(IdentityError::DuplicateCrateNameRecord(
+            pair[0].package.to_string(),
+        ));
+    }
+    Ok(names)
+}
+
+/// The crate name of `package`'s library: the one `names` records for it, or else its default
+/// crate name.
+#[must_use]
+pub fn crate_name_in(names: &[PackageCrateName], package: &PackageId) -> String {
+    names
+        .binary_search_by(|name| name.package.cmp(package))
+        .map_or_else(
+            |_| package.default_crate_name(),
+            |index| names[index].crate_name.clone(),
+        )
+}
+
+/// Whether `value` is a Rust identifier, as a crate name is.
+fn is_rust_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|first| first == '_' || first.is_alphabetic())
+        && characters.all(|character| character == '_' || character.is_alphanumeric())
+        && value != "_"
 }
 
 #[derive(Deserialize)]
@@ -549,6 +666,12 @@ pub enum IdentityError {
     InvalidExplicitSymbol(String),
     /// A content digest was not lowercase hexadecimal SHA-256.
     InvalidSha256,
+    /// A recorded crate name was not a Rust identifier.
+    InvalidCrateName(String),
+    /// A recorded crate name was its package's default crate name, which is never recorded.
+    DefaultCrateName(String),
+    /// Two crate names were recorded for one package.
+    DuplicateCrateNameRecord(String),
 }
 
 impl fmt::Display for IdentityError {
@@ -578,6 +701,16 @@ impl fmt::Display for IdentityError {
             }
             Self::InvalidSha256 => {
                 formatter.write_str("SHA-256 digest must be 64 lowercase hexadecimal characters")
+            }
+            Self::InvalidCrateName(name) => {
+                write!(formatter, "crate name `{name}` is not a Rust identifier")
+            }
+            Self::DefaultCrateName(name) => write!(
+                formatter,
+                "crate name `{name}` is its package's default crate name, which a package has by recording none"
+            ),
+            Self::DuplicateCrateNameRecord(package) => {
+                write!(formatter, "package {package} records two crate names")
             }
         }
     }
