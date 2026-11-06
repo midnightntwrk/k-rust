@@ -1725,7 +1725,11 @@ fn parse_unkeyed_cells(
                 }
                 input.parse::<Token![,]>().map_err(SyntaxError::from)?;
             }
-            if entries.is_empty() {
+            // A result that names no cell and keeps the rest of the state (`..state`) leaves
+            // every cell as its subject found it: the state the subject denotes, unchanged.
+            // Whether the sentence may say that is its own form's to judge (a rule that writes
+            // no cell repeats forever; a claim that a state reaches itself is no mistake).
+            if entries.is_empty() && !matches!(remainder, StateMacroRemainder::Reuse { .. }) {
                 return Err(state_error(
                     "cells",
                     "at least one cell clause is required",

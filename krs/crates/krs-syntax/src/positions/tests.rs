@@ -675,11 +675,10 @@ fn claims_hold_the_symbolic_islands() {
     let result = Position::root(Form::CellsClaim, Slot::Result);
     assert_eq!(admits(result, Construct::Let), Admission::Admit);
     assert_eq!(admits(result, Construct::Matches), Admission::Admit);
+    // A `cells!` claim's start state is a term, as a readable claim's is (S0-17).
     let subject = Position::root(Form::CellsClaim, Slot::Subject);
-    assert_eq!(
-        admits(subject, Construct::Let),
-        Admission::Refuse(Class::LetOutsideTerm)
-    );
+    assert_eq!(admits(subject, Construct::Let), Admission::Admit);
+    assert_eq!(admits(subject, Construct::Matches), Admission::Admit);
     let rule = Position::root(Form::RuleFn, Slot::Result);
     assert_eq!(
         admits(rule, Construct::OrBool),
@@ -765,11 +764,14 @@ fn a_cells_value_names_every_field_and_computes_only_where_built() {
         }
     }
     // A result value is built, so a `let` or a test computes it, as in a readable result; a
-    // subject value holds neither outside a key the subject computes (S0-17).
+    // rule's subject value is a pattern, which holds neither outside a key or a Set collection's
+    // instance the subject computes; a claim's start state is a term (S0-17).
     for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {
         let result = Position::root(form, Slot::Result);
         assert_eq!(admits(result, Construct::Let), Admission::Admit);
         assert_eq!(admits(result, Construct::Matches), Admission::Admit);
+    }
+    for form in [Form::CellsRule, Form::CellsLocalRule] {
         let subject = Position::root(form, Slot::Subject);
         assert_eq!(
             admits(subject, Construct::Let),
@@ -780,6 +782,16 @@ fn a_cells_value_names_every_field_and_computes_only_where_built() {
             Admission::Refuse(Class::MatchesOutsideCondition)
         );
     }
+    let mut instance = Position::root(Form::CellsRule, Slot::Subject);
+    instance.nesting.in_braced_instance = true;
+    assert_eq!(
+        admits(instance, Construct::Let),
+        Admission::After(Rule::LetOutsideTerm)
+    );
+    assert_eq!(
+        admits(instance, Construct::Matches),
+        Admission::After(Rule::MatchesOutsideCondition)
+    );
     // A pattern's group record leaves the group's other children unconstrained; a result
     // builds the group, which has no value for them (S5-F2).
     for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {

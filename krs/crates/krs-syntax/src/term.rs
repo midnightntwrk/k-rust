@@ -3128,6 +3128,17 @@ pub(crate) fn key_tree_names(key: &TermTree) -> Vec<syn::Ident> {
     output
 }
 
+/// The names a `cells!` subject's cell value binds, in first-occurrence order: its binders
+/// ([`pattern_tree_binders`]), and the names a `let` block in it reads outside its own pattern.
+/// Where a subject holds a block (a claim's start state, a key or a Set collection's instance the
+/// subject computes), the block's value is a term over the sentence's names, so each name it reads
+/// is one of them, occurring where the block stands.
+pub(crate) fn state_tree_names(tree: &TermTree) -> Vec<syn::Ident> {
+    let mut output = Vec::new();
+    tree_names(tree, false, true, &mut output);
+    output
+}
+
 /// [`pattern_tree_binders`], and with `lets` the names `let` blocks read.
 fn tree_names(tree: &TermTree, root: bool, lets: bool, output: &mut Vec<syn::Ident>) {
     let mut push = |ident: &syn::Ident| {

@@ -1436,6 +1436,14 @@ struct RuleWalk {
     /// Whether the term being validated is a list cell entry's root, whose only unnamed rest,
     /// if any, is the rest of its root brackets ([`super::validation::kept_rests_placed`]).
     in_list_root: bool,
+    /// Whether the side is a claim's start state: a term over the claim's variables, which
+    /// denotes the configurations the claim is about, not a pattern that matches one.
+    start_state: bool,
+    /// How many collection instances' cells enclose the term. A Set collection's instance a
+    /// pattern looks up is computed, as a key is, and a Map collection's is matched: only the
+    /// collection's declared type tells them apart, so the compiler judges a computed construct
+    /// there.
+    instance_cells: usize,
 }
 
 impl RuleWalk {
@@ -1447,9 +1455,14 @@ impl RuleWalk {
     }
 
     /// Whether the term stands in the subject's pattern: on the left side, outside the right
-    /// side of a `k::rewrite!`, which is a term the rule builds, and outside a set's element.
+    /// side of a `k::rewrite!`, which is a term the rule builds, outside a set's element and a
+    /// collection instance's cell, and outside a claim's start state, which is a term.
     const fn in_subject_pattern(&self, side: ValidationSide) -> bool {
-        matches!(side, ValidationSide::Left) && !self.in_rewrite_right && !self.in_set_element()
+        matches!(side, ValidationSide::Left)
+            && !self.start_state
+            && !self.in_rewrite_right
+            && !self.in_set_element()
+            && self.instance_cells == 0
     }
 }
 
@@ -1886,6 +1899,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     let mut subject = RuleWalk {
         allow_rewrite: result.is_none(),
         kept_rests: result.is_some(),
+        start_state: rule.sentence_kind == crate::ConfigurationSentenceKind::Claim,
         rewrite_right_names: if result.is_none() && !context {
             rule.existentials
                 .iter()
@@ -2434,7 +2448,18 @@ fn validate_rule_instances<S: RuleValidationStage>(
             ) {
                 return Err(invalid());
             }
-            validate_rule_state::<S>(&field.value, side, bindings, discovered, walk, keys, false)?;
+            walk.instance_cells += 1;
+            let validated = validate_rule_state::<S>(
+                &field.value,
+                side,
+                bindings,
+                discovered,
+                walk,
+                keys,
+                false,
+            );
+            walk.instance_cells -= 1;
+            validated?;
         }
         Ok(())
     };

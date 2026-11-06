@@ -2714,9 +2714,33 @@ fn render_rule(
         Span::call_site(),
     );
     let attrs = &clause.rule().item().attrs;
-    // The clause's `#[k::exists]` and `#[k::ensures]` helpers are retained
-    // verbatim and placed before `#[k::rule(..)]` (KF-040).
-    let existential_helpers = clause.rule().existentials().attributes();
+    // The clause's `#[k::exists]` helpers are retained verbatim and placed
+    // before `#[k::rule(..)]` (KF-040). Its `#[k::ensures]` is a term, read
+    // in the clause's scope (a `k::claims!` block's `use`s included), so the
+    // reference form restates it from the descriptor, as it does `requires`.
+    let ensures = rule
+        .ensures
+        .as_ref()
+        .map(|condition| {
+            render_term(&condition.term, false, package, bundle)
+                .map(|term| quote!(#[k::ensures(#term)]))
+        })
+        .transpose()?;
+    let existential_helpers = clause
+        .rule()
+        .existentials()
+        .attributes()
+        .iter()
+        .filter(|attribute| {
+            !attribute
+                .path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "ensures")
+        })
+        .map(|attribute| quote!(#attribute))
+        .chain(ensures)
+        .collect::<Vec<_>>();
     // The clause's `#[k::requires]` helper is consumed by the readable parser;
     // the reference form restates it from the descriptor, after `#[k::rule]`.
     let requires = rule
@@ -2781,9 +2805,9 @@ fn render_rule(
     // A `#[k::claim]` fn takes its helpers after the claim attribute, which
     // reads them; a rule fn's `#[k::exists]` and `#[k::ensures]` precede it.
     let (before, after) = if rule.claim.is_some() {
-        (Vec::new(), existential_helpers.to_vec())
+        (Vec::new(), existential_helpers)
     } else {
-        (existential_helpers.to_vec(), Vec::new())
+        (existential_helpers, Vec::new())
     };
     syn::parse2(quote! {
         #(#attrs)*

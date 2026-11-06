@@ -1782,8 +1782,9 @@ fn collect_term_bindings(
     output: &mut Vec<StateRuleBinding>,
 ) -> Result<(), SyntaxError> {
     // Only the left image binds (KF-011): the right side of a `k::rewrite!`
-    // uses the subject's bindings.
-    for binding in crate::term::pattern_tree_binders(term.tree(), false) {
+    // uses the subject's bindings. A `let` block's reads are names of the
+    // sentence where it stands.
+    for binding in crate::term::state_tree_names(term.tree()) {
         push_binding(&binding, StateRuleBindingKind::Term, output)?;
     }
     Ok(())

@@ -356,7 +356,7 @@ advice = "attrs/rule/heat, hole = x"
 
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
-doc = "a `let` block (K's `#let`) in a pattern outside a key or a set's element that a pattern over evaluated terms computes and looks up (in a key that selects by matching, a Map collection's instance, a simplification's or a static clause's subject), or in a `cells!` subject's cell value outside a key the subject computes: it applies a function generated for it alone, which no matched term holds"
+doc = "a `let` block (K's `#let`) in a pattern outside a key or a set's element that a pattern over evaluated terms computes and looks up (in a key that selects by matching, a Map collection's instance, a simplification's or a static clause's subject), on either notation: it applies a function generated for it alone, which no matched term holds"
 advice = "none"
 
 [class.let-sort]
@@ -405,7 +405,7 @@ advice = "none"
 
 [class.matches-outside-condition]
 code = "krs::expand::matches-outside-condition"
-doc = "`k::matches!` (K's `:=K`) in a pattern outside a key or a set's element that a pattern over evaluated terms computes and looks up (in a key that selects by matching, a Map collection's instance, a simplification's or a static clause's subject), or in a `cells!` subject's cell value outside a key the subject computes: it applies a function generated for it alone, which no matched term holds"
+doc = "`k::matches!` (K's `:=K`) in a pattern outside a key or a set's element that a pattern over evaluated terms computes and looks up (in a key that selects by matching, a Map collection's instance, a simplification's or a static clause's subject), on either notation: it applies a function generated for it alone, which no matched term holds"
 advice = "none"
 
 [class.matches-pattern-binder]
