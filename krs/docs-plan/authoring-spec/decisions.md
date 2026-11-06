@@ -573,6 +573,31 @@ bug — report it, don't guess.
   restriction is about the size and readability of the long form, not
   meaning. In a pattern, `k::bits!` takes only the template; a second
   argument is reserved for modifiers such as signed fields.
+- **E12 — `krs check` warns at a skipped operand, from k-rust's analysis**
+  (2026-11). `d != 0 && n / d > 1` in a value has no value where `d` is
+  0 under KRS's meaning (`&&` is one strict function), while a backend that
+  returns the selected operand alone gives `false`, so the emitted K means
+  different things on different backends. `krs check`, on the `native-rust`
+  route, warns (`krs::analysis::skipped-operand`) where a value or a
+  condition depends on an operand `&&`, `||`, `bool::and`, `bool::or`,
+  `bool::implies` or `kequal::ite` skips and that may have no value.
+  1. The lint reads k-rust's analysis of the loaded definition
+     (`k_rust_backend::short_circuit`), the analysis kink reads, rather than
+     a KRS-level one: with one analysis the two cannot disagree about which
+     sentences depend on the reading, and a definition with no warning, no
+     key and no `krs::analysis::dead-guard` warning (which reports a
+     condition's construct alone) is one kink's analysis flags no rule of.
+  2. It warns at each origin, the operator where a dependence starts, not
+     at every sentence that applies a dependent function: the author can
+     fix it only there. A dependence that starts in a sentence no KRS author
+     wrote is warned at the nearest KRS sentence of its chain.
+  3. `#[k::function(.., skipped_operand = "reason")]` silences the warnings
+     at the function's equations, as `underspecified` silences the coverage
+     lint; a key that silences nothing is
+     `krs::analysis::stale-skipped-operand`. The key is per item because
+     Rust has no stable attribute on an expression. A rule's warning is
+     fixed by one rule per case, or silenced by moving the expression into
+     a function that states the key.
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 

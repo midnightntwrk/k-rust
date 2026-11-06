@@ -1860,6 +1860,9 @@ The LLVM backend returns the selected operand alone, which is false wherever the
 The Haskell backend evaluates the unused operand in execution, and its prover reads `#if` lazily ([Definedness of an implication's destination](#definedness-of-an-implications-destination) lists claims it proves and k-rust does not).
 k-rust keeps `andBool`, `orBool` and `impliesBool` innermost because they are strict hooked symbols whose operands are ordinary arguments: `domains.md` states the short-circuit only of `andThenBool` and `orElseBool` and leaves the effect order of the other three open in a concrete run (class `effect-order`, above), so evaluating both operands is one of the admitted orders.
 
+Which sentences of a definition depend on the strict reading, as against one that returns the selected operand alone, is computed from the loaded definition by `k_rust_backend::short_circuit`: from its `total` declarations, its axioms and its ceil theory, it finds the functions, equations and rewrite rules whose value or applicability can differ between the two readings, and for each the operator and the skipped operand where the dependence originates.
+kink reads it to judge which runs depend on the reading, and `krs check` reads it to warn at the operator a KRS author wrote (`krs::analysis::skipped-operand`).
+
 To get a bare value, write the alternatives as rules with complementary `requires`, which never build the operand that is not taken:
 
 ```k

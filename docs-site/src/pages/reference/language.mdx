@@ -74,6 +74,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 `#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
+`#[k::function(.., skipped_operand = "reason")]` states that the function's values may depend on an operand that `&&`, `||` or `kequal::ite` does not evaluate, which silences the [skipped-operand warning](#skipped-operands) at the function's equations; it is KRS-only and emits nothing to K.
 Every configuration has exactly one `#[k::init]`, in an inherent `impl`: it is where the initial state is written, and no cell has a default value, since a cell's sort does not determine its initial content (a computation cell may start empty or with the program).
 Without one, including when a `cfg` removes it, `krs check` reports `krs::expand::missing-initializer` at the struct.
 The initializer's body is one `Self { .. }` struct literal that writes every cell, and a nested cell group's struct literal (inside `Some(..)` or `k::absent!(..)` for an optional cell) writes every cell of the group; as in any Rust struct literal, the fields may be written in any order, and the configuration lists the cells in the order the structs declare them.
@@ -962,7 +963,7 @@ An equation's default K label spells its name in the function's module, `<namesp
 `krs expand` prints each branch as its `#[k::equation]` fn.
 
 A branching body is not K's `#if c #then a #else b #fi`: that is one function application, undefined wherever either branch is, so `#if map::in_keys(i, s) #then map::get(s, i) #else 0 #fi` would be undefined where the key is absent.
-Separate equations keep each branch's definedness to itself.
+Separate equations keep each branch's definedness to itself, which is why a branching body is the fix [the skipped-operand warning](#skipped-operands) suggests.
 
 A fn that ends with `;` declares the symbol only, for a [table](#equation-tables) or `#[k::equation]` fns to define: `#[k::function(total, internal)] pub fn R8(index: k::Term<Int>) -> k::Term<Operand>;`.
 
@@ -1649,7 +1650,7 @@ Three forms of a term expression are notation for a builtin call and have no mea
 `a && b` is `bool::and_then(a, b)`, K's `andThenBool`, and `a || b` is `bool::or_else(a, b)`, K's `orElseBool`.
 These are the short-circuit connectives: k-rust evaluates the left operand first and the right one only when the left does not decide the result, so a guard such as `d != 0 && n / d > 1` evaluates in the order it reads, while the value keeps the definedness of an operand it does not evaluate, as for `kequal::ite` above.
 They group and associate as in Rust: `a || b && c` is `a || (b && c)`, both connectives associate to the left, and parentheses group subexpressions.
-The strict `bool::and` and `bool::or` remain available as calls.
+The strict `bool::and` and `bool::or` remain available as calls; they evaluate both operands in k-rust, but a backend may skip their right operand too, so they are not a way around the [skipped-operand warning](#skipped-operands).
 
 Rust's binary operators `+ - * / % << >> & | ^ == != < <= > >=` and the unary `!` and `-` denote an operation of one builtin domain:
 
@@ -1785,6 +1786,42 @@ Rust parses `m[k]` and `m.f(k)` as expressions, so they hold at the positions ru
 Where a pattern matches a term it applies a function, which never matches, so it is a [function in a pattern](#functions-in-patterns) (`krs::analysis::function-in-pattern`), with its own advice: an index points to `{ k -> v, .. }` to read an entry, and a method to reading the value into a name and comparing it in a guard.
 In a map's key it reads exactly as `map::get(m, k)` does: a key it computes is looked up once the names it reads are bound, by the subject or by other keys in any order (`{ x -> v, st[v] -> w, .. }`), and only keys that read each other's values in a cycle are refused; in a key that selects an entry by matching, it is a function in a pattern.
 Writing a map's entry has no index form: `m[k] = v` and `+=` assign, and a term has nothing to assign to; `m.update(k, v)` is the value with the entry written.
+
+#### Skipped operands
+
+`&&`, `||`, `bool::and`, `bool::or`, `bool::implies` and `kequal::ite` keep the definedness of every operand, evaluated or not: each is one strict function, so `d != 0 && n / d > 1` has no value where `d` is `0`.
+A backend that returns the selected operand alone gives `false` there, so a value or a condition that depends on the definedness of an operand such a backend skips means different things on different backends.
+The operand a backend may skip is the one after the deciding left operand: the right operand of `&&` and `bool::and` where the left one is `false`, of `||` and `bool::or` where it is `true`, of `bool::implies` where it is `false`, and the operand of `kequal::ite` its condition does not select.
+`krs check` warns where a value or a condition depends on such an operand and the operand may have no value (`krs::analysis::skipped-operand`):
+
+```text
+warning[krs::analysis::skipped-operand]: `&&` does not evaluate its right operand where its left operand is `false`, but keeps that operand's definedness, and the operand may have no value
+  --> src/lib.rs:12:12
+   |
+12 |     d != 0 && n / d > 1
+   |            ^^   - may have no value
+   = note: `&&` is `bool::and_then`, one strict function: where the operand has no value, the application has none on every KRS route, while a backend that returns the selected operand alone gives `false`, so the K KRS emits means different things on different backends, and kink does not judge a run that reads it
+   = help: write a branching body, whose branches are separate equations, each with its own definedness: `if left { right } else { false }`, with `left` and `right` its operands; where this is not the whole body, move it into a helper function whose body branches
+   = help: or state that the strict meaning is intended: `#[k::function(.., skipped_operand = "..")]`
+```
+
+An operand may have no value where it applies a partial function or a builtin operation outside its domain, unless the operation owes nothing beyond its operands' definedness (`n / 16`, `int::bit_range(x, 4, 4)`), or a function whose own value depends on a skipped operand.
+An operand that another operand evaluated whenever it is skipped also evaluates is not reported: there both readings have no value together.
+The deciding left operand is never skipped, so `Half(a) > 0 || c` is not reported.
+In a condition the warning is about whether the sentence applies: `#[k::requires(a == 0 || Half(a) > 0)]` does not hold where `Half(a)` has no value, though a Rust reading of `||` makes it hold where `a` is `0`.
+A conjunct of the condition's top-level `&&` chain is not reported, since there a skipped conjunct and an undefined one both leave the condition false.
+A builtin construct KRS [tests before the conjunct](#partial-constructs-in-a-condition) is still reported below `||` or `!`: `#[k::requires(a == 0 || n / a > 1)]` warns, although the test `a != 0` makes the emitted condition mean the same on every backend, because the analysis reads no condition's truth; a construct `krs::analysis::dead-guard` reports is reported by it alone.
+
+The warning is reported once, at the operator where the dependence starts, not at each sentence that applies a function whose value depends on it: a rule applying `Ok(n, d)` is not warned again when `Ok`'s body is.
+A `let` block or a `k::matches!` test that k-rust compiles into a local function is warned at the sentence that holds it, as a value or as a condition by where it stands, and is not warned where it stands as a conjunct of the condition's top-level `&&` chain and its value is itself such a chain, as the same chain written without the block is not.
+An operator in the prelude is warned at the sentence's application of the prelude function that holds it, where only the key applies: `float::is_infinite(x)` warns, since the prelude's `isInfinite` skips a comparison with `maxValueFloat`, which may have no value.
+The fix is to write each case as a sentence of its own: a [branching body](#branching-bodies), whose branches are separate equations, each with its own definedness (`if d != 0 { n / d > 1 } else { false }`), or one rule per case (`#[k::requires(a == 0)]` beside `#[k::requires(a != 0 && Half(a) > 0)]`).
+Where the strict meaning is intended, `skipped_operand = "reason"` on the function's `#[k::function(..)]` states it and silences the warnings at its equations (its body's branches, its table's rows, its `#[k::equation]` fns); for a rule, move the expression into a function that states the key.
+The reason is a nonempty string literal, given once (`krs::syntax::invalid-skipped-operand`), and a key with nothing to silence is itself a warning (`krs::analysis::stale-skipped-operand`).
+A silenced sentence still means different things on different backends, and kink does not judge a run that reads the skipped operand's definedness.
+
+The warning reads k-rust's analysis of the definition the run commands load, the analysis kink reads (`k_rust_backend::short_circuit`), so `krs check` reports it on the `native-rust` route only: `krs check --backend llvm` loads no such definition and reports neither warning, and `krs run`, `krs search` and `krs prove` do not repeat it.
+A definition with no such warning, no such key and no `krs::analysis::dead-guard` warning is one whose emitted K kink's analysis flags no rule of: a condition whose construct `dead-guard` reports is still flagged.
 
 ### Collection literals
 
