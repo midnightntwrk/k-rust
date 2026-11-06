@@ -104,7 +104,8 @@ pub(super) fn check_program_token_fields(
             *public.entry(production.result_sort()).or_default() |= !is_private(production);
         }
     }
-    for production in definition().filter(|production| is_program_syntax(production)) {
+    let keys = crate::instance_keys::InstanceKeys::of(modules);
+    for production in definition().filter(|production| is_program_syntax(production, &keys)) {
         for item in production.items() {
             let GrammarProductionItemKind::NonTerminal { field, sort } = item.kind() else {
                 continue;

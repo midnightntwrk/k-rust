@@ -7,6 +7,11 @@
 //! full module (Map, List and Set have no `-SYNTAX` module in K 7.1.337). Such a
 //! production is placed in `<NS>` automatically: silently, unless the author
 //! asserted `program`, which turns the placement into a warning.
+//!
+//! A function evaluated in one instance of a Map collection is placed in `<NS>`
+//! automatically too ([`PlacementReason::InstanceFunction`]): it receives the
+//! instance's key as a hidden argument, and a program is evaluated in no
+//! instance, so no program can apply it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -19,6 +24,8 @@ use krs_ir::{
 use krs_ir_levels::{
     SemanticModule, SemanticProduction, SemanticSortRef, SemanticSubsort, SemanticTheory,
 };
+
+use crate::instance_keys::InstanceKeys;
 
 /// K namespace of the facade's framework package, which is not partitioned.
 pub(crate) const FRAMEWORK_NAMESPACE: &str = "KRS-FRAMEWORK";
@@ -61,13 +68,27 @@ pub enum PlacementReason {
         /// The builtin sort.
         sort: BuiltinSort,
     },
+    /// The production is a function evaluated in one instance of each of these
+    /// Map collections, outermost first ([`crate::instance_keys`]): its function
+    /// context reads such an instance, or the context of a function it applies
+    /// does. It receives each instance's key as a hidden argument, and a
+    /// program is a term evaluated in no instance, so no program can apply it.
+    /// Whether a function is one depends on where the definition's
+    /// configuration holds the cells it reads, not on its declaration.
+    InstanceFunction {
+        /// The K names of the Map collection cells.
+        holders: Vec<String>,
+    },
 }
 
 impl PlacementReason {
     /// Whether this placement is the automatic R1 placement of a `pub` production.
     #[must_use]
     pub const fn is_automatic(&self) -> bool {
-        matches!(self, Self::NeedsFullModule { .. })
+        matches!(
+            self,
+            Self::NeedsFullModule { .. } | Self::InstanceFunction { .. }
+        )
     }
 }
 
@@ -86,6 +107,25 @@ impl fmt::Display for PlacementReason {
                 write!(
                     formatter,
                     ": K has no {module}{PROGRAM_SYNTAX_SUFFIX} module"
+                )
+            }
+            Self::InstanceFunction { holders } => {
+                let holders = holders
+                    .iter()
+                    .map(|holder| format!("`{holder}`"))
+                    .collect::<Vec<_>>();
+                let (cells, holders, key) = match holders.as_slice() {
+                    [one] => ("cell", one.clone(), "the instance's key"),
+                    [init @ .., last] => (
+                        "cells",
+                        format!("{} and {last}", init.join(", ")),
+                        "each instance's key",
+                    ),
+                    [] => ("cells", String::new(), "each instance's key"),
+                };
+                write!(
+                    formatter,
+                    "evaluated in one instance of the Map collection {cells} {holders}, so it receives {key}, and a program is evaluated in no instance"
                 )
             }
         }
@@ -258,12 +298,13 @@ impl Partition {
     /// and program-syntax productions.
     pub fn of(theory: &SemanticTheory) -> Result<Self, PartitionError> {
         let mut partition = Self::default();
+        let keys = InstanceKeys::of(theory.modules());
         for module in theory.modules() {
             // A spec module (KF-041) is a proof module: it has no program syntax.
             if is_framework_module(module.id()) || module.is_spec() {
                 continue;
             }
-            let placement = place_module(module, &mut partition.warnings)?;
+            let placement = place_module(module, &keys, &mut partition.warnings)?;
             partition.report.push(report(module, &placement));
             partition.modules.insert(module.id().clone(), placement);
         }
@@ -394,17 +435,33 @@ pub(crate) fn is_private(production: &SemanticProduction) -> bool {
     production.visibility() != &RustVisibility::Public && !is_bracket(production)
 }
 
-/// Whether a production is program syntax, placed in `<NS>-SYNTAX`.
-pub(crate) fn is_program_syntax(production: &SemanticProduction) -> bool {
-    production_placement(production).is_none()
+/// Whether a production is program syntax, placed in `<NS>-SYNTAX`, given the
+/// instance keys of the definition's functions (`keys`).
+pub(crate) fn is_program_syntax(production: &SemanticProduction, keys: &InstanceKeys) -> bool {
+    production_placement(production, keys).is_none()
 }
 
-fn production_placement(production: &SemanticProduction) -> Option<PlacementReason> {
+fn production_placement(
+    production: &SemanticProduction,
+    keys: &InstanceKeys,
+) -> Option<PlacementReason> {
     if attribute_origin(production, is_internal).is_some() {
         return Some(PlacementReason::Internal);
     }
     if is_private(production) {
         return Some(PlacementReason::NotPublic);
+    }
+    let holders = keys.function(production.id());
+    if !holders.is_empty() {
+        return Some(PlacementReason::InstanceFunction {
+            holders: holders
+                .iter()
+                .map(|holder| {
+                    keys.holder(holder)
+                        .map_or_else(|| holder.to_string(), |holder| holder.name.clone())
+                })
+                .collect(),
+        });
     }
     needs_full_module(production)
 }
@@ -421,13 +478,14 @@ fn subsort_placement(subsort: &SemanticSubsort) -> Option<PlacementReason> {
 
 fn place_module(
     module: &SemanticModule,
+    keys: &InstanceKeys,
     warnings: &mut Vec<PartitionWarning>,
 ) -> Result<ModulePlacement, PartitionError> {
     let mut placement = ModulePlacement::default();
     let mut syntax_groups = BTreeSet::new();
     let mut group_members = BTreeMap::<&ProductionGroupId, Vec<&SemanticProduction>>::new();
     for production in module.productions() {
-        let reason = production_placement(production);
+        let reason = production_placement(production, keys);
         for attribute in production.attributes() {
             if let ProductionAttribute::Group { group, .. } = attribute {
                 group_members.entry(group).or_default().push(production);
@@ -613,6 +671,25 @@ mod tests {
             "result `Map`: K has no MAP-SYNTAX module"
         );
         assert!(!PlacementReason::Internal.is_automatic());
+    }
+
+    #[test]
+    fn an_instance_function_is_placed_because_a_program_is_in_no_instance() {
+        let one = PlacementReason::InstanceFunction {
+            holders: vec!["hart".to_owned()],
+        };
+        assert_eq!(
+            one.to_string(),
+            "evaluated in one instance of the Map collection cell `hart`, so it receives the instance's key, and a program is evaluated in no instance"
+        );
+        assert!(one.is_automatic());
+        let two = PlacementReason::InstanceFunction {
+            holders: vec!["cluster".to_owned(), "hart".to_owned()],
+        };
+        assert_eq!(
+            two.to_string(),
+            "evaluated in one instance of the Map collection cells `cluster` and `hart`, so it receives each instance's key, and a program is evaluated in no instance"
+        );
     }
 
     #[test]
