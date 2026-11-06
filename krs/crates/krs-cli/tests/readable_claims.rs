@@ -701,7 +701,7 @@ fn readable_kevm_claims_prove_and_expand() {
         }
         #[k::claim(all_paths, label = "push-add-symbolic")]
         #[k::exists(left:Int)]
-        #[k::ensures(int::eq(left, int::sub(g, 9)))]
+        #[k::ensures(k::builtin::int::eq(left, k::builtin::int::sub(g, 9)))]
         #[k::requires(k::builtin::int::ge(g, 9))]
         pub fn push_add_symbolic(
             pc: k::Term<k::builtin::Int>,

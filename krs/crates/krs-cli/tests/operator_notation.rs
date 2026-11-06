@@ -413,9 +413,10 @@ k::claims! {
 
 /// `krs expand` writes an attribute's comparisons and connectives as Rust,
 /// `n == 1 && p <= 9`, where printing a list attribute's tokens would
-/// separate the two `=` of `==`: a claim fn's `requires` and `ensures`, a
-/// rule fn's `requires`, and a readable claim's `ensures`, which it keeps as
-/// written. The expanded crate checks.
+/// separate the two `=` of `==`: a claim fn's `requires` and `ensures` and a
+/// rule fn's `requires`. A readable claim's `ensures` is read in the clause's
+/// scope, so it is restated from its descriptor, as a readable `requires` is,
+/// with each operator as its call. The expanded crate checks.
 #[test]
 fn expand_writes_comparisons_in_attributes_as_rust() {
     let target = shared_fixture_target();
@@ -440,7 +441,7 @@ fn expand_writes_comparisons_in_attributes_as_rust() {
         [
             "#[k::requires(n == 1 && p <= 9)]\n#[k::ensures(q == p + n)]",
             "#[k::requires(n == 2 || n >= 7)]",
-            "#[k::ensures(q == p + n)]",
+            "#[k::ensures(k::builtin::int::eq(q, k::builtin::int::add(p, n)))]",
         ]
     "##]]
     .assert_debug_eq(&[

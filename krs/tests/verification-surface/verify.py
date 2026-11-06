@@ -12,8 +12,8 @@ The fixture packages are K tutorial lesson 1.21 in both layers:
   `zero-reaches-nonzero` (every path from `0` reaches some `?Y =/=Int 0`),
   whose start matches the target's pattern but not its condition.
 - `l21-readable`: the two lesson rules as readable `k::rules!` clauses, whose
-  `#[k::exists]` and `#[k::ensures]` helpers `krs expand` keeps verbatim
-  before `#[k::rule(..)]`.
+  `#[k::exists]` helpers `krs expand` keeps verbatim before `#[k::rule(..)]`,
+  with each `#[k::ensures]` restated from its descriptor.
 
 Neither package puts the two lesson rules in a `nondet` group: `krs check`
 accepts them because unifying their subjects turns `big_to_five`'s guard into
@@ -272,7 +272,7 @@ REQUIREMENTS = {
     L21_READABLE.package: [["RuleExistential", "zero-to-unknown"]],
 }
 READABLE_HELPERS = (
-    "#[k::exists(x:Int)]\n#[k::ensures(int::ne(x, 0))]\n"
+    "#[k::exists(x:Int)]\n#[k::ensures(k::builtin::int::ne(x, 0))]\n"
     '#[k::rule(label = "zero-to-unknown")]\n'
 )
 # (spec module, claim label): (proven, emitted claim). Both claims hold, and

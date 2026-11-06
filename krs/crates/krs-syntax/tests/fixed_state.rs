@@ -548,6 +548,20 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
     );
 }
 
+/// A result that names no cell keeps the whole state its subject bound: every cell as it was.
+/// Whether the sentence may say that is its form's to judge (a claim may, a rule changes no cell).
+#[test]
+fn a_cells_result_may_keep_the_whole_state() {
+    let unchanged = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source("..state").unwrap(),
+    )
+    .unwrap();
+    assert!(unchanged.entries().is_empty());
+    assert!(
+        matches!(unchanged.remainder(), StateMacroRemainder::Reuse { binding, .. } if binding == "state")
+    );
+}
+
 #[test]
 fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands() {
     let pattern = krs_syntax::parse_cells_pattern(
@@ -600,17 +614,6 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
     assert_eq!(expression.entries().len(), 2);
     assert!(
         matches!(expression.remainder(), StateMacroRemainder::Reuse { binding, .. } if binding == "state")
-    );
-
-    // A result that names no cell keeps the whole state its subject bound: every cell as it
-    // was. Whether the sentence may say that is its form's to judge.
-    let unchanged = krs_syntax::parse_cells_expression(
-        krs_syntax::parse::tokens_from_source("..state").unwrap(),
-    )
-    .unwrap();
-    assert!(unchanged.entries().is_empty());
-    assert!(
-        matches!(unchanged.remainder(), StateMacroRemainder::Reuse { binding, .. } if binding == "state")
     );
 
     for (source, expected_kind) in [

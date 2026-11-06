@@ -2732,11 +2732,11 @@ fn render_rule(
         .attributes()
         .iter()
         .filter(|attribute| {
-            !attribute
+            attribute
                 .path()
                 .segments
                 .last()
-                .is_some_and(|segment| segment.ident == "ensures")
+                .is_none_or(|segment| segment.ident != "ensures")
         })
         .map(|attribute| quote!(#attribute))
         .chain(ensures)
