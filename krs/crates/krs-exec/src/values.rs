@@ -867,7 +867,7 @@ pub(crate) fn kore_sort_name(k_name: &str) -> String {
     }
 }
 
-fn kore_symbol_name(label: &str) -> String {
+pub(crate) fn kore_symbol_name(label: &str) -> String {
     encode_kore_label(&Label::new(label)).name
 }
 

@@ -46,8 +46,8 @@
 //!
 //! | form | value | where |
 //! |---|---|---|
-//! | `{"$text": "K text"}` | the text, parsed at the parameter's sort as `-c` parses it | a whole input only |
-//! | `{"$text-file": "path"}` | the file's UTF-8 text, as `$text`; parse locations carry the file's name | a whole input only |
+//! | `{"$text": "K text"}` | the text, parsed at the parameter's sort as `-c` parses it, or at a stated cell's sort | a whole input, and a whole cell a case's `instances` states |
+//! | `{"$text-file": "path"}` | the file's UTF-8 text, as `$text`; parse locations carry the file's name | as `$text` |
 //! | `{"$file": "path"}` | a `Bytes` of the file's bytes, unchanged | anywhere `Bytes` fits |
 //! | `{"$hex": "00ff1a"}` | a `Bytes` of the bytes the hex digits spell (an even count, either case, no separators) | anywhere `Bytes` fits |
 //! | `{"$data-file": "path"}` | the document the file holds (`.json` or `.toml`, by extension), decoded at this position | anywhere |
@@ -139,7 +139,7 @@
 //! declared element types. The decoder's own checks make the refusal earlier and name the
 //! position inside the document.
 //!
-//! Not in the encoding: `$text` inside a value, sort-parametric productions (refused as
+//! Not in the encoding: `$text` inside a value (below a whole input or a whole stated cell), sort-parametric productions (refused as
 //! [`ValueIndex::ctor`] refuses them), and console input.
 //!
 //! ## The canonical document of a value
@@ -241,7 +241,7 @@
 //!
 //! A *case document* is a TOML or a JSON document, by its file's extension,
 //! that states one case or several named cases ([`CaseDocument`]).
-//! A *case* is a table of three keys, each of which may be absent:
+//! A *case* is a table of four keys, each of which may be absent:
 //!
 //! - `inputs`: a value for each input, by name
 //!   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -259,6 +259,8 @@
 //!   which needs a stop rule to count arrivals at.
 //!   The count belongs to the case, beside its rules,
 //!   since where a run is observed depends on the program it runs.
+//! - `instances`: the instances the run starts with, of the optional and repeated cells it names
+//!   ("Instances", below).
 //! - `expect`: the end the case expects of its run ("Expectations", below).
 //!
 //! A document of one case holds these keys at its top, and no other.
@@ -282,6 +284,57 @@
 //! so that the document and the name identify a case (`<document>#<name>`).
 //! A front end selects a case of a document of named cases by its name;
 //! the one case of a document has no name, and is selected by none.
+//!
+//! ## Instances
+//!
+//! The initializer states every fixed cell's start as a function of the inputs,
+//! and one instance's template for each optional (`?`) and repeated (`*`) cell;
+//! how many instances such a cell starts with is what it cannot state.
+//! `instances` states exactly that: the starting instances of the cells it names.
+//! A fixed cell starts as the initializer says, and a case that needs another start binds other inputs.
+//!
+//! `instances` nests by group field as an end document's `cells` does
+//! (`instances.harts.hart` is the cell `hart` of the group `harts`),
+//! down to an optional or a repeated cell, which it states in the encoding an end document uses:
+//! an optional cell as `[]` (absent) or `[content]` (present),
+//! a repeated cell as the array of its instances, in order for a `List` collection.
+//! An instance is the table of its cells by Rust field (a document for an optional leaf cell),
+//! read as an instance a rule creates is:
+//!
+//! - a stated leaf cell is read at its declared type, element types included,
+//!   as an input's value is, and may be K text (`$text`, `$text-file`), parsed at the cell's sort;
+//! - a stated group cell is the table of its cells, read the same way;
+//! - a stated optional or repeated cell inside an instance states that cell's instances, as above;
+//! - a cell the instance does not state takes the template's start, evaluated under the case's inputs,
+//!   as the initializer's own instance takes it.
+//!   The template is a function of the inputs, which the case binds, so every cell has one.
+//!
+//! An instance of a `Map` collection states its whole key, its first cell,
+//! as a value (no function application):
+//! the key is the instance's identity,
+//! and two instances with one key are refused, naming the key, since a map holds one instance per key.
+//! Two instances of a `Set` collection stated alike are refused too: a set holds an instance once.
+//! The stated instances of a cell replace the ones the initializer starts it with,
+//! the instance `initial` starts included; a cell `instances` does not name starts as the initializer says.
+//! A path that names a fixed cell is refused, listing the optional and repeated cells a case may state,
+//! and a path the configuration does not declare is refused, listing the cells there, as an end document's is.
+//! A function evaluated in one instance of a Map collection is refused in a stated cell's value or text,
+//! as it is in an input's: it receives an instance's key, and the case's values are evaluated in no instance.
+//!
+//! ```toml
+//! inputs.pgm = { "$text-file" = "boot.s" }
+//!
+//! [[instances.harts.hart]]
+//! id = 0
+//! pc = 0x1000
+//!
+//! [[instances.harts.hart]]
+//! id = 1
+//! pc = 0x2000
+//! ```
+//!
+//! states two harts, keyed `0` and `1`, each with the program counter it gives
+//! and every other cell as the template starts it (both run the program `pgm` binds).
 //!
 //! ## Expectations
 //!
@@ -366,12 +419,12 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use k_rust::kast::Sort as KastSort;
-use krs_ir::{BuiltinSort, CellSortArgument};
+use krs_ir::{BuiltinSort, CellCollectionType, CellMultiplicity, CellSortArgument};
 use krs_ir_levels::{DefinitionIr, DefinitionSentence, DefinitionSortRef};
 use num_bigint::BigInt;
 use serde_json::Value as Json;
 
-use crate::values::{Decl, Float, SortRef, Value, ValueError, ValueIndex};
+use crate::values::{CellNode, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 use crate::{ConfigValue, ProgramInput};
 
 /// One `#[k::init]` parameter: an input of the definition, from the Definition IR.
@@ -597,6 +650,9 @@ pub struct Case {
     /// How it is run: its own `run`, else its document's (named cases only); `None` when neither
     /// is given.
     pub run: Option<CaseRun>,
+    /// The `instances` table, read against the definition by
+    /// [`crate::Semantics::state_instances`]; `None` when the case states none.
+    pub instances: Option<Json>,
     /// The `expect` table, read against the definition by [`crate::Semantics::expectation`].
     pub expect: Option<Json>,
     /// The resolved name ([`InputFiles::read`]) of the data file the case is written in, which
@@ -653,7 +709,7 @@ pub struct Expectation {
 }
 
 /// The keys of a case, besides a named case's `name`.
-const CASE_KEYS: [&str; 3] = ["inputs", "run", "expect"];
+const CASE_KEYS: [&str; 4] = ["inputs", "run", "instances", "expect"];
 
 impl Case {
     /// The one case a TOML document states.
@@ -699,7 +755,7 @@ impl Case {
         }
         let Json::Object(top) = document else {
             return Err(InputError::document(
-                "a case document is a table: one case's `inputs`, `run` and `expect`, or named cases under `case`".to_owned(),
+                "a case document is a table: one case's `inputs`, `run`, `instances` and `expect`, or named cases under `case`".to_owned(),
             ));
         };
         case_table(top, "", None, None, None)
@@ -878,11 +934,11 @@ fn case_table(
             "a document of one case names none; named cases are listed under `case`".to_owned()
         } else if named {
             format!(
-                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run` and `expect`"
+                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `instances` and `expect`"
             )
         } else {
             format!(
-                "unknown key `{key}` in a case; a case has the keys `inputs`, `run` and `expect`"
+                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `instances` and `expect`"
             )
         };
         return Err(at(position, message));
@@ -901,6 +957,17 @@ fn case_table(
         .remove("run")
         .map(|document| case_run(&document, &key_position(position, "run")))
         .transpose()?;
+    let instances = match top.remove("instances") {
+        Some(Json::Object(instances)) => Some(Json::Object(instances)),
+        Some(_) => {
+            return Err(at(
+                position,
+                "`instances` is a table of the starting instances of optional and repeated cells, by Rust field path"
+                    .to_owned(),
+            ));
+        }
+        None => None,
+    };
     let expect = match top.remove("expect") {
         Some(Json::Object(expect)) => Some(Json::Object(expect)),
         Some(_) => {
@@ -916,6 +983,7 @@ fn case_table(
         name,
         inputs,
         run: own.or_else(|| run.cloned()),
+        instances,
         expect,
         file: file.map(str::to_owned),
     })
@@ -988,6 +1056,394 @@ fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
     Ok(run)
 }
 
+/// One leaf cell's content that a case's `instances` states, read at the cell's declared type
+/// ([module documentation](self#instances)).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StatedLeaf {
+    /// The content's term, typed at the cell's content sort.
+    pub(crate) term: k_rust::kore::ast::Pattern,
+    /// The content's value where it is data, with no function application and no opaque part:
+    /// what a `Map` collection's key is compared by. `None` otherwise.
+    pub(crate) value: Option<Value>,
+    /// The content as a refusal shows it: its canonical document's text, or its KORE text.
+    pub(crate) shown: String,
+}
+
+/// A cell that a case's `instances` states ([module documentation](self#instances)).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum StatedCell {
+    /// A leaf cell's content.
+    Leaf(StatedLeaf),
+    /// A group cell's stated cells, each by its index among the group's cells, in declaration
+    /// order; the cells it does not state keep their start.
+    Group(Vec<(usize, StatedCell)>),
+    /// An optional cell's instance, or none (absent).
+    Optional(Option<Box<StatedCell>>),
+    /// A repeated cell's instances, in the document's order.
+    Repeated(Vec<StatedCell>),
+}
+
+/// How [`read_instances`] reads one stated leaf cell: the cell, its document, and the position
+/// of the document (`instances.harts.hart[0].pc`) for a refusal's message; the error is the
+/// message alone.
+pub(crate) type LeafReader<'a> =
+    dyn FnMut(&CellNode, &Json, &str) -> Result<StatedLeaf, String> + 'a;
+
+/// The instances the `instances` table `document` states, for the configuration whose root
+/// cells are `nodes`: each stated cell by its index among `nodes`, in declaration order, every
+/// leaf read by `leaf` ([module documentation](self#instances)).
+///
+/// # Errors
+///
+/// Returns [`InputError`] naming the position (`instances.harts.hart[1]`) for a path that names a
+/// fixed cell or no cell, an optional or repeated cell stated otherwise than its encoding, a cell
+/// of an instance that is no cell of it, a `Map` collection's instance that does not state its
+/// whole key as a value or that shares its key with another, two `Set` collection's instances
+/// stated alike, and a leaf `leaf` refuses.
+pub(crate) fn read_instances(
+    nodes: &[CellNode],
+    document: &Json,
+    leaf: &mut LeafReader<'_>,
+) -> Result<Vec<(usize, StatedCell)>, InputError> {
+    let Json::Object(table) = document else {
+        return Err(at(
+            "instances",
+            "`instances` is a table of the starting instances of optional and repeated cells, by Rust field path"
+                .to_owned(),
+        ));
+    };
+    InstanceReader { roots: nodes, leaf }.fixed(nodes, table, "instances", "")
+}
+
+/// Reads one `instances` table ([`read_instances`]).
+struct InstanceReader<'n, 'l, 'r> {
+    /// The configuration's root cells, for the list of the cells a case may state.
+    roots: &'n [CellNode],
+    leaf: &'l mut LeafReader<'r>,
+}
+
+impl InstanceReader<'_, '_, '_> {
+    /// The cells `table` states of the fixed cells `nodes`, outside every instance: `position`
+    /// is the table's position, `prefix` the cells' Rust field path prefix (`harts.`).
+    fn fixed(
+        &mut self,
+        nodes: &[CellNode],
+        table: &serde_json::Map<String, Json>,
+        position: &str,
+        prefix: &str,
+    ) -> Result<Vec<(usize, StatedCell)>, InputError> {
+        let mut stated = Vec::new();
+        for (field, document) in table {
+            let (index, node) = Self::child(nodes, field, position, prefix)?;
+            let here = format!("{position}.{field}");
+            let path = format!("{prefix}{field}");
+            let cell = match (node.multiplicity, node.children.is_empty(), document) {
+                (Some(_), _, _) => self.holder(node, document, &here)?,
+                (None, false, Json::Object(inner)) => StatedCell::Group(self.fixed(
+                    &node.children,
+                    inner,
+                    &here,
+                    &format!("{path}."),
+                )?),
+                (None, _, _) => {
+                    return Err(at(
+                        &here,
+                        format!(
+                            "`{path}` is a fixed {}: the initializer states its start from the inputs, and a case states only the instances of optional and repeated cells ({}); bind other inputs to start it otherwise",
+                            if node.children.is_empty() {
+                                "cell"
+                            } else {
+                                "group cell, here not a table of its cells"
+                            },
+                            self.holders()
+                        ),
+                    ));
+                }
+            };
+            stated.push((index, cell));
+        }
+        stated.sort_by_key(|(index, _)| *index);
+        Ok(stated)
+    }
+
+    /// The cell of `nodes` that `field` names, refused listing the cells there.
+    fn child<'n>(
+        nodes: &'n [CellNode],
+        field: &str,
+        position: &str,
+        prefix: &str,
+    ) -> Result<(usize, &'n CellNode), InputError> {
+        nodes
+            .iter()
+            .enumerate()
+            .find(|(_, node)| node.field == field)
+            .ok_or_else(|| {
+                at(
+                    &format!("{position}.{field}"),
+                    format!(
+                        "no cell has the path `{prefix}{field}`; the cells are {}",
+                        nodes
+                            .iter()
+                            .map(|node| format!("`{prefix}{}`", node.field))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                )
+            })
+    }
+
+    /// The optional and repeated cells a case may state, outside every instance: the ones below
+    /// the roots through fixed group cells.
+    fn holders(&self) -> String {
+        fn walk(nodes: &[CellNode], prefix: &str, output: &mut Vec<String>) {
+            for node in nodes {
+                let path = format!("{prefix}{}", node.field);
+                if node.multiplicity.is_some() {
+                    output.push(format!("`{path}`"));
+                } else {
+                    walk(&node.children, &format!("{path}."), output);
+                }
+            }
+        }
+        let mut holders = Vec::new();
+        walk(self.roots, "", &mut holders);
+        if holders.is_empty() {
+            "the configuration has none".to_owned()
+        } else {
+            format!("here {}", holders.join(", "))
+        }
+    }
+
+    /// The instances `document` states of the optional or repeated cell `node`.
+    fn holder(
+        &mut self,
+        node: &CellNode,
+        document: &Json,
+        position: &str,
+    ) -> Result<StatedCell, InputError> {
+        match (node.multiplicity, document) {
+            (Some(CellMultiplicity::Optional), Json::Array(items)) if items.len() <= 1 => {
+                Ok(StatedCell::Optional(match items.first() {
+                    None => None,
+                    Some(item) => Some(Box::new(self.instance(
+                        node,
+                        item,
+                        &format!("{position}[0]"),
+                    )?)),
+                }))
+            }
+            (Some(CellMultiplicity::Optional), _) => Err(at(
+                position,
+                format!(
+                    "the optional cell `{}` is stated `[]` (absent) or `[content]` (present)",
+                    node.field
+                ),
+            )),
+            (Some(CellMultiplicity::Star), Json::Array(items)) => {
+                let instances = items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| self.instance(node, item, &format!("{position}[{index}]")))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Self::distinct(node, &instances, position)?;
+                Ok(StatedCell::Repeated(instances))
+            }
+            _ => Err(at(
+                position,
+                format!(
+                    "the repeated cell `{}` is stated as the array of its instances",
+                    node.field
+                ),
+            )),
+        }
+    }
+
+    /// Refuse two instances of the repeated cell `node` that one collection cannot hold both
+    /// of: in a `Map` collection, two with one key, and one that does not state its whole key as
+    /// a value; in a `Set` collection, two stated alike.
+    fn distinct(
+        node: &CellNode,
+        instances: &[StatedCell],
+        position: &str,
+    ) -> Result<(), InputError> {
+        match node.collection {
+            Some(CellCollectionType::Map) if !node.children.is_empty() => {
+                let key = &node.children[0];
+                let mut keys = Vec::<Vec<&Value>>::new();
+                for (index, instance) in instances.iter().enumerate() {
+                    let here = format!("{position}[{index}]");
+                    let stated = match instance {
+                        StatedCell::Group(cells) => cells
+                            .iter()
+                            .find_map(|(child, cell)| (*child == 0).then_some(cell)),
+                        _ => None,
+                    };
+                    let Some(stated) = stated else {
+                        return Err(at(
+                            &here,
+                            format!(
+                                "an instance of the Map collection `{}` states its key, its first cell `{}`: the key is the instance's identity",
+                                node.field, key.field
+                            ),
+                        ));
+                    };
+                    let value = Self::key(key, stated, &format!("{here}.{}", key.field))?;
+                    if let Some(first) = keys.iter().position(|other| *other == value) {
+                        return Err(at(
+                            &here,
+                            format!(
+                                "the instance has the key {} of the instance at [{first}]: a Map collection holds one instance per key, its first cell `{}`",
+                                Self::shown(stated),
+                                key.field
+                            ),
+                        ));
+                    }
+                    keys.push(value);
+                }
+            }
+            Some(CellCollectionType::Set) => {
+                for (index, instance) in instances.iter().enumerate() {
+                    if let Some(first) = instances[..index]
+                        .iter()
+                        .position(|other| other == instance)
+                    {
+                        return Err(at(
+                            &format!("{position}[{index}]"),
+                            format!(
+                                "the instance is stated as the instance at [{first}] is: a Set collection holds an instance once, and two instances with the same cells are one"
+                            ),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The values of the key `stated` states of the key cell `node`, in pre-order of its leaves;
+    /// refused unless it states every leaf of the key as a value.
+    fn key<'s>(
+        node: &CellNode,
+        stated: &'s StatedCell,
+        position: &str,
+    ) -> Result<Vec<&'s Value>, InputError> {
+        let refuse = |message: String| Err(at(position, message));
+        match stated {
+            StatedCell::Leaf(leaf) => match &leaf.value {
+                Some(value) => Ok(vec![value]),
+                None => refuse(format!(
+                    "the key {} is no value: a Map collection's key is compared with the other instances' keys before the run, so it is stated as a value, with no function application",
+                    leaf.shown
+                )),
+            },
+            StatedCell::Group(cells) => {
+                let mut values = Vec::new();
+                for (index, child) in node.children.iter().enumerate() {
+                    let Some(cell) = cells
+                        .iter()
+                        .find_map(|(stated, cell)| (*stated == index).then_some(cell))
+                    else {
+                        return refuse(format!(
+                            "the key does not state `{}`: a Map collection's instance states its whole key, its identity",
+                            child.field
+                        ));
+                    };
+                    values.extend(Self::key(
+                        child,
+                        cell,
+                        &format!("{position}.{}", child.field),
+                    )?);
+                }
+                Ok(values)
+            }
+            StatedCell::Optional(_) | StatedCell::Repeated(_) => {
+                refuse("a Map collection's key is a fixed cell".to_owned())
+            }
+        }
+    }
+
+    /// A stated key as a refusal shows it.
+    fn shown(stated: &StatedCell) -> String {
+        match stated {
+            StatedCell::Leaf(leaf) => leaf.shown.clone(),
+            StatedCell::Group(cells) => format!(
+                "{{{}}}",
+                cells
+                    .iter()
+                    .map(|(_, cell)| Self::shown(cell))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            StatedCell::Optional(_) | StatedCell::Repeated(_) => String::new(),
+        }
+    }
+
+    /// One instance of the optional or repeated cell `node`: the table of its cells, or the
+    /// document of a leaf cell's content.
+    fn instance(
+        &mut self,
+        node: &CellNode,
+        document: &Json,
+        position: &str,
+    ) -> Result<StatedCell, InputError> {
+        if node.children.is_empty() {
+            return self.leaf(node, document, position);
+        }
+        let Json::Object(table) = document else {
+            return Err(at(
+                position,
+                format!(
+                    "an instance of `{}` is a table of its cells by Rust field",
+                    node.field
+                ),
+            ));
+        };
+        self.cells(node, table, position).map(StatedCell::Group)
+    }
+
+    /// The cells `table` states of the group cell `node` inside an instance.
+    fn cells(
+        &mut self,
+        node: &CellNode,
+        table: &serde_json::Map<String, Json>,
+        position: &str,
+    ) -> Result<Vec<(usize, StatedCell)>, InputError> {
+        let mut stated = Vec::new();
+        for (field, document) in table {
+            let (index, child) = Self::child(&node.children, field, position, "")?;
+            let here = format!("{position}.{field}");
+            let cell = match (child.multiplicity, child.children.is_empty(), document) {
+                (Some(_), _, _) => self.holder(child, document, &here)?,
+                (None, true, _) => self.leaf(child, document, &here)?,
+                (None, false, Json::Object(inner)) => {
+                    StatedCell::Group(self.cells(child, inner, &here)?)
+                }
+                (None, false, _) => {
+                    return Err(at(
+                        &here,
+                        format!("the group cell `{field}` is a table of its cells by Rust field"),
+                    ));
+                }
+            };
+            stated.push((index, cell));
+        }
+        stated.sort_by_key(|(index, _)| *index);
+        Ok(stated)
+    }
+
+    fn leaf(
+        &mut self,
+        node: &CellNode,
+        document: &Json,
+        position: &str,
+    ) -> Result<StatedCell, InputError> {
+        (self.leaf)(node, document, position)
+            .map(StatedCell::Leaf)
+            .map_err(|message| at(position, message))
+    }
+}
+
 /// Reads the named cases of a document, following its `$data-file` includes.
 struct CaseReader<'a> {
     files: &'a mut dyn InputFiles,
@@ -1027,7 +1483,8 @@ impl CaseReader<'_> {
             let Json::Object(table) = item else {
                 return Err(at(
                     &here,
-                    "a named case is a table of `name`, `inputs`, `run` and `expect`".to_owned(),
+                    "a named case is a table of `name`, `inputs`, `run`, `instances` and `expect`"
+                        .to_owned(),
                 ));
             };
             let name = match table.get("name") {
@@ -2813,6 +3270,7 @@ mod tests {
                     stop_after: vec!["boundary".to_owned()],
                     stop_count: NonZeroU64::new(2),
                 }),
+                instances: None,
                 expect: Some(serde_json::json!({"halt": "stuck"})),
                 file: None,
             }
@@ -2828,7 +3286,7 @@ mod tests {
         let refusal = |text: &str| Case::from_toml(text).unwrap_err().to_string();
         assert_eq!(
             refusal("[inputs]\n[other]\n"),
-            "unknown key `other` in a case; a case has the keys `inputs`, `run` and `expect`"
+            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `instances` and `expect`"
         );
         assert_eq!(
             refusal("name = \"boot\"\n"),
@@ -3006,7 +3464,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r#"[{"name": "x", "other": 1}]"#),
-            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run` and `expect`"
+            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `instances` and `expect`"
         );
         assert_eq!(
             refusal(r#"[{"name": "x"}, {"$data-file": "a.json"}]"#),
@@ -3034,7 +3492,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r"[1]"),
-            "at `[0]`: a named case is a table of `name`, `inputs`, `run` and `expect`"
+            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `instances` and `expect`"
         );
         assert_eq!(
             refusal("true"),
@@ -3057,5 +3515,265 @@ mod tests {
                 .to_string(),
             "at `case[1]$data-file(cases/sub.json)[0]`: `$data-file` includes itself: `top.toml` includes `cases/sub.json` includes `top.toml`"
         );
+    }
+
+    /// A cell of the configuration the `instances` tests read: `field`, its multiplicity and
+    /// collection, and its cells (none for a leaf).
+    fn cell(
+        field: &str,
+        multiplicity: Option<krs_ir::CellMultiplicity>,
+        collection: Option<krs_ir::CellCollectionType>,
+        children: Vec<crate::values::CellNode>,
+    ) -> crate::values::CellNode {
+        crate::values::CellNode {
+            field: field.to_owned(),
+            symbol: format!("<{field}>"),
+            multiplicity,
+            collection,
+            unobservable: false,
+            children,
+            content: None,
+        }
+    }
+
+    /// `harts { hart*: Map { id, pc, regs { a, b }, reservation?, jobs { job*: Map { jid,
+    /// payload } } } }`, `mem`, and `objs*: Set { oid }`.
+    fn instance_configuration() -> Vec<crate::values::CellNode> {
+        use krs_ir::{CellCollectionType::*, CellMultiplicity::*};
+        let leaf = |field: &str| cell(field, None, None, Vec::new());
+        vec![
+            cell(
+                "harts",
+                None,
+                None,
+                vec![cell(
+                    "hart",
+                    Some(Star),
+                    Some(Map),
+                    vec![
+                        leaf("id"),
+                        leaf("pc"),
+                        cell("regs", None, None, vec![leaf("a"), leaf("b")]),
+                        cell("reservation", Some(Optional), None, Vec::new()),
+                        cell(
+                            "jobs",
+                            None,
+                            None,
+                            vec![cell(
+                                "job",
+                                Some(Star),
+                                Some(Map),
+                                vec![leaf("jid"), leaf("payload")],
+                            )],
+                        ),
+                    ],
+                )],
+            ),
+            leaf("mem"),
+            cell("objs", Some(Star), Some(Set), vec![leaf("oid")]),
+        ]
+    }
+
+    /// An integer leaf as a stated `Int`; `{"$call": ..}` as an application, which is no value;
+    /// anything else refused.
+    fn int_leaf(
+        _: &crate::values::CellNode,
+        document: &Json,
+        _: &str,
+    ) -> Result<super::StatedLeaf, String> {
+        let int = |text: String| k_rust::kore::ast::Pattern::DomainValue {
+            sort: k_rust::kore::ast::Sort::Application {
+                name: "SortInt".to_owned(),
+                arguments: Vec::new(),
+            },
+            value: k_rust::kore::ast::KoreString::from(text.as_str()),
+        };
+        match document {
+            Json::Number(number) => Ok(super::StatedLeaf {
+                term: int(number.to_string()),
+                value: Some(crate::Value::Int(number.as_i64().unwrap().into())),
+                shown: number.to_string(),
+            }),
+            Json::Object(call) if call.contains_key("$call") => Ok(super::StatedLeaf {
+                term: int("call".to_owned()),
+                value: None,
+                shown: "f(0)".to_owned(),
+            }),
+            _ => Err("no Int".to_owned()),
+        }
+    }
+
+    fn instances(document: &Json) -> Result<Vec<(usize, super::StatedCell)>, String> {
+        super::read_instances(&instance_configuration(), document, &mut int_leaf)
+            .map_err(|error| error.to_string())
+    }
+
+    /// A case states the instances of the cells it names, each instance the cells it states:
+    /// two harts, the second with a register, an absent and a present reservation, and a job;
+    /// what an instance does not state is left out of the statement, so that it keeps the
+    /// template's start, which the inputs give every cell.
+    #[test]
+    fn a_case_states_instances_by_path_each_with_the_cells_it_states() {
+        use super::StatedCell::{Group, Leaf, Optional, Repeated};
+        let stated = instances(&serde_json::json!({
+            "harts": {"hart": [
+                {"id": 0, "reservation": []},
+                {"pc": 8, "id": 1, "regs": {"b": 2}, "reservation": [3], "jobs": {"job": [{"jid": 4}]}},
+            ]},
+            "objs": [{"oid": 1}, {"oid": 2}],
+        }))
+        .unwrap();
+        let leaf =
+            |value: i64| match int_leaf(&cell("x", None, None, Vec::new()), &value.into(), "") {
+                Ok(leaf) => Leaf(leaf),
+                Err(error) => panic!("{error}"),
+            };
+        assert_eq!(
+            stated,
+            vec![
+                (
+                    0,
+                    Group(vec![(
+                        0,
+                        Repeated(vec![
+                            Group(vec![(0, leaf(0)), (3, Optional(None))]),
+                            Group(vec![
+                                (0, leaf(1)),
+                                (1, leaf(8)),
+                                (2, Group(vec![(1, leaf(2))])),
+                                (3, Optional(Some(Box::new(leaf(3))))),
+                                (
+                                    4,
+                                    Group(vec![(0, Repeated(vec![Group(vec![(0, leaf(4))])]))])
+                                ),
+                            ]),
+                        ])
+                    )])
+                ),
+                (
+                    2,
+                    Repeated(vec![Group(vec![(0, leaf(1))]), Group(vec![(0, leaf(2))])])
+                ),
+            ]
+        );
+        assert_eq!(instances(&serde_json::json!({})).unwrap(), Vec::new());
+        assert_eq!(
+            instances(&serde_json::json!({"harts": {"hart": []}})).unwrap(),
+            vec![(0, Group(vec![(0, Repeated(Vec::new()))]))]
+        );
+    }
+
+    /// An optional cell is stated `[]` (absent) or `[content]` (present), as an end document
+    /// states it, and nothing else.
+    #[test]
+    fn an_optional_cell_is_stated_absent_or_present() {
+        for reservation in [
+            serde_json::json!(3),
+            serde_json::json!([1, 2]),
+            serde_json::json!({}),
+        ] {
+            assert_eq!(
+                instances(&serde_json::json!({"harts": {"hart": [{"id": 0, "reservation": reservation}]}})),
+                Err("at `instances.harts.hart[0].reservation`: the optional cell `reservation` is stated `[]` (absent) or `[content]` (present)".to_owned()),
+                "{reservation}"
+            );
+        }
+        assert_eq!(
+            instances(&serde_json::json!({"harts": {"hart": {"id": 0}}})),
+            Err("at `instances.harts.hart`: the repeated cell `hart` is stated as the array of its instances".to_owned())
+        );
+    }
+
+    /// A Map collection's instance states its whole key as a value, and no two share one; two
+    /// Set instances stated alike are one instance.
+    #[test]
+    fn instances_that_one_collection_cannot_hold_both_are_refused() {
+        for (document, refusal) in [
+            (
+                serde_json::json!({"harts": {"hart": [{"id": 0}, {"pc": 4}]}}),
+                "at `instances.harts.hart[1]`: an instance of the Map collection `hart` states its key, its first cell `id`: the key is the instance's identity",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [{"id": 0}, {"id": 1}, {"id": 0, "pc": 4}]}}),
+                "at `instances.harts.hart[2]`: the instance has the key 0 of the instance at [0]: a Map collection holds one instance per key, its first cell `id`",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [{"id": 0, "jobs": {"job": [{"jid": 1}, {"jid": 1}]}}]}}),
+                "at `instances.harts.hart[0].jobs.job[1]`: the instance has the key 1 of the instance at [0]: a Map collection holds one instance per key, its first cell `jid`",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [{"id": {"$call": {"f": [0]}}}]}}),
+                "at `instances.harts.hart[0].id`: the key f(0) is no value: a Map collection's key is compared with the other instances' keys before the run, so it is stated as a value, with no function application",
+            ),
+            (
+                serde_json::json!({"objs": [{"oid": 1}, {"oid": 2}, {"oid": 1}]}),
+                "at `instances.objs[2]`: the instance is stated as the instance at [0] is: a Set collection holds an instance once, and two instances with the same cells are one",
+            ),
+        ] {
+            assert_eq!(instances(&document), Err(refusal.to_owned()), "{document}");
+        }
+    }
+
+    /// A fixed cell starts as the initializer says, so a path to one is refused, listing the
+    /// cells a case may state; a path to no cell is refused, listing the cells there, outside an
+    /// instance and inside one; a stated leaf the reader refuses is refused at its position.
+    #[test]
+    fn a_path_to_a_fixed_cell_or_to_no_cell_is_refused() {
+        for (document, refusal) in [
+            (
+                serde_json::json!({"mem": 1}),
+                "at `instances.mem`: `mem` is a fixed cell: the initializer states its start from the inputs, and a case states only the instances of optional and repeated cells (here `harts.hart`, `objs`); bind other inputs to start it otherwise",
+            ),
+            (
+                serde_json::json!({"harts": 1}),
+                "at `instances.harts`: `harts` is a fixed group cell, here not a table of its cells: the initializer states its start from the inputs, and a case states only the instances of optional and repeated cells (here `harts.hart`, `objs`); bind other inputs to start it otherwise",
+            ),
+            (
+                serde_json::json!({"cpu": {"pc": 1}}),
+                "at `instances.cpu`: no cell has the path `cpu`; the cells are `harts`, `mem`, `objs`",
+            ),
+            (
+                serde_json::json!({"harts": {"core": []}}),
+                "at `instances.harts.core`: no cell has the path `harts.core`; the cells are `harts.hart`",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [{"id": 0, "regs": {"c": 1}}]}}),
+                "at `instances.harts.hart[0].regs.c`: no cell has the path `c`; the cells are `a`, `b`",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [{"id": 0, "regs": 1}]}}),
+                "at `instances.harts.hart[0].regs`: the group cell `regs` is a table of its cells by Rust field",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [{"id": 0, "pc": "x"}]}}),
+                "at `instances.harts.hart[0].pc`: no Int",
+            ),
+            (
+                serde_json::json!({"harts": {"hart": [1]}}),
+                "at `instances.harts.hart[0]`: an instance of `hart` is a table of its cells by Rust field",
+            ),
+        ] {
+            assert_eq!(instances(&document), Err(refusal.to_owned()), "{document}");
+        }
+        assert_eq!(
+            super::read_instances(&[cell("pc", None, None, Vec::new())], &serde_json::json!({"pc": 1}), &mut int_leaf)
+                .map_err(|error| error.to_string()),
+            Err("at `instances.pc`: `pc` is a fixed cell: the initializer states its start from the inputs, and a case states only the instances of optional and repeated cells (the configuration has none); bind other inputs to start it otherwise".to_owned())
+        );
+    }
+
+    /// A case's `instances` is a table, read beside `inputs`, `run` and `expect`.
+    #[test]
+    fn a_case_holds_its_instances_table() {
+        let case = Case::from_toml("[[instances.harts.hart]]\nid = 0\n").unwrap();
+        assert_eq!(
+            case.instances,
+            Some(serde_json::json!({"harts": {"hart": [{"id": 0}]}}))
+        );
+        assert_eq!(
+            Case::from_toml("instances = 1\n").unwrap_err().to_string(),
+            "`instances` is a table of the starting instances of optional and repeated cells, by Rust field path"
+        );
+        assert_eq!(Case::from_toml("[inputs]\n").unwrap().instances, None);
     }
 }

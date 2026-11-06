@@ -34,7 +34,7 @@ use k_rust::{
 use krs_ir::{BuiltinSort, CellSortArgument};
 use krs_ir_levels::{DefinitionIr, DefinitionSentence, DefinitionSortRef, SymbolId};
 
-use crate::values::{ValueIndex, kore_sort_name};
+use crate::values::{ValueIndex, kore_sort_name, kore_symbol_name};
 
 /// The declared type of a typed cell or of one of its element positions.
 #[derive(Debug)]
@@ -86,12 +86,16 @@ pub(crate) struct Mismatch<'p> {
     pub(crate) expected: String,
 }
 
-/// The declared types of a definition's collection-typed configuration variables, and the sort
-/// lattice their elements are checked in.
+/// The declared types of a definition's collection-typed configuration variables and cells, and
+/// the sort lattice their elements are checked in.
 #[derive(Debug, Default)]
 pub(crate) struct CellTypes {
     /// By K name of the variable, without `$`.
     variables: BTreeMap<String, TypedVariable>,
+    /// By KORE symbol of the cell, each with the cell's Rust field path in `parameter`: the
+    /// content a case's `instances` states of a cell is checked as a variable's value is
+    /// ([`crate::inputs`], "Instances").
+    cells: BTreeMap<String, TypedVariable>,
     sorts: SortGraph,
 }
 
@@ -115,11 +119,13 @@ impl CellTypes {
             })
             .collect::<BTreeMap<_, _>>();
         let mut variables = BTreeMap::new();
+        let mut cells = BTreeMap::new();
         for module in definition.modules() {
             for sentence in module.sentences() {
                 let DefinitionSentence::Configuration(configuration) = sentence else {
                     continue;
                 };
+                typed_cells(configuration.cells(), "", &sort_names, values, &mut cells);
                 for variable in configuration.variables() {
                     if variable.arguments().is_empty() {
                         continue;
@@ -140,8 +146,31 @@ impl CellTypes {
         }
         Self {
             variables,
+            cells,
             sorts: backend.sort_graph().clone(),
         }
+    }
+
+    /// The first part of `value`, the content a case states of the cell whose KORE symbol is
+    /// `symbol`, that does not fit the cell's declared type, if any; the mismatch's `parameter`
+    /// is the cell's Rust field path.
+    pub(crate) fn check_cell<'p>(
+        &self,
+        values: &ValueIndex,
+        symbol: &str,
+        value: &'p Pattern,
+    ) -> Option<Mismatch<'p>> {
+        let typed = self.cells.get(symbol)?;
+        let mut path = Vec::new();
+        self.part(values, value, &typed.ty, &mut path)
+            .map(|(element, sort, expected)| Mismatch {
+                parameter: typed.parameter.clone(),
+                declared: typed.ty.display.clone(),
+                path,
+                element,
+                sort: values.sort_display(&sort),
+                expected: values.sort_display(expected),
+            })
     }
 
     /// The first part of the value bound to `variable` (its K name without `$`) that does not
@@ -206,6 +235,37 @@ impl CellTypes {
         );
         // An answer the lattice cannot give (an undeclared sort) is no evidence of a mismatch.
         (fits == Ok(false)).then_some((pattern, sort, ty.sort.as_str()))
+    }
+}
+
+/// Adds to `output` each leaf cell of `cells` and below them declared with element types, by
+/// its KORE symbol, with its Rust field path below `prefix`.
+fn typed_cells(
+    cells: &[krs_ir::FixedCell<DefinitionSortRef, SymbolId>],
+    prefix: &str,
+    sort_names: &BTreeMap<SymbolId, String>,
+    values: &ValueIndex,
+    output: &mut BTreeMap<String, TypedVariable>,
+) {
+    for cell in cells {
+        let path = format!("{prefix}{}", cell.field().unwrap_or(cell.name()));
+        match cell.content() {
+            krs_ir::FixedCellContent::Children { children } => {
+                typed_cells(children, &format!("{path}."), sort_names, values, output);
+            }
+            krs_ir::FixedCellContent::Term { sort, arguments } if !arguments.is_empty() => {
+                if let Some(ty) = cell_type(sort, arguments, sort_names, values) {
+                    output.insert(
+                        kore_symbol_name(&format!("<{}>", cell.name())),
+                        TypedVariable {
+                            parameter: path,
+                            ty,
+                        },
+                    );
+                }
+            }
+            krs_ir::FixedCellContent::Term { .. } => {}
+        }
     }
 }
 

@@ -2,6 +2,12 @@
 //! [`k_rust::kompile::ConfigurationAssembler`] owns krun's `-c` assembly of `initGeneratedTopCell`; this module adds the per-value surface parsing that cell expectations and the Java route's per-variable KORE need.
 //! A program parser has no K sequence syntax, so a `K`-sorted cell expectation (`trap ~> .Instrs`) is read by a ground K-value parser ([`ProgramParser::for_ground_values`]): the main module's program grammar plus exactly `.K`, `K ~> K`, and a K bracket.
 
+use k_rust::k_rust_backend::{
+    definition::BackendDefinition,
+    term::{
+        CollectionMetadata, Sort as BackendSort, SortNode, Symbol as BackendSymbol, SymbolType,
+    },
+};
 use k_rust::{
     definition::{AttributeKey, Attributes, Definition, Sentence},
     inner::{PresentedProgram, ProgramParser},
@@ -14,7 +20,11 @@ use k_rust::{
     kore::ast::{Pattern, Sort, Symbol},
     names::BuiltinSort,
 };
+use krs_ir::CellMultiplicity;
 use serde_json::{Map, Value, json};
+
+use crate::inputs::StatedCell;
+use crate::values::CellNode;
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
@@ -579,6 +589,62 @@ impl Configuration {
         )?)
     }
 
+    /// The KORE of a ground KAST term over the definition's labels, typed at the position of sort
+    /// `sort` it is placed at, with the injection, or for `K` the one-item sequence, that the
+    /// position needs: a stated cell's content ([`crate::inputs`], "Instances").
+    ///
+    /// # Errors
+    ///
+    /// Returns the injector's or the converter's error for a term that is no well-sorted term of
+    /// the definition at `sort`.
+    pub(crate) fn typed_kore_at(
+        &self,
+        term: &k_rust::kast::Term,
+        sort: &KastSort,
+    ) -> Result<Pattern, Box<dyn Error>> {
+        let resolved = self.grammar.program.resolved();
+        let injector = SortInjector::new(resolved, &self.main_module)?;
+        let term = injector.inject(term, sort)?;
+        Ok(term_to_kore_from_resolved_with_token_module(
+            resolved,
+            &self.main_module,
+            &self.main_module,
+            &term,
+        )?)
+    }
+
+    /// K text parsed as a cell's content is ([`Self::parse_cell`]), typed at the position of
+    /// sort `sort` with the injection it needs there: a stated cell's text ([`crate::inputs`],
+    /// "Instances").
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the text does not parse at `sort`.
+    pub(crate) fn parse_cell_at(
+        &mut self,
+        cell: &str,
+        sort: &KastSort,
+        source: &str,
+    ) -> Result<Pattern, Box<dyn Error>> {
+        let parser_module = self.main_module.clone();
+        let (value, value_sort) = self
+            .parse_surface_readings(&parser_module, sort, source, false, Readings::One)
+            .map_err(|error| format!("could not parse <{cell}> at sort {sort}: {error}"))?
+            .swap_remove(0);
+        let target = encode_kore_sort(sort);
+        Ok(if value_sort == target {
+            value
+        } else {
+            Pattern::Application {
+                symbol: Symbol {
+                    name: "inj".to_owned(),
+                    sort_parameters: vec![value_sort, target],
+                },
+                arguments: vec![value],
+            }
+        })
+    }
+
     /// The term `printed`, a token's printed text, reads as at a position of sort `position`:
     /// parsed there alone with the syntax module's grammar, the one a program is read with
     /// ([`Self::read_token_in`]).
@@ -826,6 +892,429 @@ fn without_injection(pattern: &Pattern) -> &Pattern {
     }
 }
 
+/// The initial configuration of a case that states instances ([`crate::inputs`], "Instances"),
+/// built over the compiled definition's own initializers.
+///
+/// The assembled configuration is the application of the top cell's initializer to the inputs'
+/// map, `initGeneratedTopCell(Init)`. Every cell's initializer is defined by one unconditional
+/// equation whose right side is the cell applied to its cells' starts: a fixed cell's initializer
+/// application, an optional cell's instance initializer or unit, a repeated cell's collection.
+/// Replacing an application by its equation's right side at the inputs' map changes no value of
+/// the term, so the builder unfolds the initializers on the way to each stated cell and replaces
+/// that cell's start there: a stated leaf by its content, an optional or repeated cell by the
+/// stated instances. An instance is its cell's template, the right side of the cell's own
+/// initializer, with its stated cells replaced, so a cell it does not state keeps the template's
+/// start, the initializer application the first simplification evaluates under the inputs, as
+/// it evaluates every other initializer the term holds. A `Map` collection's instance is keyed
+/// by its key cell, a `List` collection's instances are in the stated order.
+pub(crate) struct InstanceTerms<'d> {
+    definition: &'d BackendDefinition,
+    /// The map the top cell's initializer is applied to; `None` where it takes none.
+    init: Option<Pattern>,
+}
+
+impl<'d> InstanceTerms<'d> {
+    /// The builder over `definition` for the assembled configuration `assembled`, an application
+    /// of the top cell's initializer.
+    pub(crate) fn new(
+        definition: &'d BackendDefinition,
+        assembled: &Pattern,
+    ) -> Result<Self, String> {
+        let Pattern::Application { arguments, .. } = assembled else {
+            return Err(format!(
+                "the assembled configuration {assembled} is no initializer application"
+            ));
+        };
+        Ok(Self {
+            definition,
+            init: arguments.first().cloned(),
+        })
+    }
+
+    /// The configuration `assembled` with the cells `stated` states of the root cells `nodes`.
+    pub(crate) fn configuration(
+        &self,
+        assembled: &Pattern,
+        nodes: &[CellNode],
+        stated: &[(usize, StatedCell)],
+    ) -> Result<Pattern, String> {
+        let top = self.unfold(assembled)?;
+        self.fill(&top, nodes, stated)
+    }
+
+    fn symbol(&self, name: &str) -> Result<&'d BackendSymbol, String> {
+        self.definition
+            .symbols()
+            .get(name)
+            .map(|symbol| &**symbol)
+            .ok_or_else(|| format!("the definition declares no symbol `{name}`"))
+    }
+
+    /// The KORE name of the sort the cell `node` is.
+    fn cell_sort(&self, node: &CellNode) -> Result<String, String> {
+        sort_name(self.symbol(&node.symbol)?.result_sort)
+            .ok_or_else(|| format!("the cell `{}` has a parametric sort", node.field))
+    }
+
+    /// The collection whose elements are instances of the repeated cell `node`.
+    fn collection(&self, node: &CellNode) -> Result<CellCollection, String> {
+        let cell = self.cell_sort(node)?;
+        self.definition
+            .symbols()
+            .values()
+            .filter_map(|symbol| symbol.attributes.collection.as_ref())
+            .find_map(|collection| match collection {
+                CollectionMetadata::Map(map)
+                    if sort_name(map.value_sort).as_deref() == Some(&cell) =>
+                {
+                    Some(CellCollection {
+                        sort: map.map_sort.to_string(),
+                        unit: map.symbols.unit.to_string(),
+                        element: map.symbols.element.to_string(),
+                        concat: map.symbols.concat.to_string(),
+                        key: sort_name(map.key_sort),
+                    })
+                }
+                CollectionMetadata::List(list) | CollectionMetadata::Set(list)
+                    if sort_name(list.element_sort).as_deref() == Some(&cell) =>
+                {
+                    Some(CellCollection {
+                        sort: list.list_sort.to_string(),
+                        unit: list.symbols.unit.to_string(),
+                        element: list.symbols.element.to_string(),
+                        concat: list.symbols.concat.to_string(),
+                        key: None,
+                    })
+                }
+                _ => None,
+            })
+            .ok_or_else(|| format!("the definition has no collection of `{}` cells", node.field))
+    }
+
+    /// The sort of the argument of its parent cell that holds `node`'s start: the collection's
+    /// for a repeated cell, the cell's own otherwise.
+    fn slot_sort(&self, node: &CellNode) -> Result<String, String> {
+        match node.multiplicity {
+            Some(CellMultiplicity::Star) => Ok(self.collection(node)?.sort),
+            _ => self.cell_sort(node),
+        }
+    }
+
+    /// The absent instance of the optional cell `node`: the one constructor of its sort that
+    /// takes no argument.
+    fn absent(&self, node: &CellNode) -> Result<Pattern, String> {
+        let cell = self.cell_sort(node)?;
+        self.definition
+            .symbols()
+            .values()
+            .find(|symbol| {
+                symbol.argument_sorts.is_empty()
+                    && symbol.attributes.symbol_type == SymbolType::Constructor
+                    && sort_name(symbol.result_sort).as_deref() == Some(&cell)
+            })
+            .map(|symbol| application(&symbol.name, Vec::new()))
+            .ok_or_else(|| format!("the optional cell `{}` has no absent instance", node.field))
+    }
+
+    /// The application of the initializer of the cell `node` (`initHartCell`), to the inputs'
+    /// map where it takes one.
+    fn initializer(&self, node: &CellNode) -> Result<Pattern, String> {
+        let cell = self.cell_sort(node)?;
+        let label = format!(
+            "init{}",
+            krs_unparse::decode_kore(cell.strip_prefix("Sort").unwrap_or(&cell))
+        );
+        let name = crate::values::kore_symbol_name(&label);
+        let arguments = match self.symbol(&name)?.argument_sorts.len() {
+            0 => Vec::new(),
+            1 => vec![self.init.clone().ok_or_else(|| {
+                format!("the initializer `{label}` reads the inputs, which the configuration does not hold")
+            })?],
+            count => return Err(format!("the initializer `{label}` takes {count} arguments")),
+        };
+        Ok(application(&name, arguments))
+    }
+
+    /// The right side of the one unconditional equation of the head of `application`, an
+    /// initializer's, at its arguments.
+    fn unfold(&self, application: &Pattern) -> Result<Pattern, String> {
+        let Pattern::Application { symbol, arguments } = application else {
+            return Err(format!("{application} is no initializer application"));
+        };
+        let mut found = None;
+        for axiom in self.definition.axioms() {
+            let Some(equation) = InitializerEquation::of(&axiom.pattern) else {
+                continue;
+            };
+            if equation.head != symbol.name {
+                continue;
+            }
+            if found.is_some() {
+                return Err(format!("`{}` has more than one equation", symbol.name));
+            }
+            found = Some(equation);
+        }
+        let equation =
+            found.ok_or_else(|| format!("`{}` has no unconditional equation", symbol.name))?;
+        if equation.parameters.len() != arguments.len() {
+            return Err(format!(
+                "`{}` is applied to {} arguments",
+                symbol.name,
+                arguments.len()
+            ));
+        }
+        let bindings = equation
+            .parameters
+            .iter()
+            .zip(arguments)
+            .flat_map(|(names, argument)| names.iter().map(move |name| (name.as_str(), argument)))
+            .collect::<BTreeMap<_, _>>();
+        substitute(equation.right, &bindings)
+    }
+
+    /// `parent`, an application of a cell, with the cells `stated` states of its cells `nodes`.
+    fn fill(
+        &self,
+        parent: &Pattern,
+        nodes: &[CellNode],
+        stated: &[(usize, StatedCell)],
+    ) -> Result<Pattern, String> {
+        let Pattern::Application { symbol, arguments } = parent else {
+            return Err(format!("{parent} is no cell"));
+        };
+        let (symbol, mut arguments) = (symbol.clone(), arguments.clone());
+        let sorts = self
+            .symbol(&symbol.name)?
+            .argument_sorts
+            .iter()
+            .map(|sort| sort_name(*sort))
+            .collect::<Vec<_>>();
+        for (index, cell) in stated {
+            let node = &nodes[*index];
+            let slot = self.slot_sort(node)?;
+            let position = sorts
+                .iter()
+                .position(|sort| sort.as_deref() == Some(&slot))
+                .ok_or_else(|| format!("`{}` holds no `{}` cell", symbol.name, node.field))?;
+            let start = arguments[position].clone();
+            arguments[position] = match cell {
+                StatedCell::Leaf(leaf) => application(&node.symbol, vec![leaf.term.clone()]),
+                StatedCell::Group(cells) => {
+                    let start = if head(&start) == Some(node.symbol.as_str()) {
+                        start
+                    } else {
+                        self.unfold(&start)?
+                    };
+                    self.fill(&start, &node.children, cells)?
+                }
+                StatedCell::Optional(None) => self.absent(node)?,
+                StatedCell::Optional(Some(instance)) => self.instance(node, instance)?,
+                StatedCell::Repeated(instances) => self.instances(node, instances)?,
+            };
+        }
+        Ok(Pattern::Application { symbol, arguments })
+    }
+
+    /// One instance of the optional or repeated cell `node`, as `stated` states it.
+    fn instance(&self, node: &CellNode, stated: &StatedCell) -> Result<Pattern, String> {
+        match stated {
+            StatedCell::Leaf(leaf) => Ok(application(&node.symbol, vec![leaf.term.clone()])),
+            StatedCell::Group(cells) => {
+                let template = self.unfold(&self.initializer(node)?)?;
+                let template = find_cell(&template, &node.symbol).ok_or_else(|| {
+                    format!("the initializer of `{}` writes no instance", node.field)
+                })?;
+                self.fill(template, &node.children, cells)
+            }
+            StatedCell::Optional(_) | StatedCell::Repeated(_) => Err(format!(
+                "an instance of `{}` is no optional or repeated cell",
+                node.field
+            )),
+        }
+    }
+
+    /// The collection of the instances `stated` of the repeated cell `node`.
+    fn instances(&self, node: &CellNode, stated: &[StatedCell]) -> Result<Pattern, String> {
+        let collection = self.collection(node)?;
+        let key = match &collection.key {
+            Some(key) => Some(
+                self.symbol(&node.symbol)?
+                    .argument_sorts
+                    .iter()
+                    .position(|sort| sort_name(*sort).as_deref() == Some(key))
+                    .ok_or_else(|| format!("an instance of `{}` holds no key cell", node.field))?,
+            ),
+            None => None,
+        };
+        let mut built = None;
+        for instance in stated {
+            let instance = self.instance(node, instance)?;
+            let element = match key {
+                Some(key) => {
+                    let Pattern::Application { arguments, .. } = &instance else {
+                        unreachable!("an instance is a cell application")
+                    };
+                    application(&collection.element, vec![arguments[key].clone(), instance])
+                }
+                None => application(&collection.element, vec![instance]),
+            };
+            built = Some(match built {
+                None => element,
+                Some(left) => application(&collection.concat, vec![left, element]),
+            });
+        }
+        Ok(built.unwrap_or_else(|| application(&collection.unit, Vec::new())))
+    }
+}
+
+/// A cell collection's sort and builder symbols, by KORE name.
+struct CellCollection {
+    sort: String,
+    unit: String,
+    element: String,
+    concat: String,
+    /// A `Map` collection's key sort, its instances' key cell's.
+    key: Option<String>,
+}
+
+/// An unconditional equation `head(X1, .., Xn) = right`, as an initializer's is written: each
+/// parameter a variable or bound to one by the premise's `\in`, which the right side reads.
+struct InitializerEquation<'p> {
+    head: &'p str,
+    /// The names each argument binds: its own variable's and the premise's.
+    parameters: Vec<Vec<String>>,
+    right: &'p Pattern,
+}
+
+impl<'p> InitializerEquation<'p> {
+    /// The equation `axiom` states, if it is one of this form.
+    fn of(axiom: &'p Pattern) -> Option<Self> {
+        let Pattern::Implies {
+            left: premise,
+            right: conclusion,
+            ..
+        } = axiom
+        else {
+            return None;
+        };
+        let Pattern::Equals { left, right, .. } = &**conclusion else {
+            return None;
+        };
+        let Pattern::Application { symbol, arguments } = &**left else {
+            return None;
+        };
+        let right = match &**right {
+            Pattern::And { arguments, .. } => match arguments.as_slice() {
+                [right, Pattern::Top { .. }] => right,
+                _ => return None,
+            },
+            right => right,
+        };
+        let mut bound = Vec::new();
+        if !premise_binds(premise, &mut bound) {
+            return None;
+        }
+        let parameters = arguments
+            .iter()
+            .map(|argument| {
+                let Pattern::Variable(variable) = argument else {
+                    return None;
+                };
+                let mut names = vec![variable.name.clone()];
+                names.extend(
+                    bound
+                        .iter()
+                        .filter(|(parameter, _)| *parameter == variable.name)
+                        .map(|(_, name)| name.clone()),
+                );
+                Some(names)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self {
+            head: &symbol.name,
+            parameters,
+            right,
+        })
+    }
+}
+
+/// Whether `premise` is a conjunction of `\top` and `\in(X, V)` of two variables, each of which
+/// it pushes onto `bound` as `(X, V)`.
+fn premise_binds(premise: &Pattern, bound: &mut Vec<(String, String)>) -> bool {
+    match premise {
+        Pattern::Top { .. } => true,
+        Pattern::And { arguments, .. } => arguments
+            .iter()
+            .all(|argument| premise_binds(argument, bound)),
+        Pattern::In { left, right, .. } => match (&**left, &**right) {
+            (Pattern::Variable(parameter), Pattern::Variable(variable)) => {
+                bound.push((parameter.name.clone(), variable.name.clone()));
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// `pattern` with each variable replaced by its binding; refused for a variable without one or a
+/// connective, which no initializer's right side holds.
+fn substitute(pattern: &Pattern, bindings: &BTreeMap<&str, &Pattern>) -> Result<Pattern, String> {
+    match pattern {
+        Pattern::Variable(variable) => bindings
+            .get(variable.name.as_str())
+            .map(|value| (*value).clone())
+            .ok_or_else(|| format!("an initializer reads the variable `{}`", variable.name)),
+        Pattern::Application { symbol, arguments } => Ok(Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| substitute(argument, bindings))
+                .collect::<Result<_, _>>()?,
+        }),
+        Pattern::DomainValue { .. } | Pattern::String(_) => Ok(pattern.clone()),
+        other => Err(format!("an initializer's right side holds {other}")),
+    }
+}
+
+/// The KORE name of `sort`, a sort without parameters.
+fn sort_name(sort: BackendSort) -> Option<String> {
+    match sort.node() {
+        SortNode::Application { name, arguments } if arguments.is_empty() => Some(name.to_string()),
+        _ => None,
+    }
+}
+
+fn head(pattern: &Pattern) -> Option<&str> {
+    match pattern {
+        Pattern::Application { symbol, .. } => Some(&symbol.name),
+        _ => None,
+    }
+}
+
+/// The first application of the cell `symbol` in `pattern`, in pre-order.
+fn find_cell<'p>(pattern: &'p Pattern, symbol: &str) -> Option<&'p Pattern> {
+    if head(pattern) == Some(symbol) {
+        return Some(pattern);
+    }
+    match pattern {
+        Pattern::Application { arguments, .. } => arguments
+            .iter()
+            .find_map(|argument| find_cell(argument, symbol)),
+        _ => None,
+    }
+}
+
+fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {
+    Pattern::Application {
+        symbol: Symbol {
+            name: name.to_owned(),
+            sort_parameters: Vec::new(),
+        },
+        arguments,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AssemblyError, Binding, Configuration};
@@ -837,6 +1326,48 @@ mod tests {
     };
     use serde_json::json;
     use std::collections::BTreeMap;
+
+    /// An initializer's equation, as the compiled definition writes it, unfolds to its right side
+    /// at the inputs' map: the premise binds the parameter to the variable the right side reads.
+    /// An equation with a condition, or a right side that reads another variable, does not.
+    #[test]
+    fn an_initializer_unfolds_to_its_right_side_at_its_argument() {
+        let parse = |text: &str| k_rust::kore::parser::parse_pattern(text).unwrap();
+        let axiom = parse(
+            r"\implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())), \equals{SortHartsCell{}, R}(LblinitHartsCell{}(X0:SortMap{}), \and{SortHartsCell{}}(Lbl'-LT-'harts'-GT-'{}(LblinitHartCell{}(VarInit:SortMap{}), LblinitPcCell{}()), \top{SortHartsCell{}}())))",
+        );
+        let equation = super::InitializerEquation::of(&axiom).unwrap();
+        assert_eq!(equation.head, "LblinitHartsCell");
+        assert_eq!(
+            equation.parameters,
+            vec![vec!["X0".to_owned(), "VarInit".to_owned()]]
+        );
+        let map = parse(r"Lbl'Stop'Map{}()");
+        let bindings = equation
+            .parameters
+            .iter()
+            .flatten()
+            .map(|name| (name.as_str(), &map))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            super::substitute(equation.right, &bindings)
+                .unwrap()
+                .to_string(),
+            parse(
+                r"Lbl'-LT-'harts'-GT-'{}(LblinitHartCell{}(Lbl'Stop'Map{}()), LblinitPcCell{}())"
+            )
+            .to_string()
+        );
+        assert!(
+            super::substitute(equation.right, &BTreeMap::new())
+                .unwrap_err()
+                .contains("`VarInit`")
+        );
+        let conditional = parse(
+            r#"\implies{R}(\equals{SortBool{}, R}(LblisReady{}(), \dv{SortBool{}}("true")), \equals{SortPcCell{}, R}(LblinitPcCell{}(), \and{SortPcCell{}}(Lbl'-LT-'pc'-GT-'{}(\dv{SortInt{}}("0")), \top{SortPcCell{}}())))"#,
+        );
+        assert!(super::InitializerEquation::of(&conditional).is_none());
+    }
 
     #[test]
     fn k_cell_expectations_read_sequences_with_the_ground_value_grammar() {

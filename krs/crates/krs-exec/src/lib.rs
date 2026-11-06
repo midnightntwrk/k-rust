@@ -1999,6 +1999,165 @@ impl Semantics {
         Ok(State::new(pattern))
     }
 
+    /// The initial configuration `state` ([`Self::configure`]) with the instances `case`'s
+    /// `instances` table states ([`inputs`], "Instances"); `state` itself where the case states
+    /// none. `files` reads the files the table's values name, relative to the document the case
+    /// is written in ([`Case::file`]).
+    ///
+    /// Each stated cell replaces its start in the term the initializer builds, so a cell no
+    /// instance states starts as the template says, evaluated under the case's inputs when the
+    /// first state is simplified, as every other initializer is.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Case`] naming the position (`instances.harts.hart[1]`) for a table
+    /// that is no statement of instances of this configuration ([`inputs`], "Instances"), and
+    /// [`ExecError::Backend`] for a `state` that is no initial configuration or a definition
+    /// whose initializers do not unfold.
+    pub fn state_instances(
+        &mut self,
+        state: State,
+        case: &Case,
+        files: &mut dyn InputFiles,
+    ) -> Result<State, ExecError> {
+        let Some(document) = &case.instances else {
+            return Ok(state);
+        };
+        if state.taken.is_some() {
+            return Err(ExecError::Backend(
+                "a case states the instances of an initial configuration, not of a state a run left off at".to_owned(),
+            ));
+        }
+        let definition = self
+            .backend
+            .select_definition(None)
+            .map_err(|error| ExecError::Backend(error.to_string()))?;
+        let values = self.values.clone();
+        let from = case.file.as_deref();
+        let stated = inputs::read_instances(values.cells(), document, &mut |node, document, _| {
+            self.stated_leaf(&definition, files, from, node, document)
+        })
+        .map_err(|error| ExecError::Case(format!("`{}`: {}", error.position, error.message)))?;
+        let pattern = configuration::InstanceTerms::new(&definition, &state.pattern)
+            .and_then(|terms| terms.configuration(&state.pattern, values.cells(), &stated))
+            .map_err(|error| {
+                ExecError::Backend(format!(
+                    "the initial configuration cannot state the case's instances: {error}"
+                ))
+            })?;
+        Ok(State::new(pattern))
+    }
+
+    /// The content `document` states of the leaf cell `node` in a case's `instances` table
+    /// ([`inputs`], "Instances"): read at the cell's declared type as an input's value is, or
+    /// parsed at its content sort as K text, typed at the position the cell holds it at, and
+    /// checked against its element types; the error is the refusal's message.
+    fn stated_leaf(
+        &mut self,
+        definition: &k_rust::k_rust_backend::definition::BackendDefinition,
+        files: &mut dyn InputFiles,
+        from: Option<&str>,
+        node: &values::CellNode,
+        document: &serde_json::Value,
+    ) -> Result<inputs::StatedLeaf, String> {
+        let ty = node
+            .content
+            .as_ref()
+            .and_then(|(sort, arguments)| inputs::input_type(&self.values, sort, arguments))
+            .unwrap_or_else(InputType::untyped);
+        let content = match definition
+            .symbols()
+            .get(node.symbol.as_str())
+            .map(|symbol| symbol.argument_sorts.as_slice())
+        {
+            Some([sort]) => match sort.node() {
+                k_rust::k_rust_backend::term::SortNode::Application { name, arguments }
+                    if arguments.is_empty() =>
+                {
+                    name.to_string()
+                }
+                _ => return Err(format!("the cell `{}` holds a parametric sort", node.field)),
+            },
+            _ => {
+                return Err(format!(
+                    "`{}` is no leaf cell of the definition",
+                    node.field
+                ));
+            }
+        };
+        let sort = KastSort::new(krs_unparse::decode_kore(
+            content.strip_prefix("Sort").unwrap_or(&content),
+        ));
+        let decoded =
+            inputs::decode(&self.values, files, from, document, &ty).map_err(|refusal| {
+                let at = if refusal.position.is_empty() {
+                    String::new()
+                } else {
+                    format!("at `{}`: ", refusal.position)
+                };
+                format!("{at}{} (the cell's type is {ty})", refusal.message)
+            })?;
+        let term = match decoded {
+            inputs::Decoded::Value(value) => {
+                let term = self
+                    .values
+                    .to_kast(&value)
+                    .map_err(|error| error.to_string())?;
+                self.configuration
+                    .typed_kore_at(&term, &sort)
+                    .map_err(|error| error.to_string())?
+            }
+            inputs::Decoded::Text(text) => self.stated_text(node, &sort, &text)?,
+            inputs::Decoded::TextFile(file) => self.stated_text(node, &sort, &file.text)?,
+        };
+        if let Some(decl) = self.values.instance_application(&term) {
+            return Err(self
+                .values
+                .instance_function(&decl, "an input")
+                .expect("an instance application applies an instance function"));
+        }
+        if let Some(mismatch) = self
+            .cell_types
+            .check_cell(&self.values, &node.symbol, &term)
+        {
+            let position = cell_types::describe(&mismatch.path, ToString::to_string);
+            return Err(format!(
+                "{position} has sort {}, which is not at most {}, the declared {} of `{}`",
+                mismatch.sort, mismatch.expected, mismatch.declared, mismatch.parameter
+            ));
+        }
+        let value = self
+            .values
+            .decode(&term)
+            .ok()
+            .filter(|value| is_data(&self.values, value));
+        let shown = value
+            .as_ref()
+            .and_then(|value| encode(&self.values, value, &ty).ok())
+            .map_or_else(|| term.to_string(), |document| canonical_text(&document));
+        Ok(inputs::StatedLeaf { term, value, shown })
+    }
+
+    /// The K text `text` a case states of the leaf cell `node`, parsed at its content sort `sort`
+    /// as a cell's printed content is; where no grammar parses it, a reading that applies a
+    /// function evaluated in one instance of a Map collection with its authored arguments is
+    /// refused with that reason, as an input's text is.
+    fn stated_text(
+        &mut self,
+        node: &values::CellNode,
+        sort: &KastSort,
+        text: &str,
+    ) -> Result<Pattern, String> {
+        self.configuration
+            .parse_cell_at(&node.field, sort, text)
+            .map_err(
+                |error| match self.instance_text_refusal(&node.field, sort, text) {
+                    Some(ExecError::InstanceFunction { reason, .. }) => reason,
+                    _ => error.to_string(),
+                },
+            )
+    }
+
     /// The error of [`Self::configure`] for the assembler's `error`, given the program and the
     /// variables it bound and where each one's text came from: text that no grammar parses is
     /// refused with the reason where it applies a function evaluated in one instance of a Map
@@ -3908,6 +4067,32 @@ fn configuration_error(
                 .collect(),
         ),
         other => ExecError::Backend(other.to_string()),
+    }
+}
+
+/// Whether `value` is data: no opaque part and no application of a function, so that it is its
+/// own value and two such values are equal exactly when they are the same value.
+fn is_data(values: &ValueIndex, value: &Value) -> bool {
+    match value {
+        Value::Ctor(ctor) => {
+            values.info(ctor.decl()).is_some_and(|info| !info.function)
+                && ctor
+                    .fields()
+                    .iter()
+                    .all(|(_, field)| is_data(values, field))
+        }
+        Value::Seq(items) | Value::List(items) => items.iter().all(|item| is_data(values, item)),
+        Value::Set(items) => items.iter().all(|item| is_data(values, item)),
+        Value::Map(entries) => entries
+            .iter()
+            .all(|(key, value)| is_data(values, key) && is_data(values, value)),
+        Value::Opaque(_) => false,
+        Value::Int(_)
+        | Value::Bool(_)
+        | Value::String(_)
+        | Value::Bytes(_)
+        | Value::Float(_)
+        | Value::Token { .. } => true,
     }
 }
 
