@@ -109,7 +109,7 @@ krs_macros_positive::readable_imp_grammar|__krs_grammar_StmtSyntax_associativity
 krs_macros_positive::readable_imp_grammar|__krs_grammar_StmtSyntax_precedence|Grammar|4
 krs_macros_positive::readable_imp_grammar|and_false|Rule|11
 krs_macros_positive::readable_imp_grammar|and_true|Rule|15
-krs_macros_positive::readable_imp_grammar|assign|Rule|28
+krs_macros_positive::readable_imp_grammar|assign|Rule|29
 krs_macros_positive::readable_imp_grammar|block|Rule|18
 krs_macros_positive::readable_imp_grammar|done|Rule|9
 krs_macros_positive::readable_imp_grammar|eval_add|Rule|20
@@ -141,7 +141,7 @@ krs_macros_positive::readable_imp_grammar|if_true|Rule|15
 krs_macros_positive::readable_imp_grammar|or_false|Rule|15
 krs_macros_positive::readable_imp_grammar|or_true|Rule|11
 krs_macros_positive::readable_imp_grammar|step|Rule|20
-krs_macros_positive::readable_imp_grammar|var|Rule|19
+krs_macros_positive::readable_imp_grammar|var|Rule|21
 krs_macros_positive::readable_imp_grammar|while|Rule|29
 krs_macros_positive::readable_sorts|Diamond|Sort|3
 krs_macros_positive::readable_sorts|DiamondLeft|Sort|2
