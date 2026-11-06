@@ -11,7 +11,8 @@
 //! condition and a claim helper gives the front end's own mutation checks something to refuse,
 //! each checked against `krs check` of a Rust source that emits the mutant. The
 //! configuration-cells gate's cell group gives a mutation of a rule a library writes for its group,
-//! judged in each of the two definitions that hold the group.
+//! judged in each of the two definitions that hold the group, and its harts a corpus narrowed to a
+//! cell inside the instances of a Map collection.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -2439,6 +2440,173 @@ fn a_mutation_of_a_group_rule_is_judged_in_every_definition_that_holds_the_group
             "{name}: {document:#}"
         );
     }
+}
+
+/// The configuration-cells gate's harts: `group-harts/hart` declares the group `Hart` and its rules,
+/// and `group-harts/smp` holds harts as the instances of a Map collection keyed by `id`.
+const GROUP_HARTS_HART: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-harts/hart/src/lib.rs");
+const GROUP_HARTS_SMP: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-harts/smp/src/lib.rs");
+
+/// The harts' library package, which `smp` composes.
+const GROUP_HARTS_HART_PACKAGE: &str = "krs-configuration-cells-group-harts-hart";
+
+/// One edit of `smp`'s `write`, which answers a hart's bus write in the shared memory. (krs's edit
+/// judge does not yet judge an edit of a rule that mentions a hart's own cells, or of a rule for
+/// `Hart`.)
+const GROUP_HARTS_MUTATIONS: &str = r#"[[mutation]]
+id = "write-off"
+misunderstanding = "a write stores one more than the value written"
+
+  [[mutation.edit]]
+  rule = "KRS-GROUP-HARTS-SMP.write"
+  find = "Addr:Int <- Value:Int"
+  replace = "Addr:Int <- Value:Int +Int 1"
+"#;
+
+/// Writes into `workspace` the gate's harts packages, `smp` with its corpus `kink`, narrowed to
+/// `pc`, and its corpus `corpora/all`, which compares every cell.
+fn harts_workspace(workspace: &Path) {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    let write = |relative: &str, contents: &str| {
+        let path = workspace.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    };
+    for (name, source, dependency) in [
+        ("hart", GROUP_HARTS_HART, String::new()),
+        (
+            "smp",
+            GROUP_HARTS_SMP,
+            format!("hart = {{ package = \"{GROUP_HARTS_HART_PACKAGE}\", path = \"../hart\" }}\n"),
+        ),
+    ] {
+        write(&format!("{name}/src/lib.rs"), source);
+        write(
+            &format!("{name}/Cargo.toml"),
+            &format!(
+                "[package]\nname = \"krs-configuration-cells-group-harts-{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependency}\n[package.metadata.krs]\nk-namespace = \"KRS-GROUP-{}\"\n\n[package.metadata.krs.definitions.main]\n",
+                if name == "hart" { "HART" } else { "HARTS-SMP" }
+            ),
+        );
+    }
+    let corpora = [
+        ("kink", "[result]\ncells = [\"pc\"]\n\n"),
+        ("corpora/all", ""),
+    ];
+    for (corpus, result) in corpora {
+        write(
+            &format!("smp/{corpus}/FLOW.toml"),
+            &format!(
+                "[spec]\nkrs = {{ definition = \"main\" }}\n\n{result}[[program]]\nid = \"store-load\"\nfile = \"cases/store-load.prog\"\n"
+            ),
+        );
+        write(
+            &format!("smp/{corpus}/cases/store-load.prog"),
+            "store ( 0 ) ; load ( 0 )\n",
+        );
+        write(
+            &format!("smp/{corpus}/mutations/harts.toml"),
+            GROUP_HARTS_MUTATIONS,
+        );
+    }
+    write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"hart\", \"smp\"]\nresolver = \"3\"\n",
+    );
+}
+
+/// A corpus narrowed to a cell inside the instances of a Map collection compares it in each
+/// instance, by its key. In `smp` the program stores hart 0's id at address 0 and loads it back
+/// onto the hart's computation cell, so `write-off` changes the memory and that cell. Narrowed to
+/// `["pc"]`, the corpus compares each hart's `pc` and its key `id`, leaves every other cell out
+/// (in each hart too) and the mutation survives; the corpus that compares every cell kills it.
+#[test]
+fn a_corpus_narrowed_to_cells_of_a_maps_instances_compares_them_by_key() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let workspace = temporary.path();
+    harts_workspace(workspace);
+    let run = |corpus: &str| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, target.path());
+        process
+            .current_dir(workspace.join("smp"))
+            .args(["kink", "run", "--full", "--corpus", corpus])
+            .args([
+                "--package",
+                "krs-configuration-cells-group-harts-smp",
+                "--definition",
+                "main",
+                "--dependency",
+                &format!("{GROUP_HARTS_HART_PACKAGE}:main"),
+            ]);
+        let output = process.output().unwrap();
+        assert_status(&output, 0);
+        json(&output)
+    };
+    let verdicts = |run: &Value| {
+        run["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["id"].as_str().unwrap().to_owned(),
+                    row["status"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let narrowed = run("kink");
+    assert_eq!(
+        narrowed["result"],
+        serde_json::json!({
+            "slots": ["exit-stop", "cells"],
+            "compared": ["id", "pc"],
+            "not_compared": ["k", "regs", "reservation", "jobs", "mem", "nextId"],
+            "unobservable": [],
+        }),
+        "{narrowed:#}"
+    );
+    assert_eq!(
+        verdicts(&narrowed),
+        [("harts/write-off".to_owned(), "survived".to_owned())],
+        "{narrowed:#}"
+    );
+    let row = &narrowed["mutations"][0]["executed"][0];
+    assert_eq!(row["slots"]["cells"]["outcome"], "agree", "{row:#}");
+
+    let all = run("corpora/all");
+    assert_eq!(
+        all["result"]["slots"],
+        serde_json::json!(["exit-stop", "whole-term"])
+    );
+    assert_eq!(
+        verdicts(&all),
+        [("harts/write-off".to_owned(), "killed".to_owned())],
+        "{all:#}"
+    );
+    let difference = &all["mutations"][0]["executed"][0]["difference"];
+    assert_eq!(difference["format"], "krs-difference/3", "{difference:#}");
+    // The first difference is the loaded value, in hart 0's computation cell, named by key.
+    assert_eq!(difference["cell"], "harts.hart[0].k", "{difference:#}");
+    assert_eq!(difference["left"]["value"]["document"], 0, "{difference:#}");
+    assert_eq!(
+        difference["right"]["value"]["document"], 1,
+        "{difference:#}"
+    );
+    assert_eq!(
+        difference["also_differ"],
+        serde_json::json!(["mem"]),
+        "{difference:#}"
+    );
 }
 
 /// A corpus of a definition that never ends on its own names its stop by KRS item, as `krs run
