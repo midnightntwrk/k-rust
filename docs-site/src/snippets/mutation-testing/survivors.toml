@@ -1,0 +1,17 @@
+[[mutation]]
+id = "one"
+misunderstanding = "passes one instead of n to the recursive call"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( M:Nat , s ( zero ) ) )"
+
+[[mutation]]
+id = "swap"
+misunderstanding = "swaps the arguments of the recursive call; plus is commutative, so this is an equivalent mutant"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( N:Nat , M:Nat ) )"

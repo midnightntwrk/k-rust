@@ -1,0 +1,38 @@
+# Mutations krs kink check refuses, one per reason, each with what to do next.
+# This file is outside mutations/, so krs kink run over that directory stays clean.
+
+[[mutation]]
+id = "renamed-anchor"
+misunderstanding = "forgets what the base case returns"
+
+  [[mutation.edit]]
+  rule = "plus_one"
+  find = "=> N:Nat"
+  replace = "=> zero"
+
+[[mutation]]
+id = "stale-text"
+misunderstanding = "swaps the arguments of the recursive call"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( N:Nat , M:Nat ) )"
+  replace = "s ( plus ( M:Nat , N:Nat ) )"
+
+[[mutation]]
+id = "renamed-variables"
+misunderstanding = "names the second argument differently"
+
+  [[mutation.edit]]
+  rule = "plus_zero"
+  find = "plus ( zero , N:Nat ) => N:Nat"
+  replace = "plus ( zero , X:Nat ) => X:Nat"
+
+[[mutation]]
+id = "overlap"
+misunderstanding = "returns the second argument whatever the first is"
+
+  [[mutation.edit]]
+  rule = "plus_zero"
+  find = "plus ( zero , N:Nat )"
+  replace = "plus ( M:Nat , N:Nat )"

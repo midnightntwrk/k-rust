@@ -31,6 +31,7 @@ type Page =
   | { path: '/tour/functions-defined-by-rules'; render: 'static' }
   | { path: '/tour/patterns-and-substitution'; render: 'static' }
   | { path: '/tour/sorts-and-constructors'; render: 'static' }
+  | { path: '/verification/mutation-testing'; render: 'static' }
   | { path: '/verification/reachability-claims'; render: 'static' }
 
 // prettier-ignore

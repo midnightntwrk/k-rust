@@ -839,9 +839,21 @@ replaced_by = ["L33", "L34", "L35"]
 retired = false
 
 [[page]]
-id = "scale"
+id = "mutation-testing"
 owner = "KRS language and documentation maintainers"
 order = 12
+route = "/verification/mutation-testing"
+title = "Mutation testing a KRS specification"
+outcome = "Run the corpus loop with `krs kink`: write cases and mutations, read each status, and keep verdicts in review."
+specimen = "crates/krs-cli/tests/kink.rs and ../docs-site/story/plus/guide"
+disposition = "keep"
+replaced_by = []
+retired = false
+
+[[page]]
+id = "scale"
+owner = "KRS language and documentation maintainers"
+order = 13
 route = "/advanced/language-scale"
 title = "Language-scale state and builtins"
 outcome = "Use nested and repeated cells, fragments, Bytes, List, Set, and the bounded hook catalog."
@@ -853,7 +865,7 @@ retired = false
 [[page]]
 id = "composition"
 owner = "KRS language and documentation maintainers"
-order = 13
+order = 14
 route = "/advanced/composition"
 title = "Compose definitions"
 outcome = "Use multiple packages, named facets, dependency facets, cfg values, stable symbols, and backend selection."
@@ -865,7 +877,7 @@ retired = false
 [[page]]
 id = "workflow"
 owner = "KRS language and documentation maintainers"
-order = 14
+order = 15
 route = "/reference/workflow"
 title = "Daily workflow"
 outcome = "Use fmt, check, expand, emit-k, build, source maps, diagnostics, and rust-analyzer within their supported boundaries."
@@ -877,7 +889,7 @@ retired = false
 [[page]]
 id = "reference"
 owner = "KRS language and documentation maintainers"
-order = 15
+order = 16
 route = "/reference/language"
 title = "Feature and builtin reference"
 outcome = "Find every current macro, attribute, builtin sort, builtin operation, and explicit surface form."
@@ -889,7 +901,7 @@ retired = false
 [[page]]
 id = "limits"
 owner = "KRS language and documentation maintainers"
-order = 16
+order = 17
 route = "/reference/boundaries"
 title = "Current boundaries and open questions"
 outcome = "Recognize intentional restrictions, qualified subsets, open decisions, and syntax that does not exist yet."

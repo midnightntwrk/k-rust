@@ -11,6 +11,14 @@ compares the outputs byte for byte.
 An entry with `show = "PATH"` (relative to its fixture) also records the file the
 command wrote there, after a `$ cat PATH` line, so a page can show a generated
 artifact such as the `definition.k` that `krs emit-k --output DIRECTORY` writes.
+
+An entry with `select = "MEMBER"` records only that member of the one JSON object
+the command prints on stdout, indented by two spaces, after a command line that
+names it (`# the document's "MEMBER"`); stderr and the exit status follow as for
+any entry. It is for a document whose other members are not functions of the
+fixture, such as `krs kink check`'s, whose `k_rust_revision` names k-rust's build:
+the recording fails when stdout is not such an object, or when the member's text
+holds the repository's absolute path.
 """
 
 from __future__ import annotations
@@ -75,12 +83,33 @@ def record(binary: Path, entry: dict) -> str:
         environment={**z3_environment(), "NO_COLOR": "1"},
         check=False,
     )
-    text = "$ " + shlex.join(["krs", *arguments(entry)]) + "\n" + executed.stdout + executed.stderr
+    command = "$ " + shlex.join(["krs", *arguments(entry)])
+    if "select" in entry:
+        text = command + f"  # the document's {json.dumps(entry['select'])}\n" + selected(entry, executed.stdout) + executed.stderr
+    else:
+        text = command + "\n" + executed.stdout + executed.stderr
     if executed.returncode != 0:
         text += f"exit status {executed.returncode}\n"
     elif "show" in entry:
         shown = SITE / entry["fixture"] / entry["show"]
         text += "$ " + shlex.join(["cat", entry["show"]]) + "\n" + shown.read_text(encoding="utf-8")
+    return text
+
+
+def selected(entry: dict, stdout: str) -> str:
+    """The `select` member of the one JSON object `stdout` holds, as the recording shows it."""
+
+    member = entry["select"]
+    try:
+        document = json.loads(stdout)
+    except json.JSONDecodeError as error:
+        raise GateError(f"output {entry['id']}: stdout is not one JSON document ({error}), so `select` cannot apply") from None
+    if not isinstance(document, dict) or member not in document:
+        raise GateError(f"output {entry['id']}: stdout is not a JSON object with the member {member!r}")
+    text = json.dumps(document[member], indent=2, ensure_ascii=False) + "\n"
+    if str(REPOSITORY) in text:
+        raise GateError(f"output {entry['id']}: the member {member!r} holds the checkout path {REPOSITORY}, "
+                        "which is not a function of the fixture")
     return text
 
 

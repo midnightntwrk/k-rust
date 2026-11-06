@@ -47,7 +47,7 @@ export function MutateTheSpec() {
         <div className={styles.spec}>
           <div className={styles.heading}>Specification {changed && <span>proposed mutation</span>}</div>
           <pre><code>{ruleNames.map((name) => (
-            <span className={styles.line} key={name}>{paperRules[name].lhs} = <span className={changed && edit.rule === name ? styles.changed : undefined}>{changed && edit.rule === name ? edit.displayNew : paperRules[name].rhs}</span></span>
+            <span className={styles.line} key={name}>{paperRules[name].lhs} = <span className={changed && edit.rule === name ? styles.changed : undefined}>{changed && edit.rule === name ? edit.displayNew : paperRules[name].rhs}</span>{changed && edit.rule === name && <span className={styles.rust}>{edit.rust}</span>}</span>
           ))}</code></pre>
           <div className={styles.verdict}>{caughtEdit ? '✓ New test catches this mistake' : checked ? 'Existing tests miss this mistake' : 'Run the corpus against the proposed edit'}</div>
         </div>

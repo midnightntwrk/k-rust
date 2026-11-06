@@ -1,0 +1,311 @@
+# Mutation testing a KRS specification
+
+This guide is for an author, a person or an LLM agent, who has a KRS package and test cases for it, and wants to know which misunderstandings of the specification those cases would not notice.
+It covers three jobs:
+
+- **Find the misunderstandings the cases miss.** Write each plausible mistake as a mutation of the specification, and ask which mutations no case tells apart from the specification.
+- **Write the case that catches one.** A surviving mutation is a target: a case whose result the mutation changes.
+- **Keep verdicts in review.** Commit the corpus and the K it judges, so a reviewer and a CI run see the same verdicts.
+
+`krs kink <verb>` runs this loop over the package, with kink, k-rust's mutation tester, as its engine.
+The running example is the introduction's `plus` specification (`docs-site/story/plus`), with a second corpus, `guide/`, that holds the introduction's four cases and one more.
+
+A mutation is a K patch of the K that KRS emits for the package: one or more text edits of its rules, each anchored by the rule's label.
+kink checks the mutant against every case, and a mutation that no case kills is a target for a new case.
+The [workflow reference](/reference/workflow#the-corpus-loop) states every verb, option and document field; this guide teaches the loop and links there for details.
+
+## What a kill means, and what it does not
+
+- A kill is a proved difference: for some admitted, comparable case, the mutant's ends differ from the specification's on the compared cells (every cell but the unobservable ones, or those `[result] cells` names).
+- A survivor is not a bug in the specification. It says that no case of the corpus tells the mutant apart: write a case that does, or argue that none can.
+- "No case found" is not "equivalent". Only an argument, or the mutant compiling to the specification's own K, shows that no case exists.
+- `unknown` is an honest non-answer: the run could not be judged, and its `cause` says why ([Unknowns and budgets](#unknowns-and-budgets)).
+- Cached outcomes rest on the determinism of compilation and execution, and on cache keys that name every input of an outcome; `--verify` re-proves every cached outcome against a live run.
+
+What every verdict rests on is stated in kink's trust document, [`kink/trust.md`](https://github.com/midnightntwrk/k-rust/blob/main/kink/trust.md).
+
+## Before you start
+
+`krs` includes `krs kink` in its default build.
+A package's corpus is a directory `kink/` beside its `Cargo.toml` (`--corpus DIR` names another):
+
+| path | what it is |
+| --- | --- |
+| `kink/FLOW.toml` | the corpus manifest: `[spec] krs = { definition = "main" }`, the budget, and the cases |
+| `kink/cases/` | the cases' program files and case documents |
+| `kink/mutations/<topic>.toml` | the mutations, one file per topic |
+| `kink/definition.k` | the K kink judges, written by `krs kink` and committed |
+| `kink/.kink-flow/` | kink's caches, which are not committed: add `kink/.kink-flow/` to the package's `.gitignore` |
+
+The guide's corpus lists the introduction's cases, then `t5`:
+
+```toml
+// [!include ~/snippets/mutation-testing/FLOW.toml]
+```
+
+A program file binds the main parameter of the package's `#[k::init]` function, as `krs run FILE` does, so `cases/t5.nat` is a `Nat`:
+
+```text
+// [!include ~/snippets/mutation-testing/t5.nat]
+```
+
+A case of typed inputs is a [case document](/reference/workflow#case-documents).
+
+## The loop
+
+### 1. Write cases until every rule is covered
+
+`krs kink results` runs each new or changed case once, caches its result, and reports which rules its run matched and fired:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-results.txt]
+```
+
+A rule no comparable case matches is `uncovered`: a mutation of it cannot be killed, so write a case that reaches it.
+Continue until no rule is uncovered.
+A claim helper, an equation of a function that only claims apply, is `claim-helper`, not `uncovered`: the claims serve it, and `krs prove` checks them.
+
+### 2. Write mutations, and check them until they resolve
+
+Each mutation writes one misunderstanding as K edits ([Writing mutations](#writing-mutations)).
+`krs kink check` resolves every mutation without running one: it shows each edited rule before and after, with the KRS item and the Rust line it comes from.
+The recording shows the document's `mutations` member, which is what an agent reads:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-check.txt]
+```
+
+Run `check` after every edit of a mutation file, until it exits 0.
+
+### 3. Run, and read the survivors
+
+`krs kink run --full` judges every mutation on every case.
+On the introduction's four cases, two of the guide's mutations survive:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-run-before.txt]
+```
+
+`--full` names every case that kills a mutation (`killed_by`); without it, `run` stops at the first.
+
+### 4. Kill a survivor, or argue it away
+
+`survivors/one` passes one instead of `n` to the recursive call.
+It changes a result only where the second argument of a recursive call is not already one: a case must reach `plus_succ` with a second argument other than `s(zero)`.
+`t5` is `plus(s(zero), zero)`, whose result is `s(zero)` for the specification and `s(s(zero))` for the mutant.
+With `t5` in the corpus, run again; cached outcomes are not run again:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-run-after.txt]
+```
+
+`survivors/swap` swaps the arguments of the recursive call.
+`plus` is commutative, so the mutant computes the same sum on every input, and no case can kill it: it is an equivalent mutant.
+Drop it, or keep it with that argument written in its `misunderstanding`, as the guide's file does.
+
+### 5. Commit, and check in CI
+
+Commit `kink/definition.k` with the corpus.
+`krs kink emit --check` writes nothing and exits 2 when `definition.k` is not the package's current emission, so a CI run trusts committed verdicts only for the K they were judged on:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-emit-check.txt]
+```
+
+Every verb that builds the package takes `--locked`, which refuses a stale `definition.k` instead of writing it.
+To keep verdicts in review, commit the verdicts rendering, `krs kink run --full --output verdicts --locked > kink/verdicts.lock`, and have CI compare a fresh rendering with it; no command writes or reads that file.
+
+## Reading the emitted K
+
+`definition.k` is `krs emit-k`'s `definition.k`.
+Its header says what generated it, how its comments name the Rust sources, and how a mutation of it is written; above each sentence, a `// KRS <package>/<file>: <item>` line names the Rust item it comes from:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/story-emit-k.txt]
+```
+
+A rule's label, `<namespace>--<module>--…--<item>`, is its mutation anchor.
+[Inspect the lowering](/semantics/lowering#reading-the-emitted-k) explains the header, the comments and the labels.
+
+## Writing mutations
+
+### A mutation
+
+A mutation has an `id`, a `misunderstanding`, and one or more edits applied together:
+
+```toml
+// [!include ~/snippets/mutation-testing/survivors.toml]
+```
+
+The `misunderstanding` is required: it is the one plausible mistake the mutation writes down, which a reviewer judges, and from which the next case follows.
+An edit has a `rule` anchor and one of two actions:
+either the exact text it replaces (`find`, once in that rule) together with its replacement (`replace`),
+or `delete = true`, which removes the rule and takes no `find` or `replace`.
+Mutations live in one file per topic under `mutations/`, and each id is qualified by its topic: `survivors/one`.
+
+### Anchors: labels, not lines
+
+`rule = "plus_succ"` addresses the rule whose label ends with `plus_succ` as a whole component: `nat--plus_succ`.
+An anchor that names no rule, or several, is refused.
+An edit may also be anchored by `line =`, but every emission moves lines, so `check` warns (`line-anchor`); a `find` with no `rule` can land in another rule than the one meant, and `check` warns of that too (`text-anchor`).
+
+### Branches worth mutating get `#[k::label]`
+
+The equations of an if/else or match body are named by their branch's position.
+Adding a branch at the end keeps every name, but inserting or removing one renames the branches after it, and a patch anchored to a renamed branch resolves against whichever branch bears its name now, and is refused unless its text occurs there.
+Give a [branch](/reference/language#branching-bodies) whose mutations must outlive such edits a `#[k::label(..)]`.
+
+### Correlated edits
+
+A misunderstanding that spans several rules is one mutation with several edits, applied together or not at all.
+Several edits may change one rule, as long as they do not overlap.
+A constant used in several places means every sentence that uses it is edited.
+`correlated/off-by-one` counts from one: its base case adds one and its step drops one, two edits that must apply together to write the mistake:
+
+```toml
+// [!include ~/snippets/mutation-testing/correlated.toml]
+```
+
+### Equivalent forms and equivalent mutants
+
+One misunderstanding can have more than one K text, for example swapping two patterns or swapping their results.
+kink judges behavior, so either form is right.
+An equivalent mutant, such as `survivors/swap`, survives every case: say so in its `misunderstanding`, or drop it.
+
+### What `check` refuses, and what to do
+
+`check` refuses a mutation that does not resolve, and one that is not the emission of any Rust source an author could write, each refusal with its `reason`, a `detail`, and the next step (`next`).
+`refused.toml` holds one mutation per kind of refusal:
+
+```toml
+// [!include ~/snippets/mutation-testing/refused.toml]
+```
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-check-refused.txt]
+```
+
+The krs front end refuses what only KRS can tell:
+
+| reason | the mutation | what to do |
+| --- | --- | --- |
+| `generated-only` | edits only nodes KRS inserted on its own: definedness tests, key guards, implicit frames, generated binders | edit the text that renders authored syntax |
+| `derived-mismatch` | leaves a derived node that KRS would derive differently from the edited text | write KRS's derived text (the `detail`) in the same mutation |
+| `changes-no-node` | changes only layout or comments | change what a rule says |
+| `no-change` | is the specification up to names and brackets | change what the rule says |
+| `not-judged` | is one KRS cannot yet tell a Rust source writes | write the misunderstanding another way |
+| `krs::analysis::…` | stands for a Rust source KRS itself refuses, such as overlapping equations | make the edits the `detail` lists as siblings, which an author's Rust edit would also change, or make the rules disjoint |
+
+It also warns, without refusing: `claim-helper` for an edited equation of a function only claims apply, and `partial-rendering` for an edited construct KRS renders in other sentences the mutation leaves unchanged.
+
+kink's own refusals a KRS author meets are `unknown-label`, `ambiguous-label`, `find-not-found`, `find-ambiguous`, `edit-outside-rule`, `overlapping-edits`, `label-changed`, `no-change` and `non-rule-sentence`; its warnings are `line-anchor`, `text-anchor`, `unmatched-rule`, `unapplied-rule`, `stop-hides-edit`, `stop-rule-deleted` and `no-coverage-signal`.
+kink-flow's README states each, in ["`MUTATIONS.toml`"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#mutationstoml) and ["Checking mutations"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#checking-mutations).
+
+## Statuses and what to do
+
+| status | meaning | what to do | exit status |
+| --- | --- | --- | --- |
+| `killed` | some case's result differs on the mutant | nothing | 0 |
+| `survived` | every case ran to a comparable result and agreed | write a case that reaches the edited rule and whose result the edit changes (the row's `witnesses` are the cases whose coverage reaches the edit), or argue that the mutation is equivalent | 0 |
+| `equivalent` | the mutant compiles to the specification's own executable definition | drop or change the mutation | 0 |
+| `unkillable` | the edit only weakens the specification: it deletes equations, or narrows a `requires` | nothing is run; write the misunderstanding as a replacement instead | 0 |
+| `invalid-mutation` | the mutation does not resolve, or krs refuses it | `check` names the reason and the next step | 2 |
+| `not-admitted` | kink cannot judge the mutant: it does not compile, or its equations are inconsistent (`inconsistent-mutant`) | fix the edit | 2 |
+| `unknown` | no case killed it, and some case's result on the mutant could not be judged | read `cause` ([Unknowns and budgets](#unknowns-and-budgets)) | 3 |
+| `timeout` | no case killed it, and some case did not finish on the mutant in time; never cached | write a case that ends under the mutant | 3 |
+| `error` | a corpus error stopped the run, a `--verify` mismatch, or the runner failed | read `reason`: fix the corpus, or report the failure | 2 (1 for a `--verify` mismatch) |
+
+A command that answers for several mutations exits 2 when one could not be asked, else 1 when one is a finding, else 3 when one has no answer, else 0.
+A run over `refused.toml` judges nothing and exits 2:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-run-refused.txt]
+```
+
+## Unknowns and budgets
+
+- **A baseline without data.** When the specification's own critical-pair check has a finding, no end of it is data, and every mutation is `unknown` (`baseline-findings`); `check` exits 1 and names each finding.
+  Name a finding in `[spec] assume_joined` only when it holds of the specification.
+- **Exclusions.** A run is excluded, and decides nothing, when it reads a value the definition leaves open (`implementation-chosen-hook`), when its result could depend on whether `andBool`, `orBool` or `#if` skips an operand (`short-circuit-reading`), or when it goes through a condition `{ A #Equals B }` over terms that may be undefined (`equals-condition`).
+  `check` exits 1 for a case every run of which is excluded, and `results` names the exclusion and its cause.
+- **Budgets.** `[budget]` bounds every run:
+  - `time_ms` is a host clock; a run that reaches it is `timeout`, which is never cached.
+  - `max_depth` bounds each path; a run that reaches it is inconclusive, `unknown`.
+  - `work_factor` bounds a mutant's run by the work of the same case's baseline run, and `baseline_max_work` bounds a baseline run; their unknowns are cached, since the bound is in the key.
+  - `smt_resource_limit` bounds each solver query in Z3 resource units.
+
+  Raise the bound the `cause` names, and only after reading it: a case whose run does not end under the mutant is better rewritten to end.
+- **Machines that do not halt.** A run of a machine that never halts ends where `[stop]` and `stop_count` say ([the corpus loop](/reference/workflow#the-corpus-loop)), and a kill is then relative to that stop.
+- **Internal state.** State no case may observe is declared [`#[k::cell(unobservable)]`](/reference/language#unobservable-cells), or left out of `[result] cells`; a kill then needs a difference in a compared cell.
+- **Claims an edit leaves unbacked.** An edit that leaves a trusted claim unbacked, which no removal takes away, makes the mutation `unknown` (`unsupported-claims`).
+
+## Corpus layout and what to commit
+
+| path | commit | why |
+| --- | --- | --- |
+| `src/**` | yes | the specification |
+| `kink/definition.k` | yes; CI runs `krs kink emit --check` | the K the verdicts are about; a reviewer reads each mutation against it |
+| `kink/FLOW.toml`, `kink/cases/`, `kink/mutations/<topic>.toml` | yes | the corpus and the misunderstandings it is checked against |
+| `kink/verdicts.lock` | optional | the verdicts, compared in review and in CI |
+| `kink/PATTERNS.toml`, `kink/TEMPLATES.toml` | yes, when used | the patterns `query` checks, and the case templates `fuzz` searches |
+| `kink/.kink-flow/` | never | caches, keyed by every input, so a fresh checkout recomputes them |
+
+## When no case comes to mind
+
+`krs kink fuzz --template ID --kill <topic>/<id>` searches the hole values of a case template for a case that kills a survivor, and `run` confirms the kill with its own oracle.
+`krs kink query` checks whether each case reaches a pattern of interest.
+The [fuzzing guide](/k-rust/fuzzing) teaches templates and holes at the K level, and kink-flow's README, ["Killing a survivor with `fuzz`"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#killing-a-survivor-with-fuzz), states every option.
+
+## Why mutations are K patches, not Rust edits
+
+A mutation of a KRS specification could have been written as an edit of its Rust source.
+It is a K patch for these reasons, which kink's decision register states in full, in its entry ["Mutation input"](https://github.com/midnightntwrk/k-rust/blob/main/kink/decisions.md#m-mutation-input):
+
+1. **What kink judges is a patch either way.**
+   Every route ends at a patch of the emitted K, and kink's verdicts, its soundness argument and its caches are about that patch.
+   The format is only a question of what the author writes and how it becomes the patch.
+2. **Staleness is an exact text comparison.**
+   A K patch states the text it replaces.
+   After any edit of the specification, the K is emitted again, and every patch either still matches its anchor exactly, and is then exactly the stated edit of the current K, or is refused.
+3. **No build per mutant.**
+   kink loads the edited K in process; a Rust edit becomes a patch only through a build of the whole specification.
+   On 2026-11-03, at k-rust `40a359bcd`, for a KRS specification of the SM83 CPU (about 75 KB of emitted K, 79 mutations over 17 programs), that build cost 17 to 61 seconds per mutant (median 31.6 s), against kink's own median of 0.92 seconds per mutant.
+   Both sides have changed since: the emission path has been shortened, and kink's own work per mutant has changed too.
+   Neither figure has been measured again, so neither the figures nor their ratio are known today.
+4. **Rust-derived patches cannot be kept fresh cheaply or safely.**
+   Rebuilding every Rust-derived mutation after every specification edit cost about 40 minutes for those 79 mutations at the same commit.
+   Rebuilding only the mutations an edit could affect needs an analysis of every input of the lowering, whose gaps are silent: after an edit adds a new use of a mutated constant, a patch derived earlier misses that use, its text may still match, and nothing compares it with what a build would give now.
+5. **Writing K is as accurate.**
+   In an experiment on the same date, one agent per arm wrote ten misunderstandings, given in prose, of a 993-line K definition, each result compared with a reference mutant:
+
+   | arm | applied | identical to the reference | tokens | time |
+   | --- | --- | --- | --- | --- |
+   | K patches | 10/10 | 9, and one equivalent form | 115k | 121 s |
+   | K patches, with comments naming each sentence's Rust item | 10/10 | 10 | 116k | 92 s |
+   | Rust edits | 10/10 | 9, and one equivalent form | 77k | 61 s |
+
+   The Rust arm was the cheapest to write, but each of its edits still needs reason 3's build.
+   The limits: one agent per arm, one model, one definition, and misunderstandings given to the agents rather than invented by them.
+   The annotated arm's comments carried line numbers; today's `// KRS` lines name the item and the file, and `krs kink check` gives the line.
+6. **What would reopen the decision.**
+   A Rust route measured close to kink's own cost per mutant that keeps staleness an exact comparison, such as lowering a single item in process or compiling all mutants in one build, reopens the format.
+   New evidence that agents write K patches measurably less accurately than Rust edits on a larger specification reopens only the question of a one-off translation of a Rust edit into a K patch.
+7. **What KRS owes the format.**
+   KRS's decision register ([section F](https://github.com/midnightntwrk/k-rust/blob/main/krs/docs-plan/authoring-spec/decisions.md#f-tooling-co-deliverables-not-afterthoughts)) records it: every rule's label names its KRS item and does not change when the sentence's text changes; the emitted K maps each sentence to its Rust item and file without a build; KRS refuses an edit no Rust source emits; and emitting an unchanged specification again gives the same bytes.
+
+## Checklist for an agent
+
+1. Run `krs kink results` until no rule is `uncovered`.
+2. Write one misunderstanding per mutation, in its `misunderstanding`.
+3. Anchor every edit by `rule`, never by `line`.
+4. Run `krs kink check` after every edit of a mutation file, until it exits 0.
+5. Run `krs kink run --full`.
+6. For each survivor, write one case that kills it, or a written argument that it is equivalent.
+7. Never raise a budget to turn `unknown` into a verdict without reading its `cause`.
+8. Commit `kink/definition.k`, and run `krs kink emit --check` in CI.
+
+## How this page is checked
+
+- Every output on this page is recorded by `scripts/record-outputs.py` from the commands `recorded-outputs.toml` lists, and `bun run verify:outputs` runs them again and compares them byte for byte; `check`'s recordings show its document's `mutations` member, since the rest names k-rust's build.
+- The guide's corpus is the introduction's corpus plus `t5`, which `scripts/sync-story.py` checks.
+- The files shown are the fixture's own, mirrored by `scripts/sync-snippets.mjs`.

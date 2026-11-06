@@ -255,6 +255,14 @@ definition = "main"
 args = ["kink", "results", "--output", "verdicts", "--locked"]
 
 [[output]]
+id = "story-kink-check"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "check", "--locked"]
+select = "mutations"
+
+[[output]]
 id = "story-kink-run"
 fixture = "story/plus"
 package = "story-plus"
@@ -374,3 +382,58 @@ definition = "main"
 args = ["run", "kink/cases/t4.nat"]
 
 # [story:end]
+
+# The guide "Mutation testing a KRS specification" (/verification/mutation-testing): the story's
+# package with the corpus story/plus/guide/ (the story's cases plus t5). results comes first:
+# check reads the cached results. check's document names k-rust's build, so only its
+# mutations are recorded.
+[[output]]
+id = "mutation-testing-results"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "results", "--corpus", "guide", "--output", "verdicts", "--locked"]
+
+[[output]]
+id = "mutation-testing-check"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "check", "--corpus", "guide", "--locked"]
+select = "mutations"
+
+[[output]]
+id = "mutation-testing-check-refused"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "check", "--corpus", "guide", "--mutations", "guide/refused.toml", "--locked"]
+select = "mutations"
+
+[[output]]
+id = "mutation-testing-run-before"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "run", "--mutations", "guide/mutations", "--full", "--output", "verdicts", "--locked"]
+
+[[output]]
+id = "mutation-testing-run-after"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "run", "--corpus", "guide", "--full", "--output", "verdicts", "--locked"]
+
+[[output]]
+id = "mutation-testing-run-refused"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "run", "--corpus", "guide", "--mutations", "guide/refused.toml", "--output", "verdicts", "--locked"]
+
+[[output]]
+id = "mutation-testing-emit-check"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "emit", "--corpus", "guide", "--check"]

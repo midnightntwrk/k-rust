@@ -153,6 +153,17 @@ const snippets = [
     start: '#[k::symbol("tour::RootCommon")]',
     end: '#[k::constructor(sort = Expr, syntax = "pair({first},{second})")]',
   },
+  { source: 'story/plus/guide/FLOW.toml', mirror: 'src/snippets/mutation-testing/FLOW.toml' },
+  { source: 'story/plus/guide/cases/t5.nat', mirror: 'src/snippets/mutation-testing/t5.nat' },
+  {
+    source: 'story/plus/guide/mutations/correlated.toml',
+    mirror: 'src/snippets/mutation-testing/correlated.toml',
+  },
+  {
+    source: 'story/plus/guide/mutations/survivors.toml',
+    mirror: 'src/snippets/mutation-testing/survivors.toml',
+  },
+  { source: 'story/plus/guide/refused.toml', mirror: 'src/snippets/mutation-testing/refused.toml' },
   {
     source: '../krs/tests/tour-negatives/src/lib.rs',
     mirror: 'src/snippets/overlapping-rules.rs',

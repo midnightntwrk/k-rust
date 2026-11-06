@@ -78,7 +78,8 @@ def main() -> None:
         fail(f"concepts taught by no lesson: {untaught}")
     lesson_by_id = {lesson["id"]: lesson for lesson in lessons}
 
-    # Pages that predate the spine: each stays until its replacing lessons are accepted.
+    # Pages outside the lesson spine: those that predate it, each kept until its replacing lessons
+    # are accepted, and kept reference and guide pages.
     require_unique("page IDs", [page.get("id") for page in pages])
     require_unique("page orders", [page.get("order") for page in pages])
     page_routes = [page.get("route") for page in pages]

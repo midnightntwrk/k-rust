@@ -1,0 +1,26 @@
+# The corpus of the guide "Mutation testing a KRS specification": the introduction's corpus
+# (../kink/FLOW.toml, the same cases in the same order) and the case t5 the guide adds to kill
+# a survivor. scripts/sync-story.py checks that it stays so.
+
+[spec]
+krs = { definition = "main" }
+
+[[program]]
+id = "t1"
+file = "cases/t1.nat"
+
+[[program]]
+id = "t2"
+file = "cases/t2.nat"
+
+[[program]]
+id = "t3"
+file = "cases/t3.nat"
+
+[[program]]
+id = "t4"
+file = "cases/t4.nat"
+
+[[program]]
+id = "t5"
+file = "cases/t5.nat"

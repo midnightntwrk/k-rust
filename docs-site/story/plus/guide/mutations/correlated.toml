@@ -1,0 +1,13 @@
+[[mutation]]
+id = "off-by-one"
+misunderstanding = "counts from one: the base case adds one and each step drops one"
+
+  [[mutation.edit]]
+  rule = "plus_zero"
+  find = "=> N:Nat"
+  replace = "=> s ( N:Nat )"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "plus ( M:Nat , N:Nat )"

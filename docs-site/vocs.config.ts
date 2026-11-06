@@ -57,6 +57,7 @@ export default defineConfig({
       collapsed: false,
       items: [
         { text: 'Reachability claims', link: '/verification/reachability-claims' },
+        { text: 'Mutation testing', link: '/verification/mutation-testing' },
       ],
     },
     {
