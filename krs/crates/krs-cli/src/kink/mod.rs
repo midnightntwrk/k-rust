@@ -71,12 +71,16 @@ pub const MANIFEST_FILE: &str = "FLOW.toml";
 /// The emitted definition's name inside the corpus directory.
 pub const DEFINITION_FILE: &str = "definition.k";
 
-/// The exit statuses of kink-flow's command line, which `krs kink` keeps.
-pub const EXIT_OK: u8 = kink_flow::cli::EXIT_OK;
-/// Something is refused (the document says what and why).
-pub const EXIT_CORPUS: u8 = kink_flow::cli::EXIT_CORPUS;
-/// A usage error.
-pub const EXIT_USAGE: u8 = kink_flow::cli::EXIT_USAGE;
+/// The exit statuses of kink-flow's command line, which `krs kink` keeps: the four actions of
+/// krs's executing commands (`crate::exit_status`). The command answered its question.
+pub const EXIT_YES: u8 = kink_flow::cli::EXIT_YES;
+/// The answer is a finding (the document says which).
+pub const EXIT_NO: u8 = kink_flow::cli::EXIT_NO;
+/// The question could not be asked: a usage error, or a refusal the document names (a package
+/// krs refuses, a stale `definition.k` under `--locked` or `emit --check`, a refused corpus).
+pub const EXIT_UNASKED: u8 = kink_flow::cli::EXIT_UNASKED;
+/// No answer (a timeout, an unknown).
+pub const EXIT_UNANSWERED: u8 = kink_flow::cli::EXIT_UNANSWERED;
 
 /// One `krs kink` command line.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -130,8 +134,11 @@ pub struct KinkOutcome {
     /// Lines for stderr after krs's diagnostics: a usage message, a refusal's text under
     /// `--output verdicts`, a panic of the command's thread.
     pub notes: Vec<String>,
-    /// The exit status: [`EXIT_OK`], [`EXIT_CORPUS`] or [`EXIT_USAGE`].
+    /// The exit status: [`EXIT_YES`], [`EXIT_NO`], [`EXIT_UNASKED`] or [`EXIT_UNANSWERED`].
     pub status: u8,
+    /// The command line is not one `krs kink` reads: `status` is [`EXIT_UNASKED`] and the
+    /// caller prints the usage after the notes.
+    pub usage: bool,
     /// krs's warnings about the definition, reported as other krs commands report them.
     pub warnings: DiagnosticReports,
     /// krs's refusal of the package (planning, collection, lowering or emission), whose
@@ -146,7 +153,8 @@ impl KinkOutcome {
         Self {
             stdout: Vec::new(),
             notes: Vec::new(),
-            status: EXIT_OK,
+            status: EXIT_YES,
+            usage: false,
             warnings: DiagnosticReports::default(),
             error: None,
             sources,
@@ -155,7 +163,8 @@ impl KinkOutcome {
 
     fn usage(mut self, message: String) -> Self {
         self.notes.push(message);
-        self.status = EXIT_USAGE;
+        self.status = EXIT_UNASKED;
+        self.usage = true;
         self
     }
 
@@ -246,14 +255,14 @@ fn selection_refused(
                 |corpus| emit::shown_path(&corpus.join(DEFINITION_FILE), None),
             );
             let document = emit::emit_document(&shown, None, *check, Some(&detail));
-            outcome.json(&document, EXIT_CORPUS)
+            outcome.json(&document, EXIT_UNASKED)
         }
         KinkVerb::Flow { verb, options } => {
             if let Ok(command) =
                 FlowCommand::parse(verb.as_str(), layout_files(&corpus, *verb), options)
             {
                 let document = refused(&command, "krs-build", "krs-refused", &detail);
-                finish(outcome, &document, EXIT_CORPUS, command.output())
+                finish(outcome, &document, EXIT_UNASKED, command.output())
             } else {
                 let document = refused_document(
                     verb.manifest_refused(&ManifestError::new("", &detail)),
@@ -261,7 +270,7 @@ fn selection_refused(
                     "krs-refused",
                     &detail,
                 );
-                outcome.json(&document, EXIT_CORPUS)
+                outcome.json(&document, EXIT_UNASKED)
             }
         }
     }
@@ -300,7 +309,7 @@ fn flow_command(
         Ok(declared) => declared,
         Err(error) => {
             let document = command.manifest_refused(&error);
-            return finish(outcome, &document, EXIT_CORPUS, output);
+            return finish(outcome, &document, EXIT_UNASKED, output);
         }
     };
     // `report` prints the stored run document, which needs nothing the build makes: no package is
@@ -309,7 +318,11 @@ fn flow_command(
         let (document, ok) = measurement.timings.span("kink.report", |_| {
             kink_flow::report::stored_report(&declared.directory, options, &spelling)
         });
-        let status = if ok { EXIT_OK } else { EXIT_CORPUS };
+        let status = if ok {
+            kink_flow::cli::run_status(&document)
+        } else {
+            EXIT_UNASKED
+        };
         return finish(outcome, &document, status, output);
     }
     let retain = judges_mutations(&command);
@@ -323,7 +336,7 @@ fn flow_command(
                 &krs_refused_detail(&error),
             );
             outcome.error = Some(error);
-            return finish(outcome, &document, EXIT_CORPUS, output);
+            return finish(outcome, &document, EXIT_UNASKED, output);
         }
     };
     let definition_path = corpus.join(DEFINITION_FILE);
@@ -340,7 +353,7 @@ fn flow_command(
                 error.reason(),
                 &error.detail(&shown),
             );
-            return finish(outcome, &document, EXIT_CORPUS, output);
+            return finish(outcome, &document, EXIT_UNASKED, output);
         }
     };
     if status == DefinitionStatus::Stale {
@@ -355,7 +368,7 @@ fn flow_command(
             ),
         );
         document["definition"] = emit::definition_value(&shown, status);
-        return finish(outcome, &document, EXIT_CORPUS, output);
+        return finish(outcome, &document, EXIT_UNASKED, output);
     }
     let definition = emit::definition_value(&shown, status);
     let observers = render::Observers::new(selection_request(request), outcome.sources.clone());
@@ -429,7 +442,7 @@ fn run_flow(
         Ok(bound) => bound,
         Err(mut document) => {
             document["definition"] = definition;
-            return finish(outcome, &document, EXIT_CORPUS, output);
+            return finish(outcome, &document, EXIT_UNASKED, output);
         }
     };
     resolve_rule(&mut command, emitted);
@@ -466,7 +479,7 @@ fn run_flow(
             outcome
                 .notes
                 .push("krs kink: the check thread panicked".into());
-            outcome.status = EXIT_CORPUS;
+            outcome.status = EXIT_UNASKED;
             return outcome;
         };
         document["definition"] = definition;
@@ -485,7 +498,7 @@ fn run_flow(
                     outcome
                         .notes
                         .push("krs kink: the mutation check thread panicked".into());
-                    outcome.status = EXIT_CORPUS;
+                    outcome.status = EXIT_UNASKED;
                     return outcome;
                 };
                 refusals
@@ -517,7 +530,7 @@ fn run_flow(
         Ok(result) => result,
         Err(panicked) => {
             outcome.notes.push(format!("krs kink: {panicked}"));
-            outcome.status = EXIT_CORPUS;
+            outcome.status = EXIT_UNASKED;
             return outcome;
         }
     };
@@ -634,7 +647,7 @@ fn emit_command(
             let document =
                 emit::emit_document(&shown, None, check, Some(&krs_refused_detail(&error)));
             outcome.error = Some(error);
-            return outcome.json(&document, EXIT_CORPUS);
+            return outcome.json(&document, EXIT_UNASKED);
         }
     };
     let status = measurement.timings.span("kink.definition", |_| {
@@ -643,16 +656,18 @@ fn emit_command(
     match status {
         Ok(status) => {
             let document = emit::emit_document(&shown, Some(status), check, None);
+            // A stale file is an input to regenerate, as `--locked` refuses it: no answer about
+            // the package or its corpus.
             let code = if status == DefinitionStatus::Stale {
-                EXIT_CORPUS
+                EXIT_UNASKED
             } else {
-                EXIT_OK
+                EXIT_YES
             };
             outcome.json(&document, code)
         }
         Err(error) => {
             let document = emit::emit_document(&shown, None, check, Some(&error.detail(&shown)));
-            outcome.json(&document, EXIT_CORPUS)
+            outcome.json(&document, EXIT_UNASKED)
         }
     }
 }
@@ -812,7 +827,7 @@ fn finish(
             }
             Err(message) => {
                 outcome.notes.push(format!("krs kink: {message}"));
-                outcome.status = EXIT_CORPUS;
+                outcome.status = EXIT_UNASKED;
                 outcome
             }
         },

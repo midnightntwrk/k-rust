@@ -227,7 +227,8 @@ fn cache_refusal(
 }
 
 /// `kink-flow query`: the query document and whether the command found no corpus or
-/// infrastructure error (the caller's exit status).
+/// infrastructure error; the exit status joins it with the status the document gives
+/// (`crate::cli::query_status`).
 pub fn query(manifest: &FlowManifest, list: &PatternList, options: &QueryOptions) -> (Value, bool) {
     query_with(manifest, list, options, &|_| {})
 }

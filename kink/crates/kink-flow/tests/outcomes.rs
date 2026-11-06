@@ -13,7 +13,7 @@ use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
     admit::corpus_source,
-    cli::{EXIT_OK, EXIT_USAGE, results},
+    cli::{EXIT_UNASKED, EXIT_YES, results},
     digest::{hint_key, mutation_identity, spec_digest},
     hints::{HINTS_SCHEMA, hints_path},
     mutation::InvalidReason,
@@ -1176,7 +1176,7 @@ mod heavy {
 #[cfg(feature = "z3")]
 #[test]
 fn both_caches_are_on_under_the_z3_profile() {
-    use kink_flow::{query::QueryOptions, search::tier1_refusal};
+    use kink_flow::{cli::EXIT_UNANSWERED, query::QueryOptions, search::tier1_refusal};
     use kink_native::execution::SolverProfile;
     assert_eq!(SolverProfile::BUILD, SolverProfile::Z3);
     assert_eq!(
@@ -1201,7 +1201,9 @@ fn both_caches_are_on_under_the_z3_profile() {
         .unwrap()
         .join()
         .unwrap();
-    assert_eq!(status, EXIT_OK, "{query:#}");
+    // calc's PATTERNS.toml asks pairs no exploration matches (`result-four` of `add`, for one),
+    // which under Z3 are `unknown` (query.rs's NO): no answer.
+    assert_eq!(status, EXIT_UNANSWERED, "{query:#}");
     assert_eq!(query["pattern_cache"]["enabled"], true, "{query:#}");
     assert_eq!(query["pattern_cache"]["reason"], Value::Null, "{query:#}");
 }
@@ -1289,7 +1291,7 @@ misunderstanding = "a test mutation"
         let mutations = dir.join("MUTATIONS.toml");
         edit(&manifest, "id = \"add\"", "id = \"add:one\"");
         let (filled, status) = results(&manifest, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         let record = result_record_path(&manifest, &filled, "add:one");
         let mut value = read_json(&record);
         value["run_sha256"] = json!("0".repeat(64));
@@ -1559,7 +1561,7 @@ note = "go picks any integer"
         for (args, code) in [
             (
                 vec!["run", "FLOW.toml", "MUTATIONS.toml", "--verify", "--verify"],
-                EXIT_USAGE,
+                EXIT_UNASKED,
             ),
             (
                 vec![
@@ -1570,7 +1572,7 @@ note = "go picks any integer"
                     "add-becomes-sub",
                     "--verify",
                 ],
-                EXIT_OK,
+                EXIT_YES,
             ),
         ] {
             let output = Command::new(binary)
@@ -1579,7 +1581,7 @@ note = "go picks any integer"
                 .output()
                 .unwrap();
             assert_eq!(output.status.code(), Some(i32::from(code)), "{args:?}");
-            if code == EXIT_OK {
+            if code == EXIT_YES {
                 let document: Value = serde_json::from_slice(&output.stdout).unwrap();
                 assert_eq!(document["outcome_cache"]["verify"], true);
                 assert_eq!(document["mismatches"], json!([]));
@@ -1661,7 +1663,7 @@ note = "go picks any integer"
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
         let (filled, status) = results(&manifest, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         let record = result_record_path(&manifest, &filled, "add");
         let mut value = read_json(&record);
         value["run_sha256"] = json!("0".repeat(64));

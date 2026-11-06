@@ -9,7 +9,7 @@ use k_rust::kore::{ast::Pattern, json as kore_json};
 use kink_corpus::admission::input_backend;
 use kink_flow::{
     FlowManifest, admit,
-    cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE},
+    cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES},
     pattern::{Answer, Facts, Lowering, PatternList, SearchOutcome, Searcher, judge},
     query::{QueryOptions, record_sha256},
     results::{CACHE_DIRECTORY, SIMPLIFICATION_ITERATIONS},
@@ -41,6 +41,26 @@ const NO: &str = if cfg!(feature = "z3") {
     "unknown"
 } else {
     "no"
+};
+
+/// The exit status of a query some of whose unclaimed (pattern, program) pairs a complete
+/// exploration never matches, every other pair hitting: `no` answers such a pair ([`EXIT_YES`]) in
+/// the portable profile, while under Z3 the answer is `unknown` (see [`NO`]), which has none
+/// ([`EXIT_UNANSWERED`]).
+const UNREACHED_STATUS: u8 = if cfg!(feature = "z3") {
+    EXIT_UNANSWERED
+} else {
+    EXIT_YES
+};
+
+/// The exit status of a query one of whose claims a complete exploration never matches, and no
+/// pair of which could not be asked: the refuted claim is a finding ([`EXIT_NO`]) in the portable
+/// profile, while under Z3 the answer is `unknown` and the claim `unconfirmed` (see [`NO`]), which
+/// has no answer ([`EXIT_UNANSWERED`]).
+const REFUTED_STATUS: u8 = if cfg!(feature = "z3") {
+    EXIT_UNANSWERED
+} else {
+    EXIT_NO
 };
 
 /// A fresh directory for one test, under the target's temporary directory.
@@ -258,7 +278,7 @@ fn a_pattern_list_error_names_its_key() {
         "[[pattern]]\nid = \"a\"\npattern = \"<k> 3 </k>\"\nprograms = [\"add\", \"nope\"]\n",
     );
     let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-    assert_eq!(status, EXIT_CORPUS);
+    assert_eq!(status, EXIT_UNASKED);
     assert_eq!(document["pattern_list"]["outcome"], "refused");
     assert!(
         document["pattern_list"]["detail"]
@@ -304,7 +324,7 @@ file = "programs/countdown.loop"
 fn the_initial_and_the_final_states_count() {
     let dir = fixture("loop", "initial-final");
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, UNREACHED_STATUS, "{document:#}");
     let start = row(&document, "countdown-starts", "countdown");
     assert_eq!(start["answer"], "hit");
     assert_eq!(start["claim"], "confirmed");
@@ -363,7 +383,7 @@ fn a_state_on_some_paths_only_is_a_hit() {
     let patterns = dir.join("PATTERNS-orders.toml");
     write(&patterns, ORDERS);
     let (document, status) = plain(&manifest, &patterns);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, UNREACHED_STATUS, "{document:#}");
     assert_eq!(
         answers(&document),
         expect(&[
@@ -597,7 +617,7 @@ endmodule
          [[pattern]]\nid = \"start\"\npattern = \"<k> at(_) </k>\"\n",
     );
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
     assert_eq!(row(&document, "true", "one")["answer"], NO, "{document:#}");
     let zero = row(&document, "true", "zero");
     assert_eq!(zero["answer"], "unknown", "{zero:#}");
@@ -758,7 +778,7 @@ fn the_readme_example_answers() {
     let patterns = dir.join("PATTERNS-readme.toml");
     write(&patterns, block);
     let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, UNREACHED_STATUS, "{document:#}");
     assert_eq!(
         answers(&document),
         expect(&[
@@ -952,7 +972,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
 "#,
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let reducible = row(&document, "reducible-read", "array");
         assert_eq!(reducible["answer"], "unknown", "{document:#}");
         assert!(
@@ -972,7 +992,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
     fn a_query_writes_no_verdict_store() {
         let dir = fixture("calc", "no-verdict");
         let (_, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, REFUTED_STATUS);
         let names = fs::read_dir(dir.join(CACHE_DIRECTORY))
             .into_iter()
             .flatten()
@@ -993,7 +1013,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
     fn the_pattern_cache_is_on_in_both_profiles() {
         let dir = fixture("calc", "profile");
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["profile"], SolverProfile::BUILD.name());
         assert_eq!(document["pattern_cache"]["enabled"], true);
         assert_eq!(document["pattern_cache"]["reason"], Value::Null);
@@ -1014,7 +1034,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
 
     /// Flow F-18 deliverable 2: a pattern that does not parse, that k-rust's pattern compiler
     /// refuses, or that names no cell of the configuration is `invalid-pattern` with k-rust's
-    /// message, and never runs; the command still exits 0.
+    /// message, and never runs; the command exits 2, since its author must fix the pattern.
     #[test]
     #[ignore = "kink"]
     fn an_invalid_pattern_never_runs() {
@@ -1045,7 +1065,7 @@ programs = ["add"]
 "#,
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
         for (id, detail) in [
             ("syntax", "could not parse rule in module \"CALC\""),
             (
@@ -1109,7 +1129,7 @@ programs = ["add"]
              1\"\nprograms = [\"three\"]\n",
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let kore = document["patterns"][0]["kore"].as_str().unwrap();
         assert!(
             kore.contains("Var'Unds'Gen"),
@@ -1133,7 +1153,7 @@ programs = ["add"]
         let patterns = dir.join("PATTERNS-claims.toml");
         write(&patterns, CALC_PATTERNS);
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, REFUTED_STATUS);
         let refuted = row(&document, "four", "add");
         assert_eq!(refuted["witness"], Value::Null);
         if cfg!(feature = "z3") {
@@ -1180,7 +1200,7 @@ programs = ["add"]
         let patterns = dir.join("PATTERNS-claims.toml");
         write(&patterns, CALC_PATTERNS);
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
         assert_eq!(document["version"], 2);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
@@ -1270,7 +1290,7 @@ programs = ["add"]
              \"never\"\npattern = \"<k> count(_) </k>\"\nprograms = [\"start\"]\n",
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14; k-rust's
         // draft answers-add3 section 2.1 "New marks of open values", which reach the four search
         // responses too): the match's path read `keys_list` of two keys, so it carries an
@@ -1330,7 +1350,7 @@ programs = ["add"]
             "[[pattern]]\nid = \"listed\"\npattern = \"<k> keys(lst()) </k>\"\n",
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let listed = row(&document, "listed", "pair");
         assert_eq!(listed["answer"], "unknown", "{listed:#}");
         let cause = listed["cause"].as_str().unwrap();
@@ -1358,7 +1378,7 @@ programs = ["add"]
             .arg(&cache)
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(output.status.code(), Some(i32::from(REFUTED_STATUS)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-query");
         // Under Z3 `unknown`, not `no` (see NO): no claim is refuted, and an `unknown` is never
@@ -1373,9 +1393,9 @@ programs = ["add"]
         assert_eq!(cache.join("patterns").is_dir(), !cfg!(feature = "z3"));
         assert!(!dir.join(CACHE_DIRECTORY).exists());
         for (args, code) in [
-            (vec!["--only", "nope"], EXIT_USAGE),
-            (vec!["--verify", "--verify"], EXIT_USAGE),
-            (vec!["--bogus"], EXIT_USAGE),
+            (vec!["--only", "nope"], EXIT_UNASKED),
+            (vec!["--verify", "--verify"], EXIT_UNASKED),
+            (vec!["--bogus"], EXIT_UNASKED),
         ] {
             let output = Command::new(binary)
                 .arg("query")
@@ -1392,7 +1412,7 @@ programs = ["add"]
             .arg(dir.join("MISSING.toml"))
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_USAGE)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
         let bad = dir.join("BAD.toml");
         fs::write(
             &bad,
@@ -1405,7 +1425,7 @@ programs = ["add"]
             .arg(&bad)
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(
             document["pattern_list"]["detail"],
@@ -1434,7 +1454,7 @@ programs = ["add"]
              [\"partial\"]\n",
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let partial = row(&document, "g-holds-an-int", "partial");
         assert_eq!(partial["answer"], "unknown", "{partial:#}");
         assert_eq!(partial["claim"], "unconfirmed");
@@ -1462,7 +1482,7 @@ programs = ["add"]
             "[[pattern]]\nid = \"g-any\"\npattern = \"<k> g(_) </k>\"\n",
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let total = row(&document, "g-any", "total");
         assert_eq!(total["answer"], "hit", "{total:#}");
         assert!(
@@ -1491,7 +1511,7 @@ programs = ["add"]
              = [\"start\"]\n",
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let store = row(&document, "two-holds", "start");
         assert_eq!(store["answer"], "hit", "{store:#}");
         assert_eq!(
@@ -1543,14 +1563,14 @@ programs = ["add"]
 
         // The digest recomputes, so a plain query uses the record, forged witness and all.
         let (trusted, status) = plain(&manifest, &patterns);
-        assert_eq!(status, EXIT_OK, "{trusted:#}");
+        assert_eq!(status, REFUTED_STATUS, "{trusted:#}");
         let cached = row(&trusted, "result-three", "add");
         assert_eq!(cached["answer"], "hit");
         assert_eq!(cached["cached"], true);
         assert_eq!(cached["witness"], witness);
 
         let (verified, status) = verify(&manifest, &patterns);
-        assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+        assert_eq!(status, EXIT_NO, "{verified:#}");
         let live = row(&verified, "result-three", "add");
         assert_eq!(live["answer"], "hit");
         assert_eq!(live["witness"], live_witness);
@@ -1582,7 +1602,7 @@ programs = ["add"]
         write(&bounded, &loop_bounded());
         let patterns = dir.join("PATTERNS.toml");
         let (document, status) = plain(&bounded, &patterns);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let cut = row(&document, "zero", "spin");
         assert_eq!(cut["answer"], "unknown");
         assert!(
@@ -1599,7 +1619,7 @@ programs = ["add"]
 
         // The clock: a depth the run cannot reach and a small time bound.
         let (document, status) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let timed = row(&document, "zero", "spin");
         assert_eq!(timed["answer"], "unknown");
         assert!(
@@ -1682,12 +1702,12 @@ programs = ["add"]
         fs::write(&path, &forged).unwrap();
 
         let (trusted, status) = plain(&manifest, &patterns);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_NO);
         assert_eq!(row(&trusted, "result-three", "add")["answer"], "no");
         assert_eq!(row(&trusted, "result-three", "add")["cached"], true);
 
         let (verified, status) = verify(&manifest, &patterns);
-        assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+        assert_eq!(status, EXIT_NO, "{verified:#}");
         let live = row(&verified, "result-three", "add");
         assert_eq!(live["answer"], "hit");
         assert_eq!(live["verify"], "mismatch");
@@ -1725,7 +1745,7 @@ programs = ["add"]
         let manifest = dir.join("FLOW.toml");
         let patterns = dir.join("PATTERNS.toml");
         let (first, status) = plain(&manifest, &patterns);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, REFUTED_STATUS, "{first:#}");
         assert!(cached(&first).iter().all(|c| !c));
         let written = first["pattern_cache"]["records_written"].as_u64().unwrap();
         assert!(written > 0);
@@ -1820,7 +1840,7 @@ programs = ["add"]
         let manifest = dir.join("FLOW.toml");
         let patterns = dir.join("PATTERNS.toml");
         let (first, status) = plain(&manifest, &patterns);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, EXIT_NO, "{first:#}");
         assert_eq!(row(&first, "result-four", "add")["answer"], "no");
         let path = result_record(&dir, &first, "add");
         let original: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -1881,7 +1901,7 @@ programs = ["add"]
         // Under --verify the answer is judged with the live baseline run, not the stale record: the
         // live no is printed, and the command exits 1 for the result record's difference.
         let (verified, status) = verify(&manifest, &patterns);
-        assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+        assert_eq!(status, EXIT_NO, "{verified:#}");
         assert_eq!(row(&verified, "result-four", "add")["answer"], "no");
         assert!(
             verified["mismatches"]
@@ -1916,7 +1936,13 @@ programs = ["add"]
         let mut compared = 0;
         for (manifest, patterns) in cases {
             let (document, status) = plain(&manifest, &patterns);
-            assert_eq!(status, EXIT_OK, "{document:#}");
+            // Answered, with the refuted claims of the claims fixture as findings.
+            assert_ne!(status, EXIT_UNASKED, "{document:#}");
+            assert_eq!(
+                status,
+                kink_flow::cli::query_status(&document),
+                "{document:#}"
+            );
             let list = PatternList::read(&patterns).unwrap();
             let stepper = Stepper::new(&manifest);
             for row in document["rows"].as_array().unwrap() {

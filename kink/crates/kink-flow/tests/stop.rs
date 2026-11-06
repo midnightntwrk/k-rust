@@ -14,7 +14,7 @@
 
 use kink_flow::{
     FlowManifest,
-    cli::{CheckOptions, EXIT_CORPUS, EXIT_OK, FuzzJobRequest, FuzzRequest, check, check_with},
+    cli::{CheckOptions, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check, check_with},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context},
     manifest::{Budget, ManifestError},
     mutation::MutationList,
@@ -376,7 +376,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
         "{program:#}"
     );
     let (check, status) = check(&dir.join("FLOW.toml"));
-    assert_eq!(status, EXIT_OK, "{check:#}");
+    assert_eq!(status, EXIT_YES, "{check:#}");
     assert_eq!(check["stop"], stop);
 }
 
@@ -512,7 +512,7 @@ fn a_stop_naming_no_rewrite_rule_refuses_the_specification() {
         ("bare", "before `frame`"),
     ] {
         let (document, status) = check(&dir.join(format!("FLOW-{name}.toml")));
-        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
         assert_eq!(document["spec"]["stage"], "stop", "{document:#}");
         assert_eq!(
             document["spec"]["reason"], "stop-unresolved",
@@ -543,7 +543,7 @@ fn query_and_fuzz_refuse_a_stopped_corpus() {
         &dir.join("PATTERNS.toml"),
         &QueryOptions::default(),
     );
-    assert_eq!(status, EXIT_CORPUS, "{query:#}");
+    assert_eq!(status, EXIT_UNASKED, "{query:#}");
     assert_eq!(query["schema"], kink_flow::query::QUERY_SCHEMA);
     assert_eq!(
         (&query["spec"]["stage"], &query["spec"]["reason"]),
@@ -562,7 +562,7 @@ fn query_and_fuzz_refuse_a_stopped_corpus() {
             options: kink_flow::fuzz::FuzzOptions::default(),
         },
     );
-    assert_eq!(status, EXIT_CORPUS, "{fuzz:#}");
+    assert_eq!(status, EXIT_UNASKED, "{fuzz:#}");
     assert_eq!(
         (&fuzz["spec"]["stage"], &fuzz["spec"]["reason"]),
         (&json!("stop"), &json!("unsupported-verb")),

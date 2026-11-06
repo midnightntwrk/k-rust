@@ -1,12 +1,14 @@
 //! The `kink-flow` command line. Every command prints one JSON document on stdout, or with
 //! `--output verdicts` (`results` and `run`) its deterministic rendering ([`crate::verdicts`]).
 //!
-//! Exit status: [`EXIT_OK`] when the command did its job and found nothing wrong with the
-//! corpus, [`EXIT_CORPUS`] when the manifest, the specification, a program or a mutation is
-//! refused (the document says which and why), or, for `check`, when a fact known before any
-//! mutant runs makes a verdict impossible (a program cannot be judged on the baseline, or the
-//! baseline has no data under `[spec] assume_joined`), and [`EXIT_USAGE`] on a usage error
-//! (stderr).
+//! Exit status: what the caller does next, one of four: [`EXIT_YES`] when the
+//! command answered its question (rely on the answer), [`EXIT_NO`] when the answer is a finding
+//! (act on it), [`EXIT_UNASKED`] when the question could not be asked (fix the input or the
+//! command: a usage error on stderr, or a refusal the document names), and [`EXIT_UNANSWERED`]
+//! when the command ran and has no answer (retry with more budget or another approach). A
+//! command that answers for several parts (programs, mutations, (pattern, program) pairs) exits
+//! with the [`exit_join`] of the parts' statuses. Each verb's statuses are its function's
+//! (`check_with`, `results`, `run`, `report`, `query`, `fuzz`).
 //!
 //! A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` file or a mutations directory of
 //! `<topic>.toml` files ([`MutationList::read`]).
@@ -45,9 +47,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const EXIT_OK: u8 = 0;
-pub const EXIT_CORPUS: u8 = 1;
-pub const EXIT_USAGE: u8 = 2;
+/// The command answered its question: rely on the answer.
+pub const EXIT_YES: u8 = 0;
+/// The answer is a finding: act on it (a `--verify` mismatch, a fact `check` finds that makes a
+/// verdict impossible, an expectation or a claim the baseline does not meet).
+pub const EXIT_NO: u8 = 1;
+/// The question could not be asked: fix the input or the command (a usage error, a refused
+/// manifest, specification, program, list, mutation, pattern or template, a failed run or write).
+pub const EXIT_UNASKED: u8 = 2;
+/// No answer: retry with more budget or another approach (a timeout, an unknown).
+pub const EXIT_UNANSWERED: u8 = 3;
 
 pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
                          MUTATIONS] [--cache DIR] | kink-flow \
@@ -83,7 +92,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             env!("CARGO_PKG_VERSION"),
             crate::k_rust_revision()
         );
-        return EXIT_OK;
+        return EXIT_YES;
     }
     let Some((verb, manifest, files, options)) = operands(&args) else {
         return usage(USAGE);
@@ -97,12 +106,12 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     };
     let output = command.output();
     let (document, status) = match FlowManifest::read(&manifest) {
-        Err(error) => (command.manifest_refused(&error), EXIT_CORPUS),
+        Err(error) => (command.manifest_refused(&error), EXIT_UNASKED),
         Ok(manifest) => match dispatch(manifest, command, FrontEnd::default()) {
             Ok(result) => result,
             Err(panicked) => {
                 eprintln!("kink-flow: {panicked}");
-                return EXIT_CORPUS;
+                return EXIT_UNASKED;
             }
         },
     };
@@ -118,13 +127,13 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             }
             Err(message) => {
                 eprintln!("kink-flow: {message}");
-                return EXIT_CORPUS;
+                return EXIT_UNASKED;
             }
         },
     };
     let mut stdout = std::io::stdout().lock();
     if stdout.write_all(text.as_bytes()).is_err() {
-        return EXIT_CORPUS;
+        return EXIT_UNASKED;
     }
     status
 }
@@ -158,7 +167,7 @@ fn usage(message: &str) -> u8 {
     if message != USAGE {
         eprintln!("{USAGE}");
     }
-    EXIT_USAGE
+    EXIT_UNASKED
 }
 
 /// Run `body` on a thread with kink-corpus's definition stack allowance, and wait for it; `None`
@@ -579,7 +588,6 @@ pub fn run_command(
     command: &FlowCommand,
     front: &FrontEnd<'_>,
 ) -> (Value, u8) {
-    let exit = |ok: bool| if ok { EXIT_OK } else { EXIT_CORPUS };
     let (document, status) = match command {
         FlowCommand::Check(options) => match &options.mutations {
             None => check_admission(manifest, options.cache.as_deref()),
@@ -595,7 +603,8 @@ pub fn run_command(
         },
         FlowCommand::Results { options, .. } => {
             let (document, ok) = crate::results::results(manifest, options);
-            (document, exit(ok))
+            let status = completed(results_status(&document), ok);
+            (document, status)
         }
         FlowCommand::Run {
             mutations,
@@ -607,28 +616,34 @@ pub fn run_command(
             return match MutationList::read(mutations) {
                 Err(error) => (
                     front.annotated(mutation_list_refused(&error.to_string(), options.schedule)),
-                    EXIT_CORPUS,
+                    EXIT_UNASKED,
                 ),
                 Ok(list) => {
                     let (document, ok) =
                         crate::search::run_front(manifest, &list, options, *mode, front);
-                    let status = exit(ok && invalid_mutations(&document) == 0);
+                    let status = completed(run_status(&document), ok);
                     (document, status)
                 }
             };
         }
         FlowCommand::Report { options, .. } => {
             let (document, ok) = crate::report::report_spelled(manifest, options, front.spelling);
-            (document, exit(ok))
+            let status = if ok {
+                run_status(&document)
+            } else {
+                EXIT_UNASKED
+            };
+            (document, status)
         }
         FlowCommand::Query { .. } | FlowCommand::Fuzz { .. } if manifest.stop.is_some() => {
-            (stop_unsupported(command), EXIT_CORPUS)
+            (stop_unsupported(command), EXIT_UNASKED)
         }
         FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
-            Err(error) => (pattern_list_refused(&error), EXIT_CORPUS),
+            Err(error) => (pattern_list_refused(&error), EXIT_UNASKED),
             Ok(list) => {
                 let (document, ok) = crate::query::query(manifest, &list, options);
-                (document, exit(ok))
+                let status = completed(query_status(&document), ok);
+                (document, status)
             }
         },
         FlowCommand::Fuzz { templates, request } => {
@@ -636,6 +651,261 @@ pub fn run_command(
         }
     };
     (front.annotated(document), status)
+}
+
+/// The status of two parts whose statuses are `left` and `right`: the one that comes first of
+/// [`EXIT_UNASKED`], [`EXIT_NO`], [`EXIT_UNANSWERED`] and [`EXIT_YES`]. A part that could not be
+/// asked leaves the whole answer incomplete, a finding stands whatever else has no answer, and
+/// the whole is a yes only when every part is. A status that is none of the four counts as
+/// [`EXIT_UNASKED`].
+#[must_use]
+pub const fn exit_join(left: u8, right: u8) -> u8 {
+    const fn rank(status: u8) -> u8 {
+        match status {
+            EXIT_YES => 0,
+            EXIT_UNANSWERED => 1,
+            EXIT_NO => 2,
+            _ => 3,
+        }
+    }
+    const fn normal(status: u8) -> u8 {
+        match status {
+            EXIT_YES | EXIT_NO | EXIT_UNASKED | EXIT_UNANSWERED => status,
+            _ => EXIT_UNASKED,
+        }
+    }
+    let (left, right) = (normal(left), normal(right));
+    if rank(left) >= rank(right) {
+        left
+    } else {
+        right
+    }
+}
+
+/// `status`, the status a command's document gives, joined with [`EXIT_UNASKED`] when the command
+/// reports a failure (`ok` false) its status does not show. The status functions read every
+/// failure a document records (a refusal, a failed run or search, and a record or report the
+/// command could not write, a row's `cache_error`), so `ok` is false with [`EXIT_NO`] only for
+/// the finding itself (a `--verify` mismatch), and the join is a guard for a failure a document
+/// would not record.
+const fn completed(status: u8, ok: bool) -> u8 {
+    if ok || matches!(status, EXIT_NO | EXIT_UNASKED) {
+        status
+    } else {
+        exit_join(status, EXIT_UNASKED)
+    }
+}
+
+/// Whether a document's specification is refused (`spec.outcome`).
+fn spec_refused(document: &Value) -> bool {
+    document["spec"]["outcome"] == "refused"
+}
+
+/// The status of a case's expectation (`crate::expect`): met [`EXIT_YES`], unmet [`EXIT_NO`] (a
+/// finding about the specification against the reference the case was written from),
+/// inconclusive [`EXIT_UNANSWERED`]; [`EXIT_YES`] for a row without one.
+fn expectation_status(row: &Value) -> u8 {
+    match row["expectation"]["verdict"].as_str() {
+        Some("unmet") => EXIT_NO,
+        Some("inconclusive") => EXIT_UNANSWERED,
+        _ => EXIT_YES,
+    }
+}
+
+/// Whether a row reports a record the command could not write (`cache_error`), which fails the
+/// command ([`EXIT_UNASKED`]: fix the cache directory): every `cache_error` but
+/// [`crate::results::RESULT_CACHE_NO_BUILD`], which says only that no result record is written
+/// when kink's build identity is unknown, and leaves the answer and the command whole.
+fn record_unwritten(row: &Value) -> bool {
+    row["cache_error"]
+        .as_str()
+        .is_some_and(|error| error != crate::results::RESULT_CACHE_NO_BUILD)
+}
+
+/// [`EXIT_UNASKED`] for a row that reports an unwritten record ([`record_unwritten`]), else
+/// [`EXIT_YES`].
+fn record_status(row: &Value) -> u8 {
+    if record_unwritten(row) {
+        EXIT_UNASKED
+    } else {
+        EXIT_YES
+    }
+}
+
+/// The status of a program's baseline row of a `results` document by its class
+/// ([`crate::results::ResultClass`]): `comparable` [`EXIT_YES`]; `timeout` and `unknown`
+/// [`EXIT_UNANSWERED`], since the run has no end kink compares; `refused` and `error`
+/// [`EXIT_UNASKED`]; joined with [`EXIT_UNASKED`] for a result record it could not write.
+fn program_status(row: &Value) -> u8 {
+    let class = match row["class"].as_str() {
+        Some("comparable") => EXIT_YES,
+        Some("timeout" | "unknown") => EXIT_UNANSWERED,
+        _ => EXIT_UNASKED,
+    };
+    exit_join(class, record_status(row))
+}
+
+/// The status of a program's baseline row of a `run` or `query` document, whose questions are
+/// about the mutations and the patterns: [`EXIT_UNASKED`] for a program refused or failed on the
+/// baseline (whose kills or answers could not be asked) or a result record it could not write,
+/// else [`EXIT_YES`]. A program that times out or is unknown on the baseline only cannot kill or
+/// hit: the rows of the mutations and the patterns already say so.
+fn baseline_status(row: &Value) -> u8 {
+    match row["class"].as_str() {
+        Some("refused" | "error") => EXIT_UNASKED,
+        _ => record_status(row),
+    }
+}
+
+/// The exit status of a `results` document: `results` asks what each program's baseline run
+/// computes and, for a case with an expectation, whether it meets it. The join of each program's
+/// class ([`program_status`]) and expectation ([`expectation_status`]), [`EXIT_NO`] for a
+/// `--verify` mismatch, and [`EXIT_UNASKED`] for a refused specification or mutation list.
+#[must_use]
+pub fn results_status(document: &Value) -> u8 {
+    if spec_refused(document) || document["mutation_list"]["outcome"] == "refused" {
+        return EXIT_UNASKED;
+    }
+    let programs = document["programs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| exit_join(program_status(row), expectation_status(row)))
+        .fold(EXIT_YES, exit_join);
+    exit_join(programs, mismatch_status(document))
+}
+
+/// [`EXIT_NO`] when a document's `mismatches` lists a stored record that differs from the live
+/// value (`--verify`), else [`EXIT_YES`].
+fn mismatch_status(document: &Value) -> u8 {
+    if document["mismatches"]
+        .as_array()
+        .is_some_and(|mismatches| !mismatches.is_empty())
+    {
+        EXIT_NO
+    } else {
+        EXIT_YES
+    }
+}
+
+/// The status of a mutation of a run document by its `status` and `reason`: `run` asks each
+/// mutation's verdict, and a mutation states no verdict it expects, so every verdict is an answer
+/// ([`EXIT_YES`]: `killed`, `survived`, `equivalent`, `unkillable`); `timeout` and `unknown` have
+/// none ([`EXIT_UNANSWERED`]); `invalid-mutation` and `not-admitted` name a mutation its author
+/// must fix before it is judged ([`EXIT_UNASKED`]); `error` is a finding ([`EXIT_NO`]) when it
+/// reports a stored record `--verify` found different from the live one (`outcome-mismatch`,
+/// `resolution-mismatch`), and otherwise a failure that left the mutation unjudged
+/// ([`EXIT_UNASKED`]: a corpus error, no comparable program, a failed run).
+#[must_use]
+pub fn mutation_exit_status(status: &str, reason: Option<&str>) -> u8 {
+    match status {
+        "killed" | "survived" | "equivalent" | crate::search::UNKILLABLE => EXIT_YES,
+        "timeout" | "unknown" => EXIT_UNANSWERED,
+        "error"
+            if reason.is_some_and(|reason| {
+                reason.starts_with("outcome-mismatch:") || reason == "resolution-mismatch"
+            }) =>
+        {
+            EXIT_NO
+        }
+        _ => EXIT_UNASKED,
+    }
+}
+
+/// The exit status of a run document, which `run` prints and `report` prints again: the join of
+/// every mutation's ([`mutation_exit_status`]) and each program's baseline row's
+/// ([`baseline_status`]), [`EXIT_NO`] for a `--verify` mismatch, and [`EXIT_UNASKED`] for a
+/// refused specification or a record, hints or report a mutation's row says the run could not
+/// write.
+#[must_use]
+pub fn run_status(document: &Value) -> u8 {
+    if spec_refused(document) {
+        return EXIT_UNASKED;
+    }
+    let programs = document["programs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(baseline_status)
+        .fold(EXIT_YES, exit_join);
+    let mutations = document["mutations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let status = mutation_exit_status(
+                row["status"].as_str().unwrap_or_default(),
+                row["reason"].as_str(),
+            );
+            exit_join(status, record_status(row))
+        })
+        .fold(EXIT_YES, exit_join);
+    exit_join(exit_join(programs, mutations), mismatch_status(document))
+}
+
+/// The status of one row of a query document: `query` asks whether each program reaches a state
+/// that matches each pattern. `hit` and `no` answer it ([`EXIT_YES`]), except that `no` for a
+/// program the pattern claims refutes the claim, a finding ([`EXIT_NO`]); `unknown` has no answer
+/// ([`EXIT_UNANSWERED`]); `invalid-pattern` names a pattern its author must fix and `error` a
+/// failed search ([`EXIT_UNASKED`]); joined with [`EXIT_UNASKED`] for a pattern record the row
+/// says the command could not write.
+fn answer_status(row: &Value) -> u8 {
+    let answer = match row["answer"].as_str() {
+        Some("hit") => EXIT_YES,
+        Some("no") if row["claim"] == "refuted" => EXIT_NO,
+        Some("no") => EXIT_YES,
+        Some("unknown") => EXIT_UNANSWERED,
+        _ => EXIT_UNASKED,
+    };
+    exit_join(answer, record_status(row))
+}
+
+/// The exit status of a query document: the join of every row's ([`answer_status`]), [`EXIT_NO`]
+/// and each program's baseline row's ([`baseline_status`]), [`EXIT_NO`] for a `--verify`
+/// mismatch, and [`EXIT_UNASKED`] for a refused specification.
+#[must_use]
+pub fn query_status(document: &Value) -> u8 {
+    if spec_refused(document) {
+        return EXIT_UNASKED;
+    }
+    let programs = document["programs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(baseline_status)
+        .fold(EXIT_YES, exit_join);
+    let rows = document["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(answer_status)
+        .fold(EXIT_YES, exit_join);
+    exit_join(exit_join(programs, rows), mismatch_status(document))
+}
+
+/// The exit status of a fuzz document by its `stopped` ([`crate::fuzz`]): `fuzz` asks whether
+/// the template's hole values hold a witness of its job that kink accepts. A witness kink offers
+/// (`null`) or a proof that no input has one (`equivalent`: the two definitions execute alike)
+/// answers it ([`EXIT_YES`]). A search that ran its cases and ended without a witness kink
+/// accepts (`budget`, `time-limit`, `cancelled`, `domain-exhausted`, `client-refused`,
+/// `unconfirmed`, `assembly-mismatch`) leaves the job's own question, whether some input
+/// witnesses it, without an answer ([`EXIT_UNANSWERED`]): the caller retries with more cases or
+/// time, or with other holes or another template; `domain-exhausted` answers only that this
+/// template's holes hold none. A job refused before any case (`refused`, `not-comparable`), a
+/// campaign that `aborted`, and one stopped `rejected-out`, whose generated hole values mostly do
+/// not read back or violate their sort, so that the template's holes must be fixed before cases
+/// can be asked and more cases cannot help, could not ask ([`EXIT_UNASKED`]).
+#[must_use]
+pub fn fuzz_status(document: &Value) -> u8 {
+    match document["stopped"].as_str() {
+        None if document["stopped"].is_null() => EXIT_YES,
+        Some("equivalent") => EXIT_YES,
+        Some(
+            "budget" | "time-limit" | "cancelled" | "domain-exhausted" | "client-refused"
+            | "unconfirmed" | "assembly-mismatch",
+        ) => EXIT_UNANSWERED,
+        _ => EXIT_UNASKED,
+    }
 }
 
 /// The document of `query` or `fuzz` on a corpus with `[stop]`: refused at stage `stop`, reason
@@ -673,7 +943,7 @@ fn fuzz_command(
         Err(error) => {
             return (
                 crate::fuzz::input_refused("TEMPLATES.toml", &error),
-                EXIT_CORPUS,
+                EXIT_UNASKED,
             );
         }
     };
@@ -687,7 +957,7 @@ fn fuzz_command(
                 Err(error) => {
                     return (
                         crate::fuzz::input_refused("MUTATIONS.toml", &error),
-                        EXIT_CORPUS,
+                        EXIT_UNASKED,
                     );
                 }
             };
@@ -720,7 +990,7 @@ fn fuzz_command(
                 Err(error) => {
                     return (
                         crate::fuzz::input_refused("PATTERNS.toml", &error),
-                        EXIT_CORPUS,
+                        EXIT_UNASKED,
                     );
                 }
             };
@@ -734,7 +1004,8 @@ fn fuzz_command(
             )
         }
     };
-    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
+    let status = completed(fuzz_status(&document), ok);
+    (document, status)
 }
 
 /// [`run_command`] of `command` on the manifest at `path`, as kink-flow runs it, on the calling
@@ -742,7 +1013,7 @@ fn fuzz_command(
 /// ([`FlowCommand::manifest_refused`]).
 fn on_manifest(path: &Path, command: &FlowCommand) -> (Value, u8) {
     match FlowManifest::read(path) {
-        Err(error) => (command.manifest_refused(&error), EXIT_CORPUS),
+        Err(error) => (command.manifest_refused(&error), EXIT_UNASKED),
         Ok(manifest) => run_command(&manifest, command, &FrontEnd::default()),
     }
 }
@@ -1104,12 +1375,11 @@ fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), Stri
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
 /// MUTATIONS.toml | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) [options]
-/// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit
-/// status: [`EXIT_OK`] when the job reached a verdict (`stopped` is `null`, `budget`,
-/// `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or
-/// `time-limit`); [`EXIT_CORPUS`] when an input, the template or the mutation is refused
-/// (`refused`), the campaign is `not-comparable`, or it `aborted` (the README's and the guide's
-/// table).
+/// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit status of
+/// its `stopped` ([`fuzz_status`]): [`EXIT_YES`] for a witness or `equivalent`;
+/// [`EXIT_UNANSWERED`] when the search ended without a witness kink accepts; [`EXIT_UNASKED`]
+/// when an input, the template or the mutation is refused (`refused`), the campaign is
+/// `not-comparable`, or it `aborted` (the README's and the guide's table).
 pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value, u8) {
     on_manifest(
         manifest,
@@ -1121,11 +1391,11 @@ pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value,
 }
 
 /// `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`: the query
-/// document (flow F-18, [`crate::query`]) and the exit status: [`EXIT_OK`] when every selected
-/// (pattern, program) got its answer (`hit`, `no`, `unknown` or `invalid-pattern`; a refuted claim
-/// included); [`EXIT_CORPUS`] when the manifest, the pattern list, the specification or a program
-/// is refused, a search failed, an answer's record could not be written, or `--verify` found a
-/// stored answer that differs from a live one.
+/// document (flow F-18, [`crate::query`]) and the exit status ([`query_status`]): the join of
+/// every selected (pattern, program)'s answer, `hit` or `no` [`EXIT_YES`], a refuted claim and a
+/// `--verify` mismatch [`EXIT_NO`], `unknown` [`EXIT_UNANSWERED`], and `invalid-pattern` or a
+/// failed search [`EXIT_UNASKED`]; [`EXIT_UNASKED`] also when the manifest, the pattern list, the
+/// specification or a program is refused or an answer's record could not be written.
 pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value, u8) {
     on_manifest(
         manifest,
@@ -1137,8 +1407,9 @@ pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value
 }
 
 /// `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`: the run document the last
-/// `run` wrote, as `run` printed it, and [`EXIT_OK`]; or a `kink-flow-report` document saying why
-/// there is none (`missing`, `unreadable`) and [`EXIT_CORPUS`], which is also the status when the
+/// `run` wrote, as `run` printed it, and the status its contents give ([`run_status`]), so that
+/// `report` exits on the answer as the run did; or a `kink-flow-report` document saying why there
+/// is none (`missing`, `unreadable`) and [`EXIT_UNASKED`], which is also the status when the
 /// manifest does not decode. `--output verdicts` renders the same document ([`crate::verdicts`]).
 pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
     on_manifest(
@@ -1151,13 +1422,14 @@ pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
 }
 
 /// `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--cache DIR]`: the run
-/// document (README 5.6, 7.5) and the exit status: [`EXIT_OK`] when every selected mutation got
-/// its status (survivors and timeouts included) and none is invalid; [`EXIT_CORPUS`] when the
-/// manifest, the mutation list, the specification or a program is refused, a selected mutation
-/// is invalid (`invalid-mutation` or `not-admitted`: [`invalid_mutations`]), a run failed, a
-/// cache file could not be written, no program is comparable, a baseline run no longer matches
-/// its cached result (the run then stops), or `--verify` found a cached outcome that differs
-/// from a live run.
+/// document (README 5.6, 7.5) and the exit status ([`run_status`]): [`EXIT_YES`] when every
+/// selected mutation got its verdict (survivors included); [`EXIT_NO`] when `--verify` found a
+/// cached outcome or memo record that differs from a live one; [`EXIT_UNANSWERED`] when a
+/// mutation is `timeout` or `unknown`; [`EXIT_UNASKED`] when the manifest, the mutation list, the
+/// specification or a program is refused, a selected mutation is invalid (`invalid-mutation` or
+/// `not-admitted`: [`invalid_mutations`]), a run failed, a cache file could not be written, no
+/// program is comparable, or a baseline run no longer matches its cached result (the run then
+/// stops); a run with several of these exits with their [`exit_join`].
 pub fn run(manifest: &Path, mutations: &Path, options: &RunOptions) -> (Value, u8) {
     run_mode(manifest, mutations, options, RunMode::Search)
 }
@@ -1193,8 +1465,11 @@ pub fn invalid_mutations(document: &Value) -> u64 {
 }
 
 /// `kink-flow results FLOW.toml [--verify] [--cache DIR]`: the results document (README 5.3)
-/// and the exit status: [`EXIT_OK`] unless the manifest, the specification or a program is
-/// refused, a run failed, a record could not be written or `--verify` found a mismatch.
+/// and the exit status ([`results_status`]): [`EXIT_YES`] when every program is comparable and
+/// meets its expectation, if it has one; [`EXIT_NO`] when an expectation is unmet or `--verify`
+/// found a mismatch; [`EXIT_UNANSWERED`] for a program that times out or is unknown, or an
+/// expectation that is inconclusive; [`EXIT_UNASKED`] when the manifest, the specification, the
+/// mutation list or a program is refused, a run failed or a record could not be written.
 /// A timeout or unknown program is not an error: it is reported, and it cannot kill.
 pub fn results(manifest: &Path, options: &ResultsOptions) -> (Value, u8) {
     on_manifest(
@@ -1287,11 +1562,12 @@ pub fn check_corpus_mutations(
 }
 
 /// The document of `check --mutations` and its exit status: the check document
-/// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and [`EXIT_OK`] when
-/// no fact known before any mutant runs makes a verdict impossible
-/// ([`FlowAdmission::verdicts_possible`]), the list decodes and no mutation is refused (by
-/// resolution or by a finding with `refusal: true`), else [`EXIT_CORPUS`]. Next steps are spelled
-/// by `spelling`.
+/// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and the exit status:
+/// [`EXIT_UNASKED`] when the specification, a program or the list is refused, or a mutation is
+/// (by resolution or by a finding with `refusal: true`), since each must be fixed before `run`
+/// can judge it; else [`EXIT_NO`] when a fact known before any mutant runs makes a verdict
+/// impossible ([`FlowAdmission::verdicts_possible`]), the finding `check` exists to make; else
+/// [`EXIT_YES`]. Warnings decide no status. Next steps are spelled by `spelling`.
 pub fn check_mutations_document(
     checked: &CorpusMutationCheck,
     spelling: &dyn CommandSpelling,
@@ -1317,26 +1593,37 @@ pub fn check_mutations_document(
             .mutations
             .as_ref()
             .is_some_and(MutationCheck::refused);
-    let status = if checked.admission.verdicts_possible() && !refused {
-        EXIT_OK
+    let status = if refused {
+        EXIT_UNASKED
     } else {
-        EXIT_CORPUS
+        admission_status(&checked.admission)
     };
     (document, status)
 }
 
 /// `kink-flow check FLOW.toml` without a mutation list: admission alone, each case's expectation
 /// checked against its current result record in `cache` ([`crate::check::admit_checked`]), and
-/// [`EXIT_OK`] exactly when no fact known before any mutant runs makes a verdict impossible
-/// ([`FlowAdmission::verdicts_possible`]); an expectation decides no exit status.
+/// the exit status of the admission ([`admission_status`]); an expectation decides no exit
+/// status, since `check` runs nothing and asks only whether verdicts are possible.
 fn check_admission(manifest: &FlowManifest, cache: Option<&Path>) -> (Value, u8) {
     let admission = crate::check::admit_checked(manifest, cache);
-    let status = if admission.verdicts_possible() {
-        EXIT_OK
-    } else {
-        EXIT_CORPUS
-    };
+    let status = admission_status(&admission);
     (check_document(&admission), status)
+}
+
+/// The exit status of `check`'s admission: `check` asks whether every verdict the corpus promises
+/// is possible before any mutant runs. A refused specification or program could not be asked
+/// about ([`EXIT_UNASKED`]: fix it); a program every baseline run of which is excluded, or a
+/// baseline with no data under `[spec] assume_joined`, is the finding that says no
+/// ([`EXIT_NO`]); else [`EXIT_YES`] ([`FlowAdmission::verdicts_possible`]).
+fn admission_status(admission: &FlowAdmission) -> u8 {
+    if !admission.all_admitted() {
+        EXIT_UNASKED
+    } else if admission.verdicts_possible() {
+        EXIT_YES
+    } else {
+        EXIT_NO
+    }
 }
 
 /// The version of the check document: 2 adds `mutation_list`, `mutations` and `coverage` (null

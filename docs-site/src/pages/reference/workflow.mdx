@@ -225,7 +225,8 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
 - `compare` exits 0 when the sides are equal (with `--expect`, when the expectation is met), 1 when they differ (unmet), 3 when the comparison is inconclusive, and 2 when a side or the comparison is refused.
   With `--pairs`, it is a batch of its pairs, each counting what it would exit alone, and a refused pair 2; its JSON summary's `status` is the exit status.
 
-Every other command exits 0 on success, 2 on a usage error and 1 otherwise; `krs kink` exits as kink-flow does ([the corpus loop](#the-corpus-loop)).
+`krs kink` exits by the same four ([the corpus loop](#the-corpus-loop)).
+Every other command exits 0 on success, 2 on a usage error and 1 otherwise.
 
 ## Inputs by name
 
@@ -863,7 +864,7 @@ A K corpus (`[spec] entry = ..`) is refused, naming `kink-flow`, which runs it; 
 
 Every verb but `emit` and `report` builds the package in process, as `emit-k` does, and kink judges `kink/definition.k`, which must hold exactly that emission: a command finds it `unchanged`, or writes it and says `written` in the document's `definition` object.
 Writing it cannot change what a mutation means: a mutation is resolved against the current K on every command and refused when the text it replaces changed.
-With `--locked` a command that builds the package refuses a stale `definition.k` instead (stage `definition`, reason `definition-stale`), and `krs kink emit --check` writes nothing and exits 1 when it is stale: the check a CI runs before trusting committed verdicts; `krs kink emit` writes it.
+With `--locked` a command that builds the package refuses a stale `definition.k` instead (stage `definition`, reason `definition-stale`), and `krs kink emit --check` writes nothing and exits 2 when it is stale, as `--locked` refuses it, since the file is an input to regenerate: the check a CI runs before trusting committed verdicts; `krs kink emit` writes it.
 `report` builds nothing and judges no `definition.k`, so it takes no `--locked`.
 Every rule a document names gains `krs = {item, package, file, line, column, kind, claim_helper}`: the Rust item the `// KRS` line above the sentence in `definition.k` names, and the position of the sentence's authored source, as `--trace` shows it; a rule KRS generated from no item has `null` there.
 A specification diagnostic, a run's short-circuit reading and a query witness, which name compiled rules by label, gain `krs_rule` and `krs_observing_rule`, `krs` inside the reading's `rule`, and `krs_rules` where the label is one the emission wrote.
@@ -876,7 +877,7 @@ kink compares ends by their configuration alone, whichever way a path reached th
 A [case document](#case-documents) of named cases gives one case per name, whose id is the document's path, `#` and the name (`cases/runs.toml#reset`); kink runs every case as the corpus says (`[stop]`, `stop_count`, `[budget]`), so a case's `run` is refused.
 A case's `expect` is read as `krs run --case` reads it, a case whose expectation is no expectation of the definition is refused, and its row in `results`, `run` and `query` carries `expectation`: `met`, `unmet` with the first difference (`krs-difference/3`, `left` the expected end and `right` the baseline's), or `inconclusive` with why; `check` reads it from the case's stored result.
 An expectation's [views](#expectations) are applied as `krs run --case` applies them, in the definition or in the observer the expectation names, which `krs kink` prepares and compiles once per command: a case whose observer cannot be prepared, whose view `krs run --case` refuses before the run, or whose view has no value at the expected end is refused (`expectation-value`), since each depends on the case alone; each evaluation has the default budget of `--view-budget`, and one that stops makes the expectation `inconclusive`; a view without a value at a baseline end, which refuses the case under `krs run --case`, makes it `inconclusive` with that refusal as its `detail`, since kink refuses no case after admission; and the `detail` of a verdict reached through the views names them.
-A baseline that misses its own expectation is a finding about the definition against the reference the case was written from: it is reported, and the case is kept, since each of its kills is still a difference from the baseline, so no status or exit status depends on it.
+A baseline that misses its own expectation is a finding about the definition against the reference the case was written from: it is reported, and the case is kept, since each of its kills is still a difference from the baseline, so no verdict or status depends on it; `results`, which asks whether each baseline meets its expectation, exits 1 for an unmet one and 3 for an inconclusive one.
 Under `[stop]` an end kink keeps is stuck or stopped at a rule of the stop, and the ends do not say which, so the halt of an expectation of either is not observed: ends that differ from it on the compared cells make it unmet, and ends that agree on them inconclusive, since met is agreement on the halt as well (the expectation's `detail` says so); an expectation of another halt, which no end has, is unmet at the class; an expectation of an end stopped at a rule the corpus does not stop at is inconclusive, and one of a `depth-bound` end is refused, as everywhere.
 Where that comparison shows no difference (it cannot read an end, for one), the evidence is kink-flow's own (`kink-k/1`: cells by K label, values as K text), with a `note` saying why.
 `fuzz --matched RULE` and `fuzz --fired RULE` take the rule's label or a suffix of whole components of it (`plus_zero` for `nat--plus_zero`), as a mutation's `rule` anchor does.
@@ -886,8 +887,14 @@ A case's digest holds the SHA-256 of its program's bytes, whichever way they bin
 
 The selection options are those of the other commands and may come before or after the verb; every other option is the kink-flow verb's own.
 Every command that builds the package builds it in process, so `krs kink` takes no `--no-reuse`.
-Exit status is kink-flow's: 0, 1 when anything is refused (the document says what and why), and 2 on a usage error.
-A package `krs` refuses, from an unknown package or facet to a failed emission, prints krs's diagnostics on stderr and exits 1: a kink-flow verb prints its document with its `spec` refused at stage `krs-build`, reason `krs-refused`, and `krs kink emit` prints its own document (`krs-kink-emit`), whose `definition.status` is `null` and whose `refusal` says why.
+`krs kink` exits by the four actions of the other executing commands ([exit status](#exit-status)), as kink-flow does:
+0 when the verb answered its question: every case is comparable and meets its expectation (`results`), every mutation has a verdict, killed or survived (`run`, and `report` as that run), every pattern has an answer (`query`), the fuzz found a witness or proved the mutant equivalent, every verdict is possible (`check`), `definition.k` is fresh (`emit`);
+1 for a finding: a `--verify` mismatch, an unmet expectation (`results`), a refuted pattern claim (`query`), a case every baseline run of which kink excludes or a baseline without data (`check`);
+2 when the question could not be asked: a usage error, a package `krs` refuses, a stale `definition.k` (`--locked`, `emit --check`), or a refused corpus, case, mutation list, mutation, pattern or template, hole values the fuzz mostly rejected (`rejected-out`), a failed run or cache write, which the document names;
+3 for no answer: a case or a mutation that timed out or is unknown, an inconclusive expectation, an `unknown` pattern answer, a fuzz that ended without a witness kink accepts.
+A verb that answers for several cases or mutations exits as a batch does.
+Under the Z3 solver profile, which `krs` builds kink with by default, `query` answers no pair `no`, since a solver query it leaves undecided cannot be shown absent from a search: a pattern a case does not reach is `unknown` (3), and a claim it does not reach is `unconfirmed`, not refuted, so `krs kink query` exits 0 only when every pair asked hits, and 1 only for a `--verify` mismatch.
+A package `krs` refuses, from an unknown package or facet to a failed emission, prints krs's diagnostics on stderr and exits 2: a kink-flow verb prints its document with its `spec` refused at stage `krs-build`, reason `krs-refused`, and `krs kink emit` prints its own document (`krs-kink-emit`), whose `definition.status` is `null` and whose `refusal` says why.
 `krs kink --help` lists the verbs, their options and the corpus layout.
 
 ## Read failures by stage

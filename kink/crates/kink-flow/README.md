@@ -155,7 +155,8 @@ After the baseline runs, the renderer checks the expectation against the baselin
 `check` runs nothing: it checks each expectation against the case's current result record, and is inconclusive for a case without one.
 
 A baseline that misses its own expectation is a finding about the specification against the reference the case was written from; it is reported, and the case is kept.
-Every kill by the case is still a difference between a mutant's ends and the baseline's, which is what a kill means whatever the case expects, so no verdict, status or exit status depends on an expectation.
+Every kill by the case is still a difference between a mutant's ends and the baseline's, which is what a kill means whatever the case expects, so no verdict or status depends on an expectation.
+Only `results`, which asks whether each baseline meets its expectation, exits by it: 1 for an `unmet` one, 3 for an `inconclusive` one ("Exit status").
 No run depends on one either: it is in no digest, no cache key and no stored record, and every command that reports it checks it again from the baseline's ends.
 
 Defaults:
@@ -246,6 +247,36 @@ The stop keys what it changes: each program's result key holds `stop`, its rules
 
 The tool supplies everything else: the k-rust revision is the build's (every output's `k_rust_revision` is k-rust's build identity, `k_rust::build_identity`: the version of the in-repo k-rust kink is built with and a digest of its sources; the semantics identity and the cache keys name the version, `kink_native::K_RUST_REVISION`, beside the executable's digest),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads (stage `refused-case`).
+
+## Exit status
+
+Every command exits with what its caller does next, one of four statuses, as krs's executing commands do:
+
+| Status | Meaning | What to do |
+| --- | --- | --- |
+| 0 | yes: the command answered its question | rely on the answer |
+| 1 | no: the answer is a finding | act on the finding |
+| 2 | the question could not be asked | fix the input or the command |
+| 3 | no answer | retry with more budget or another approach |
+
+A command that answers for several parts (programs, mutations, pairs of a pattern and a program) exits 2 when one part could not be asked, since the answer is then incomplete; else 1 when one is a finding; else 3 when one has no answer; else 0.
+A usage error exits 2 with its message on stderr, and so does every refusal, which the document names with its stage and reason: a manifest that does not decode, a refused specification, program, mutation list, mutation, pattern list or template, a failed run, and a cache file that cannot be written.
+A `--verify` mismatch (a stored record that differs from the live value) is a finding, 1, in every command that takes `--verify`.
+
+What else is a finding, or no answer, follows from what each command asks:
+
+| Command | It asks | 1 (a finding) | 3 (no answer) |
+| --- | --- | --- | --- |
+| `check` | whether every verdict the corpus promises is possible before any mutant runs | a program every baseline run of which is `excluded`, or a baseline without data (`spec.baseline_findings`) | none |
+| `results` | what each program's baseline run computes and whether it meets its expectation | an `unmet` expectation | a program that is `timeout` or `unknown`; an `inconclusive` expectation |
+| `run` | each selected mutation's verdict | none: `killed`, `survived`, `equivalent` and `unkillable` are answers, since a mutation states no verdict it expects | a mutation that is `timeout` or `unknown` |
+| `report` | what the last `run` answered | as that run | as that run |
+| `query` | whether each program reaches a state matching each pattern | a refuted claim (`no` for a program the pattern claims) | an `unknown` answer |
+| `fuzz` | which hole values of the template are a witness of the job | none: a witness and `equivalent` are answers | a search that ended without a witness kink accepts (table under "The document") |
+
+`check`'s warnings, and an expectation in `check` and `run`, decide no status: `check` runs nothing and asks only whether verdicts are possible, and `run` asks about the mutations.
+In `run`, `invalid-mutation` and `not-admitted` name a mutation its author must fix before it is judged, 2, as does an `error` that is not a `--verify` mismatch (a corpus error that stopped the run, no comparable program, a failed run); a program that times out or is unknown on the baseline only cannot kill, which the mutations' verdicts already show.
+`report` exits with the status its document gives as `run` reads it, so that it exits on the answer as the run did; 2 when there is no stored document.
 
 ## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`
 
@@ -338,8 +369,9 @@ Version 7 gives `unreached-rule` for an edited rule no comparable program reache
 Version 8 (CF-40c2) names that warning `unmatched-rule`, after the predicate it reads ("Coverage predicates"), and its text and `unapplied-rule`'s say "matches" for "reaches".
 Version 9 adds `stop` for a corpus with `[stop]` (absent without one), the stage `stop` (reasons `stop-unresolved` and `backend-error`) and the warnings `stop-hides-edit` and `stop-rule-deleted` ("Where a run ends").
 
-Exit status: 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
-1 when the manifest, the specification, a program, the mutation list or a mutation is refused, a program is `excluded`, or the baseline has no data (`spec.baseline_findings`); 2 on a usage error (message on stderr).
+Exit status ("Exit status"): 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
+1 when a program is `excluded` or the baseline has no data (`spec.baseline_findings`), and nothing is refused;
+2 when the manifest, the specification, a program, the mutation list or a mutation is refused, which `run` would refuse too, or on a usage error (message on stderr).
 
 ### Checking mutations
 
@@ -347,7 +379,7 @@ Exit status: 0 when every program is `ok` (so the specification is admitted), `s
 It is the compile step of an author's loop: run it after every edit of the list or of the specification, before `run`.
 `MUTATIONS` is a `MUTATIONS.toml` or a mutations directory (`MUTATIONS.toml` below).
 The check compiles no mutant, so `ok` means that the mutation resolves, not that `run` will judge it:
-a mutant that kink does not compile (a replacement with an unbound variable, say) or whose equations may have no model (`inconsistent-mutant`) is found only by `run`, which gives it the status `not-admitted` and exits 1.
+a mutant that kink does not compile (a replacement with an unbound variable, say) or whose equations may have no model (`inconsistent-mutant`) is found only by `run`, which gives it the status `not-admitted` and exits 2.
 
 The command is library code in two steps, so that a front end can add findings of its own between them and print the document `kink-flow check` prints:
 `kink_flow::cli::check_corpus_mutations` admits the specification and the programs, reads the cached coverage and checks every mutation, returning all of it as data (each mutation's resolution and findings: `kink_flow::check::MutationCheck`);
@@ -557,12 +589,13 @@ refuses, such as `krs kink`, still targets the rules its edits resolve to, since
 for that mutation to be repaired, not for another one), in sentence order, as `{module, index, label, file, start_line,
 end_line, address, text}`: `address` is how an edit can address the rule (`{"rule": label}`, or
 `{"file", "line"}` for an unlabelled rule) and `text` its K text. Without `--mutations` it is null; a
-list that does not decode gives `mutation_list: {outcome: "refused", detail}` and exit 1. It is
+list that does not decode gives `mutation_list: {outcome: "refused", detail}` and exit 2. It is
 informational only, outside every digest and key.
 
-Exit status: 0 when the command did its job (timeouts and unknown programs included);
-1 when the manifest, the specification or a program is refused, a run failed, a record could
-not be written or `--verify` found a mismatch; 2 on a usage error.
+Exit status ("Exit status"): 0 when every program is `comparable` and meets its expectation, if it has one;
+1 when an expectation is `unmet` or `--verify` found a mismatch; 3 when a program is `timeout` or `unknown`, or an
+expectation is `inconclusive`; 2 when the manifest, the specification, the mutation list or a program is refused, a run
+failed, a record could not be written, or on a usage error. A timeout or unknown program is no error: it cannot kill.
 
 ## `MUTATIONS.toml`
 
@@ -729,7 +762,7 @@ is there a program of the corpus whose result the mutation changes?
    its live run of this command is reused where the runner produces baseline evidence (`baseline_runs` counts both).
    After every runner call, each program's baseline run is checked against its cached result (`run_sha256`).
    A difference is a corpus error: the mutation gets status `error` with reason `baseline-mismatch:<program id>`
-   (or `baseline-count-mismatch`), nothing is cached for it, and the run stops (exit 1). Run `results --verify`.
+   (or `baseline-count-mismatch`), nothing is cached for it, and the run stops (exit 2). Run `results --verify`.
    A cached agreement next to a mutant that no longer compiles is the corpus error `outcome-conflict`: run `run --verify`.
    A mutant that fails as a whole for an infrastructure reason (`reason` `infrastructure`: the equivalence check or the
    mutant's backend failed while it was prepared) is not a conflict: its status is `error`, as without any cache, and its
@@ -816,7 +849,7 @@ Each record carries a digest that detects corruption and a record moved under an
 runs every program of O on each mutation, then each program that has a cached outcome and that run skipped, alone,
 and compares every cached outcome (and the status the cache would have given) with the live ones.
 A difference gives the mutation status `error`, reason `outcome-mismatch:<program id>`, and an entry `{mutation, program, cached, live}`
-in the top-level `mismatches` (`program` null for a status difference); the run goes on and exits 1. It writes no outcome and no hint.
+in the top-level `mismatches` (`program` null for a status difference); the run goes on and exits 1, a finding. It writes no outcome and no hint.
 The outcome file's compiled edit (`witness`) is compared with the cold call's too: a difference is an entry `{mutation, program: null, cached: {witness}, live: {witness}}` in `mismatches`, and the run exits 1, but the row keeps its status, which the compiled edit does not decide.
 The Execute promise of k-rust (`docs/compatibility.md`, "Execute") is what makes an outcome a function of its key, and it
 excludes some runs; each is excluded for the whole program (both sides, both slots) before a record could be written: a
@@ -936,10 +969,12 @@ Besides `results/` and `report.json` (the last run's document, also written when
 Every file is written atomically; deleting any of them, or the whole directory, is always safe.
 The `killers/` directory of F-05 is no longer read or written and can be deleted.
 
-Exit status: 0 when every selected mutation got its status (survivors and timeouts included) and none is invalid;
-1 when the manifest, the mutation list, the specification or a program is refused, a selected mutation is `invalid-mutation` or `not-admitted` (its author must fix it before it is judged: it does not resolve, or its mutant does not compile or may have no model), a run failed, a cache file could not be written,
-no program is comparable, a corpus error stopped the run, or `--verify` found a mismatch; 2 on a usage error (including an `--only` id that names no mutation, or `--verify` given twice).
-The document is the same either way: the exit status is how a script or an agent's loop notices an invalid mutation, and `check --mutations` finds the unresolved ones without running anything.
+Exit status ("Exit status"): 0 when every selected mutation got its verdict (survivors included);
+1 when `--verify` found a mismatch;
+3 when a selected mutation is `timeout` or `unknown`;
+2 when the manifest, the mutation list, the specification or a program is refused, a selected mutation is `invalid-mutation` or `not-admitted` (its author must fix it before it is judged: it does not resolve, or its mutant does not compile or may have no model), a run failed, a cache file could not be written,
+no program is comparable, a corpus error stopped the run, or on a usage error (including an `--only` id that names no mutation, or `--verify` given twice).
+The document is the same whatever the status: the exit status is how a script or an agent's loop notices an invalid mutation or a mutation with no verdict, and `check --mutations` finds the unresolved ones without running anything.
 
 ## The report: the run document
 
@@ -1096,7 +1131,7 @@ With `--output verdicts` it prints the rendering of the stored run document ("Ve
 When there is no stored run document to render, it prints nothing on stdout and the reason on stderr (`missing run report PATH: DETAIL`, `unreadable run report PATH: DETAIL`).
 Under `--output json` that reason is the `kink-flow-report` document on stdout, as every refusal of a kink-flow command is a document.
 
-Exit status: 0 when it printed a report; 1 when there is none, it is unreadable, or the manifest does not decode; 2 on a usage error.
+Exit status: the status the printed run document gives, as `run` exits on it ("Exit status"); 2 when there is none, it is unreadable, the manifest does not decode, or on a usage error.
 
 ## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`
 
@@ -1123,7 +1158,7 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 - `pattern` is parsed by the specification's own grammar, as the content of a rule in the main module: write a configuration fragment, with `...` and omitted cells completed as in a rule (`<k> 1 / 0 ~> _ </k>`, `<state> ... X |-> 3 ... </state>`), variables (`I:Int`, `_`) and an optional `requires` condition over them. A rewrite (`=>`) in a pattern denotes its left side. An `ensures` is refused, and so is a variable that occurs only on a rewrite's right side.
 - A `requires` that is undefined at a state (`10 /Int (I -Int 3) >Int 0` where `I` is 3) does not hold there, as for a rule's condition: that state does not match. So a pattern whose only matches make its condition undefined gets a `no`, and a claim of it is refuted, although the program does reach the configuration you meant; write the condition so that it is defined at every state it is matched against. A condition whose definedness k-rust cannot decide (a partial function with no equation for its argument) gives `unknown`.
 - `programs` lists the corpus programs you claim hit the pattern (the per-input claims). Without it, every program of the corpus is asked ("which programs already hit it?").
-- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 1.
+- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
 
 `testdata/flow/calc/PATTERNS.toml` and `testdata/flow/loop/PATTERNS.toml` are complete examples.
 
@@ -1210,9 +1245,10 @@ What every answer trusts, besides the cache:
 
 **Answers never decide a mutation.** No answer enters a result record, an outcome record, a hint or a run document, and `run` does not read the pattern cache: a kill needs the final configurations to differ, and a pattern-only difference stays unknown by design.
 
-Exit status: 0 when every selected (pattern, program) got its answer (`hit`, `no`, `unknown`, `invalid-pattern`; refuted claims included);
-1 when the manifest, the pattern list, the specification or a program is refused, a search failed, a record could not be written, or `--verify` found a difference;
-2 on a usage error (an `--only` id that names no pattern, an option given twice).
+Exit status ("Exit status"): 0 when every selected (pattern, program) got its answer, `hit` or `no`;
+1 when a claim is refuted or `--verify` found a difference;
+3 when an answer is `unknown`;
+2 when an answer is `invalid-pattern` or `error`, the manifest, the pattern list, the specification or a program is refused, a record could not be written, or on a usage error (an `--only` id that names no pattern, an option given twice).
 
 ## Killing a survivor with `fuzz`
 
@@ -1291,10 +1327,10 @@ To use a witness, add every premise `FLOW.toml` lacks to `[spec] assume_joined` 
 In either profile, while no `time_ms` bound fires, that command gives the verdict the confirmation gave: each program's outcome is independent of the programs run before it (under Z3 every solver query is resource-bounded, so a backend whose solver caches are warm answers it as a fresh one does), and under FirstKill a kill by the fragment is a kill of the corpus (another killing program may be named the killer).
 A `time_ms` bound depends on the host in every profile, so a program near it can time out in one command and finish in the other.
 
-Exit status: 0 when the job reached a verdict (`stopped` is `null`, `budget`, `domain-exhausted`, `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or `time-limit`);
-1 when an input, the template or the mutation is refused (`refused`: the exclusions and the up-front assembly check included), the campaign is `not-comparable`, or it `aborted`;
-2 on a usage error (a template, mutation or pattern id that names nothing, an option given twice, two jobs, `--attempts`, or `--assume-joined` with `--pattern`).
-`krust fuzz` agrees on a witness (0), `not-comparable` and an aborted campaign (1) and a usage error (2); its 0 means a witness, so it exits 1 where this command exits 0 without one, and 2 for a refused campaign (docs/fuzzing.md, "`krust fuzz` on its own").
+Exit status ("Exit status"): 0 when the job has its answer (`stopped` is `null`, a witness, or `equivalent`, a proof that no input kills the mutation);
+3 when the search ended without a witness kink accepts (`budget`, `domain-exhausted`, `client-refused`, `unconfirmed`, `assembly-mismatch`, `time-limit` or `cancelled`): the job asks whether some input witnesses it, and the caller retries with more cases or time, other holes or another template (`domain-exhausted` says only that this template's holes hold no witness);
+2 when an input, the template or the mutation is refused (`refused`: the exclusions and the up-front assembly check included), the generated hole values are mostly rejected (`rejected-out`: they do not read back or violate their sort, so the holes must be fixed, and more cases cannot help), the campaign is `not-comparable` or it `aborted`, or on a usage error (a template, mutation or pattern id that names nothing, an option given twice, two jobs, `--attempts`, or `--assume-joined` with `--pattern`).
+`krust fuzz` agrees on a witness (0), a refused campaign and a usage error (2); it exits 1 for every campaign that ends without a witness, where this command exits 3 for a search that has no answer, 0 for `equivalent` and 2 for `not-comparable` and an aborted campaign (docs/fuzzing.md, "`krust fuzz` on its own").
 
 Version 3 of the document (fz26 FZ-COMPARABLE-B) adds `job.filter`, the `stopped` value `client-refused`, the warning `client-refused` and the refusal `initial-state-excluded`, and embeds fuzz reports that carry the witness filter's fields; version 2 had none of them.
 Version 4 (fz26 round 4, FZ-REPLAY-WHOLE) embeds k-rust-fuzz reports of version 10: their identity records the k-rust-fuzz build (`fuzz-revision`) and the parser's diagnostic work limit, their totals the first case outside the determinism contract, the holes' finite domain, the cases in which the mutant may not terminate and the last case that reached a new rule, and every source location they name is relative to the main module's file; it adds the `stopped` value `domain-exhausted` and the warning `witness-not-terminating`. Version 5 adds the warning `reaching-not-computed`, and `template.last_run.mutation.reaching` is `null` when the last run's row is.

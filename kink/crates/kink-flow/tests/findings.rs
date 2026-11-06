@@ -28,7 +28,7 @@ use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList,
     admit::admit,
-    cli::{CheckOptions, EXIT_CORPUS, EXIT_OK, check, check_with},
+    cli::{CheckOptions, EXIT_NO, EXIT_YES, check, check_with},
     digest::{execution_digest, mutation_identity, outcome_context},
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore},
     pattern::PatternList,
@@ -187,7 +187,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
         for (name, names) in NAMES {
             let dir = repro(name, "check", None);
             let (document, status) = check(&dir.join("FLOW.toml"));
-            assert_eq!(status, EXIT_CORPUS, "{name}: {document:#}");
+            assert_eq!(status, EXIT_NO, "{name}: {document:#}");
             assert_eq!(document["version"], 10);
             assert_eq!(document["spec"]["outcome"], "admitted", "{name}");
             assert_eq!(document["programs"][0]["outcome"], "ok", "{name}");
@@ -232,7 +232,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
                 cache: None,
             };
             let (listed, status) = check_with(&dir.join("FLOW.toml"), &options);
-            assert_eq!(status, EXIT_CORPUS, "{name}: {listed:#}");
+            assert_eq!(status, EXIT_NO, "{name}: {listed:#}");
             assert_eq!(listed["mutation_list"]["outcome"], "ok", "{name}");
             assert_eq!(
                 listed["mutations"][0]["outcome"], "ok",
@@ -244,7 +244,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
             let premises = names.iter().map(|(name, _)| *name).collect::<Vec<_>>();
             let dir = repro(name, "check-named", Some(&premises));
             let (document, status) = check(&dir.join("FLOW.toml"));
-            assert_eq!(status, EXIT_OK, "{name}: {document:#}");
+            assert_eq!(status, EXIT_YES, "{name}: {document:#}");
             assert!(document["spec"]["baseline_findings"].is_null(), "{name}");
             assert_eq!(document["data"]["has_data"], true, "{name}");
             // The manifest keeps the names sorted.
@@ -266,7 +266,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
                     cache: None,
                 },
             );
-            assert_eq!(status, EXIT_OK, "{name}: {listed:#}");
+            assert_eq!(status, EXIT_YES, "{name}: {listed:#}");
         }
     });
 }

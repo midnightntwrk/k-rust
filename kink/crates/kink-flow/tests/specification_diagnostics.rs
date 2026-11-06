@@ -8,7 +8,7 @@
 
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_OK, results},
+    cli::{EXIT_UNANSWERED, results},
     results::ResultsOptions,
     search::{ProgramOrder, RunOptions, run},
 };
@@ -148,7 +148,7 @@ mod kink_tier {
                 mutations: None,
             },
         );
-        assert_eq!(exit, EXIT_OK, "{document:#}");
+        assert_eq!(exit, EXIT_UNANSWERED, "{document:#}");
         let sib = program(&document, "sib-0");
         assert_eq!(sib["class"], "unknown", "{sib:#}");
         let cause = sib["cause"].as_str().unwrap();
@@ -207,7 +207,7 @@ mod kink_tier {
                 mutations: None,
             },
         );
-        assert_eq!(exit, EXIT_OK, "{document:#}");
+        assert_eq!(exit, EXIT_UNANSWERED, "{document:#}");
         let runh = program(&document, "runh-1");
         assert_eq!(runh["class"], "unknown", "{runh:#}");
         let cause = runh["cause"].as_str().unwrap();
@@ -236,7 +236,7 @@ mod kink_tier {
                 mutations: None,
             },
         );
-        assert_eq!(exit, EXIT_OK, "{document:#}");
+        assert_eq!(exit, EXIT_UNANSWERED, "{document:#}");
         // The baseline of `sib 0` is excluded by the record on its list alone, so the program is not
         // comparable, and its row names the record.
         let sib = program(&document, "sib-0");

@@ -5,9 +5,12 @@
 //! not meet it is a finding about the specification against the reference the case was written
 //! from. It is reported, and the case is kept: every kill by the case is still a difference
 //! between a mutant's ends and the baseline's, which is what a kill means whatever the case
-//! expects. So no verdict, status or exit status depends on an expectation, and no run does: it
+//! expects. So no verdict or status depends on an expectation, and no run does: it
 //! is in no digest, no cache key and no stored record, and it is checked again by every command
-//! that reports it, from the baseline's ends (a live run's, or the stored record's).
+//! that reports it, from the baseline's ends (a live run's, or the stored record's). Only the
+//! exit status of `results`, which asks whether each baseline meets its expectation, joins it
+//! (`crate::cli::results_status`): an unmet expectation is a finding, an inconclusive one no
+//! answer.
 //!
 //! kink reads no expectation itself: an expectation is a document of a front end's encoding of
 //! ends, which only the front end that reads the definition's ends at its own level can read, the

@@ -6,7 +6,7 @@
 
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE},
+    cli::{EXIT_UNASKED, EXIT_YES},
     report::{MISSING_SCHEMA, RUN_SCHEMA, RUN_VERSION},
     results::CACHE_DIRECTORY,
     search::{ProgramOrder, REPORT_FILE, RunOptions, run},
@@ -204,7 +204,7 @@ fn report_reprints_the_same_bytes() {
     let cache = dir.join(CACHE_DIRECTORY);
     // No run yet: nothing to print.
     let output = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["schema"], MISSING_SCHEMA);
     assert_eq!(document["outcome"], "missing");
@@ -212,7 +212,7 @@ fn report_reprints_the_same_bytes() {
     assert_eq!(document["k_rust_revision"], k_rust::build_identity());
     // CF-44: under `--output verdicts` the reason goes to stderr, and nothing is rendered.
     let output = binary(&["report", "FLOW.toml", "--output", "verdicts"], &dir);
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
@@ -223,7 +223,7 @@ fn report_reprints_the_same_bytes() {
     // detail go to stderr.
     fs::write(dir.join("BROKEN.toml"), "[spec\n").unwrap();
     let output = binary(&["report", "BROKEN.toml", "--output", "verdicts"], &dir);
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
@@ -241,9 +241,9 @@ fn report_reprints_the_same_bytes() {
         ],
         &dir,
     );
-    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(ran.status.code(), Some(i32::from(EXIT_YES)));
     let reported = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(reported.status.code(), Some(i32::from(EXIT_YES)));
     assert_eq!(reported.stdout, ran.stdout);
     let document: Value = serde_json::from_slice(&ran.stdout).unwrap();
     let stored: Value =
@@ -254,7 +254,7 @@ fn report_reprints_the_same_bytes() {
     // --output verdicts` prints.
     let rendered = kink_flow::verdicts(&document).unwrap();
     let reported = binary(&["report", "FLOW.toml", "--output", "verdicts"], &dir);
-    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(reported.status.code(), Some(i32::from(EXIT_YES)));
     assert_eq!(String::from_utf8(reported.stdout).unwrap(), rendered);
     let ran = binary(
         &[
@@ -268,7 +268,7 @@ fn report_reprints_the_same_bytes() {
         ],
         &dir,
     );
-    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(ran.status.code(), Some(i32::from(EXIT_YES)));
     let reported = binary(&["report", "FLOW.toml", "--output", "verdicts"], &dir);
     assert_eq!(reported.stdout, ran.stdout);
     assert_eq!(String::from_utf8(ran.stdout).unwrap(), rendered);
@@ -276,7 +276,7 @@ fn report_reprints_the_same_bytes() {
     // The report is the last run's: a run that selects no mutation replaces it too.
     fs::write(dir.join("EMPTY.toml"), "").unwrap();
     let empty = binary(&["run", "FLOW.toml", "EMPTY.toml"], &dir);
-    assert_eq!(empty.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(empty.status.code(), Some(i32::from(EXIT_YES)));
     let reported = binary(&["report", "FLOW.toml"], &dir);
     assert_eq!(reported.stdout, empty.stdout);
     let document: Value = serde_json::from_slice(&empty.stdout).unwrap();
@@ -289,7 +289,7 @@ fn report_reprints_the_same_bytes() {
         &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
         &dir,
     );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     fs::write(
         other.join(REPORT_FILE),
         r#"{"schema": "kink-flow-run", "version": 1}"#,
@@ -299,7 +299,7 @@ fn report_reprints_the_same_bytes() {
         &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
         &dir,
     );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["outcome"], "unreadable");
     fs::write(other.join(REPORT_FILE), "not json").unwrap();
@@ -307,7 +307,7 @@ fn report_reprints_the_same_bytes() {
         &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
         &dir,
     );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     let output = binary(
         &[
             "report",
@@ -319,7 +319,7 @@ fn report_reprints_the_same_bytes() {
         ],
         &dir,
     );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
@@ -345,7 +345,7 @@ fn report_reprints_the_same_bytes() {
         let output = binary(&args, &dir);
         assert_eq!(
             output.status.code(),
-            Some(i32::from(EXIT_USAGE)),
+            Some(i32::from(EXIT_UNASKED)),
             "{args:?}"
         );
     }
@@ -765,7 +765,7 @@ mod kink_tier {
         // Two real builds.
         fs::write(&stored, &written).unwrap();
         let by_binary = binary(&["report", "FLOW.toml"], &dir);
-        assert_eq!(by_binary.status.code(), Some(i32::from(EXIT_CORPUS)));
+        assert_eq!(by_binary.status.code(), Some(i32::from(EXIT_UNASKED)));
         let refused: Value = serde_json::from_slice(&by_binary.stdout).unwrap();
         assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
         let detail = refused["detail"].as_str().unwrap();
@@ -784,9 +784,9 @@ mod kink_tier {
             ],
             &dir,
         );
-        assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(ran.status.code(), Some(i32::from(EXIT_YES)));
         let reported = binary(&["report", "FLOW.toml"], &dir);
-        assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(reported.status.code(), Some(i32::from(EXIT_YES)));
         assert_eq!(reported.stdout, ran.stdout);
         let (refused, ok) = report(&manifest, &ReportOptions::default());
         assert!(!ok, "{refused:#}");
@@ -832,7 +832,7 @@ mod kink_tier {
                         let output = binary(&words[1..], &dir);
                         assert_eq!(
                             output.status.code(),
-                            Some(i32::from(EXIT_OK)),
+                            Some(i32::from(EXIT_YES)),
                             "{command}: {}",
                             String::from_utf8_lossy(&output.stdout)
                         );

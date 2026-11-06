@@ -14,7 +14,7 @@ use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
     admit::corpus_source,
-    cli::{CommandFiles, EXIT_CORPUS, EXIT_OK, EXIT_USAGE, FlowCommand, OutputFormat},
+    cli::{CommandFiles, EXIT_UNASKED, EXIT_YES, FlowCommand, OutputFormat},
     digest::hint_key,
     hints::{HINTS_SCHEMA, hints_path},
     memo::MemoUse,
@@ -583,7 +583,7 @@ fn a_refused_run_document_names_its_schedule() {
                     .unwrap()
             };
             let output = run(&[]);
-            assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+            assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
             let document: Value = serde_json::from_slice(&output.stdout).unwrap();
             assert_eq!(document["schema"], "kink-flow-run");
             assert_eq!(document[section]["outcome"], "refused", "{document:#}");
@@ -594,7 +594,7 @@ fn a_refused_run_document_names_its_schedule() {
                 "{section}: {document:#}"
             );
             let output = run(&["--output", "verdicts"]);
-            assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+            assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
             let printed = String::from_utf8(output.stdout).unwrap();
             assert!(
                 printed.starts_with(&format!(
@@ -1267,14 +1267,14 @@ mod kink_tier {
             let output = run(args);
             assert_eq!(
                 output.status.code(),
-                Some(i32::from(EXIT_USAGE)),
+                Some(i32::from(EXIT_UNASKED)),
                 "{args:?}"
             );
             let stderr = String::from_utf8(output.stderr).unwrap();
             assert!(stderr.contains(message), "{stderr}");
         }
         let output = run(&["--full", "--only", "no-mul"]);
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schedule"], "full");
         assert_eq!(
@@ -1288,7 +1288,7 @@ mod kink_tier {
             .arg(&cache)
             .output()
             .unwrap();
-        assert_eq!(report.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(report.status.code(), Some(i32::from(EXIT_YES)));
         assert_eq!(report.stdout, output.stdout);
     }
 

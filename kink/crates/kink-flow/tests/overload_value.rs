@@ -29,7 +29,7 @@ mod flow_support;
 use flow_support::copy_dir;
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_OK, results},
+    cli::{EXIT_YES, results},
     results::ResultsOptions,
     search::{ProgramOrder, RunOptions, run},
 };
@@ -61,7 +61,7 @@ fn classes(manifest: &Path) -> Value {
             mutations: None,
         },
     );
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     document
 }
 

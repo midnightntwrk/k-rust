@@ -8,7 +8,7 @@
 use kink_flow::{
     FlowManifest,
     admit::admit,
-    cli::{EXIT_OK, results},
+    cli::{EXIT_UNANSWERED, EXIT_YES, results},
     results::{CACHE_DIRECTORY, ResultsOptions},
 };
 use serde_json::Value;
@@ -34,7 +34,8 @@ fn fixture(manifest: &str, test: &str) -> PathBuf {
     to.join(manifest)
 }
 
-/// `kink-flow results` of `manifest`, its status checked.
+/// `kink-flow results` of `manifest`, its status checked: 3 when a program has no comparable
+/// end (`unknown` or `timeout`), else 0.
 #[track_caller]
 fn classes(manifest: &Path) -> Value {
     let (document, status) = results(
@@ -45,7 +46,17 @@ fn classes(manifest: &Path) -> Value {
             mutations: None,
         },
     );
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    let unanswered = document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|program| program["class"] == "unknown" || program["class"] == "timeout");
+    let expected = if unanswered {
+        EXIT_UNANSWERED
+    } else {
+        EXIT_YES
+    };
+    assert_eq!(status, expected, "{document:#}");
     document
 }
 

@@ -12,7 +12,7 @@
 use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
-    cli::{EXIT_CORPUS, EXIT_OK, check},
+    cli::{EXIT_UNASKED, EXIT_YES, check},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context, spec_digest},
     manifest::Budget,
     mutation::MutationList,
@@ -118,7 +118,7 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
     let expected = result("cells", &["k", "out"], &["scratch"], &["scratch"]);
 
     let (document, status) = check(&manifest);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     assert_eq!(document["version"], 10);
     assert_eq!(document["result"], expected);
 
@@ -188,7 +188,7 @@ fn without_the_declaration_both_mutations_are_killed_on_the_whole_term() {
     let dir = fixture("plain", &[]);
     let manifest = dir.join("FLOW-plain.toml");
     let (document, status) = check(&manifest);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     let expected = result("whole-term", &["k", "out", "scratch"], &[], &[]);
     assert_eq!(document["result"], expected);
     let document = search(&manifest);
@@ -248,7 +248,7 @@ fn a_narrowing_that_compares_an_unobservable_cell_or_names_no_cell_is_refused() 
         );
         assert!(detail.contains(cell), "{detail}");
         let (document, status) = check(&manifest);
-        assert_eq!(status, EXIT_CORPUS);
+        assert_eq!(status, EXIT_UNASKED);
         assert_eq!(document["result"], Value::Null);
         assert_eq!(document["spec"]["stage"], "result");
     }

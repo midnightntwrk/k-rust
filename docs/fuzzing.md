@@ -102,7 +102,7 @@ Copy the flow and run the mutation search, so that the fuzz can read which progr
 ```sh
 cp -r kink/testdata/flow/fuzz/imp /tmp/fuzz-imp
 cd /tmp/fuzz-imp
-kink-flow run FLOW.toml MUTATIONS.toml > run.json
+kink-flow run FLOW.toml MUTATIONS.toml > run.json # exit 3
 ```
 
 ```json
@@ -158,7 +158,7 @@ Fuzzing `sum` does not help:
 
 ```sh
 cd /tmp/fuzz-imp
-kink-flow fuzz FLOW.toml TEMPLATES.toml --template sum-holes --kill add-becomes-sub --mutations MUTATIONS.toml --cases 20 --max-work 2000 > sum.json
+kink-flow fuzz FLOW.toml TEMPLATES.toml --template sum-holes --kill add-becomes-sub --mutations MUTATIONS.toml --cases 20 --max-work 2000 > sum.json # exit 3
 ```
 
 ```json
@@ -290,7 +290,7 @@ Rule 50 is `! T => notBool T`. No hole value of `clamp` matches it, since `clamp
 
 ```sh
 cd /tmp/fuzz-impu
-kink-flow fuzz FLOW.toml TEMPLATES.toml --template clamp-holes --matched imp.k:50 --cases 100 > matched50.json
+kink-flow fuzz FLOW.toml TEMPLATES.toml --template clamp-holes --matched imp.k:50 --cases 100 > matched50.json # exit 3
 ```
 
 ```json
@@ -398,19 +398,19 @@ Avoid a template whose program kink cannot compare (`unusable-template`).
 | `stopped` | Meaning | What to do | Exit |
 | --- | --- | --- | --- |
 | `null` | A witness, confirmed by kink unless `--no-confirm`. | Append `program.fragment`. | 0 |
-| `budget` | No witness within the budget. Not a proof of anything. | Read the statement in `action` (below). | 0 |
-| `domain-exhausted` | No witness, and every assignment of the holes ran (each hole has finitely many values), so more cases cannot help. | Mark more literals as holes, widen their ranges, or write another template. | 0 |
-| `client-refused` | Candidates were found, and kink's rules refused every one of them inside the campaign. | Read the fuzz report's `client-refusals` for kink's reason and remedy; change the template or the hole ranges. | 0 |
-| `unconfirmed` | A candidate passed the campaign, and kink's confirmation refused it. | Read `attempts[0].confirmation.cause`; try another seed, template or range. | 0 |
-| `assembly-mismatch` | kink assembles the instantiated program to another initial configuration than the campaign ran. | Report it with the document. | 0 |
-| `not-comparable` | The definition has findings you have not named, so no end of it can be compared. | See [Premises](#premises-findings-you-assume). | 1 |
+| `budget` | No witness within the budget. Not a proof of anything. | Read the statement in `action` (below). | 3 |
+| `domain-exhausted` | No witness, and every assignment of the holes ran (each hole has finitely many values), so more cases cannot help. | Mark more literals as holes, widen their ranges, or write another template. | 3 |
+| `client-refused` | Candidates were found, and kink's rules refused every one of them inside the campaign. | Read the fuzz report's `client-refusals` for kink's reason and remedy; change the template or the hole ranges. | 3 |
+| `unconfirmed` | A candidate passed the campaign, and kink's confirmation refused it. | Read `attempts[0].confirmation.cause`; try another seed, template or range. | 3 |
+| `assembly-mismatch` | kink assembles the instantiated program to another initial configuration than the campaign ran. | Report it with the document. | 3 |
+| `not-comparable` | The definition has findings you have not named, so no end of it can be compared. | See [Premises](#premises-findings-you-assume). | 2 |
 | `equivalent` | The mutant compiles to the same definition. | Drop the mutation. | 0 |
-| `rejected-out` | Too many hole values were refused (they do not read back, or violate their sort). | Fix the holes. | 0 |
-| `time-limit` | `--time-limit-ms` stopped the campaign. | Give it more time or fewer cases. | 0 |
-| `aborted` | The campaign could not go on (a solver that does not start, backends that do not rebuild after a crash). | Read `action`. | 1 |
-| `refused` | The job was refused before any case. | Read `job.refusal`. | 1 |
+| `rejected-out` | Too many hole values were refused (they do not read back, or violate their sort). | Fix the holes. | 2 |
+| `time-limit` | `--time-limit-ms` stopped the campaign. | Give it more time or fewer cases. | 3 |
+| `aborted` | The campaign could not go on (a solver that does not start, backends that do not rebuild after a crash). | Read `action`. | 2 |
+| `refused` | The job was refused before any case. | Read `job.refusal`. | 2 |
 
-The exit status is 0 when the job reached a verdict (a witness, none within the budget, or candidates kink refused), 1 when an input, the template or the job is refused, the definition is not comparable or the campaign aborted, and 2 on a usage error (an unknown template, mutation or pattern id included). `kink-flow --version` prints its version and k-rust's build and exits 0.
+The exit status says what to do next, as for every kink-flow command (kink-flow's README, "Exit status"): 0 when the job has its answer (a witness, or `equivalent`), 3 when the search ended without a witness kink accepts (none within the budget or the holes' domain, candidates kink refused, or the time limit), and 2 when the job could not be asked (an input, the template or the job refused, hole values the rejection cap stopped, which the holes must be fixed for, a definition that is not comparable, an aborted campaign, or a usage error such as an unknown template, mutation or pattern id). `kink-flow --version` prints its version and k-rust's build and exits 0.
 
 **The statement of a search that found nothing** lists why cases could not decide anything, largest first, with a remedy:
 
@@ -454,7 +454,7 @@ kink kills a mutation only by comparing final configurations as values that mean
 
 Final configurations are compared without the content of the `<generatedCounter>` cell, which only counts the fresh values (`!X`) minted so far: a mutant that only mints more values is not killed, while one whose fresh values reach a cell of the configuration is. A run through a rule with two or more `!` variables rests on how the compiler numbered them, so it is no evidence (`implementation-chosen-value`, class `fresh-association`).
 
-**Before any case** (exit 1; `stopped` is `refused` or `not-comparable`):
+**Before any case** (exit 2; `stopped` is `refused` or `not-comparable`):
 
 - The specification itself, as `kink-flow check` reports it: one whose declarations kink's census flags (stage `declaration-census`, reason `vi-t13`), and one the representation gate refuses (stage `representation`: a token-creating hook into a builtin or hooked sort, `G-T`; a String token with two readings, `G-S`; a non-canonical literal of a sort hooked `INT.Int` under another name, `G-I`). Float and MInt literals of a hooked sort are admitted: k-rust stores each as the canonical text of its value, so a respelled literal is the same element in every rule k-rust applies. An end that holds a Float or MInt value is not compared yet, and a test state may not hold one. The census reads blockchain-k-plugin's `krypto.md` (pinned) as the reference for its hooks, so KEVM, upstream or KRS-emitted, passes `declaration-census` and is admitted. Every comparison of a definition that declares one of the `KRYPTO` hooks k-rust evaluates is still excluded (`implementation-chosen-hook`, for the whole definition, so `kink-flow fuzz` refuses it at stage `exclusions`, below) until k-rust records the values `krypto.md` leaves open on each run; use `krust fuzz` for KEVM meanwhile (below).
 - A mutation `run` refuses: `invalid-mutation` (the mutation does not resolve), `equivalent`, `not-admitted` (kink did not admit the mutant for judging: it does not compile, or k-rust's critical-pair check does not show its equations to have a model, `inconsistent-mutant`, as when they give one function two values), or claims it cannot remove.
@@ -561,7 +561,7 @@ It cannot certify what the campaign's search recorded, since it runs only the re
 The identity names the k-rust-fuzz build by its sources, a comment included, so a witness kept across commits replays only with `--force` (status 3 when its cases reproduce), or is found again.
 
 `krust fuzz` exits with 0 for a witness (with `--replay`, when every case reproduced), 1 for none: no witness within the budget, `Domain exhausted`, `equivalent`, `not comparable`, the rejection cap or an aborted campaign (with `--replay`, a case that did not reproduce), 2 on an error (a usage error, a refused campaign or replay, an unreadable input or environment variable), and 3 for a replay forced past identity mismatches (`--force`) whose cases reproduced, which confirms nothing the file claims.
-The two commands agree where their meanings agree: 0 for a witness, 1 for `not-comparable` and an aborted campaign, 2 for a usage error. `kink-flow fuzz` follows kink's convention, where 0 means the job reached a verdict, so no witness is 0 there and 1 here, and a refused job is 1 there and 2 here.
+The two commands agree where their meanings agree: 0 for a witness, 2 for a refused campaign or a usage error. `kink-flow fuzz` follows kink's convention, where a search that ended without a witness has no answer: it is 3 there and 1 here; `equivalent`, which proves no input kills the mutation, is 0 there and 1 here; and `not-comparable` and an aborted campaign, which ask nothing, are 2 there and 1 here.
 
 The same campaign file serves the other jobs; flags override it. A pattern matched at any state:
 

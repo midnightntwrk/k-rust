@@ -8,7 +8,7 @@ use kink_corpus::{load_source, runner::all_normal};
 use kink_flow::{
     CaseInputs, FlowManifest, Program, SpecSection, admit,
     admit::{admit_spec, corpus_source},
-    cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
+    cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, results},
     digest::{
         ExecutionDigest, definition_value, execution_digest, execution_payload, program_digest,
         spec_digest, spec_payload,
@@ -410,7 +410,7 @@ endmodule
          [[program]]\nid = \"base\"\ntext = \"tdiv(-1)\"\n\n[[program]]\nid = \"kill\"\ntext = \"tdiv(1)\"\n",
     );
     let (document, status) = run(&dir.join("FLOW.toml"), false);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
     assert_eq!(
         rows(&document),
         expect(&[("base", "unknown", false), ("kill", "comparable", false)])
@@ -462,7 +462,7 @@ fn a_flagged_definition_judges_each_program_by_its_short_circuit_readings() {
     );
     let manifest = dir.join("FLOW.toml");
     let (document, status) = run(&manifest, false);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
     assert_eq!(
         rows(&document),
         expect(&[("zero", "unknown", false), ("one", "comparable", false)])
@@ -499,7 +499,7 @@ fn a_flagged_definition_judges_each_program_by_its_short_circuit_readings() {
     assert_eq!(one["short_circuit_readings"], json!([]), "{one:#}");
 
     let (again, status) = run(&manifest, false);
-    assert_eq!(status, EXIT_OK, "{again:#}");
+    assert_eq!(status, EXIT_UNANSWERED, "{again:#}");
     assert_eq!(
         rows(&again),
         expect(&[("zero", "unknown", true), ("one", "comparable", true)])
@@ -519,7 +519,7 @@ fn a_flagged_definition_judges_each_program_by_its_short_circuit_readings() {
         .unwrap()
         .join()
         .unwrap();
-    assert_eq!(status, EXIT_OK, "{checked:#}");
+    assert_eq!(status, EXIT_YES, "{checked:#}");
     assert_eq!(&checked["spec"]["short_circuit"], flagged);
     for program in checked["programs"].as_array().unwrap() {
         assert_eq!(program["outcome"], "ok", "{program:#}");
@@ -583,7 +583,7 @@ mod kink_tier {
     fn a_bytes_key_is_comparable() {
         let manifest = fixture("bytes-map", "bytes-map").join("FLOW.toml");
         let (document, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
         let record = stored_record(&manifest, &document, "store");
@@ -629,7 +629,7 @@ text = 'function main() { var a[1]; }'
 "#,
         );
         let (document, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(
             rows(&document),
             expect(&[("arr-decl", "comparable", false)])
@@ -679,7 +679,7 @@ text = 'h(opaque(1), 2)'
 "#,
         );
         let (document, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         assert_eq!(rows(&document), expect(&[("opaque", "unknown", false)]));
         let cause = document["programs"][0]["cause"].as_str().unwrap();
         for part in [
@@ -714,7 +714,7 @@ text = 'h(opaque(1), 2)'
         )
         .unwrap();
         let (document, status) = run(&dir.join("FLOW.toml"), false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let rules = document["rules"].as_array().unwrap();
         let listed = rules
             .iter()
@@ -776,7 +776,7 @@ text = 'h(opaque(1), 2)'
              [[program]]\nid = \"five\"\ntext = \"pick(5)\"\n",
         );
         let (document, status) = run(&dir.join("FLOW.toml"), false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(
             rows(&document),
             expect(&[("zero", "comparable", false), ("five", "comparable", false)])
@@ -834,7 +834,7 @@ text = 'h(opaque(1), 2)'
             "10 - 4\n",
         );
         let (second, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert_eq!(
             rows(&second),
             expect(&[
@@ -864,7 +864,7 @@ text = 'h(opaque(1), 2)'
         ] {
             let manifest = fixture(name, &format!("fill-{name}")).join("FLOW.toml");
             let (first, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_OK, "{first:#}");
+            assert_eq!(status, EXIT_YES, "{first:#}");
             assert_eq!(first["schema"], "kink-flow-results");
             assert_eq!(first["result_schema_version"], RESULT_SCHEMA_VERSION);
             assert_eq!(
@@ -902,7 +902,7 @@ text = 'h(opaque(1), 2)'
                 assert_eq!(record["coverage"]["complete"], true);
             }
             let (second, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_OK);
+            assert_eq!(status, EXIT_YES);
             assert_eq!(
                 rows(&second),
                 ids.iter()
@@ -934,7 +934,7 @@ text = 'h(opaque(1), 2)'
     fn rules_no_comparable_program_reaches_are_listed_first() {
         let manifest = fixture("loop", "rules").join("FLOW.toml");
         let (document, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let listed = document["rules"]
             .as_array()
             .unwrap()
@@ -1179,7 +1179,7 @@ text = 'h(opaque(1), 2)'
         let text = fs::read_to_string(&calc).unwrap();
         fs::write(&calc, format!("// a comment at the top\n\n\n{text}")).unwrap();
         let (layout, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{layout:#}");
+        assert_eq!(status, EXIT_YES, "{layout:#}");
         assert_ne!(spec_hex(&first), spec_hex(&layout));
         assert_eq!(
             layout["spec"]["execution_digest"],
@@ -1221,7 +1221,7 @@ text = 'h(opaque(1), 2)'
         )
         .unwrap();
         let (second, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert_ne!(execution_hex(&first), execution_hex(&second));
         assert_eq!(program_digests(&first), program_digests(&second));
         assert!(
@@ -1260,7 +1260,7 @@ text = 'h(opaque(1), 2)'
         // A file that is not a record.
         fs::write(record_path(&manifest, &first, "inline"), "not json").unwrap();
         let (second, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert_eq!(
             rows(&second),
             expect(&[
@@ -1280,7 +1280,7 @@ text = 'h(opaque(1), 2)'
         let text = fs::read_to_string(&manifest).unwrap();
         fs::write(&manifest, format!("{text}\n[budget]\ntime_ms = 20000\n")).unwrap();
         let (third, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert!(rows(&third).iter().all(|(_, _, cached)| *cached));
         assert_eq!(spec_hex(&third), spec_hex(&first));
         assert_eq!(program_digests(&third), program_digests(&first));
@@ -1298,7 +1298,7 @@ text = 'h(opaque(1), 2)'
         )
         .unwrap();
         let (fourth, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert!(rows(&fourth).iter().all(|(_, _, cached)| !cached));
         assert_eq!(read_json(&add)["key"]["budget"]["max_depth"], 200_000);
         let (fifth, _) = run(&manifest, false);
@@ -1347,7 +1347,13 @@ module MU
             );
             let manifest = dir.join("FLOW.toml");
             let (document, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_OK, "{document:#}");
+            // Answered; an unknown program has no answer.
+            assert_ne!(status, EXIT_UNASKED, "{document:#}");
+            assert_eq!(
+                status,
+                kink_flow::cli::results_status(&document),
+                "{document:#}"
+            );
             (manifest, document)
         };
 
@@ -1423,7 +1429,7 @@ endmodule
              find = \"N /Int 0\"\nreplace = \"N\"\n",
         );
         let (document, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         // At this k-rust pin the run stops `indeterminate` at depth 1, so the row is `unknown`.
         if document["programs"][0]["class"] == "comparable" {
             let record = stored_record(&manifest, &document, "one");
@@ -1449,7 +1455,7 @@ endmodule
     fn a_ground_map_is_comparable_and_covers_its_rule() {
         let manifest = fixture("map-store", "map").join("FLOW.toml");
         let (document, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert!(document["programs"][0]["cause"].is_null());
         assert_eq!(document["rules"][0]["status"], "covered");
@@ -1495,7 +1501,7 @@ endmodule
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
         assert_eq!(
             read_json(&path)["key"]["schema_version"],
@@ -1507,7 +1513,7 @@ endmodule
             &manifest.parent().unwrap().join("MUTATIONS.toml"),
             &kink_flow::search::RunOptions::default(),
         );
-        assert_eq!(status, EXIT_OK, "{searched:#}");
+        assert_eq!(status, EXIT_YES, "{searched:#}");
         assert_eq!(
             searched["counts"],
             json!({
@@ -1536,7 +1542,7 @@ endmodule
     fn a_record_written_under_another_identity_is_recomputed() {
         let manifest = fixture("calc", "identity").join("FLOW.toml");
         let (first, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, EXIT_YES, "{first:#}");
         let programs = ["add", "nested", "sub", "inline"];
         for id in programs {
             assert_eq!(
@@ -1582,7 +1588,7 @@ endmodule
                 fs::write(&path, record.to_string()).unwrap();
             }
             let (document, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_OK, "{round:?}: {document:#}");
+            assert_eq!(status, EXIT_YES, "{round:?}: {document:#}");
             let recomputed = forged.iter().map(|(id, _)| **id).collect::<Vec<_>>();
             assert_eq!(
                 rows(&document),
@@ -1620,7 +1626,7 @@ endmodule
             .arg(&cache)
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["summary"]["comparable"], 4);
         assert!(
@@ -1635,7 +1641,7 @@ endmodule
             .arg(&cache)
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert!(rows(&document).iter().all(|(_, _, cached)| *cached));
 
@@ -1647,7 +1653,7 @@ endmodule
             ])
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(
             rows(&document),
@@ -1671,12 +1677,12 @@ endmodule
             .args(["results", broken.to_str().unwrap()])
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-results");
         assert_eq!(document["spec"]["stage"], "manifest");
         let (document, status) = run(&flow("compile-error").join("FLOW.toml"), false);
-        assert_eq!(status, EXIT_CORPUS);
+        assert_eq!(status, EXIT_UNASKED);
         assert_eq!(document["spec"]["stage"], "compile");
         assert_eq!(document["programs"], json!([]));
 
@@ -1696,7 +1702,7 @@ endmodule
             let output = Command::new(binary).args(&args).output().unwrap();
             assert_eq!(
                 output.status.code(),
-                Some(i32::from(EXIT_USAGE)),
+                Some(i32::from(EXIT_UNASKED)),
                 "{args:?}"
             );
             assert!(output.stdout.is_empty());
@@ -1709,7 +1715,7 @@ endmodule
         let manifest = fixture("calc", "verify").join("FLOW.toml");
         let (first, _) = run(&manifest, false);
         let (verified, status) = run(&manifest, true);
-        assert_eq!(status, EXIT_OK, "{verified:#}");
+        assert_eq!(status, EXIT_YES, "{verified:#}");
         assert!(
             verified["programs"]
                 .as_array()
@@ -1728,10 +1734,10 @@ endmodule
         fs::write(&path, &edited).unwrap();
         // Without --verify the record is current (its key is unchanged) and is used as it is.
         let (plain, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         assert!(rows(&plain).iter().all(|(_, _, cached)| *cached));
         let (verified, status) = run(&manifest, true);
-        assert_eq!(status, EXIT_CORPUS);
+        assert_eq!(status, EXIT_NO);
         let verdicts = verified["programs"]
             .as_array()
             .unwrap()
@@ -1781,7 +1787,7 @@ endmodule
         record["baseline"] = serde_json::from_str(&row).unwrap();
         fs::write(&path, record.to_string()).unwrap();
         let (verified, status) = run(&manifest, true);
-        assert_eq!(status, EXIT_CORPUS);
+        assert_eq!(status, EXIT_NO);
         let mismatches = verified["mismatches"].as_array().unwrap();
         assert_eq!(mismatches.len(), 1, "{mismatches:#?}");
         assert!(
@@ -1793,7 +1799,7 @@ endmodule
 
         // Restored, it verifies again.
         fs::write(&path, &original).unwrap();
-        assert_eq!(run(&manifest, true).1, EXIT_OK);
+        assert_eq!(run(&manifest, true).1, EXIT_YES);
     }
 
     /// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): every record key holds the build that wrote
@@ -1810,7 +1816,7 @@ endmodule
         let programs = ["add", "nested", "sub", "inline"];
         let this_build = build_of(&std::env::current_exe().unwrap());
         let (first, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, EXIT_YES, "{first:#}");
         for id in programs {
             assert_eq!(
                 read_json(&record_path(&manifest, &first, id))["key"]["kink_build"],
@@ -1837,7 +1843,7 @@ endmodule
                 fs::write(&path, record.to_string()).unwrap();
             }
             let (document, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_OK, "{document:#}");
+            assert_eq!(status, EXIT_YES, "{document:#}");
             assert_eq!(
                 rows(&document),
                 programs
@@ -1866,7 +1872,7 @@ endmodule
                 .arg(&manifest)
                 .output()
                 .unwrap();
-            assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+            assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
             serde_json::from_slice::<Value>(&output.stdout).unwrap()
         };
         let all = |cached: bool| {
@@ -1903,7 +1909,7 @@ endmodule
         let dir = fixture("loop", "timeout-work");
         let timeout = dir.join("FLOW-timeout.toml");
         let (first, status) = run(&timeout, false);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{first:#}");
         assert_eq!(
             rows(&first),
             expect(&[
@@ -1912,7 +1918,7 @@ endmodule
             ])
         );
         let (second, status) = run(&timeout, false);
-        assert_eq!(status, EXIT_OK, "{second:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{second:#}");
         assert_eq!(
             rows(&second),
             expect(&[
@@ -1957,7 +1963,7 @@ endmodule
         )
         .unwrap();
         let (bounded, status) = run(&work, false);
-        assert_eq!(status, EXIT_OK, "{bounded:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{bounded:#}");
         assert_eq!(
             rows(&bounded),
             expect(&[
@@ -1984,7 +1990,7 @@ endmodule
         );
         assert_eq!(bounded_countdown["run_sha256"], countdown["run_sha256"]);
         let (again, status) = run(&work, false);
-        assert_eq!(status, EXIT_OK, "{again:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{again:#}");
         assert_eq!(
             rows(&again),
             expect(&[("spin", "unknown", true), ("countdown", "comparable", true)])
@@ -2002,7 +2008,7 @@ endmodule
         )
         .unwrap();
         let (other, status) = run(&work, false);
-        assert_eq!(status, EXIT_OK, "{other:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{other:#}");
         assert_eq!(
             rows(&other),
             expect(&[
@@ -2236,14 +2242,14 @@ endmodule
         )
         .unwrap();
         let (first, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, EXIT_YES, "{first:#}");
         assert_eq!(
             first["spec"]["execution_digest"],
             json!({"kind": "kink-flow/spec/v1", "digest": first["spec"]["digest"]})
         );
         // The fallback only costs misses: the second command reads every record.
         let (second, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{second:#}");
+        assert_eq!(status, EXIT_YES, "{second:#}");
         assert!(
             rows(&second)
                 .iter()
@@ -2260,7 +2266,7 @@ endmodule
     fn the_result_cache_is_on_in_both_profiles() {
         let manifest = fixture("calc", "z3-on").join("FLOW.toml");
         let (first, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(status, EXIT_YES, "{first:#}");
         assert_eq!(
             first["result_cache"],
             json!({"enabled": true, "reason": null})

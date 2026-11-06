@@ -1350,7 +1350,9 @@ impl kink_flow::EndRenderer for TestRenderer {
 
 /// With a front end's renderer, each case's expectation is checked against its baseline's ends
 /// and reported in its row of `results`, `run` and `check` (`check` reads the current result
-/// record), and decides no exit status: an unmet expectation leaves `results` and `check` ok.
+/// record), and decides no verdict: an unmet expectation leaves `results` and `check` ok. Only
+/// `results`, which asks whether each baseline meets its expectation, exits by it: 1 for the
+/// unmet one.
 /// A program whose expectation the renderer refuses is refused (`inputs`/`expectation-value`),
 /// and so is its expectation's report inconclusive. A program without `expect` has no
 /// `expectation`.
@@ -1411,6 +1413,11 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         on_stack(move || kink_flow::results::results(&manifest, &ResultsOptions::default()));
     assert!(results_ok, "{results:#}");
     assert_eq!(expectations(&results), reported, "{results:#}");
+    assert_eq!(
+        kink_flow::cli::results_status(&results),
+        kink_flow::cli::EXIT_NO,
+        "{results:#}"
+    );
     let (check, status) = on_stack(move || {
         kink_flow::cli::run_command(
             &checking,
@@ -1418,7 +1425,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
             &kink_flow::FrontEnd::default(),
         )
     });
-    assert_eq!(status, 0, "{check:#}");
+    assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
     assert_eq!(check["version"], 10, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
@@ -1438,7 +1445,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
             &kink_flow::FrontEnd::default(),
         )
     });
-    assert_eq!(status, 1, "{check:#}");
+    assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{check:#}");
     let row = &check["programs"][0];
     assert_eq!(
         (&row["outcome"], &row["stage"], &row["reason"]),

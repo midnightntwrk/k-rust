@@ -31,7 +31,7 @@ use kink_corpus::ProgramSource;
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_USAGE, execute},
+    cli::{EXIT_UNASKED, execute},
     fuzz::{
         AssemblyCheck, FuzzJob, FuzzOptions, TemplateList, TemplateSource, check_assembly,
         compiled_side, confirm_program, fuzz_job, kill,
@@ -213,7 +213,7 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
         &["--no-confirm", "--cases", "3", "--work", "9"],
     ] {
         let args = base.iter().chain(extra).copied().collect::<Vec<_>>();
-        assert_eq!(run_cli(&args), EXIT_USAGE, "{extra:?}");
+        assert_eq!(run_cli(&args), EXIT_UNASKED, "{extra:?}");
     }
     // The rule and pattern jobs (T5) parse; a pattern job takes no assumed name (front_end.rs
     // pins the rule job each flag parses to, and the usage errors of `--reach` and of two jobs).
@@ -239,23 +239,26 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
             "--assume-joined",
             "x"
         ]),
-        EXIT_USAGE
+        EXIT_UNASKED
     );
-    assert_eq!(job(&["--pattern", "q", "--patterns", patterns]), EXIT_USAGE);
-    assert_eq!(job(&["--pattern", "p"]), EXIT_USAGE);
+    assert_eq!(
+        job(&["--pattern", "q", "--patterns", patterns]),
+        EXIT_UNASKED
+    );
+    assert_eq!(job(&["--pattern", "p"]), EXIT_UNASKED);
     assert_eq!(
         job(&["--fired", "imp.k:47", "--mutations", mutations]),
-        EXIT_USAGE
+        EXIT_UNASKED
     );
-    assert_eq!(job(&["--fired"]), EXIT_USAGE);
+    assert_eq!(job(&["--fired"]), EXIT_UNASKED);
     let mut unknown = base.to_vec();
     unknown[4] = "no-such-template";
     unknown.push("--no-confirm");
-    assert_eq!(run_cli(&unknown), EXIT_USAGE);
+    assert_eq!(run_cli(&unknown), EXIT_UNASKED);
     let mut unknown = base.to_vec();
     unknown[6] = "no-such-mutation";
     unknown.push("--no-confirm");
-    assert_eq!(run_cli(&unknown), EXIT_USAGE);
+    assert_eq!(run_cli(&unknown), EXIT_UNASKED);
 }
 
 /// R2-REFRESH's M2 probe: every end holds a non-ASCII string, a domain value kink's end check

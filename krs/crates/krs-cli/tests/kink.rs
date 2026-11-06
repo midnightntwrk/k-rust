@@ -437,6 +437,7 @@ fn json(output: &Output) -> Value {
     })
 }
 
+#[track_caller]
 fn assert_status(output: &Output, code: i32) {
     assert_eq!(
         output.status.code(),
@@ -682,7 +683,7 @@ fn run_kills_the_story_edits() {
     fs::create_dir_all(&empty).unwrap();
     let cache = empty.to_str().unwrap();
     let output = project.kink("report", &["--cache", cache, "--output", "verdicts"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     assert_eq!(stdout(&output), "");
     assert!(
         stderr(&output).contains("missing run report") && stderr(&output).contains("no run report"),
@@ -691,11 +692,11 @@ fn run_kills_the_story_edits() {
     );
     // Under `--output json` the reason is the refusal document, as every kink-flow refusal is.
     let output = project.kink("report", &["--cache", cache]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     assert_eq!(json(&output)["outcome"], "missing");
     fs::write(empty.join("report.json"), "{").unwrap();
     let output = project.kink("report", &["--cache", cache, "--output", "verdicts"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     assert_eq!(stdout(&output), "");
     assert!(
         stderr(&output).contains("unreadable run report") && stderr(&output).contains("not JSON"),
@@ -977,7 +978,7 @@ fn an_edit_of_the_specification_leaves_patches_running_or_stale() {
     let timings = project.path().join("timings.json");
     let output = project.kink("run", &["--full", "--timings", timings.to_str().unwrap()]);
     // A mutation that does not resolve makes the run fail, after every other mutation ran.
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     assert_eq!(document["definition"]["status"], "written", "{document:#}");
     let rows = document["mutations"].as_array().unwrap();
@@ -1019,7 +1020,7 @@ fn an_edit_of_the_specification_leaves_patches_running_or_stale() {
 
     // `check` refuses the stale patches with the same rule, and resolves the other.
     let output = project.kink("check", &[]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let check = json(&output);
     let outcomes = check["mutations"]
         .as_array()
@@ -1078,7 +1079,7 @@ fn query_and_fuzz_name_rules_by_their_items() {
         document["job"]["rule"]["krs"]["item"], "stop",
         "the rule job's target is named by its item: {document:#}"
     );
-    assert_status(&output, 0);
+    assert_status(&output, 3);
 }
 
 /// `emit --check` is the gate: it fails when `kink/definition.k` differs from the emission and
@@ -1088,7 +1089,7 @@ fn query_and_fuzz_name_rules_by_their_items() {
 fn a_stale_definition_is_written_or_refused() {
     let project = project_of("story-plus-edit", "NAT", &story_files());
     let check = project.kink("emit", &["--check"]);
-    assert_status(&check, 1);
+    assert_status(&check, 2);
     assert_eq!(json(&check)["definition"]["status"], "stale");
     assert!(!project.path().join("kink/definition.k").exists());
 
@@ -1105,12 +1106,12 @@ fn a_stale_definition_is_written_or_refused() {
     assert_ne!(edited, STORY);
     project.write("src/lib.rs", &edited);
     let check = project.kink("emit", &["--check"]);
-    assert_status(&check, 1);
+    assert_status(&check, 2);
     assert_eq!(json(&check)["definition"]["status"], "stale");
     assert_eq!(project.read("kink/definition.k"), emitted);
 
     let locked = project.kink("results", &["--locked"]);
-    assert_status(&locked, 1);
+    assert_status(&locked, 2);
     let document = json(&locked);
     assert_eq!(document["spec"]["stage"], "definition", "{document:#}");
     assert_eq!(
@@ -1147,7 +1148,7 @@ fn the_front_end_refuses_another_front_ends_corpus() {
         "[spec]\nentry = \"plus.k\"\nmain_module = \"NAT\"\n",
     );
     let output = project.kink("check", &["--corpus", "corpora/k"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     assert_eq!(document["spec"]["stage"], "manifest", "{document:#}");
     let detail = document["spec"]["detail"].as_str().unwrap();
@@ -1161,7 +1162,7 @@ fn the_front_end_refuses_another_front_ends_corpus() {
         "[spec]\nkrs = { definition = \"other\" }\n",
     );
     let output = project.kink("results", &["--corpus", "corpora/other"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     let detail = document["spec"]["detail"].as_str().unwrap();
     assert!(
@@ -1191,7 +1192,7 @@ fn the_front_end_refuses_another_front_ends_corpus() {
                 .output()
                 .unwrap()
         };
-        assert_status(&output, 1);
+        assert_status(&output, 2);
         assert!(
             stderr(&output).contains("missing-package"),
             "{}",
@@ -1474,7 +1475,7 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
     // Each test of this shared project reads a list of its own.
     project.write("kink/check-mutations.toml", checked_mutations());
     let output = project.kink("check", &["--mutations", "kink/check-mutations.toml"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     // With the corpus's results stored, `check` also warns of the edited rules no case applies
     // (`unapplied-rule`: no case clamps a negative value) or reaches (`unmatched-rule`: no case
@@ -1644,7 +1645,7 @@ fn run_refuses_what_check_refuses() {
         ("layout", "no-change"),
     ];
     let output = project.kink("run", &["--full", "--cache", "kink/run-cache"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     for (id, reason) in refused {
         let row = row(&document, id);
@@ -1676,7 +1677,7 @@ fn run_refuses_what_check_refuses() {
     );
     // `--only` judges the mutations it runs, and refuses them as the whole list does.
     let output = project.kink("run", &["--only", "overlap", "--cache", "kink/only-cache"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     let rows = document["mutations"].as_array().unwrap();
     assert_eq!(rows.len(), 1, "{document:#}");
@@ -1771,7 +1772,7 @@ fn a_fuzz_kill_job_of_a_refused_mutation_runs_nothing() {
             .contains("KRS accepts these rules only if they cannot apply"),
         "{document:#}"
     );
-    assert!(!output.status.success(), "{document:#}");
+    assert_status(&output, 2);
 }
 
 /// The verdict of `krs check` on a Rust source that emits each refused mutant is the front
@@ -1943,7 +1944,7 @@ impl Machine {
         ],
     );
     let output = project.kink("results", &[]);
-    assert_status(&output, 0);
+    assert_status(&output, 3);
     let document = json(&output);
     let program = &document["programs"][0];
     assert_eq!(program["class"], "unknown", "{program:#}");
@@ -2009,7 +2010,7 @@ programs = ["roms/b.bin"]
         ],
     );
     let output = project.kink("results", &[]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     let programs = document["programs"].as_array().unwrap();
     let program = |id: &str| {
@@ -2096,7 +2097,7 @@ fn a_program_file_is_stray_without_a_main_parameter() {
         ],
     );
     let output = project.kink("results", &[]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let document = json(&output);
     assert_eq!(document["programs"][0]["class"], "refused", "{document:#}");
     assert!(
@@ -2426,7 +2427,7 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
 
     // An item that wrote no rule selects nothing: the corpus is refused before kink-flow runs.
     let output = project.kink("results", &["--corpus", "corpora/unknown"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let refused = json(&output);
     assert_eq!(refused["spec"]["stage"], "stop", "{refused:#}");
     assert_eq!(refused["spec"]["reason"], "stop-unresolved", "{refused:#}");
@@ -2608,7 +2609,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
         &expectation_files(),
     );
     let output = project.kink("results", &[]);
-    assert_status(&output, 0);
+    assert_status(&output, 1);
     let results = json(&output);
     let expected = [
         ("cases/runs.toml#met", "met"),
@@ -2677,7 +2678,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
 /// differs at the class.
 fn expectations_under_a_stop(project: &Project) {
     let output = project.kink("results", &["--corpus", "corpora/stopped"]);
-    assert_status(&output, 0);
+    assert_status(&output, 1);
     let results = json(&output);
     assert_eq!(
         verdicts(&results),
@@ -2926,7 +2927,7 @@ fn run_case_verdict(project: &Project, file: &str, case: &str) -> (Option<&'stat
 fn a_case_expectation_is_checked_through_its_views_as_krs_run_checks_it() {
     let project = project_of("krs-cli-kink-views", "VIEWS", &viewed_files());
     let output = project.kink("results", &[]);
-    assert_status(&output, 0);
+    assert_status(&output, 1);
     let results = json(&output);
     let expected = [
         ("met", "met"),
@@ -3025,7 +3026,7 @@ fn viewed_refusals(project: &Project) {
         ("partial", "undefined", "OnlyZero"),
     ] {
         let output = project.kink("check", &["--corpus", &format!("corpora/{corpus}")]);
-        assert_status(&output, 1);
+        assert_status(&output, 2);
         let check = json(&output);
         let program = &check["programs"][0];
         assert_eq!(program["outcome"], "refused", "{check:#}");
@@ -3055,7 +3056,7 @@ fn viewed_refusals(project: &Project) {
 /// `krs run --case` refuses it, although no case's run has a depth bound under kink.
 fn a_refused_expectation(project: &Project) {
     let output = project.kink("check", &["--corpus", "corpora/bad"]);
-    assert_status(&output, 1);
+    assert_status(&output, 2);
     let check = json(&output);
     let programs = check["programs"].as_array().unwrap();
     assert_eq!(programs.len(), 2, "{check:#}");

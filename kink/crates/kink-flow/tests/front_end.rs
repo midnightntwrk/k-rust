@@ -11,7 +11,7 @@ use kink_flow::{
     CommandFiles, CommandSpelling, FlowCommand, FlowManifest, FrontEnd, InvalidMutation,
     InvalidReason, KinkFlowSpelling, MutationList, OutputFormat, RuleRef, Verb,
     admit::corpus_source,
-    cli::{EXIT_CORPUS, EXIT_OK, FuzzJobRequest},
+    cli::{EXIT_UNASKED, EXIT_YES, FuzzJobRequest},
     dispatch,
     hints::Hints,
     memo::resolution_path,
@@ -242,7 +242,7 @@ fn a_refused_mutation_runs_nothing_and_writes_nothing() {
         &["--only", "sub-off-by-one", "--order", "corpus"],
         refusing("sub-off-by-one"),
     );
-    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
     let refused = row(&document, "sub-off-by-one");
     assert_eq!(refused["status"], "invalid-mutation", "{refused:#}");
     assert_eq!(refused["reason"], "generated-only");
@@ -334,7 +334,7 @@ fn a_fuzz_kill_job_of_a_refused_mutation_is_refused() {
         ],
         refusing("sub-off-by-one"),
     );
-    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
     assert_eq!(document["job"]["outcome"], "refused", "{document:#}");
     assert_eq!(document["job"]["reason"], "generated-only", "{document:#}");
     assert_eq!(
@@ -355,7 +355,7 @@ fn a_refused_mutation_leaves_the_other_rows_as_without_it() {
         &options,
         refusing("sub-off-by-one"),
     );
-    assert_eq!(status, EXIT_CORPUS, "{with:#}");
+    assert_eq!(status, EXIT_UNASKED, "{with:#}");
     let (without, status) = command(
         &plain_dir,
         "run",
@@ -363,7 +363,7 @@ fn a_refused_mutation_leaves_the_other_rows_as_without_it() {
         &options,
         FrontEnd::default(),
     );
-    assert_eq!(status, EXIT_OK, "{without:#}");
+    assert_eq!(status, EXIT_YES, "{without:#}");
     let key = |row: &Value| {
         (
             row["status"].clone(),
@@ -394,7 +394,7 @@ fn a_refused_mutation_leaves_the_other_rows_as_without_it() {
         &[],
         refusing("sub-off-by-one"),
     );
-    assert_eq!(status, EXIT_CORPUS, "{checked:#}");
+    assert_eq!(status, EXIT_UNASKED, "{checked:#}");
     let checked_row = row(&checked, "sub-off-by-one");
     assert_eq!(checked_row["outcome"], "refused", "{checked_row:#}");
     assert_eq!(checked_row["refusals"][0]["reason"], "generated-only");
@@ -410,7 +410,7 @@ fn a_refused_mutation_leaves_the_other_rows_as_without_it() {
         &[],
         FrontEnd::default(),
     );
-    assert_eq!(status, EXIT_OK);
+    assert_eq!(status, EXIT_YES);
 }
 
 /// Every object of `document` with a string `module` and an unsigned `index`, by its JSON
@@ -537,7 +537,7 @@ fn every_rule_a_document_names_is_visited_once() {
     );
     // A flagged rule is no definition exclusion: each run is judged by its own readings, so
     // `check` makes no program `excluded` for it and passes.
-    assert_eq!(status, EXIT_OK, "{check:#}");
+    assert_eq!(status, EXIT_YES, "{check:#}");
     let (results, _) = command(
         &dir,
         "results",
@@ -602,7 +602,7 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
         &["--order", "corpus"],
         front(),
     );
-    assert_eq!(status, EXIT_OK, "{run:#}");
+    assert_eq!(status, EXIT_YES, "{run:#}");
     let mut objects = BTreeSet::new();
     rule_objects(&run, "", &mut objects);
     let mut annotated = 0;
@@ -613,7 +613,7 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
     assert_eq!(annotated, objects.len());
     // `report` prints what `run` printed.
     let (report, status) = command(&dir, "report", CommandFiles::default(), &[], front());
-    assert_eq!(status, EXIT_OK);
+    assert_eq!(status, EXIT_YES);
     assert_eq!(report, run);
     // The results rendering names each rule by its front-end item.
     let (results, _) = command(&dir, "results", CommandFiles::default(), &[], front());
@@ -682,7 +682,7 @@ fn next_steps_name_the_front_end_command() {
         ..FrontEnd::default()
     };
     let (missing, status) = command(&dir, "report", CommandFiles::default(), &[], front);
-    assert_eq!(status, EXIT_CORPUS);
+    assert_eq!(status, EXIT_UNASKED);
     let detail = missing["detail"].as_str().unwrap();
     assert!(
         detail.ends_with("run `krs kink run --definition main` first"),
@@ -810,7 +810,7 @@ fn the_command_line_prints_verdicts() {
         .args(["--output", "verdicts"])
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
     let printed = String::from_utf8(output.stdout).unwrap();
     let (document, _) = command(
         &dir,
@@ -831,7 +831,7 @@ fn the_command_line_prints_verdicts() {
         .args(["--output", "verdicts"])
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     let printed = String::from_utf8(output.stdout).unwrap();
     assert_eq!(
         printed,
@@ -855,7 +855,7 @@ fn the_command_line_prints_verdicts() {
         .args(["--output", "verdicts"])
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     let printed = String::from_utf8(output.stdout).unwrap();
     assert!(
         printed.ends_with(
@@ -899,7 +899,7 @@ fn the_command_line_prints_verdicts() {
         .arg(dir.join("FLOW.toml"))
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     let detail = document["spec"]["detail"].as_str().unwrap();
     assert!(

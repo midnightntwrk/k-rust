@@ -2263,8 +2263,9 @@ fn compared_outcome(outcomes: &[OracleOutcome]) -> &'static str {
 }
 
 /// `kink-flow run`: the run document and whether the command found no corpus or
-/// infrastructure error (the caller's exit status). Survivors, timeouts and invalid mutations
-/// are results, not errors.
+/// infrastructure error and no `--verify` mismatch; the exit status joins it with the status the
+/// document gives (`crate::cli::run_status`). Survivors, timeouts and invalid mutations are
+/// results, not errors.
 pub fn run(manifest: &FlowManifest, list: &MutationList, options: &RunOptions) -> (Value, bool) {
     run_with(manifest, list, options, RunMode::Search)
 }

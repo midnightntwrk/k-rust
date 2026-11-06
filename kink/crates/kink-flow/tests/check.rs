@@ -3,7 +3,7 @@
 use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
-    cli::{CheckOptions, EXIT_CORPUS, EXIT_OK, EXIT_USAGE, check, check_with},
+    cli::{CheckOptions, EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, check, check_with},
     mutation::InvalidReason,
 };
 use kink_patch::sha256;
@@ -77,7 +77,7 @@ const CALC_K: &str = include_str!("../../../testdata/flow/calc/calc.k");
 fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     let manifest = flow("calc/FLOW.toml");
     let (document, status) = check(&manifest);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
     assert_eq!(
         keys(&document),
@@ -216,7 +216,7 @@ fn a_program_that_does_not_parse_is_refused_alone() {
     );
     assert!(!admission.all_admitted());
     let (document, status) = check(&manifest);
-    assert_eq!(status, EXIT_CORPUS);
+    assert_eq!(status, EXIT_UNASKED);
     assert_eq!(document["spec"]["outcome"], "admitted");
     let bad = &document["programs"][1];
     assert_eq!(
@@ -247,7 +247,7 @@ fn a_spec_that_does_not_compile_is_refused_at_the_compile_stage() {
     assert_eq!(admission.record.files.len(), 1);
     assert!(admission.record.kompile_warnings.is_none());
     let (document, status) = check(&flow("compile-error/FLOW.toml"));
-    assert_eq!(status, EXIT_CORPUS);
+    assert_eq!(status, EXIT_UNASKED);
     assert_eq!(document["spec"]["stage"], "compile");
     assert_eq!(document["programs"], serde_json::json!([]));
 }
@@ -566,7 +566,7 @@ fn binary(args: &[&std::ffi::OsStr]) -> (Option<i32>, String, String) {
 #[test]
 fn the_version_flag_names_the_builds() {
     let (code, stdout, stderr) = binary(&["--version".as_ref()]);
-    assert_eq!(code, Some(EXIT_OK.into()), "{stderr}");
+    assert_eq!(code, Some(EXIT_YES.into()), "{stderr}");
     assert_eq!(
         stdout,
         format!(
@@ -680,7 +680,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
         .concat(),
     );
     let (document, status) = check_list(&manifest, &mutations, None);
-    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
     assert_eq!(document["version"], 10);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
@@ -776,13 +776,13 @@ fn check_resolves_every_mutation_and_runs_no_program() {
 
     // A list with no refusal passes, warnings and all; a single file keeps its ids as written.
     let (document, status) = check_list(&manifest, &mutations.join("arith.toml"), None);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     assert_eq!(row(&document, "add-becomes-sub")["outcome"], "ok");
 
     // A list that does not decode is refused, with the specification still admitted.
     write(&dir.join("BAD.toml"), "[[mutation]]\nid = \"m\"\n");
     let (document, status) = check_list(&manifest, &dir.join("BAD.toml"), None);
-    assert_eq!(status, EXIT_CORPUS);
+    assert_eq!(status, EXIT_UNASKED);
     assert_eq!(document["mutation_list"]["outcome"], "refused");
     assert!(document["mutations"].is_null());
 }
@@ -801,7 +801,7 @@ fn the_binary_checks_a_mutations_directory() {
         "--mutations".as_ref(),
         dir.join("mutations").as_os_str(),
     ]);
-    assert_eq!(code, Some(EXIT_OK.into()), "{stderr}");
+    assert_eq!(code, Some(EXIT_YES.into()), "{stderr}");
     let document: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(row(&document, "arith/add-becomes-sub")["outcome"], "ok");
     for args in [
@@ -818,7 +818,7 @@ fn the_binary_checks_a_mutations_directory() {
         ],
     ] {
         let (code, _, stderr) = binary(&args);
-        assert_eq!(code, Some(EXIT_USAGE.into()), "{args:?}: {stderr}");
+        assert_eq!(code, Some(EXIT_UNASKED.into()), "{args:?}: {stderr}");
     }
 }
 
@@ -939,7 +939,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     let exclusions = &admission.spec.as_ref().unwrap().exclusions;
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     assert_eq!(document["version"], 10);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
@@ -1031,7 +1031,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
         let mutations = dir.join("MUTATIONS.toml");
         on_stack(move || check_list(&manifest, &mutations, None))
     };
-    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(status, EXIT_YES, "{document:#}");
     assert_eq!(
         row(&document, "unknown-op")["outcome"],
         "ok",
@@ -1046,7 +1046,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
 /// analysis flags elsewhere. Admission runs each program to depth 0, the normalization of its
 /// initial configuration, which every run of it on the baseline starts with: `g0`'s lists the
 /// undefined `1 /Int 0` that `orBool` may skip, so `g0` is `excluded` at stage `initial-state`,
-/// alone, and `check` exits 1; `g1`'s lists nothing (`1 /Int 1` is defined), so `g1` is `ok`, as
+/// alone, and `check` exits 1, a finding; `g1`'s lists nothing (`1 /Int 1` is defined), so `g1` is `ok`, as
 /// is `plain`, which does not apply `g`. A rule the analysis flags, which no program applies,
 /// changes none of this.
 #[test]
@@ -1078,7 +1078,7 @@ fn a_program_whose_initial_configuration_is_excluded_fails_check_alone() {
             ],
             "flagged: {flagged}"
         );
-        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert_eq!(status, EXIT_NO, "{document:#}");
         assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
         assert_eq!(
             document["spec"]["short_circuit"].is_object(),
@@ -1142,7 +1142,7 @@ endmodule
     );
     let manifest = dir.join("FLOW.toml");
     let (document, status) = on_stack(move || check(&manifest));
-    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
     assert!(
         document["spec"]["short_circuit"].is_object(),
         "{document:#}"
@@ -1822,7 +1822,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                 },
             );
             assert_eq!(
-                status, EXIT_OK,
+                status, EXIT_YES,
                 "an unknown program is no error of results: {results_document:#}"
             );
             let (run_document, _) = run(
@@ -1919,11 +1919,11 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     }
 
     /// With every program's result cached, `check` warns of an edited rule no comparable
-    /// program witnesses; `run` exits 1 when a selected mutation is invalid. Under Z3 the result
+    /// program witnesses; `run` exits 2 when a selected mutation is invalid. Under Z3 the result
     /// cache is off, so no program has a record and the warning is never given.
     #[test]
     #[ignore = "kink"]
-    fn check_warns_of_an_unwitnessed_rule_and_run_exits_one_on_an_invalid_mutation() {
+    fn check_warns_of_an_unwitnessed_rule_and_run_refuses_an_invalid_mutation() {
         use kink_flow::{
             cli::{results, run},
             results::ResultsOptions,
@@ -1955,13 +1955,13 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         );
 
         let (document, status) = results(&manifest, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
-        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
         unreached_rule_from_the_cached_results(&dir, &manifest, &list, &document);
 
         let (document, status) = run(&manifest, &list, &RunOptions::default());
-        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
         assert_eq!(document["counts"]["invalid-mutation"], 1, "{document:#}");
         let (document, status) = run(
             &manifest,
@@ -1971,7 +1971,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                 ..RunOptions::default()
             },
         );
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
     }
 
     /// The check document of the test above once every program's result is cached: the coverage
@@ -1996,7 +1996,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         let text = fs::read_to_string(&calc).unwrap();
         fs::write(&calc, format!("// a comment at the top\n\n{text}")).unwrap();
         let (commented, status) = check_list(manifest, list, None);
-        assert_eq!(status, EXIT_CORPUS, "{commented:#}");
+        assert_eq!(status, EXIT_UNASKED, "{commented:#}");
         assert_eq!(commented["coverage"], document["coverage"], "{commented:#}");
         assert_eq!(
             reasons(&row(&commented, "mul-becomes-add")["warnings"]),
@@ -2048,7 +2048,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         let timeout = dir.join("FLOW-timeout.toml");
         for _ in 0..2 {
             let (document, status) = results(&timeout, &ResultsOptions::default());
-            assert_eq!(status, EXIT_OK, "{document:#}");
+            assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
             assert_eq!(
                 classes(&document),
                 [
@@ -2057,7 +2057,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                 ]
             );
             let (checked, status) = check_list(&timeout, &list, None);
-            assert_eq!(status, EXIT_OK, "{checked:#}");
+            assert_eq!(status, EXIT_YES, "{checked:#}");
             assert_eq!(checked["coverage"]["decides"], false, "{checked:#}");
             assert_eq!(
                 checked["coverage"]["without_record"],
@@ -2084,7 +2084,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             ),
         );
         let (document, status) = results(&work, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         assert_eq!(
             classes(&document),
             [
@@ -2093,7 +2093,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             ]
         );
         let (checked, status) = check_list(&work, &list, None);
-        assert_eq!(status, EXIT_OK, "{checked:#}");
+        assert_eq!(status, EXIT_YES, "{checked:#}");
         assert_eq!(checked["coverage"]["decides"], true, "{checked:#}");
         assert_eq!(
             reasons(&row(&checked, "unused-adds-one")["warnings"]),
@@ -2133,9 +2133,9 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             .concat(),
         );
         let (document, status) = results(&manifest, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(document["coverage"]["decides"], true, "{document:#}");
         for id in ["operands-swapped", "guard-dropped"] {
             let warnings = &row(&document, id)["warnings"];
@@ -2148,9 +2148,9 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             &format!("{header}{by_zero}\n[[program]]\nid = \"quotient\"\ntext = \"7 / 2\"\n"),
         );
         let (document, status) = results(&manifest, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
-        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(document["coverage"]["decides"], true, "{document:#}");
         for id in ["operands-swapped", "guard-dropped"] {
             assert_eq!(
@@ -2166,7 +2166,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     fn the_binarys_exit_codes() {
         let path = |name: &str| flow(name).into_os_string();
         let (code, stdout, _) = binary(&["check".as_ref(), &path("calc/FLOW.toml")]);
-        assert_eq!(code, Some(EXIT_OK.into()));
+        assert_eq!(code, Some(EXIT_YES.into()));
         let document: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(document["spec"]["outcome"], "admitted");
         assert_eq!(
@@ -2180,10 +2180,10 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         );
 
         let (code, stdout, _) = binary(&["check".as_ref(), &path("register/FLOW.toml")]);
-        assert_eq!(code, Some(EXIT_OK.into()), "{stdout}");
+        assert_eq!(code, Some(EXIT_YES.into()), "{stdout}");
 
         let (code, stdout, _) = binary(&["check".as_ref(), &path("calc/FLOW-bad-program.toml")]);
-        assert_eq!(code, Some(EXIT_CORPUS.into()));
+        assert_eq!(code, Some(EXIT_UNASKED.into()));
         let document: Value = serde_json::from_str(&stdout).unwrap();
         let refused = document["programs"]
             .as_array()
@@ -2195,7 +2195,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(refused, ["bad"]);
 
         let (code, stdout, _) = binary(&["check".as_ref(), &path("compile-error/FLOW.toml")]);
-        assert_eq!(code, Some(EXIT_CORPUS.into()));
+        assert_eq!(code, Some(EXIT_UNASKED.into()));
         let document: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(document["spec"]["stage"], "compile");
 
@@ -2205,7 +2205,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nmode = 1\n",
         );
         let (code, stdout, _) = binary(&["check".as_ref(), dir.join("FLOW.toml").as_os_str()]);
-        assert_eq!(code, Some(EXIT_CORPUS.into()));
+        assert_eq!(code, Some(EXIT_UNASKED.into()));
         let document: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(
             (&document["spec"]["stage"], &document["spec"]["reason"]),
@@ -2225,7 +2225,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             ],
         ] {
             let (code, stdout, stderr) = binary(&args);
-            assert_eq!(code, Some(EXIT_USAGE.into()), "{args:?}");
+            assert_eq!(code, Some(EXIT_UNASKED.into()), "{args:?}");
             assert!(stdout.is_empty(), "{args:?}");
             assert!(
                 stderr.contains("usage: kink-flow --version | kink-flow check FLOW.toml"),

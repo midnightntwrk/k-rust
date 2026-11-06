@@ -7,7 +7,7 @@ mod flow_support;
 
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_OK, results},
+    cli::{EXIT_YES, results},
     outcomes::OUTCOMES_DIRECTORY,
     results::{CACHE_DIRECTORY, ResultsOptions},
     search::{ProgramOrder, RunMode, RunOptions, run_with},
@@ -83,7 +83,7 @@ fn results_with(manifest: &Path, verify: bool) -> Value {
             mutations: None,
         },
     );
-    assert_eq!(code, EXIT_OK, "{document:#}");
+    assert_eq!(code, EXIT_YES, "{document:#}");
     document
 }
 

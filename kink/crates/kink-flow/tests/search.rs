@@ -12,7 +12,7 @@ use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
     admit::corpus_source,
-    cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
+    cli::{EXIT_UNASKED, EXIT_YES, results},
     digest::hint_key,
     hints::{HINTS_SCHEMA, hints_path},
     outcomes::OUTCOMES_DIRECTORY,
@@ -398,7 +398,7 @@ mod kink_tier {
             .arg(&cache)
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-run");
         assert_eq!(
@@ -416,22 +416,22 @@ mod kink_tier {
         )
         .unwrap();
         for (args, code) in [
-            (vec!["run"], EXIT_USAGE),
-            (vec!["run", "FLOW.toml"], EXIT_USAGE),
+            (vec!["run"], EXIT_UNASKED),
+            (vec!["run", "FLOW.toml"], EXIT_UNASKED),
             (
                 vec!["run", "FLOW.toml", "MUTATIONS.toml", "--only"],
-                EXIT_USAGE,
+                EXIT_UNASKED,
             ),
             (
                 vec!["run", "FLOW.toml", "MUTATIONS.toml", "--only", "nope"],
-                EXIT_USAGE,
+                EXIT_UNASKED,
             ),
             (
                 vec!["run", "FLOW.toml", "MUTATIONS.toml", "--frobnicate"],
-                EXIT_USAGE,
+                EXIT_UNASKED,
             ),
-            (vec!["run", "FLOW.toml", "missing.toml"], EXIT_USAGE),
-            (vec!["run", "FLOW.toml", "BAD.toml"], EXIT_CORPUS),
+            (vec!["run", "FLOW.toml", "missing.toml"], EXIT_UNASKED),
+            (vec!["run", "FLOW.toml", "BAD.toml"], EXIT_UNASKED),
         ] {
             let output = Command::new(binary)
                 .args(&args)
@@ -439,7 +439,7 @@ mod kink_tier {
                 .output()
                 .unwrap();
             assert_eq!(output.status.code(), Some(i32::from(code)), "{args:?}");
-            if code == EXIT_CORPUS {
+            if args.contains(&"BAD.toml") {
                 let document: Value = serde_json::from_slice(&output.stdout).unwrap();
                 assert_eq!(document["mutation_list"]["outcome"], "refused");
             }
@@ -1315,7 +1315,7 @@ note = "right-hand side"
         let manifest = fixture("calc", "mismatch-cold").join("FLOW.toml");
         let mutations = manifest.with_file_name("MUTATIONS.toml");
         let (filled, status) = results(&manifest, &ResultsOptions::default());
-        assert_eq!(status, EXIT_OK);
+        assert_eq!(status, EXIT_YES);
         let filled = json!({"spec": filled["spec"], "programs": filled["programs"]});
         corrupt_run_digest(&manifest, &filled, "add");
         let (document, ok) = search(&manifest, &mutations, &[]);

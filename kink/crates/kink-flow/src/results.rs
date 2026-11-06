@@ -1906,7 +1906,8 @@ pub fn result_cache_value(solver: k_rust::backend::BackendOptions) -> Value {
 }
 
 /// `kink-flow results`: the results document and whether the command found no corpus or
-/// infrastructure error (the caller's exit status).
+/// infrastructure error; the exit status joins it with the status the document gives
+/// (`crate::cli::results_status`).
 pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, bool) {
     // Every document names the stop, a refused specification's too, as `check` and `run` do.
     let stopped = |mut document: Value| {

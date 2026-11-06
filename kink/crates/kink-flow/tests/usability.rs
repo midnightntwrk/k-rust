@@ -14,7 +14,7 @@ mod flow_support;
 use kink_campaign::{FinalResult, OracleOutcome, OracleSide, OracleValue, SideRun};
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_OK, results},
+    cli::{EXIT_UNASKED, results, results_status},
     hints::hints_path,
     outcomes::OUTCOMES_DIRECTORY,
     report::{KORE_CAP, slots_value},
@@ -95,7 +95,11 @@ fn results_document(manifest: &Path, mutations: Option<PathBuf>) -> Value {
             mutations,
         },
     );
-    assert_eq!(code, EXIT_OK, "{document:#}");
+    // The command is asked and fails nothing its document does not show; which answer its
+    // programs have (an `unknown` baseline is no answer, and which programs are unknown depends on
+    // the profile) is each test's to pin.
+    assert_ne!(code, EXIT_UNASKED, "{document:#}");
+    assert_eq!(code, results_status(&document), "{document:#}");
     document
 }
 

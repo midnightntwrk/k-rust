@@ -200,8 +200,8 @@ expectation whose run has no end included), else 0. A completed run of a definit
 exit cell exits with that cell's value instead, the program's own status, which shares these
 numbers: --output json tells them apart. A run with an expectation (--case) exits by its
 verdict instead, 0 met, 1 unmet and 3 inconclusive, and with --output end, a run whose end has
-no end document exits 2, whatever its own status. Every other command exits 0 on success, 2 on
-a usage error and 1 otherwise; krs kink --help gives kink's.
+no end document exits 2, whatever its own status. krs kink exits by the same four (krs kink
+--help). Every other command exits 0 on success, 2 on a usage error and 1 otherwise.
 ";
 
 /// `krs kink --help`.
@@ -240,12 +240,30 @@ Every verb but emit and report builds the package, writes kink/definition.k when
 from the emission (the document's `definition.status` says `written`), and runs kink-flow's
 verb on it; every rule a document names gains `krs = {item, package, file, line, column,
 kind, claim_helper}`. --locked refuses a stale definition.k instead of writing it, and
-emit --check exits 1 when it is stale: the gate a CI runs. report builds nothing: it prints
-the last run's stored document (or its verdicts) as that run printed it, and takes no
---locked.
+emit --check exits 2 when it is stale: the gate a CI runs. report builds nothing: it prints
+the last run's stored document (or its verdicts) as that run printed it, exits as that run
+did, and takes no --locked.
 
-Exit status: 0, 1 when anything is refused (the document says what and why), 2 on a usage
-error. The selection options (--manifest-path, --package, --package-id, --definition,
+Exit status, by what the caller does next, as krs run's (krs --help):
+  0  yes: every program is comparable and meets its expectation (results), every mutation
+     got a verdict, killed or survived (run, report), every pattern answered (query), the
+     fuzz found a witness or proved the mutant equivalent, verdicts are possible (check),
+     definition.k is fresh (emit)
+  1  a finding: a --verify mismatch, an unmet expectation (results), a refuted pattern
+     claim (query), a program excluded on the baseline or a baseline without data (check)
+  2  the question could not be asked: a usage error, a package krs refuses, a stale
+     definition.k (--locked, emit --check), a refused manifest, specification, program,
+     mutation list, mutation, pattern or template, hole values the fuzz mostly rejected, a
+     failed run or cache write
+  3  no answer: a program or mutation that timed out or is unknown, an inconclusive
+     expectation, an unknown pattern answer, a fuzz that ended without a witness kink accepts
+A command with several parts exits 2 when one could not be asked, else 1 when one is a
+finding, else 3 when one has no answer, else 0.
+Under the Z3 solver profile, which krs builds kink with by default, query answers no pair
+`no`: a pattern a program does not reach is unknown (3) and a claim it does not reach
+unconfirmed, not refuted, so query exits 0 only when every pair asked hits.
+
+The selection options (--manifest-path, --package, --package-id, --definition,
 --dependency, --cfg, --profile, --registration, --message-format, --timings, --counters)
 are krs's, before or after the verb; every other option is the kink-flow verb's own. Every
 command that builds the package builds it in process, so krs kink takes no --no-reuse.
@@ -359,18 +377,21 @@ fn execute_kink(request: &krs_cli::KinkRequest, measure: &MeasureOptions) -> i32
     }
     if let Err(error) = io::stdout().lock().write_all(&outcome.stdout) {
         eprintln!("krs: could not write stdout: {error}");
-        return 1;
+        return exit_status::UNASKED;
     }
     let _ = io::stdout().lock().flush();
     for note in &outcome.notes {
         eprintln!("{note}");
     }
-    if outcome.status == krs_cli::kink::EXIT_USAGE {
+    if outcome.usage {
         eprintln!("\n{KINK_USAGE}");
     }
-    match outcome.status {
-        0 if !measured => 1,
-        status => i32::from(status),
+    let status = i32::from(outcome.status);
+    // An unwritten measurement is an error beside the command's answer.
+    if measured {
+        status
+    } else {
+        exit_status::join(status, exit_status::UNASKED)
     }
 }
 
