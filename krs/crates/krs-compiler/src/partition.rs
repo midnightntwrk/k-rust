@@ -76,8 +76,10 @@ pub enum PlacementReason {
     /// Whether a function is one depends on where the definition's
     /// configuration holds the cells it reads, not on its declaration.
     InstanceFunction {
-        /// The K names of the Map collection cells.
-        holders: Vec<String>,
+        /// The K names of the Map collection cells that enclose `innermost`, outermost first.
+        outer: Vec<String>,
+        /// The K name of the innermost Map collection cell.
+        innermost: String,
     },
 }
 
@@ -109,19 +111,19 @@ impl fmt::Display for PlacementReason {
                     ": K has no {module}{PROGRAM_SYNTAX_SUFFIX} module"
                 )
             }
-            Self::InstanceFunction { holders } => {
-                let holders = holders
-                    .iter()
-                    .map(|holder| format!("`{holder}`"))
-                    .collect::<Vec<_>>();
-                let (cells, holders, key) = match holders.as_slice() {
-                    [one] => ("cell", one.clone(), "the instance's key"),
-                    [init @ .., last] => (
+            Self::InstanceFunction { outer, innermost } => {
+                let (cells, holders, key) = if outer.is_empty() {
+                    ("cell", format!("`{innermost}`"), "the instance's key")
+                } else {
+                    let outer = outer
+                        .iter()
+                        .map(|holder| format!("`{holder}`"))
+                        .collect::<Vec<_>>();
+                    (
                         "cells",
-                        format!("{} and {last}", init.join(", ")),
+                        format!("{} and `{innermost}`", outer.join(", ")),
                         "each instance's key",
-                    ),
-                    [] => ("cells", String::new(), "each instance's key"),
+                    )
                 };
                 write!(
                     formatter,
@@ -451,16 +453,18 @@ fn production_placement(
     if is_private(production) {
         return Some(PlacementReason::NotPublic);
     }
-    let holders = keys.function(production.id());
-    if !holders.is_empty() {
+    let mut holders = keys
+        .function(production.id())
+        .iter()
+        .map(|holder| {
+            keys.holder(holder)
+                .map_or_else(|| holder.to_string(), |holder| holder.name.clone())
+        })
+        .collect::<Vec<_>>();
+    if let Some(innermost) = holders.pop() {
         return Some(PlacementReason::InstanceFunction {
-            holders: holders
-                .iter()
-                .map(|holder| {
-                    keys.holder(holder)
-                        .map_or_else(|| holder.to_string(), |holder| holder.name.clone())
-                })
-                .collect(),
+            outer: holders,
+            innermost,
         });
     }
     needs_full_module(production)
@@ -676,7 +680,8 @@ mod tests {
     #[test]
     fn an_instance_function_is_placed_because_a_program_is_in_no_instance() {
         let one = PlacementReason::InstanceFunction {
-            holders: vec!["hart".to_owned()],
+            outer: Vec::new(),
+            innermost: "hart".to_owned(),
         };
         assert_eq!(
             one.to_string(),
@@ -684,7 +689,8 @@ mod tests {
         );
         assert!(one.is_automatic());
         let two = PlacementReason::InstanceFunction {
-            holders: vec!["cluster".to_owned(), "hart".to_owned()],
+            outer: vec!["cluster".to_owned()],
+            innermost: "hart".to_owned(),
         };
         assert_eq!(
             two.to_string(),
