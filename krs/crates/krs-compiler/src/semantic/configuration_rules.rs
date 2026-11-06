@@ -1415,6 +1415,17 @@ fn lower_configuration_group_clause(
             entry_range(descriptor, entry),
         ));
     }
+    // A group's entry is the set of its children's cells, so `P1 | P2` over it matches one set
+    // or another, which no single rule states.
+    if let ProtocolRuleStateTerm::Group(term) = &subject.value {
+        super::cell_alternatives::reject_cell_alternatives(
+            descriptor,
+            term,
+            &subject.field.cell.field,
+            declaration,
+            terms.declarations.cell(declaration)?,
+        )?;
+    }
     let sort = SemanticSortRef::Cell(declaration.clone());
     let before = terms.state_term(
         &subject.value,

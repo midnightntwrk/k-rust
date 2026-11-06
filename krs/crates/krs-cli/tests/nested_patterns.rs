@@ -1013,13 +1013,34 @@ fn refused_alternatives() -> Vec<(&'static str, String, &'static str)> {
             ),
             "Mark { seen: 0",
         ),
+        (
+            "cells-entry",
+            format!("{TWO_LEVEL}{CELLS_ENTRY_ALTERNATIVES}"),
+            "k::fragment![Outer { flag: 0",
+        ),
     ]
 }
 
+/// A `cells!` rule joining alternatives of the whole `outer` cell, one set of cells or another:
+/// the macro refuses it as it is written. An elaborated readable rule, which no macro reads, is
+/// refused where the `cells!` lowering reads a group entry, at the readable entry's code.
+const CELLS_ENTRY_ALTERNATIVES: &str = r#"
+#[k::rule(label = "pick")]
+pub fn pick(
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Push(), ..),
+        outer: k::fragment![Outer { flag: 0, .. } | Outer { flag: 1, .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..), ..state }
+}
+"#;
+
 /// `|` whose alternatives are whole group cells (a record entry naming a
 /// group, at any depth, an optional group's `Some(..)`, or a group child of
-/// a cell term) is refused where it is written, also below an alias and in
-/// a claim.
+/// a cell term) is refused where it is written, also below an alias, in
+/// a claim, and in a `cells!` rule.
 #[test]
 fn alternatives_over_a_whole_group_cell_are_refused_at_the_bar() {
     let target = shared_fixture_target();
@@ -1048,6 +1069,7 @@ fn alternatives_over_a_whole_group_cell_are_refused_at_the_bar() {
             "group-child-fragments: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `pc`: write `Frame { pc: A | B, .. }`",
             "group-child-alias: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative",
             "optional-group: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `mark` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Mark { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `seen`: write `Mark { seen: A | B, .. }`",
+            "cells-entry: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!",
         ]
     "#]]
     .assert_debug_eq(&refused);
