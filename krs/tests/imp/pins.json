@@ -2053,7 +2053,7 @@
     "source-definitions": "ba99ddb32c79b524d46c4abd10d780d871a1f190066f9597695a49c67b1dc3c7",
     "native-claims": "20534da652def037ee13db194f8ad86342752bcbc7c79d8173a4b0c46fcd8264",
     "behavior": "f80aab62a7f44753c9912f2f9999d4d67158dae1aee7d42643defb995e5590a4",
-    "proofs": "2992e3f59896be9c919ff52ce064185278c6dd8994f92ef231b3f6947a25e89c",
+    "proofs": "c743e0b4e134c5f959025c6159ee124ae49e7f1ea37c484db8f3fd670488905c",
     "frontend-diagnostic": "c97f7a93634051d4ff7e47a32d671f280f09b198ec4cb0303b9ea7f20bf1120b"
   },
   "native_proof_divergences": {
