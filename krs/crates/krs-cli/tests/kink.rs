@@ -2743,6 +2743,313 @@ fn expectations_under_a_stop(project: &Project) {
     );
 }
 
+/// A definition whose cell `a` holds the input `a`, whose view `Positive` identifies the
+/// positive `Int`s and whose view `OnlyZero` has a value at `0` only; `run(n)` steps to
+/// `done(n + 1)`.
+const VIEWED: &str = r#"use k::builtin::{Int, KSequence, int};
+use k::{KItem, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("run({value})")] Run { value: Int },
+    #[k::syntax("done({value})")] Done { value: Int },
+}
+
+#[k::rule]
+fn finish(k::term![Cmd::Run { value }]: Term<Exp>) -> Term<Exp> {
+    Cmd::Done(int::add(value, 1))
+}
+
+/// Whether an `Int` is positive, as `1` or `0`: a view that identifies different values.
+#[k::function(total, internal)]
+pub fn Positive(n: Term<Int>) -> Term<Int> {
+    if n > 0 { 1 } else { 0 }
+}
+
+/// `1` at `0`, and no value elsewhere: a view defined at one value only.
+#[k::function(partial, internal)]
+#[k::requires(n.eq::<Int>(0))]
+pub fn OnlyZero(n: Term<Int>) -> Term<Int> {
+    1
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub a: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp, a: Int) -> Self {
+        Self { k: k::k![pgm], a }
+    }
+}
+"#;
+
+/// The package of [`VIEWED`].
+const VIEWED_PACKAGE: &str = "krs-cli-kink-views";
+
+/// The observer of [`VIEWED`], a second package of its workspace that depends on it.
+const VIEWED_OBSERVER_PACKAGE: &str = "krs-cli-kink-views-observe";
+
+/// The observer's source: a view no semantics imports.
+const VIEWED_OBSERVER: &str = r"//! An observer of the viewed definition, imported by no definition.
+
+use k::Term;
+use k::builtin::Int;
+
+/// Whether an `Int` is below ten, as `1` or `0`.
+#[k::function(total, internal)]
+pub fn BelowTen(n: Term<Int>) -> Term<Int> {
+    if n < 10 { 1 } else { 0 }
+}
+";
+
+/// The files of [`VIEWED`]'s workspace and corpora: `kink/` holds expectations met and unmet
+/// only through a view of the definition, one met only through the observer's, one met through
+/// neither, since it names no view, one whose view has no value at the baseline's end, and one
+/// of a `depth-bound` end, decided before any view is evaluated; `corpora/observer` names an
+/// observer no package of the workspace is, `corpora/view` a view that is no function of the
+/// definition, and `corpora/partial` a view without a value at the expected end.
+fn viewed_files() -> Vec<(String, Vec<u8>)> {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    let manifest = |name: &str, namespace: &str, dependencies: &str, workspace: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n{workspace}"
+        )
+        .into_bytes()
+    };
+    let flow =
+        b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\ncases = \"cases/*.toml\"\n";
+    let case = |name: &str, a: i64, expect: &str| {
+        format!(
+            "[[case]]\nname = \"{name}\"\ninputs = {{ pgm = {{ Run = {{ value = 1 }} }}, a = {a} }}\nexpect = {{ halt = \"stuck\", compare = [\"a\"], cells = {{ a = {expect} }}\n"
+        )
+    };
+    let cases = [
+        case("met", 1, "5 }, views = { a = \"Positive\" }"),
+        case("unmet", -1, "5 }, views = { a = \"Positive\" }"),
+        case(
+            "observed",
+            3,
+            &format!("7 }}, views = {{ a = \"BelowTen\" }}, observer = \"{VIEWED_OBSERVER_PACKAGE}:main\""),
+        ),
+        case("unviewed", 1, "5 }"),
+        case("partial", 1, "0 }, views = { a = \"OnlyZero\" }"),
+        case("bounded", 1, "5 }, views = { a = \"Positive\" }")
+            .replace("\"stuck\"", "\"depth-bound\""),
+    ]
+    .join("\n");
+    vec![
+        (
+            "Cargo.toml".to_owned(),
+            manifest(
+                VIEWED_PACKAGE,
+                "VIEWS",
+                "",
+                "\n[workspace]\nmembers = [\"observe\"]\nresolver = \"3\"\n",
+            ),
+        ),
+        ("src/lib.rs".to_owned(), VIEWED.as_bytes().to_vec()),
+        (
+            "observe/Cargo.toml".to_owned(),
+            manifest(
+                VIEWED_OBSERVER_PACKAGE,
+                "VIEWS-OBSERVE",
+                &format!("viewed = {{ package = \"{VIEWED_PACKAGE}\", path = \"..\" }}\n"),
+                "",
+            ),
+        ),
+        (
+            "observe/src/lib.rs".to_owned(),
+            VIEWED_OBSERVER.as_bytes().to_vec(),
+        ),
+        ("kink/FLOW.toml".to_owned(), flow.to_vec()),
+        ("kink/cases/views.toml".to_owned(), cases.into_bytes()),
+        ("corpora/observer/FLOW.toml".to_owned(), flow.to_vec()),
+        (
+            "corpora/observer/cases/views.toml".to_owned(),
+            case(
+                "nowhere",
+                1,
+                "5 }, views = { a = \"Positive\" }, observer = \"no-such-package:main\"",
+            )
+            .into_bytes(),
+        ),
+        ("corpora/view/FLOW.toml".to_owned(), flow.to_vec()),
+        (
+            "corpora/view/cases/views.toml".to_owned(),
+            case("nothing", 1, "5 }, views = { a = \"NoSuchView\" }").into_bytes(),
+        ),
+        ("corpora/partial/FLOW.toml".to_owned(), flow.to_vec()),
+        (
+            "corpora/partial/cases/views.toml".to_owned(),
+            case("undefined", 0, "5 }, views = { a = \"OnlyZero\" }").into_bytes(),
+        ),
+    ]
+}
+
+/// The verdict word `krs run --case` gives `case` of `file` (relative to the package), from its
+/// exit status: 0 met, 1 unmet, 3 inconclusive; and its stderr.
+fn run_case_verdict(project: &Project, file: &str, case: &str) -> (Option<&'static str>, String) {
+    let output = project.krs(&["run", "--case", file, "--case-name", case]);
+    let verdict = match output.status.code() {
+        Some(0) => Some("met"),
+        Some(1) => Some("unmet"),
+        Some(3) => Some("inconclusive"),
+        _ => None,
+    };
+    (verdict, stderr(&output))
+}
+
+/// A case's expectation is checked with its views applied, as `krs run --case` checks it: a
+/// view of the definition makes an expectation met or unmet that the cell's value alone would
+/// not, a view of the observer the expectation names is evaluated there, and each verdict is the
+/// one `krs run --case` gives and names the views it applied. A view without a value at the
+/// baseline's end, which `krs run --case` refuses, makes the expectation inconclusive with that
+/// refusal as its detail, and a verdict decided before any view is evaluated names none. A case
+/// whose observer cannot be prepared, whose view names no function, or whose view has no value
+/// at the expected end is refused, as `krs run --case` refuses it, with the same reason.
+#[test]
+fn a_case_expectation_is_checked_through_its_views_as_krs_run_checks_it() {
+    let project = project_of("krs-cli-kink-views", "VIEWS", &viewed_files());
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let results = json(&output);
+    let expected = [
+        ("met", "met"),
+        ("unmet", "unmet"),
+        ("observed", "met"),
+        ("unviewed", "unmet"),
+        ("partial", "inconclusive"),
+        ("bounded", "inconclusive"),
+    ];
+    assert_eq!(
+        verdicts(&results),
+        expected
+            .map(|(name, verdict)| (format!("cases/views.toml#{name}"), Some(verdict.to_owned()))),
+        "{results:#}"
+    );
+    let [compared @ .., _, _] = expected;
+    for (name, verdict) in compared {
+        let (run, stderr) = run_case_verdict(&project, "kink/cases/views.toml", name);
+        assert_eq!(run, Some(verdict), "krs run --case of `{name}`:\n{stderr}");
+    }
+    let row = |name: &str| program_row(&results, &format!("cases/views.toml#{name}"));
+    assert_eq!(
+        row("met")["expectation"]["detail"],
+        "views: `a` = `Positive`",
+        "{results:#}"
+    );
+    assert_eq!(
+        row("observed")["expectation"]["detail"],
+        format!("views: `a` = `BelowTen`, in `{VIEWED_OBSERVER_PACKAGE}:main`"),
+        "{results:#}"
+    );
+    assert_eq!(row("unviewed")["expectation"]["detail"], Value::Null);
+    // `OnlyZero` has a value at the expected `0` and none at the baseline's `1`: `krs run --case`
+    // refuses the case, and kink, which admitted it, cannot check it.
+    let partial = row("partial")["expectation"]["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        partial.starts_with("the expectation cannot be checked: a view refuses the case")
+            && partial.contains(
+                "the view `OnlyZero` of the cell `a`: it has no value at the baseline end's `a`"
+            ),
+        "{results:#}"
+    );
+    let output = project.krs(&[
+        "run",
+        "--case",
+        "kink/cases/views.toml",
+        "--case-name",
+        "partial",
+    ]);
+    assert_status(&output, 2);
+    let refusal = stderr(&output);
+    assert!(
+        refusal.contains(
+            "the view `OnlyZero` of the cell `a`: it has no value at the actual end's `a`"
+        ),
+        "{refusal}"
+    );
+    // A `depth-bound` end is decided before any view is evaluated: the detail names none.
+    let bounded = row("bounded")["expectation"]["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        bounded.starts_with("the expectation's end is `depth-bound`") && !bounded.contains("views"),
+        "{results:#}"
+    );
+    let unmet = row("unmet")["expectation"].clone();
+    let difference = &unmet["difference"];
+    assert_eq!(difference["path"], "a", "{unmet:#}");
+    assert_eq!(
+        difference["views"],
+        serde_json::json!({"a": "Positive"}),
+        "{unmet:#}"
+    );
+
+    // `check` runs nothing: the stored results give the same verdicts.
+    let output = project.kink("check", &[]);
+    assert_status(&output, 0);
+    let check = json(&output);
+    assert_eq!(verdicts(&check), verdicts(&results), "{check:#}");
+
+    viewed_refusals(&project);
+}
+
+/// [`a_case_expectation_is_checked_through_its_views_as_krs_run_checks_it`]: an observer that is
+/// no package of the workspace, a view that is no function, and a view without a value at the
+/// expected end refuse the case at admission under `krs kink`, and `krs run --case` refuses it
+/// with the same reason.
+fn viewed_refusals(project: &Project) {
+    for (corpus, name, named) in [
+        ("observer", "nowhere", "no-such-package"),
+        ("view", "nothing", "NoSuchView"),
+        ("partial", "undefined", "OnlyZero"),
+    ] {
+        let output = project.kink("check", &["--corpus", &format!("corpora/{corpus}")]);
+        assert_status(&output, 1);
+        let check = json(&output);
+        let program = &check["programs"][0];
+        assert_eq!(program["outcome"], "refused", "{check:#}");
+        assert_eq!(program["reason"], "expectation-value", "{check:#}");
+        let detail = program["detail"].as_str().unwrap();
+        assert!(detail.contains(named), "{check:#}");
+        let output = project.krs(&[
+            "run",
+            "--case",
+            &format!("corpora/{corpus}/cases/views.toml"),
+            "--case-name",
+            name,
+        ]);
+        assert_status(&output, 2);
+        let refusal = stderr(&output);
+        assert!(refusal.contains(named), "{refusal}");
+        if corpus != "observer" {
+            // The same refusal of the view, after the position both name.
+            let (_, reason) = detail.split_once("`expect.views`: ").unwrap();
+            assert!(refusal.contains(reason), "{reason}\n{refusal}");
+        }
+    }
+}
+
 /// [`a_case_expectation_is_reported_and_its_case_kept`]: an expectation that is no expectation of
 /// the definition refuses its case, an expectation of a `depth-bound` end among them, as
 /// `krs run --case` refuses it, although no case's run has a depth bound under kink.

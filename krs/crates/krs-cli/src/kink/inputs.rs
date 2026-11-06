@@ -59,6 +59,16 @@ impl KrsInputs {
         need: &str,
         body: impl FnOnce(&Semantics) -> Result<T, String>,
     ) -> Result<T, String> {
+        self.with_semantics_mut(need, |semantics| body(semantics))
+    }
+
+    /// [`Self::with_semantics`], the compile given mutably: a view's evaluation, which runs the
+    /// backend, needs it.
+    pub(crate) fn with_semantics_mut<T>(
+        &self,
+        need: &str,
+        body: impl FnOnce(&mut Semantics) -> Result<T, String>,
+    ) -> Result<T, String> {
         COMPILED.with(|compiled| {
             let mut compiled = compiled.borrow_mut();
             let position =
@@ -70,7 +80,7 @@ impl KrsInputs {
                     compiled.push((self.id, semantics));
                     compiled.len() - 1
                 };
-            let semantics = compiled[position].1.as_ref().map_err(|error| {
+            let semantics = compiled[position].1.as_mut().map_err(|error| {
                 format!("krs cannot compile the definition natively, which {need} needs: {error}")
             })?;
             body(semantics)

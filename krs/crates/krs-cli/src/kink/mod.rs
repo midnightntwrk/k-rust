@@ -358,12 +358,14 @@ fn flow_command(
         return finish(outcome, &document, EXIT_CORPUS, output);
     }
     let definition = emit::definition_value(&shown, status);
+    let observers = render::Observers::new(selection_request(request), outcome.sources.clone());
     run_flow(
         command,
         declared,
         Built {
             emitted: &emitted,
             kept,
+            observers,
         },
         &spelling,
         definition,
@@ -397,10 +399,12 @@ struct KeptLowering {
 }
 
 /// A command's emission and, when it judges mutations, the lowering kept with it, which
-/// [`run_flow`] releases once the front end's checks are made.
+/// [`run_flow`] releases once the front end's checks are made; and the observers the corpus's
+/// expectations name, prepared when one first names each.
 struct Built<'a> {
     emitted: &'a EmittedDefinition,
     kept: Option<KeptLowering>,
+    observers: render::Observers,
 }
 
 /// Run the parsed `command` on the corpus `declared`, bound to the fresh `definition.k` of
@@ -414,10 +418,14 @@ fn run_flow(
     mut outcome: KinkOutcome,
     measurement: &mut Measurement,
 ) -> KinkOutcome {
-    let Built { emitted, kept } = built;
+    let Built {
+        emitted,
+        kept,
+        observers,
+    } = built;
     let output = command.output();
     let verb = command.verb();
-    let (manifest, stop_items) = match bound_manifest(&command, declared, emitted) {
+    let (manifest, stop_items) = match bound_manifest(&command, declared, emitted, observers) {
         Ok(bound) => bound,
         Err(mut document) => {
             document["definition"] = definition;
@@ -517,13 +525,14 @@ fn run_flow(
 }
 
 /// The corpus `declared` bound to the K of `emitted`, with what only the front end knows of it
-/// ([`with_front_end_facts`]) and the rules `[stop]` names by KRS item or label as the exact K
-/// labels kink-flow reads ([`stop::bind`]), and the labels each name selects; or `command`'s
-/// document refusing the corpus.
+/// ([`with_front_end_facts`], the expectations' views evaluated in `observers`) and the rules
+/// `[stop]` names by KRS item or label as the exact K labels kink-flow reads ([`stop::bind`]),
+/// and the labels each name selects; or `command`'s document refusing the corpus.
 fn bound_manifest(
     command: &FlowCommand,
     declared: ManifestFile,
     emitted: &EmittedDefinition,
+    observers: render::Observers,
 ) -> Result<(kink_flow::FlowManifest, Option<Value>), Value> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
@@ -533,7 +542,7 @@ fn bound_manifest(
     // same compile.
     let decoder = Arc::new(inputs::KrsInputs::new(emitted.ir.clone()));
     stop::bind(
-        with_front_end_facts(manifest, emitted, decoder.clone()),
+        with_front_end_facts(manifest, emitted, decoder.clone(), observers),
         &decoder,
     )
     .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))
@@ -541,17 +550,18 @@ fn bound_manifest(
 
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
 /// read (`decoder`), when one has any, how a kill's evidence is shown and a case's expectation
-/// read and checked (by Rust field path and canonical documents, over the decoder's compile), and
-/// which sentences are claim helpers. Only
-/// claims apply a claim helper, and the claims are not in the K kink loads, so the emission,
-/// which wrote both, names them.
+/// read and checked (by Rust field path and canonical documents, over the decoder's compile, its
+/// views evaluated in the definition or in one of `observers`), and which sentences are claim
+/// helpers. Only claims apply a claim helper, and the claims are not in the K kink loads, so the
+/// emission, which wrote both, names them.
 fn with_front_end_facts(
     manifest: kink_flow::FlowManifest,
     emitted: &EmittedDefinition,
     decoder: Arc<inputs::KrsInputs>,
+    observers: render::Observers,
 ) -> kink_flow::FlowManifest {
     manifest
-        .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone())))
+        .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone(), observers)))
         .with_input_decoder(decoder)
         .with_claim_helpers(
             emitted

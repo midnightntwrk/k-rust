@@ -1076,6 +1076,20 @@ fn prepare_observer(
     }
 }
 
+/// The Definition IR of the observer `name` for the definition `request` selects, prepared as
+/// [`prepare_observer`] prepares it for `krs run --case` (`None` when `name` is that definition),
+/// or its refusal as text, each diagnostic rendered with `sources` (the command's) and the
+/// observer's source roots: for `krs kink`, which reports a case's refusal in its document.
+pub(crate) fn observer_definition(
+    request: &CommandRequest,
+    name: &str,
+    sources: &crate::DiagnosticSources,
+) -> Result<Option<krs_ir_levels::DefinitionIr>, String> {
+    prepare_observer(request, name, None)
+        .map(|observer| observer.map(|observer| observer.definition.definition))
+        .map_err(|failure| failure.render(sources))
+}
+
 /// An observer definition, prepared, and the dependency facets of the request it composes.
 struct PreparedObserver {
     definition: exec::ObserverDefinition,

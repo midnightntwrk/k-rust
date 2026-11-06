@@ -39,7 +39,8 @@
 //! values as documents of the encoding, the stop rule named as `--stop-before` names one), and
 //! checks it against the ends of the case's baseline run by krs-exec's rule
 //! ([`krs_exec::Semantics::check_expectation`]: met when every end agrees with it on the class and
-//! the compared cells), each end read as above, the sides named `expected` and `baseline`.
+//! the compared cells, each viewed cell on its view's value, "Views" below), each end read as
+//! above, the sides named `expected` and `baseline`.
 //!
 //! An end's class is what kink's observation of the run says of it. Without `[stop]` every end
 //! kink keeps is a state of no successor, `stuck`, so the class is compared. With `[stop]` an end
@@ -57,9 +58,44 @@
 //! end is refused as `krs run --case` refuses it, since no end meets it. A cell the
 //! expectation compares that the corpus's `[result]` leaves out is not in the ends kink keeps,
 //! which makes the check inconclusive too.
+//!
+//! # Views
+//!
+//! An expectation states one question, and `krs run --case` answers it with the expectation's
+//! `views` applied, so the check applies them too: a viewed cell is compared on what its view
+//! gives at the expected value and at each end's value, not on the value itself. The views are
+//! resolved ([`krs_exec::Semantics::cell_views`]) in the definition the cases run on, or in the
+//! observer the expectation names (`observer`, `PACKAGE:DEFINITION`), whose package is composed
+//! with the command's selection as `krs run --case` composes it. An observer is prepared and
+//! compiled once per command, the first time an expectation names it, and its semantics is loaded
+//! once per thread that checks an expectation, as the definition's own compile is. Reading an
+//! expectation's views moves no identity: an expectation is in no digest, cache key or stored
+//! record, and every command that reports it checks it again. (A view the definition declares is
+//! part of its Definition IR, so editing it moves the renderer's identity and `definition.k`, as
+//! any edit of the definition does; editing an observer's view moves nothing kink keys.)
+//!
+//! Admission resolves the views of every case and evaluates them at the expected end: an observer
+//! that cannot be prepared, a view that names no function of its observer or does not apply to
+//! its cell, a view of a cell the expectation does not compare, and a view without a value at the
+//! expected end refuse the case (`expectation-value`). Each depends on the case alone (its
+//! expected end, views and observer), never on what the definition runs the case to, so the case
+//! states no question any baseline answers; `krs run --case` refuses each too. An evaluation at
+//! the expected end that stops before it ends admits the case, since the view may yet have a
+//! value there; the check then reports it. The check evaluates each view at the expected end and
+//! at every baseline end, each evaluation within `krs run --case`'s default budget
+//! ([`crate::DEFAULT_VIEW_BUDGET`]). An evaluation that stops before it ends makes the
+//! expectation inconclusive, since the view may yet have a value. A view without a value at a
+//! baseline end refuses the case under `krs run --case`; kink refuses no case after admission, so
+//! the check reports that it cannot check the expectation, which kink-flow makes an inconclusive
+//! verdict with the refusal as its detail. Every verdict reached through the views' values names
+//! the views in its detail, and the observer when the expectation names one; an unmet verdict's
+//! difference names the views too. A verdict decided before any view is evaluated (an expected
+//! end kink compares no end to, a stop rule the corpus does not stop at) names none.
 
-use std::collections::BTreeSet;
-use std::sync::{Arc, OnceLock};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use k_rust::kast::identifier::label_or_name;
 use k_rust::kore::ast::Pattern;
@@ -67,13 +103,16 @@ use kink_flow::{
     CheckedExpectation, EndRenderer, ExpectationCheck, ExpectationVerdict, StopSection,
 };
 use krs_exec::{
-    CellInfo, Compared, Comparison, DIFFERENCE_FORMAT, End, EndClass, EndError, Ends, Expectation,
-    Halt, Semantics, Side,
+    CellInfo, Compared, Comparison, CompiledStage, DIFFERENCE_FORMAT, End, EndClass, EndError,
+    Ends, Expectation, Halt, Semantics, Side,
 };
+use krs_ir::measure::Timings;
+use krs_ir_levels::DefinitionIr;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::inputs::{KrsInputs, ManifestFiles};
+use crate::{CommandRequest, DEFAULT_VIEW_BUDGET, DiagnosticSources};
 
 /// The renderer of one emission's kill evidence, over the decoder's native compile.
 pub(crate) struct KrsEnds {
@@ -81,15 +120,173 @@ pub(crate) struct KrsEnds {
     /// The renderer's identity, computed on first use (tier 1's context names it, in both
     /// profiles; a run with tier 1 off never asks).
     identity: OnceLock<Result<Value, String>>,
+    /// The observers the corpus's expectations name.
+    observers: Observers,
 }
 
 impl KrsEnds {
-    pub(crate) const fn new(inputs: Arc<KrsInputs>) -> Self {
+    pub(crate) const fn new(inputs: Arc<KrsInputs>, observers: Observers) -> Self {
         Self {
             inputs,
             identity: OnceLock::new(),
+            observers,
         }
     }
+
+    /// `body` with the views of `expectation` resolved into its comparison (module
+    /// documentation, "Views"), given the definition the case runs on, `semantics`, and the
+    /// observer they are evaluated in when the expectation names one other than it.
+    fn with_views<T>(
+        &self,
+        semantics: &mut Semantics,
+        expectation: &mut Expectation,
+        body: impl FnOnce(&mut Semantics, Option<&mut Semantics>, &mut Expectation) -> Result<T, String>,
+    ) -> Result<T, String> {
+        if expectation.views.is_empty() {
+            return body(semantics, None, expectation);
+        }
+        let observer = match &expectation.observer {
+            Some(name) => self
+                .observers
+                .get(name)
+                .map_err(|reason| format!("`expect.observer`: {reason}"))?,
+            None => None,
+        };
+        if let Some(observer) = observer {
+            observer.with_loaded(|loaded| {
+                resolve_views(semantics, Some(loaded), expectation)?;
+                body(semantics, Some(loaded), expectation)
+            })
+        } else {
+            resolve_views(semantics, None, expectation)?;
+            body(semantics, None, expectation)
+        }
+    }
+}
+
+/// The observers a corpus's expectations name, each prepared (its package collected and
+/// composed with the definition) and compiled once per command, on first use, and loaded once
+/// per thread that checks an expectation (module documentation, "Views"). Preparing one observer
+/// holds back only the threads that need that observer.
+pub(crate) struct Observers {
+    /// The command's selection, which an observer is composed with.
+    request: CommandRequest,
+    /// The command's source roots, which render an observer's diagnostics.
+    sources: DiagnosticSources,
+    /// Each observer named so far, by name, set once its preparation ends.
+    prepared: Mutex<BTreeMap<String, Arc<OnceLock<Prepared>>>>,
+}
+
+/// An observer named by a corpus: compiled, `None` for the definition itself, or why it cannot be
+/// prepared.
+type Prepared = Result<Option<Arc<Observer>>, String>;
+
+impl Observers {
+    pub(crate) fn new(request: CommandRequest, sources: DiagnosticSources) -> Self {
+        Self {
+            request,
+            sources,
+            prepared: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// The observer `name`, prepared and compiled the first time an expectation names it;
+    /// `None` when it names the definition the cases run on.
+    fn get(&self, name: &str) -> Prepared {
+        // The map's lock is held only to find the observer's slot, not while it is prepared.
+        let slot = Arc::clone(
+            self.prepared
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(name.to_owned())
+                .or_default(),
+        );
+        slot.get_or_init(|| {
+            crate::command::observer_definition(&self.request, name, &self.sources).and_then(
+                |definition| {
+                    definition
+                        .map(|definition| Observer::compile(name, definition).map(Arc::new))
+                        .transpose()
+                },
+            )
+        })
+        .clone()
+    }
+}
+
+/// An observer definition and its compiled stage.
+struct Observer {
+    /// Tells this observer's load apart from another's in a thread's cache.
+    id: u64,
+    name: String,
+    definition: DefinitionIr,
+    stage: CompiledStage,
+}
+
+impl Observer {
+    fn compile(name: &str, definition: DefinitionIr) -> Result<Self, String> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let stage = CompiledStage::compile(&definition, &mut Timings::disabled())
+            .map_err(|error| format!("the observer `{name}` cannot be compiled: {error}"))?;
+        Ok(Self {
+            id: NEXT.fetch_add(1, Ordering::Relaxed),
+            name: name.to_owned(),
+            definition,
+            stage,
+        })
+    }
+
+    /// `body` with this observer's semantics on this thread, loaded on first use under the
+    /// solver options the definition's own compile has.
+    fn with_loaded<T>(
+        &self,
+        body: impl FnOnce(&mut Semantics) -> Result<T, String>,
+    ) -> Result<T, String> {
+        LOADED.with(|loaded| {
+            let mut loaded = loaded.borrow_mut();
+            let position = if let Some(position) = loaded.iter().position(|(id, _)| *id == self.id)
+            {
+                position
+            } else {
+                let semantics = Semantics::from_stage(
+                    &self.definition,
+                    self.stage.clone(),
+                    None,
+                    &mut Timings::disabled(),
+                )
+                .map_err(|error| format!("krs cannot load the observer `{}`: {error}", self.name));
+                loaded.push((self.id, semantics));
+                loaded.len() - 1
+            };
+            let semantics = loaded[position]
+                .1
+                .as_mut()
+                .map_err(|reason| reason.clone())?;
+            body(semantics)
+        })
+    }
+}
+
+thread_local! {
+    /// Each observer's semantics on this thread, or why it failed to load, by observer id.
+    static LOADED: RefCell<Vec<(u64, Result<Semantics, String>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Resolve the views `expectation` names into its comparison, in `observer` when it names one
+/// and in `semantics` otherwise, refusing, as `krs run --case` does before the case runs, a view
+/// that does not apply to its cell or applies to a cell the expectation does not compare.
+fn resolve_views(
+    semantics: &Semantics,
+    observer: Option<&Semantics>,
+    expectation: &mut Expectation,
+) -> Result<(), String> {
+    let refuse = |error: EndError| format!("`expect.views`: {error}");
+    expectation.comparison.views = semantics
+        .cell_views(observer.unwrap_or(semantics), &expectation.views)
+        .map_err(refuse)?;
+    semantics
+        .check_stated(&expectation.comparison, &expectation.end, "expected")
+        .map_err(refuse)
 }
 
 impl EndRenderer for KrsEnds {
@@ -126,11 +323,11 @@ impl EndRenderer for KrsEnds {
     ) -> Result<(), String> {
         let document = expectation_document(expect)?;
         self.inputs
-            .with_semantics("reading a case's expectation", |semantics| {
-                semantics
+            .with_semantics_mut("reading a case's expectation", |semantics| {
+                let mut expectation = semantics
                     .expectation(&document, None, &mut ManifestFiles(files))
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| error.to_string())?;
+                self.with_views(semantics, &mut expectation, expected_views)
             })
     }
 
@@ -149,19 +346,55 @@ impl EndRenderer for KrsEnds {
             ..
         } = check;
         self.inputs
-            .with_semantics("checking a case's expectation", |semantics| {
-                let expectation = semantics
+            .with_semantics_mut("checking a case's expectation", |semantics| {
+                let mut expectation = semantics
                     .expectation(&document, None, &mut ManifestFiles(files))
                     .map_err(|error| error.to_string())?;
-                checked_expectation(
+                self.with_views(
                     semantics,
-                    &expectation,
-                    rule.as_deref(),
-                    ends,
-                    not_compared,
-                    stop,
+                    &mut expectation,
+                    |semantics, observer, expectation| {
+                        checked_expectation(
+                            Viewed {
+                                semantics,
+                                observer,
+                            },
+                            expectation,
+                            rule.as_deref(),
+                            ends,
+                            not_compared,
+                            stop,
+                        )
+                    },
                 )
             })
+    }
+}
+
+/// Admit `expectation`, its views resolved, unless a view has no value at its expected end
+/// (module documentation, "Views"): that depends on the case alone, so the case states no
+/// question any baseline answers. An evaluation that stops before it ends admits it.
+fn expected_views(
+    semantics: &mut Semantics,
+    observer: Option<&mut Semantics>,
+    expectation: &mut Expectation,
+) -> Result<(), String> {
+    if expectation.comparison.views.is_empty() {
+        return Ok(());
+    }
+    let observer = observer.unwrap_or(semantics);
+    let expected = Ends::one(expectation.end.clone());
+    let expected = Side {
+        name: "expected",
+        ends: &expected,
+    };
+    match expectation.comparison.views.evaluate_within(
+        observer,
+        &[expected],
+        Some(DEFAULT_VIEW_BUDGET),
+    ) {
+        Ok(()) | Err(EndError::ViewStopped { .. }) => Ok(()),
+        Err(error) => Err(format!("`expect.views`: {error}")),
     }
 }
 
@@ -189,16 +422,27 @@ enum HaltCheck {
     Unobserved,
 }
 
+/// The definition a case runs on and the observer its expectation's views are evaluated in,
+/// when it names one other than that definition.
+struct Viewed<'a> {
+    semantics: &'a mut Semantics,
+    observer: Option<&'a mut Semantics>,
+}
+
 /// The check of `expectation` (whose `rule` is written `rule`) against the baseline's ends
-/// `ends` (module documentation, "Expectations").
+/// `ends` (module documentation, "Expectations"), its views evaluated as `viewed` says.
 fn checked_expectation(
-    semantics: &Semantics,
-    expectation: &Expectation,
+    viewed: Viewed<'_>,
+    expectation: &mut Expectation,
     rule: Option<&str>,
     ends: &BTreeSet<Pattern>,
     not_compared: &[String],
     stop: Option<&StopSection>,
 ) -> Result<CheckedExpectation, String> {
+    let Viewed {
+        semantics,
+        observer,
+    } = viewed;
     let expected = &expectation.end.class;
     let stuck = EndClass {
         halt: Halt::Stuck,
@@ -244,18 +488,73 @@ fn checked_expectation(
         ends: read_ends(semantics, ends, &class, &unstated)?,
         incomplete: None,
     };
-    let compared = semantics.check_expectation(
-        &expectation.comparison,
-        Side {
-            name: "expected",
-            ends: &Ends::one(expectation.end.clone()),
-        },
-        Side {
-            name: "baseline",
-            ends: &baseline,
-        },
-    );
-    checked(compared, halt)
+    let expected = Ends::one(expectation.end.clone());
+    let expected = Side {
+        name: "expected",
+        ends: &expected,
+    };
+    let baseline = Side {
+        name: "baseline",
+        ends: &baseline,
+    };
+    if !expectation.comparison.views.is_empty() {
+        let observer = match observer {
+            Some(observer) => observer,
+            None => &mut *semantics,
+        };
+        let evaluated = expectation.comparison.views.evaluate_within(
+            observer,
+            &[expected, baseline],
+            Some(DEFAULT_VIEW_BUDGET),
+        );
+        if let Some(checked) = evaluation_verdict(evaluated)? {
+            return Ok(naming_views(checked, expectation));
+        }
+    }
+    let compared = semantics.check_expectation(&expectation.comparison, expected, baseline);
+    checked(compared, halt).map(|checked| naming_views(checked, expectation))
+}
+
+/// What the evaluation of an expectation's views, `evaluated`, decides before the comparison
+/// (module documentation, "Views"): nothing when every view has its values, an inconclusive
+/// verdict for an evaluation that stopped before it ended, and the refusal of the case, as an
+/// error, for a view without a value at an end (a baseline end, since admission refuses a case
+/// whose view has no value at its expected end).
+fn evaluation_verdict(
+    evaluated: Result<(), EndError>,
+) -> Result<Option<CheckedExpectation>, String> {
+    match evaluated {
+        Ok(()) => Ok(None),
+        Err(error @ EndError::ViewStopped { .. }) => {
+            Ok(Some(CheckedExpectation::inconclusive(error.to_string())))
+        }
+        Err(error) => Err(format!(
+            "a view refuses the case, as `krs run --case` refuses it: {error}"
+        )),
+    }
+}
+
+/// `checked`, a verdict reached through the values of the views `expectation` applies, with its
+/// detail naming them, and the observer they were evaluated in when it names one.
+fn naming_views(mut checked: CheckedExpectation, expectation: &Expectation) -> CheckedExpectation {
+    if expectation.views.is_empty() {
+        return checked;
+    }
+    let listed = expectation
+        .views
+        .iter()
+        .map(|(cell, function)| format!("`{cell}` = `{function}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let views = match &expectation.observer {
+        Some(observer) => format!("views: {listed}, in `{observer}`"),
+        None => format!("views: {listed}"),
+    };
+    checked.detail = Some(match checked.detail.take() {
+        Some(detail) => format!("{detail}; {views}"),
+        None => views,
+    });
+    checked
 }
 
 /// The verdict of `compared`, krs-exec's check of the expectation, whose halt is checked by
@@ -508,6 +807,61 @@ mod tests {
         assert_eq!(
             evidence(incomplete, true).unwrap_err(),
             "the mutant side's ends are incomplete"
+        );
+    }
+
+    /// A view's evaluation that stopped makes the expectation inconclusive, with the stop as its
+    /// detail; one without a value at a baseline end refuses the case, which the check reports as
+    /// an error; and a verdict reached through the views' values names them, after the detail it
+    /// had.
+    #[test]
+    fn a_stopped_view_is_inconclusive_and_a_refused_one_refuses() {
+        assert_eq!(evaluation_verdict(Ok(())), Ok(None));
+        let stopped = EndError::ViewStopped {
+            cell: "bus".to_owned(),
+            function: "Spin".to_owned(),
+            message: "at the baseline end's `bus`, the budget is spent".to_owned(),
+        };
+        let reason = stopped.to_string();
+        let checked = evaluation_verdict(Err(stopped)).unwrap().unwrap();
+        assert_eq!(checked, CheckedExpectation::inconclusive(reason));
+        let refused = EndError::View {
+            cell: "bus".to_owned(),
+            function: "OnlyZero".to_owned(),
+            message: "it has no value at the baseline end's `bus`".to_owned(),
+        };
+        let message = refused.to_string();
+        let error = evaluation_verdict(Err(refused)).unwrap_err();
+        assert!(error.starts_with("a view refuses the case"), "{error}");
+        assert!(error.ends_with(&message), "{error}");
+
+        let expectation = |observer: Option<&str>| Expectation {
+            end: End {
+                class: EndClass {
+                    halt: Halt::Stuck,
+                    rule: None,
+                },
+                cells: krs_exec::EndCells::default(),
+            },
+            comparison: Comparison::default(),
+            views: std::iter::once(("bus".to_owned(), "Count".to_owned())).collect(),
+            observer: observer.map(str::to_owned),
+        };
+        let met = CheckedExpectation {
+            verdict: ExpectationVerdict::Met,
+            detail: None,
+            difference: None,
+        };
+        assert_eq!(
+            naming_views(met, &expectation(None)).detail.as_deref(),
+            Some("views: `bus` = `Count`")
+        );
+        let stopped = CheckedExpectation::inconclusive("stopped");
+        assert_eq!(
+            naming_views(stopped, &expectation(Some("obs:main")))
+                .detail
+                .as_deref(),
+            Some("stopped; views: `bus` = `Count`, in `obs:main`")
         );
     }
 }
