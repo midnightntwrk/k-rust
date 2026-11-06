@@ -781,8 +781,18 @@ pub(super) fn shadow_check(
             "is accepted by the readable lowering and refused by the `cells!` one: {error}"
         ))
     })?;
-    let readable = normalized(readable, false, shadow);
-    let cells = normalized(&cells, true, shadow);
+    let mut readable = normalized(readable, false, shadow);
+    let mut cells = normalized(&cells, true, shadow);
+    for (route, value) in [("readable", &mut readable), ("`cells!`", &mut cells)] {
+        canonical_wildcards(value).map_err(|wildcard| {
+            disagreement(format!(
+                "lowers with the wildcard `{wildcard}` occurring other than once on the {route} route"
+            ))
+        })?;
+        if let Some(Value::Array(variables)) = value.get_mut("variables") {
+            variables.sort_by_key(Value::to_string);
+        }
+    }
     let difference = first_difference(&readable, &cells, "rule");
     if difference.is_some() {
         dump(descriptor, rule, &elaborated, &readable, &cells);
@@ -835,16 +845,13 @@ fn dump(
 ///   transformation frame and the source-map key hashed from it, `origin.rs`
 ///   `semantic_origin_from_stack`), and the authored source each node is located at is compared;
 /// - the order of the declared variables, a set of declarations by name: no term refers to a
-///   variable by position;
+///   variable by position (sorted by [`shadow_check`], after [`canonical_wildcards`]);
 /// - a `cells!` claim's universals, once each is checked to be a variable of the same sort: a
 ///   claim's variables are universally quantified whether or not it lists them, and the list
 ///   records only where each is declared.
 fn normalized(rule: &SemanticRule, cells: bool, shadow: Shadow) -> Value {
     let mut value = json(rule);
     unlabelled(&mut value, shadow);
-    if let Some(Value::Array(variables)) = value.get_mut("variables") {
-        variables.sort_by_key(Value::to_string);
-    }
     if cells
         && let Some(claim) = rule.claim()
         && !claim.universals().is_empty()
@@ -866,6 +873,70 @@ fn normalized(rule: &SemanticRule, cells: bool, shadow: Shadow) -> Value {
         }
     }
     value
+}
+
+/// Renames the wildcards of `rule` (its JSON) `__krs_wildcard_0`, `_1`, .. in the order they
+/// first occur, outside the declared variables. A wildcard is a variable that occurs exactly
+/// once: it binds nothing any other node refers to, so which ordinal it bears says nothing, and
+/// the routes number them in the order each lowers its terms. Renaming them in a fixed order is
+/// an alpha-renaming that makes the two comparable. A wildcard that occurs other than once binds
+/// something; it is returned, and the rule is not renamed.
+fn canonical_wildcards(rule: &mut Value) -> Result<(), String> {
+    fn wildcard(text: &str) -> bool {
+        text.strip_prefix("__krs_wildcard_").is_some_and(|ordinal| {
+            !ordinal.is_empty() && ordinal.bytes().all(|b| b.is_ascii_digit())
+        })
+    }
+    fn occurrences<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
+        match value {
+            Value::String(text) if wildcard(text) => found.push(text),
+            Value::Array(items) => items.iter().for_each(|item| occurrences(item, found)),
+            Value::Object(fields) => fields.values().for_each(|field| occurrences(field, found)),
+            _ => {}
+        }
+    }
+    fn rename(value: &mut Value, names: &BTreeMap<String, String>) {
+        match value {
+            Value::String(text) => {
+                if let Some(name) = names.get(text.as_str()) {
+                    text.clone_from(name);
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(|item| rename(item, names)),
+            Value::Object(fields) => fields.values_mut().for_each(|field| rename(field, names)),
+            _ => {}
+        }
+    }
+    let Value::Object(fields) = &*rule else {
+        return Ok(());
+    };
+    let mut found = Vec::new();
+    for (name, field) in fields {
+        if name != "variables" {
+            occurrences(field, &mut found);
+        }
+    }
+    let mut declared = Vec::new();
+    if let Some(variables) = fields.get("variables") {
+        occurrences(variables, &mut declared);
+    }
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for name in found.iter().chain(&declared) {
+        counts.entry(name).or_default();
+    }
+    for name in &found {
+        *counts.entry(name).or_default() += 1;
+    }
+    if let Some((name, _)) = counts.iter().find(|(_, count)| **count != 1) {
+        return Err((*name).to_owned());
+    }
+    let mut names = BTreeMap::new();
+    for name in found {
+        let next = format!("__krs_wildcard_{}", names.len());
+        names.entry(name.to_owned()).or_insert(next);
+    }
+    rename(rule, &names);
+    Ok(())
 }
 
 /// Clears every origin `value` holds, or under [`Shadow::Located`] its route label.
