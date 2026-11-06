@@ -1407,6 +1407,11 @@ pub(super) fn shadow_check(
                 "lowers with the wildcard `{wildcard}` occurring other than once on the {route} route"
             ))
         })?;
+        canonical_locals(value).map_err(|local| {
+            disagreement(format!(
+                "lowers with the `let` local `{local}` bound other than once on the {route} route"
+            ))
+        })?;
         if let Some(Value::Array(variables)) = value.get_mut("variables") {
             variables.sort_by_key(Value::to_string);
         }
@@ -1683,6 +1688,70 @@ fn canonical_wildcards(rule: &mut Value) -> Result<(), String> {
     let mut names = BTreeMap::new();
     for name in found {
         let next = format!("__krs_wildcard_{}", names.len());
+        names.entry(name.to_owned()).or_insert(next);
+    }
+    rename(rule, &names);
+    Ok(())
+}
+
+/// Renumbers the `let` locals of `rule` (`<name>__krs_local_<N>`) `0, 1, ..` by first occurrence,
+/// keeping each one's name, after checking that each is bound by exactly one `binds` list;
+/// returns the first local bound other than once.
+///
+/// A local is a variable its `let` binds, so it denotes nothing outside the term that binds it,
+/// and its ordinal only records how many locals its route had made before it. Renaming every
+/// local of the rule to its first-occurrence position is a bijection on bound names, an
+/// alpha-renaming, which keeps two lowerings that differ in a term's shape different.
+fn canonical_locals(rule: &mut Value) -> Result<(), String> {
+    fn local(text: &str) -> bool {
+        text.rsplit_once("__krs_local_")
+            .is_some_and(|(_, ordinal)| {
+                !ordinal.is_empty() && ordinal.bytes().all(|b| b.is_ascii_digit())
+            })
+    }
+    fn walk<'a>(value: &'a Value, found: &mut Vec<&'a str>, bound: &mut Vec<&'a str>) {
+        match value {
+            Value::String(text) if local(text) => found.push(text),
+            Value::Array(items) => items.iter().for_each(|item| walk(item, found, bound)),
+            Value::Object(fields) => {
+                for (name, field) in fields {
+                    if let ("binds", Value::Array(names)) = (name.as_str(), field) {
+                        bound.extend(names.iter().filter_map(Value::as_str).filter(|n| local(n)));
+                    }
+                    walk(field, found, bound);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn rename(value: &mut Value, names: &BTreeMap<String, String>) {
+        match value {
+            Value::String(text) => {
+                if let Some(name) = names.get(text.as_str()) {
+                    text.clone_from(name);
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(|item| rename(item, names)),
+            Value::Object(fields) => fields.values_mut().for_each(|field| rename(field, names)),
+            _ => {}
+        }
+    }
+    let (mut found, mut bound) = (Vec::new(), Vec::new());
+    walk(rule, &mut found, &mut bound);
+    let mut binders = BTreeMap::<&str, usize>::new();
+    for name in &found {
+        binders.entry(name).or_default();
+    }
+    for name in &bound {
+        *binders.entry(name).or_default() += 1;
+    }
+    if let Some((name, _)) = binders.iter().find(|(_, count)| **count != 1) {
+        return Err((*name).to_owned());
+    }
+    let mut names = BTreeMap::new();
+    for name in found {
+        let (base, _) = name.rsplit_once("__krs_local_").unwrap_or((name, ""));
+        let next = format!("{base}__krs_local_{}", names.len());
         names.entry(name.to_owned()).or_insert(next);
     }
     rename(rule, &names);
