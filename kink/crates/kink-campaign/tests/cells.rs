@@ -316,9 +316,9 @@ fn an_unobservable_cell_inside_an_optional_or_collection_cell_is_left_out_of_eac
     );
 }
 
-/// A Map's key is never left out: instances that differ only there would become
-/// indistinguishable. An unobservable key, or an unobservable cell inside a key, is refused,
-/// naming the key and the Map, with the next step.
+/// A Map's key is never left out: each element holds the key as its first argument beside the
+/// instance, so the content left out would still be compared there. An unobservable key, or an
+/// unobservable cell inside a key, is refused, naming the key and the Map, with the next steps.
 #[test]
 fn a_maps_key_left_out_is_refused_with_the_next_step() {
     let refused = layout(&configuration("", "", "", MARK))
@@ -337,8 +337,10 @@ fn a_maps_key_left_out_is_refused_with_the_next_step() {
     assert_eq!(
         refused.to_string(),
         "the cell <id> is left out, but it is the key by which the Map cell <thread> holds its \
-         instances, so instances that differ only there would become indistinguishable; drop \
-         `unobservable` from <id>, or mark <thread> unobservable"
+         instances: each element holds the key as its first argument beside the instance, so its \
+         content would still be compared there, and the projection cannot leave <id> out; drop \
+         `unobservable` from <id>, or compare no cell inside <thread>, so that it is left out \
+         whole: mark <thread> unobservable, or narrow the compared cells to cells outside it"
     );
 
     let inside = layout(
@@ -359,8 +361,10 @@ fn a_maps_key_left_out_is_refused_with_the_next_step() {
     assert_eq!(
         inside.to_string(),
         "the cell <b> is left out, but it lies inside <key>, the key by which the Map cell <t> \
-         holds its instances, so instances that differ only there would become \
-         indistinguishable; drop `unobservable` from <b>, or mark <t> unobservable"
+         holds its instances: each element holds the key as its first argument beside the \
+         instance, so its content would still be compared there, and the projection cannot leave \
+         <b> out; drop `unobservable` from <b>, or compare no cell inside <t>, so that it is left \
+         out whole: mark <t> unobservable, or narrow the compared cells to cells outside it"
     );
 }
 

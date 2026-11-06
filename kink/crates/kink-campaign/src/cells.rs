@@ -25,9 +25,10 @@
 //!
 //! A Map holds each instance by its key, the instance's key cell, which the element also holds as
 //! its first argument; a position at or inside the key is refused
-//! ([`CellLayoutRefusal::MapKeyLeftOut`]), since instances that differ only there would become
-//! indistinguishable. A `?` or `*` cell's own position can be left out too: the projection then
-//! leaves out the whole optional cell or collection.
+//! ([`CellLayoutRefusal::MapKeyLeftOut`]), since the walk goes on through the instance alone and
+//! the element's key argument would still carry the content left out, so the projection could not
+//! honour the declaration. A `?` or `*` cell's own position can be left out too: the projection
+//! then leaves out the whole optional cell or collection.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -932,8 +933,9 @@ pub enum CellLayoutRefusal {
     /// reads it: its `cellName`, or its label without the angle brackets of a `<name>` label.
     UnobservableCellOutsideConfiguration { cell: String },
     /// The cell left out is or lies inside `key`, the key by which the Map's `*` cell
-    /// `collection` holds its instances (reason `map-key-left-out`): instances that differ only
-    /// there would become indistinguishable, and each element holds its key beside the instance.
+    /// `collection` holds its instances (reason `map-key-left-out`): each element holds the key as
+    /// its first argument beside the instance, and the projection leaves out positions of the
+    /// instance only, so the content left out would still be compared in the element's key.
     MapKeyLeftOut {
         cell: String,
         key: String,
@@ -993,9 +995,12 @@ impl fmt::Display for CellLayoutRefusal {
                 }
                 write!(
                     formatter,
-                    " by which the Map cell <{collection}> holds its instances, so instances that \
-                     differ only there would become indistinguishable; drop `unobservable` from \
-                     <{cell}>, or mark <{collection}> unobservable"
+                    " by which the Map cell <{collection}> holds its instances: each element holds \
+                     the key as its first argument beside the instance, so its content would still \
+                     be compared there, and the projection cannot leave <{cell}> out; drop \
+                     `unobservable` from <{cell}>, or compare no cell inside <{collection}>, so \
+                     that it is left out whole: mark <{collection}> unobservable, or narrow the \
+                     compared cells to cells outside it"
                 )
             }
         }

@@ -199,9 +199,9 @@ A manifest can narrow the compared cells, never widen them past the specificatio
 
 A cell inside a `?` or `*` cell is left out of each instance, at its position relative to the instance (root README, "Unobservable cells"): an optional cell's presence is compared, a Map's instances by key, a Set's as a multiset of the projected instances (two instances the projection makes equal stay two), and a List's in order.
 A `?` or `*` cell can itself be left out, the whole optional cell or collection.
-A Map's key is never left out, since instances that differ only there would become indistinguishable.
+A Map's key is never left out: each element holds the key as its first argument beside the instance, and the projection leaves out positions of the instance only, so the key's content would still be compared in the element.
 The specification is refused at stage `result`, naming the cell, when
-an unobservable cell is a Map's key or lies inside one (`map-key-left-out`: drop `unobservable` from it, or mark the Map's `*` cell unobservable), unless the cells left out include the whole collection,
+an unobservable cell is a Map's key or lies inside one (`map-key-left-out`: drop `unobservable` from it, or compare no cell inside the Map so that its `*` cell is left out whole, by marking it unobservable without a narrowing, or by narrowing to cells outside it; under a narrowing that names a cell inside the Map, marking the Map unobservable is refused as `result-cell-unobservable`), unless the cells left out include the whole collection,
 an unobservable cell production is placed by no configuration (`unobservable-cell-outside-configuration`),
 `[result] cells` names no cell of the configuration (`result-cell-unknown`; `<generatedTop>` and `<generatedCounter>` are compilation's, not the specification's),
 or names an unobservable cell or one inside an unobservable cell (`result-cell-unobservable`);

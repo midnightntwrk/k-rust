@@ -27,8 +27,10 @@
 //! uncompared positions are every cell outside `K` that is neither inside a cell of `K` nor
 //! encloses one, whose parent encloses a cell of `K` (the siblings of `K` and of its ancestors),
 //! and every maximal unobservable cell inside a cell of `K`. A Map's key is never left out: an
-//! unobservable cell at or inside one is refused (`map-key-left-out`), since instances that
-//! differ only there would become indistinguishable.
+//! unobservable cell at or inside one is refused (`map-key-left-out`), since each element also
+//! holds the key as its first argument, where the projection would still compare it. Under a
+//! narrowing that names a cell inside the Map, marking the whole Map unobservable is refused in
+//! turn (`result-cell-unobservable`): only a narrowing to cells outside it leaves it out whole.
 //!
 //! `<generatedTop>` and `<generatedCounter>` are compilation's cells, not the specification's:
 //! neither is named in a document, neither can be named in `[result] cells`, and the counter's
