@@ -289,6 +289,13 @@
 //!   the stop rule named as `run` and every end document name rules, by KRS item or K label,
 //!   so that one spelling names a rule in all of them;
 //!   the name selects the rules of one KRS item, which a stopped end's class names;
+//!   `halt` is never `depth-bound`, which is refused:
+//!   the depth counts the compiled definition's steps, heating and cooling included,
+//!   so the state after N steps is no fact about the definition,
+//!   and a run that reaches its bound is not known to have ended
+//!   ([`ends`](crate::ends), "Results");
+//!   an expectation of the state at a point of a run stops the run at a named rule
+//!   with a `stop_count` and expects `halt = "stopped"` with that `rule`;
 //! - `cells`: the cells' values by Rust field path, nested by group field
 //!   (`cpu.regs` is `cells.cpu.regs`),
 //!   each read at the cell's declared type as an input's value is,
@@ -329,6 +336,7 @@
 //! or every known end agrees but not every end is known.
 //! No end can be compared where
 //! the run halted `indeterminate`, `timeout`, `interrupted`, `unsupported-hook` or `simplification-error`,
+//! reached its depth bound (`depth-bound`: a budget ran out, and the definition may go on),
 //! reached several states under conditions it cannot decide,
 //! ended in a state that carries a constraint,
 //! or stopped at a rule it does not name.

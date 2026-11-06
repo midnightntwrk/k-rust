@@ -1444,6 +1444,10 @@ fn undecided_case(
 /// compared cells, each viewed cell compared on its view's value, evaluated in `observer` (the
 /// case's definition when `None`) within `budget` polls.
 ///
+/// Only the ends the definition reaches are checked ([`Ends::reached`]): a `depth-bound` end,
+/// where the run's step budget ran out, is not known to be an end of the definition, so it
+/// makes the verdict inconclusive and no view is evaluated at it.
+///
 /// A view without a value at an end refuses the case; one whose evaluation stopped before it
 /// ended (it spent `budget`, or another stop of the backend ended it) makes the verdict
 /// inconclusive, since it may yet have a value.
@@ -1460,9 +1464,13 @@ pub(super) fn check(
         name: "expected",
         ends: &expected,
     };
+    // Before the views: no view is evaluated at a state the step budget ended the run at, where
+    // it may have no value although the run would go on. `check_expectation` applies `reached`
+    // again, a borrowed no-op on these ends.
+    let reached = actual.reached();
     let actual = Side {
         name: "actual",
-        ends: actual,
+        ends: &reached,
     };
     if !expectation.comparison.views.is_empty() {
         let observer = match observer {

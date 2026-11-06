@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use k_rust::kore::ast::{KoreString, Pattern, Sort, Symbol, Variable, VariableKind};
 use krs_exec::{
     Compared, Comparison, CompiledStage, ConfigInputs, ConfigValue, DIFFERENCE_FORMAT,
-    DifferenceAt, End, EndCells, EndClass, EndError, Ends, Halt, RunOptions, SearchMode,
+    DifferenceAt, End, EndCells, EndClass, EndError, Ends, Halt, NoFiles, RunOptions, SearchMode,
     SearchOptions, SearchReport, Semantics, Side, Solution, StopRules, Value,
 };
 use krs_ir::measure::Timings;
@@ -530,10 +530,11 @@ fn done(semantics: &Semantics, value: i64) -> Value {
     ctor(semantics, "Cmd::Done", vec![("value", value.into())])
 }
 
-/// The reference end: the run of depth 0 from the reference state, holding `done(0)`.
+/// The reference end: the run from the reference state, holding `done(0)`, which no rule
+/// rewrites, so it is stuck after 0 steps with the values it was given.
 fn reference(semantics: &mut Semantics) -> Ends {
     let pgm = done(semantics, 0);
-    run_end(semantics, pgm, Some(0))
+    run_end(semantics, pgm, None)
 }
 
 /// The end document of the reference end, with `edit` applied to its JSON.
@@ -631,7 +632,7 @@ fn a_run_end_reads_every_cell_and_its_document_reads_back() {
         let [end] = ends.ends.as_slice() else {
             panic!("one end: {ends:?}");
         };
-        assert_eq!(end.class.halt, Halt::DepthBound);
+        assert_eq!(end.class.halt, Halt::Stuck);
         assert_eq!(end.value("pc"), Some(&256.into()));
         assert_eq!(end.value("cpu.w"), Some(&9.into()));
         assert_eq!(end.value("timer"), None);
@@ -645,7 +646,7 @@ fn a_run_end_reads_every_cell_and_its_document_reads_back() {
                 r#""k":{"$seq":[{"Done":{"value":0}}]},"mark":[],"memory":{"5":7,"6":8},"#,
                 r#""objects":{"obj":[{"oid":0}]},"pc":256,"procs":{"process":[{"pid":0,"ticks":0}]},"#,
                 r#""regs":{"A":1,"B":2},"threads":{"thread":[{"count":0,"id":0}]},"timer":[],"#,
-                r#""z":10},"halt":"depth-bound"}"#
+                r#""z":10},"halt":"stuck"}"#
             )
         );
         assert_eq!(&semantics.read_end(&document).unwrap(), end);
@@ -709,7 +710,7 @@ fn an_end_document_omits_unobservable_cells_and_states_every_compared_one() {
         };
         let pc = Ends::one(
             semantics
-                .read_end(&json!({"halt": "depth-bound", "cells": {"pc": 256}}))
+                .read_end(&json!({"halt": "stuck", "cells": {"pc": 256}}))
                 .unwrap(),
         );
         assert_eq!(
@@ -892,13 +893,14 @@ fn a_difference_names_the_rust_path_and_both_canonical_documents() {
 
         // The class comes first.
         let difference = at(&|document| {
-            document["halt"] = json!("stuck");
+            document["halt"] = json!("stopped");
+            document["rule"] = json!("crate::finish");
             document["cells"]["pc"] = json!(1);
         });
         assert_eq!(difference.at, DifferenceAt::Class);
         assert_eq!(difference.path, None);
-        assert_eq!(difference.left.class.halt, Halt::Stuck);
-        assert_eq!(difference.right.class.halt, Halt::DepthBound);
+        assert_eq!(difference.left.class.halt, Halt::Stopped);
+        assert_eq!(difference.right.class.halt, Halt::Stuck);
         assert_eq!(difference.also_differ, ["pc"]);
     });
 }
@@ -953,14 +955,14 @@ fn the_difference_document_has_the_format_krs_difference_3() {
                     "name": "expected",
                     "ends": 1,
                     "complete": true,
-                    "class": {"halt": "depth-bound"},
+                    "class": {"halt": "stuck"},
                     "value": {"rendering": "document", "document": true, "truncated": false, "offset": 0},
                 },
                 "right": {
                     "name": "actual",
                     "ends": 1,
                     "complete": true,
-                    "class": {"halt": "depth-bound"},
+                    "class": {"halt": "stuck"},
                     "value": {"rendering": "document", "document": false, "truncated": false, "offset": 0},
                 },
             })
@@ -1132,6 +1134,70 @@ fn an_inconclusive_run_has_no_end_to_compare() {
     });
 }
 
+/// A `depth-bound` end is where a step budget ended the run, which took no step from it and the
+/// definition may take further: against an expectation it is no end, so a run that reaches its
+/// bound is inconclusive, whatever its cells hold and whether or not its state has a successor, and an expectation of a `depth-bound` end, which no end could meet,
+/// is refused, naming the stop-count form that states a point of a run.
+#[test]
+fn a_depth_bound_end_is_no_end_an_expectation_meets() {
+    with_semantics(|semantics| {
+        let ends = reference(semantics);
+        let all = Comparison::default();
+        // The run of depth 0 holds the reference end's cells, and `done(0)` has no rule, but the
+        // run took no step from it, so it is not known to have ended.
+        let pgm = done(semantics, 0);
+        let bounded = run_end(semantics, pgm, Some(0));
+        assert_eq!(bounded.ends[0].class.halt, Halt::DepthBound);
+        assert_eq!(bounded.ends[0].cells, ends.ends[0].cells);
+        assert_eq!(bounded.reached().ends, []);
+        let reason = "the actual side has no end: a step budget ended the run at a \
+                      `depth-bound` state, from which it took no step, so the state is not \
+                      known to be an end of the definition: it may go on from there";
+        assert_eq!(
+            expectation(semantics, &all, &ends, &bounded),
+            Compared::Inconclusive(reason.to_owned())
+        );
+        // Not even an end that differs from the expectation is unmet.
+        let other = edited(semantics, &ends, |document| {
+            document["cells"]["pc"] = json!(1);
+        });
+        assert!(matches!(
+            expectation(semantics, &all, &other, &bounded),
+            Compared::Inconclusive(_)
+        ));
+        // Beside an end the definition reaches, a `depth-bound` one leaves the set incomplete.
+        let both = Ends {
+            ends: vec![ends.ends[0].clone(), bounded.ends[0].clone()],
+            incomplete: None,
+        };
+        assert!(matches!(
+            expectation(semantics, &all, &ends, &both),
+            Compared::Inconclusive(reason) if reason.starts_with("every end the actual side has meets")
+        ));
+        assert_eq!(ends.reached().as_ref(), &ends);
+        // An expected end is never `depth-bound`: reading one as an expectation is refused, and
+        // the check refuses one it is handed.
+        let error = semantics
+            .check_expectation(&all, side("expected", &bounded), side("actual", &ends))
+            .unwrap_err();
+        assert!(matches!(error, EndError::State(_)), "{error:?}");
+        let refused = semantics
+            .expectation(
+                &json!({"halt": "depth-bound", "compare": ["pc"], "cells": {"pc": 256}}),
+                None,
+                &mut NoFiles,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("`expect.halt`: an expected end is never `depth-bound`")
+                && refused.contains("stop_count = N")
+                && refused.contains(r#"halt = "stopped", rule = "crate::boundary""#),
+            "{refused}"
+        );
+    });
+}
+
 fn sort(name: &str) -> Sort {
     Sort::Application {
         name: name.to_owned(),
@@ -1200,15 +1266,7 @@ fn reported(
     let pgm = done(semantics, 0);
     let variables = variables(semantics, pgm);
     let start = state(semantics, variables);
-    let mut report = semantics
-        .run(
-            &start,
-            RunOptions {
-                depth: Some(0),
-                ..RunOptions::default()
-            },
-        )
-        .unwrap();
+    let mut report = semantics.run(&start, RunOptions::default()).unwrap();
     report.state = semantics
         .term(replace(report.state.kore().clone()))
         .unwrap();
@@ -1456,7 +1514,7 @@ fn a_search_classifies_its_ends_by_its_bound_and_reads_bottom_and_constraints() 
             let report = semantics.search(&state, options).unwrap();
             semantics.ends_of(&report, &options).unwrap()
         };
-        // At the bound, a solution is `depth-bound`, as a run cut by its bound is.
+        // At the bound, a solution is `depth-bound`, as a run that reaches its bound is.
         let at_zero = bounded(semantics, 0);
         let [end] = at_zero.ends.as_slice() else {
             panic!("one end: {at_zero:?}");
@@ -2378,19 +2436,20 @@ fn a_view_applies_in_every_instance_and_a_difference_always_names_the_views() {
         // A difference at a cell no view applies to, and one in the class, name the views too:
         // the comparison that found them is weaker than the one without views.
         let other_pc = with_cells(semantics, &ends, |cells| cells["pc"] = json!(1));
-        let stuck = edited(semantics, &ends, |document| {
-            document["halt"] = json!("stuck");
+        let stopped = edited(semantics, &ends, |document| {
+            document["halt"] = json!("stopped");
+            document["rule"] = json!("crate::finish");
         });
         let comparison = viewed(
             semantics,
             &[("bus", "EventCount")],
-            &[("a", &ends), ("b", &other_pc), ("c", &stuck)],
+            &[("a", &ends), ("b", &other_pc), ("c", &stopped)],
         )
         .unwrap();
         let difference = differs(compared(semantics, &comparison, &ends, &other_pc));
         assert_eq!(difference.path.as_deref(), Some("pc"));
         assert_eq!(difference.views, views("bus", "EventCount"));
-        let difference = differs(compared(semantics, &comparison, &ends, &stuck));
+        let difference = differs(compared(semantics, &comparison, &ends, &stopped));
         assert_eq!(difference.at, DifferenceAt::Class);
         assert_eq!(difference.views, views("bus", "EventCount"));
     });

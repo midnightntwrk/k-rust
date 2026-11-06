@@ -2548,8 +2548,17 @@ expect = { halt = "stuck", compare = ["k"], cells = { k = { "$seq" = [{ Done = {
         ("corpora/bad/FLOW.toml".to_owned(), flow("")),
         (
             "corpora/bad/cases/runs.toml".to_owned(),
-            b"[[case]]\nname = \"nope\"\ninputs = { pgm = { Run = { value = 1 } } }\nexpect = { halt = \"stuck\", cells = { nope = 1 } }\n"
-                .to_vec(),
+            br#"[[case]]
+name = "nope"
+inputs = { pgm = { Run = { value = 1 } } }
+expect = { halt = "stuck", cells = { nope = 1 } }
+
+[[case]]
+name = "depth"
+inputs = { pgm = { Run = { value = 1 } } }
+expect = { halt = "depth-bound", compare = ["k"], cells = { k = { "$seq" = [{ Done = { value = 2 } }] } } }
+"#
+            .to_vec(),
         ),
     ]
 }
@@ -2735,21 +2744,32 @@ fn expectations_under_a_stop(project: &Project) {
 }
 
 /// [`a_case_expectation_is_reported_and_its_case_kept`]: an expectation that is no expectation of
-/// the definition refuses its case.
+/// the definition refuses its case, an expectation of a `depth-bound` end among them, as
+/// `krs run --case` refuses it, although no case's run has a depth bound under kink.
 fn a_refused_expectation(project: &Project) {
     let output = project.kink("check", &["--corpus", "corpora/bad"]);
     assert_status(&output, 1);
     let check = json(&output);
-    let program = &check["programs"][0];
-    assert_eq!(program["id"], "cases/runs.toml#nope", "{check:#}");
-    assert_eq!(program["outcome"], "refused", "{check:#}");
-    assert_eq!(program["reason"], "expectation-value", "{check:#}");
-    assert!(
-        program["detail"].as_str().unwrap().contains("nope"),
-        "{check:#}"
-    );
-    assert_eq!(
-        program["expectation"]["verdict"], "inconclusive",
-        "{check:#}"
-    );
+    let programs = check["programs"].as_array().unwrap();
+    assert_eq!(programs.len(), 2, "{check:#}");
+    for (program, id, detail) in [
+        (&programs[0], "cases/runs.toml#nope", "nope"),
+        (
+            &programs[1],
+            "cases/runs.toml#depth",
+            "`expect.halt`: an expected end is never `depth-bound`",
+        ),
+    ] {
+        assert_eq!(program["id"], id, "{check:#}");
+        assert_eq!(program["outcome"], "refused", "{check:#}");
+        assert_eq!(program["reason"], "expectation-value", "{check:#}");
+        assert!(
+            program["detail"].as_str().unwrap().contains(detail),
+            "{check:#}"
+        );
+        assert_eq!(
+            program["expectation"]["verdict"], "inconclusive",
+            "{check:#}"
+        );
+    }
 }

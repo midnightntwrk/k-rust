@@ -39,6 +39,7 @@
 //!
 //! - `halt` is the halt word of a complete run (`stuck`, `depth-bound`, `undefined`, `stopped`);
 //!   `rule` names the stop rule's KRS item when, and only when, `halt` is `stopped`.
+//!   An expectation's end is never `depth-bound` ("Results", below).
 //!   It is any name a stop accepts ([`crate::StopRules`], `--stop-before`): the item's Rust path
 //!   with `crate::` for an item of the definition's main package
 //!   (`crate::machine::boundary`), with its crate's name for an item of a dependency
@@ -115,6 +116,19 @@
 //!   first disagreeing end in the order of the canonical text of the projected end documents is
 //!   reported, so the report is a function of the set of ends, not of the order a producer gave
 //!   them in. When every end agrees but `E` is incomplete, or empty, the result is inconclusive.
+//!   The ends of `E` are the ends the definition reaches ([`Ends::reached`]): a `depth-bound`
+//!   end is a state at which a step budget ended a run or a search, which took no step from it,
+//!   so it is not known to be an end of the definition, which may take the state further; it is
+//!   not compared and makes `E` incomplete, whether or not the state has a successor. A run that
+//!   reaches its budget is therefore inconclusive against an expectation, never met or unmet. So
+//!   no end meets an expectation of a `depth-bound` end, which is refused: the depth counts the
+//!   compiled definition's steps, the heating and cooling steps of strictness and contexts
+//!   included, so the state after N steps changes with how the definition is compiled and is no
+//!   fact about the definition. An expectation of the state at a point of a run states a stop at
+//!   a named rule and a stop count instead (`stopped`, its `rule`). The arrivals at a rule the
+//!   author wrote are that rule's steps, which the compilation does not change; the arrivals at
+//!   a context or a strict production are the heating and cooling steps the compilation
+//!   generates for it, which change with the compilation as the depth does.
 //! - Two sets of ends `L` and `R` ([`Semantics::compare_ends`]) are equal when their sets of projected
 //!   ends are. Otherwise the difference is between the first end of `R` outside `L` (in the order
 //!   of the canonical text of the projected end documents) and its nearest end of `L`, which
@@ -171,6 +185,7 @@
 //! first `VALUE_CAP`. A cut value carries its window of the canonical text (`text`) instead of the document,
 //! `truncated`, and the characters cut before the window (`offset`).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Deref;
@@ -329,6 +344,36 @@ impl Ends {
             ends: Vec::new(),
             incomplete: Some(reason.into()),
         }
+    }
+
+    /// The ends of this set that the definition reaches, which an expectation is checked
+    /// against ([module documentation](crate::ends#results)): every end but a `depth-bound`
+    /// one, a state at which a step budget ended the run or the search before any step from it,
+    /// and from which the definition may go on. Leaving one out makes the set incomplete, for that reason unless it
+    /// already was. Borrowed when the set holds no `depth-bound` end.
+    #[must_use]
+    pub fn reached(&self) -> Cow<'_, Self> {
+        if self
+            .ends
+            .iter()
+            .all(|end| end.class.halt != Halt::DepthBound)
+        {
+            return Cow::Borrowed(self);
+        }
+        Cow::Owned(Self {
+            ends: self
+                .ends
+                .iter()
+                .filter(|end| end.class.halt != Halt::DepthBound)
+                .cloned()
+                .collect(),
+            incomplete: Some(self.incomplete.clone().unwrap_or_else(|| {
+                "a step budget ended the run at a `depth-bound` state, from which it took no \
+                 step, so the state is not known to be an end of the definition: it may go on \
+                 from there"
+                    .to_owned()
+            })),
+        })
     }
 }
 
@@ -899,8 +944,8 @@ impl Semantics {
         Ok(Ends::one(End { class, cells }))
     }
 
-    /// The ends of a final-state search (`=>!`): each solution, `depth-bound` where the search's
-    /// depth bound cut it and `stuck` otherwise, `undefined` for `\bottom`; incomplete when the
+    /// The ends of a final-state search (`=>!`): each solution, `depth-bound` where it is at the
+    /// search's depth bound, whether or not it has a successor, and `stuck` otherwise, `undefined` for `\bottom`; incomplete when the
     /// search did not explore every path within its bounds or dropped solutions.
     ///
     /// # Errors
@@ -2386,13 +2431,16 @@ impl Semantics {
     }
 
     /// Whether `actual`'s ends meet the expectation `expected` (one end), and else the first end
-    /// that does not ([module documentation](crate::ends#results)).
+    /// that does not ([module documentation](crate::ends#results)). Only the ends the
+    /// definition reaches are compared ([`Ends::reached`]): a `depth-bound` end of `actual`
+    /// makes its set incomplete instead.
     ///
     /// # Errors
     ///
-    /// Returns [`EndError::State`] when `expected` holds other than one end, a refusal of
-    /// `comparison`'s cells ([`EndError::UnknownCell`], [`EndError::Unobservable`]), and
-    /// [`EndError::MissingCell`] for a compared cell an end does not state.
+    /// Returns [`EndError::State`] when `expected` holds other than one end, or a `depth-bound`
+    /// end, a refusal of `comparison`'s cells ([`EndError::UnknownCell`],
+    /// [`EndError::Unobservable`]), and [`EndError::MissingCell`] for a compared cell an end
+    /// does not state.
     pub fn check_expectation(
         &self,
         comparison: &Comparison,
@@ -2404,6 +2452,21 @@ impl Semantics {
                 "an expectation is one end, not {}",
                 expected.ends.ends.len()
             )));
+        };
+        if expected_end.class.halt == Halt::DepthBound {
+            return Err(EndError::State(
+                "an expectation's end is never `depth-bound`, which is where a step budget ended \
+                 a run, not an end of the definition"
+                    .to_owned(),
+            ));
+        }
+        // Callers that evaluate views over `actual` first (krs-cli's `check`) pass the ends
+        // `reached` already gave, so this is then a borrowed no-op; it stays so that every caller
+        // compares only the ends the definition reaches.
+        let reached = actual.ends.reached();
+        let actual = Side {
+            name: actual.name,
+            ends: &reached,
         };
         let selection = self.viewed_selection(comparison)?;
         let lens = self.lens(&comparison.views);

@@ -120,7 +120,9 @@ pub type SourceText = Box<dyn Fn(&SourceFileId) -> Option<String>>;
 /// Options for [`Semantics::run`].
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunOptions {
-    /// At most this many rewrite steps; equation evaluation is not a step.
+    /// At most this many rewrite steps; equation evaluation is not a step. A step is the
+    /// compiled definition's, the heating and cooling steps of strictness and contexts included,
+    /// so the bound is a budget, not a point of the program's run ([`StopCriterion`] names one).
     pub depth: Option<u64>,
     /// Record each rewrite step ([`RunReport::trace`]).
     ///
@@ -145,7 +147,8 @@ pub struct RunOptions {
 /// Whatever the criterion, a run ends on its own (no rule applies, or the state has no value)
 /// and is cut off by a bound (the step budget [`RunOptions::depth`], or the backend's); a
 /// criterion only adds ends. A bound is no end of the run: a run that reaches its step budget
-/// reports `depth-bound`, never a stop, and counts no arrival there.
+/// reports `depth-bound`, never a stop, and counts no arrival there, and an expectation is never
+/// met by it ([`ends`], "Results"): checked against an expectation, such a run is inconclusive.
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum StopCriterion {
@@ -1528,7 +1531,8 @@ impl Semantics {
     }
 
     /// The expectation an `expect` table states ([`inputs`], "Expectations"), read against the
-    /// definition: its end as [`Self::read_end_in`] reads an end document, its file paths
+    /// definition: its end as [`Self::read_end_in`] reads an end document, never `depth-bound`
+    /// ([`ends`], "Results"), its file paths
     /// relative to the data file `from` (a resolved name `files` returned) or the top document
     /// (`None`), its `compare` narrowing, and its `views` and `observer` as the document names
     /// them, which the caller resolves in the observer it names
@@ -1589,6 +1593,11 @@ impl Semantics {
                 key,
                 "an expected end holds `halt`, `rule`, `cells`, `compare`, `views` and `observer` only",
             ));
+        }
+        if end_document.get("halt").and_then(serde_json::Value::as_str)
+            == Some(Halt::DepthBound.as_str())
+        {
+            return Err(refuse("halt", DEPTH_BOUND_EXPECTATION));
         }
         let end = self
             .read_end_in(&serde_json::Value::Object(end_document), from, files)
@@ -3121,6 +3130,15 @@ fn compile_spec_definition(
     )
     .map(|(artifacts, _)| artifacts)
 }
+
+/// Why an expectation's `halt` is never `depth-bound` ([`ends`], "Results"), and what states the
+/// state at a point of a run instead.
+const DEPTH_BOUND_EXPECTATION: &str = "an expected end is never `depth-bound`: the depth counts \
+     the compiled definition's steps, the heating and cooling steps of strictness and contexts \
+     included, so the state after N steps is no fact about the definition, and a run that reaches \
+     its bound is not known to have ended; to expect the state at a point of the run, stop the \
+     run at a rule the author wrote and count its arrivals there \
+     (`run = { stop_before = [\"crate::boundary\"], stop_count = N }`) and expect that stop (`halt = \"stopped\", rule = \"crate::boundary\"`)";
 
 /// An expectation's views by cell path, and the observer it names.
 type ExpectationViews = (BTreeMap<String, String>, Option<String>);

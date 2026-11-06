@@ -475,6 +475,134 @@ fn a_batch_reports_each_case_in_document_order() {
     );
 }
 
+/// The document `file` of three cases of `finish(3)` whose `run.depth` is 0: `cut` expects the
+/// cells its state holds, `plain` states no expectation, and `bound` expects a `depth-bound`
+/// end. Each test writes its own file, since the tests share the workspace.
+fn write_bounded(workspace: &Workspace, file: &str) {
+    let read = json!([{"Read": {"addr": 5}}]);
+    let at_start =
+        json!({"halt": "stuck", "compare": ["pc", "bus"], "cells": {"pc": 256, "bus": read}});
+    let bounded = |name: &str, expect: Option<&Value>| {
+        let mut case = json!({"name": name, "inputs": inputs(&finish(), &json!({"A": 1})), "run": {"depth": 0}});
+        if let Some(expect) = expect {
+            case["expect"] = expect.clone();
+        }
+        case
+    };
+    let mut bound = at_start.clone();
+    bound["halt"] = json!("depth-bound");
+    workspace.write(
+        file,
+        json!({"case": [
+            bounded("cut", Some(&at_start)),
+            bounded("plain", None),
+            bounded("bound", Some(&bound)),
+        ]})
+        .to_string(),
+    );
+}
+
+/// A depth bound is a run status, never an end an expectation meets: a case whose run reaches
+/// its `run.depth` before its end is inconclusive (3) under `krs cases`, as under
+/// `krs run --case` ([`krs_run_case_is_inconclusive_at_its_depth_bound`]),
+/// although its state holds the expected cells; one without an expectation ran to its bound,
+/// which a plain run reports with exit 0; and an expectation of a `depth-bound` end is refused
+/// (2), naming the stop at a rule with a stop count that states a point of a run.
+#[test]
+fn a_depth_bound_is_a_run_status_never_an_expected_end() {
+    let workspace = workspace();
+    write_bounded(&workspace, "bounded.json");
+    let output = workspace.krs("cases", &["bounded.json", "--output", "json"]);
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    let lines = records(&output);
+    assert_eq!(lines[0]["verdict"], "inconclusive", "{}", lines[0]);
+    assert_eq!(
+        (&lines[0]["halt"], &lines[0]["steps"]),
+        (&json!("depth-bound"), &json!(0))
+    );
+    assert!(
+        lines[0]["reason"].as_str().is_some_and(
+            |reason| reason.contains("a step budget ended the run at a `depth-bound` state")
+        ),
+        "{}",
+        lines[0]
+    );
+    assert_eq!(lines[1]["verdict"], "ran", "{}", lines[1]);
+    assert_eq!(lines[1]["halt"], "depth-bound", "{}", lines[1]);
+    assert_eq!(lines[2]["verdict"], "refused", "{}", lines[2]);
+    let reason = lines[2]["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("`expect.halt`: an expected end is never `depth-bound`")
+            && reason.contains("stop_before")
+            && reason.contains("stop_count = N"),
+        "{}",
+        lines[2]
+    );
+    let status = |name: &str| {
+        let output = workspace.krs("cases", &["bounded.json", "--name", name]);
+        (output.status.code(), stdout(&output))
+    };
+    let (code, text) = status("cut");
+    assert_eq!(code, Some(3), "{text}");
+    assert!(
+        text.starts_with(
+            "bounded.json#cut: expectation inconclusive: the actual side has no end: "
+        ),
+        "{text}"
+    );
+    let (code, text) = status("plain");
+    assert_eq!(code, Some(0), "{text}");
+    assert!(
+        text.starts_with("bounded.json#plain: ran, depth-bound after 0 steps\n"),
+        "{text}"
+    );
+}
+
+/// `krs run --case` reads the cases of [`write_bounded`] as `krs cases` does
+/// ([`a_depth_bound_is_a_run_status_never_an_expected_end`]): inconclusive at the bound under an
+/// expectation, exit 0 for a plain run, and an expectation of a `depth-bound` end refused.
+#[test]
+fn krs_run_case_is_inconclusive_at_its_depth_bound() {
+    let workspace = workspace();
+    write_bounded(&workspace, "bounded-run.json");
+    let run = |name: &str| {
+        workspace.krs(
+            "run",
+            &[
+                "--case",
+                "bounded-run.json",
+                "--case-name",
+                name,
+                "--output",
+                "none",
+            ],
+        )
+    };
+    let cut = run("cut");
+    assert_eq!(cut.status.code(), Some(3), "{}", stderr(&cut));
+    assert!(
+        stderr(&cut).contains("krs run: depth-bound after 0 steps")
+            && stderr(&cut)
+                .contains("\nkrs run: expectation inconclusive: the actual side has no end: "),
+        "{}",
+        stderr(&cut)
+    );
+    let plain = run("plain");
+    assert_eq!(plain.status.code(), Some(0), "{}", stderr(&plain));
+    assert!(
+        stderr(&plain).contains("krs run: depth-bound after 0 steps"),
+        "{}",
+        stderr(&plain)
+    );
+    let refused = run("bound");
+    assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).contains("`expect.halt`: an expected end is never `depth-bound`"),
+        "{}",
+        stderr(&refused)
+    );
+}
+
 /// The status is 2 when a case is refused, else 1 when one is unmet, else 3 when one is
 /// inconclusive, else 0; `--name` selects the named cases whose name it matches, and one that selects none is a usage
 /// error. A document that cannot be read is a refused record, and the next document runs.

@@ -53,8 +53,8 @@
 //! truncated system has it: it is compared with ends of class `stuck`, which differ from it at
 //! the class, the baseline's side of its difference stating no class, and the detail says so.
 //! An expectation kink's observation cannot decide is inconclusive, saying why: an end stopped
-//! at a rule the corpus does not stop at, or with no `[stop]`, and a `depth-bound` end, since
-//! kink reads no case's `run` and a baseline its depth bound cuts is not comparable. A cell the
+//! at a rule the corpus does not stop at, or with no `[stop]`. An expectation of a `depth-bound`
+//! end is refused as `krs run --case` refuses it, since no end meets it. A cell the
 //! expectation compares that the corpus's `[result]` leaves out is not in the ends kink keeps,
 //! which makes the check inconclusive too.
 
@@ -206,12 +206,6 @@ fn checked_expectation(
     };
     // The class each end is read with, and how the halt is checked.
     let (class, halt) = match (expected.halt, stop) {
-        (Halt::DepthBound, _) => {
-            return Ok(CheckedExpectation::inconclusive(
-                "the expectation's end is `depth-bound`, and no end kink compares is: a baseline \
-                 its depth bound cuts is not comparable, and kink reads no case's `run`",
-            ));
-        }
         (Halt::Stopped, None) => {
             return Ok(CheckedExpectation::inconclusive(format!(
                 "the expectation's end is stopped at `{}`, and the corpus declares no [stop]: \
