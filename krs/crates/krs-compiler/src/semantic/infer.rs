@@ -2321,7 +2321,7 @@ impl StructuredTermBuilder<'_> {
                 // A whole use of an alias over a group record is the group
                 // rebuilt from its children's binders (N7).
                 if self.record_updates.updates.reconstructed(name).is_some() {
-                    return self.rebuild_group(name, key, expected_sort);
+                    return self.rebuild_group(name, key);
                 }
                 let sort = self.binding_sorts.get(name).cloned().ok_or_else(|| {
                     self.invalid_term(format!("variable {name:?} has no inferred sort"))
@@ -3289,12 +3289,9 @@ impl StructuredTermBuilder<'_> {
                 let sort = self.record_field_sort(sort, field)?;
                 self.hidden_record_binder(&id, &sort, key)
             }
-            // A group child is written as an authored child is, at the
-            // KItem sort.
-            Fill::Group(child) => {
-                let k_item = self.k_item_sort.clone();
-                self.rebuild_group(&child, key, Some(&k_item))
-            }
+            // A group child is rebuilt as an authored group record is, at
+            // its group's cell sort.
+            Fill::Group(child) => self.rebuild_group(&child, key),
         }
     }
 
@@ -3303,12 +3300,12 @@ impl StructuredTermBuilder<'_> {
     /// the binder the record's pattern gives it, a hidden binder, or a group
     /// child rebuilt in turn (N7). The rebuilt term matches exactly the cells
     /// the record's pattern matches, so it denotes the matched cell without
-    /// a conjunction among a cell's children.
+    /// a conjunction among a cell's children. Like an authored group record,
+    /// it has the group's generated cell sort wherever it stands.
     fn rebuild_group(
         &mut self,
         name: &str,
         key: &ProvenanceKey,
-        expected_sort: Option<&SemanticSortRef>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let owner = self
             .record_updates
@@ -3316,12 +3313,7 @@ impl StructuredTermBuilder<'_> {
             .group(name)
             .cloned()
             .expect("a rebuilt record is a group record");
-        let whole = SemanticSortRef::Cell(owner.clone());
-        let sort = if expected_sort == Some(&whole) {
-            whole
-        } else {
-            self.k_item_sort.clone()
-        };
+        let sort = SemanticSortRef::Cell(owner.clone());
         let declaration = self.cell_declaration(&owner)?.clone();
         let mut children = Vec::with_capacity(declaration.fields.len());
         for declared in &declaration.fields {
