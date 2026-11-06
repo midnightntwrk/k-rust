@@ -169,6 +169,7 @@ fn lower_grammar_production(
     descriptors: &DescriptorIndex<'_>,
 ) -> Result<SemanticProduction, DescriptorLoweringError> {
     let id = production_owner_id(descriptor, production)?;
+    check_strict_positions(descriptor, production, &id)?;
     let (field_arguments, result_arguments) = declared_arguments(descriptors, production, &id);
     let items = production
         .items
@@ -331,6 +332,59 @@ pub(super) fn check_parametric_production(
             &production.key,
             format!("a parametric production (K's `syntax {{S}}`) cannot carry {marker}"),
         ));
+    }
+    Ok(())
+}
+
+/// Rejects a `#[k::strict]` or `#[k::seqstrict]` position whose field has sort
+/// `KSequence`, at the position's field reference.
+///
+/// Heating a strict position moves the argument there to the front of the
+/// computation as one item, `HOLE ~> f(□)`, and cooling puts it back once it
+/// is a result. A `KSequence` value is a sequence of items, possibly the empty
+/// `.K`, so it is not an item: there is no term the step could move, and no
+/// heating step exists for the position. Every other sort a field can have
+/// (a declared sort, a builtin domain, `KItem`, `KResult`) is a sort of single
+/// items, so `KSequence` is the one sort refused; a sort parameter, which could
+/// stand for it, never reaches here, since a parametric production takes no
+/// strictness at all ([`check_parametric_production`]). A position evaluated
+/// through a context alias (`using`) is heated by the alias's context at the
+/// same argument, so it is refused alike.
+fn check_strict_positions(
+    descriptor: &Descriptor,
+    production: &DescriptorProduction,
+    id: &StableItemId,
+) -> Result<(), DescriptorLoweringError> {
+    for attribute in &production.attributes {
+        let DescriptorProductionAttribute::Strictness { fields, .. } = attribute else {
+            continue;
+        };
+        for field in fields {
+            let sequence = production.items.iter().any(|item| {
+                matches!(
+                    item,
+                    DescriptorProductionItem::NonTerminal { field: name, sort, .. }
+                        if *name == field.field
+                            && sort.sort == krs_ir::DescriptorSortRef::Builtin(krs_ir::BuiltinSort::KSequence)
+                )
+            });
+            if !sequence {
+                continue;
+            }
+            return Err(DescriptorLoweringError::InvalidStrictness {
+                item: Box::new(id.clone()),
+                reason: format!(
+                    "the strict position `{}` of `{}` has sort `KSequence`: heating moves the argument at a strict position to the front of the computation as one item, and a `KSequence` is a sequence of items, so the position has no heating step; give the field a sort of single items, such as `k::KItem` or a declared sort, or leave it out of the strictness",
+                    field.field.as_str(),
+                    id.item_name(),
+                ),
+                range: descriptor
+                    .provenance()
+                    .origin_for(&field.key)
+                    .and_then(krs_ir::OriginStack::exact_authored_range)
+                    .map(Box::new),
+            });
+        }
     }
     Ok(())
 }

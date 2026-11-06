@@ -639,6 +639,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending node.
         range: Option<Box<SourceRange>>,
     },
+    /// A `#[k::strict]` or `#[k::seqstrict]` position has no heating step:
+    /// its field's sort is `KSequence`, a sequence of computation items
+    /// rather than one item.
+    InvalidStrictness {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position and the fix.
+        reason: String,
+        /// Sole exact authored range of the position's field reference.
+        range: Option<Box<SourceRange>>,
+    },
     /// A parametric application's instance is missing, disagrees with its
     /// declared sort or arguments, or cannot be determined (KF-027).
     ParametricInstance {
@@ -1197,6 +1208,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::InvalidStrictness {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::ParametricInstance {
                 range: $named_range,
                 item: $named_item,
@@ -1718,6 +1734,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidLocalRewrite { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
             | Self::InvalidParametricProduction { reason, .. }
+            | Self::InvalidStrictness { reason, .. }
             | Self::ParametricInstance { reason, .. }
             | Self::NativeInstance { reason, .. }
             | Self::InvalidLexical { reason, .. }
@@ -1833,6 +1850,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidParametricProduction { .. } => {
                 codes::analysis::INVALID_PARAMETRIC_PRODUCTION
             }
+            Self::InvalidStrictness { .. } => codes::analysis::INVALID_STRICTNESS,
             Self::ParametricInstance { .. } => codes::analysis::PARAMETRIC_INSTANCE,
             Self::NativeInstance { .. } => codes::analysis::NATIVE_INSTANCE,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,

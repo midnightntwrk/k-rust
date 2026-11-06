@@ -12,7 +12,9 @@
 //! `HOLE => term-containing-HOLE`.
 
 use krs_ir::{SourceRange, StableItemId};
-use krs_ir_levels::{IrTermKind, RuleBodyRef, SemanticModule, SemanticRule, SemanticTerm};
+use krs_ir_levels::{
+    IrTermKind, RuleBodyRef, SemanticModule, SemanticRule, SemanticSortRef, SemanticTerm,
+};
 
 use super::error::DescriptorLoweringError;
 use super::overload::sort_name;
@@ -145,6 +147,22 @@ fn check_context(
                 range,
             ));
         }
+    }
+    // The context heats its hole to the front of the computation as one item;
+    // a `KSequence` value is a sequence of items, so such a hole has no
+    // heating step, as a strict position of that sort has none.
+    if rule.variables().iter().any(|variable| {
+        variable.id() == hole
+            && *variable.sort() == SemanticSortRef::Builtin(krs_ir::BuiltinSort::KSequence)
+    }) {
+        return Err(context_error(
+            Some(rule.id()),
+            format!(
+                "the hole `{}` of a context has sort `KSequence`: a context moves its hole to the front of the computation as one item, and a `KSequence` is a sequence of items, so the context has no heating step; name a subterm of a sort of single items",
+                hole.as_str(),
+            ),
+            range,
+        ));
     }
     let mut rewrites = Vec::new();
     match rule.relational_body() {
