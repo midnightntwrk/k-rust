@@ -988,9 +988,10 @@ k::claims! {{
         ),
     );
     let (_, spec) = emitted(target.path(), &manifest);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         [resets]:
-            <k> step ( tri ( _ , TB:Int , TC:Int ) ) => tri ( 0 , TB:Int , TC:Int ) </k>"#]].assert_eq(&sentence(&spec, "resets"));
+            <k> step ( tri ( _ , TB:Int , TC:Int ) ) => tri ( 0 , TB:Int , TC:Int ) </k>"]]
+    .assert_eq(&sentence(&spec, "resets"));
     let (success, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
     assert!(success, "{stdout}\n{stderr}");
     assert!(stdout.contains("SPEC.resets: proven"), "{stdout}");

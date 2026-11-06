@@ -1074,7 +1074,8 @@ fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
 /// with different codes (under [`Shadow::Located`], or at different ranges).
 #[expect(
     clippy::too_many_arguments,
-    reason = "Scaffolding: the readable lowering's inputs and both of its outputs."
+    clippy::too_many_lines,
+    reason = "Scaffolding: the readable lowering's inputs and both of its outputs, and one arm per pair of outcomes."
 )]
 pub(super) fn shadow_check(
     shadow: Shadow,
