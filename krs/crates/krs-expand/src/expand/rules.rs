@@ -1029,13 +1029,26 @@ fn expand_ordinary_rule(
         .anywhere()
         .map(|_| ledger.define(attribute.anywhere_key()))
         .transpose()?;
+    // A transition's reason is its `#[k::rule]`'s, an equation's its `#[k::equation]`'s.
+    let skipped_operand = match equation {
+        Some(equation) => skipped_operand(
+            &ledger,
+            equation.skipped_operand(),
+            equation.skipped_operand_key(),
+        )?,
+        None => skipped_operand(
+            &ledger,
+            attribute.skipped_operand(),
+            attribute.skipped_operand_key(),
+        )?,
+    };
     let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
         sentence_kind,
         label,
         requires,
         priority,
         nondet,
-        skipped_operand: None,
+        skipped_operand,
         anywhere,
         simplification,
         pattern_key: ledger.define(rule.parameter().pattern_key())?,
@@ -1142,6 +1155,22 @@ fn fixed_rule_keys(sentence_kind: krs_ir::SentenceKind) -> Vec<krs_syntax::Prove
         _ => {}
     }
     fixed
+}
+
+/// The descriptor of a `skipped_operand = "reason"` key, `reason` keyed `key`, when authored.
+pub(super) fn skipped_operand(
+    ledger: &KeyLedger,
+    reason: Option<&syn::LitStr>,
+    key: Option<&krs_ir::ProvenanceKey>,
+) -> crate::Result<Option<krs_ir::DescriptorSkippedOperand>> {
+    reason
+        .map(|reason| -> crate::Result<_> {
+            Ok(krs_ir::DescriptorSkippedOperand {
+                key: ledger.define(key)?,
+                reason: reason.value(),
+            })
+        })
+        .transpose()
 }
 
 /// The key of the priority [`krs_syntax::RuleAttribute::transition_priority`]
