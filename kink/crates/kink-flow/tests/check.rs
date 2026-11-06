@@ -577,8 +577,9 @@ fn the_version_flag_names_the_builds() {
     );
 }
 
-/// Asking for help is a question the tool answers: `--help` and `-h` print the usage line, the
-/// loop, the mutation format and the exit statuses on stdout, and exit 0.
+/// Asking for help is a question the tool answers: `--help` and `-h`, alone or anywhere after a
+/// verb, print the usage line, the loop, the mutation format and the exit statuses on stdout, and
+/// exit 0.
 #[test]
 fn the_help_flag_answers_on_stdout() {
     for flag in ["--help", "-h"] {
@@ -587,6 +588,17 @@ fn the_help_flag_answers_on_stdout() {
         assert!(stderr.is_empty(), "{flag}: {stderr}");
         assert!(stdout.starts_with("usage: kink-flow --version"), "{stdout}");
         assert!(stdout.contains("[[mutation.edit]]"), "{stdout}");
+    }
+    // After a verb, and among a verb's operands, it is the same question.
+    let manifest = flow("calc/FLOW.toml");
+    for args in [
+        vec!["run".as_ref(), "--help".as_ref()],
+        vec!["check".as_ref(), manifest.as_os_str(), "-h".as_ref()],
+    ] {
+        let (code, stdout, stderr) = binary(&args);
+        assert_eq!(code, Some(EXIT_YES.into()), "{args:?}: {stderr}");
+        assert!(stderr.is_empty(), "{args:?}: {stderr}");
+        assert!(stdout.starts_with("usage: kink-flow --version"), "{stdout}");
     }
 }
 

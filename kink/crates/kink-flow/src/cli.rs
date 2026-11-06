@@ -75,15 +75,17 @@ macro_rules! usage_line {
          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
          [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
          [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
-         <topic>.toml files"
+         <topic>.toml files; --help (or -h), anywhere, prints the loop, the mutation format and \
+         the exit statuses"
     };
 }
 
 /// The usage line a usage error prints on stderr.
 pub const USAGE: &str = usage_line!();
 
-/// What `kink-flow --help` (or `-h`) prints on stdout: the usage line, then the loop, the
-/// mutation format and the exit statuses in one screen, for a caller starting cold.
+/// What `kink-flow --help` (or `-h`, anywhere on the command line, as after a verb) prints on
+/// stdout: the usage line, then the loop, the mutation format and the exit statuses in one
+/// screen, for a caller starting cold.
 pub const HELP: &str = concat!(
     usage_line!(),
     "
@@ -93,8 +95,9 @@ The loop:
   2. write mutations (MUTATIONS.toml, or one <topic>.toml per topic in a directory);
      kink-flow check FLOW.toml --mutations MUTATIONS until it exits 0
   3. kink-flow run FLOW.toml MUTATIONS: it reports the survivors, mutations no program kills
-  4. for each survivor, write a program that kills it, or argue that the mutation is
-     equivalent and drop it; run again (cached outcomes are not re-run)
+  4. for each survivor, write a program that kills it, or argue that no program can and
+     drop the mutation, or keep it with the argument in its misunderstanding (its status
+     stays survived); run again (cached outcomes are not re-run)
 
 A mutation (MUTATIONS.toml):
   [[mutation]]
@@ -138,9 +141,10 @@ pub fn execute(args: Vec<OsString>) -> u8 {
         );
         return EXIT_YES;
     }
-    if let [flag] = args.as_slice()
-        && (flag == "--help" || flag == "-h")
-    {
+    // Asking for help is a question the tool answers wherever it is asked, as after a verb
+    // (`kink-flow run --help`): no operand or option value of kink-flow begins with `-h` or is
+    // `--help`.
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print!("{HELP}");
         return EXIT_YES;
     }

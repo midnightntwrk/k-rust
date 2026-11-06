@@ -435,7 +435,7 @@ pub enum InvalidReason {
     /// its baseline start, an unaddressed sentence does not end where they move its end, or a
     /// replaced rule ends later than that, or earlier by more than whitespace.
     SpanChanged,
-    /// The edited rule is the baseline rule up to formatting.
+    /// The edited rule loads to the baseline rule's sentence (layout, comments, a `requires true`).
     NoChange,
     /// kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does
     /// not resolve, a selection error). Defensive: the checks above make it unreachable on rules
@@ -548,8 +548,8 @@ impl InvalidReason {
             Self::FileRequired => "add `file`, or address the rule by `rule = <label>`",
             Self::UnknownLabel => {
                 "the rule was renamed or removed, or the anchor is misspelt: find the rule's \
-                 current label in the K (the detail lists near labels) and rewrite `rule`, or \
-                 drop the mutation if the rule is gone"
+                 current label in the K (the detail names the labels near the anchor, when there \
+                 are any) and rewrite `rule`, or drop the mutation if the rule is gone"
             }
             Self::AmbiguousLabel => {
                 "write more of the label so that it names one rule: more of its components, or \
@@ -1380,7 +1380,12 @@ pub fn resolve(
                     return Err(InvalidMutation {
                         edit: Some(group.edits[0]),
                         reason: InvalidReason::NoChange,
-                        detail: format!("{} is unchanged up to formatting", site.describe()),
+                        detail: format!(
+                            "{} loads to the same sentence as before the edits: layout, \
+                             comments and a `requires true` or `ensures true` load as they do \
+                             without them",
+                            site.describe()
+                        ),
                     });
                 }
                 edits.push(Edit::ReplaceSentence {
@@ -1923,32 +1928,83 @@ pub(crate) fn qualified_label(stored: &str, module: &str) -> String {
     }
 }
 
-/// The labels an unknown anchor may have meant, for its refusal: those that contain the anchor's
-/// last component, at most five, in byte order (`""` when none).
+/// The labels an unknown anchor may have meant, for its refusal, compared by last component (the
+/// text after the last `.` or `-`): a rule label is near when its last component contains the
+/// anchor's, shares a word of three or more characters with it (words are separated by `_`), or
+/// is within a third of the anchor's length in edits of single characters (at least one). A
+/// renamed item keeps most of its words (`plus_succ` to `plus_step`), and a misspelt anchor is a
+/// few edits away. They are listed containing first, then by edit distance, then in byte order,
+/// at most five; with none, the text says so, so that the refusal's next step can always point at
+/// the detail.
 fn near_labels(authored: &[Authored<'_>], anchor: &str) -> String {
-    let last = anchor
-        .rsplit(['.', '-'])
-        .find(|part| !part.is_empty())
-        .unwrap_or(anchor);
-    let near = authored
+    let last_component = |text: &'_ str| -> String {
+        text.rsplit(['.', '-'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(text)
+            .to_owned()
+    };
+    let last = last_component(anchor);
+    let words = |text: &str| -> BTreeSet<String> {
+        text.split('_')
+            .filter(|word| word.chars().count() >= 3)
+            .map(str::to_owned)
+            .collect()
+    };
+    let anchor_words = words(&last);
+    let limit = (last.chars().count() / 3).max(1);
+    let mut near = authored
         .iter()
         .filter(|a| a.is_rule())
         .filter_map(Authored::label)
-        .filter(|label| label.contains(last))
-        .collect::<BTreeSet<_>>();
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter_map(|label| {
+            let component = last_component(label);
+            let distance = edit_distance(&component, &last);
+            let contains = component.contains(last.as_str());
+            let shares = !words(&component).is_disjoint(&anchor_words);
+            (contains || shares || distance <= limit).then_some((!contains, distance, label))
+        })
+        .collect::<Vec<_>>();
+    near.sort_unstable();
     if near.is_empty() {
-        return String::new();
+        return format!(
+            "; no label contains {last:?}, shares a word with it or is within {limit} edit{} of it",
+            if limit == 1 { "" } else { "s" }
+        );
     }
-    let shown = near.iter().take(5).copied().collect::<Vec<_>>().join(", ");
+    let shown = near
+        .iter()
+        .take(5)
+        .map(|(_, _, label)| *label)
+        .collect::<Vec<_>>()
+        .join(", ");
     let more = near.len().saturating_sub(5);
     format!(
-        " (labels containing {last:?}: {shown}{})",
+        "; near labels: {shown}{}",
         if more > 0 {
             format!(" and {more} more")
         } else {
             String::new()
         }
     )
+}
+
+/// The number of single-character insertions, deletions and substitutions that turn `left` into
+/// `right` (Levenshtein distance), over characters.
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (i, a) in left.chars().enumerate() {
+        let mut current = Vec::with_capacity(right.len() + 1);
+        current.push(i + 1);
+        for (j, b) in right.iter().enumerate() {
+            let substitution = previous[j] + usize::from(a != *b);
+            current.push(substitution.min(previous[j + 1] + 1).min(current[j] + 1));
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 /// The edits addressed to one rule.

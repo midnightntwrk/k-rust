@@ -28,7 +28,7 @@ and the tool reports which mutations no corpus program kills.
 This section is written for the LLM that drives the loop;
 [`crates/kink-flow/README.md`](crates/kink-flow/README.md) is the reference for every field and reason.
 Build the portable profile for the loop, from the root of k-rust's checkout: `cargo build --release -p kink-flow --no-default-features`.
-The default build is the Z3 profile ("Gate", below), under which every solver query is bounded by Z3 resource units (`[budget] smt_resource_limit`) and the caches are on as in the portable build, and some `no` answers of `kink-flow query` are `unknown`, until k-rust's KINK-28; the walkthrough below is written for the portable build.
+The default build is the Z3 profile ("Gate", below), under which every solver query is bounded by Z3 resource units (`[budget] smt_resource_limit`) and the caches are on as in the portable build, and `kink-flow query` gives no `no` answer: every answer that would be `no` is `unknown`, until k-rust's KINK-28; the walkthrough below is written for the portable build.
 
 For a KRS specification, `krs kink <verb>` is the same loop over a KRS package: it builds the package, keeps the K it emits as `kink/definition.k`, runs these verbs with these options over it, and names every rule a document names by its Rust item and position (`krs = {item, file, line, ..}`).
 Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { definition = "main" }`, and mutations are K patches of the emitted rules anchored by the item's name (`rule = "plus_zero"`); KRS's workflow reference, "The corpus loop" (`docs-site/src/pages/reference/workflow.mdx`), is its reference, and the docs-site page "Mutation testing a KRS specification" (`docs-site/src/pages/verification/mutation-testing.mdx`) is its guide.
@@ -49,7 +49,8 @@ Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { d
    `kink-flow results FLOW.toml --mutations MUTATIONS.toml` (and every run report) lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
    It reports the survivors: mutations no program kills.
-   For each survivor, write a program that kills it, or argue that the mutation is equivalent and drop it; then run again.
+   For each survivor, write a program that kills it, or argue that no program can and drop the mutation, or keep it with the argument in its `misunderstanding`; then run again.
+   An argued survivor stays `survived`: the status `equivalent` is only that of a mutant that compiles to the baseline's definition.
    Each proved outcome of a mutation on a program is cached, so a later run with the same specification, budget and kink build
    re-checks a killed mutation with no run at all, and runs a survivor only on the programs added since.
    After an edit of the specification, a killed mutation is re-proved first with the program that last killed it (its hint).
