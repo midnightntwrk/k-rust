@@ -945,6 +945,42 @@ fn a_main_cell_inside_a_set_instance_is_refused() {
     "#]].assert_debug_eq(&(error.to_diagnostics()[0].code.to_string(), error.to_string()));
 }
 
+/// A main cell inside a List collection's instance is refused, naming the collection: a sentence
+/// that names no cell is a local step of that instance, the instance at any position of the List,
+/// and matching one instance between others is not supported.
+#[test]
+fn a_main_cell_inside_a_list_instance_is_refused() {
+    let error = refusal(&definition(
+        "small",
+        &[
+            Cell::Held(
+                "objs",
+                "*List",
+                vec![
+                    ("Obj", "code", CellWrapper::KCell, BuiltinSort::KSequence),
+                    ("Obj", "n", CellWrapper::Cell, BuiltinSort::Int),
+                ],
+            ),
+            Cell::Group("core", core_cells()),
+        ],
+        "Core",
+        vec![group(
+            "Obj",
+            &[
+                ("code", CellWrapper::KCell, BuiltinSort::KSequence),
+                ("n", CellWrapper::Cell, BuiltinSort::Int),
+            ],
+        )],
+    ));
+    expect_test::expect![[r#"
+        (
+            "krs::analysis::main-cell",
+            "the computation cell `code` sits in an instance of the List collection cell `objs` of configuration `Small`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, which in a List is the instance at any position, and matching one instance between others is not supported yet; hold the instances in a Map collection keyed by an id",
+        )
+    "#]]
+        .assert_debug_eq(&(error.to_diagnostics()[0].code.to_string(), error.to_string()));
+}
+
 /// A main cell that is a Map instance's key is refused, naming the key: a sentence that names no
 /// cell would rewrite the instance's identity.
 #[test]
