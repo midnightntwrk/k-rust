@@ -162,7 +162,8 @@ pub struct MistakeClass {
     pub advice: Vec<String>,
     /// The spellings a cell-entry class's doc names, as machine-read examples (`examples`): each
     /// `FORM ; SIDE ; PATH ; STACK ; ENTRY ; OTHER`, which the cells oracle's test judges by
-    /// `outcome` (`tests/cells_oracle.rs`); empty for a class with none.
+    /// `outcome` (`tests/cells_oracle.rs`); for the attribute axis's lint, the IDs of cases
+    /// that owe it (`tests/attributes.rs`); empty for a class with none.
     pub examples: Vec<String>,
 }
 
@@ -532,6 +533,33 @@ impl Table {
     ///
     /// Returns every schema error and every glob that does not parse.
     pub fn parse(text: &str) -> Result<Self, Vec<TableError>> {
+        let table = Self::parse_parts(text)?;
+        let errors = table.undeclared_lints(&table.accept);
+        if errors.is_empty() {
+            Ok(table)
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// An error for each entry of `accept` that owes a lint which is no class of the table.
+    fn undeclared_lints(&self, accept: &BTreeMap<String, Accepted>) -> Vec<TableError> {
+        accept
+            .iter()
+            .filter_map(|(id, accepted)| {
+                let lint = accepted.lint.as_ref()?;
+                (!self.classes.contains_key(lint)).then(|| {
+                    schema(format!(
+                        "accept.{id:?} owes the lint {lint:?}, which is no declared class"
+                    ))
+                })
+            })
+            .collect()
+    }
+
+    /// The table's parts, before an accept entry's lint is checked against the classes, which
+    /// for [`TERM_ACCEPTS_FILE`] are another text's.
+    fn parse_parts(text: &str) -> Result<Self, Vec<TableError>> {
         let document = text
             .parse::<DocumentMut>()
             .map_err(|error| vec![TableError::Schema(error.to_string())])?;
@@ -557,15 +585,6 @@ impl Table {
                     pattern: pattern.clone(),
                     reason,
                 });
-            }
-        }
-        for (id, accepted) in &table.accept {
-            if let Some(lint) = &accepted.lint
-                && !table.classes.contains_key(lint)
-            {
-                errors.push(schema(format!(
-                    "accept.{id:?} owes the lint {lint:?}, which is no declared class"
-                )));
             }
         }
         table.lints = table
@@ -600,8 +619,9 @@ impl Table {
                 "expected.toml accepts the term case {id:?}, whose entry belongs in {TERM_ACCEPTS_FILE}"
             )));
         }
-        match Self::parse(term_accepts) {
+        match Self::parse_parts(term_accepts) {
             Ok(terms) => {
+                errors.extend(table.undeclared_lints(&terms.accept));
                 if !terms.classes.is_empty()
                     || !terms.refuse.is_empty()
                     || !terms.cell_exceptions.is_empty()

@@ -36,6 +36,13 @@
 //!   by whether its hole is a result; `result = S` names the sort a heated hole's evaluation ends
 //!   in, which a context and a context alias name too, and which means nothing on a sentence
 //!   that heats nothing;
+//! - a context, and each position of a strict production, heats its hole while it is no result
+//!   and cools it once it is a result of the step's sort `R` (`result = R` on the context, the
+//!   strictness or the context alias the position is evaluated through, `KResult` otherwise):
+//!   both steps match the hole at its sort `H`, so a term of the hole is cooled exactly when its
+//!   sort is below both `H` and `R`. Where no sort that has terms is below both, nothing the
+//!   heating moves is ever plugged back, and a run that reaches it stays under the freezer; that
+//!   is well defined, so it is accepted with the lint `never-cools` ([`COOLINGS`], [`cools`]);
 //! - `concrete`, `symbolic` and `smt_lemma` restrict when an equation or a simplification applies
 //!   (or hand it to the solver): on a transition a restriction would leave out of a symbolic
 //!   search the steps it applies to, which is unsound, and on the other forms there is no
@@ -267,6 +274,10 @@ pub enum Written {
     /// The form's whole marker with its keys, and the helpers after it, in place of the base's
     /// marker.
     Marker(&'static str),
+    /// The strictness marker of a production the case declares (`#[k::strict(..)]`), or the
+    /// marker of its constructors where it names the production's result sort
+    /// (`#[k::constructors(.., result = S)]`), written beside the form's sentence or alone.
+    Strictness(&'static str),
 }
 
 impl Written {
@@ -280,7 +291,8 @@ impl Written {
             | Self::HelperBefore(text)
             | Self::Production(text)
             | Self::SolverFunction(text)
-            | Self::Marker(text) => text,
+            | Self::Marker(text)
+            | Self::Strictness(text) => text,
         }
     }
 }
@@ -825,6 +837,196 @@ pub fn together(sentence: Sentence, key: Attribute, helper: Attribute) -> Outcom
     }
 }
 
+/// The lint a step whose hole can never be a result owes (the module documentation).
+pub const NEVER_COOLS: &str = "never-cools";
+
+/// The sorts of the terms base (`class_matrix::terms`) declared below others: `Int` below
+/// `Value`, which is below `Stmt` and `KResult`. Every sort is below `KItem`.
+const SUBSORTS: [(&str, &str); 3] = [("Int", "Value"), ("Value", "Stmt"), ("Value", "KResult")];
+
+/// The sorts of the terms base that have terms of their own: the integers, the `Word` tokens,
+/// the commands (`Cmd`) and the cons list (`Seq`). `Value` has only the terms of `Int`, below it,
+/// and the framework's `KItem` and `KResult` only those of the sorts below them.
+const INHABITED: [&str; 4] = ["Int", "Word", "Stmt", "Items"];
+
+/// Whether a term of `sort` is a term of `expected` in the terms base.
+fn below(sort: &str, expected: &str) -> bool {
+    sort == expected
+        || expected == "KItem"
+        || SUBSORTS
+            .iter()
+            .any(|(lower, upper)| *lower == sort && below(upper, expected))
+}
+
+/// Whether a step whose hole has sort `hole` and whose result sort is `result` may cool, in the
+/// terms base: some sort that has terms is below both.
+#[must_use]
+pub fn cools(hole: &str, result: &str) -> bool {
+    INHABITED
+        .iter()
+        .any(|sort| below(sort, hole) && below(sort, result))
+}
+
+/// What evaluates a [`Cooling`] case's hole.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Step {
+    /// The context form's context, `#[k::context(hole = h, ..)]`, over the case's command, whose
+    /// fields have the hole's sort.
+    Context,
+    /// The one position of a production the case declares strict, `#[k::strict(..)]`.
+    Strict,
+    /// The one position of a production the case declares strict through the context alias the
+    /// form's sentence is (`#[k::strict(using = case_TAG)]`).
+    StrictUsing,
+}
+
+/// A step whose hole may or may not be a result: a context, or a position of a strict
+/// production, with the hole's sort and the step's result sort. Its ID's construct is its
+/// `name`, and its spelling the marker as written.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Cooling {
+    /// The form: `context` for a context or a strict position, `context-alias` for a strict
+    /// position evaluated through the case's alias.
+    pub form: &'static str,
+    /// The case ID's construct.
+    pub name: &'static str,
+    /// What evaluates the hole.
+    pub step: Step,
+    /// The hole's sort.
+    pub hole: &'static str,
+    /// The `result = S` the step names (on the context, the strictness, or the alias), `None`
+    /// where it names none: the step's result sort is then `KResult` (a context's default, and
+    /// the production's `#[k::constructors(.., result = KResult)]`).
+    pub result: Option<&'static str>,
+    /// The marker as written: the context's, the production's strictness, or its constructors'
+    /// where they name its result sort.
+    pub written: &'static str,
+}
+
+impl Cooling {
+    /// The step's result sort.
+    #[must_use]
+    pub fn result_sort(self) -> &'static str {
+        self.result.unwrap_or("KResult")
+    }
+}
+
+const fn cooling(
+    form: &'static str,
+    name: &'static str,
+    step: Step,
+    hole: &'static str,
+    result: Option<&'static str>,
+    written: &'static str,
+) -> Cooling {
+    Cooling {
+        form,
+        name,
+        step,
+        hole,
+        result,
+        written,
+    }
+}
+
+/// The cooling cases [`pairs`] generates, each warned one beside a control that differs in one
+/// sort: a context whose hole is a `Word` (no `Word` is below `KResult`) and one whose
+/// `result = Word`; a context whose hole is an `Int` (below `KResult`) and one whose
+/// `result = Word`, which no `Int` is. The strict positions' are [`STRICT_COOLINGS`].
+pub const COOLINGS: [Cooling; 4] = [
+    cooling(
+        "context",
+        "hole of sort Word",
+        Step::Context,
+        "Word",
+        None,
+        "#[k::context(hole = h)]",
+    ),
+    cooling(
+        "context",
+        "hole of sort Word with result = Word",
+        Step::Context,
+        "Word",
+        Some("Word"),
+        "#[k::context(hole = h, result = Word)]",
+    ),
+    cooling(
+        "context",
+        "hole of sort Int",
+        Step::Context,
+        "Int",
+        None,
+        "#[k::context(hole = h)]",
+    ),
+    cooling(
+        "context",
+        "hole of sort Int with result = Word",
+        Step::Context,
+        "Int",
+        Some("Word"),
+        "#[k::context(hole = h, result = Word)]",
+    ),
+];
+
+/// The cooling cases of strict positions, each warned one beside its control: a position of
+/// sort `Word` and one of sort `Int` with the production's `result = KResult`, each beside the
+/// same position with `result = Word` (on the production's constructors), and a `Word` position
+/// evaluated through the form's context alias, whose `result = Value` no `Word` is and whose
+/// `result = Word` every `Word` is. [`pairs`] does not generate them yet: K3's printed surface
+/// leaves out the production a case declares beside its sentence (`different` alone,
+/// `invalid-semantic-theory` in a batch), a printer deviation of its own. krs-cli
+/// `framework_sorts.rs` pins the lint on each of these steps meanwhile.
+pub const STRICT_COOLINGS: [Cooling; 6] = [
+    cooling(
+        "context",
+        "strict position of sort Word",
+        Step::Strict,
+        "Word",
+        None,
+        "#[k::strict]",
+    ),
+    cooling(
+        "context",
+        "strict position of sort Word with result = Word",
+        Step::Strict,
+        "Word",
+        Some("Word"),
+        "#[k::constructors(sort = Stmt, result = Word)]",
+    ),
+    cooling(
+        "context",
+        "strict position of sort Int",
+        Step::Strict,
+        "Int",
+        None,
+        "#[k::strict]",
+    ),
+    cooling(
+        "context",
+        "strict position of sort Int with result = Word",
+        Step::Strict,
+        "Int",
+        Some("Word"),
+        "#[k::constructors(sort = Stmt, result = Word)]",
+    ),
+    cooling(
+        "context-alias",
+        "strict position of sort Word using an alias with result = Value",
+        Step::StrictUsing,
+        "Word",
+        Some("Value"),
+        "#[k::strict(using = case_TAG)]",
+    ),
+    cooling(
+        "context-alias",
+        "strict position of sort Word using an alias with result = Word",
+        Step::StrictUsing,
+        "Word",
+        Some("Word"),
+        "#[k::strict(using = case_TAG)]",
+    ),
+];
+
 /// What an attribute case writes: an attribute of the axis, a malformed one, or an extra.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pair {
@@ -836,6 +1038,8 @@ pub enum Pair {
     Extra(Form, Extra),
     /// A key and a helper together on a form.
     Together(Form, Together),
+    /// A step whose hole may or may not be a result, on a form.
+    Cooling(Form, Cooling),
 }
 
 impl Pair {
@@ -846,7 +1050,8 @@ impl Pair {
             Self::Attribute(form, _)
             | Self::Malformed(form, _)
             | Self::Extra(form, _)
-            | Self::Together(form, _) => form,
+            | Self::Together(form, _)
+            | Self::Cooling(form, _) => form,
         }
     }
 
@@ -858,6 +1063,10 @@ impl Pair {
             Self::Malformed(_, malformed) => malformed.written,
             Self::Extra(_, extra) => extra.written,
             Self::Together(_, together) => Written::Marker(together.written),
+            Self::Cooling(_, cooling) => match cooling.step {
+                Step::Context => Written::Marker(cooling.written),
+                Step::Strict | Step::StrictUsing => Written::Strictness(cooling.written),
+            },
         }
     }
 
@@ -867,6 +1076,7 @@ impl Pair {
         match self {
             Self::Extra(_, extra) => extra.name,
             Self::Together(_, together) => together.name,
+            Self::Cooling(_, cooling) => cooling.name,
             _ => self.written().text(),
         }
     }
@@ -877,9 +1087,34 @@ impl Pair {
         match self {
             Self::Attribute(form, attribute) => expected(form.sentence, attribute),
             Self::Malformed(_, malformed) => refuse(malformed.class),
-            Self::Extra(..) => Outcome::Accept,
+            Self::Extra(..) | Self::Cooling(..) => Outcome::Accept,
             Self::Together(form, pair) => together(form.sentence, pair.key, pair.helper),
         }
+    }
+
+    /// The hole's sort and the result sort of the step an accepted case writes, where it writes
+    /// one: a cooling case's, and the context form's, whose hole `h` is its command's first
+    /// field, a `KItem`, and whose result sort is `KResult`, named (`result = KResult`) or not.
+    /// A context alias alone evaluates nothing: only a production strict in it does.
+    #[must_use]
+    pub fn step(self) -> Option<(&'static str, &'static str)> {
+        if self.expected() != Outcome::Accept {
+            return None;
+        }
+        match self {
+            Self::Cooling(_, cooling) => Some((cooling.hole, cooling.result_sort())),
+            _ if self.form().sentence == Sentence::Context => Some(("KItem", "KResult")),
+            _ => None,
+        }
+    }
+
+    /// The lint the oracle owes the case: [`NEVER_COOLS`] where its step can never cool
+    /// ([`cools`]), none elsewhere.
+    #[must_use]
+    pub fn lint(self) -> Option<&'static str> {
+        self.step()
+            .filter(|(hole, result)| !cools(hole, result))
+            .map(|_| NEVER_COOLS)
     }
 }
 
@@ -896,8 +1131,8 @@ pub fn form_named(name: &str) -> Form {
         .unwrap_or_else(|| panic!("no attribute form is named {name}"))
 }
 
-/// Every pair of the axis: every attribute on every form, then the malformed ones, the extras
-/// and the attributes together.
+/// Every pair of the axis: every attribute on every form, then the malformed ones, the extras,
+/// the attributes together and the cooling cases.
 #[must_use]
 pub fn pairs() -> Vec<Pair> {
     let mut pairs = FORMS
@@ -922,6 +1157,11 @@ pub fn pairs() -> Vec<Pair> {
         TOGETHER
             .iter()
             .map(|together| Pair::Together(form_named(together.form), *together)),
+    );
+    pairs.extend(
+        COOLINGS
+            .iter()
+            .map(|cooling| Pair::Cooling(form_named(cooling.form), *cooling)),
     );
     pairs
 }

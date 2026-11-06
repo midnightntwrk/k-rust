@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use krs_test_support::class_matrix::attributes::{
-    Attribute, BASE_KEYS, CASE_PRIORITY, DECLARATION_MACROS, DRIVER_PRIORITY, EXTRAS, FORMS,
-    LATE_CASE_PRIORITY, MALFORMED, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair,
-    SENTENCE_MACROS, TOGETHER, Written, pairs,
+    Attribute, BASE_KEYS, CASE_PRIORITY, COOLINGS, DECLARATION_MACROS, DRIVER_PRIORITY, EXTRAS,
+    FORMS, LATE_CASE_PRIORITY, MALFORMED, NEVER_COOLS, OWISE_SIBLING_PRIORITY,
+    PRIORITY_SIBLING_PRIORITY, Pair, SENTENCE_MACROS, TOGETHER, Written, cools, pairs,
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::oracle::Outcome;
@@ -445,7 +445,15 @@ fn every_attribute_macro_is_a_sentence_marker_a_helper_or_a_declaration() {
         };
         let form = pair.form();
         let item = case.item();
-        if !clause_forms.contains(&form.name) {
+        // A strict position alone is a context its production states: its marker is the
+        // production's strictness, which the case writes.
+        let strict = matches!(
+            pair,
+            Pair::Cooling(_, cooling) if cooling.step == krs_test_support::class_matrix::attributes::Step::Strict
+        );
+        if strict {
+            assert!(item.contains("#[k::strict"), "{}", case.id);
+        } else if !clause_forms.contains(&form.name) {
             assert!(
                 item.contains(&format!("#[k::{}", form.marker)),
                 "{}: does not write its form's marker #[k::{}]",
@@ -494,7 +502,11 @@ fn every_term_slot_form_has_an_attribute_form_and_every_pair_a_case() {
         .collect::<Vec<_>>();
     assert_eq!(
         attribute_cases.len(),
-        FORMS.len() * Attribute::ALL.len() + MALFORMED.len() + EXTRAS.len() + TOGETHER.len()
+        FORMS.len() * Attribute::ALL.len()
+            + MALFORMED.len()
+            + EXTRAS.len()
+            + TOGETHER.len()
+            + COOLINGS.len()
     );
     assert_eq!(attribute_cases.len(), pairs().len());
     for case in &attribute_cases {
@@ -1098,4 +1110,71 @@ fn the_oracle_shares_every_attribute_boundary_the_reference_states() {
         }
     }
     assert!(disagreements.is_empty(), "{disagreements:#?}");
+}
+
+/// The lint each accepted attribute case owes is the oracle's: `never-cools` exactly where the
+/// case's step can never cool, in `accepted-terms.toml` as the shards read it. The terms base
+/// declares the sorts the oracle reads its steps by, and each warned cooling case's control
+/// differs from it in one sort.
+#[test]
+fn every_attribute_case_owes_the_oracles_lint() {
+    use krs_test_support::class_matrix::table::Table;
+    let read = |file: &str| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/class-matrix")
+            .join(file);
+        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+    };
+    let table =
+        Table::parse_with_term_accepts(&read("expected.toml"), &read("accepted-terms.toml"))
+            .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let mut warned = Vec::new();
+    for case in class_matrix::cases()
+        .iter()
+        .filter(|case| case.family == Family::Attributes)
+    {
+        let pair = case.attribute.expect("an attribute case carries its pair");
+        let lint = pair.lint();
+        if let Some(accepted) = table.accept.get(&case.id) {
+            assert_eq!(accepted.lint.as_deref(), lint, "{}", case.id);
+        } else {
+            assert_eq!(lint, None, "{}: a refused case owes no lint", case.id);
+        }
+        if lint.is_some() {
+            warned.push(case.id.clone());
+        }
+    }
+    assert_eq!(
+        warned.len(),
+        COOLINGS
+            .iter()
+            .filter(|cooling| !cools(cooling.hole, cooling.result_sort()))
+            .count(),
+        "only cooling cases are warned: {warned:#?}"
+    );
+    let class = &table.classes[NEVER_COOLS];
+    assert!(!class.examples.is_empty());
+    for example in &class.examples {
+        assert!(warned.contains(example), "{example} owes no {NEVER_COOLS}");
+    }
+    let preamble = Base::Terms.preamble();
+    for declared in [
+        "Value: Stmt + KResult;",
+        "impl Value for Int;",
+        "pub struct Word(",
+    ] {
+        assert!(
+            preamble.contains(declared),
+            "the terms base declares {declared}"
+        );
+    }
+    for cooling in COOLINGS {
+        let result = cooling.result_sort();
+        let control = COOLINGS.iter().any(|other| {
+            other.step == cooling.step
+                && (other.hole == cooling.hole) != (other.result_sort() == result)
+                && cools(other.hole, other.result_sort()) != cools(cooling.hole, result)
+        });
+        assert!(control, "{}: no control beside it", cooling.name);
+    }
 }

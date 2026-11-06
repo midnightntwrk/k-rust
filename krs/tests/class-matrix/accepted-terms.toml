@@ -473,6 +473,38 @@ requires isWord(V1:KItem)
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
 """
 
+[accept."attrs/context/hole of sort Int"]
+k = """
+context [case-TAG]: cTAG ( V0:Int , V1:Int , _ )
+
+syntax Stmt ::= "cTAG" "(" Int "," Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."attrs/context/hole of sort Int with result = Word"]
+lint = "never-cools"
+k = """
+context [case-TAG]: cTAG ( V0:Int , V1:Int , _ )
+[result(Word)]
+
+syntax Stmt ::= "cTAG" "(" Int "," Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."attrs/context/hole of sort Word"]
+lint = "never-cools"
+k = """
+context [case-TAG]: cTAG ( V0:Word , V1:Word , _ )
+
+syntax Stmt ::= "cTAG" "(" Word "," Word "," Word ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."attrs/context/hole of sort Word with result = Word"]
+k = """
+context [case-TAG]: cTAG ( V0:Word , V1:Word , _ )
+[result(Word)]
+
+syntax Stmt ::= "cTAG" "(" Word "," Word "," Word ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
 [accept.'attrs/context/label = "named-TAG"']
 k = """
 context [named-TAG]: cTAG ( V0:KItem , V1:KItem , _ )

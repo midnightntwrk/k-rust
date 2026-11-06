@@ -433,6 +433,12 @@ code = "krs::analysis::invalid-ml-predicate"
 doc = "a matching-logic predicate as an operand of an object constructor or function"
 advice = "none"
 
+[class.never-cools]
+code = "krs::analysis::never-cools"
+doc = "a lint, never a refusal: a context, or a position of a strict production, heats its hole while it is no result and cools it once it is a result of the step's sort `R` (`result = R` on the context, the strictness or the context alias the position is evaluated through, `KResult` otherwise); both steps match the hole at its sort `H`, so where no sort that has terms is below both `H` and `R` nothing the heating moves is ever plugged back, and a run that reaches it stays under the freezer; `krs check` reports it as a warning at the context's `hole` key or at the strict position"
+examples = ["attrs/context/hole of sort Word", "attrs/context/hole of sort Int with result = Word"]
+advice = "none"
+
 [class.no-effect-entry]
 code = "krs::analysis::no-effect-entry"
 doc = "a lint, never a refusal (Q1): a subject entry that matches every content its cell allows and binds nothing (`_`, `[..]`, `Cell(_)`, a group record whose children do), on a cell the result leaves out or in a pattern the sentence keeps (a context, a context alias, a function context), so the sentence is the same without it; `krs check` reports it as a warning at the entry"

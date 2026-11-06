@@ -63,8 +63,8 @@
 //! (`tests/attributes.rs` pins both).
 
 use super::super::attributes::{
-    Attribute, Effect, Extra, Form, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair,
-    Written, pairs,
+    Attribute, Cooling, Effect, Extra, Form, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY,
+    Pair, Step, Written, pairs,
 };
 use super::super::k7::{Ground, K7, Removed, Run, SkipKind, Status};
 use super::super::{
@@ -149,6 +149,9 @@ fn solver_template(form: Form) -> String {
 /// The case of `pair`, or with `attributed` false the same case without its attribute
 /// ([`without_attribute`]).
 fn case(pair: Pair, slot: &Slot, spelling: &Spelling, attributed: bool) -> Case {
+    if let Pair::Cooling(_, cooling) = pair {
+        return cooling_case(pair, cooling, slot, attributed);
+    }
     let form = pair.form();
     let written = pair.written();
     let text = written.text();
@@ -168,7 +171,7 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling, attributed: bool) -> Case 
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(marker);
     let attribute = match pair {
         Pair::Attribute(_, attribute) => Some(attribute),
-        Pair::Malformed(..) | Pair::Extra(..) | Pair::Together(..) => None,
+        Pair::Malformed(..) | Pair::Extra(..) | Pair::Together(..) | Pair::Cooling(..) => None,
     };
     // The attribute whose meaning needs its name used: the case's, or a pair's helper.
     let needs_use = match pair {
@@ -254,6 +257,91 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling, attributed: bool) -> Case 
     case
 }
 
+/// The case of a cooling pair ([`Cooling`]), or with `attributed` false the same case without
+/// its marker. A context is the context form's template with the marker in place of the base's,
+/// over the case's command, whose fields have the hole's sort. A strict position is the one
+/// field, of the hole's sort, of a production of `Stmt` the case declares, its result sort its
+/// constructors' `result = S`: alone on the context form, and on the context-alias form after the form's alias, which the production uses and
+/// whose pattern is the head of the computation, with the `result = S` the case names. The
+/// spelling is the marker; the entry, where the lint reports the hole, is the context's marker
+/// or the strict production's variant.
+///
+/// K7 runs none of them: the context form's driver writes its command's fields as `word` and
+/// `1`, which a field of one sort cannot both hold, and no driver writes the case's own strict
+/// production. Whether a hole is ever cooled is a fact of sorts, which no finite run shows; that
+/// a context heats a hole that is no result is the context form's own subject case's run.
+fn cooling_case(pair: Pair, cooling: Cooling, slot: &Slot, attributed: bool) -> Case {
+    let form = pair.form();
+    let spec = CaseSpec {
+        family: Family::Attributes,
+        base: Base::Terms,
+        side: Side::Subject,
+        kind: None,
+        slot: vec![form.name.to_owned()],
+        construct: pair.name().to_owned(),
+    };
+    let tag = spec.tag();
+    let field_sort = match cooling.step {
+        Step::Context => cooling.hole,
+        Step::Strict | Step::StrictUsing => "KItem",
+    };
+    let command = Command::with_fields(&spec.id(), slot.arity, field_sort).marked(slot.marker);
+    let spelled = if attributed {
+        cooling.written.replace("TAG", &tag)
+    } else {
+        String::new()
+    };
+    let mut item = ItemBuilder::new();
+    match cooling.step {
+        Step::Context => {
+            let template = slot
+                .template
+                .replace("HOLE", form.hole)
+                .replace("NAME", &command.name)
+                .replace("TAG", &tag);
+            let (before, after) = template
+                .split_once(marker_of(form).trim())
+                .expect("the context form's template writes its marker");
+            item.push(before).term(&spelled).push(after);
+        }
+        Step::Strict | Step::StrictUsing => {
+            if cooling.step == Step::StrictUsing {
+                let result = cooling
+                    .result
+                    .map_or_else(String::new, |result| format!(", result = {result}"));
+                item.push(&format!(
+                    "#[k::context_alias(name = case_{tag}, here = site{result})]\nfn case_{tag}(\n    k::cells! {{ k: k::configuration::KCell(site, tail @ ..), state @ .. }}: Machine,\n) {{\n}}\n\n"
+                ));
+            }
+            // The production's result sort is its constructors' `result = S`; the entry runs from
+            // the written marker to the strict variant.
+            let variant = format!(" P{tag} {{ a: {} }},\n", cooling.hole);
+            let syntax = format!("    #[k::syntax(\"st{tag}({{a}})\")]\n");
+            item.push("/// A production strict in its one position.\n");
+            if cooling.written.starts_with("#[k::constructors") {
+                item.inside(
+                    "",
+                    &spelled,
+                    &format!("\npub enum Strict{tag} {{\n{syntax}    #[k::strict]{variant}"),
+                );
+            } else {
+                item.push(&format!(
+                    "#[k::constructors(sort = Stmt, result = KResult)]\npub enum Strict{tag} {{\n{syntax}"
+                ))
+                .inside("    ", &spelled, &variant);
+            }
+            item.push("}\n");
+        }
+    }
+    let mut case = spec.finish(Packaging::Shared(command), &item);
+    case.attribute = Some(pair);
+    case.k7 = K7::skip(
+        SkipKind::Form,
+        "the case's hole has a sort the context form's driver does not write in all its fields, or a production of the case's own no driver writes; whether a hole is ever cooled is a fact of sorts, which no finite run shows",
+    );
+    case
+}
+
 /// What K7 runs a case of `pair` on ([module docs](self)), its counter run, and what removing
 /// what the case states does to them.
 fn case_plan(
@@ -272,6 +360,7 @@ fn case_plan(
             Removed::Changes,
         ),
         Pair::Extra(_, extra) => extra_plan(form, extra, slot, spelling, command),
+        Pair::Cooling(..) => unreachable!("{id}: a cooling case is built by cooling_case"),
         Pair::Together(..) => {
             assert_ne!(
                 pair.expected(),
@@ -365,6 +454,7 @@ fn write_attribute(
             assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
             return template.replacen(old, "ATTRIBUTE\n", 1);
         }
+        Written::Strictness(_) => unreachable!("a strictness marker is a cooling case's"),
         Written::Production(_) => {
             let old = marker_of(form);
             assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
