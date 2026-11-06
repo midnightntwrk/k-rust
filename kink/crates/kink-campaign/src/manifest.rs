@@ -1,6 +1,8 @@
 //! Deterministic declaration and artifact identities, without executing a campaign.
 
-use crate::{BudgetMutants, Campaign, CrashPolicy, Projection, ScheduleMode, StateProjection};
+use crate::{
+    BudgetMutants, Campaign, CollectionKind, CrashPolicy, Projection, ScheduleMode, StateProjection,
+};
 use k_rust::{backend::BackendOptions, kompile::CompileOptions, kore::codec::to_value};
 use kink_native::{K_RUST_REVISION, MutantRejection, execution::SolverProfile};
 use kink_patch::{
@@ -405,7 +407,20 @@ fn projection(projection: &Projection) -> Value {
         Projection::State(StateProjection::Cells(cells)) => json!({"cells":cells
             .positions()
             .iter()
-            .map(|position| json!({"cell":position.cell,"path":position.path,"symbols":position.symbols,"sort":position.sort.to_string(),"heads":position.heads}))
+            .map(|position| {
+                let mut value = json!({"cell":position.cell,"path":position.path,"symbols":position.symbols,"sort":position.sort.to_string(),"heads":position.heads});
+                // A position with no collection on its path keeps the encoding it had before
+                // positions could pass through one.
+                if !position.through.is_empty() {
+                    value["through"] = position.through.iter().map(|through| {
+                        let collection = &through.collection;
+                        json!({"at":through.at,"cell":through.cell,"sort":through.sort.to_string(),"heads":through.heads,
+                            "kind":match collection.kind { CollectionKind::Map => "map", CollectionKind::Set => "set", CollectionKind::List => "list" },
+                            "element":collection.element,"instance":collection.instance,"concat":collection.concat,"unit":collection.unit})
+                    }).collect();
+                }
+                value
+            })
             .collect::<Vec<_>>()}),
         Projection::Pattern {
             plan,
@@ -426,7 +441,10 @@ fn plan_value(plan: &PatternPlan) -> Value {
 #[cfg(test)]
 mod tests {
     use super::projection;
-    use crate::{CellProjection, Projection, StateProjection, UnobservedPosition};
+    use crate::{
+        CellProjection, Collection, CollectionKind, Projection, StateProjection, Through,
+        UnobservedPosition,
+    };
     use k_rust::kore::ast::Sort;
     use kink_patch::canonical_json;
 
@@ -446,6 +464,7 @@ mod tests {
                 arguments: Vec::new(),
             },
             heads: vec!["LblinitWCell".to_owned(), "Lbl'-LT-'w'-GT-'".to_owned()],
+            through: Vec::new(),
         };
         let cells = CellProjection::new(vec![position]).unwrap();
         assert_eq!(
@@ -453,6 +472,47 @@ mod tests {
                 cells
             )))),
             r#"{"cells":[{"cell":"w","heads":["LblinitWCell","Lbl'-LT-'w'-GT-'"],"path":[1,0],"sort":"SortWCell{}","symbols":["Lbl'-LT-'generatedTop'-GT-'","Lbl'-LT-'regs'-GT-'"]}]}"#
+        );
+    }
+
+    /// A position inside the instances of a collection also names the collection it passes
+    /// through (`through`); a position with none keeps the encoding above.
+    #[test]
+    fn a_cell_projection_encodes_the_collections_a_position_passes_through() {
+        let sort = |name: &str| Sort::Application {
+            name: name.to_owned(),
+            arguments: Vec::new(),
+        };
+        let position = UnobservedPosition {
+            path: vec![0, 0, 1],
+            symbols: vec![
+                "Lbl'-LT-'generatedTop'-GT-'".to_owned(),
+                "Lbl'-LT-'threads'-GT-'".to_owned(),
+                "Lbl'-LT-'thread'-GT-'".to_owned(),
+            ],
+            cell: "tmp".to_owned(),
+            sort: sort("SortTmpCell"),
+            heads: vec!["Lbl'-LT-'tmp'-GT-'".to_owned()],
+            through: vec![Through {
+                at: 2,
+                cell: "thread".to_owned(),
+                sort: sort("SortThreadCellMap"),
+                heads: vec!["LblThreadCellMapItem".to_owned()],
+                collection: Collection {
+                    kind: CollectionKind::Map,
+                    element: "LblThreadCellMapItem".to_owned(),
+                    instance: 1,
+                    concat: "Lbl'Unds'ThreadCellMap'Unds'".to_owned(),
+                    unit: "Lbl'Stop'ThreadCellMap".to_owned(),
+                },
+            }],
+        };
+        let cells = CellProjection::new(vec![position]).unwrap();
+        assert_eq!(
+            canonical_json(&projection(&Projection::State(StateProjection::Cells(
+                cells
+            )))),
+            r#"{"cells":[{"cell":"tmp","heads":["Lbl'-LT-'tmp'-GT-'"],"path":[0,0,1],"sort":"SortTmpCell{}","symbols":["Lbl'-LT-'generatedTop'-GT-'","Lbl'-LT-'threads'-GT-'","Lbl'-LT-'thread'-GT-'"],"through":[{"at":2,"cell":"thread","concat":"Lbl'Unds'ThreadCellMap'Unds'","element":"LblThreadCellMapItem","heads":["LblThreadCellMapItem"],"instance":1,"kind":"map","sort":"SortThreadCellMap{}","unit":"Lbl'Stop'ThreadCellMap"}]}]}"#
         );
     }
 }

@@ -446,6 +446,7 @@ fn position(cell: &str, path: Vec<u32>, symbols: &[&str], sort: &str) -> Unobser
         cell: cell.to_owned(),
         sort: kore_sort(sort),
         heads: vec![format!("Lbl{cell}")],
+        through: Vec::new(),
     }
 }
 

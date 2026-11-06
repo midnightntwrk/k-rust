@@ -798,7 +798,11 @@ impl Stop {
 /// leaf is. (Under [`STOP_VERSION`] v1 the run was staged, and the rule read the joined run of
 /// every stage, whose path to such a leaf passed only through stage starts that were stop leaves
 /// of finished earlier requests; under v2 it is one request, and the rule reads it as any run.)
-pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v4";
+/// v5: the cell projection leaves out cells inside `?` and `*` cells, in each instance, and
+/// compares a Map's or a Set's instances as a multiset ([`crate::CellLayout::position`]); it is
+/// still defined on every configuration, so the rule reads it as before, over projections that
+/// v4 never made (a slot leaving out such a cell was refused).
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v5";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
