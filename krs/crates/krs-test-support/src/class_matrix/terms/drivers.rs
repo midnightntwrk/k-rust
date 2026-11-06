@@ -1162,7 +1162,7 @@ impl Driver<'_> {
             // instance holding a computed spelling is looked up by its value.
             // The collection holds another instance, added first (behind the case's in the List
             // collection), which the case's `..` leaves.
-            ("readable", "collection-child" | "set-instance-child") => {
+            ("readable", "collection-child") | ("cells" | "readable", "set-instance-child") => {
                 let (witness, command) = if position == "collection-child" {
                     (self.witness()?, "AddMember")
                 } else {

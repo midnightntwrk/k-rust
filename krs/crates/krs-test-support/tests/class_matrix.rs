@@ -136,7 +136,8 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // second clause of its production (NT-22: two names that overlap it, two terms that do
             // not); and the 2 Bool spellings a desugar's result holds below `Cmd::When`, whose
             // rule's condition reads it, and the 3 subjects of `k::matches!(HOLE, _)` there, in a
-            // rule's guard and at a rule's result, the static result's twin (NT-42).
+            // rule's guard and at a rule's result, the static result's twin (NT-42); and the 4
+            // spellings of a Set collection's instance a `cells!` subject looks up (S6-1e).
             (
                 Family::Terms,
                 106 * 51
@@ -153,11 +154,12 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 1
                     + 4
                     + 2
-                    + 3 * 3,
+                    + 3 * 3
+                    + 4,
             ),
-            // 95 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
+            // 96 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
             // subject beside a second clause one too) × 2 bare variants.
-            (Family::Import, 95 * 2),
+            (Family::Import, 96 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's), and a
             // set's singleton as the witness a rule of the case's own writes, at each static

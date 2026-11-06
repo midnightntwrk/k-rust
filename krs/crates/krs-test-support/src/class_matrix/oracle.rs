@@ -33,8 +33,8 @@
 //! **Meaning, not tools.** An entry states what the construct means where it stands, not
 //! whether every tool that reads the emitted K takes it: `let` and `k::matches!` in a claim mean
 //! what they mean in a rule, which KRS makes every prover read by lifting them into functions the
-//! definition declares (NT-15). The `cells!` cell value's boundary for `let` and
-//! `k::matches!` is finding S0-17's, owned by S6, and is kept here as a refusal.
+//! definition declares (NT-15). A `cells!` cell value holds them where the same place of a
+//! readable sentence does (S0-17, closed by S6-1e).
 //!
 //! **Stages.** A refusal's [`Stage`] says what the mistake is told by. A [`Stage::Placement`]
 //! refusal is told by the spelling and its position alone, before any name is resolved. A

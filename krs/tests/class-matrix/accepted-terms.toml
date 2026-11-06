@@ -1692,6 +1692,30 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."import/cells/set-instance-child/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( go ) </mark>
+</token>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["import/readable/set-instance-child/Go()"]
+
+[accept."import/cells/set-instance-child/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( hold ( V0:KItem ) ) </mark>
+</token>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["import/readable/set-instance-child/Hold(x)"]
+
 [accept."import/cells/subject/Go()"]
 k = """
 rule [case-TAG]:
@@ -5623,6 +5647,57 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/readable/result/{ let y = x; y }"]
+
+[accept."terms/cells/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V1:Bool ) </mark>
+</token>
+requires V1:Bool ==K ( hold ( _ ) :=K V0:KItem )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/readable/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/cells/set-instance-child/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V0:KItem ) </mark>
+</token>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/readable/set-instance-child/x"]
+
+[accept."terms/cells/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V1:Stmt ) </mark>
+</token>
+requires ( pair ( _ , _ ) :=K V0:KItem ) andThenBool (V1:Stmt ==K ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) ))
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
+[accept."terms/cells/set-instance-child/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V1:KItem ) </mark>
+</token>
+requires V1:KItem ==K ( #let V2:KItem = V0:KItem #in V2:KItem )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/readable/set-instance-child/{ let y = x; y }"]
 
 [accept."terms/cells/subject/\"s\""]
 k = '''
@@ -19904,6 +19979,32 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/cells-claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+claim [case-TAG]:
+<k> krsLocal_DIGEST ( V0:KItem ) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
+same_k_as = ["terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
+[accept."terms/cells-claim/item-root/{ let y = x; y }"]
+k = """
+claim [case-TAG]:
+<k> krsLocal_DIGEST ( V0:KItem ) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/claim/item-root/{ let y = x; y }"]
+
 [accept."terms/cells-claim/subject/k::is!(Int, x)"]
 k = """
 claim [case-TAG]:
@@ -19927,6 +20028,32 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept."terms/cells-claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , krsLocal_DIGEST ( V0:KItem ) ) => .K ... </k>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
+same_k_as = ["terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
+[accept."terms/cells-claim/subject/{ let y = x; y }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , krsLocal_DIGEST ( V0:KItem ) ) => .K ... </k>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/claim/subject/{ let y = x; y }"]
 
 [accept."terms/cells/item-root/_"]
 k = """
@@ -32715,6 +32842,23 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/cells-claim/item-root/k::matches!(x, Cmd::Hold(_))"]
+k = """
+claim [case-TAG]:
+<k> krsLocal_DIGEST ( V0:KItem ) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
+
 [accept."terms/cells-claim/item-root/map![x -> 1]"]
 same_k_as = ["notation/cells-claim/item-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
@@ -32802,6 +32946,23 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept."terms/cells-claim/subject/k::matches!(x, Cmd::Hold(_))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , krsLocal_DIGEST ( V0:KItem ) ) => .K ... </k>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
 
 [accept."terms/cells-claim/subject/map![x -> 1]"]
 same_k_as = ["notation/cells-claim/subject/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]

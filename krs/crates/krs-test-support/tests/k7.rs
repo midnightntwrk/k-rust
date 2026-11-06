@@ -243,12 +243,12 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "80 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1203 runs a counter-witness",
-    "2131 runs at another input",
+    "1205 runs a counter-witness",
+    "2136 runs at another input",
     "1664 runs, liveness",
-    "245 runs, undefined",
+    "246 runs, undefined",
     "266 runs, undefined result",
-    "2790 runs, value",
+    "2795 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it

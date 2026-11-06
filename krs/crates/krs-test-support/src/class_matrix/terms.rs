@@ -2520,6 +2520,33 @@ fn slots() -> Vec<Slot> {
         )
         .binding(&[X])
         .holding(Holds::Only(&["true", "k::is!(Int, x)"])),
+        // A Set collection's instance a `cells!` subject looks up, computed as a key is: the
+        // `cells!` twin of `readable/set-instance-child` (S6-1e). Only the constructs that
+        // compute it are held, with a name as the control.
+        slot(
+            "cells",
+            "set-instance-child",
+            Side::Subject,
+            (
+                CellsRule,
+                Part::Subject,
+                &[Instance, SetElement, Argument, Argument],
+            ),
+            concat!(
+                "#[k::rule(label = \"case-TAG\")]\n",
+                "pub fn case_TAG(\nBINDERS",
+                "    k::cells! { k: k::configuration::KCell(Cmd::NAME(x, _), tail @ ..), Tray::token: { k::fragment![crate::Token { mark: Cmd::Hold(HOLE) }], instances0 @ .. }, state @ .. }: Machine,\n",
+                ") -> Machine {\n",
+                "    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n"
+            ),
+        )
+        .binding(&[X])
+        .holding(Holds::Only(&[
+            "x",
+            "{ let y = x; y }",
+            "{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }",
+            "k::matches!(x, Cmd::Hold(_))",
+        ])),
         // A single-body `cells!` rule, a `cells!` claim and a context alias.
         slot(
             "cells-local",

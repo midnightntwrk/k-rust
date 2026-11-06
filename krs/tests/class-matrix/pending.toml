@@ -1751,39 +1751,6 @@ deviation = "krs::analysis::collection-entry @ entry"
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
 # The two left: S5 reads `job: [x, ..]` results by declared kind
 
-# S6-1b-1: a readable claim whose result writes no cell prints as a `cells!` claim the macro refuses
-["k3/claim/nochange/kinds/pc/x"]
-finding = "S6-1b-1"
-deviation = "printed surface refused: krs::syntax::invalid-state-macro @ item"
-
-# S0-17: a readable claim's start state, or a readable subject's Set collection instance cell, accepts `k::matches!` and
-# `let` blocks that the printed `cells!` subject refuses. Results conform since S6-1a; a `cells!` subject admitting
-# them meets the collector's `invalid-configuration`, so the subject half waits on S6 phase 2.
-
-["k3/terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-
-["k3/terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-
-["k3/terms/claim/item-root/{ let y = x; y }"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-
-["k3/terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-
-["k3/terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-
-["k3/terms/claim/subject/{ let y = x; y }"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-
 # NT-6: the collection literals and the calls they denote, printed in a `for Stmt` result's `let` or
 # `k::matches!`.
 
@@ -2070,18 +2037,6 @@ deviation = "krs::analysis::collection-entry @ entry"
 # that destructures it, deviates where the term family's other `let` spellings do, under their
 # findings; the advice itself deviates where the refusal is another class's (S0-14). On the
 # context form, which has no result slot, the class advises the local rule's rewrite right (NT-28).
-
-["k3/terms/readable/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-
-["k3/terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-
-["k3/terms/readable/set-instance-child/{ let y = x; y }"]
-finding = "S0-17"
-deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
 # NT-18-1: a sort projection in a context alias's map key reaches expansion's internal
 # `krs::expand::missing-provenance-key` ("this node holds no provenance key from its sentence's
