@@ -559,7 +559,7 @@ const CENSUS_AT_501F18B9: [&str; 88] = [
 /// value `k-rust/builtin/domains.md` leaves to the backend, the implementation or the
 /// environment. For each, the cited lines of domains.md at the pinned k-rust say so (the phrase
 /// is in them), and domains.md declares the hook. The file's digest is pinned: a re-pin that
-/// changes the prelude text sweeps it again (README "What a kill trusts"; handoff R0c lists each
+/// changes the prelude text sweeps it again (`trust.md` "What a kill trusts"; handoff R0c lists each
 /// hook with its lines).
 ///
 /// Re-pin R1-PINS (kink27): k-rust 0da031036 is the only change to domains.md since the last

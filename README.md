@@ -24,8 +24,8 @@ for K definitions, built on these crates (developed as the repository k-in-k2 an
 history). Its crates are members of this workspace, so `cargo nextest run --workspace` runs kink's
 light tier, whose drift pins fail when a k-rust passage or source kink rests on moves; its kink and
 heavy tiers run with `kink/scripts/kink-tier.py` (the `kink` and `kink-heavy` entries of
-`scripts/gates.toml`). [`kink/README.md`](kink/README.md) says what a kill trusts and how to run
-the tiers.
+`scripts/gates.toml`). [`kink/trust.md`](kink/trust.md) says what a kill trusts, and
+[`kink/README.md`](kink/README.md) how to run the tiers.
 
 [`k2lean/`](k2lean/README.md) holds k2lean, which generates a Lean 4 library from a definition krust
 compiles (its sorts, functions, rules and proved K equations) and proves preserved invariants over

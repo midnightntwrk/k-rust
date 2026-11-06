@@ -663,7 +663,7 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
 /// two elements stay two terms. The gate admits every Float and MInt text, and k-rust's load
 /// decides which element it names or refuses it: the Float rows name elements of their format
 /// (`1.0`/`1.0e0` one element, `-0.0`, `NaN`, `Infinity`, `1.0p53x11`, `0.5f` others, by k-rust's
-/// readings, kink README P-F1 to P-F3). At `SortMInt{}`, a sort hooked `MINT.MInt` with no width
+/// readings, kink's `trust.md` P-F1 to P-F3). At `SortMInt{}`, a sort hooked `MINT.MInt` with no width
 /// argument, load refuses every literal (NoWidth), so those rows show only that the gate does not
 /// decide it; at the parametric `SortMInt{Sort8{}}`, `1p8`, `01p8` and `257p8` name one element,
 /// and `-1p8` and `255p8` another (in range by domains.md 2878-2880 and 2887; `257p8` by premise
@@ -707,7 +707,7 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// The first four say that every route stores a Float or MInt domain value as the canonical text
 /// of its value, so a respelled literal is the same element in every rule k-rust applies. The
 /// others state the readings that decide which element a literal names and which value kompile's
-/// fold writes, which K's text does not fix and kink takes on as premises (kink README, premises
+/// fold writes, which K's text does not fix and kink takes on as premises (kink's `trust.md`, premises
 /// P-F1 to P-F4 and P-M1, decision D-3): IEEE roundTiesToEven with its overflow (Backend scope
 /// and the Float literal paragraph), the sign of a zero literal (the `precisionFloat` paragraph
 /// and the Float literal paragraph), one NaN per format, the residue and decimal reading of an
@@ -728,7 +728,7 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// positive finite value (its NaN of a negative value among them) is `outside-domain`: an
 /// execution's value, marked, not a value the fold or a proof takes. So no Float literal names
 /// another element, and every value the fold writes is one it wrote before; the premises the
-/// README states for these hooks (P-F1 to P-F4) are narrower than needed now, which the kink
+/// `trust.md` states for these hooks (P-F1 to P-F4) are narrower than needed now, which the kink
 /// session's GK-1/GK-2 restate.
 ///
 /// GAP K3 re-pin (ticket K3): five passages changed, each narrowing what admission takes on.
@@ -766,7 +766,7 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 ///
 /// GAP A2 re-pin (ticket A2, `docs/amendments.md` AM-4, AM-5, AM-6, AM-8): five passages
 /// changed, and each now states as determined, by an amendment k-rust records, the reading the
-/// kink README's premises P-F1 and P-F2 and census-free F9's `Infinity` reading already take on.
+/// kink's `trust.md` premises P-F1 and P-F2 and census-free F9's `Infinity` reading already take on.
 /// (1) The conversion line of Backend scope (67a5a972 -> a0a71ffd, the opening with it):
 /// `Int2Float`, `roundFloat` and an inexact `rootFloat` are IEEE 754's under roundTiesToEven,
 /// overflow to the infinity of the sign included, and `Int2Float` of 0 is `+0`, where they were
@@ -782,7 +782,7 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// computes are the ones it computed before GAP K1 and K3, which only marked them: runs that read
 /// them are unmarked again and compared, with the elements P-F1 and P-F2 state, so admission takes
 /// on what it took on before K1 and K3, now on a determined reading rather than a premise (the
-/// README's P-F1 and P-F2 wording is the kink session's, GK-2).
+/// `trust.md`'s P-F1 and P-F2 wording is the kink session's, GK-2).
 ///
 /// GAP A3 re-pin (ticket A3, `docs/amendments.md` AM-11): two passages changed, and both now
 /// state as determined values k-rust's evaluator computed all along. In a positive degree,
@@ -894,7 +894,7 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     );
 }
 
-/// kink27 R5-BYTES-ENDS: the passages the trusted `Bytes` codec of TV-01 rests on (kink README,
+/// kink27 R5-BYTES-ENDS: the passages the trusted `Bytes` codec of TV-01 rests on (kink's `trust.md`,
 /// "A `Bytes` domain value in an end is compared"). K's text fixes the value: a `Bytes` is a byte
 /// sequence whose literal names one byte per item (`domains.md`, `BYTES-SYNTAX`). k-rust's
 /// contract fixes the payload: one stored form per value, kept by every reader and route, chosen

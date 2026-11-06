@@ -860,7 +860,7 @@ type UndefinedRow = (
     [OracleOutcome; 2],
 );
 
-/// An undefined step is no end (kink `README.md`, "What a kill trusts"; k-rust
+/// An undefined step is no end (kink's `trust.md`, "What a kill trusts"; k-rust
 /// `docs/compatibility.md`, "Undefined steps in proofs"): its configuration is reached, but its
 /// outcome is undefinedness, which is no configuration. No state slot reads its pre-step term or
 /// tells two sides apart by an undefined path; every state slot compares ends only. A run whose

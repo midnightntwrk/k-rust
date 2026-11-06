@@ -77,7 +77,7 @@ use std::{path::Path, sync::OnceLock};
 /// `fired_by` now lists in place of `applied_sentences`: a rewrite rule only when some path of the
 /// run takes its step (k-rust `committed`), not when its candidate was rolled back or its step was
 /// undefined; a v5 record has no such member, and its `applied_sentences` hold rules no path took.
-/// v7 (kink27 R1-UNDEF, with its fix round 1): an undefined step is no end (kink's `README.md`,
+/// v7 (kink27 R1-UNDEF, with its fix round 1): an undefined step is no end (kink's `trust.md`,
 /// "What a kill trusts"), so every state side projects a run's ends only. A record's baseline
 /// row no longer holds an undefined step's pre-step configuration in its whole-term side or in
 /// `final_configuration`, nor the exit-stop class `undefined-step` (a run whose every path takes

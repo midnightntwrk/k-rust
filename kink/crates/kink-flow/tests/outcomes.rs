@@ -1105,7 +1105,7 @@ fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
     // names the residuals (the Z3 profile, where tier 1 is off; the non-execute calls, B-13(a)).
     for (readme, anchor) in [
         (
-            manifest.join("../../README.md"),
+            manifest.join("../../trust.md"),
             "Stack dependence (k-rust KINK-06/4",
         ),
         (manifest.join("README.md"), "The Execute promise of k-rust"),

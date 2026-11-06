@@ -11,7 +11,7 @@
 //! verdict of the unbounded run: a one-sided kill only where the unbounded run distinguishes, and
 //! no other verdict than the unbounded one or `Unknown` under any budget.
 //!
-//! The principle is per path (Sebastien, 2026-10-17; root README, "What a kill trusts"): a
+//! The principle is per path (Sebastien, 2026-10-17; kink's `trust.md`, "What a kill trusts"): a
 //! contradicted claim or a terminal that is not a value on another path of the mutant run does
 //! not void the killing leaf, one on its own path does. The L1-2 review's probes
 //! `testdata/k/l1/l12ct.k` and `l12cs.k` pin it (re-pin L1-2-fix-1): their unbounded mutant runs

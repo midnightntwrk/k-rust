@@ -42,7 +42,7 @@
 //!   A cell projection ([`StateProjection::Cells`]) compares the same erasure with the content of
 //!   each uncompared cell replaced by `\top` of its sort, and so does its crash side.
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
-//!   terminal, but no end (kink27 R1-UNDEF; the reading is stated once in kink's `README.md`, "What
+//!   terminal, but no end (kink27 R1-UNDEF; the reading is stated once in kink's `trust.md`, "What
 //!   a kill trusts"). Every state slot projects the run's ends only ([`project`]), and the
 //!   single-crash rule and the free-variable rule above read the ends only: a side whose every
 //!   path takes an undefined step has the empty set in every state slot, a value, so a baseline
@@ -832,7 +832,7 @@ pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v5";
 /// such a leaf exists). The mutant's side stays `Unknown`: only the slot's outcome becomes
 /// `Distinguish`.
 ///
-/// Contradicted claims are read per path (Sebastien, 2026-10-17; re-pin L1-2-fix-1; root README,
+/// Contradicted claims are read per path (Sebastien, 2026-10-17; re-pin L1-2-fix-1; kink's `trust.md`,
 /// "What a kill trusts"): correcting a false kept claim to "true except where it fails" leaves
 /// the baseline's complete set and the leaf's path unchanged unless that path used the claim
 /// where it fails, so a contradiction on another path of the mutant run, explored or not, does
@@ -4424,7 +4424,7 @@ fn exit_code(term: &Pattern, cell: &str) -> Option<i64> {
 /// A pattern failure is `Error`, never a value that could distinguish. A match needs at
 /// least one witness and every witness on a real prefix; otherwise the side is `Unknown`. A path
 /// that ends in an undefined step is a real prefix: its configurations are reached, and only the
-/// step's outcome is no configuration (kink's `README.md`, "What a kill trusts").
+/// step's outcome is no configuration (kink's `trust.md`, "What a kill trusts").
 /// Declared bindings need complete coverage from an exhaustive evaluation; without it the
 /// side is `Unknown`, so a match with bindings never meets a match without them. A witness
 /// with assumptions or a binding term with a free variable also makes declared bindings

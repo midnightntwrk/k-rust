@@ -61,7 +61,7 @@ The binary prints its usage on every argument error.
 - `summary --store DIR MANIFEST_SHA256 PROFILE`: aggregates the store's reports for one manifest and solver profile.
 - `replay-check --workspace DIR --store DIR MANIFEST ID`: checks one definition's stored report against the store's index and digests, then re-derives the campaign from the stored baseline artifact and fails unless the replay reproduces the report, so it can check a store another build wrote (a report whose time bound fired is not applicable).
 
-What resume and the summary trust, and why replay is the check across builds, is stated in kink's README ([`../../README.md`](../../README.md), the "Corpus resume" paragraph and the paragraphs on what a stored verdict is bound to before it).
+What resume and the summary trust, and why replay is the check across builds, is stated in kink's trust document ([`../../trust.md`](../../trust.md), "kink's harness: corpus resume and replay-check" and "What a stored verdict is bound to" before it).
 
 ## The summary's tally
 

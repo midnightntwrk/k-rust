@@ -1146,7 +1146,7 @@ mod kink_tier {
     /// KK-66: dropping `requires I2 =/=Int 0` from guardeddiv's `divide` makes `divide(10, 0)` an
     /// undefined step, since its right-hand side `10 /Int 0` is undefined. The baseline is stuck on
     /// that term, an end; the mutant's undefined step is no end (kink27 R1-UNDEF; kink's
-    /// `README.md`, "What a kill trusts"), so the mutant has no end at all: its exit stop and its
+    /// `trust.md`, "What a kill trusts"), so the mutant has no end at all: its exit stop and its
     /// final result are the empty set, which lack the baseline's end (a removed end), and both
     /// state oracles distinguish. Before the ticket the exit stop distinguished the classes `Stuck`
     /// and `UndefinedStep`, and the final result read the mutant's pre-step configuration, the

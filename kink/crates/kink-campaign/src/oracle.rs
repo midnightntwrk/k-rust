@@ -33,7 +33,7 @@ pub enum CrashPolicy {
 /// How an end (a complete terminal that is neither a crash nor an undefined step) ended, as the
 /// declaration's classifier says for a configuration to which no rule applies. An undefined step
 /// is no end and has no class: its outcome is undefinedness, which is no configuration (kink27
-/// R1-UNDEF; kink's `README.md`, "What a kill trusts"), so no exit stop tells sides apart by it.
+/// R1-UNDEF; kink's `trust.md`, "What a kill trusts"), so no exit stop tells sides apart by it.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TerminalClass {
     Normal,
@@ -120,7 +120,7 @@ pub enum OracleSide {
 /// A state value is a set over the run's ends, and a supplier must supply the empty exit stop
 /// or final result only for a run whose exploration is complete, that has at least one complete
 /// terminal, and whose every terminal is an undefined step, which is no end (kink27 R1-UNDEF;
-/// kink's `README.md`, "What a kill trusts"). A run with no terminal, or an exploration that is
+/// kink's `trust.md`, "What a kill trusts"). A run with no terminal, or an exploration that is
 /// not complete, is a failed side (`Error`, `Timeout` or `Unknown`), never the empty set: the
 /// empty set is compared like any other value, so it claims that the run has no end, and a
 /// non-empty set against it distinguishes. kink-campaign's `state_side` supplies sides so.

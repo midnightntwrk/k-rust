@@ -14,8 +14,8 @@
 //! stores every such domain value as the canonical text of its value on every route
 //! (`docs/compatibility.md`, "Domain values"; pinned by `tests/representation.rs`,
 //! `the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned`), so two such terms
-//! are one term exactly when they denote one value under the readings k-rust states (kink
-//! README, premises P-F1 to P-F4 and P-M1, each now a determination or a class), and a
+//! are one term exactly when they denote one value under the readings k-rust states (kink's
+//! `trust.md`, premises P-F1 to P-F4 and P-M1, each now a determination or a class), and a
 //! respelled literal is the same element in every rule k-rust applies. The one literal whose
 //! element no text gives, a machine integer its width cannot hold (`256p8`), is stored as its
 //! residue but is open (class `literal`): an execution marks every attempt of a rule or
@@ -293,7 +293,7 @@ fn validate_artifacts(
                                 // admitted: two such terms are one term exactly when they denote
                                 // one value under the readings k-rust states, an out-of-range
                                 // machine-integer literal excepted, whose runs k-rust marks
-                                // (class `literal`; kink README, P-M1).
+                                // (class `literal`; kink's `trust.md`, P-M1).
                                 let clause = match sort_hook(sort, &hooks) {
                                     Some("INT.Int")
                                         if sort_name(sort) != "SortInt"

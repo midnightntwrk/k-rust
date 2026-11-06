@@ -15,7 +15,7 @@
 //! or vacuous), the same ladder runs, every bounded slot must be `unknown` or `distinguish`, and
 //! every one-sided kill must be explained: the unbounded run is unknown only because of a
 //! contradicted claim or a terminal that is not a value on a leaf other than the killing one
-//! (`testdata/k/one_sided_support.rs`; the per-path principle, root README "What a kill
+//! (`testdata/k/one_sided_support.rs`; the per-path principle, kink's `trust.md` "What a kill
 //! trusts"); anything else fails the test. Any other undecided pair (a timeout, a depth bound) is
 //! re-run once under the manifest's own work budget, when it sets one (kink-flow's run), and must
 //! not kill there: its unbounded run is itself bounded, so nothing can explain a kill.

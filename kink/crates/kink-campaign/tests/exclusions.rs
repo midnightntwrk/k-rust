@@ -513,7 +513,7 @@ mod kink_tier {
     }
 
     /// kink27 R3-CENSUS-RUNLEVEL fix round 1 (review should-fix 1): a kill that rests on one NaN
-    /// per format (kink README, premise P-F3, which `domains.md` fixes as k-rust's "Backend
+    /// per format (kink's `trust.md`, premise P-F3, which `domains.md` fixes as k-rust's "Backend
     /// scope" states), through arithmetic on symbolic
     /// operands. `a1/onenan.k`'s `go(1)` compares, by `==K`, the NaN of `0.0 /Float 0.0` with the
     /// NaN of `Infinity -Float Infinity`; under P-F3 they are one term and the baseline ends in

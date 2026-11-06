@@ -9619,7 +9619,7 @@ mod kink_tier {
     /// element (`0.00e5`, `0e+00p53x11`) Survives, and one that names another element is killed,
     /// because the test's zero takes `pointow` instead. The `0.0f` kill is determined by K's text:
     /// the suffix fixes the format, and `precisionFloat` is a function. The `-0.0` kill rests on
-    /// k-rust's reading that a zero literal keeps the sign written (kink README, premise P-F2): K's
+    /// k-rust's reading that a zero literal keeps the sign written (kink's `trust.md`, premise P-F2): K's
     /// text reads `-0.0` as the rational 0, which both zeros are equally near.
     /// GAP K1: the test's zero was `Int2Float(0, 53, 11)` from `start(0)`; no text fixed that
     /// conversion's sign then (both zeros hold the integer 0), so k-rust marked it `float-rounding`
@@ -9819,7 +9819,7 @@ mod kink_tier {
     /// `fold(0)` the folded value reaches `fpoint`: a respelling of `fpoint`'s
     /// `0.30000000000000004` to another decimal of the same binary64 value Survives, and its
     /// respelling to `0.3` is killed. That kill rests on k-rust's IEEE 754 addition under
-    /// roundTiesToEven (kink README, premises P-F1 and P-F4), which the census, reading only the
+    /// roundTiesToEven (kink's `trust.md`, premises P-F1 and P-F4), which the census, reading only the
     /// compiled rules, never sees. FLOATMIXED's `0.1f +Float 0.2` sums a binary32 and a binary64
     /// literal, whose result format only an execution chooses, so kompile leaves `FLOAT.add`
     /// applied.

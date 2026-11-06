@@ -69,7 +69,7 @@ kills its mutant. `work_factor = 1` keeps every status and killer too (22.8 s); 
 
 Since re-pin L1-2 a work-bound mutant run can also kill one-sidedly: a clean, ground, stuck final
 configuration it has finished before the budget, absent from the baseline's complete set (decision 6;
-the root README, "What a kill trusts"). On this list it changes nothing: none of the five
+kink's `trust.md`, "What a kill trusts"). On this list it changes nothing: none of the five
 work-bound runs above has finished a final configuration when the budget stops it, so every
 status, killer, call and executed entry equals the L1-1 run (cold corpus order 16.7-17.0 s and
 0.12 GiB, against 14.4-17.5 s at cb97902 on the same host). kink-flow `tests/one_sided.rs` (on

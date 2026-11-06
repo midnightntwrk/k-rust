@@ -14,7 +14,7 @@
 //! - (c) on the programs of k-rust-fuzz's `COMPARABLE_ENDS` (`tests/support/mod.rs`), a run the
 //!   fuzz judges comparable is `comparable` in kink's `results`; and on those programs kink-flow's
 //!   witness filter accepts a rule-job candidate exactly when kink's own confirmation lists it;
-//! - (d) an undefined step is no end (finding KINK-UNDEFINED-END; kink's `README.md`, "What a kill
+//! - (d) an undefined step is no end (finding KINK-UNDEFINED-END; kink's `trust.md`, "What a kill
 //!   trusts"): its configuration is reached, but its outcome is undefinedness, which is no
 //!   configuration, and neither tool takes a verdict from undefinedness itself. So two definitions
 //!   that both end undefined at different pre-step configurations are killed by neither tool, an
@@ -995,7 +995,7 @@ endmodule
                                        0\"\nreplace = \"N\"\n";
 
     /// (d) An undefined step is no end, for both tools (finding KINK-UNDEFINED-END; kink's
-    /// `README.md`, "What a kill trusts"): the configuration the step is taken from is reached,
+    /// `trust.md`, "What a kill trusts"): the configuration the step is taken from is reached,
     /// but the step's outcome is undefinedness, which is no configuration. The baseline ends every
     /// run in an undefined step, so its set of ends is empty, and both tools judge the run
     /// comparable (complete, every leaf a clean end or an undefined step).

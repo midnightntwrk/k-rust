@@ -1,7 +1,7 @@
 //! What a definition's full critical-pair check says about the ends of runs on it (fz26
 //! KINK-BASELINE-FINDINGS, finding KINK-BASELINE-TRUST).
 //!
-//! kink's kill is "relative to the definition, not to k-rust's model of it" (README, "What a
+//! kink's kill is "relative to the definition, not to k-rust's model of it" (`trust.md`, "What a
 //! kill trusts"): a compared end is the value of a term in the definition's initial model, and two
 //! ends differ only if no model of the definition identifies them. k-rust's full check reads a
 //! definition by the model `M+` (its normal forms, with a fresh constant in each sort that does

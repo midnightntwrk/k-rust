@@ -1,7 +1,7 @@
 # Decision register (settled — do not re-litigate)
 
 This register collects kink's settled design decisions as they are recorded, starting with M1, each stated as a rule an implementer can follow.
-Decisions settled before the register began stay stated where they apply, in kink's READMEs.
+Decisions settled before the register began stay stated where they apply, in kink's READMEs and its trust document ([`trust.md`](trust.md)).
 Each entry states its reasons from first principles and summarizes the measured evidence it rests on, so the entry is complete without any other record.
 **This register is the normative statement.**
 A proposal to change an entry must answer the entry's reasons and meet its reopening condition; a proposal that only restates a rejected alternative is not a reason to reopen it.

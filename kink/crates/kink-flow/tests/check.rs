@@ -577,6 +577,19 @@ fn the_version_flag_names_the_builds() {
     );
 }
 
+/// Asking for help is a question the tool answers: `--help` and `-h` print the usage line, the
+/// loop, the mutation format and the exit statuses on stdout, and exit 0.
+#[test]
+fn the_help_flag_answers_on_stdout() {
+    for flag in ["--help", "-h"] {
+        let (code, stdout, stderr) = binary(&[flag.as_ref()]);
+        assert_eq!(code, Some(EXIT_YES.into()), "{flag}: {stderr}");
+        assert!(stderr.is_empty(), "{flag}: {stderr}");
+        assert!(stdout.starts_with("usage: kink-flow --version"), "{stdout}");
+        assert!(stdout.contains("[[mutation.edit]]"), "{stdout}");
+    }
+}
+
 // ---------------------------------------------------------------------------------------
 // CF-18: `check --mutations`, the resolve-only check of a mutation list.
 

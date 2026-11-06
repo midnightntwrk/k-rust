@@ -70,7 +70,7 @@
 //!   with an empty list still rests on k-rust's stated readings of the values it does compute:
 //!   since the census no longer refuses Float arithmetic, a kill through `+Float`, `-Float`,
 //!   `*Float` or `/Float` on symbolic operands rests on roundTiesToEven and one NaN per format
-//!   (kink README, premises P-F1, P-F3 and P-F4).
+//!   (kink's `trust.md`, premises P-F1, P-F3 and P-F4).
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
 //!   kills are relative to the definition, not to k-rust's model of it. The hooks are k-rust's
@@ -255,7 +255,7 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// initial-state check ([`state_references_implementation_chosen`]); a run that reads one is
 /// excluded by its list (`implementation-chosen-value`). It narrows what is excluded, and so
 /// widens what a kill rests on: a run's Float arithmetic, which the census used to refuse, is
-/// read through k-rust's roundTiesToEven and one NaN per format (kink README, P-F1, P-F3, P-F4).
+/// read through k-rust's roundTiesToEven and one NaN per format (kink's `trust.md`, P-F1, P-F3, P-F4).
 /// v5 (CF-01): a condition's matching-logic connectives (`\or`, `\not`, `\iff`, `\exists`,
 /// `\forall`, beside `\and` and `\implies`) are walked into down to their `\equals(C, true)`
 /// leaves, so an `owise` guard over an `andThenBool`/`andBool` condition no longer excludes,

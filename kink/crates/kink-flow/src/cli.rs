@@ -58,21 +58,65 @@ pub const EXIT_UNASKED: u8 = 2;
 /// No answer: retry with more budget or another approach (a timeout, an unknown).
 pub const EXIT_UNANSWERED: u8 = 3;
 
-pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
-                         MUTATIONS] [--cache DIR] | kink-flow \
-                         results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
-                         [--output json|verdicts] | kink-flow run \
-                         FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
-                         [--full] [--compile-workers N] [--no-memo] [--cache DIR] [--output \
-                         json|verdicts] | kink-flow report \
-                         FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
-                         [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
-                         TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
-                         | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
-                         [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
-                         [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
-                         [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
-                         <topic>.toml files";
+/// The usage line, as a literal so that [`USAGE`] and [`HELP`] share it.
+macro_rules! usage_line {
+    () => {
+        "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
+         MUTATIONS] [--cache DIR] | kink-flow \
+         results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
+         [--output json|verdicts] | kink-flow run \
+         FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
+         [--full] [--compile-workers N] [--no-memo] [--cache DIR] [--output \
+         json|verdicts] | kink-flow report \
+         FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
+         [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
+         TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
+         | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
+         [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
+         [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
+         [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
+         <topic>.toml files"
+    };
+}
+
+/// The usage line a usage error prints on stderr.
+pub const USAGE: &str = usage_line!();
+
+/// What `kink-flow --help` (or `-h`) prints on stdout: the usage line, then the loop, the
+/// mutation format and the exit statuses in one screen, for a caller starting cold.
+pub const HELP: &str = concat!(
+    usage_line!(),
+    "
+
+The loop:
+  1. write programs in FLOW.toml; kink-flow results FLOW.toml until no rule in scope is uncovered
+  2. write mutations (MUTATIONS.toml, or one <topic>.toml per topic in a directory);
+     kink-flow check FLOW.toml --mutations MUTATIONS until it exits 0
+  3. kink-flow run FLOW.toml MUTATIONS: it reports the survivors, mutations no program kills
+  4. for each survivor, write a program that kills it, or argue that the mutation is
+     equivalent and drop it; run again (cached outcomes are not re-run)
+
+A mutation (MUTATIONS.toml):
+  [[mutation]]
+  id = \"add-becomes-sub\"
+  misunderstanding = \"addition evaluates as subtraction\"   # required: the mistake it writes down
+    [[mutation.edit]]               # one or more, applied together
+    rule = \"add\"                    # a rule label, or a unique suffix of its components
+    find = \"I1 +Int I2\"             # exact text, exactly once in that rule
+    replace = \"I1 -Int I2\"          # its replacement
+    # or, in place of find and replace: delete = true, which removes the rule
+  An edit of emitted K (krs emit-k's definition.k) is anchored by rule, never by line =:
+  its lines move with every emission.
+
+Exit status:
+  0  the command answered its question: rely on the answer
+  1  the answer is a finding: act on it
+  2  the question could not be asked: fix the input or the command
+  3  the command ran and has no answer: retry with more budget or another approach
+
+Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-flow\"
+"
+);
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -92,6 +136,12 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             env!("CARGO_PKG_VERSION"),
             crate::k_rust_revision()
         );
+        return EXIT_YES;
+    }
+    if let [flag] = args.as_slice()
+        && (flag == "--help" || flag == "-h")
+    {
+        print!("{HELP}");
         return EXIT_YES;
     }
     let Some((verb, manifest, files, options)) = operands(&args) else {
