@@ -279,7 +279,7 @@ fn emit_k(target: &Path, manifest: &Path, directory: &str) -> (String, String) {
 /// The header of an artifact written from `packages`: `definition.k`'s when `definition`.
 fn header(packages: &str, definition: bool) -> String {
     let mutations = if definition {
-        "// Mutations of this K are patches in the package's kink/mutations/<topic>.toml, each edit anchored by `rule = <label>`;\n\
+        "// Mutations of this K are patches in the corpus's mutations/<topic>.toml (kink/ beside Cargo.toml by default), each edit anchored by `rule = <label>`;\n\
          // `krs kink check` resolves them and shows each edit's Rust line. Why K patches, not Rust edits: https://github.com/midnightntwrk/k-rust/blob/main/kink/decisions.md#m-mutation-input\n"
     } else {
         ""
