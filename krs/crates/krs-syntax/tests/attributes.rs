@@ -617,6 +617,64 @@ fn function_takes_a_skipped_operand_reason_on_a_total_or_partial_function() {
 }
 
 #[test]
+fn a_rule_and_an_equation_take_a_skipped_operand_reason_as_a_function_does() {
+    let rule = krs_syntax::RuleAttribute::parse_source(
+        r#"owise, skipped_operand = "the strict value is the meaning""#,
+    )
+    .unwrap();
+    assert_eq!(
+        rule.skipped_operand().map(syn::LitStr::value).as_deref(),
+        Some("the strict value is the meaning")
+    );
+    assert!(rule.skipped_operand_key().is_some());
+    let equation = krs_syntax::EquationAttribute::parse_source(
+        r#"priority = 20, skipped_operand = "the strict value is the meaning""#,
+    )
+    .unwrap();
+    assert_eq!(
+        equation
+            .skipped_operand()
+            .map(syn::LitStr::value)
+            .as_deref(),
+        Some("the strict value is the meaning")
+    );
+    assert!(equation.skipped_operand_key().is_some());
+    for (marker, parse) in [
+        (
+            "rule",
+            (|source: &str| krs_syntax::RuleAttribute::parse_source(source).map(drop))
+                as fn(&str) -> Result<(), krs_syntax::SyntaxError>,
+        ),
+        ("equation", |source: &str| {
+            krs_syntax::EquationAttribute::parse_source(source).map(drop)
+        }),
+    ] {
+        for source in [
+            "skipped_operand",
+            "skipped_operand = true",
+            r#"skipped_operand = " ""#,
+            r#"skipped_operand = "a", skipped_operand = "b""#,
+        ] {
+            let error = parse(source).unwrap_err();
+            assert!(
+                matches!(error.kind(), SyntaxErrorKind::InvalidSkippedOperand { .. }),
+                "{marker} {source}: {:?}",
+                error.kind()
+            );
+        }
+    }
+    let claim = krs_syntax::ClaimAttribute::parse_source(
+        r#"all_paths, label = "c", skipped_operand = "a claim is proved""#,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(claim.kind(), SyntaxErrorKind::UnknownArgument { name } if name == "skipped_operand"),
+        "{:?}",
+        claim.kind()
+    );
+}
+
+#[test]
 fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
     let attribute = krs_syntax::RuleAttribute::parse_source(r#"owise, label = "if-true""#).unwrap();
     assert_eq!(attribute.label().unwrap().value(), "if-true");
@@ -1134,6 +1192,7 @@ fn key_source(key: &str) -> String {
         "hole" | "name" | "here" => format!("{key} = x"),
         "result" => "result = KResult".to_owned(),
         "unbound_variables" => "unbound_variables = [y]".to_owned(),
+        "skipped_operand" => "skipped_operand = \"the strict meaning\"".to_owned(),
         key => key.to_owned(),
     }
 }

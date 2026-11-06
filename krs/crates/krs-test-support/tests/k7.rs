@@ -186,15 +186,15 @@ const UNREAD: &[&str] = &[
 ];
 
 const STATUSES: &[&str] = &[
-    "858 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
-    "186 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
-    "200 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
+    "860 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
+    "187 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
+    "201 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
     "26 no driver: a malformed attribute is refused",
-    "26 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
+    "27 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "79 no driver: the base applies no function but Probe, ProbeK and Size from a rule",
     "10 no driver: the case's hole has a sort the context form's driver does not write in all its fields, or a production of the case's own no driver writes; whether a hole is ever cooled is a fact of sorts, which no finite run shows",
     "3559 no driver: the compiled sweep's cases witness the compiler's verdict on each root sweep cell; the sweep base has no driver commands to set its cells up",
-    "186 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
+    "187 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "5376 no driver: the path sweep's cases witness the compiler's verdict on each sweep cell below a marked ancestor; the path base has no driver commands to set its cells up",
     "1268 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
@@ -246,10 +246,10 @@ const STATUSES: &[&str] = &[
     "3 no witness: the program would hold a value the generator does not state",
     "1205 runs a counter-witness",
     "2136 runs at another input",
-    "1664 runs, liveness",
+    "1675 runs, liveness",
     "246 runs, undefined",
     "266 runs, undefined result",
-    "2795 runs, value",
+    "2796 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it

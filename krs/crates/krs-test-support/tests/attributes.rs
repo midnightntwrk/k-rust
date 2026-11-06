@@ -619,6 +619,8 @@ fn an_attribute_cases_priorities_lie_after_the_driver_rules_and_apart_from_them(
 
 /// What K7 shows of each accepted attribute a form's driver can run: the case's run, and the
 /// counter run where the attribute keeps the sentence from applying.
+/// `skipped_operand` runs where `owise` and `priority` do (it is also accepted on a function
+/// shorthand, whose marker is its function's, where K7 has no driver).
 #[test]
 fn k7_shows_what_each_accepted_attribute_does() {
     let cases = class_matrix::cases();
@@ -703,6 +705,7 @@ fn k7_shows_what_each_accepted_attribute_does() {
     ];
     assert_eq!(forms("Owise"), with_equations);
     assert_eq!(forms("Priority"), with_equations);
+    assert_eq!(forms("SkippedOperand"), with_equations);
     assert_eq!(forms("Heat"), transitions);
     assert_eq!(forms("Cool"), transitions);
     assert_eq!(forms("RequiresFails").len(), 9);

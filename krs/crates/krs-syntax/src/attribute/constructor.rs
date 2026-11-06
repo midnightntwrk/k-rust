@@ -1844,8 +1844,8 @@ fn parse_function_sort_value(ty: syn::Type) -> Result<(Path, Vec<SortArgument>),
     Ok((parse_sort_value(value)?, Vec::new()))
 }
 
-/// Parses `skipped_operand = "reason"`, the key of `#[k::function(..)]`: a
-/// nonempty string literal.
+/// Parses `skipped_operand = "reason"`, the key of `#[k::function(..)]`,
+/// `#[k::rule(..)]` and `#[k::equation(..)]`: a nonempty string literal.
 pub(crate) fn parse_skipped_operand(
     key: &Ident,
     input: ParseStream<'_>,

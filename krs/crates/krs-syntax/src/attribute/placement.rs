@@ -17,6 +17,9 @@
 //!   context alias are ordered by their hole, and a static production's clauses rewrite each of
 //!   its applications into one term, so none of them is chosen against another;
 //! - `anywhere` lets a term-shaped transition rewrite its subject wherever it occurs;
+//! - `skipped_operand` states why a transition's or an equation's value or condition may depend
+//!   on an operand `&&`, `||` or `kequal::ite` skips: `krs check` warns at those sentences, and at
+//!   no other a marker writes, so on any other marker it is a key the marker does not take;
 //! - `concrete`, `symbolic` and `smt_lemma` restrict when an equation or a simplification applies;
 //! - `result` names the sort a heated hole's evaluation ends in, on a sentence that heats one;
 //! - `recursive` is a property of a static production, on its own marker (on a variant or after
@@ -83,8 +86,16 @@ impl Marker {
     pub const fn keys(self) -> &'static [&'static str] {
         match self {
             Self::Rule => &[
-                "label", "owise", "priority", "nondet", "anywhere", "heat", "cool", "hole",
+                "label",
+                "owise",
+                "priority",
+                "nondet",
+                "anywhere",
+                "heat",
+                "cool",
+                "hole",
                 "result",
+                "skipped_operand",
             ],
             Self::Equation => &[
                 "label",
@@ -93,6 +104,7 @@ impl Marker {
                 "concrete",
                 "symbolic",
                 "smt_lemma",
+                "skipped_operand",
             ],
             Self::Simplification => &["label", "priority", "concrete", "symbolic", "smt_lemma"],
             Self::Claim => &["all_paths", "one_path", "label", "circularity", "trusted"],
@@ -120,7 +132,7 @@ impl Marker {
 
 /// The keys some marker takes, each of which [`misplaced_key`] answers for what it is on a
 /// marker that does not take it.
-pub const SENTENCE_KEYS: [&str; 20] = [
+pub const SENTENCE_KEYS: [&str; 21] = [
     "label",
     "owise",
     "priority",
@@ -141,6 +153,7 @@ pub const SENTENCE_KEYS: [&str; 20] = [
     "recursive",
     "name",
     "here",
+    "skipped_operand",
 ];
 
 /// The key `key`, written on `marker`: its name when the marker takes it, for the marker's

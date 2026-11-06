@@ -230,6 +230,14 @@ rule [sib_TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept.'attrs/cells-local/skipped_operand = "the strict meaning"']
+k = """
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => go) , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/cells/#[k::ensures(k::is!(Int, x))]"]
 k = """
 rule [case_TAG]:
@@ -365,6 +373,14 @@ rule [case_TAG]:
 rule [sib_TAG]:
 <k> cTAG ( 2 , _ ) => go ... </k>
 [priority(30)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept.'attrs/cells/skipped_operand = "the strict meaning"']
+k = """
+rule [case_TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -667,6 +683,13 @@ requires isInt(V0:KItem) andThenBool isWord(V0:KItem) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept.'attrs/equation/skipped_operand = "the strict meaning"']
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."attrs/equation/smt_lemma of an smtlib function"]
 k = """
 // A function the solver has a symbol for.
@@ -811,6 +834,13 @@ k = """
 rule cTAG ( (2 => 3) , _ ) [priority(30), label(krsRule_DIGEST)]
 
 rule cTAG ( (V0:KItem => go) , _ ) [priority(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept.'attrs/local-rule/skipped_operand = "the strict meaning"']
+k = """
+rule cTAG ( (V0:KItem => go) , _ ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -984,6 +1014,14 @@ requires isInt(V0:KItem) andThenBool isWord(V0:KItem)
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept.'attrs/readable/skipped_operand = "the strict meaning"']
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/rule/#[k::ensures(k::is!(Int, x))]"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
@@ -1129,6 +1167,13 @@ requires isInt(V0:KItem) andThenBool isWord(V0:KItem) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept.'attrs/rule/skipped_operand = "the strict meaning"']
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/shorthand/#[k::requires(k::is!(Int, x))]"]
 k = """
 rule fTAG ( V0:KItem ) => wk ( V0:KItem )
@@ -1152,6 +1197,15 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'attrs/shorthand/label = "named-TAG"']
 k = """
 rule fTAG ( V0:KItem ) => wk ( V0:KItem ) [label(named-TAG)]
+
+syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept.'attrs/shorthand/skipped_operand = "the strict meaning"']
+k = """
+rule fTAG ( V0:KItem ) => wk ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
 
@@ -1387,6 +1441,14 @@ rule [sib-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept.'attrs/sort-rule/skipped_operand = "the strict meaning"']
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/table/#[k::requires(k::is!(Int, x))]"]
 k = """
 rule probe ( cTAG , V0:KItem ) => 0
@@ -1466,6 +1528,13 @@ k = """
 rule probe ( cTAG , 2 ) => 2 [priority(30), label(krsRule_DIGEST)]
 
 rule probe ( cTAG , V0:KItem ) => 0 [priority(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept.'attrs/table/skipped_operand = "the strict meaning"']
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

@@ -26,6 +26,15 @@
 //!   each of its applications, as the definition and a program are read, into one term, so they
 //!   may not overlap (a production may have several clauses, each for its own shapes): none of
 //!   them is chosen against another;
+//! - `skipped_operand = ".."` states why a transition's or an equation's value or condition may
+//!   depend on an operand `&&`, `||` or `kequal::ite` does not evaluate: `krs check` warns there,
+//!   at the sentences of the definition, and the key silences that warning at the sentence it
+//!   marks, or, on a function's marker (a function shorthand's), at the function's equations.
+//!   Every other sentence is no transition or equation of the definition (a claim is proved
+//!   against it), or is written by no marker of its own; the key states nothing about what the
+//!   sentence means, so an accepted case emits the K it emits without the key. The warning, and
+//!   its stale form where the key has nothing to silence, are the `native-rust` route's, which
+//!   the axis does not judge, so a case owes no lint for it;
 //! - `anywhere` makes a transition rewrite its subject's root application wherever it occurs, which
 //!   a term-shaped transition has, a single-body rule's included (its subject's right image
 //!   replaces the application); a configuration-shaped one matches cells, which occur only at
@@ -341,6 +350,9 @@ attributes! {
     Anywhere => Written::Key("anywhere"), ["anywhere"],
     /// `nondet = g`: the transition overlaps the others of its group, one of which is chosen.
     Nondet => Written::Key("nondet = gTAG"), ["nondet"],
+    /// `skipped_operand = ".."`: the sentence's value may depend on an operand a short-circuit
+    /// operator skips, as intended.
+    SkippedOperand => Written::Key("skipped_operand = \"the strict meaning\""), ["skipped_operand"],
     /// `heat, hole = x`: a heating step, where its hole is no result.
     Heat => Written::Key("heat, hole = x"), ["heat", "hole"],
     /// `cool, hole = x`: a cooling step, where its hole is a result.
@@ -1189,6 +1201,7 @@ pub const fn means(sentence: Sentence, attribute: Attribute) -> bool {
         A::Owise => transition || matches!(sentence, S::Equation { .. }),
         A::Priority | A::PriorityLate => transition || function,
         A::Nondet | A::Heat | A::Cool | A::HeatResult | A::Fresh => transition,
+        A::SkippedOperand => transition || matches!(sentence, S::Equation { .. } | S::Shorthand),
         A::Anywhere => matches!(
             sentence,
             S::Transition {

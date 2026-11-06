@@ -165,9 +165,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // set's singleton as the witness a rule of the case's own writes, at each static
             // subject.
             (Family::Notation, 106 * (12 + 15) + 2),
-            // 18 forms × 26 attributes, 26 malformed attributes, 21 extra cases, 4 pairs of a key
+            // 18 forms × 27 attributes, 26 malformed attributes, 21 extra cases, 4 pairs of a key
             // and a helper, and 4 contexts and 6 strict positions that may or may not cool.
-            (Family::Attributes, 18 * 26 + 26 + 21 + 4 + 4 + 6),
+            (Family::Attributes, 18 * 27 + 26 + 21 + 4 + 4 + 6),
             // The readable records and the `cells!` rules on the run base, and the Set collection's
             // spellings: 7 subject (a map literal with an anonymous rest among them) and 5 result
             // spellings in a readable record, 6 and 5 in a `cells!` rule; and 8 map results over a

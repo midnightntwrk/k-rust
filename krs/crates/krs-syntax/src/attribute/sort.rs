@@ -444,17 +444,21 @@ fn restriction_error(reason: String, span: proc_macro2::Span) -> ParseError {
 }
 
 /// Checked payload of `#[k::equation]`, `#[k::equation(owise)]`, or
-/// `#[k::equation(priority = N)]`, with optional `concrete`, `symbolic`, and
-/// `smt_lemma` keys.
+/// `#[k::equation(priority = N)]`, with optional `concrete`, `symbolic`,
+/// `smt_lemma` and `skipped_operand = "reason"` keys.
 #[derive(Clone, Debug, Default)]
 pub struct EquationAttribute {
     label: Option<LitStr>,
     owise: Option<Ident>,
     priority: Option<PriorityValue>,
     restriction: MatchRestriction,
+    /// `skipped_operand = "reason"`: the author states that the equation's value or condition
+    /// may depend on an operand `&&`, `||` or `kequal::ite` skips.
+    skipped_operand: Option<LitStr>,
     label_key: Option<ProvenanceKey>,
     owise_key: Option<ProvenanceKey>,
     priority_key: Option<ProvenanceKey>,
+    skipped_operand_key: Option<ProvenanceKey>,
     /// The anchors of the attribute's standalone keying, which
     /// [`Self::provenance`] returns.
     anchors: Vec<ProvenanceAnchor>,
@@ -526,6 +530,19 @@ impl EquationAttribute {
         self.priority_key.as_ref()
     }
 
+    /// The `skipped_operand = "reason"` statement that the equation's value or condition may
+    /// depend on an operand a short-circuit operator skips, when authored.
+    #[must_use]
+    pub const fn skipped_operand(&self) -> Option<&LitStr> {
+        self.skipped_operand.as_ref()
+    }
+
+    /// The key of the `skipped_operand` reason.
+    #[must_use]
+    pub const fn skipped_operand_key(&self) -> Option<&ProvenanceKey> {
+        self.skipped_operand_key.as_ref()
+    }
+
     /// Keys the attribute as a sentence of its own.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
@@ -534,7 +551,7 @@ impl EquationAttribute {
         Ok(self)
     }
 
-    /// Keys the label, `owise`, the priority, then the restriction.
+    /// Keys the label, `owise`, the priority, the restriction, then `skipped_operand`.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         self.label_key = match &self.label {
             Some(label) => {
@@ -556,7 +573,15 @@ impl EquationAttribute {
             )?),
             None => None,
         };
-        self.restriction.allocate_keys(keys)
+        self.restriction.allocate_keys(keys)?;
+        self.skipped_operand_key = match &self.skipped_operand {
+            Some(reason) => Some(keys.key(
+                ProvenanceRole::RuleSkippedOperand,
+                TokenRange::for_tokens(reason)?,
+            )?),
+            None => None,
+        };
+        Ok(())
     }
 }
 
@@ -1163,6 +1188,7 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
     let mut owise: Option<Ident> = None;
     let mut priority: Option<PriorityValue> = None;
     let mut restriction = MatchRestriction::default();
+    let mut skipped_operand: Option<LitStr> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = taken(Marker::Equation, &key)?;
@@ -1210,6 +1236,18 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
                 input.parse::<Token![=]>()?;
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
+            "skipped_operand" if skipped_operand.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidSkippedOperand {
+                        reason: "`skipped_operand` is given twice; state one reason".to_owned(),
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "skipped_operand" => {
+                skipped_operand = Some(super::constructor::parse_skipped_operand(&key, input)?);
+            }
             other => untaken(Marker::Equation, other),
         }
         if input.is_empty() {
@@ -1222,9 +1260,11 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
         owise,
         priority,
         restriction,
+        skipped_operand,
         label_key: None,
         owise_key: None,
         priority_key: None,
+        skipped_operand_key: None,
         anchors: Vec::new(),
     }
     .keyed()?)
@@ -1723,7 +1763,8 @@ mod keyed {
     }
 
     impl EquationAttribute {
-        /// Records the keys of the label, `owise`, the priority and the restriction.
+        /// Records the keys of the label, `owise`, the priority, the restriction and
+        /// `skipped_operand`.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
             if let Some(label) = &self.label {
                 nodes.push_tokens(self.label_key.as_ref(), label)?;
@@ -1734,7 +1775,11 @@ mod keyed {
             if let Some(priority) = &self.priority {
                 nodes.push_tokens(self.priority_key.as_ref(), &priority.literal)?;
             }
-            self.restriction.keyed_nodes(nodes)
+            self.restriction.keyed_nodes(nodes)?;
+            if let Some(skipped_operand) = &self.skipped_operand {
+                nodes.push_tokens(self.skipped_operand_key.as_ref(), skipped_operand)?;
+            }
+            Ok(())
         }
     }
 

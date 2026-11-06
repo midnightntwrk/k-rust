@@ -12,7 +12,7 @@ use super::placement::{Marker, taken, untaken};
 use super::value::parse_rule_label_value;
 
 /// Typed metadata of `#[k::rule(owise | priority = N, heat | cool, hole = x,
-/// result = S, anywhere, nondet = group, label = "...")]`.
+/// result = S, anywhere, nondet = group, skipped_operand = "...", label = "...")]`.
 #[derive(Clone, Debug, Default)]
 pub struct RuleAttribute {
     label: Option<LitStr>,
@@ -23,6 +23,9 @@ pub struct RuleAttribute {
     evaluation: Option<(krs_ir::EvaluationKind, Ident)>,
     hole: Option<Ident>,
     result: Option<Path>,
+    /// `skipped_operand = "reason"`: the author states that the rule's value or condition may
+    /// depend on an operand `&&`, `||` or `kequal::ite` skips.
+    skipped_operand: Option<LitStr>,
     label_key: Option<ProvenanceKey>,
     owise_key: Option<ProvenanceKey>,
     priority_key: Option<ProvenanceKey>,
@@ -31,6 +34,7 @@ pub struct RuleAttribute {
     evaluation_key: Option<ProvenanceKey>,
     hole_key: Option<ProvenanceKey>,
     result_key: Option<ProvenanceKey>,
+    skipped_operand_key: Option<ProvenanceKey>,
     /// The anchors of the attribute's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
@@ -411,6 +415,19 @@ impl RuleAttribute {
         self.anywhere.as_ref()
     }
 
+    /// The `skipped_operand = "reason"` statement that the rule's value or condition may depend
+    /// on an operand a short-circuit operator skips, when authored.
+    #[must_use]
+    pub const fn skipped_operand(&self) -> Option<&LitStr> {
+        self.skipped_operand.as_ref()
+    }
+
+    /// The key of the `skipped_operand` reason.
+    #[must_use]
+    pub const fn skipped_operand_key(&self) -> Option<&ProvenanceKey> {
+        self.skipped_operand_key.as_ref()
+    }
+
     /// Returns the `heat` or `cool` marker of an evaluation step (KF-014).
     #[must_use]
     pub fn evaluation(&self) -> Option<(krs_ir::EvaluationKind, &Ident)> {
@@ -502,7 +519,8 @@ impl RuleAttribute {
     }
 
     /// Keys the label, `owise`, the priority, `nondet`, `anywhere`, the
-    /// evaluation marker, the hole and the result, as a sentence of its own.
+    /// evaluation marker, the hole, the result and `skipped_operand`, as a
+    /// sentence of its own.
     /// A context (KF-021) keys its label, hole and result under the context
     /// roles.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
@@ -540,6 +558,11 @@ impl RuleAttribute {
         let kind = kind.unwrap_or(krs_ir::EvaluationKind::Heat);
         self.hole_key = optional_key(&mut keys, kind.hole_role(), self.hole.as_ref())?;
         self.result_key = optional_key(&mut keys, kind.result_role(), self.result.as_ref())?;
+        self.skipped_operand_key = optional_key(
+            &mut keys,
+            ProvenanceRole::RuleSkippedOperand,
+            self.skipped_operand.as_ref(),
+        )?;
         self.anchors = keys.into_anchors();
         Ok(self)
     }
@@ -851,6 +874,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
     let mut evaluation: Option<(krs_ir::EvaluationKind, Ident)> = None;
     let mut hole: Option<Ident> = None;
     let mut result: Option<Path> = None;
+    let mut skipped_operand: Option<LitStr> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = taken(Marker::Rule, &key)?;
@@ -944,6 +968,18 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                     "nondet", value,
                 )?);
             }
+            "skipped_operand" if skipped_operand.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidSkippedOperand {
+                        reason: "`skipped_operand` is given twice; state one reason".to_owned(),
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "skipped_operand" => {
+                skipped_operand = Some(super::constructor::parse_skipped_operand(&key, input)?);
+            }
             other => untaken(Marker::Rule, other),
         }
         if input.is_empty() {
@@ -963,6 +999,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
         evaluation,
         hole,
         result,
+        skipped_operand,
         ..RuleAttribute::default()
     };
     attribute.check_evaluation()?;
@@ -1163,7 +1200,8 @@ impl ClaimBinder {
 #[cfg(test)]
 impl RuleAttribute {
     /// Records the keys of the label, `owise`, the priority, `nondet`,
-    /// `anywhere`, the evaluation marker, the hole and the result.
+    /// `anywhere`, the evaluation marker, the hole, the result and
+    /// `skipped_operand`.
     pub(crate) fn keyed_nodes(
         &self,
         nodes: &mut crate::keyed_nodes::KeyedNodes,
@@ -1191,6 +1229,9 @@ impl RuleAttribute {
         }
         if let Some(result) = &self.result {
             nodes.push_tokens(self.result_key.as_ref(), result)?;
+        }
+        if let Some(skipped_operand) = &self.skipped_operand {
+            nodes.push_tokens(self.skipped_operand_key.as_ref(), skipped_operand)?;
         }
         Ok(())
     }
