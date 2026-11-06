@@ -4305,3 +4305,285 @@ fn views_refuse_a_function_evaluated_in_one_instance(
         );
     }
 }
+
+/// `smt`: cores in a Map collection keyed by `cid`, each with its computation
+/// cell `k`, a map `cenv` and threads in a Map collection keyed by `tid`, each
+/// with `tv` and the maps `tenv` and `tmem`; beside them a memory and devices
+/// in a Map collection. `tvPlus(n)` reads the thread's `tv`, so it receives
+/// the core's and the thread's keys.
+const SMT: &str = r#"
+use k::Term;
+use k::builtin::{Int, KSequence};
+
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Step {
+    #[k::syntax("go")] Go(),
+    #[k::syntax("done ( {n} )")] Done { n: Int },
+}
+
+#[k::cell]
+pub struct Thread {
+    #[k::cell]
+    pub tid: Int,
+    #[k::cell]
+    pub tv: Int,
+    #[k::cell]
+    pub tenv: k::builtin::Map<Int, Int>,
+    #[k::cell]
+    pub tmem: k::builtin::Map<Int, Int>,
+}
+
+#[k::cell]
+pub struct Dev {
+    #[k::cell]
+    pub did: Int,
+    #[k::cell]
+    pub denv: k::builtin::Map<Int, Int>,
+}
+
+#[k::cell]
+pub struct Devs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub dev: Dev,
+}
+
+#[k::cell]
+pub struct Threads {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub thread: Thread,
+}
+
+#[k::cell]
+pub struct Core {
+    #[k::cell]
+    pub cid: Int,
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub cenv: k::builtin::Map<Int, Int>,
+    #[k::cell(nested)]
+    pub threads: Threads,
+}
+
+#[k::cell]
+pub struct Cores {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub core: Core,
+}
+
+#[k::configuration]
+pub struct Smt {
+    #[k::cell(nested)]
+    pub cores: Cores,
+    #[k::cell]
+    pub ticks: Int,
+    #[k::cell]
+    pub mem: k::builtin::Map<Int, Int>,
+    #[k::cell(nested)]
+    pub devs: Devs,
+}
+
+impl Smt {
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {
+        Self {
+            cores: Cores { core: Core { cid: 0, k: k::k![pgm], cenv: k::map![0 -> 3], threads: Threads { thread: Thread { tid: 0, tv: 5, tenv: k::map![0 -> 7], tmem: k::map![1 -> 20] } } } },
+            ticks: 0,
+            mem: k::map![0 -> 11],
+            devs: Devs { dev: Dev { did: 0, denv: k::map![0 -> 13] } },
+        }
+    }
+}
+
+#[k::function(total, sort = Int, syntax = "tvPlus ( {n} )")]
+pub struct TvPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn tv_plus(
+    n: Term<Int>,
+    v: Term<Int>,
+    k::term![TvPlus(n)]: Term<Int>,
+    k::cells! {
+        tv: k::configuration::Cell(v),
+        ..
+    }: Thread,
+) -> Term<Int> {
+    k::builtin::int::add(v, n)
+}
+"#;
+
+/// `cidPlus(n)` reads the core's `cid`, so it receives the core's key.
+const CID_PLUS: &str = r#"
+#[k::function(total, sort = Int, syntax = "cidPlus ( {n} )")]
+pub struct CidPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn cid_plus(
+    n: Term<Int>,
+    c: Term<Int>,
+    k::term![CidPlus(n)]: Term<Int>,
+    k::cells! {
+        cid: k::configuration::Cell(c),
+        ..
+    }: Core,
+) -> Term<Int> {
+    k::builtin::int::add(c, n)
+}
+"#;
+
+/// The cases of [`a_rule_is_inside_the_deepest_instance_its_cells_lie_in`]:
+/// a table clause at the main cell, inside a core, whose `have` names one or
+/// two cells of a thread, or a device's cell; a rule for the configuration
+/// that matches a core through the cores' instance list, readable and
+/// `cells!`.
+const DEEPEST_CASES: [(&str, &str); 5] = [
+    (
+        "thread-cell",
+        r"
+k::rules! {
+    for lib::Instr;
+    use Step::*;
+
+    go: Go() => Done { n: crate::TvPlus(v) } where have tenv[0 -> let v];
+}
+",
+    ),
+    (
+        "two-thread-cells",
+        r"
+k::rules! {
+    for lib::Instr;
+    use Step::*;
+
+    go: Go() => Done { n: crate::TvPlus(k::builtin::int::add(a, b)) } where have tenv[0 -> let a], have tmem[1 -> let b];
+}
+",
+    ),
+    (
+        "sibling",
+        r"
+k::rules! {
+    for lib::Instr;
+    use Step::*;
+
+    go: Go() => Done { n: v } where have denv[0 -> let v];
+}
+",
+    ),
+    (
+        "instance-list",
+        r"
+k::rules! {
+    for Smt;
+    use Step::*;
+
+    go: { core: { me @ Core { k: [Go(), ..], .. }, .. } } => { core: { Core { k: [Done { n: crate::CidPlus(1) }, ..], ..me }, .. } };
+}
+",
+    ),
+    (
+        "instance-list-cells",
+        r#"
+#[k::rule(label = "go")]
+pub fn go(
+    k::cells! {
+        Cores::core: {
+            me @ k::fragment![crate::Core { k: k::k![Step::Go(), tail @ ..], .. }],
+            others @ ..
+        },
+        state @ ..
+    }: Smt,
+) -> Smt {
+    k::cells! {
+        Cores::core: { k::fragment![crate::Core { k: k::k![Step::Done { n: crate::CidPlus(1) }, ..tail], ..me }], ..others },
+        ..state
+    }
+}
+"#,
+    ),
+];
+
+/// A rule is inside the deepest instance a cell it matches lies in, and its
+/// cells below one holder lie in one instance of it: the emitted rule nests
+/// them in one `<core>` and, below it, one `<thread>`. So a table clause at
+/// the main cell, in a core, whose `have` reads a thread's map is inside that
+/// thread too, and applies `tvPlus`, passing the core's and the thread's
+/// keys: from `tv` 5 with `tenv` 0 |-> 7 it ends at `done ( 12 )`, and with
+/// `tmem` 1 |-> 20 read beside it, in the same thread, at `done ( 32 )`. A
+/// clause that also reads a device's map, beside the cores, is inside no one
+/// instance (`collection-entry`, at the device's cell). A rule for the
+/// configuration that matches a core through the cores' instance list is
+/// about the collection whole, so it is inside no core and cannot apply
+/// `cidPlus`, in either spelling: no `cells!` rule matches a computation cell
+/// inside an instance otherwise.
+#[test]
+fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let outcomes = DEEPEST_CASES
+        .iter()
+        .map(|(name, rules)| {
+            let manifest = instance_definitions(
+                &temporary.path().join(name),
+                "",
+                &[("smt", &format!("{SMT}{CID_PLUS}{rules}"))],
+            )
+            .remove(0);
+            let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
+            let mut report = vec![(*name).to_owned()];
+            if !success {
+                report.extend(check_report(target.path(), &manifest, "smt"));
+                return report;
+            }
+            let flat = emitted(target.path(), &manifest, "smt");
+            report.push(sentence(&flat, "rule [go]:").to_owned());
+            let path = manifest.with_file_name("program.txt");
+            fs::write(&path, "go").unwrap();
+            let (success, stdout, stderr) = krs_on(
+                target.path(),
+                &manifest,
+                "smt",
+                "run",
+                &[path.to_str().unwrap()],
+            );
+            assert!(success, "{name}:\n{stdout}\n{stderr}");
+            report.push(cell(&whitespace(&stdout), "k"));
+            report
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            [
+                "thread-cell",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "two-thread-cells",
+                "rule [go]: <core> <k> go => done ( tvPlus ( A:Int +Int B:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> A:Int ... </tenv> <tmem> 1 |-> B:Int ... </tmem> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 32 ) ~> .K",
+            ],
+            [
+                "sibling",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`, and neither instance holds the other: a rule is a local step of one instance of each holder on one chain of nested instances, the one holding every cell it matches, and no such instance holds both cells; match the other instance through its holder's instance list in a rule for the configuration",
+                "--> smt/src/lib.rs: `denv[0 -> let v]`",
+            ],
+            [
+                "instance-list",
+                "error[krs::analysis::instance-context-caller]: `CidPlus` reads the cell group `Core` through its function context in one instance of the Map collection cell `core`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smt/src/lib.rs: `crate::CidPlus(1`",
+            ],
+            [
+                "instance-list-cells",
+                "error[krs::analysis::instance-context-caller]: `CidPlus` reads the cell group `Core` through its function context in one instance of the Map collection cell `core`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smt/src/lib.rs: `crate::CidPlus(1`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}

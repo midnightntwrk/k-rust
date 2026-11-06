@@ -312,15 +312,16 @@ impl InstanceKeys {
         }
     }
 
-    /// The longest chain of holders above any of `cells`: the instances a sentence naming them
-    /// is about, outermost first.
+    /// The instances a sentence naming `cells` is about, outermost first ([`rule_instances`]
+    /// over each cell's holders); none for cells off one chain of nested instances, which
+    /// semantic analysis refuses in a sentence that passes keys.
     fn chain<'c>(&self, cells: impl IntoIterator<Item = &'c SemanticId>) -> Vec<SemanticId> {
-        cells
-            .into_iter()
-            .filter_map(|cell| self.chains.get(cell))
-            .max_by_key(|chain| chain.len())
-            .cloned()
-            .unwrap_or_default()
+        rule_instances(
+            cells
+                .into_iter()
+                .filter_map(|cell| self.chains.get(cell).cloned()),
+        )
+        .unwrap_or_default()
     }
 
     /// The Map collection cells of `chain`.
@@ -593,6 +594,47 @@ impl InstanceKeys {
             bind: false,
         }))
     }
+}
+
+/// The instances a rule that matches cells with the instance paths `paths` is a local step of,
+/// outermost first, where it is evaluated: the deepest path, which holds every other one as a
+/// prefix; `None` where two paths are not on one chain of nested instances. A path is the
+/// optional (`?`) and collection (`*`) cells strictly above a cell, outermost first; a holder's
+/// own entry (an instance list, an optional cell's state) matches the holder whole, in none of
+/// its instances, so its path stops above it.
+///
+/// A matched cell is in one instance of each holder on its path, and the rule's cells are
+/// matched together: the emitted rule writes each clause inside the cells of the instances it
+/// lies in, one nesting of instance cells for the whole rule
+/// ([`DefinitionIndex::sentence_instances`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instances)),
+/// so every cell the rule matches below one holder lies in the same instance of it. Matching a
+/// cell of a thread therefore fixes one thread, in the one hart that holds it, and the rule is a
+/// step of that thread as much as of that hart: a function it evaluates whose context reads
+/// that thread is evaluated in it, and receives both keys. The prefix the paths share would
+/// instead place a rule that matches a hart's computation and a cell of one of its threads in
+/// the hart alone, and refuse the thread's function although the rule determines the thread.
+///
+/// Several instances of one holder are matched only through the holder's instance list, whose
+/// entry stops above the holder, so they never make the path ambiguous: such a rule is about the
+/// holder whole, and a function evaluated in one of its instances is refused from it.
+///
+/// Two paths off one chain (a hart's cell and a cell of a device beside the harts) name
+/// instances of holders neither of which holds the other, so no one instance of each holder on
+/// one path holds the rule, and the rule is about no one instance a function could be evaluated
+/// in.
+pub(crate) fn rule_instances<T: PartialEq + Clone>(
+    paths: impl IntoIterator<Item = Vec<T>>,
+) -> Option<Vec<T>> {
+    let paths = paths.into_iter().collect::<Vec<_>>();
+    let deepest = paths
+        .iter()
+        .max_by_key(|path| path.len())
+        .cloned()
+        .unwrap_or_default();
+    paths
+        .iter()
+        .all(|path| deepest.starts_with(path))
+        .then_some(deepest)
 }
 
 /// What a key cell's pattern binds the key to.
