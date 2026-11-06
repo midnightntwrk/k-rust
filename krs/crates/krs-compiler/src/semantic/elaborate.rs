@@ -65,8 +65,7 @@ pub(super) fn elaborate(
     inferred: &BTreeMap<String, SemanticSortRef>,
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-) -> Result<Result<(Descriptor, DescriptorConfigurationRule), Unelaborated>, DescriptorLoweringError>
-{
+) -> Result<Result<Elaboration, Unelaborated>, DescriptorLoweringError> {
     let (mut rule, hidden) =
         super::record_updates::head_rule_long_form_in(descriptor, rule, catalog, declarations)?;
     let closing = Closing {
@@ -105,7 +104,20 @@ pub(super) fn elaborate(
         .map_err(|error| {
             DescriptorLoweringError::unsupported_shape("elaborated rule", error.to_string())
         })?;
-    Ok(Ok((copy, elaborated)))
+    Ok(Ok(Elaboration {
+        descriptor: copy,
+        rule: elaborated,
+        inserted_frames: keys.inserted_frames,
+    }))
+}
+
+/// What [`elaborate`] makes of a readable rule.
+pub(super) struct Elaboration {
+    /// The readable rule's descriptor with the elaborated rule as its payload.
+    pub(super) descriptor: Descriptor,
+    pub(super) rule: DescriptorConfigurationRule,
+    /// The keys of the rule's anonymous frames the readable author wrote no `..` for.
+    pub(super) inserted_frames: BTreeSet<ProvenanceKey>,
 }
 
 struct Elaborator<'a> {
@@ -387,6 +399,11 @@ impl Elaborator<'_> {
                     _ => item.clone(),
                 })
                 .collect::<Vec<_>>();
+            if !head.exact && head.tail_key.is_none() {
+                // A block-form clause leaves the rest of the computation unwritten: its frame
+                // is the language's, at the clause.
+                keys.inserted_frames.insert(rule.pattern_key.clone());
+            }
             subject.push(sequence(rule.pattern_key.clone(), items.iter().collect()));
             if let Some(after) = &head.result {
                 let items = match after {
@@ -479,7 +496,11 @@ impl Elaborator<'_> {
                         value: keys.variable(&entry.value_key, &entry.value_binding),
                     })
                     .collect();
-                // A read leaves the other entries as they are.
+                // A read leaves the other entries as they are; a block-form `have` read, which
+                // writes no `..`, by the language's frame at the read.
+                if rest_key.is_none() {
+                    keys.inserted_frames.insert(field.key.clone());
+                }
                 let value = ProtocolRuleStateTerm::Map(ProtocolRuleMap {
                     payload_key: field.key.clone(),
                     body: ProtocolRuleMapBody::Items {
@@ -1134,6 +1155,10 @@ struct NodeKeys<'a> {
     next: BTreeMap<ProvenanceRole, u32>,
     /// The origin of each key made.
     origins: Vec<DescriptorNodeOrigin>,
+    /// The keys of the anonymous frames the readable author wrote no `..` for, which the
+    /// `cells!` lowering marks inserted
+    /// ([`super::configuration_rules::lower_configuration_rule_with_inserted_frames`]).
+    inserted_frames: BTreeSet<ProvenanceKey>,
 }
 
 impl<'a> NodeKeys<'a> {
@@ -1143,6 +1168,7 @@ impl<'a> NodeKeys<'a> {
             taken: BTreeSet::new(),
             next: BTreeMap::new(),
             origins: Vec::new(),
+            inserted_frames: BTreeSet::new(),
         }
     }
 
@@ -1335,10 +1361,15 @@ pub(super) fn shadow_check(
         range: key_range(descriptor, &rule.pattern_key).map(Box::new),
     };
     let (elaborated, cells) = match elaborate(descriptor, rule, inferred, declarations, catalog) {
-        Ok(Ok((copy, elaborated))) => {
-            let cells = super::configuration_rules::lower_configuration_rule_descriptor(
+        Ok(Ok(Elaboration {
+            descriptor: copy,
+            rule: elaborated,
+            inserted_frames,
+        })) => {
+            let cells = super::configuration_rules::lower_configuration_rule_with_inserted_frames(
                 &copy,
                 &elaborated,
+                &inserted_frames,
                 declarations,
                 sort_parents,
                 catalog,

@@ -24,7 +24,7 @@ use super::infer::{
     CollectionUse, StructuredTermBuilder, declared_existentials, initial_binding_constraints,
 };
 use super::origin::{
-    generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
+    generated_semantic_id, inserted_origin, key_range, role_key, semantic_cell_id, semantic_origin,
 };
 use super::references::require_cell_field;
 use super::rules::{
@@ -63,6 +63,8 @@ struct StateRuleTerms<'a> {
     /// Whether a cell of a Set collection's instance the pattern looks up is
     /// being lowered ([`super::set_instances`]).
     looking_up: bool,
+    /// The keys of the anonymous cell frames no token denotes ([`inserted_frames`]).
+    inserted_frames: &'a BTreeSet<ProvenanceKey>,
     /// The guards of the instances and the keys the pattern looks up, which
     /// the sentence's condition must hold: [`Self::finish`] hands them back.
     guards: super::set_instances::SentenceGuards,
@@ -88,6 +90,7 @@ impl<'a> StateRuleTerms<'a> {
             variables: Vec::new(),
             moved_remainders: Vec::new(),
             looking_up: false,
+            inserted_frames: NO_INSERTED_FRAMES,
             guards: super::set_instances::SentenceGuards::default(),
         }
     }
@@ -734,13 +737,42 @@ fn configuration_rule_typing(
     walker.run(&roots)
 }
 
+pub(super) fn lower_configuration_rule_descriptor(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<SemanticRule, DescriptorLoweringError> {
+    lower_configuration_rule_with_inserted_frames(
+        descriptor,
+        rule,
+        NO_INSERTED_FRAMES,
+        declarations,
+        sort_parents,
+        catalog,
+    )
+}
+
+/// An authored `cells!` rule writes every frame it has: each `..` is a token.
+static NO_INSERTED_FRAMES: &BTreeSet<ProvenanceKey> = &BTreeSet::new();
+
+/// [`lower_configuration_rule_descriptor`] of a rule some of whose anonymous cell frames (`..`)
+/// no token denotes: the frames keyed by `inserted_frames` are the language's, added where the
+/// node of their key is, and are marked inserted ([`InsertedNode::CellFrame`]) as the readable
+/// lowering marks the frame a block-form clause leaves unwritten. A descriptor has no frame
+/// that is there without a token, and its provenance holds parser nodes only, so the mark
+/// travels beside it; only an elaborated readable rule ([`super::elaborate`]) has such frames.
+///
+/// [`InsertedNode::CellFrame`]: krs_ir::InsertedNode::CellFrame
 #[expect(
     clippy::too_many_lines,
     reason = "The rewrite, its conditions, its claim metadata, and its binders are lowered in one ordered pass."
 )]
-pub(super) fn lower_configuration_rule_descriptor(
+pub(super) fn lower_configuration_rule_with_inserted_frames(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
+    inserted_frames: &BTreeSet<ProvenanceKey>,
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
@@ -801,6 +833,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         declared_binders,
         wildcard_ordinal,
         variables,
+        inserted_frames,
         ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, &typing)
     };
     let clauses = lower_configuration_rule_clauses(
@@ -1357,7 +1390,7 @@ fn lower_configuration_rule_clause(
         true,
     )?;
     let subject_frame = rule_state_frame(&subject.value);
-    let mut frame = lower_subject_cell_frame(descriptor, &subject.value)?;
+    let mut frame = lower_subject_cell_frame(descriptor, &subject.value, terms.inserted_frames)?;
     let post = if let Some(result) = result {
         let base = MapBase::of(Some(&before), Some(&subject.value), Some(&result.value))?;
         let after = terms.result_state_term(
@@ -1882,7 +1915,7 @@ fn lower_function_context_cell(
         )?,
         semantic_cell_id(&pattern.field.cell)?,
         term,
-        lower_subject_cell_frame(descriptor, &pattern.value)?,
+        lower_subject_cell_frame(descriptor, &pattern.value, NO_INSERTED_FRAMES)?,
     ))
 }
 
@@ -1937,7 +1970,7 @@ fn lower_context_alias_cell(
         semantic_origin(descriptor, pattern.field.key.clone(), "context-alias-cell")?,
         semantic_cell_id(&pattern.field.cell)?,
         term,
-        lower_subject_cell_frame(descriptor, &pattern.value)?,
+        lower_subject_cell_frame(descriptor, &pattern.value, NO_INSERTED_FRAMES)?,
     ))
 }
 
@@ -2023,14 +2056,28 @@ fn result_state_frame<'a>(
 fn lower_subject_cell_frame(
     descriptor: &Descriptor,
     state: &ProtocolRuleStateTerm<DescriptorTerm>,
+    inserted_frames: &BTreeSet<ProvenanceKey>,
 ) -> Result<CellContentFrame, DescriptorLoweringError> {
+    // An anonymous frame is the authored `..` its key names, or the language's at that node.
+    let anonymous = |key: &ProvenanceKey, role: &str| {
+        if inserted_frames.contains(key) {
+            inserted_origin(
+                descriptor,
+                key.clone(),
+                role,
+                krs_ir::InsertedNode::CellFrame,
+            )
+        } else {
+            semantic_origin(descriptor, key.clone(), role)
+        }
+    };
     match rule_state_frame(state) {
         RuleStateFrame::Exact => Ok(CellContentFrame::Exact),
         RuleStateFrame::Framed {
             family: AssociativeStateFamily::KSequence,
             frame: AssociativeStateFrame::Anonymous { key },
         } => Ok(CellContentFrame::KSequenceTail {
-            origin: semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
+            origin: anonymous(key, "rule-k-frame")?,
             binding: None,
         }),
         RuleStateFrame::Framed {
@@ -2044,7 +2091,7 @@ fn lower_subject_cell_frame(
             family: AssociativeStateFamily::Map,
             frame: AssociativeStateFrame::Anonymous { key },
         } => Ok(CellContentFrame::MapRemainder {
-            origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
+            origin: anonymous(key, "rule-map-frame")?,
             binding: None,
         }),
         RuleStateFrame::Framed {
