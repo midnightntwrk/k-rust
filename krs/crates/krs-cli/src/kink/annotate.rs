@@ -46,6 +46,8 @@
 //! A corpus's `[stop]` names rules by KRS item or label, which the front end maps to K labels
 //! before kink-flow reads them, so every document's `stop` names the labels; the front end adds
 //! `krs = {items}` to it, each name as the corpus wrote it with the labels it selects.
+//! Likewise its `[result] cells` names cells by Rust path or K name, mapped to K names, and every
+//! document's `result` gains the cells by path (`result.krs`, [`super::cells`]).
 //!
 //! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
 //! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
@@ -141,6 +143,8 @@ pub(crate) struct Annotator {
     /// Each `[stop]` name as the corpus wrote it, with the labels it selects; `None` without a
     /// stop.
     stop_items: Option<Value>,
+    /// The cells by Rust path that every document's `result` gains ([`super::cells`]).
+    result_names: Option<super::cells::ResultNames>,
 }
 
 impl Annotator {
@@ -215,6 +219,7 @@ impl Annotator {
             load_anchors: Box::new(load_anchors),
             anchors: OnceLock::new(),
             stop_items: None,
+            result_names: None,
         }
     }
 
@@ -222,6 +227,13 @@ impl Annotator {
     /// labels it selects, is added to every document's `stop` as `krs.items`.
     pub(crate) fn naming_stop(mut self, items: Option<Value>) -> Self {
         self.stop_items = items;
+        self
+    }
+
+    /// This annotator naming the compared cells by Rust path: `result.krs` in every document
+    /// ([`super::cells`]).
+    pub(crate) fn naming_result(mut self, names: super::cells::ResultNames) -> Self {
+        self.result_names = Some(names);
         self
     }
 
@@ -301,6 +313,9 @@ impl Annotator {
             document.get_mut("stop").and_then(Value::as_object_mut),
         ) {
             stop.insert("krs".into(), json!({ "items": items }));
+        }
+        if let Some(names) = &self.result_names {
+            names.annotate(document);
         }
         let mut unnamed = Vec::new();
         kink_flow::visit_rules(document, &mut |rule: &RuleRef, object| {

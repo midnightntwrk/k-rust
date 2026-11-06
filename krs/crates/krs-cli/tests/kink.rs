@@ -970,6 +970,162 @@ fn a_kills_evidence_compares_the_cells_the_slot_compares() {
     }
 }
 
+/// `[result] cells` names a cell by its Rust path, as every krs surface does, or by its K name
+/// where no cell has that name as its path: kink compares the cells it reads as, and every
+/// document's `result` gains them by path (`result.krs`) with the reading of each entry. A name
+/// that is neither is refused at stage `result` with each path and its K cell; an unobservable
+/// cell named by path is refused by kink-flow, by K name, with the path told. A run with
+/// `--progress` reports on stderr and prints the same document on stdout.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One corpus package states every reading of `[result] cells` side by side."
+)]
+fn result_cells_are_named_by_rust_path() {
+    let mut files = vec![("src/lib.rs".to_owned(), LEFT_OUT.as_bytes().to_vec())];
+    for (corpus, cells) in [
+        ("kink", r#"["k", "regs.a"]"#),
+        ("corpora/k-name", r#"["a"]"#),
+        ("corpora/unknown", r#"["regs.b"]"#),
+        ("corpora/hidden", r#"["k", "regs.w"]"#),
+        ("corpora/repeated", r#"["regs.a", "a"]"#),
+    ] {
+        files.push((
+            format!("{corpus}/FLOW.toml"),
+            format!(
+                "[spec]\nkrs = {{ definition = \"main\" }}\n\n[result]\ncells = {cells}\n\n[[program]]\nid = \"t1\"\nfile = \"cases/t1.exp\"\n"
+            )
+            .into_bytes(),
+        ));
+        files.push((format!("{corpus}/cases/t1.exp"), b"run(1)\n".to_vec()));
+        files.push((
+            format!("{corpus}/mutations/finish.toml"),
+            b"[[mutation]]\nid = \"twice\"\nmisunderstanding = \"adds two\"\n\n  [[mutation.edit]]\n  rule = \"finish\"\n  find = \"+Int 1\"\n  replace = \"+Int 2\"\n"
+                .to_vec(),
+        ));
+    }
+    let project = project_of("krs-cli-kink-result-paths", "RESULTPATHS", &files);
+
+    let output = project.kink("run", &["--full", "--progress"]);
+    assert_status(&output, 0);
+    let run = json(&output);
+    assert_eq!(run["mutations"][0]["status"], "killed", "{run:#}");
+    assert_eq!(
+        run["result"],
+        serde_json::json!({
+            "slots": ["exit-stop", "cells"],
+            "compared": ["k", "a"],
+            "not_compared": ["w", "scratch"],
+            "unobservable": ["w", "scratch"],
+            "krs": {
+                "compared": ["k", "regs.a"],
+                "not_compared": ["regs.w", "scratch"],
+                "unobservable": ["regs.w", "scratch"],
+                "cells": {"k": "k", "regs.a": "a"},
+            },
+        }),
+        "{run:#}"
+    );
+    let difference = &run["mutations"][0]["executed"][0]["difference"];
+    assert_eq!(
+        difference["compared"],
+        serde_json::json!(["k", "regs.a"]),
+        "{difference:#}"
+    );
+    // Each phase of a cold run is announced as it starts or as its row is decided, in order.
+    let progress = stderr(&output);
+    let phases = [
+        "krs kink: run: building the package and emitting its K\n",
+        "krs kink: run: binding the corpus to the emitted K\n",
+        "krs kink: run: checking the list's 1 mutation against the lowering\n",
+        "krs kink: run: 1 mutation on 1 program, after the baseline results\n",
+        "krs kink: run: baseline of program 1 of 1, `t1`: comparable\n",
+        "krs kink: run: resolving the list's 1 mutation\n",
+        "krs kink: run: mutation 1 of 1, `finish/twice`: killed\n",
+    ];
+    let mut rest = progress.as_str();
+    for phase in phases {
+        let at = rest
+            .find(phase)
+            .unwrap_or_else(|| panic!("no {phase:?} in order in {progress}"));
+        rest = &rest[at + phase.len()..];
+    }
+    // Without `--progress` (stderr is no terminal here) the run reports nothing on stderr.
+    let quiet = project.kink("run", &["--full"]);
+    assert_status(&quiet, 0);
+    assert!(
+        !stderr(&quiet).contains("krs kink: run:"),
+        "{}",
+        stderr(&quiet)
+    );
+
+    let output = project.kink("check", &["--corpus", "corpora/k-name"]);
+    assert_status(&output, 0);
+    let check = json(&output);
+    assert_eq!(
+        check["result"]["compared"],
+        serde_json::json!(["a"]),
+        "{check:#}"
+    );
+    assert_eq!(
+        check["result"]["krs"]["compared"],
+        serde_json::json!(["regs.a"]),
+        "{check:#}"
+    );
+    assert_eq!(
+        check["result"]["krs"]["cells"],
+        serde_json::json!({"a": "a"}),
+        "{check:#}"
+    );
+
+    let output = project.kink("check", &["--corpus", "corpora/unknown"]);
+    assert_status(&output, 2);
+    let refused = json(&output);
+    assert_eq!(refused["spec"]["stage"], "result", "{refused:#}");
+    assert_eq!(
+        refused["spec"]["reason"], "result-cell-unknown",
+        "{refused:#}"
+    );
+    assert_eq!(
+        refused["spec"]["detail"],
+        "[result] cells names `regs.b`, which is neither the Rust path nor the K name of a cell \
+         of the configuration; name a cell by its Rust path (its K cell in brackets): k (<k>), \
+         regs (<regs>), regs.a (<a>), regs.w (<w>), scratch (<scratch>)",
+        "{refused:#}"
+    );
+
+    // Two spellings of one cell name it twice: the cell is known, the entry repeats it.
+    let output = project.kink("check", &["--corpus", "corpora/repeated"]);
+    assert_status(&output, 2);
+    let refused = json(&output);
+    assert_eq!(refused["spec"]["stage"], "result", "{refused:#}");
+    assert_eq!(
+        refused["spec"]["reason"], "result-cell-repeated",
+        "{refused:#}"
+    );
+    assert_eq!(
+        refused["spec"]["detail"],
+        "[result] cells names the cell `regs.a` (<a>) twice, as `regs.a` and as `a`; name it once",
+        "{refused:#}"
+    );
+
+    let output = project.kink("check", &["--corpus", "corpora/hidden"]);
+    assert_status(&output, 2);
+    let refused = json(&output);
+    assert_eq!(refused["spec"]["stage"], "result", "{refused:#}");
+    assert_eq!(
+        refused["spec"]["reason"], "result-cell-unobservable",
+        "{refused:#}"
+    );
+    let detail = refused["spec"]["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail
+            .starts_with("[result] cells names <w>, which the specification declares unobservable")
+            && detail.ends_with(" (as [result] cells writes them: `regs.w` is <w>)"),
+        "{refused:#}"
+    );
+}
+
 /// A kill's evidence names cells, constructors and fields by the Definition IR's Rust names, and
 /// a field's name never reaches the emitted K. Renaming the field of `Cmd::Done`, the ends'
 /// constructor, under the same syntax leaves the K, and so the execution digest, unchanged, yet
@@ -2635,6 +2791,20 @@ fn a_corpus_narrowed_to_cells_of_a_maps_instances_compares_them_by_key() {
             "compared": ["id", "pc"],
             "not_compared": ["k", "regs", "reservation", "jobs", "mem", "nextId"],
             "unobservable": [],
+            // The same cells by Rust path; `pc` is a K name, which no cell has as its path.
+            "krs": {
+                "compared": ["harts.hart.id", "harts.hart.pc"],
+                "not_compared": [
+                    "harts.hart.k",
+                    "harts.hart.regs",
+                    "harts.hart.reservation",
+                    "harts.hart.jobs",
+                    "mem",
+                    "next_id",
+                ],
+                "unobservable": [],
+                "cells": {"pc": "pc"},
+            },
         }),
         "{narrowed:#}"
     );

@@ -608,6 +608,116 @@ fn a_refused_run_document_names_its_schedule() {
     }
 }
 
+/// `--progress` (once) reports a run on stderr: a line before the baseline results naming how many
+/// mutations and programs the run has, a line as each program's baseline row is decided, with its
+/// place, its id and its class, one before the list is resolved, then a line as each mutation's
+/// row is decided, with its place, its id and its status, in list order. stdout stays the document, whose rows are those
+/// of the same run without the flag; without it (and with stderr no terminal) stderr is empty.
+#[test]
+fn a_run_reports_its_progress_on_stderr() {
+    let binary = env!("CARGO_BIN_EXE_kink-flow");
+    let run = |test: &str, progress: bool| {
+        let dir = fixture("calc", test);
+        let mut command = Command::new(binary);
+        command
+            .arg("run")
+            .arg(dir.join("FLOW.toml"))
+            .arg(dir.join("MUTATIONS.toml"))
+            .arg("--full");
+        if progress {
+            command.arg("--progress");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(EXIT_YES)),
+            "{output:?}"
+        );
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (document, String::from_utf8(output.stderr).unwrap())
+    };
+    let (document, stderr) = run("progress", true);
+    let rows = document["mutations"].as_array().unwrap();
+    let programs = document["programs"].as_array().unwrap();
+    let plural =
+        |count: usize, noun: &str| format!("{count} {noun}{}", if count == 1 { "" } else { "s" });
+    let mut expected = vec![format!(
+        "kink-flow: run: {} on {}, after the baseline results",
+        plural(rows.len(), "mutation"),
+        plural(programs.len(), "program")
+    )];
+    // The cold run stores no record before it runs a program: no line says `stored`.
+    for (index, program) in programs.iter().enumerate() {
+        assert_eq!(program["cached"], false, "{program:#}");
+        expected.push(format!(
+            "kink-flow: run: baseline of program {} of {}, `{}`: {}",
+            index + 1,
+            programs.len(),
+            program["id"].as_str().unwrap(),
+            program["class"].as_str().unwrap()
+        ));
+    }
+    expected.push(format!(
+        "kink-flow: run: resolving the list's {}",
+        plural(rows.len(), "mutation")
+    ));
+    for (index, row) in rows.iter().enumerate() {
+        expected.push(format!(
+            "kink-flow: run: mutation {} of {}, `{}`: {}",
+            index + 1,
+            rows.len(),
+            row["id"].as_str().unwrap(),
+            row["status"].as_str().unwrap()
+        ));
+    }
+    assert_eq!(stderr.lines().collect::<Vec<_>>(), expected, "{stderr}");
+    let (quiet, stderr) = run("progress-quiet", false);
+    assert_eq!(stderr, "");
+    // The same cold run of another copy of the fixture gives the same rows.
+    let verdicts = |document: &Value| {
+        document["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["id"].clone(),
+                    row["status"].clone(),
+                    row["killed_by"].clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(verdicts(&quiet), verdicts(&document));
+
+    let files = || CommandFiles {
+        mutations: Some(flow("calc").join("MUTATIONS.toml")),
+        ..CommandFiles::default()
+    };
+    let parse = |args: &[&str]| {
+        FlowCommand::parse(
+            "run",
+            files(),
+            &args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(),
+        )
+    };
+    assert!(matches!(
+        parse(&["--progress"]).unwrap(),
+        FlowCommand::Run { progress: true, .. }
+    ));
+    assert!(matches!(
+        parse(&[]).unwrap(),
+        FlowCommand::Run {
+            progress: false,
+            ..
+        }
+    ));
+    assert_eq!(
+        parse(&["--progress", "--progress"]).unwrap_err(),
+        "unexpected argument \"--progress\""
+    );
+}
+
 /// The matrix of two rows, from rows alone (`report::matrix`).
 #[test]
 fn the_matrix_is_read_from_the_rows() {

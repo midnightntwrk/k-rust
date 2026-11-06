@@ -2300,6 +2300,18 @@ pub fn run_front(
         }
         document
     };
+    let selected_count = list
+        .mutations
+        .iter()
+        .filter(|mutation| options.only.is_empty() || options.only.contains(&mutation.id))
+        .count();
+    if let Some(progress) = front.progress {
+        progress(&format!(
+            "run: {} on {}, after the baseline results",
+            plural(selected_count, "mutation"),
+            plural(manifest.programs.len(), "program"),
+        ));
+    }
     let cache = cache_directory(manifest, options.cache.as_deref());
     let store = Store::new(&cache);
     let report_path = cache.join(REPORT_FILE);
@@ -2384,7 +2396,15 @@ pub fn run_front(
     };
     // A stored result is never a timeout, so no cached row needs a re-run here: a
     // program whose baseline timed out was run live by this command's results update.
-    let update = update_results(&spec, manifest, &mut inputs, &runner, &cache, verify);
+    let update = update_results(
+        &spec,
+        manifest,
+        &mut inputs,
+        &runner,
+        &cache,
+        verify,
+        front.progress,
+    );
     // Once per command: the definition exclusion every document this run writes names.
     let exclusion = runner.definition_exclusion();
     let hints = Hints::read(&cache);
@@ -2486,6 +2506,12 @@ pub fn run_front(
     // its facts are written. The memo is read only while every source file still has the
     // SHA-256 the admission recorded (`memo::sources_unchanged`).
     let consult = memo_build.filter(|_| memo::sources_unchanged(&manifest.directory, &spec.loaded));
+    if let Some(progress) = front.progress {
+        progress(&format!(
+            "run: resolving the list's {}",
+            plural(list.mutations.len(), "mutation")
+        ));
+    }
     let mut resolution_mismatches = BTreeMap::new();
     let resolutions = list
         .mutations
@@ -2617,6 +2643,14 @@ pub fn run_front(
                     front.spelling,
                 ))
         );
+        if let Some(progress) = front.progress {
+            progress(&format!(
+                "run: mutation {} of {selected_count}, `{}`: {}",
+                position + 1,
+                mutation.id,
+                row["status"].as_str().unwrap_or("no status"),
+            ));
+        }
         if corpus_error {
             stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
             ok = false;
@@ -2701,6 +2735,11 @@ pub fn run_front(
         ok = false;
     }
     (document, ok)
+}
+
+/// `count` and `noun`, plural when `count` is not 1 (`1 mutation`, `3 programs`).
+fn plural(count: usize, noun: &str) -> String {
+    format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
 }
 
 /// Whether tier 1 decides, with no call, a mutation whose comparable programs in search order are

@@ -1832,6 +1832,10 @@ pub fn runner_refusal(detail: String) -> kink_corpus::admission::AdmissionRefusa
 
 /// Bring the result cache of `spec` up to date (README 5.3) with `runner`, whose validator
 /// is the specification's, so every program shares one baseline compile.
+///
+/// `progress`, when given, gets one line as each program's row is decided: its place, its id,
+/// its class, and whether its record was stored (``run: baseline of program 2 of 20, `t2`:
+/// comparable, stored``), a function of the corpus and the cache ([`crate::cli::FrontEnd::progress`]).
 pub fn update_results(
     spec: &AdmittedSpec,
     manifest: &FlowManifest,
@@ -1839,6 +1843,7 @@ pub fn update_results(
     runner: &BaselineRunner<'_>,
     cache: &Path,
     verify: bool,
+    progress: Option<&(dyn Fn(&str) + Sync)>,
 ) -> ResultsUpdate {
     let spec_digest = spec_digest(manifest, &spec.loaded.files);
     let execution = execution_digest(manifest, spec);
@@ -1849,8 +1854,9 @@ pub fn update_results(
     let rows = manifest
         .programs
         .iter()
-        .map(|program| {
-            program_row(
+        .enumerate()
+        .map(|(position, program)| {
+            let row = program_row(
                 spec,
                 manifest,
                 inputs,
@@ -1867,7 +1873,22 @@ pub fn update_results(
                 },
                 program,
                 &mut mismatches,
-            )
+            );
+            if let Some(progress) = progress {
+                progress(&format!(
+                    "run: baseline of program {} of {}, `{}`: {}{}",
+                    position + 1,
+                    manifest.programs.len(),
+                    program.id,
+                    row.row["class"].as_str().unwrap_or("no class"),
+                    if row.row["cached"] == true {
+                        ", stored"
+                    } else {
+                        ""
+                    },
+                ));
+            }
+            row
         })
         .collect::<Vec<_>>();
     ResultsUpdate {
@@ -1956,6 +1977,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         &runner,
         &cache,
         options.verify,
+        None,
     );
     let mut ok = update.ok();
     let rules = rules(&spec, manifest, &update.rows);

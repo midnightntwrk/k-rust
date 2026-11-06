@@ -43,7 +43,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     ffi::OsString,
-    io::Write,
+    io::{IsTerminal, Write},
     path::{Path, PathBuf},
 };
 
@@ -66,7 +66,7 @@ macro_rules! usage_line {
          results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
          [--output json|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
-         [--full] [--compile-workers N] [--no-memo] [--cache DIR] [--output \
+         [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
          FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
@@ -155,9 +155,16 @@ pub fn execute(args: Vec<OsString>) -> u8 {
         Err(message) => return usage(&message),
     };
     let output = command.output();
+    let progress = |line: &str| eprintln!("kink-flow: {line}");
+    let front = FrontEnd {
+        progress: command
+            .shows_progress()
+            .then_some(&progress as &(dyn Fn(&str) + Sync)),
+        ..FrontEnd::default()
+    };
     let (document, status) = match FlowManifest::read(&manifest) {
         Err(error) => (command.manifest_refused(&error), EXIT_UNASKED),
-        Ok(manifest) => match dispatch(manifest, command, FrontEnd::default()) {
+        Ok(manifest) => match dispatch(manifest, command, front) {
             Ok(result) => result,
             Err(panicked) => {
                 eprintln!("kink-flow: {panicked}");
@@ -382,6 +389,10 @@ pub enum FlowCommand {
         options: RunOptions,
         mode: RunMode,
         output: OutputFormat,
+        /// `--progress`: a line on stderr as the run passes each program's baseline and each
+        /// mutation ([`FrontEnd::progress`]), which the command line also prints when stderr is
+        /// a terminal.
+        progress: bool,
     },
     Report {
         options: ReportOptions,
@@ -428,7 +439,7 @@ impl FlowCommand {
                 if !mutations.exists() {
                     return Err(not_found(&mutations));
                 }
-                let (options, mode, output) = run_options(options)?;
+                let (options, mode, output, progress) = run_options(options)?;
                 if let Ok(list) = MutationList::read(&mutations)
                     && let Some(id) = options
                         .only
@@ -442,6 +453,7 @@ impl FlowCommand {
                     options,
                     mode,
                     output,
+                    progress,
                 })
             }
             Verb::Report => {
@@ -548,6 +560,19 @@ impl FlowCommand {
             _ => OutputFormat::Json,
         }
     }
+
+    /// Whether a command line prints the command's progress on stderr ([`FrontEnd::progress`]):
+    /// a `run` given `--progress`, or one whose stderr is a terminal, where someone watches a run
+    /// that can take minutes. A run whose stderr is read by a program (a CI step, an agent, a
+    /// recorded output) reports progress only when asked, so what it reads stays the refusals and
+    /// notes alone.
+    #[must_use]
+    pub fn shows_progress(&self) -> bool {
+        match self {
+            Self::Run { progress, .. } => *progress || std::io::stderr().is_terminal(),
+            _ => false,
+        }
+    }
 }
 
 /// What a front end adds to a command ([`dispatch`]).
@@ -564,6 +589,15 @@ pub struct FrontEnd<'a> {
     /// report, so that `report` prints what `run` printed. It must be idempotent: `report`
     /// applies it again to the document `run` stored.
     pub annotate: Option<&'a (dyn Fn(&mut Value) + Sync)>,
+    /// Where `run` reports its progress, one line at a time, without a trailing newline: before
+    /// the baseline update, how many programs and mutations the run has; as each program's
+    /// baseline row is decided, its place, its id, its class and whether its record was stored
+    /// ([`crate::results::update_results`]); before the list is resolved, how many mutations it
+    /// has; then, as each selected mutation's row is decided, its place, its id and its status
+    /// ([`crate::search::run_front`]).
+    /// The lines are functions of the corpus and the cache, never of time, and nothing else
+    /// reads them; the document is the same with or without them. `None` reports nothing.
+    pub progress: Option<&'a (dyn Fn(&str) + Sync)>,
 }
 
 impl Default for FrontEnd<'_> {
@@ -573,6 +607,7 @@ impl Default for FrontEnd<'_> {
             spelling: &KinkFlowSpelling,
             refused: BTreeMap::new(),
             annotate: None,
+            progress: None,
         }
     }
 }
@@ -583,6 +618,7 @@ impl std::fmt::Debug for FrontEnd<'_> {
             .field("spelling", &self.spelling.command(Verb::Run))
             .field("refused", &self.refused)
             .field("annotate", &self.annotate.map(|_| ".."))
+            .field("progress", &self.progress.map(|_| ".."))
             .finish()
     }
 }
@@ -1128,9 +1164,10 @@ fn results_options(args: &[String]) -> Result<(ResultsOptions, OutputFormat), St
     Ok((options, output.unwrap_or_default()))
 }
 
-fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat), String> {
+fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bool), String> {
     let mut options = RunOptions::default();
     let mut mode = RunMode::Search;
+    let mut progress = false;
     let mut order = None;
     let mut output = None;
     let mut args = args.iter();
@@ -1173,6 +1210,7 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat), S
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
+            "--progress" if !progress => progress = true,
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
@@ -1185,7 +1223,7 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat), S
                 .to_owned(),
         );
     }
-    Ok((options, mode, output.unwrap_or_default()))
+    Ok((options, mode, output.unwrap_or_default(), progress))
 }
 
 fn query_options(args: &[String]) -> Result<QueryOptions, String> {
@@ -1499,6 +1537,7 @@ pub fn run_mode(
             options: options.clone(),
             mode,
             output: OutputFormat::Json,
+            progress: false,
         },
     )
 }

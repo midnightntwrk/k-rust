@@ -265,6 +265,7 @@ pub(crate) fn query_with(
         &runner,
         &cache,
         options.verify,
+        None,
     );
     let mut ok = update.ok();
     let setup =

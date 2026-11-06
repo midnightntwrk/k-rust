@@ -217,7 +217,7 @@ Usage:
                    [--output json|verdicts] [--locked]
   krs kink run     --package P --definition D [--mutations PATH] [--only ID]... [--verify]
                    [--order cost|corpus] [--full] [--compile-workers N] [--no-memo]
-                   [--cache DIR] [--output json|verdicts] [--locked]
+                   [--progress] [--cache DIR] [--output json|verdicts] [--locked]
   krs kink report  --package P --definition D [--cache DIR] [--output json|verdicts]
   krs kink query   --package P --definition D [--patterns PATH] [--only ID]... [--verify]
                    [--cache DIR] [--locked]
@@ -227,7 +227,8 @@ Usage:
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
-                    kink-flow's manifest; a case's paths stay inside the corpus directory
+                    kink-flow's manifest; a case's paths stay inside the corpus directory;
+                    [result] cells names cells by Rust path (cpu.regs), as krs compare does
   cases/            the cases' program files and typed-input documents; a program file
                     binds the main parameter, as krs run FILE does
   mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or
@@ -266,7 +267,10 @@ verb on it; every rule a document names gains `krs = {item, source_item, package
 line, column, kind, claim_helper}`. --locked refuses a stale definition.k instead of writing
 it, and emit --check exits 2 when it is stale: the gate a CI runs. report builds nothing: it
 prints the last run's stored document (or its verdicts) as that run printed it, exits as
-that run did, and takes no --locked.
+that run did, and takes no --locked. run --progress prints a line on stderr as each phase
+starts (the build, the binding, the checks of the list), as each program's baseline and
+each mutation is decided (also without the flag when stderr is a terminal); stdout stays
+the document.
 
 Exit status, by what the caller does next, as krs run's (krs --help):
   0  yes: every program is comparable and meets its expectation (results), every mutation

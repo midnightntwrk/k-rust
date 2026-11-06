@@ -824,13 +824,13 @@ fn result(value: &Value) -> Result<ResultSection, ManifestError> {
             Value::String(_) => {
                 return Err(ManifestError::new(
                     key,
-                    format!("entry {index} is empty: name a cell by its K name (`k` for <k>)"),
+                    format!("entry {index} is empty: name a cell of the configuration"),
                 ));
             }
             _ => {
                 return Err(ManifestError::new(
                     key,
-                    format!("entry {index} is not a string: name a cell by its K name"),
+                    format!("entry {index} is not a string: name a cell of the configuration"),
                 ));
             }
         };

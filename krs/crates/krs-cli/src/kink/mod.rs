@@ -10,14 +10,15 @@
 //!
 //! The front end adds, on the way in, how a case's typed inputs and its expectation are read
 //! (the encoding KRS derives from the definition's declared types, the `inputs` and `render`
-//! submodules), the exact K labels of
-//! the rules `[stop]` names by KRS item or label as `krs run --stop-before` does (the `stop`
-//! submodule, over the native compile the `inputs` submodule makes; a name that selects no
-//! rewrite rule refuses the corpus at stage `stop`, reason `stop-unresolved`), and the mutations
-//! its own checks refuse (`checks`); on the way out, the labels each `[stop]` name selects
-//! (`stop.krs.items`), to every rule a document names, the KRS item and
-//! the Rust position the sentence was emitted from (`annotate`), and next steps spelled as
-//! `krs kink` commands (`spelling`).
+//! submodules), the K names of the cells `[result]` names by Rust path (the `cells` submodule),
+//! the exact K labels of the rules `[stop]` names by KRS item or label as
+//! `krs run --stop-before` does (the `stop` submodule, over the native compile the `inputs`
+//! submodule makes; a name that selects no rewrite rule refuses the corpus at stage `stop`,
+//! reason `stop-unresolved`), and the mutations its own checks refuse (`checks`); on the way
+//! out, the labels each `[stop]` name selects (`stop.krs.items`), the compared cells by Rust path
+//! (`result.krs`), to every rule a document names, the KRS item and the Rust position the
+//! sentence was emitted from (`annotate`), and next steps spelled as `krs kink` commands
+//! (`spelling`).
 //!
 //! Every verb but `emit` prints one kink-flow document (or, with `--output verdicts`, its
 //! deterministic rendering) with one more key, `definition`: the path of `kink/definition.k`
@@ -39,6 +40,7 @@
 //! document has the refusal as its `refusal`.
 
 mod annotate;
+mod cells;
 mod checks;
 mod emit;
 mod inputs;
@@ -328,6 +330,7 @@ fn flow_command(
         return finish(outcome, &document, status, output);
     }
     let retain = judges_mutations(&command);
+    tell_progress(&command, "run: building the package and emitting its K");
     let (emitted, kept) = match build(planned, &mut outcome, measurement, retain) {
         Ok(built) => built,
         Err(error) => {
@@ -440,16 +443,19 @@ fn run_flow(
     } = built;
     let output = command.output();
     let verb = command.verb();
-    let (manifest, stop_items) = match bound_manifest(&command, declared, emitted, observers) {
-        Ok(bound) => bound,
-        Err(mut document) => {
-            document["definition"] = definition;
-            return finish(outcome, &document, EXIT_UNASKED, output);
-        }
-    };
+    tell_progress(&command, "run: binding the corpus to the emitted K");
+    let (manifest, stop_items, result_names) =
+        match bound_manifest(&command, declared, emitted, observers) {
+            Ok(bound) => bound,
+            Err(mut document) => {
+                document["definition"] = definition;
+                return finish(outcome, &document, EXIT_UNASKED, output);
+            }
+        };
     resolve_rule(&mut command, emitted);
     let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command))
-        .naming_stop(stop_items);
+        .naming_stop(stop_items)
+        .naming_result(result_names);
     let sources = outcome.sources.clone();
     let baseline = kept.as_ref().map(|kept| checks::Baseline {
         emitted,
@@ -488,27 +494,18 @@ fn run_flow(
         return finish(outcome, &document, status_code, output);
     }
     // `run` and a `fuzz` kill job: the mutations the front end refuses run nothing.
-    let refused_mutations = match (checks::run_list(&command), &baseline) {
-        (Some(run), Some(baseline)) => match MutationList::read(run.path) {
-            Ok(list) => {
-                let refusals = measurement.timings.span("kink.krs-checks", |_| {
-                    kink_flow::on_stack(|| {
-                        checks::KrsChecks::new(baseline, spelling).refusals(&manifest, &list, &run)
-                    })
-                });
-                let Some(refusals) = refusals else {
-                    outcome
-                        .notes
-                        .push("krs kink: the mutation check thread panicked".into());
-                    outcome.status = EXIT_UNASKED;
-                    return outcome;
-                };
-                refusals
-            }
-            // kink-flow refuses a list that does not decode.
-            Err(_) => std::collections::BTreeMap::new(),
-        },
-        _ => std::collections::BTreeMap::new(),
+    let Some(refused_mutations) = front_refusals(
+        &command,
+        baseline.as_ref(),
+        spelling,
+        &manifest,
+        measurement,
+    ) else {
+        outcome
+            .notes
+            .push("krs kink: the mutation check thread panicked".into());
+        outcome.status = EXIT_UNASKED;
+        return outcome;
     };
     // Every check that reads the lowering is made: the dispatch, which can hold a kill search's
     // mutants for minutes, runs without the retained theory and its second Definition IR.
@@ -523,6 +520,7 @@ fn run_flow(
         spelling,
         refused: refused_mutations,
         annotate: Some(&annotate as &(dyn Fn(&mut Value) + Sync)),
+        progress: command.shows_progress().then_some(&print_progress),
     };
     let span = format!("kink.{}", verb.as_str());
     let dispatched = measurement
@@ -539,28 +537,83 @@ fn run_flow(
     finish(outcome, &document, status_code, output)
 }
 
+/// The mutations of the list `command` runs (`run`, a `fuzz` kill job) that the front end's
+/// checks over `baseline` refuse, by id: none for another command or a list that does not
+/// decode, which kink-flow refuses; `None` when the check thread panicked.
+fn front_refusals(
+    command: &FlowCommand,
+    baseline: Option<&checks::Baseline<'_>>,
+    spelling: &spelling::KrsSpelling,
+    manifest: &kink_flow::FlowManifest,
+    measurement: &mut Measurement,
+) -> Option<std::collections::BTreeMap<String, kink_flow::InvalidMutation>> {
+    let (Some(run), Some(baseline)) = (checks::run_list(command), baseline) else {
+        return Some(std::collections::BTreeMap::new());
+    };
+    let Ok(list) = MutationList::read(run.path) else {
+        // kink-flow refuses a list that does not decode.
+        return Some(std::collections::BTreeMap::new());
+    };
+    tell_progress(
+        command,
+        &format!(
+            "run: checking the list's {} mutation{} against the lowering",
+            list.mutations.len(),
+            if list.mutations.len() == 1 { "" } else { "s" }
+        ),
+    );
+    measurement.timings.span("kink.krs-checks", |_| {
+        kink_flow::on_stack(|| {
+            checks::KrsChecks::new(baseline, spelling).refusals(manifest, &list, &run)
+        })
+    })
+}
+
+/// A run's progress line on stderr as it happens, as `kink-flow run` prints it, under the same
+/// condition ([`FlowCommand::shows_progress`]); stdout stays the document.
+fn print_progress(line: &str) {
+    eprintln!("krs kink: {line}");
+}
+
+/// [`print_progress`] of a phase the front end runs before kink-flow's (the build and the
+/// emission, the binding of the corpus, the front end's checks of the list), when `command`
+/// shows its progress: each line is printed as its phase starts, so a cold run that spends
+/// minutes there is seen to be in it.
+fn tell_progress(command: &FlowCommand, line: &str) {
+    if command.shows_progress() {
+        print_progress(line);
+    }
+}
+
 /// The corpus `declared` bound to the K of `emitted`, with what only the front end knows of it
-/// ([`with_front_end_facts`], the expectations' views evaluated in `observers`) and the rules
-/// `[stop]` names by KRS item or label as the exact K labels kink-flow reads ([`stop::bind`]),
-/// and the labels each name selects; or `command`'s document refusing the corpus.
+/// ([`with_front_end_facts`], the expectations' views evaluated in `observers`), the cells
+/// `[result]` names by Rust path or K name as the K names kink-flow reads ([`cells::bind`]), and
+/// the rules `[stop]` names by KRS item or label as the exact K labels kink-flow reads
+/// ([`stop::bind`]); the labels each `[stop]` name selects, and the cells by path that the
+/// documents' `result` gains; or `command`'s document refusing the corpus.
 fn bound_manifest(
     command: &FlowCommand,
     declared: ManifestFile,
     emitted: &EmittedDefinition,
     observers: render::Observers,
-) -> Result<(kink_flow::FlowManifest, Option<Value>), Value> {
+) -> Result<(kink_flow::FlowManifest, Option<Value>, cells::ResultNames), Value> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
         .map_err(|error| command.manifest_refused(&error))?;
+    let names = cells::CellNames::of(&emitted.ir);
+    let (manifest, readings) = cells::bind(manifest, &names)
+        .map_err(|unbound| refused(command, "result", unbound.reason, &unbound.detail))?;
+    let result_names = cells::ResultNames::new(names, readings);
     // The decoder reads typed inputs and binds programs, and fuzz templates' own, to the main
     // parameter; it compiles nothing until one needs it, and the stop's names resolve over the
     // same compile.
     let decoder = Arc::new(inputs::KrsInputs::new(emitted.ir.clone()));
-    stop::bind(
+    let (manifest, stop_items) = stop::bind(
         with_front_end_facts(manifest, emitted, decoder.clone(), observers),
         &decoder,
     )
-    .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))
+    .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
+    Ok((manifest, stop_items, result_names))
 }
 
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
