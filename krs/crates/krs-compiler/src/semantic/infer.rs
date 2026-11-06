@@ -2464,7 +2464,7 @@ impl StructuredTermBuilder<'_> {
                     open: *open,
                     key: Some(key),
                 };
-                self.lower_cell_term(key, declaration, fields, *open, expected_sort, &record)
+                self.lower_cell_term(key, declaration, fields, *open, &record)
             }
             // A projection below the root of a guarded key
             // ([`super::set_instances`]).
@@ -2978,18 +2978,13 @@ impl StructuredTermBuilder<'_> {
         owner: &StableItemId,
         fields: &[krs_ir::DescriptorCellTermField],
         open: bool,
-        expected_sort: Option<&SemanticSortRef>,
         record: &RecordContext<'_>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        // A fragment that is a whole group-cell clause has the group's
-        // generated cell sort (KF-016); elsewhere it keeps the KItem sort it
-        // always had, so existing emitted and native terms are unchanged.
-        let whole = SemanticSortRef::Cell(owner.clone());
-        let sort = if expected_sort == Some(&whole) {
-            whole
-        } else {
-            self.k_item_sort.clone()
-        };
+        // A group record is its group's `<cell> .. </cell>` term wherever it
+        // stands, a whole group-cell clause, a group child or a value, so it
+        // has the group's generated cell sort (KF-016), which is a `KItem`:
+        // a binder of that sort at its place matches every term it matches.
+        let sort = SemanticSortRef::Cell(owner.clone());
         let declaration = self.cell_declaration(owner)?.clone();
         let supplied = fields
             .iter()
@@ -3041,7 +3036,11 @@ impl StructuredTermBuilder<'_> {
                         {
                             self.record_updates.alias = Some(child.clone());
                         }
-                        self.lower(value, Some(&self.k_item_sort.clone()), record.subject)?
+                        self.lower(
+                            value,
+                            Some(&SemanticSortRef::Cell(nested.declaration.clone())),
+                            record.subject,
+                        )?
                     }
                     // A binder or `_` is matched or written at the child's
                     // cell sort, as a child the term leaves out is.

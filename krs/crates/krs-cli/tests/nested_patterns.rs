@@ -774,6 +774,80 @@ fn a_group_child_may_be_a_binder_or_wildcard() {
     assert_eq!(run(&reference, "look"), run(&omitted, "look"));
 }
 
+/// Two `cells!` rules on `push`, one binding the group child `frame` whole
+/// as a `FrameCell` binder and one matching a `Frame` record there.
+const CHILD_PAIR: &str = r#"
+#[k::rule(label = "child_binder")]
+pub fn child_binder(
+    fr: Frame,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Push(), ..),
+        outer: k::fragment![Outer { frame: fr, .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..), ..state }
+}
+
+#[k::rule(label = "child_record")]
+pub fn child_record(
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Push(), ..),
+        outer: k::fragment![Outer { frame: k::fragment![Frame { pc: 1, .. }], .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..), ..state }
+}
+
+"#;
+
+/// Two `cells!` rules on `pop`, one binding a `stack` element as a
+/// `FrameCell` binder and one matching a `Frame` record there.
+const ELEMENT_PAIR: &str = r#"
+#[k::rule(label = "element_binder")]
+pub fn element_binder(
+    fr: Frame,
+    s: k::Term<List>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Pop(), ..),
+        stack: k::configuration::Cell(list::concat(list::item(fr), s)),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..), ..state }
+}
+
+#[k::rule(label = "element_record")]
+pub fn element_record(
+    s: k::Term<List>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Pop(), ..),
+        stack: k::configuration::Cell(list::concat(list::item(k::fragment![Frame { pc: 1, .. }]), s)),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..), ..state }
+}
+"#;
+
+/// A `Frame` record denotes a `<frame>` cell, a `FrameCell`, wherever it
+/// stands, so a `FrameCell` binder at the same place matches every term the
+/// record matches: each pair of rules both apply to one configuration.
+#[test]
+fn a_group_record_overlaps_a_binder_of_its_cell_sort() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let errors =
+        [("child-pair", CHILD_PAIR), ("element-pair", ELEMENT_PAIR)].map(|(name, rules)| {
+            let manifest = library_package(temporary.path(), name, &format!("{TWO_LEVEL}{rules}"));
+            check_errors(target.path(), &manifest)
+        });
+    expect_test::expect![[r#"
+        error[krs::analysis::overlapping-rule-heads]: rules `child_binder` and `child_record` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`.
+        error[krs::analysis::overlapping-rule-heads]: rules `element_binder` and `element_record` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."#]].assert_eq(&errors.join("\n"));
+}
+
 /// Optional cells: a leaf `counter` and a group `mark`.
 const OPTIONAL: &str = r#"
 use k::builtin::{Int, KSequence};
