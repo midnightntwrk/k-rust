@@ -212,3 +212,159 @@ fn a_ksequence_declaration_imports_the_sort_k_module() {
         "{stdout}\n{stderr}"
     );
 }
+
+/// A definition whose `Cmd` enum carries `variant` and whose library ends
+/// with `item`, around one computation cell.
+fn strict_source(variant: &str, item: &str) -> String {
+    format!(
+        r#"
+use k::KResult;
+use k::Term;
+use k::builtin::{{Int, KSequence}};
+
+k::sorts! {{
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {{
+    #[k::syntax("skip")]
+    Skip(),
+    {variant}
+}}
+{item}
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {{
+        Self {{ k: k::k![pgm] }}
+    }}
+}}
+"#
+    )
+}
+
+/// The `error[..]` lines `krs check` prints, each followed by ` @ ` and the
+/// `src/lib.rs:LINE:COLUMN` its `-->` line names, and whether it succeeded.
+fn check_errors(target: &Path, manifest: &Path) -> (bool, Vec<String>) {
+    let (success, _, stderr) = krs(target, manifest, "check", &[]);
+    let lines = stderr.lines().collect::<Vec<_>>();
+    let errors = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with("error"))
+        .map(|(index, line)| {
+            let location = lines
+                .get(index + 1)
+                .and_then(|next| next.trim_start().strip_prefix("--> "))
+                .map_or("no location", |path| {
+                    path.find("src/lib.rs").map_or(path, |start| &path[start..])
+                });
+            format!("{line} @ {location}")
+        })
+        .collect();
+    (success, errors)
+}
+
+/// The `src/lib.rs:LINE:COLUMN` location of `needle`, the first occurrence
+/// inside the first occurrence of `anchor` in `source`.
+fn location_in(source: &str, anchor: &str, needle: &str) -> String {
+    let start = source.find(anchor).expect("the anchor is in the source");
+    let at = start + anchor.find(needle).expect("the needle is in the anchor");
+    let before = &source[..at];
+    let line = before.matches('\n').count() + 1;
+    let column = before.len() - before.rfind('\n').map_or(0, |newline| newline + 1) + 1;
+    format!("src/lib.rs:{line}:{column}")
+}
+
+/// Heating moves the argument at a strict position to the front of the
+/// computation as one item, and a `KSequence` value is a sequence of items,
+/// so a strict position of sort `KSequence` has no heating step: `krs check`
+/// refuses it at the position, on an enum variant's field list and on a
+/// constructor struct's `sequence`, naming the position and the reason,
+/// instead of handing k-rust a production it cannot heat; a context whose
+/// hole has sort `KSequence` is refused at its `hole` key for the same reason.
+/// A strict position of an ordinary sort beside a `KSequence` field is
+/// accepted.
+#[test]
+fn a_strict_position_or_a_context_hole_of_sort_ksequence_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let reason = |position: &str, production: &str| {
+        format!(
+            "error[krs::analysis::invalid-strictness]: the strict position `{position}` of `{production}` has sort `KSequence`: heating moves the argument at a strict position to the front of the computation as one item, and a `KSequence` is a sequence of items, so the position has no heating step; give the field a sort of single items, such as `k::KItem` or a declared sort, or leave it out of the strictness"
+        )
+    };
+    let variant = strict_source(
+        r#"#[k::syntax("when ( {guard} , {body} )")] #[k::strict(body)]
+    When { guard: Stmt, body: KSequence },"#,
+        "",
+    );
+    let structure = strict_source(
+        "",
+        r#"
+#[k::constructor(sort = Stmt, syntax = "loop ( {body} )")]
+#[k::seqstrict(sequence = [body], result = KResult)]
+pub struct Loop {
+    pub body: Term<KSequence>,
+}
+"#,
+    );
+    let context = strict_source(
+        r#"#[k::syntax("when ( {guard} , {body} )")]
+    When { guard: Stmt, body: KSequence },"#,
+        r"
+#[k::context(hole = h)]
+fn when_body(k::term![Cmd::When(_g, h)]: Term<Stmt>) {}
+",
+    );
+    let ordinary = strict_source(
+        r#"#[k::syntax("when ( {guard} , {body} )")] #[k::strict(guard)]
+    When { guard: Stmt, body: KSequence },"#,
+        "",
+    );
+    for (name, source, expected) in [
+        (
+            "strict-ksequence-variant",
+            &variant,
+            vec![format!(
+                "{} @ {}",
+                reason("body", "When"),
+                location_in(&variant, "#[k::strict(body)]", "body")
+            )],
+        ),
+        (
+            "strict-ksequence-struct",
+            &structure,
+            vec![format!(
+                "{} @ {}",
+                reason("body", "Loop"),
+                location_in(&structure, "sequence = [body]", "body")
+            )],
+        ),
+        (
+            "context-ksequence-hole",
+            &context,
+            vec![format!(
+                "error[krs::analysis::invalid-context]: the hole `h` of a context has sort `KSequence`: a context moves its hole to the front of the computation as one item, and a `KSequence` is a sequence of items, so the context has no heating step; name a subterm of a sort of single items @ {}",
+                location_in(&context, "= h)]\nfn when_body", "h")
+            )],
+        ),
+    ] {
+        let manifest = package(temporary.path(), name, source);
+        let (success, errors) = check_errors(target.path(), &manifest);
+        assert!(!success, "{name}");
+        assert_eq!(errors, expected, "{name}");
+    }
+    let manifest = package(temporary.path(), "strict-ordinary", &ordinary);
+    let (success, errors) = check_errors(target.path(), &manifest);
+    assert!(success, "{errors:?}");
+    assert!(errors.is_empty(), "{errors:?}");
+}
