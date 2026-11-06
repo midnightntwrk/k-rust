@@ -481,12 +481,17 @@ fn the_identity_is_an_object_of_its_components() {
     assert_eq!(identity_difference(&before).as_deref(), Some("one_sided"));
     // v3: a slot projecting the configuration without its uncompared cells distinguishes
     // one-sidedly too, so an identity written under v2 differs at the rule. v4: a run with a stop
-    // gives one-sided evidence across its stages, so one written under v3 differs too.
+    // gives one-sided evidence across its stages, so one written under v3 differs too. v5: the
+    // cell projection reaches cells inside `?` and `*` cells, so one written under v4 differs.
     assert_eq!(
         kink_campaign::ONE_SIDED_VERSION,
-        "kink-campaign/one-sided/v4"
+        "kink-campaign/one-sided/v5"
     );
-    for retired in ["kink-campaign/one-sided/v2", "kink-campaign/one-sided/v3"] {
+    for retired in [
+        "kink-campaign/one-sided/v2",
+        "kink-campaign/one-sided/v3",
+        "kink-campaign/one-sided/v4",
+    ] {
         let mut old = identity.clone();
         old["one_sided"] = retired.into();
         assert_eq!(identity_difference(&old).as_deref(), Some("one_sided"));

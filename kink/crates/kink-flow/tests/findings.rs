@@ -188,7 +188,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
             let dir = repro(name, "check", None);
             let (document, status) = check(&dir.join("FLOW.toml"));
             assert_eq!(status, EXIT_NO, "{name}: {document:#}");
-            assert_eq!(document["version"], 10);
+            assert_eq!(document["version"], 11);
             assert_eq!(document["spec"]["outcome"], "admitted", "{name}");
             assert_eq!(document["programs"][0]["outcome"], "ok", "{name}");
             assert_eq!(document["data"]["has_data"], false, "{name}");

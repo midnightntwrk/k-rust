@@ -361,7 +361,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let (document, ok) = results(&manifest, &ResultsOptions::default());
     assert!(ok, "{document:#}");
-    assert_eq!(document["version"], 9);
+    assert_eq!(document["version"], 10);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];
@@ -387,7 +387,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
 fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
     let dir = fixture("run", &[]);
     let document = search(&dir.join("FLOW.toml"));
-    assert_eq!(document["version"], 24);
+    assert_eq!(document["version"], 25);
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1})
@@ -427,7 +427,7 @@ fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
             cache: None,
         },
     );
-    assert_eq!(check["version"], 10);
+    assert_eq!(check["version"], 11);
     assert!(
         warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()),
         "{check:#}"
