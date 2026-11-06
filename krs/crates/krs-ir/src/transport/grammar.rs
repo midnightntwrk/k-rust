@@ -1783,6 +1783,36 @@ impl DescriptorRulePriority {
     }
 }
 
+/// The `skipped_operand = "reason"` key of a transition or an equation: the author's statement
+/// that the sentence's value or condition may depend on an operand `&&`, `||` or `kequal::ite`
+/// does not evaluate, which silences `krs::analysis::skipped-operand` at the sentence.
+/// Check-only, never emitted.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorSkippedOperand {
+    /// Reason-string provenance.
+    pub key: ProvenanceKey,
+    /// The stated reason, as written.
+    pub reason: String,
+}
+
+impl DescriptorSkippedOperand {
+    /// Whether the key is the one `skipped_operand` anchor and the reason nonempty.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.key.role() == ProvenanceRole::RuleSkippedOperand
+            && self.key.ordinal() == 0
+            && !self.reason.trim().is_empty()
+    }
+
+    /// Whether the key may stand on a sentence of `kind`: a transition or an equation, the
+    /// sentences `krs check` warns at.
+    #[must_use]
+    pub const fn allowed_on(kind: SentenceKind) -> bool {
+        matches!(kind, SentenceKind::Transition | SentenceKind::Equation)
+    }
+}
+
 /// The `nondet = group` key of a transition: check-only, never emitted.
 ///
 /// Rules of one group may overlap at one priority; the overlap check (F2)
@@ -2103,6 +2133,9 @@ stage_shape! {
         /// Optional check-only nondeterminism group of a transition.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub nondet: Option<DescriptorNondetGroup> => [keep],
+        /// Optional check-only `skipped_operand` reason of a transition or an equation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub skipped_operand: Option<DescriptorSkippedOperand> => [keep],
         /// Provenance of the `anywhere` marker of a term-shaped transition.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub anywhere: Option<ProvenanceKey> => [keep],
@@ -2713,7 +2746,7 @@ impl StructuredRuleDescriptor {
         Ok(bindings)
     }
 
-    /// Validates the priority, nondet, and anywhere keys of a rule.
+    /// Validates the priority, nondet, skipped-operand and anywhere keys of a rule.
     fn validate_rule_keys(
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
@@ -2731,6 +2764,14 @@ impl StructuredRuleDescriptor {
             if self.sentence_kind != SentenceKind::Transition || !nondet.is_valid() {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidNondetGroup,
+                ));
+            }
+        }
+        if let Some(skipped) = &self.skipped_operand {
+            require_key(&skipped.key, provenance)?;
+            if !DescriptorSkippedOperand::allowed_on(self.sentence_kind) || !skipped.is_valid() {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidSkippedOperand,
                 ));
             }
         }
@@ -4157,6 +4198,9 @@ impl StructuredRuleDescriptor {
         if let Some(nondet) = &self.nondet {
             keys.define(&nondet.key, ProvenanceRole::RuleNondetGroup)?;
         }
+        if let Some(skipped) = &self.skipped_operand {
+            keys.define(&skipped.key, ProvenanceRole::RuleSkippedOperand)?;
+        }
         if let Some(anywhere) = &self.anywhere {
             keys.define(anywhere, ProvenanceRole::RuleAnywhere)?;
         }
@@ -4567,6 +4611,7 @@ mod traversal_tests {
             }),
             priority: None,
             nondet: None,
+            skipped_operand: None,
             anywhere: None,
             simplification: None,
             pattern_key: key(1),

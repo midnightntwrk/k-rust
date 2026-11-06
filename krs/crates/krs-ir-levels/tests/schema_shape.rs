@@ -771,6 +771,7 @@ fn registry() -> Registry {
     trace!(DescriptorRuleLabel: DescriptorRuleLabel);
     trace!(DescriptorRulePriority: DescriptorRulePriority);
     trace!(DescriptorNondetGroup: DescriptorNondetGroup);
+    trace!(DescriptorSkippedOperand: DescriptorSkippedOperand);
     trace!(DescriptorSimplification: DescriptorSimplification);
     trace!(DescriptorEquationAttributes: DescriptorEquationAttributes);
     trace!(DescriptorMatchRestriction: DescriptorMatchRestriction);

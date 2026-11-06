@@ -1265,6 +1265,10 @@ stage_shape! {
         /// Optional check-only nondeterminism group from `#[k::rule(nondet = group)]`.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub nondet: Option<crate::DescriptorNondetGroup> => [keep],
+        /// Optional check-only reason from `#[k::rule(skipped_operand = "..")]` or
+        /// `#[k::equation(skipped_operand = "..")]`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub skipped_operand: Option<crate::DescriptorSkippedOperand> => [keep],
         /// Optional object-language Boolean applicability condition.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub requires: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
@@ -1840,6 +1844,19 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::InvalidNondetGroup,
+            ));
+        }
+    }
+    if let Some(skipped) = &rule.skipped_operand {
+        keys.define(&skipped.key, ProvenanceRole::RuleSkippedOperand)?;
+        if !matches!(
+            rule.sentence_kind,
+            crate::ConfigurationSentenceKind::Transition
+                | crate::ConfigurationSentenceKind::Equation
+        ) || !skipped.is_valid()
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidSkippedOperand,
             ));
         }
     }

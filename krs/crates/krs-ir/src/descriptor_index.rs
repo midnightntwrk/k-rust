@@ -415,6 +415,7 @@ mod tests {
                 label: None,
                 priority: None,
                 nondet: None,
+                skipped_operand: None,
                 pattern_key: head_key(ProvenanceRole::RulePattern),
                 result_key: head_key(ProvenanceRole::RuleResult),
                 head_sort: None,

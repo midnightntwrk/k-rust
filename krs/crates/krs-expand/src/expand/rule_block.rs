@@ -735,6 +735,7 @@ fn expand_head_rule(
         label,
         priority,
         nondet,
+        skipped_operand: None,
         // The whole subject record, or the computation item's pattern.
         pattern_key: ledger.define(
             clause

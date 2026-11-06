@@ -560,6 +560,14 @@ impl Sample for DescriptorNondetGroup {
         }]
     }
 }
+impl Sample for DescriptorSkippedOperand {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            reason: sample::<String>(),
+        }]
+    }
+}
 impl Sample for SemanticNondetGroup {
     fn samples() -> Vec<Self> {
         vec![Self::new(sample::<NodeOrigin>(), sample::<String>())]
@@ -3552,6 +3560,7 @@ impl Sample for DescriptorConfigurationRule {
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<crate::DescriptorRulePriority>>(),
             nondet: sample::<Option<DescriptorNondetGroup>>(),
+            skipped_operand: sample::<Option<DescriptorSkippedOperand>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
             claim: sample::<Option<DescriptorClaim>>(),
             pattern_key: sample::<ProvenanceKey>(),
@@ -3674,6 +3683,7 @@ impl Sample for DescriptorHeadRule {
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
             nondet: sample::<Option<DescriptorNondetGroup>>(),
+            skipped_operand: sample::<Option<DescriptorSkippedOperand>>(),
             pattern_key: sample::<ProvenanceKey>(),
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<DescriptorSortReference>>(),
@@ -4200,6 +4210,7 @@ impl Sample for StructuredRuleDescriptor {
             requires: sample::<Option<DescriptorRuleCondition>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
             nondet: sample::<Option<DescriptorNondetGroup>>(),
+            skipped_operand: sample::<Option<DescriptorSkippedOperand>>(),
             anywhere: sample::<Option<ProvenanceKey>>(),
             simplification: sample::<Option<DescriptorSimplification>>(),
             pattern_key: sample::<ProvenanceKey>(),
@@ -4251,6 +4262,7 @@ impl Sample for WireHeadRule {
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
             nondet: sample::<Option<DescriptorNondetGroup>>(),
+            skipped_operand: sample::<Option<DescriptorSkippedOperand>>(),
             pattern_key: sample::<ProvenanceKey>(),
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<WireSortReference>>(),
@@ -4343,6 +4355,7 @@ impl Sample for WireConfigurationRule {
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
             nondet: sample::<Option<DescriptorNondetGroup>>(),
+            skipped_operand: sample::<Option<DescriptorSkippedOperand>>(),
             requires: sample::<Option<WireRuleCondition>>(),
             claim: sample::<Option<WireClaim>>(),
             pattern_key: sample::<ProvenanceKey>(),
@@ -4404,6 +4417,7 @@ impl Sample for WireStructuredRule {
             requires: sample::<Option<WireRuleCondition>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
             nondet: sample::<Option<DescriptorNondetGroup>>(),
+            skipped_operand: sample::<Option<DescriptorSkippedOperand>>(),
             anywhere: sample::<Option<ProvenanceKey>>(),
             simplification: sample::<Option<DescriptorSimplification>>(),
             pattern_key: sample::<ProvenanceKey>(),

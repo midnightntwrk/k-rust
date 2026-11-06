@@ -1035,6 +1035,7 @@ fn expand_ordinary_rule(
         requires,
         priority,
         nondet,
+        skipped_operand: None,
         anywhere,
         simplification,
         pattern_key: ledger.define(rule.parameter().pattern_key())?,

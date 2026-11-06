@@ -2024,6 +2024,7 @@ mod tests {
             }),
             priority: None,
             nondet: None,
+            skipped_operand: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: None,

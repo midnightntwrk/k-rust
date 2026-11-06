@@ -557,6 +557,7 @@ pub(super) fn configuration_rule(
         label,
         priority,
         nondet,
+        skipped_operand: None,
         requires,
         claim: None,
         pattern_key: ledger.define(rule.pattern_key())?,

@@ -659,6 +659,7 @@ fn empty_rule<S: RuleValidationStage>(
         }),
         priority: None,
         nondet: None,
+        skipped_operand: None,
         requires: None,
         claim: None,
         pattern_key: key(ProvenanceRole::RulePattern),

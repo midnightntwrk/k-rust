@@ -325,6 +325,7 @@ pub fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
         label: None,
         priority: None,
         nondet: None,
+        skipped_operand: None,
         requires: None,
         claim: None,
         pattern_key: key(ProvenanceRole::RulePattern, 0),

@@ -374,6 +374,8 @@ provenance_roles! {
     EquationOwise => "equation_owise",
     /// Group identifier of `nondet = group` on a transition rule.
     RuleNondetGroup => "rule_nondet_group",
+    /// `skipped_operand = ".."` reason string of a transition rule or an equation.
+    RuleSkippedOperand => "rule_skipped_operand",
     /// Bare `anywhere` marker on a term-shaped transition rule.
     RuleAnywhere => "rule_anywhere",
     /// Typed `prefer` flag in a constructor attribute.

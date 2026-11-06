@@ -360,6 +360,9 @@ stage_shape! {
         pub priority: Option<DescriptorRulePriority> => [keep],
         /// Optional check-only nondeterminism group from `#[k::rule(nondet = group)]`.
         pub nondet: Option<crate::DescriptorNondetGroup> => [keep],
+        /// Optional check-only reason from `#[k::rule(skipped_operand = "..")]`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub skipped_operand: Option<crate::DescriptorSkippedOperand> => [keep],
         /// Complete authored head pattern.
         pub pattern_key: ProvenanceKey => [keep],
         /// Complete authored right-hand side.
@@ -407,7 +410,7 @@ stage_shape! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub claim: Option<HeadRuleClaim> => [keep],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, result_type_key, computation_cell, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, skipped_operand, pattern_key, result_key, head_sort, configuration, result_type_key, computation_cell, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -485,6 +488,9 @@ stage_shape! {
         /// Optional check-only nondeterminism group from `#[k::rule(nondet = group)]`.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub nondet: Option<crate::DescriptorNondetGroup> => [keep],
+        /// Optional check-only reason from `#[k::rule(skipped_operand = "..")]`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub skipped_operand: Option<crate::DescriptorSkippedOperand> => [keep],
         /// Complete authored head pattern.
         pub pattern_key: ProvenanceKey => [keep],
         /// Complete authored right-hand side.
@@ -556,6 +562,23 @@ fn validate_nondet(
     {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidNondetGroup,
+        ));
+    }
+    Ok(())
+}
+
+/// A `skipped_operand` reason stands on a transition or an equation, never on a claim, with its
+/// one anchor and a nonempty reason.
+fn validate_skipped_operand(
+    kind: SentenceKind,
+    claim: bool,
+    skipped: Option<&crate::DescriptorSkippedOperand>,
+) -> Result<(), StateTransportError> {
+    if let Some(skipped) = skipped
+        && (claim || !crate::DescriptorSkippedOperand::allowed_on(kind) || !skipped.is_valid())
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidSkippedOperand,
         ));
     }
     Ok(())
@@ -845,6 +868,11 @@ impl HostHeadRule {
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         validate_nondet(self.sentence_kind, self.nondet.as_ref())?;
+        validate_skipped_operand(
+            self.sentence_kind,
+            self.claim.is_some(),
+            self.skipped_operand.as_ref(),
+        )?;
         validate_claim(
             self.sentence_kind,
             self.claim.as_ref(),
@@ -1091,6 +1119,11 @@ impl DescriptorHeadRule {
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         validate_nondet(self.sentence_kind, self.nondet.as_ref())?;
+        validate_skipped_operand(
+            self.sentence_kind,
+            self.claim.is_some(),
+            self.skipped_operand.as_ref(),
+        )?;
         validate_claim(
             self.sentence_kind,
             self.claim.as_ref(),
@@ -1288,6 +1321,7 @@ struct ClauseKeys<'a, S: Stage, I> {
     label: Option<&'a DescriptorRuleLabel>,
     priority: Option<&'a DescriptorRulePriority>,
     nondet: Option<&'a crate::DescriptorNondetGroup>,
+    skipped_operand: Option<&'a crate::DescriptorSkippedOperand>,
     pattern_key: &'a ProvenanceKey,
     result_key: &'a ProvenanceKey,
     head_sort: Option<&'a S::Sort>,
@@ -1319,6 +1353,7 @@ macro_rules! clause_keys {
             label: $rule.label.as_ref(),
             priority: $rule.priority.as_ref(),
             nondet: $rule.nondet.as_ref(),
+            skipped_operand: $rule.skipped_operand.as_ref(),
             pattern_key: &$rule.pattern_key,
             result_key: &$rule.result_key,
             head_sort: $rule.head_sort.as_ref(),
@@ -1365,6 +1400,9 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
         }
         if let Some(nondet) = self.nondet {
             keys.define(&nondet.key, ProvenanceRole::RuleNondetGroup)?;
+        }
+        if let Some(skipped) = self.skipped_operand {
+            keys.define(&skipped.key, ProvenanceRole::RuleSkippedOperand)?;
         }
         keys.define(self.pattern_key, ProvenanceRole::RulePattern)?;
         keys.define(self.result_key, ProvenanceRole::RuleResult)?;
@@ -1653,6 +1691,7 @@ mod tests {
             label: None,
             priority: None,
             nondet: None,
+            skipped_operand: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: Some(host_sort(ProvenanceRole::RuleType)),
@@ -1931,6 +1970,7 @@ mod tests {
             label: None,
             priority: None,
             nondet: None,
+            skipped_operand: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: None,
@@ -2486,6 +2526,7 @@ mod tests {
             label: None,
             priority: None,
             nondet: None,
+            skipped_operand: None,
             pattern_key: key.clone(),
             result_key: key.clone(),
             head_sort: Some(wire_sort()),
@@ -2612,6 +2653,7 @@ mod tests {
             label: None,
             priority: None,
             nondet: None,
+            skipped_operand: None,
             pattern_key: key.clone(),
             result_key: key.clone(),
             head_sort: Some(descriptor_sort()),

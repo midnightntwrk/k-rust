@@ -523,6 +523,7 @@ fn configuration_rule() -> DescriptorConfigurationRule {
         label: None,
         priority: None,
         nondet: None,
+        skipped_operand: None,
         requires: Some(DescriptorRuleCondition {
             key: key(0),
             term: term(1),
@@ -691,6 +692,7 @@ fn head_rule() -> DescriptorHeadRule {
         label: None,
         priority: None,
         nondet: None,
+        skipped_operand: None,
         pattern_key: key(0),
         result_key: key(1),
         head_sort: None,
@@ -737,6 +739,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         }),
         priority: None,
         nondet: None,
+        skipped_operand: None,
         anywhere: None,
         simplification: None,
         pattern_key: key(2),

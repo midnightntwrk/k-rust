@@ -307,6 +307,7 @@ impl Elaborator<'_> {
             label: rule.label.clone(),
             priority: rule.priority.clone(),
             nondet: rule.nondet.clone(),
+            skipped_operand: rule.skipped_operand.clone(),
             requires: rule.requires.clone(),
             pattern_key: rule.pattern_key.clone(),
             subject_configuration: configuration(subject_key),

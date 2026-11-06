@@ -274,6 +274,7 @@ fn configuration_claim(
         }),
         priority: None,
         nondet: None,
+        skipped_operand: None,
         requires,
         claim: Some(WireClaim {
             declaration_key: ledger.define(rule.declaration_key())?,
