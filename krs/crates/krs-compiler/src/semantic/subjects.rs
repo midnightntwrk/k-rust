@@ -694,24 +694,20 @@ fn check_main_cell_holders(
             item: Some(Box::new(descriptor.id().clone())),
         });
     }
-    let Some((holder, order)) =
-        instance_path(tree, index).into_iter().find_map(|holder| {
-            match tree.cells[holder].multiplicity {
-                Multiplicity::Many(order @ (Order::Set | Order::List)) => Some((holder, order)),
-                _ => None,
-            }
-        })
-    else {
+    let Some((holder, why)) = instance_path(tree, index).into_iter().find_map(|holder| {
+        match tree.cells[holder].multiplicity {
+            Multiplicity::Many(Order::Set) => Some((
+                holder,
+                "and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched",
+            )),
+            Multiplicity::Many(Order::List) => Some((
+                holder,
+                "which in a List is the instance at any position, and matching one instance between others is not supported yet",
+            )),
+            _ => None,
+        }
+    }) else {
         return Ok(());
-    };
-    let why = match order {
-        Order::Set => {
-            "and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched"
-        }
-        Order::List => {
-            "which in a List is the instance at any position, and matching one instance between others is not supported yet"
-        }
-        Order::Map => unreachable!("only a Set or a List holder is selected"),
     };
     let (owner, field) = tree.fields[holder];
     Err(DescriptorLoweringError::MainCell {
