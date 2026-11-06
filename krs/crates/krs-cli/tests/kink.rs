@@ -2817,7 +2817,8 @@ pub fn BelowTen(n: Term<Int>) -> Term<Int> {
 /// The files of [`VIEWED`]'s workspace and corpora: `kink/` holds expectations met and unmet
 /// only through a view of the definition, one met only through the observer's, one met through
 /// neither, since it names no view, one whose view has no value at the baseline's end, and one
-/// of a `depth-bound` end, decided before any view is evaluated; `corpora/observer` names an
+/// of an end stopped at a rule, which the corpus has no `[stop]` to observe, decided before any
+/// view is evaluated; `corpora/observer` names an
 /// observer no package of the workspace is, `corpora/view` a view that is no function of the
 /// definition, and `corpora/partial` a view without a value at the expected end.
 fn viewed_files() -> Vec<(String, Vec<u8>)> {
@@ -2849,8 +2850,10 @@ fn viewed_files() -> Vec<(String, Vec<u8>)> {
         ),
         case("unviewed", 1, "5 }"),
         case("partial", 1, "0 }, views = { a = \"OnlyZero\" }"),
-        case("bounded", 1, "5 }, views = { a = \"Positive\" }")
-            .replace("\"stuck\"", "\"depth-bound\""),
+        case("stopped", 1, "5 }, views = { a = \"Positive\" }").replace(
+            "halt = \"stuck\"",
+            "halt = \"stopped\", rule = \"crate::finish\"",
+        ),
     ]
     .join("\n");
     vec![
@@ -2935,7 +2938,7 @@ fn a_case_expectation_is_checked_through_its_views_as_krs_run_checks_it() {
         ("observed", "met"),
         ("unviewed", "unmet"),
         ("partial", "inconclusive"),
-        ("bounded", "inconclusive"),
+        ("stopped", "inconclusive"),
     ];
     assert_eq!(
         verdicts(&results),
@@ -2988,13 +2991,16 @@ fn a_case_expectation_is_checked_through_its_views_as_krs_run_checks_it() {
         ),
         "{refusal}"
     );
-    // A `depth-bound` end is decided before any view is evaluated: the detail names none.
-    let bounded = row("bounded")["expectation"]["detail"]
+    // An end stopped at a rule, under a corpus with no `[stop]`, is decided before any view is
+    // evaluated: the detail names none.
+    let stopped = row("stopped")["expectation"]["detail"]
         .as_str()
         .unwrap()
         .to_owned();
     assert!(
-        bounded.starts_with("the expectation's end is `depth-bound`") && !bounded.contains("views"),
+        stopped.starts_with(
+            "the expectation's end is stopped at `crate::finish`, and the corpus declares no [stop]"
+        ) && !stopped.contains("views"),
         "{results:#}"
     );
     let unmet = row("unmet")["expectation"].clone();
