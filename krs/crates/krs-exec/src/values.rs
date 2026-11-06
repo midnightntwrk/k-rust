@@ -1203,7 +1203,9 @@ impl ValueIndex {
         fields: impl IntoIterator<Item = (&'a str, Value)>,
     ) -> Result<Value, ValueError> {
         let decl = self.function_decl(name)?;
-        if let Some(reason) = self.instance_function(&decl) {
+        if let Some(reason) =
+            self.instance_function(&decl, "an application built outside a sentence")
+        {
             return Err(ValueError::Unencodable(reason));
         }
         self.apply(decl, fields)
@@ -1211,9 +1213,13 @@ impl ValueIndex {
 
     /// Why the function `decl` cannot be applied outside a sentence, where it is evaluated in
     /// one instance of a Map collection: it receives that instance's key as a hidden argument
-    /// (`krs_ir_levels::k_surface::instance_key_field`), and an input is evaluated in no instance.
-    /// `None` for every other production.
-    pub(crate) fn instance_function(&self, decl: &Decl) -> Option<String> {
+    /// (`krs_ir_levels::k_surface::instance_key_field`), and `outside` (an input, a view, any
+    /// term no sentence of the definition holds) is evaluated in no instance. `None` for every
+    /// other production.
+    ///
+    /// Every route that applies a function outside a sentence gives this one reason, and none
+    /// counts the hidden key among the function's parameters.
+    pub(crate) fn instance_function(&self, decl: &Decl, outside: &str) -> Option<String> {
         let holders = self
             .ctors_by_decl
             .get(decl)?
@@ -1222,12 +1228,57 @@ impl ValueIndex {
             .filter_map(|field| krs_ir_levels::k_surface::instance_key_holder(field))
             .map(|holder| format!("`{holder}`"))
             .collect::<Vec<_>>();
-        (!holders.is_empty()).then(|| {
-            format!(
-                "`{decl}` is evaluated in one instance of the Map collection cell {} (its function context reads that instance, or the context of a function it applies does), so it receives the instance's key, and an input is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance",
-                holders.join(" and ")
-            )
-        })
+        let (cells, holders, instances, key) = match holders.as_slice() {
+            [] => return None,
+            [one] => ("cell", one.clone(), "that instance", "the instance's key"),
+            [init @ .., last] => (
+                "cells",
+                format!("{} and {last}", init.join(", ")),
+                "those instances",
+                "each instance's key",
+            ),
+        };
+        Some(format!(
+            "`{decl}` is evaluated in one instance of the Map collection {cells} {holders} (its function context reads {instances}, or the context of a function it applies does), so it receives {key}, and {outside} is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance"
+        ))
+    }
+
+    /// The function evaluated in one instance of a Map collection ([`Self::instance_function`])
+    /// whose KORE symbol is `symbol`, with the number of instance keys it receives after its own
+    /// arguments. `None` for every other symbol.
+    pub(crate) fn instance_function_symbol(&self, symbol: &str) -> Option<(Decl, usize)> {
+        let info = self.ctors_by_symbol.get(symbol)?;
+        let keys = info
+            .fields
+            .iter()
+            .filter(|field| krs_ir_levels::k_surface::instance_key_holder(field).is_some())
+            .count();
+        (info.function && keys != 0).then(|| (info.decl.clone(), keys))
+    }
+
+    /// Whether the definition has a function evaluated in one instance of a Map collection
+    /// ([`Self::instance_function`]).
+    pub(crate) fn has_instance_functions(&self) -> bool {
+        self.ctors_by_symbol
+            .keys()
+            .any(|symbol| self.instance_function_symbol(symbol).is_some())
+    }
+
+    /// The first function evaluated in one instance of a Map collection ([`Self::instance_function`])
+    /// that `pattern` applies, in pre-order: a term built outside the definition's sentences, such
+    /// as a parsed input, applies none.
+    pub(crate) fn instance_application(&self, pattern: &Pattern) -> Option<Decl> {
+        let mut stack = vec![pattern];
+        while let Some(pattern) = stack.pop() {
+            if let Pattern::Application { symbol, .. } = pattern
+                && let Some((decl, _)) = self.instance_function_symbol(&symbol.name)
+            {
+                return Some(decl);
+            }
+            let children = walk::children(pattern);
+            stack.extend(children.into_iter().rev());
+        }
+        None
     }
 
     /// The application of the production `decl` to `fields`, given by name in any order.
@@ -2029,6 +2080,71 @@ mod tests {
             ANYWHERE,
             &[("a", "A", &[][..]), ("b", "B", &[]), ("c", "C", &["x"])],
         )
+    }
+
+    /// A function evaluated in one instance of the Map collection `hart` receives the hart's key
+    /// in a hidden field after its own, and one evaluated in one hart of one `cluster` receives
+    /// both keys: every route outside a sentence refuses either with one reason naming where it
+    /// is applied and every key it receives, and a term that applies one anywhere is found, while
+    /// one that applies no such function is not.
+    #[test]
+    fn a_function_evaluated_in_one_instance_is_refused_outside_a_sentence() {
+        let key = krs_ir_levels::k_surface::instance_key_field("hart");
+        let cluster = krs_ir_levels::k_surface::instance_key_field("cluster");
+        let mut index = index_of(
+            ANYWHERE,
+            &[
+                ("a", "A", &[][..]),
+                ("b", "B", &[]),
+                ("c", "C", &["x", key.as_str()]),
+                ("d", "D", &[cluster.as_str(), key.as_str()]),
+            ],
+        );
+        let c = Decl("t::S::C".into());
+        let d = Decl("t::S::D".into());
+        for (symbol, decl) in [("c", &c), ("d", &d)] {
+            let info = &index.ctors_by_symbol[symbol];
+            let function = std::sync::Arc::new(super::CtorInfo {
+                decl: decl.clone(),
+                symbol: symbol.to_owned(),
+                fields: info.fields.clone(),
+                field_types: info.field_types.clone(),
+                result: info.result.clone(),
+                function: true,
+                parameters: 0,
+            });
+            index
+                .ctors_by_symbol
+                .insert(symbol.to_owned(), function.clone());
+            index.ctors_by_decl.insert(decl.clone(), function);
+        }
+        assert_eq!(
+            index.instance_function(&c, "a view").as_deref(),
+            Some(
+                "`t::S::C` is evaluated in one instance of the Map collection cell `hart` (its function context reads that instance, or the context of a function it applies does), so it receives the instance's key, and a view is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance"
+            )
+        );
+        assert_eq!(
+            index.instance_function(&d, "an input").as_deref(),
+            Some(
+                "`t::S::D` is evaluated in one instance of the Map collection cells `cluster` and `hart` (its function context reads those instances, or the context of a function it applies does), so it receives each instance's key, and an input is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance"
+            )
+        );
+        assert_eq!(index.instance_function_symbol("c"), Some((c.clone(), 1)));
+        assert_eq!(index.instance_function_symbol("d"), Some((d, 2)));
+        assert_eq!(index.instance_function_symbol("a"), None);
+        assert!(index.has_instance_functions());
+        assert_eq!(
+            index.instance_function(&Decl("t::S::A".into()), "a view"),
+            None
+        );
+        let applied = |text: &str| index.instance_application(&parse_pattern(text).unwrap());
+        assert_eq!(applied("a{}()"), None);
+        assert_eq!(
+            applied(r"\and{SortS{}}(a{}(), c{}(b{}()))"),
+            Some(c.clone())
+        );
+        assert_eq!(applied("c{}(c{}(a{}()))"), Some(c));
     }
 
     #[test]

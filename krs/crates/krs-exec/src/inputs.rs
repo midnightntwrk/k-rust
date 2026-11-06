@@ -99,7 +99,9 @@
 //! state is simplified, before the first step. A function evaluated in one instance of a Map
 //! collection (its function context reads a cell group held there, or it applies such a
 //! function) is refused: it receives the instance's key, and an input is evaluated in no
-//! instance.
+//! instance. It is not program syntax for the same reason, and text that applies it (`$text`,
+//! `$text-file`), with its own arguments alone as its `syntax` declares them or with the keys its
+//! emission adds after them, is refused with the same reason before the run.
 //!
 //! ## Shorthands
 //!
@@ -2569,7 +2571,7 @@ impl<'a> Decoder<'a> {
                     )),
                     error => self.refuse(&format!("`$call`: {error}")),
                 })?;
-                if let Some(reason) = self.values.instance_function(&decl) {
+                if let Some(reason) = self.values.instance_function(&decl, "an input") {
                     return Err(self.refuse(&format!("`$call`: {reason}")));
                 }
                 self.construct(&decl, name, arguments, false)

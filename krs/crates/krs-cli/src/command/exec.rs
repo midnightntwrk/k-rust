@@ -2163,6 +2163,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         | ExecError::DuplicateVariable(_)
         | ExecError::MissingVariables(_)
         | ExecError::Value { .. }
+        | ExecError::InstanceFunction { .. }
         | ExecError::Input(_) => codes::exec::VARIABLE,
         ExecError::CollectionElementSort(_) => codes::exec::COLLECTION_ELEMENT_SORT,
         ExecError::Parse { .. } => codes::exec::PARSE,

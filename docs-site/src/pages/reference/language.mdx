@@ -448,7 +448,11 @@ A Map collection keyed by a group of cells is refused where a function receives 
 A key cell matched by a pattern that is no variable, literal or `_` is refused as `krs::analysis::group-subject-position` too, since no one term of the pattern is the key to pass.
 A `#[k::context]` that names no cell is K's `context`, which binds no key cell, so one that applies such a function is refused as `krs::analysis::group-subject-position` with the reason "not emitted yet"; a context alias typed by the group names the instance's cells.
 The initializer builds the configuration, so it is evaluated in no instance, and an initializer term that applies such a function is `krs::analysis::instance-context-caller`, at the application.
-An input of a run or a case is evaluated in no instance, so a `$call` of such a function there is refused with the reason.
+The keys are an emission detail of that meaning, which no grammar, input or view a user writes against shows.
+A program is a term evaluated in no instance, so such a function is not program syntax: KRS places it in `<NS>` automatically, a `program` assertion on it is the warning `krs::partition::not-program-syntax`, and `krs check --partition` lists it with the reason ([Program syntax and the module pair](#program-syntax-and-the-module-pair)).
+Whether a function receives keys depends on where the definition's configuration holds the cells it reads, so a library's `pub` function is program syntax in a definition that holds its group once and not in one that holds the group in a Map collection; refusing the declaration would refuse the library for a choice of the definition that composes it.
+An input of a run or a case is evaluated in no instance too, so a `$call` of such a function is refused with the reason before the run, and so is text that applies it (a program, `-c`, `$text` or `$text-file`), whether it writes the function's own arguments alone, as its `syntax` declares them, or the keys its emission adds after them.
+A view is evaluated in no instance, so one that names such a function is refused before the run with the same reason, whatever its parameters.
 
 ### Optional cells and cell collections
 
@@ -1441,6 +1445,7 @@ Each production chooses its module; the Rust module that declares it plays no pa
 | `pub` and `internal` | `<NS>` | no; rules, including a dependent package's, may use it |
 | not `pub` (also `pub(crate)` and `pub(in ..)`) | `<NS>` | no |
 | `pub` with a `Map`, `List`, or `Set` result or field | `<NS>`, placed automatically because K has no MAP-SYNTAX, LIST-SYNTAX, or SET-SYNTAX module | no |
+| `pub` function evaluated in one instance of a Map collection | `<NS>`, placed automatically because it receives the instance's key and a program is evaluated in no instance ([a group held in a collection](#a-group-held-in-an-optional-cell-or-a-collection)) | no; rules about one instance may use it |
 
 A production that is not `pub` is also emitted with K's `private` attribute: K hides it from every importing module, so a dependent's rules, programs, and claims cannot name it, and `krs check` rejects a claim or a spec-module simplification lemma that does with `krs::analysis::private-production-in-spec` (see [Spec modules](/verification/reachability-claims#spec-modules)).
 Token productions follow the visibility of their `#[k::token]` carrier: the tokens of a struct or type alias that is not `pub` are `private` too, so only the package's own rules lex them, a spec module does not, and `krs check` rejects a program production whose field sort has only private tokens (`krs::analysis::invalid-token-sort`), because no program could spell that field.

@@ -294,6 +294,7 @@ The views are evaluated in the definition the case runs on, or in the definition
 krs composes the observer as it composes any definition, from its package's own dependency closure: the definition it depends on, held whether or not the observer's source names anything of it, and the facets `--dependency` names, so it may also compose a package no semantics depends on (one holding the functions the views apply); a `--dependency` facet outside the definition's own closure is composed by each observer whose closure holds it, and is refused when no prepared observer's closure holds it (a warning after `krs cases` has printed its verdicts).
 An observer that cannot be compiled refuses the case with its diagnostics; a view, which no program writes, is marked `internal`, or it is program syntax and needs a `syntax`.
 A view that does not apply to its cell is refused before the run, and one without a value at an end refuses the case.
+A function evaluated in one instance of a Map collection ([a group held in a collection](/reference/language#a-group-held-in-an-optional-cell-or-a-collection)) is no view, whatever its parameters: it receives the instance's key, and a view is evaluated in no instance, so naming it is refused before the run with that reason.
 Each evaluation of a view has a budget of `--view-budget POLLS` polls (30000000 by default): a count of the points at which the simplifier polls for a stop, which is the evaluation's own work, so whether the budget stops it does not depend on the host's speed or load.
 An evaluation that spends the budget, or that another stop of the backend ends (the simplifier's stack, the solver's prelude), makes the verdict inconclusive, since the view may yet have a value; a value it reaches is the definition's value, whatever the budget.
 So does an evaluation that ends short of a value after the solver answered a query `Unknown` (one of its bounds ran out, as under a small `--smt-resource-limit`, or the query is beyond what it decides): such a condition is undecided by that run of the solver, not by the definition.
@@ -415,7 +416,9 @@ configuration holds the application, which the definition's equations evaluate w
 state is simplified, before the first step. A function evaluated in one instance of a Map
 collection (its function context reads a cell group held there, or it applies such a
 function) is refused: it receives the instance's key, and an input is evaluated in no
-instance.
+instance. It is not program syntax for the same reason, and text that applies it (`$text`,
+`$text-file`), with its own arguments alone as its `syntax` declares them or with the keys its
+emission adds after them, is refused with the same reason before the run.
 
 #### Shorthands
 

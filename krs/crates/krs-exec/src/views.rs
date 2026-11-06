@@ -574,8 +574,10 @@ impl Semantics {
     ///
     /// Returns [`EndError::UnknownCell`] and [`EndError::Unobservable`] for a path that names no
     /// observable cell, and [`EndError::View`] for a group cell, a cell of a sort the observer
-    /// does not declare, a name that resolves to no function of the observer, and a function
-    /// that does not take exactly one parameter of a sort at least the cell's.
+    /// does not declare, a name that resolves to no function of the observer, a function
+    /// evaluated in one instance of a Map collection, which a view, evaluated in no instance,
+    /// cannot apply ([`ValueIndex::instance_function`]), and a function that does not take
+    /// exactly one parameter of a sort at least the cell's.
     pub fn cell_views(
         &self,
         observer: &Self,
@@ -617,6 +619,11 @@ impl Semantics {
                 return Err(refuse(format!(
                     "`{decl}` is declared by a package whose module the definition's main module does not import, so the definition does not hold it"
                 )));
+            }
+            // Checked before the parameters: the instance's key is a hidden argument, no
+            // parameter a view could be given.
+            if let Some(reason) = observer.values.instance_function(&decl, "a view") {
+                return Err(refuse(reason));
             }
             if info.parameters != 0 {
                 return Err(refuse(format!(

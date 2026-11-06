@@ -33,6 +33,7 @@ mod decided;
 mod encode;
 pub mod ends;
 pub mod inputs;
+mod instance_text;
 mod origin;
 mod overloads;
 mod read_back;
@@ -712,6 +713,14 @@ pub enum ExecError {
     /// A configuration value with a part that does not fit the element types of the typed
     /// collection cell the variable fills (`skip` stored in a `Map<Id, Value>` cell).
     CollectionElementSort(Box<ElementSortMismatch>),
+    /// A configuration variable's text applies a function evaluated in one instance of a Map
+    /// collection, which receives the instance's key, while an input is evaluated in no instance.
+    InstanceFunction {
+        /// The variable, without `$`.
+        variable: String,
+        /// Why the function cannot be applied there.
+        reason: String,
+    },
     /// A case document that is none, has no case of a requested name, or whose expectation is no
     /// partial end of the definition or does not state a cell it is compared on
     /// ([`Semantics::expectation`]); the message names the position.
@@ -887,6 +896,9 @@ impl fmt::Display for ExecError {
                 write!(formatter, "configuration variable `${variable}`: {error}")
             }
             Self::CollectionElementSort(mismatch) => mismatch.fmt(formatter),
+            Self::InstanceFunction { variable, reason } => {
+                write!(formatter, "configuration variable `${variable}`: {reason}")
+            }
             Self::SearchWithStreams => formatter.write_str(
                 "krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)",
             ),
@@ -899,6 +911,38 @@ const NO_MAIN_PARAMETER: &str = "the #[k::init] has no main parameter (none is m
 
 /// The value of an `initGeneratedTopCell` map entry: the map holds each value boxed as one
 /// `KItem`, `#KConfigValue(V ~> .K)`, and `V` is the sequence's one item.
+/// Each configuration variable of `pattern`, an assembled `initGeneratedTopCell`, by name without
+/// `$` in name order, with its value unboxed ([`unboxed_configuration_value`]).
+fn configuration_bindings<'p>(
+    values: &ValueIndex,
+    pattern: &'p Pattern,
+) -> Vec<(String, &'p Pattern)> {
+    let Pattern::Application { arguments, .. } = pattern else {
+        return Vec::new();
+    };
+    let Some(entries) = arguments
+        .first()
+        .and_then(|map| values.collection_items(map, krs_ir::BuiltinSort::Map))
+    else {
+        return Vec::new();
+    };
+    let mut bindings = entries
+        .iter()
+        .filter_map(|entry| {
+            let [key, value] = entry.as_slice() else {
+                return None;
+            };
+            let Pattern::DomainValue { value: name, .. } = values::strip_injections(key) else {
+                return None;
+            };
+            let name = name.as_utf8().ok()?.strip_prefix('$')?.to_owned();
+            Some((name, unboxed_configuration_value(value)))
+        })
+        .collect::<Vec<_>>();
+    bindings.sort_by(|left, right| left.0.cmp(&right.0));
+    bindings
+}
+
 fn unboxed_configuration_value(boxed: &Pattern) -> &Pattern {
     let box_symbol = k_rust::kompile::encode_kore_label(&k_rust::kast::Label::new("#KConfigValue"));
     let Pattern::Application { symbol, arguments } = boxed else {
@@ -1087,6 +1131,9 @@ pub struct Semantics {
     solver: BackendOptions,
     /// The execute requests runs sent the backend ([`Self::execute_requests`]).
     execute_requests: u64,
+    /// The grammar text applying a function evaluated in one instance is read back with
+    /// ([`instance_text`]), built on first use.
+    authored_parser: instance_text::AuthoredParser,
 }
 
 /// One author spec module's compiled proof definition (KF-041).
@@ -1245,6 +1292,7 @@ impl Semantics {
             print_reads: BTreeMap::new(),
             solver,
             execute_requests: 0,
+            authored_parser: None,
         })
     }
 
@@ -1936,54 +1984,84 @@ impl Semantics {
             .as_deref()
             .filter(|_| self.console.stdin)
             .map(console::buffered_input);
-        let pattern = self
-            .configuration
-            .assemble_pattern(program.as_ref(), &bound, stdin.as_deref())
-            .map_err(|error| match error {
-                configuration::AssemblyError::Value { variable, error } => ExecError::Value {
-                    variable,
-                    error: ValueError::Unencodable(match error.as_ref() {
-                        k_rust::kompile::ConfigurationError::ValueSort(mismatch) => format!(
-                            "its sort {} is not at most the declared sort {}",
-                            mismatch.actual, mismatch.declared
-                        ),
-                        error => error.to_string(),
-                    }),
-                },
-                configuration::AssemblyError::Configuration(error) => {
-                    configuration_error(&error, &sources, &self.variables)
+        let pattern =
+            match self
+                .configuration
+                .assemble_pattern(program.as_ref(), &bound, stdin.as_deref())
+            {
+                Ok(pattern) => pattern,
+                Err(error) => {
+                    return Err(self.assembly_error(error, program.as_ref(), &bound, &sources));
                 }
-            })?;
+            };
+        self.check_instance_functions(&pattern)?;
         self.check_cell_types(&pattern)?;
         Ok(State::new(pattern))
+    }
+
+    /// The error of [`Self::configure`] for the assembler's `error`, given the program and the
+    /// variables it bound and where each one's text came from: text that no grammar parses is
+    /// refused with the reason where it applies a function evaluated in one instance of a Map
+    /// collection with its authored arguments ([`instance_text`]).
+    fn assembly_error(
+        &mut self,
+        error: configuration::AssemblyError,
+        program: Option<&configuration::Binding>,
+        bound: &BTreeMap<String, configuration::Binding>,
+        sources: &BTreeMap<String, Source>,
+    ) -> ExecError {
+        match error {
+            configuration::AssemblyError::Value { variable, error } => ExecError::Value {
+                variable,
+                error: ValueError::Unencodable(match error.as_ref() {
+                    k_rust::kompile::ConfigurationError::ValueSort(mismatch) => format!(
+                        "its sort {} is not at most the declared sort {}",
+                        mismatch.actual, mismatch.declared
+                    ),
+                    error => error.to_string(),
+                }),
+            },
+            configuration::AssemblyError::Configuration(error) => {
+                let text = |name: &str| {
+                    let binding = if name == "PGM" {
+                        program
+                    } else {
+                        bound.get(name)
+                    };
+                    match binding {
+                        Some(configuration::Binding::Text(text)) => Some(text.as_str()),
+                        _ => None,
+                    }
+                };
+                self.unparsed_instance_text(&error, text)
+                    .unwrap_or_else(|| configuration_error(&error, sources, &self.variables))
+            }
+        }
+    }
+
+    /// Refuse a configuration variable's value in `pattern`, an assembled `initGeneratedTopCell`,
+    /// that applies a function evaluated in one instance of a Map collection
+    /// ([`ValueIndex::instance_function`]). A typed value is refused as it is decoded; text is
+    /// read by the main module's grammar where the syntax module's does not read it, and that
+    /// grammar holds such a function with its hidden key, so text spelling the key parses and is
+    /// refused here, before the run, with the reason a typed value gets.
+    fn check_instance_functions(&self, pattern: &Pattern) -> Result<(), ExecError> {
+        for (variable, value) in configuration_bindings(&self.values, pattern) {
+            if let Some(decl) = self.values.instance_application(value) {
+                let reason = self
+                    .values
+                    .instance_function(&decl, "an input")
+                    .expect("an instance application applies an instance function");
+                return Err(ExecError::InstanceFunction { variable, reason });
+            }
+        }
+        Ok(())
     }
 
     /// Check every configuration variable's value in `pattern`, an assembled
     /// `initGeneratedTopCell`, against the type the variable is declared with ([`cell_types`]).
     fn check_cell_types(&self, pattern: &Pattern) -> Result<(), ExecError> {
-        let Pattern::Application { arguments, .. } = pattern else {
-            return Ok(());
-        };
-        let Some(entries) = arguments
-            .first()
-            .and_then(|map| self.values.collection_items(map, krs_ir::BuiltinSort::Map))
-        else {
-            return Ok(());
-        };
-        let mut bindings = entries
-            .iter()
-            .filter_map(|entry| {
-                let [key, value] = entry.as_slice() else {
-                    return None;
-                };
-                let Pattern::DomainValue { value: name, .. } = values::strip_injections(key) else {
-                    return None;
-                };
-                let name = name.as_utf8().ok()?.strip_prefix('$')?.to_owned();
-                Some((name, unboxed_configuration_value(value)))
-            })
-            .collect::<Vec<_>>();
-        bindings.sort_by(|left, right| left.0.cmp(&right.0));
+        let bindings = configuration_bindings(&self.values, pattern);
         // The prints' warnings are the mismatch's: what a printed part says it is not.
         let warnings = std::cell::RefCell::new(Vec::<String>::new());
         let print = |pattern: &Pattern| {
@@ -2022,20 +2100,56 @@ impl Semantics {
     }
 
     /// Assemble the initial configuration from surface text as [`Configuration::configure`] does,
-    /// and check the typed cells its variables fill as [`Self::configure`] does: the JSON
-    /// holds the pattern and each variable rendered on its own as KORE, for routes that pass a
-    /// value to another tool.
+    /// and refuse and check its variables as [`Self::configure`] does: text that applies a
+    /// function evaluated in one instance of a Map collection, and the typed cells they fill.
+    /// The JSON holds the pattern and each variable rendered on its own as KORE, for routes that
+    /// pass a value to another tool.
     ///
     /// # Errors
     ///
-    /// Returns the assembler's error, or [`ExecError::CollectionElementSort`].
+    /// Returns the assembler's error, [`ExecError::InstanceFunction`], or
+    /// [`ExecError::CollectionElementSort`].
     pub fn configure_surface(
         &mut self,
         variables: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let (pattern, configured) = self.configuration.configure_pattern(variables)?;
+        let (pattern, configured) = match self.configuration.configure_pattern(variables) {
+            Ok(configured) => configured,
+            Err(error) => {
+                let refusal = error
+                    .downcast_ref::<k_rust::kompile::ConfigurationError>()
+                    .and_then(|error| {
+                        self.unparsed_instance_text(error, |name| {
+                            variables.get(name).and_then(serde_json::Value::as_str)
+                        })
+                    });
+                return Err(refusal.map_or(error, Into::into));
+            }
+        };
+        self.check_instance_functions(&pattern)?;
         self.check_cell_types(&pattern)?;
         Ok(configured)
+    }
+
+    /// The refusal of a configuration variable's text that no grammar of the definition parses
+    /// (`error`) where it applies a function evaluated in one instance of a Map collection with
+    /// its authored arguments ([`instance_text`]); `text` gives the text bound to a variable by
+    /// its K name without `$`.
+    fn unparsed_instance_text<'t>(
+        &mut self,
+        error: &k_rust::kompile::ConfigurationError,
+        text: impl Fn(&str) -> Option<&'t str>,
+    ) -> Option<ExecError> {
+        use k_rust::kompile::ConfigurationError as Error;
+        let (variable, sort) = match error {
+            Error::Program(_) => ("PGM", self.configuration.variables().get("PGM")?.clone()),
+            Error::Parse { variable, sort, .. } => {
+                (variable.strip_prefix('$').unwrap_or(variable), sort.clone())
+            }
+            _ => return None,
+        };
+        let text = text(variable)?;
+        self.instance_text_refusal(variable, &sort, text)
     }
 
     /// The configuration variable `written` names: a parameter's Rust name, or a K name with or

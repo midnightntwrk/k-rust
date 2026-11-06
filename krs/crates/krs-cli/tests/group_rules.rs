@@ -475,6 +475,18 @@ fn krs_on(
     command: &str,
     extra: &[&str],
 ) -> (bool, String, String) {
+    let (code, stdout, stderr) = krs_status_on(target, manifest, package, command, extra);
+    (code == Some(0), stdout, stderr)
+}
+
+/// [`krs_on`], with the exit status.
+fn krs_status_on(
+    target: &Path,
+    manifest: &Path,
+    package: &str,
+    command: &str,
+    extra: &[&str],
+) -> (Option<i32>, String, String) {
     let mut process = krs_command!();
     fixture_build_env(&mut process, target);
     process
@@ -491,7 +503,7 @@ fn krs_on(
         .output()
         .unwrap();
     (
-        output.status.success(),
+        output.status.code(),
         String::from_utf8(output.stdout).unwrap(),
         String::from_utf8(output.stderr).unwrap(),
     )
@@ -2887,6 +2899,48 @@ fn via_pc(n: Term<Int>, k::term![ViaPc(n)]: Term<Int>) -> Term<Int> {
 }
 "#;
 
+/// A library function with no parameters of its own whose context reads the
+/// hart's `pc`: in a definition that holds harts in a Map collection, it
+/// receives the hart's key and nothing else.
+const LIB_MY_PC: &str = r#"
+/// The program counter of the hart it is evaluated in.
+#[k::function(total, sort = Int, syntax = "myPc ( )")]
+pub struct MyPc {}
+
+#[k::equation]
+fn my_pc(
+    p: Term<Int>,
+    k::term![MyPc()]: Term<Int>,
+    k::cells! {
+        pc: k::configuration::Cell(p),
+        ..
+    }: Hart,
+) -> Term<Int> {
+    p
+}
+"#;
+
+/// A library function asserted `program` whose context reads the hart's
+/// `pc`: in a definition that holds harts in a Map collection, the assertion
+/// cannot hold.
+const LIB_PROGRAM_PC: &str = r#"
+/// The program counter of the hart it is evaluated in.
+#[k::function(total, sort = Int, syntax = "progPc ( )", program)]
+pub struct ProgPc {}
+
+#[k::equation]
+fn prog_pc(
+    p: Term<Int>,
+    k::term![ProgPc()]: Term<Int>,
+    k::cells! {
+        pc: k::configuration::Cell(p),
+        ..
+    }: Hart,
+) -> Term<Int> {
+    p
+}
+"#;
+
 /// Instructions and rules for `lib::Hart` that apply the library's functions:
 /// `jump` leaves the key out, `hop` restates it as its binder `me` and
 /// `tock` as the literal `1`.
@@ -3967,4 +4021,287 @@ fn a_sentence_about_one_instance_is_refused_where_it_writes_the_key() {
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
+}
+
+/// The keys a function evaluated in one instance of a Map collection receives
+/// are an emission detail, which no grammar, input or view shows. `pcPlus`
+/// (one parameter) and `myPc` (none), whose contexts read the hart's `pc`,
+/// are `pub` in the library, which a definition holding the hart once may
+/// use as program syntax; in `smp`, which holds harts in a Map collection, a
+/// program is evaluated in no instance, so each is placed in the library's
+/// semantics module with that reason, and its program-syntax module holds
+/// neither; `progPc`, asserted `program`, is placed so too, with the warning
+/// `krs::partition::not-program-syntax` giving the reason. An input is
+/// evaluated in no instance too: a `$call`, and `$text`, `$text-file` or `-c`
+/// text, written with the function's own arguments alone as its `syntax`
+/// declares them or with the key its emission adds, are refused with one
+/// reason before the run (exit 2: no run was asked), as the surface
+/// configuration another tool is handed is; text that applies neither still
+/// fails to parse. A view is evaluated in no instance, so a case's or
+/// `krs compare`'s view naming either is refused before the run with that
+/// reason: never as a function of two parameters with a wrapper hint, nor
+/// accepted for taking one parameter.
+#[test]
+fn a_function_evaluated_in_one_instance_is_no_program_syntax_input_or_view() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // `smp` with a second configuration variable, `n`, held in `ticks`.
+    let source = smp("Map", "")
+        .replace(
+            "pub fn init(pgm: lib::Instr)",
+            "pub fn init(pgm: lib::Instr, n: Int)",
+        )
+        .replace("ticks: 0,", "ticks: n,");
+    let manifest = instance_definitions(
+        temporary.path(),
+        &format!("{HART_RULES}{LIB_PC_PLUS}{LIB_MY_PC}{LIB_PROGRAM_PC}"),
+        &[("smp", &source)],
+    )
+    .remove(0);
+    let root = manifest.parent().unwrap().to_owned();
+    let krs_status = |command: &str, extra: &[&str]| {
+        krs_status_on(target.path(), &manifest, "smp", command, extra)
+    };
+    let krs = |command: &str, extra: &[&str]| {
+        let (code, stdout, stderr) = krs_status(command, extra);
+        (code == Some(0), stdout, stderr)
+    };
+
+    // The partition, and the emitted modules: the library's program syntax holds neither.
+    let (success, stdout, stderr) = krs("check", &["--partition"]);
+    assert!(success, "{stderr}");
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.starts_with("warning[krs::partition::"))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "warning[krs::partition::not-program-syntax]: `ProgPc` is marked `program` but is evaluated in one instance of the Map collection cell `hart`, so it receives the instance's key, and a program is evaluated in no instance; it is placed in ORG-KRS-GROUPS-LIB and programs cannot contain it",
+        ]
+    "#]]
+    .assert_debug_eq(&warnings);
+    let placed = stdout
+        .lines()
+        .filter(|line| line.contains("PcPlus") || line.contains("MyPc"))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "  production MyPc: evaluated in one instance of the Map collection cell `hart`, so it receives the instance's key, and a program is evaluated in no instance",
+            "  production PcPlus: evaluated in one instance of the Map collection cell `hart`, so it receives the instance's key, and a program is evaluated in no instance",
+        ]
+    "#]]
+    .assert_debug_eq(&placed);
+    let flat = emitted(target.path(), &manifest, "smp");
+    let module = |name: &str| {
+        let start = flat
+            .find(&format!("module {name} "))
+            .unwrap_or_else(|| panic!("no module {name} in {flat}"));
+        let rest = &flat[start..];
+        &rest[..rest.find(" endmodule").unwrap()]
+    };
+    let syntax = module("ORG-KRS-GROUPS-LIB-SYNTAX");
+    assert!(
+        !syntax.contains("\"pcPlus\"") && !syntax.contains("\"myPc\""),
+        "{syntax}"
+    );
+    let semantics = module("ORG-KRS-GROUPS-LIB");
+    assert!(
+        semantics
+            .contains("syntax Int ::= \"pcPlus\" \"(\" Int \")\" \"#instance\" \"(\" Int \")\"")
+            && semantics
+                .contains("syntax Int ::= \"myPc\" \"(\" \")\" \"#instance\" \"(\" Int \")\""),
+        "{semantics}"
+    );
+
+    inputs_refuse_a_function_evaluated_in_one_instance(&krs_status, &root);
+    views_refuse_a_function_evaluated_in_one_instance(&krs_status, &root);
+    surface_configuration_refuses_a_function_evaluated_in_one_instance(target.path(), &manifest);
+}
+
+/// Every input route refuses `pcPlus` and `myPc` with [`instance_reason`] before the run (exit
+/// 2), whether its text writes the function's own arguments alone or the key its emission adds;
+/// text that applies neither fails to parse, and a plain value runs.
+fn inputs_refuse_a_function_evaluated_in_one_instance(
+    krs_status: &impl Fn(&str, &[&str]) -> (Option<i32>, String, String),
+    root: &Path,
+) {
+    // Every input route gives the one reason, before the run.
+    let program = root.join("inc.txt");
+    fs::write(&program, "inc").unwrap();
+    let program = program.to_str().unwrap();
+    let text_file = |name: &str, text: &str| {
+        let path = root.join(name);
+        fs::write(&path, text).unwrap();
+        format!(
+            r#"n={{"$text-file": {}}}"#,
+            serde_json::to_string(path.to_str().unwrap()).unwrap()
+        )
+    };
+    let key_file = text_file("key.txt", "pcPlus ( 1 ) #instance ( 0 )");
+    let authored_file = text_file("authored.txt", "myPc ( )");
+    for (function, flag, binding) in [
+        ("PcPlus", "--input", r#"n={"$call": {"PcPlus": {"n": 1}}}"#),
+        ("MyPc", "--input", r#"n={"$call": {"MyPc": {}}}"#),
+        (
+            "PcPlus",
+            "--input",
+            r#"n={"$text": "pcPlus ( 1 ) #instance ( 0 )"}"#,
+        ),
+        (
+            "MyPc",
+            "--input",
+            r#"n={"$text": "myPc ( ) #instance ( 0 )"}"#,
+        ),
+        ("PcPlus", "--input", key_file.as_str()),
+        ("PcPlus", "-c", "n=pcPlus ( 1 ) #instance ( 0 )"),
+        // The text an author writes against the declarations.
+        ("PcPlus", "--input", r#"n={"$text": "pcPlus ( 1 )"}"#),
+        ("MyPc", "--input", r#"n={"$text": "myPc ( )"}"#),
+        ("MyPc", "--input", authored_file.as_str()),
+        ("PcPlus", "-c", "n=pcPlus ( 1 )"),
+        ("MyPc", "-c", "n=myPc ( )"),
+        ("PcPlus", "-c", "n=pcPlus ( myPc ( ) )"),
+    ] {
+        let (code, stdout, stderr) = krs_status("run", &[program, flag, binding]);
+        assert_eq!(code, Some(2), "{binding}: {stdout}\n{stderr}");
+        assert_eq!(stdout, "", "{binding}");
+        assert!(
+            stderr.contains(&instance_reason(function, "an input")),
+            "{binding}: {stderr}"
+        );
+    }
+    // Text that applies such a function with other arguments than it declares is
+    // no term of any grammar, which is all its refusal says.
+    let (code, stdout, stderr) = krs_status("run", &[program, "-c", "n=pcPlus ( )"]);
+    assert_eq!(code, Some(2), "{stdout}\n{stderr}");
+    assert!(stderr.contains("does not parse at sort Int"), "{stderr}");
+    assert!(
+        !stderr.contains("an input is evaluated in no instance"),
+        "{stderr}"
+    );
+    // A plain value runs.
+    let (code, stdout, stderr) = krs_status("run", &[program, "--input", "n=7"]);
+    assert_eq!(code, Some(0), "{stdout}\n{stderr}");
+}
+
+/// The surface configuration another tool is handed (`Semantics::configure_surface`, the gate
+/// session's `configure`) refuses text applying `pcPlus`, with the key or without it, with the
+/// reason `krs run` gives, and configures a plain value.
+fn surface_configuration_refuses_a_function_evaluated_in_one_instance(
+    target: &Path,
+    manifest: &Path,
+) {
+    let emitted = manifest.parent().unwrap().join("emitted");
+    let output = emitted.to_str().unwrap();
+    let (success, _, stderr) = krs_on(
+        target,
+        manifest,
+        "smp",
+        "emit-k",
+        &["--ir", "--output", output],
+    );
+    assert!(success, "{stderr}");
+    let definition: krs_ir_levels::DefinitionIr =
+        serde_json::from_slice(&fs::read(emitted.join("definition-ir.json")).unwrap()).unwrap();
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn_scoped(scope, || {
+                let mut timings = krs_ir::measure::Timings::disabled();
+                let stage = krs_exec::CompiledStage::compile(&definition, &mut timings).unwrap();
+                let mut semantics =
+                    krs_exec::Semantics::from_stage(&definition, stage, None, &mut timings)
+                        .unwrap();
+                let n = semantics
+                    .variables()
+                    .iter()
+                    .find(|variable| variable.parameter == "n")
+                    .unwrap()
+                    .name
+                    .clone();
+                let mut configure = |text: &str| {
+                    let variables = serde_json::json!({"PGM": "inc", n.as_str(): text});
+                    semantics
+                        .configure_surface(variables.as_object().unwrap())
+                        .map_err(|error| error.to_string())
+                };
+                for text in ["pcPlus ( 1 ) #instance ( 0 )", "pcPlus ( 1 )"] {
+                    let error = configure(text).unwrap_err();
+                    assert!(
+                        error.contains(&instance_reason("PcPlus", "an input")),
+                        "{text}: {error}"
+                    );
+                }
+                configure("7").unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    });
+}
+
+/// The reason every route outside a sentence gives for applying `function`,
+/// evaluated in one instance of `smp`'s harts, where `outside` is evaluated.
+fn instance_reason(function: &str, outside: &str) -> String {
+    format!(
+        "`lib::{function}` is evaluated in one instance of the Map collection cell `hart` (its function context reads that instance, or the context of a function it applies does), so it receives the instance's key, and {outside} is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance"
+    )
+}
+
+/// A case's or `krs compare`'s view naming `PcPlus` or `MyPc` is refused before
+/// the run with [`instance_reason`], never as a function of some number of
+/// parameters; the case without a view runs.
+fn views_refuse_a_function_evaluated_in_one_instance(
+    krs: &impl Fn(&str, &[&str]) -> (Option<i32>, String, String),
+    root: &Path,
+) {
+    // A view naming either is refused before the run with the reason, in a case and in compare.
+    let case = |name: &str, view: Option<&str>| {
+        let mut expect =
+            serde_json::json!({"halt": "stuck", "compare": ["ticks"], "cells": {"ticks": 7}});
+        if let Some(view) = view {
+            expect["views"] = serde_json::json!({"ticks": view});
+        }
+        serde_json::json!({"name": name, "inputs": {"pgm": "Inc", "n": 7}, "expect": expect})
+    };
+    let cases = root.join("cases.json");
+    fs::write(
+        &cases,
+        serde_json::json!({"case": [
+            case("plus", Some("PcPlus")),
+            case("mine", Some("MyPc")),
+            case("plain", None),
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let cases = cases.to_str().unwrap();
+    let (code, stdout, stderr) = krs("run", &["--case", cases, "--case-name", "plain"]);
+    assert_eq!(code, Some(0), "{stdout}\n{stderr}");
+    let plain = format!("{cases}#plain");
+    for (name, function) in [("plus", "PcPlus"), ("mine", "MyPc")] {
+        let (code, stdout, stderr) = krs("run", &["--case", cases, "--case-name", name]);
+        assert_eq!(code, Some(2), "{name}: {stdout}\n{stderr}");
+        assert_eq!(stdout, "", "{name}");
+        assert!(
+            stderr.contains(&format!(
+                "`expect.views`: the view `{function}` of the cell `ticks`: {}",
+                instance_reason(function, "a view")
+            )),
+            "{name}: {stderr}"
+        );
+        let view = format!("ticks={function}");
+        let (code, stdout, stderr) = krs(
+            "compare",
+            &[&plain, &plain, "--compare", "ticks", "--view", &view],
+        );
+        assert_eq!(code, Some(2), "{name}: {stdout}\n{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "the view `{function}` of the cell `ticks`: {}",
+                instance_reason(function, "a view")
+            )),
+            "{name}: {stderr}"
+        );
+    }
 }
