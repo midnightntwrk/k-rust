@@ -1112,6 +1112,31 @@ impl Semantics {
     }
 }
 
+impl Semantics {
+    /// The path of `instance`, the instance at `position` of an end's instances of the repeated
+    /// cell `node` at the path `path`, as a difference names it: a `List` collection's by its
+    /// index, a `Map` collection's by its key, a set collection's (and a `Map` instance that
+    /// does not state its key) by its canonical text. The instance is the end's own, not
+    /// viewed, so it is named without the views.
+    pub(crate) fn instance_path(
+        &self,
+        node: &CellNode,
+        path: &str,
+        position: usize,
+        instance: &EndCell,
+    ) -> String {
+        let no_views = CellViews::default();
+        let unviewed = self.lens(&no_views);
+        if is_list(node) {
+            format!("{path}[{position}]")
+        } else if let Some(key) = instance_key(node, instance) {
+            format!("{path}[{}]", unviewed.key_text(node, key))
+        } else {
+            format!("{path}{{{}}}", unviewed.order_text(node, instance))
+        }
+    }
+}
+
 impl Lens<'_> {
     /// A repeated cell's instances in their order: the collection's for a `List` collection, the
     /// order of their canonical text otherwise, each once.
@@ -1757,23 +1782,13 @@ impl Lens<'_> {
                     })
                 }
                 (Some(CellMultiplicity::Star), EndCell::Repeated(instances)) => {
-                    // A `List` collection's instance is named by its index, a `Map` collection's
-                    // by its key, a set collection's (and a `Map` instance that does not state
-                    // its key) by its canonical text, as a difference names it; the instance is
-                    // the end's own, not yet viewed, so it is named without the views.
-                    let no_views = CellViews::default();
-                    let unviewed = self.semantics.lens(&no_views);
                     let instances = instances
                         .iter()
                         .enumerate()
                         .map(|(position, instance)| {
-                            let at = if is_list(node) {
-                                format!("{path}[{position}]")
-                            } else if let Some(key) = instance_key(node, instance) {
-                                format!("{path}[{}]", unviewed.key_text(node, key))
-                            } else {
-                                format!("{path}{{{}}}", unviewed.order_text(node, instance))
-                            };
+                            let at = self
+                                .semantics
+                                .instance_path(node, &path, position, instance);
                             self.project_content(node, selected, instance, side, &at)
                         })
                         .collect::<Result<Vec<_>, _>>()?;

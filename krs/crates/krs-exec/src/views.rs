@@ -254,18 +254,25 @@ impl CellViews {
     }
 
     /// Evaluate every view at every value its cell holds in the ends of `sides`, in `observer`,
-    /// the definition the views were resolved in; each distinct value once.
+    /// the definition the views were resolved in; each distinct value once. `subject` is the
+    /// compared definition, which reads the ends and names a value's place in them, when it is
+    /// not `observer` itself: `None` where the views were resolved in the compared definition.
     ///
     /// # Errors
     ///
     /// Returns [`EndError::View`] for a view without a value at an end (naming the side and the
-    /// cell), and for an `observer` other than the one the views were resolved in.
+    /// cell, an instance of a collection as a difference names it: a `List` collection's by its
+    /// index, a `Map` collection's by its key, a `Set` collection's by its canonical text), and
+    /// [`EndError::State`] for an `observer` other than the one the views were resolved in, or a
+    /// compared definition (`subject`, or else `observer`) other than the one they were resolved
+    /// for.
     pub fn evaluate(
         &mut self,
         observer: &mut Semantics,
+        subject: Option<&Semantics>,
         sides: &[Side<'_>],
     ) -> Result<(), EndError> {
-        self.evaluate_within(observer, sides, None)
+        self.evaluate_within(observer, subject, sides, None)
     }
 
     /// [`Self::evaluate`], each evaluation bounded by a budget of `budget` polls when there is
@@ -278,16 +285,18 @@ impl CellViews {
     /// or that ended short of a value after the solver answered `Unknown`, when no value refuses.
     /// The error names, in the order of `sides` and then of the cells and instances of each end,
     /// the first value with a part that has no KRS description, or else the first value that
-    /// refuses, or, when none does, the first that stopped. The order the sides are given in
+    /// refuses, or, when none does, the first that stopped, each at its place in its end, an
+    /// instance named as [`Self::evaluate`] names it. The order the sides are given in
     /// chooses which value is named, and not the kind of error, except where an evaluation ends
     /// only by reusing an answer an earlier one decided ([module documentation](crate::views)).
     pub fn evaluate_within(
         &mut self,
         observer: &mut Semantics,
+        subject: Option<&Semantics>,
         sides: &[Side<'_>],
         budget: Option<u64>,
     ) -> Result<(), EndError> {
-        let (Some(index), Some(subject)) = (&self.observer, &self.subject) else {
+        let (Some(index), Some(compared)) = (&self.observer, &self.subject) else {
             return Ok(());
         };
         if !Arc::ptr_eq(index, observer.values()) {
@@ -295,12 +304,25 @@ impl CellViews {
                 "the views are evaluated in a definition other than the observer they were resolved in".to_owned(),
             ));
         }
-        let subject = Arc::clone(subject);
+        let namer: &Semantics = subject.unwrap_or(&*observer);
+        if !Arc::ptr_eq(compared, namer.values()) {
+            return Err(EndError::State(
+                "the views are evaluated at the ends of a definition other than the one they were resolved for".to_owned(),
+            ));
+        }
+        let subject = Arc::clone(compared);
         let mut pending = Vec::new();
         for side in sides {
             for end in &side.ends.ends {
                 if end.class.halt != Halt::Undefined {
-                    self.collect(subject.cells(), &end.cells, side.name, "", &mut pending);
+                    self.collect(
+                        namer,
+                        subject.cells(),
+                        &end.cells,
+                        side.name,
+                        "",
+                        &mut pending,
+                    );
                 }
             }
         }
@@ -362,9 +384,11 @@ impl CellViews {
         stopped.map_or(Ok(()), Err)
     }
 
-    /// Every viewed leaf value below `cells`, with its side and its path, instances indexed.
+    /// Every viewed leaf value below `cells`, with its side and its path, an instance named as
+    /// `namer`, the compared definition, names it in a difference.
     fn collect(
         &self,
+        namer: &Semantics,
         nodes: &[CellNode],
         cells: &EndCells,
         side: &str,
@@ -380,25 +404,27 @@ impl CellViews {
                 EndCell::Repeated(instances) => {
                     for (position, instance) in instances.iter().enumerate() {
                         self.collect_content(
+                            namer,
                             node,
                             instance,
                             side,
-                            &format!("{path}[{position}]"),
+                            &namer.instance_path(node, &path, position, instance),
                             output,
                         );
                     }
                 }
                 EndCell::Optional(Some(content)) => {
-                    self.collect_content(node, content, side, &path, output);
+                    self.collect_content(namer, node, content, side, &path, output);
                 }
                 EndCell::Optional(None) => {}
-                content => self.collect_content(node, content, side, &path, output),
+                content => self.collect_content(namer, node, content, side, &path, output),
             }
         }
     }
 
     fn collect_content(
         &self,
+        namer: &Semantics,
         node: &CellNode,
         content: &EndCell,
         side: &str,
@@ -413,7 +439,14 @@ impl CellViews {
                 path.to_owned(),
             )),
             EndCell::Group(cells) => {
-                self.collect(&node.children, cells, side, &format!("{path}."), output);
+                self.collect(
+                    namer,
+                    &node.children,
+                    cells,
+                    side,
+                    &format!("{path}."),
+                    output,
+                );
             }
             _ => {}
         }

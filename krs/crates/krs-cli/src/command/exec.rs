@@ -1473,12 +1473,13 @@ pub(super) fn check(
         ends: &reached,
     };
     if !expectation.comparison.views.is_empty() {
-        let observer = match observer {
-            Some(observer) => observer,
-            None => &mut *semantics,
+        let (observer, subject) = match observer {
+            Some(observer) => (observer, Some(&*semantics)),
+            None => (&mut *semantics, None),
         };
         match expectation.comparison.views.evaluate_within(
             observer,
+            subject,
             &[expected, actual],
             Some(budget),
         ) {

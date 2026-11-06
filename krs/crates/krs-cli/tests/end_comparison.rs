@@ -2052,7 +2052,7 @@ fn viewed(
         .iter()
         .map(|(name, ends)| side(name, ends))
         .collect::<Vec<_>>();
-    views.evaluate(semantics, &sides)?;
+    views.evaluate(semantics, None, &sides)?;
     Ok(Comparison {
         views,
         ..Comparison::default()
@@ -2288,7 +2288,11 @@ fn a_view_declared_by_an_observer_package_is_evaluated_there_and_shown_at_its_so
         let named = BTreeMap::from([("bus".to_owned(), "LogShape".to_owned())]);
         let mut views = subject.cell_views(observer, &named).unwrap();
         views
-            .evaluate(observer, &[side("left", &fewer), side("right", &ends)])
+            .evaluate(
+                observer,
+                Some(subject),
+                &[side("left", &fewer), side("right", &ends)],
+            )
             .unwrap();
         let comparison = Comparison {
             views,
@@ -2312,7 +2316,12 @@ fn a_view_declared_by_an_observer_package_is_evaluated_there_and_shown_at_its_so
         // Views resolved in the observer are evaluated there only.
         let mut views = subject.cell_views(observer, &named).unwrap();
         assert!(matches!(
-            views.evaluate(subject, &[side("left", &ends)]),
+            views.evaluate(subject, None, &[side("left", &ends)]),
+            Err(EndError::State(_))
+        ));
+        // At the ends of the definition they were resolved for, which names a value's place.
+        assert!(matches!(
+            views.evaluate(observer, None, &[side("left", &ends)]),
             Err(EndError::State(_))
         ));
     });
@@ -2328,7 +2337,7 @@ fn climb_above(
 ) -> Result<(), EndError> {
     let named = BTreeMap::from([(cell.to_owned(), "ClimbAbove".to_owned())]);
     let mut views = subject.cell_views(observer, &named)?;
-    views.evaluate_within(observer, sides, Some(10_000))
+    views.evaluate_within(observer, Some(subject), sides, Some(10_000))
 }
 
 /// A view with no value at one value refuses the comparison even where its evaluation at another
@@ -2421,6 +2430,73 @@ fn a_view_with_no_value_refuses_whichever_value_stops_first() {
                 )),
                 "{message}"
             );
+        }
+    });
+}
+
+/// A view's refusal and its stop name an instance of a `Map` collection by its key and one of a
+/// `Set` collection by its canonical text, as a difference names them, not by where the end holds
+/// them.
+#[test]
+fn a_view_names_a_collection_instance_as_a_difference_does() {
+    with_observer(|subject, observer| {
+        let ends = reference(subject);
+        let refusal = |result: Result<(), EndError>| match result {
+            Err(error @ EndError::View { .. }) => error.to_string(),
+            other => panic!("expected a view's refusal, got {other:?}"),
+        };
+        for (pids, refused) in [([7, 3], 3), ([3, 7], 7)] {
+            let procs = with_cells(subject, &ends, |cells| {
+                cells["procs"]["process"] = json!([
+                    {"pid": pids[0], "ticks": 1},
+                    {"pid": pids[1], "ticks": 0},
+                ]);
+            });
+            let message = refusal(climb_above(
+                subject,
+                observer,
+                "procs.process.ticks",
+                &[side("left", &procs)],
+            ));
+            assert!(
+                message.contains(&format!(
+                    "it has no value at the left end's `procs.process[{refused}].ticks`: the definition gives it no value"
+                )),
+                "{message}"
+            );
+        }
+        let objects = with_cells(subject, &ends, |cells| {
+            cells["objects"]["obj"] = json!([{"oid": 4}, {"oid": 0}]);
+        });
+        let message = refusal(climb_above(
+            subject,
+            observer,
+            "objects.obj.oid",
+            &[side("left", &objects)],
+        ));
+        assert!(
+            message.contains(
+                r#"it has no value at the left end's `objects.obj{{"oid":0}}.oid`: the definition gives it no value"#
+            ),
+            "{message}"
+        );
+        // A stop is named so too.
+        let procs = with_cells(subject, &ends, |cells| {
+            cells["procs"]["process"] = json!([{"pid": 7, "ticks": 1}]);
+        });
+        match climb_above(
+            subject,
+            observer,
+            "procs.process.ticks",
+            &[side("left", &procs)],
+        ) {
+            Err(error @ EndError::ViewStopped { .. }) => assert!(
+                error
+                    .to_string()
+                    .contains("at the left end's `procs.process[7].ticks`, "),
+                "{error}"
+            ),
+            other => panic!("expected a view's stop, got {other:?}"),
         }
     });
 }

@@ -859,12 +859,13 @@ fn compare_ends(
     let mut left = produce("left", left, &first)?;
     let mut right = produce("right", right, &second)?;
     if !comparison.views.is_empty() {
-        let observer = match observer {
-            Some(observer) => observer,
-            None => &mut *semantics,
+        let (observer, subject) = match observer {
+            Some(observer) => (observer, Some(&*semantics)),
+            None => (&mut *semantics, None),
         };
         match comparison.views.evaluate_within(
             observer,
+            subject,
             &[left.side(), right.side()],
             Some(request.view_budget),
         ) {

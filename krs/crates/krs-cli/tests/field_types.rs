@@ -272,7 +272,11 @@ fn a_difference_below_a_field_or_a_view_result_names_the_key_at_its_type() {
         let named = BTreeMap::from([("snap".to_owned(), "Registers".to_owned())]);
         let mut views = semantics.cell_views(semantics, &named).unwrap();
         views
-            .evaluate(semantics, &[side("left", &left), side("right", &right)])
+            .evaluate(
+                semantics,
+                None,
+                &[side("left", &left), side("right", &right)],
+            )
             .unwrap();
         let comparison = Comparison {
             views,
