@@ -413,7 +413,7 @@ fn pin_texts(warnings: &[String], source: &str) {
         ^^ ---- may have no value
         = note: so the sentence's condition does not hold where the operand has no value, while a Rust reading of `&&` gives `false` where its left operand is `false`, and the condition is then what that value makes it; and kink does not judge a run that reads it
         = help: write each case as a sentence of its own (a branch of the function's body, or a rule), each under its own condition
-        = help: or, to state that the strict meaning is intended, move the expression into a function, which takes `#[k::function(.., skipped_operand = "..")]`"#]].assert_eq(at_line(
+        = help: or state that the strict meaning is intended: `#[k::rule(.., skipped_operand = "..")]`"#]].assert_eq(at_line(
         warnings,
         source,
         "#[k::requires((Small(a) && Half(a) > 0) || a > 100)]",
@@ -427,7 +427,7 @@ fn pin_texts(warnings: &[String], source: &str) {
         = note: so the sentence's condition does not hold where the operand has no value, while a Rust reading of `||` gives `true` where its left operand is `true`, and the condition is then what that value makes it; and kink does not judge a run that reads it
         = note: the operator is in a local function k-rust generates from this sentence's `let` block or `k::matches!` test, which the sentence applies where the block stands
         = help: write each case as a sentence of its own (a branch of the function's body, or a rule), each under its own condition
-        = help: or, to state that the strict meaning is intended, move the expression into a function, which takes `#[k::function(.., skipped_operand = "..")]`"#]].assert_eq(at_line(
+        = help: or state that the strict meaning is intended: `#[k::rule(.., skipped_operand = "..")]`"#]].assert_eq(at_line(
         warnings,
         source,
         "#[k::requires({ let q = d; d == 0 || n / q > 1 })]",
@@ -523,7 +523,7 @@ fn value_positions_and_conditions_warn_at_the_operator() {
         ^^   - may have no value
         = note: so the sentence's condition does not hold where the operand has no value, while a Rust reading of `||` gives `true` where its left operand is `true`, and the condition is then what that value makes it; and kink does not judge a run that reads it
         = help: write each case as a sentence of its own (a branch of the function's body, or a rule), each under its own condition
-        = help: or, to state that the strict meaning is intended, move the expression into a function, which takes `#[k::function(.., skipped_operand = "..")]`"#]].assert_eq(&warnings[0]);
+        = help: or state that the strict meaning is intended: `#[k::rule(.., skipped_operand = "..")]`"#]].assert_eq(&warnings[0]);
     pin_texts(&warnings, &source);
     assert!(
         stderr.contains("warning[krs::analysis::dead-guard]"),
@@ -562,7 +562,10 @@ fn the_llvm_route_runs_no_analysis() {
     assert!(!stderr.contains("skipped-operand"), "{stderr}");
 }
 
-/// The warned functions with `skipped_operand` keys, and a function whose key silences nothing.
+/// The warned functions with `skipped_operand` keys, and a function whose key silences nothing;
+/// beside the keyed sentences, sentences of the same items that warn unkeyed: a table's other
+/// row, another clause of the `k::rules!` block, and a caller of a keyed function with an origin
+/// of its own.
 const KEYED: &str = r#"
 #[k::function(total, internal, skipped_operand = "the strict value is the meaning")]
 pub fn Ok(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
@@ -590,29 +593,110 @@ pub fn Plain(n: Term<Int>) -> Term<Bool> {
     n > 1
 }
 
+#[k::function(total, internal)]
+pub fn Third(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
+
+#[k::equation(skipped_operand = "an equation fn's value is strict too")]
+fn third(k::term![Third(n, d)]: Term<Bool>) -> Term<Bool> {
+    d != 0 && n / d > 1
+}
+
+#[k::function(total, internal)]
+pub fn Fourth(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for Fourth;
+    #[k::equation(skipped_operand = "a row's value is strict too")]
+    fourth_zero: (n, 0) => true || n / 0 > 1;
+    #[k::equation(owise, skipped_operand = "so is the other row's")]
+    fourth_other: (n, d) => d == 0 || n / d > 1;
+}
+
+#[k::function(total, internal)]
+pub fn Fifth(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for Fifth;
+    #[k::equation(skipped_operand = "only this row's value is strict")]
+    fifth_zero: (n, 0) => true || n / 0 > 1;
+    #[k::equation(owise)]
+    fifth_other: (n, d) => d == 0 || n / d > 1;
+}
+
+#[k::function(total, internal)]
+pub fn Caller(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
+    Ok(n, d) || n / d > 1
+}
+
+#[k::rule(skipped_operand = "a term rule's result is strict too")]
+fn hoisted_fn(k::term![StmtSyntax::Hoisted { n, a }]: Term<Stmt>) -> Term<Stmt> {
+    StmtSyntax::Done(a != 0 && n / a > 1)
+}
+
+#[k::rule(skipped_operand = "a cells rule's cell is strict too")]
+pub fn cell_ite(
+    n: Int,
+    d: Int,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::CellIte(n, d), tail @ ..), acc: k::configuration::Cell(_), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), acc: k::configuration::Cell(kequal::ite(d != 0, n / d, 0)), ..state }
+}
+
 k::rules! {
     for Machine;
     use StmtSyntax::*;
 
     use_res: { k: [UseRes(n, d), ..], acc: _ } => { k: [..], acc: Ok(n, d) };
     res: { k: [Res(n, d), ..] } => { k: [Done(LetBody(n, d)), ..] };
-    #[k::requires(Either(n, d) && Plain(n))]
+    #[k::requires(Either(n, d) && Plain(n) && Third(n, d) && Fourth(n, d))]
     use_cond: { k: [UseCond(n, d), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::rule(skipped_operand = "a clause's condition is strict too")]
+    #[k::requires(d == 0 || n / d > 1)]
+    lifted: { k: [Lifted(n, d), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::rule(skipped_operand = "nothing is skipped in this clause")]
+    or_small: { k: [OrSmall(a), ..] } => { k: [Done(a > 1), ..] };
+    #[k::rule(skipped_operand = "dead-guard reports this condition alone")]
+    #[k::requires(!k::is!(Int, v) || k::project!(Int, v) > 0)]
+    dead: { k: [Dead(v), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(a == 0 || Half(a) > 0)]
+    or_half: { k: [OrHalf(a), ..], acc: _ } => { k: [..], acc: 1 };
 }
 "#;
 
-/// K10: `skipped_operand = "reason"` on `#[k::function(..)]` silences the warnings anchored at
-/// the function's equations (its body, its table's rows, a local function k-rust generates from
-/// its body), and a key that silences nothing is `stale-skipped-operand` at the key.
-#[test]
-fn a_function_key_silences_its_equations_and_a_stale_key_warns() {
-    let target = shared_fixture_target();
-    let temporary = temp_dir();
-    let manifest = package(temporary.path(), KEYED);
-    let source = fs::read_to_string(temporary.path().join("src/lib.rs")).unwrap();
-    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+/// `source` with every `skipped_operand` key removed, and a marker left with no other key
+/// written bare where it marks a fn and dropped where it marks a row or a clause.
+fn unkeyed(source: &str) -> String {
+    let lines = source.lines().collect::<Vec<_>>();
+    let mut out = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let Some(start) = line.find("skipped_operand = \"") else {
+            out.push((*line).to_owned());
+            continue;
+        };
+        let reason = start + "skipped_operand = \"".len();
+        let end = reason + line[reason..].find('"').unwrap() + 1;
+        let stripped = format!("{}{}", &line[..start], &line[end..]).replace(", )", ")");
+        if let Some(marker) = stripped.trim().strip_suffix("()]") {
+            let next = lines[at + 1].trim_start();
+            if next.starts_with("fn ") || next.starts_with("pub fn ") {
+                out.push(format!("{marker}]"));
+            }
+        } else {
+            out.push(stripped);
+        }
+    }
+    out.join("\n")
+}
+
+/// The `skipped-operand` and `stale-skipped-operand` warnings of `krs check` on a package of
+/// `source`, each as its line and headline, with `source` as the package holds it.
+fn checked(target: &Path, root: &Path, source: &str) -> (Vec<String>, Vec<String>, String) {
+    let manifest = package(root, source);
+    let source = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    let (success, _, stderr) = krs(target, &manifest, "check", &[]);
     assert!(success, "{stderr}");
-    let lines = skipped(&stderr)
+    let warnings = skipped(&stderr);
+    let lines = warnings
         .iter()
         .map(|warning| {
             format!(
@@ -621,10 +705,216 @@ fn a_function_key_silences_its_equations_and_a_stale_key_warns() {
                 warning.lines().next().unwrap()
             )
         })
-        .collect::<Vec<_>>();
+        .collect();
+    (warnings, lines, source)
+}
+
+/// K10: `skipped_operand = "reason"` on `#[k::function(..)]` silences the warnings anchored at
+/// the function's equations (its body, its table's rows, a local function k-rust generates from
+/// its body), on `#[k::equation(..)]` (an equation fn, a table row) and on `#[k::rule(..)]` (a
+/// term rule fn, a `cells!` rule fn, a clause of `k::rules!`) those anchored at the sentence it
+/// marks, and no other: the same package without its keys warns at every keyed sentence, and
+/// with them still at a table's unkeyed row, at an unkeyed clause of a block with keyed ones and
+/// at a caller of a keyed function. A key that silences nothing is `stale-skipped-operand` at
+/// the key, a key whose only finding `dead-guard` reports included. An unkeyed table row's help
+/// offers its own key and its function's. (On `#[k::claim(..)]` the placement table refuses the
+/// key: the macro fixture `claim_skipped_operand`.)
+#[test]
+fn a_key_silences_the_sentences_of_its_item_and_a_stale_key_warns() {
+    let target = shared_fixture_target();
+    let without = temp_dir();
+    let (_, lines, _) = checked(target.path(), without.path(), &unkeyed(KEYED));
     expect_test::expect![[r##"
         [
-            "#[k::function(total, internal, skipped_operand = \"nothing is skipped here\")] | warning[krs::analysis::stale-skipped-operand]: `skipped_operand` states that a value may depend on an operand `&&`, `||` or `kequal::ite` skips, but no operand of this item is one that may have no value",
+            "either_zero: (n, 0) => true || n / 0 > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "fifth_zero: (n, 0) => true || n / 0 > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "fourth_zero: (n, 0) => true || n / 0 > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "#[k::requires(d == 0 || n / d > 1)] | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "#[k::requires(a == 0 || Half(a) > 0)] | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "d != 0 && n / d > 1 | warning[krs::analysis::skipped-operand]: `&&` does not evaluate its right operand where its left operand is `false`, but keeps that operand's definedness, and the operand may have no value",
+            "StmtSyntax::Done(a != 0 && n / a > 1) | warning[krs::analysis::skipped-operand]: `&&` does not evaluate its right operand where its left operand is `false`, but keeps that operand's definedness, and the operand may have no value",
+            "fourth_other: (n, d) => d == 0 || n / d > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "k::cells! { k: k::configuration::KCell(..tail), acc: k::configuration::Cell(kequal::ite(d != 0, n / d, 0)), ..state } | warning[krs::analysis::skipped-operand]: `kequal::ite` does not evaluate its `then` operand where its condition is `false`, but keeps that operand's definedness, and the operand may have no value",
+            "d == 0 || n / q > 1 | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "d != 0 && n / d > 1 | warning[krs::analysis::skipped-operand]: `&&` does not evaluate its right operand where its left operand is `false`, but keeps that operand's definedness, and the operand may have no value",
+            "fifth_other: (n, d) => d == 0 || n / d > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "either_other: (n, d) => d == 0 || n / d > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "Ok(n, d) || n / d > 1 | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
         ]
     "##]].assert_debug_eq(&lines);
+    let temporary = temp_dir();
+    let (warnings, lines, source) = checked(target.path(), temporary.path(), KEYED);
+    expect_test::expect![[r##"
+        [
+            "#[k::requires(a == 0 || Half(a) > 0)] | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "fifth_other: (n, d) => d == 0 || n / d > 1; | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "Ok(n, d) || n / d > 1 | warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value",
+            "#[k::function(total, internal, skipped_operand = \"nothing is skipped here\")] | warning[krs::analysis::stale-skipped-operand]: `skipped_operand` states that a value may depend on an operand `&&`, `||` or `kequal::ite` skips, but no sentence of this item has a `krs::analysis::skipped-operand` warning to silence",
+            "#[k::rule(skipped_operand = \"dead-guard reports this condition alone\")] | warning[krs::analysis::stale-skipped-operand]: `skipped_operand` states that a value may depend on an operand `&&`, `||` or `kequal::ite` skips, but no sentence of this item has a `krs::analysis::skipped-operand` warning to silence",
+            "#[k::rule(skipped_operand = \"nothing is skipped in this clause\")] | warning[krs::analysis::stale-skipped-operand]: `skipped_operand` states that a value may depend on an operand `&&`, `||` or `kequal::ite` skips, but no sentence of this item has a `krs::analysis::skipped-operand` warning to silence",
+        ]
+    "##]].assert_debug_eq(&lines);
+    expect_test::expect![[r#"
+        warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value
+        --> src/lib.rs:112:35
+        ^^   - may have no value
+        = note: `||` is `bool::or_else`, one strict function: where the operand has no value, the application has none on every KRS route, while a backend that returns the selected operand alone gives `true`, so the K KRS emits means different things on different backends, and kink does not judge a run that reads it
+        = help: write a branching body, whose branches are separate equations, each with its own definedness: `if left { true } else { right }`, with `left` and `right` its operands; where this is not the whole body, move it into a helper function whose body branches
+        = help: or state that the strict meaning is intended: `#[k::equation(.., skipped_operand = "..")]` on this equation, or `#[k::function(.., skipped_operand = "..")]` on its function, for every equation of the function"#]].assert_eq(at_line(&warnings, &source, "fifth_other: (n, d) => d == 0 || n / d > 1;"));
+}
+
+/// Every origin a sentence depends on, at its own place, however the author writes the
+/// expression: two `let` blocks under `&&` warn at each block's `||` and at the `&&`, as the same
+/// expression written in place does; and a prelude function the sentence applies twice warns at
+/// each application.
+const ORIGINS: &str = r"
+#[k::function(total, internal)]
+pub fn TwoLets(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
+    ({ let q = d; d == 0 || n / q > 1 }) && ({ let r = e; e == 0 || Half(r) > 1 })
+}
+
+#[k::function(total, internal)]
+pub fn TwoInPlace(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
+    (d == 0 || n / d > 1) && (e == 0 || Half(e) > 1)
+}
+
+#[k::function(total, internal)]
+pub fn Mixed(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
+    (e == 0 || n / e > 1) && { let q = d; d == 0 || n / q > 1 }
+}
+
+#[k::function(total, internal)]
+pub fn MixedInPlace(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
+    (e == 0 || n / e > 1) && (d == 0 || n / d > 1)
+}
+
+#[k::function(total, internal)]
+pub fn LetOperand(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
+    Small(n) || { let q = d; n / q > 1 }
+}
+
+#[k::function(total, internal)]
+pub fn Infinities(x: Term<Float>, y: Term<Float>) -> Term<Bool> {
+    float::is_infinite(x) == float::is_infinite(y)
+}
+
+#[k::function(total, internal)]
+pub fn SupLoc(n: Term<Int>, d: Term<Int>, c: Term<Bool>) -> Term<Int> {
+    Total(kequal::ite(c, Half(n) / d, 0)) + Total(kequal::ite(c, n / d, 1))
+}
+
+#[k::function(total, internal)]
+pub fn SupLocA(n: Term<Int>, d: Term<Int>, c: Term<Bool>) -> Term<Int> {
+    Total(kequal::ite(c, Half(n) / d, 0))
+}
+
+#[k::function(total, internal)]
+pub fn SupLocB(n: Term<Int>, d: Term<Int>, c: Term<Bool>) -> Term<Int> {
+    Total(kequal::ite(c, n / d, 1))
+}
+
+#[k::function(total, internal)]
+pub fn SupLet(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
+    ({ let q = d; d == 0 || Half(n) / q > 1 }) && ({ let r = e; e == 0 || n / r > 1 })
+}
+
+#[k::function(total, internal)]
+pub fn SupInPlace(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
+    (d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1)
+}
+";
+
+/// A reader fixes origins one at a time, so each is warned at its own place, and writing a `let`
+/// changes none of them, nor does an operand whose term is a more specific application of the
+/// same symbol than another operator's (`Half(n) / d` beside `n / d`); the label of a `let` block
+/// that may have no value is on the application in the block's value that may have none, not on
+/// its binding.
+#[test]
+fn every_origin_warns_at_its_own_place_with_or_without_a_let() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), ORIGINS);
+    let source = fs::read_to_string(temporary.path().join("src/lib.rs")).unwrap();
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let warnings = skipped(&stderr);
+    let mut places = warnings
+        .iter()
+        .map(|warning| {
+            let location = warning
+                .lines()
+                .find_map(|line| line.strip_prefix("--> "))
+                .unwrap_or_default();
+            format!(
+                "{} @ {}",
+                line_of(warning, &source),
+                location.rsplit(':').next().unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>();
+    places.sort();
+    expect_test::expect![[r#"
+        [
+            "(d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1) @ 13",
+            "(d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1) @ 33",
+            "(d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1) @ 44",
+            "(d == 0 || n / d > 1) && (e == 0 || Half(e) > 1) @ 13",
+            "(d == 0 || n / d > 1) && (e == 0 || Half(e) > 1) @ 27",
+            "(d == 0 || n / d > 1) && (e == 0 || Half(e) > 1) @ 38",
+            "(e == 0 || n / e > 1) && (d == 0 || n / d > 1) @ 13",
+            "(e == 0 || n / e > 1) && (d == 0 || n / d > 1) @ 27",
+            "(e == 0 || n / e > 1) && (d == 0 || n / d > 1) @ 38",
+            "(e == 0 || n / e > 1) && { let q = d; d == 0 || n / q > 1 } @ 13",
+            "(e == 0 || n / e > 1) && { let q = d; d == 0 || n / q > 1 } @ 27",
+            "(e == 0 || n / e > 1) && { let q = d; d == 0 || n / q > 1 } @ 50",
+            "({ let q = d; d == 0 || Half(n) / q > 1 }) && ({ let r = e; e == 0 || n / r > 1 }) @ 26",
+            "({ let q = d; d == 0 || Half(n) / q > 1 }) && ({ let r = e; e == 0 || n / r > 1 }) @ 48",
+            "({ let q = d; d == 0 || Half(n) / q > 1 }) && ({ let r = e; e == 0 || n / r > 1 }) @ 72",
+            "({ let q = d; d == 0 || n / q > 1 }) && ({ let r = e; e == 0 || Half(r) > 1 }) @ 26",
+            "({ let q = d; d == 0 || n / q > 1 }) && ({ let r = e; e == 0 || Half(r) > 1 }) @ 42",
+            "({ let q = d; d == 0 || n / q > 1 }) && ({ let r = e; e == 0 || Half(r) > 1 }) @ 66",
+            "Small(n) || { let q = d; n / q > 1 } @ 14",
+            "Total(kequal::ite(c, Half(n) / d, 0)) + Total(kequal::ite(c, n / d, 1)) @ 11",
+            "Total(kequal::ite(c, Half(n) / d, 0)) + Total(kequal::ite(c, n / d, 1)) @ 51",
+            "Total(kequal::ite(c, Half(n) / d, 0)) @ 11",
+            "Total(kequal::ite(c, n / d, 1)) @ 11",
+            "float::is_infinite(x) == float::is_infinite(y) @ 30",
+            "float::is_infinite(x) == float::is_infinite(y) @ 5",
+        ]
+    "#]]
+    .assert_debug_eq(&places);
+    let count = |line: &str| {
+        warnings
+            .iter()
+            .filter(|warning| line_of(warning, &source) == line)
+            .count()
+    };
+    assert_eq!(
+        count("({ let q = d; d == 0 || n / q > 1 }) && ({ let r = e; e == 0 || Half(r) > 1 })"),
+        count("(d == 0 || n / d > 1) && (e == 0 || Half(e) > 1)"),
+    );
+    assert_eq!(
+        count("(e == 0 || n / e > 1) && { let q = d; d == 0 || n / q > 1 }"),
+        count("(e == 0 || n / e > 1) && (d == 0 || n / d > 1)"),
+    );
+    assert_eq!(
+        count("Total(kequal::ite(c, Half(n) / d, 0)) + Total(kequal::ite(c, n / d, 1))"),
+        count("Total(kequal::ite(c, Half(n) / d, 0))") + count("Total(kequal::ite(c, n / d, 1))"),
+    );
+    assert_eq!(
+        count("({ let q = d; d == 0 || Half(n) / q > 1 }) && ({ let r = e; e == 0 || n / r > 1 })"),
+        count("(d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1)"),
+    );
+    assert_eq!(
+        count("(d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1)"),
+        3
+    );
+    expect_test::expect![[r#"
+        warning[krs::analysis::skipped-operand]: `||` does not evaluate its right operand where its left operand is `true`, but keeps that operand's definedness, and the operand may have no value
+        --> src/lib.rs:81:14
+        ^^                - may have no value
+        = note: `||` is `bool::or_else`, one strict function: where the operand has no value, the application has none on every KRS route, while a backend that returns the selected operand alone gives `true`, so the K KRS emits means different things on different backends, and kink does not judge a run that reads it
+        = help: write a branching body, whose branches are separate equations, each with its own definedness: `if left { true } else { right }`, with `left` and `right` its operands; where this is not the whole body, move it into a helper function whose body branches
+        = help: or state that the strict meaning is intended: `#[k::function(.., skipped_operand = "..")]`"#]]
+    .assert_eq(at_line(&warnings, &source, "Small(n) || { let q = d; n / q > 1 }"));
 }

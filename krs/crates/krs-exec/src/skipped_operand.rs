@@ -5,24 +5,35 @@
 //! The analysis is k-rust's ([`k_rust::k_rust_backend::short_circuit`]): one analysis of the
 //! definition the run commands load, so `krs check` and any other reader of it cannot disagree
 //! about which sentences depend on the reading. This module projects it onto the KRS-authored
-//! sentences: it reports each originating witness at the sentence that holds it, and a sentence
-//! whose dependence originates in a sentence no KRS author wrote (the prelude, a pass k-rust
-//! runs) at the nearest KRS-authored sentence of its chain.
+//! sentences: it reports each originating witness at the sentence that holds it, and a
+//! dependence that originates in a sentence no KRS author wrote (the prelude, a pass k-rust
+//! runs) at the place of the KRS sentence that applies it.
+//!
+//! A reader fixes origins one at a time, at the places they are written, so every originating
+//! witness a KRS sentence depends on is reported, each at its own place, and how the author
+//! wrote an expression must not change which are: an expression written in a `let` block is
+//! reported as the same expression written in place.
 //!
 //! An equation of a local function k-rust generates from a KRS sentence (a `#lambda` function,
 //! what k-rust compiles K's `#let`, `#fun` and `:=K` into) carries that sentence as its author,
 //! but the author wrote it as an expression of the sentence, not as a sentence: the sentence
-//! alone applies the function, at the place the expression stands. Its witnesses are therefore
-//! reported through the sentence, as the witnesses of a sentence no KRS author wrote are: where
-//! the sentence's own reading depends on them, and in the part of the sentence that applies the
-//! function. So a `let` block that stands as a top-level conjunct of a condition and whose value
-//! is itself a top-level conjunction is not reported, as the same conjunction written without
-//! the block is not.
+//! alone applies the function, at the place the expression stands. Its equations are therefore
+//! read in place of the application ([`ShortCircuitAnalysis::axiom_visits`]), as the expression
+//! written there would be, and their witnesses are reported at the sentence, in the part of the
+//! sentence that applies the function. So a `let` block that stands as a top-level conjunct of a
+//! condition and whose value is itself a top-level conjunction is not reported, as the same
+//! conjunction written without the block is not, and each origin inside a block is reported as
+//! it is outside one.
+//!
+//! A function of the prelude (or of a sentence a pass generated) that depends on the reading is
+//! no place the author writes: each application of one by a KRS sentence, where the sentence's
+//! reading depends on it, is reported once, at the application, with the first origin its chain
+//! of reasons reaches. A user function is reported at its own equations, never at its users.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::k_rust_backend::short_circuit::{
-    CausePart, SentenceRef, ShortCircuitAnalysis, Witness, equation_parts, is_owise, rewrite_sides,
+    CausePart, Inlined, SentenceRef, ShortCircuitAnalysis, Visit, Witness, equation_parts, is_owise,
 };
 use k_rust::kore::ast::{Attributes, Definition, Pattern, Sentence};
 use k_rust::names::KoreAttribute;
@@ -70,12 +81,15 @@ pub enum Through {
         function: String,
     },
     /// In the prelude's function `function` (its K label), whose equation module `module` of
-    /// the prelude writes, which the anchor applies.
+    /// the prelude writes, which the anchor applies (`applied`, its K label, is `function` or a
+    /// function whose value depends on `function`'s).
     Builtin {
         /// The prelude module.
         module: String,
-        /// The function's K label.
+        /// The K label of the function whose equation holds the operator.
         function: String,
+        /// The K label of the prelude function the anchor applies.
+        applied: String,
     },
 }
 
@@ -105,13 +119,26 @@ pub struct SkippedOperand {
     /// any other argument: what tells two applications of one symbol apart where the operator is
     /// written.
     pub term_arguments: Vec<Option<String>>,
-    /// Among the operator witnesses of the anchor's emitted sentence with this finding's
-    /// operator, position, term symbol and term arguments, in the order the analysis enumerates
-    /// them (its conditions, its left-hand side, then its right-hand side, each in post-order),
-    /// the index of this one: what tells apart two places the analysis gives equal witnesses, or
-    /// witnesses of one term, where the operator is written. `0` for a finding reported through
-    /// another sentence.
+    /// The index of the operator's application among the applications of its symbol in the
+    /// anchor's emitted sentence, in the order the analysis walks them
+    /// ([`Visit::Operator`]'s `occurrence`: its conditions, its left-hand side, then its
+    /// right-hand side, each in post-order, a local function's equations read where the sentence
+    /// applies it, and no conjunction at the top of a condition counted): what tells apart two
+    /// places that give equal witnesses, or witnesses whose terms a reader of the written
+    /// sentence cannot tell apart, where the operator is written. It counts every application
+    /// of the operator, whatever its operand, since no term the analysis picks for one decides
+    /// which written operator it is. For a finding through the prelude, the index of the
+    /// application among the sentence's applications of the same prelude function, in that
+    /// order; `0` for a finding with no anchor.
     pub occurrence: usize,
+    /// Whether [`Self::term`]'s head is a local function k-rust generates from the anchor (a
+    /// `let` block's, a `k::matches!` test's), which the author wrote as that expression.
+    pub term_local: bool,
+    /// For a [`Self::term_local`] term, an application in the local function's value that may
+    /// have no value (through the local functions it applies), as the expression the author
+    /// wrote in the block: its KORE symbol, hook and argument heads, as [`Self::term_symbol`],
+    /// [`Self::term_hook`] and [`Self::term_arguments`] give the term's.
+    pub value_term: Option<TermHead>,
     /// Whether [`Self::term`]'s head is declared `total` (then it depends on the reading
     /// through a sentence of [`Self::through`]).
     pub term_total: bool,
@@ -157,6 +184,18 @@ impl Semantics {
     }
 }
 
+/// An application's KORE head symbol, its hook, and the head of each of its arguments
+/// ([`SkippedOperand::term_arguments`]).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct TermHead {
+    /// The KORE symbol.
+    pub symbol: String,
+    /// The symbol's hook, if it has one.
+    pub hook: Option<String>,
+    /// Each argument's head, as [`SkippedOperand::term_arguments`] gives a term's.
+    pub arguments: Vec<Option<String>>,
+}
+
 /// The inputs of [`Semantics::skipped_operands`].
 struct Finder<'a> {
     kore: &'a Definition,
@@ -177,19 +216,17 @@ enum Writer {
 impl Finder<'_> {
     fn findings(&self) -> Vec<SkippedOperand> {
         let mut findings = BTreeSet::new();
-        let mut anchored = BTreeSet::new();
-        self.own_findings(&mut findings, &mut anchored);
-        self.chain_findings(&mut findings, &anchored);
+        self.sentence_findings(&mut findings);
+        self.unanchored_findings(&mut findings);
         findings.into_iter().collect()
     }
 
-    /// Step 1: every originating witness of a KRS-authored sentence, at that sentence, into
-    /// `findings`, with each sentence that holds one into `anchored`.
-    fn own_findings(
-        &self,
-        findings: &mut BTreeSet<SkippedOperand>,
-        anchored: &mut BTreeSet<SentenceRef>,
-    ) {
+    /// Every finding of each KRS-authored sentence, at that sentence: each originating operator
+    /// witness of the sentence, its local functions read in place
+    /// ([`ShortCircuitAnalysis::axiom_visits`]), and each application of a function no KRS author
+    /// wrote that depends on the reading, with the origin its chain reaches.
+    fn sentence_findings(&self, findings: &mut BTreeSet<SkippedOperand>) {
+        let inline = self.local_functions();
         for (module_index, module) in self.kore.modules.iter().enumerate() {
             for (sentence_index, sentence) in module.sentences.iter().enumerate() {
                 let Sentence::Axiom {
@@ -207,164 +244,163 @@ impl Finder<'_> {
                 let Some(Writer::Krs(anchor)) = self.writer(at) else {
                     continue;
                 };
-                let Some(witnesses) = self.witnesses(pattern, attributes) else {
+                let Some(visits) = self.analysis.axiom_visits(pattern, attributes, &inline) else {
                     continue;
                 };
-                // Each witness's index among the earlier ones of the sentence that a reader of
-                // the written sentence cannot tell from it ([`SkippedOperand::occurrence`]).
-                let mut seen = Vec::new();
-                for (part, witness) in witnesses {
-                    let Some(site) = site(&witness) else {
-                        continue;
-                    };
-                    let occurrence = seen.iter().filter(|earlier| **earlier == site).count();
-                    seen.push(site);
-                    if self.analysis.originates(&witness)
-                        && let Some(mut finding) =
-                            self.finding(Some(anchor.clone()), part, &witness, None, None)
-                    {
-                        finding.occurrence = occurrence;
-                        anchored.insert(at);
-                        findings.insert(finding);
+                // Each prelude application's index among the earlier ones of its function
+                // ([`SkippedOperand::occurrence`]).
+                let mut applied = Vec::new();
+                for visit in visits {
+                    match visit {
+                        Visit::Operator {
+                            condition,
+                            witness,
+                            within,
+                            occurrence,
+                        } => {
+                            if !self.analysis.originates(&witness) {
+                                continue;
+                            }
+                            let through = within.last().map(|function| Through::Local {
+                                function: function.clone(),
+                            });
+                            if let Some(mut finding) = self.finding(
+                                Some(anchor.clone()),
+                                part(condition),
+                                &witness,
+                                through,
+                                None,
+                            ) {
+                                finding.occurrence = occurrence;
+                                findings.insert(finding);
+                            }
+                        }
+                        Visit::Applied {
+                            condition,
+                            symbol,
+                            dependence,
+                            ..
+                        } => {
+                            let occurrence =
+                                applied.iter().filter(|earlier| **earlier == symbol).count();
+                            applied.push(symbol.clone());
+                            let start = Witness::Function {
+                                symbol: symbol.clone(),
+                                dependence,
+                            };
+                            if let Some(mut finding) =
+                                self.applied_finding(at, &anchor, part(condition), &symbol, start)
+                            {
+                                finding.occurrence = occurrence;
+                                findings.insert(finding);
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    /// Steps 2 and 3: each sentence not in `anchored` whose dependence originates where no KRS
-    /// author wrote, into `findings`.
-    fn chain_findings(
+    /// The finding of the KRS sentence `at`'s application of the reading-dependent function
+    /// `symbol`, through `start`: the first originating witness its chain of reasons reaches,
+    /// when no KRS author wrote the sentence that holds it nor any sentence between (a user
+    /// function is reported at its own equations, and a KRS sentence between is a reading of its
+    /// own).
+    fn applied_finding(
         &self,
-        findings: &mut BTreeSet<SkippedOperand>,
-        anchored: &BTreeSet<SentenceRef>,
-    ) {
-        let starts = self
-            .analysis
-            .rule_readings(self.kore)
-            .into_iter()
-            .map(|reading| {
-                let first = reading
-                    .applicability
-                    .map(|(part, witness)| (part_of(&part), witness))
-                    .or_else(|| reading.result.map(|witness| (Part::Result, witness)));
-                (reading.rule, true, first)
-            })
-            .chain(
-                self.analysis
-                    .equation_readings(self.kore)
-                    .into_iter()
-                    .map(|reading| {
-                        let first = reading
-                            .result
-                            .map(|witness| (Part::Result, witness))
-                            .or_else(|| {
-                                reading
-                                    .valued
-                                    .map(|(part, witness)| (part_of(&part), witness))
-                            });
-                        (reading.equation, false, first)
-                    }),
-            );
-        // The part is the one of the sentence the reading starts at: where its own value or
-        // applicability depends on the operator, which is where its author sees the dependence.
-        for (at, rule, first) in starts {
+        at: SentenceRef,
+        anchor: &Anchor,
+        part: Part,
+        symbol: &str,
+        start: Witness,
+    ) -> Option<SkippedOperand> {
+        let (_, first) = self.analysis.next_reason(&start)?;
+        if self.authored(first.equation) {
+            return None;
+        }
+        let (origin_at, _, origin, krs_between) = self.origin(at, part, start)?;
+        if krs_between || self.authored(origin_at) {
+            return None;
+        }
+        let through = match self.writer(origin_at) {
+            Some(Writer::Other(Through::Builtin {
+                module, function, ..
+            })) => Some(Through::Builtin {
+                module,
+                function,
+                applied: k_rust::kast::identifier::label_or_name(symbol),
+            }),
+            Some(Writer::Other(through)) => Some(through),
+            Some(Writer::Krs(_)) | None => None,
+        };
+        self.finding(Some(anchor.clone()), part, &origin, through, None)
+    }
+
+    /// Each rewrite rule no KRS author wrote whose dependence originates where no KRS author
+    /// wrote either (a prelude rule reaching a prelude origin): reported with no anchor, as kink
+    /// judges its runs. A function of the prelude depends on the reading only where a sentence
+    /// applies it, and is reported there.
+    fn unanchored_findings(&self, findings: &mut BTreeSet<SkippedOperand>) {
+        for reading in self.analysis.rule_readings(self.kore) {
+            if matches!(
+                self.writer(reading.rule),
+                Some(Writer::Krs(_) | Writer::Other(Through::Local { .. }))
+            ) {
+                continue;
+            }
+            let first = reading
+                .applicability
+                .map(|(part, witness)| (part_of(&part), witness))
+                .or_else(|| reading.result.map(|witness| (Part::Result, witness)));
             let Some((part, witness)) = first else {
                 continue;
             };
-            if anchored.contains(&at) {
-                continue;
-            }
             let Some((origin_at, origin_part, origin, krs_between)) =
-                self.origin(at, part, witness)
+                self.origin(reading.rule, part, witness)
             else {
                 continue;
             };
-            match (self.writer(at), self.writer(origin_at)) {
-                // A KRS sentence holds the origin: step 1 reports it there, or at the
-                // competitor of an `owise` equation whose guard holds it.
-                (_, Some(Writer::Krs(_))) => {}
-                // A KRS sentence between them is a reading of its own, reported by its own
-                // chain, so a sentence that applies it is not warned again.
-                _ if krs_between => {}
-                // A local function's own reading is its sentence's: the sentence reports it
-                // where its own reading depends on it.
-                (Some(Writer::Other(Through::Local { .. })), _) => {}
-                (Some(Writer::Krs(anchor)), other) => {
-                    let through = match other {
-                        Some(Writer::Other(through)) => Some(through),
-                        _ => None,
-                    };
-                    if let Some(finding) = self.finding(Some(anchor), part, &origin, through, None)
-                    {
-                        findings.insert(finding);
-                    }
-                }
-                // A function of the prelude depends on the reading only where a sentence applies
-                // it, and is reported there; a rewrite rule whose chain no KRS author wrote any
-                // sentence of is reported unanchored, as kink judges its runs.
-                _ if !rule => {}
-                _ => {
-                    let name = self.sentence_name(origin_at);
-                    if let Some(finding) =
-                        self.finding(None, origin_part, &origin, None, Some(name))
-                    {
-                        findings.insert(finding);
-                    }
-                }
+            if krs_between || self.authored(origin_at) {
+                continue;
+            }
+            let name = self.sentence_name(origin_at);
+            if let Some(finding) = self.finding(None, origin_part, &origin, None, Some(name)) {
+                findings.insert(finding);
             }
         }
     }
 
-    /// Every operator witness of the axiom `pattern` with `attributes`, with the part that holds
-    /// it: a rewrite rule's conditions and left-hand side, then its right-hand side; an equation's
-    /// antecedent (without an `owise` equation's guard), then its right-hand side. `None` for an
-    /// axiom of another shape.
-    fn witnesses(
-        &self,
-        pattern: &Pattern,
-        attributes: &Attributes,
-    ) -> Option<Vec<(Part, Witness)>> {
-        let mut witnesses = Vec::new();
-        if let Some((conditions, left, right)) = rewrite_sides(pattern) {
-            for side in conditions.into_iter().chain([left]) {
-                witnesses.extend(
-                    self.analysis
-                        .condition_operator_witnesses(side, false)
-                        .into_iter()
-                        .map(|(_, witness)| (Part::Condition, witness)),
-                );
+    /// The equations of every local function k-rust generated ([`is_local_function`]), which a
+    /// sentence's walk reads in place of their applications.
+    fn local_functions(&self) -> BTreeMap<String, Vec<Inlined<'_>>> {
+        let mut functions: BTreeMap<String, Vec<Inlined<'_>>> = BTreeMap::new();
+        for module in &self.kore.modules {
+            for sentence in &module.sentences {
+                let Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                } = sentence
+                else {
+                    continue;
+                };
+                if let Some((head, condition, right)) = equation_parts(pattern)
+                    && is_local_function(head)
+                {
+                    functions.entry(head.to_owned()).or_default().push(Inlined {
+                        condition,
+                        right,
+                        owise: is_owise(attributes),
+                    });
+                }
             }
-            witnesses.extend(
-                self.analysis
-                    .operator_witnesses(right)
-                    .into_iter()
-                    .map(|witness| (Part::Result, witness)),
-            );
-        } else if let Some((_, condition, right)) = equation_parts(pattern) {
-            if let Some(condition) = condition {
-                witnesses.extend(
-                    self.analysis
-                        .condition_operator_witnesses(condition, is_owise(attributes))
-                        .into_iter()
-                        .map(|(_, witness)| (Part::Condition, witness)),
-                );
-            }
-            witnesses.extend(
-                self.analysis
-                    .operator_witnesses(right)
-                    .into_iter()
-                    .map(|witness| (Part::Result, witness)),
-            );
-        } else {
-            return None;
         }
-        Some(witnesses)
+        functions
     }
 
     /// The first originating witness of the chain from `witness` at `part` of the sentence `at`,
     /// with the sentence and part that hold it ([`ShortCircuitAnalysis::next_reason`]), and
-    /// whether a sentence strictly between `at` and that one has a KRS author.
+    /// whether a KRS author wrote a sentence strictly between `at` and that one ([`Self::authored`]).
     fn origin(
         &self,
         mut at: SentenceRef,
@@ -382,13 +418,22 @@ impl Finder<'_> {
             if !followed.insert(key.clone()) {
                 return None;
             }
-            if at != start && matches!(self.writer(at), Some(Writer::Krs(_))) {
+            if at != start && self.authored(at) {
                 krs_between = true;
             }
             at = reason.equation;
             part = part_of(&reason.part);
             witness = reason.witness.clone();
         }
+    }
+
+    /// Whether a KRS author wrote the sentence `at`, as a sentence or as an expression of one (a
+    /// local function's equation, [`Through::Local`]).
+    fn authored(&self, at: SentenceRef) -> bool {
+        matches!(
+            self.writer(at),
+            Some(Writer::Krs(_) | Writer::Other(Through::Local { .. }))
+        )
     }
 
     /// Who wrote the sentence `at`: its `UNIQUE_ID`'s first author, or the pass that generated
@@ -431,12 +476,16 @@ impl Finder<'_> {
                 origin: origin.clone(),
                 kind: *kind,
             })),
-            Author::Builtin { module, .. } => Some(Writer::Other(Through::Builtin {
-                module: module.clone(),
-                function: equation_parts(pattern)
+            Author::Builtin { module, .. } => {
+                let function = equation_parts(pattern)
                     .map(|(head, _, _)| k_rust::kast::identifier::label_or_name(head))
-                    .unwrap_or_default(),
-            })),
+                    .unwrap_or_default();
+                Some(Writer::Other(Through::Builtin {
+                    module: module.clone(),
+                    applied: function.clone(),
+                    function,
+                }))
+            }
         }
     }
 
@@ -449,6 +498,50 @@ impl Finder<'_> {
             .or_else(|| string_attribute(attributes, KoreAttribute::UniqueId))
             .unwrap_or("an unnamed axiom");
         format!("{} in {}", name, module.name)
+    }
+
+    /// An application that may have no value in the value of the local function `function`
+    /// (in its equations' right-hand sides, the first of their `May` that is no local function's
+    /// application, else one in a local function they apply), as its symbol and argument heads;
+    /// `None` when there is none, or `function` is in `visited`.
+    fn value_term(
+        &self,
+        function: &str,
+        visited: &mut BTreeSet<String>,
+    ) -> Option<(String, Vec<Option<String>>)> {
+        if !visited.insert(function.to_owned()) {
+            return None;
+        }
+        let rights = self
+            .kore
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                Sentence::Axiom { pattern, .. } => equation_parts(pattern),
+                _ => None,
+            })
+            .filter(|(head, _, _)| *head == function)
+            .map(|(_, _, right)| right);
+        let mut local = Vec::new();
+        for right in rights {
+            for term in self.analysis.may(right) {
+                let Pattern::Application { symbol, arguments } = &term else {
+                    continue;
+                };
+                if is_local_function(&symbol.name) {
+                    local.push(symbol.name.clone());
+                } else {
+                    return Some((
+                        symbol.name.clone(),
+                        arguments.iter().map(application_head).collect(),
+                    ));
+                }
+            }
+        }
+        local
+            .iter()
+            .find_map(|inner| self.value_term(inner, visited))
     }
 
     /// The finding of the operator witness `witness`; `None` for a function witness.
@@ -484,6 +577,15 @@ impl Finder<'_> {
             ),
             _ => (String::new(), Vec::new()),
         };
+        let term_local = is_local_function(&term_symbol);
+        let value_term = term_local
+            .then(|| self.value_term(&term_symbol, &mut BTreeSet::new()))
+            .flatten()
+            .map(|(symbol, arguments)| TermHead {
+                hook: hook(&symbol),
+                symbol,
+                arguments,
+            });
         Some(SkippedOperand {
             anchor,
             part,
@@ -494,36 +596,14 @@ impl Finder<'_> {
             term_hook: hook(&term_symbol),
             term_arguments,
             occurrence: 0,
+            term_local,
+            value_term,
             term_total: !self.analysis.partial().contains(&term_symbol),
             term_symbol,
             through,
             sentence,
         })
     }
-}
-
-/// What a reader of the written sentence tells an operator witness by: its operator, position,
-/// term symbol and term arguments ([`SkippedOperand::occurrence`]); `None` for a function
-/// witness.
-fn site(witness: &Witness) -> Option<(String, usize, String, Vec<Option<String>>)> {
-    let Witness::Operator {
-        operator,
-        position,
-        term,
-        ..
-    } = witness
-    else {
-        return None;
-    };
-    Some(match term {
-        Pattern::Application { symbol, arguments } => (
-            operator.clone(),
-            *position,
-            symbol.name.clone(),
-            arguments.iter().map(application_head).collect(),
-        ),
-        _ => (operator.clone(), *position, String::new(), Vec::new()),
-    })
 }
 
 /// The head symbol of `pattern` when it is an application, below sort injections, or its value,
@@ -552,6 +632,15 @@ fn is_local_function(symbol: &str) -> bool {
             Some(k_rust::kast::GeneratedLabel::Lambda { .. })
         )
     })
+}
+
+/// The part a visit's `condition` flag names.
+const fn part(condition: bool) -> Part {
+    if condition {
+        Part::Condition
+    } else {
+        Part::Result
+    }
 }
 
 const fn part_of(part: &CausePart) -> Part {
