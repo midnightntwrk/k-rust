@@ -886,6 +886,15 @@ impl Closing<'_> {
                 let named = matches!(arguments, krs_ir::Arguments::Named(_));
                 let (arguments, open) = match fields {
                     Some(fields) if named || (open && pattern) => {
+                        // Only a record is open, and its arguments are named: one that names no
+                        // field (`Ctor { .. }`) has none, which is no named list.
+                        // `krs-syntax` reads a positional application closed, and the long form
+                        // writes a constructor's arguments named.
+                        debug_assert!(
+                            named
+                                || matches!(&arguments, krs_ir::Arguments::Positional(values) if values.is_empty()),
+                            "an open application with positional arguments"
+                        );
                         let mut supplied = match &arguments {
                             krs_ir::Arguments::Named(values) => values
                                 .iter()
