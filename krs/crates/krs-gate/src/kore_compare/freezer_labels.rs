@@ -3,9 +3,11 @@
 //! A context (K's `context`, a context alias, or a strict production) lowers to a heating rule
 //! labelled `<label>-heat`, a cooling rule labelled `<label>-cool`, and a fresh freezer symbol
 //! `#freezer<hint>_<n>` that holds the rest of the term while the hole is evaluated.
-//! The two frontends choose the hint and the number differently: Java K names a context's freezer
-//! after the production that holds the hole, and k-rust may give it an empty hint and a number in
-//! the order it meets the contexts. Both name the heating and cooling rules after the context.
+//! The hint and the number are each frontend's own choice: k-rust takes the hint from the
+//! context's content (the head of the term it rewrites, or else the context's label) and numbers
+//! only contexts sharing a hint, in the order of their content, while another frontend may choose
+//! a different hint or number contexts in another order. Both name the heating and cooling rules
+//! after the context.
 //! A freezer is bound by the definition that generates it, so renaming it bijectively is
 //! alpha-equivalence: the comparator names each native freezer after the reference freezer that
 //! the rules with the same labels use. Everything else about the freezer, its declaration, its

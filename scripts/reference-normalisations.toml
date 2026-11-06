@@ -24,7 +24,7 @@ anchor_helpers = [
   "strip_unique_id_attributes",
 ]
 rule = "Ignore UNIQUE_ID only for freezer axioms whose shared hint has multiple generated suffixes."
-justification = "Scala HashSet iteration over contexts carrying Source and Location determines the reference suffix assignment; the port retains deterministic declaration order. The limited exclusion and its counted scope are defined in docs/compatibility.md#comparison-contract."
+justification = "Scala HashSet iteration over contexts carrying Source and Location determines the reference suffix assignment; the port numbers the contexts of one hint in the order of their content. The limited exclusion and its counted scope are defined in docs/compatibility.md#comparison-contract."
 
 [[normalisation]]
 id = "N4"

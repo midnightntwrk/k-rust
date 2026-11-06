@@ -11987,9 +11987,9 @@ fn strip_source_metadata(definition: &mut Definition) {
     }
 }
 
-/// N3: the freezers of a multi-alias context group are named `_`, `_2`, ... in
-/// the order `ResolveContexts` meets the aliases, which is Scala HashSet order in the
-/// reference and declaration order in the port. Collapse every freezer of such a group onto
+/// N3: the freezers of a multi-alias context group are named `_`, `_2`, ... in an order
+/// of the contexts, which is Scala HashSet order in the reference and the order of the
+/// contexts' content in the port. Collapse every freezer of such a group onto
 /// the group's unsuffixed name (declarations and uses alike) and drop the UNIQUE_ID of the
 /// axioms that mention them, so that only the derived identifiers leave the comparison.
 /// Returns the number of axioms touched.

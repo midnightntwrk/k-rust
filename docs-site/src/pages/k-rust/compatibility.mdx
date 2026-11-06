@@ -3058,7 +3058,10 @@ A `kore-verify` step is never excluded: the verifier reports one rejected senten
 Normalization identifiers such as N3 are durable names defined in that register, not work-item identifiers.
 
 N3 permits only the counted multi-alias freezer family exclusion.
-K's generated suffix assignment depends on unordered Scala context iteration, including `Source` and `Location` attributes; Rust retains deterministic declaration order.
+K's generated suffix assignment depends on unordered Scala context iteration, including `Source` and `Location` attributes.
+k-rust names a freezer by its context alone.
+Its hint is the head of the term the context rewrites, seen through sort casts and, for a K sequence, taken from the item holding the hole (or from the first item when no item holds it); when that term has no head, being a variable or a token, the hint is the context's label.
+The hole's position follows the hint, and contexts sharing a hint are numbered in the order of their content (their term, condition and attributes other than where they were read), so adding, removing or moving another context renames no freezer of a different hint.
 The frontend orders catalogs, emitted sentences, and checks by dependency-first declaration order; no Scala `Ordering` is reproduced.
 Sentence identity for deduplication (`sentence_equivalent`) keeps K's `Sentence` equality.
 Single-alias identities remain compared.
