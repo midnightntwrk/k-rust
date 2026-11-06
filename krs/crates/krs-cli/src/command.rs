@@ -37,6 +37,7 @@ mod exec;
 mod failed_items;
 mod output;
 mod result_cache;
+mod skipped_operand;
 mod stage_cache;
 mod supervisor;
 use collector::{
@@ -1573,9 +1574,9 @@ fn judge_route(
     visit: Option<LoadVisit<'_>>,
     timings: &mut Timings,
 ) -> Result<crate::DiagnosticReports, CommandError> {
-    let (artifacts, context, warnings) = finish_native(prepared, backend, compiled, timings)?;
+    let (artifacts, context, mut warnings) = finish_native(prepared, backend, compiled, timings)?;
     if Route::native(backend) == Route::NativeRust {
-        timings
+        let skipped = timings
             .try_span("check.load", |timings| {
                 exec::judge(prepared, artifacts, context, visit, timings)
             })
@@ -1585,6 +1586,9 @@ fn judge_route(
                         .to_owned(),
                 )
             })?;
+        for warning in skipped_operand::warnings(prepared, &skipped) {
+            warnings.push(warning, DiagnosticStage::Analysis);
+        }
     }
     Ok(warnings)
 }
@@ -1668,7 +1672,9 @@ fn push_trusted_claim_warnings(
 /// production that lowering placed in its package's semantics module.
 ///
 /// The warnings of a backend route (k-rust's native compile, concrete
-/// execution, trusted claims) are not among them: only the commands that
+/// execution, trusted claims, and `krs::analysis::skipped-operand` and
+/// `krs::analysis::stale-skipped-operand`, which read the definition the
+/// `native-rust` route loads) are not among them: only the commands that
 /// judge that route report those.
 fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
     let mut reports = crate::DiagnosticReports {

@@ -359,7 +359,7 @@ pub(super) fn judge(
     context: krs_k_rust::ConfigurationContext,
     visit: Option<super::LoadVisit<'_>>,
     timings: &mut krs_ir::measure::Timings,
-) -> Result<(), CommandError> {
+) -> Result<Vec<krs_exec::skipped_operand::SkippedOperand>, CommandError> {
     let definition = prepared.lowered.definition();
     let result = std::thread::scope(|scope| {
         std::thread::Builder::new()
@@ -372,6 +372,11 @@ pub(super) fn judge(
                 if let Some(visit) = visit {
                     visit(&mut semantics);
                 }
+                // The skipped-operand lint reads the definition the run commands load
+                // (`skipped_operand`), before the spec modules, which add no sentence of it.
+                let skipped = timings
+                    .try_span("exec.skipped_operand", |_| semantics.skipped_operands())
+                    .map_err(Failure::Exec)?;
                 let fresh = StageReuse {
                     cache: None,
                     restore: false,
@@ -379,7 +384,7 @@ pub(super) fn judge(
                 for module in semantics.spec_modules().to_vec() {
                     load_spec_stage(&mut semantics, definition, &module, fresh, timings)?;
                 }
-                Ok::<(), Failure>(())
+                Ok::<_, Failure>(skipped)
             })
             .map_err(|error| {
                 CommandError::InvalidRequest(format!("could not start the check worker: {error}"))

@@ -48,6 +48,7 @@ mod read_back;
 mod report;
 mod reversal;
 mod rules;
+pub mod skipped_operand;
 mod stage;
 mod valueless;
 mod values;
