@@ -318,7 +318,8 @@ fn flow_command(
     measurement: &mut Measurement,
 ) -> KinkOutcome {
     let corpus = paths.corpus;
-    let spelling = spelling::KrsSpelling::new(request);
+    let spelling = spelling::KrsSpelling::new(request)
+        .with_own_mutations(layout_files(corpus, Verb::Run).mutations);
     let command = match flow_arguments(corpus, verb, options, request.locked)
         .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
     {

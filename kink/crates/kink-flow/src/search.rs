@@ -3459,6 +3459,18 @@ fn finish(
     row.entry("unusable_killer").or_insert(Value::Null);
     row.entry("weakening").or_insert(Value::Null);
     row.entry("killed_by").or_insert(Value::Null);
+    // An `equivalent` mutant denotes the specification's theory (every edited equation keeps its
+    // axiom, `valid-condition`, or it compiles to the baseline's definition,
+    // `equivalent-compilation`), so every claim of the specification holds of it: it withdraws
+    // none, whatever the edit's scope would withdraw from another edit.
+    if row.get("status").and_then(Value::as_str) == Some("equivalent")
+        && row.contains_key("removed_claims")
+    {
+        row.insert(
+            "removed_claims".into(),
+            json!({"removed": [], "unsupported": []}),
+        );
+    }
     let action = action(
         row["status"].as_str().unwrap_or_default(),
         row["reason"].as_str(),

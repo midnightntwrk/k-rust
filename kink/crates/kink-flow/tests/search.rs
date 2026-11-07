@@ -698,7 +698,7 @@ note = "right-hand side"
     /// main module does not import, is loaded with its rules, outside the main module's import
     /// closure. Compilation never emits them, so an edit of one compiles equal to the baseline and is
     /// `equivalent` (`equivalent-compilation`), with no typing diagnostic (compilation's view says
-    /// nothing outside the closure). An edit that does not parse is `edited-load-failed`. The main
+    /// nothing outside the closure) and no withdrawn claim. An edit that does not parse is `edited-load-failed`. The main
     /// module's rule is a control.
     #[test]
     #[ignore = "kink"]
@@ -735,10 +735,17 @@ note = "right-hand side"
             ]),
             "{document:#}"
         );
+        // An equivalent mutant is the specification's theory, so it withdraws no claim, though
+        // `sfr2-edit` edits an equation of the `total` function `sf`.
         for id in ["srule-edit", "sfr2-edit"] {
             let row = mutation(&document, id);
             assert_eq!(row["reason"], "equivalent-compilation", "{id}");
             assert_eq!(row["typing_diagnostics"], json!([]), "{id}");
+            assert_eq!(
+                row["removed_claims"],
+                json!({"removed": [], "unsupported": []}),
+                "{id}: {row:#}"
+            );
         }
         assert_eq!(
             mutation(&document, "srule-ill")["reason"],

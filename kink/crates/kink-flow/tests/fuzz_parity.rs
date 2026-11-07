@@ -317,6 +317,7 @@ fn kink_flow_fuzz(
             Job::Kill(mutation) => FuzzJob::Kill {
                 list: &list,
                 mutation,
+                path: None,
             },
             Job::Rule(rule) => FuzzJob::Rule { rule, fired: false },
             Job::Pattern(pattern) => {

@@ -2,6 +2,7 @@
 //! reproduces the step on the same corpus.
 
 use kink_flow::{CommandSpelling, Verb};
+use std::path::{Path, PathBuf};
 
 use super::KinkRequest;
 use crate::{PackageSelector, RegistrationMode};
@@ -14,6 +15,9 @@ use crate::{PackageSelector, RegistrationMode};
 pub(crate) struct KrsSpelling {
     /// The selection options, each preceded by a space.
     selection: String,
+    /// The corpus's own mutation list, which `run` reads without `--mutations` (and keeps its
+    /// killer record for); `None` when not known.
+    own_mutations: Option<PathBuf>,
 }
 
 impl KrsSpelling {
@@ -72,7 +76,17 @@ impl KrsSpelling {
             selection.push(' ');
             selection.push_str(&shell_word(word));
         }
-        Self { selection }
+        Self {
+            selection,
+            own_mutations: None,
+        }
+    }
+
+    /// The spelling, knowing the corpus's own mutation list `path`, which a `run` of that list
+    /// reads without naming it ([`CommandSpelling::run_list`]).
+    pub(crate) fn with_own_mutations(mut self, path: Option<PathBuf>) -> Self {
+        self.own_mutations = path;
+        self
     }
 
     /// The command that writes `kink/definition.k`.
@@ -84,6 +98,24 @@ impl KrsSpelling {
 impl CommandSpelling for KrsSpelling {
     fn command(&self, verb: Verb) -> String {
         format!("krs kink {}{}", verb.as_str(), self.selection)
+    }
+
+    /// `krs kink run` with `--mutations` unless `mutations` is the corpus's own list, which a run
+    /// reads by default and keeps the killer record of.
+    fn run_list(&self, mutations: &Path, cache: Option<&Path>) -> String {
+        let named = if self.own_mutations.as_deref() == Some(mutations) {
+            String::new()
+        } else {
+            format!(
+                " --mutations {}",
+                shell_word(&mutations.display().to_string())
+            )
+        };
+        format!(
+            "{}{named}{}",
+            self.command(Verb::Run),
+            kink_flow::cli::cache_option(cache)
+        )
     }
 }
 

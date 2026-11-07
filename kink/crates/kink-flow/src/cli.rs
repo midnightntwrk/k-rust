@@ -73,7 +73,7 @@ macro_rules! usage_line {
          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
          | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
-         [--stack-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
+         [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
          [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
          <topic>.toml files; --help (or -h), anywhere, prints the loop, the mutation format and \
          the exit statuses"
@@ -296,6 +296,25 @@ impl VerbOption {
     }
 }
 
+/// The usage error of a command-line argument no parser takes: `invalid option '--bogus'` for one
+/// that begins with `-`, `unexpected argument 'x'` otherwise, as krs words both, so that one
+/// error reads the same from `kink-flow`, `krs` and `krs kink`.
+#[must_use]
+pub fn unexpected_argument(arg: &str) -> String {
+    if arg.starts_with('-') {
+        format!("invalid option '{arg}'")
+    } else {
+        format!("unexpected argument '{arg}'")
+    }
+}
+
+/// The usage error of an option given again: each parser refuses a flag no table of its verb
+/// lists first ([`listed`]), so a listed flag that no arm takes is one whose value or switch an
+/// earlier occurrence already set, worded as krs words it.
+fn repeated(arg: &str) -> String {
+    format!("{arg} specified more than once")
+}
+
 /// Refuse `arg`, read where an option begins, unless it is the flag of one of `verb`'s options
 /// ([`Verb::options`]). Each option parser calls it first, so a flag its table does not list is
 /// refused before any arm that would accept it: the verb's help, which prints the table, lists
@@ -304,7 +323,7 @@ fn listed(verb: Verb, arg: &str) -> Result<(), String> {
     if verb.options().iter().any(|option| option.flag() == arg) {
         Ok(())
     } else {
-        Err(format!("unexpected argument {arg:?}"))
+        Err(unexpected_argument(arg))
     }
 }
 
@@ -440,6 +459,11 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
          25)",
     ),
     option(
+        "--open-stops N",
+        "with --kill, end the search after N cases in a row whose mutant run ends holding a term \
+         not shown to exist (not-ceil-free; default: 25)",
+    ),
+    option(
         "--assume-joined NAME",
         "read this critical-pair finding as joined, for this command (repeatable)",
     ),
@@ -566,8 +590,9 @@ impl Verb {
                 "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
                  MUTATIONS | --matched RULE | --fired RULE | --pattern ID --patterns \
                  PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] \
-                 [--time-limit-ms T] [--stack-stops N] [--assume-joined NAME]... [--one-path] \
-                 [--cache DIR] [--no-confirm] [--no-filter]"
+                 [--time-limit-ms T] [--stack-stops N] [--open-stops N] \
+                 [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
+                 [--no-filter]"
             }
         }
     }
@@ -592,7 +617,13 @@ impl Verb {
                 "The last run's stored document (or its verdicts), as that run printed it."
             }
             Self::Query => {
-                "Whether each program reaches a state that matches each pattern of the list."
+                "Whether each program reaches a state that matches each pattern of the list. \
+                 PATTERNS.toml holds [[pattern]] tables, each an `id`, a `pattern` written as a \
+                 rule's left-hand side (pattern = \"<k> s ( s ( zero ) ) ~> _ </k>\") and \
+                 optionally `programs`, the programs claimed to hit it. Each row of a pattern and \
+                 a program is `hit` (a run reaches a matching state, shown), `no` (no run does: \
+                 the program's whole state space was explored within the budget, so a claim of it \
+                 is refuted) or `unknown` with its cause (a bounded or open run is never `no`)."
             }
             Self::Fuzz => {
                 "Hole values of a template whose program is a witness of the job: it kills a \
@@ -685,6 +716,42 @@ pub trait CommandSpelling: Sync {
     fn verb(&self, verb: Verb) -> String {
         self.command(verb)
     }
+
+    /// The command that runs `run` on this corpus over the mutation list at `mutations`, with the
+    /// cache directory `cache` when one was named, so that the run judges the list another
+    /// command (`fuzz --kill`) read and writes the document that command reads. By default
+    /// [`Self::command`] of `run` with `--mutations` and `--cache`.
+    fn run_list(&self, mutations: &Path, cache: Option<&Path>) -> String {
+        format!(
+            "{} --mutations {}{}",
+            self.command(Verb::Run),
+            shell_word(&mutations.display().to_string()),
+            cache_option(cache)
+        )
+    }
+}
+
+/// ` --cache DIR` for a named cache directory, empty otherwise.
+#[must_use]
+pub fn cache_option(cache: Option<&Path>) -> String {
+    cache.map_or_else(String::new, |cache| {
+        format!(" --cache {}", shell_word(&cache.display().to_string()))
+    })
+}
+
+/// `word` as a shell reads it back: unchanged when it has no character a shell treats
+/// specially, single-quoted otherwise.
+#[must_use]
+pub fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@+,%".contains(c));
+    if plain {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
 }
 
 /// kink-flow's own spelling: `kink-flow <verb>` with the verb's operands ([`Verb::operands`]),
@@ -699,6 +766,15 @@ impl CommandSpelling for KinkFlowSpelling {
 
     fn verb(&self, verb: Verb) -> String {
         format!("kink-flow {}", verb.as_str())
+    }
+
+    /// `kink-flow run FLOW.toml MUTATIONS`, the list given as `run`'s operand.
+    fn run_list(&self, mutations: &Path, cache: Option<&Path>) -> String {
+        format!(
+            "kink-flow run FLOW.toml {}{}",
+            shell_word(&mutations.display().to_string()),
+            cache_option(cache)
+        )
     }
 }
 
@@ -1369,9 +1445,10 @@ pub fn query_status(document: &Value) -> u8 {
 /// (`null`) or a proof that no input has one (`equivalent`: the two definitions denote one
 /// theory) answers it ([`EXIT_YES`]). A search that ran its cases and ended without a witness kink
 /// accepts (`budget`, `time-limit`, `cancelled`, `domain-exhausted`, `client-refused`,
-/// `unconfirmed`, `assembly-mismatch`, `stack-stops`) leaves the job's own question, whether some input
-/// witnesses it, without an answer ([`EXIT_UNANSWERED`]): the caller retries with more cases or
-/// time, or with other holes or another template; `domain-exhausted` answers only that this
+/// `unconfirmed`, `assembly-mismatch`, `stack-stops`, `open-stops`) leaves the job's own
+/// question, whether some input witnesses it, without an answer ([`EXIT_UNANSWERED`]): the
+/// caller retries with more cases or time, or with other holes or another template;
+/// `domain-exhausted` answers only that this
 /// template's holes hold none. A job refused before any case (`refused`, `not-comparable`), a
 /// campaign that `aborted`, and one stopped `rejected-out`, whose generated hole values mostly do
 /// not read back or violate their sort, so that the template's holes must be fixed before cases
@@ -1383,7 +1460,7 @@ pub fn fuzz_status(document: &Value) -> u8 {
         Some("equivalent") => EXIT_YES,
         Some(
             "budget" | "time-limit" | "cancelled" | "domain-exhausted" | "client-refused"
-            | "unconfirmed" | "assembly-mismatch" | "stack-stops",
+            | "unconfirmed" | "assembly-mismatch" | "stack-stops" | "open-stops",
         ) => EXIT_UNANSWERED,
         _ => EXIT_UNASKED,
     }
@@ -1458,6 +1535,7 @@ fn fuzz_command(
                 FuzzJob::Kill {
                     list: &list,
                     mutation,
+                    path: Some(mutations),
                 },
                 &request.options,
                 front,
@@ -1532,7 +1610,7 @@ fn check_options(args: &[String]) -> Result<CheckOptions, String> {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
-            _ => return Err(format!("unexpected argument {arg:?}")),
+            _ => return Err(repeated(arg)),
         }
     }
     Ok(options)
@@ -1564,7 +1642,7 @@ fn results_options(args: &[String]) -> Result<(ResultsOptions, OutputFormat), St
                 let list = args.next().ok_or("--mutations needs a file or directory")?;
                 options.mutations = Some(PathBuf::from(list));
             }
-            _ => return Err(format!("unexpected argument {arg:?}")),
+            _ => return Err(repeated(arg)),
         }
     }
     Ok((options, output.unwrap_or_default()))
@@ -1613,7 +1691,7 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
                 options.lock = Some(PathBuf::from(file));
             }
             "--locked" if !options.locked => options.locked = true,
-            _ => return Err(format!("unexpected argument {arg:?}")),
+            _ => return Err(repeated(arg)),
         }
     }
     if options.locked && options.lock.is_none() {
@@ -1639,7 +1717,7 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
-            _ => return Err(format!("unexpected argument {arg:?}")),
+            _ => return Err(repeated(arg)),
         }
     }
     Ok(options)
@@ -1685,6 +1763,7 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     let (mut rule, mut pattern, mut patterns, mut fired) = (None, None, None, false);
     let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
     let mut stack_stops = None;
+    let mut open_stops = None;
     let (mut one_path, mut no_confirm, mut no_filter) = (false, false, false);
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -1769,6 +1848,13 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
                 }
                 stack_stops = Some(count);
             }
+            "--open-stops" if open_stops.is_none() => {
+                let count = number("--open-stops", args.next())?;
+                if count == 0 {
+                    return Err("--open-stops 0: give at least one case".into());
+                }
+                open_stops = Some(count);
+            }
             "--assume-joined" => {
                 let name = args
                     .next()
@@ -1787,7 +1873,14 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
-            _ => return Err(format!("unexpected argument {arg:?}")),
+            "--cases" | "--work" => {
+                return Err(
+                    "--cases and --work each set the campaign's one budget: give one of \
+                            them, once"
+                        .into(),
+                );
+            }
+            _ => return Err(repeated(arg)),
         }
     }
     let template = template.ok_or("give --template ID")?;
@@ -1846,6 +1939,9 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     if let Some(count) = stack_stops {
         options.stack_stops = count;
     }
+    if let Some(count) = open_stops {
+        options.open_stops = count;
+    }
     if one_path {
         options.paths = k_rust_fuzz::PathMode::OnePath;
     }
@@ -1868,7 +1964,7 @@ fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), Stri
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
-            _ => return Err(format!("unexpected argument {arg:?}")),
+            _ => return Err(repeated(arg)),
         }
     }
     Ok((options, output.unwrap_or_default()))
@@ -2464,5 +2560,36 @@ mod tests {
             };
             assert_eq!(error.as_deref(), Some("unexpected argument \"--unlisted\""));
         }
+    }
+
+    /// A listed option given twice is refused as a repetition, never as an option the verb does
+    /// not take; `--cases` and `--work` set one budget, so either after the other is refused for
+    /// that.
+    #[test]
+    fn a_repeated_option_is_refused_as_given_more_than_once() {
+        let twice = ["--cache", "a", "--cache", "b"].map(str::to_owned);
+        for verb in Verb::ALL {
+            let error = match verb {
+                Verb::Check => check_options(&twice).err(),
+                Verb::Results => results_options(&twice).err(),
+                Verb::Run => run_options(&twice).err(),
+                Verb::Report => report_options(&twice).err(),
+                Verb::Query => query_options(&twice).err(),
+                Verb::Fuzz => fuzz_options(&twice, &CommandFiles::default()).err(),
+            };
+            assert_eq!(
+                error.as_deref(),
+                Some("--cache specified more than once"),
+                "{}",
+                verb.as_str()
+            );
+        }
+        let budgets = ["--cases", "5", "--work", "9"].map(str::to_owned);
+        assert_eq!(
+            fuzz_options(&budgets, &CommandFiles::default())
+                .err()
+                .as_deref(),
+            Some("--cases and --work each set the campaign's one budget: give one of them, once")
+        );
     }
 }

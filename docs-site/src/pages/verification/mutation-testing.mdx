@@ -288,7 +288,7 @@ kink-flow's README states each, in ["`MUTATIONS.toml`"](https://github.com/midni
 | `killed` | some case's result differs on the mutant | nothing | 0 |
 | `survived` | every case ran to a comparable result and agreed | write a case that reaches the edited rule and whose result the edit changes (the row's `witnesses` are the cases whose coverage reaches a rule the mutation edits, whatever the mutant then does; a definedness claim kink drops from the mutant, such as `plus`'s `total` in `removed_claims`, adds none through coverage; an edit of an equation's pattern or of one of its attributes is witnessed by every case, and `witnesses_global` says so, since a changed pattern can match terms no case's run tried), or argue that no case can kill it, which leaves it `survived` | 0 |
 | `equivalent` | kink shows the mutant to be the specification: it compiles to the specification's own executable definition, or each edit only adds to an equation's `requires` a condition that holds of every value, such as `isNat ( N:Nat )` (reason `valid-condition`) | drop or change the mutation | 0 |
-| `unkillable` | the edit only weakens the specification: it deletes equations, or narrows an equation's pattern or `requires`, such as `plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )` for `plus_succ` | nothing is run; to test the misunderstanding, write what it gives on the inputs the narrowed equation no longer covers, as a replacement | 0 |
+| `unkillable` | the edit only weakens the specification: it deletes equations, or narrows an equation's pattern or `requires`, such as `plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )` for `plus_succ`; narrowing a rewrite rule is no weakening, since a configuration no rule rewrites is an end, so such a mutation runs and can be killed | nothing is run; to test the misunderstanding, write what it gives on the inputs the narrowed equation no longer covers, as a replacement | 0 |
 | `invalid-mutation` | the mutation does not resolve, or krs refuses it (in `check`'s document, `outcome` `refused`) | `check` names the reason and the next step | 2 |
 | `not-admitted` | kink cannot judge the mutant: it does not compile, or its equations are inconsistent (`inconsistent-mutant`) | fix the edit | 2 |
 | `unknown` | no case killed it, and some case's result on the mutant could not be judged | read the `cause` of each case's outcome, `mutations[].executed[].cause` in the JSON document ([Unknowns and budgets](#unknowns-and-budgets)) | 3 |
@@ -321,13 +321,16 @@ A run over `refused.toml` judges nothing and exits 2:
   When the mutant ends on some input that reaches the edit, as one that forgets to decrease its argument on one branch only does, write a case of that input, which kills the mutant when its end differs from the specification's.
   When it recurses without end on every input that reaches the edit, no case kills it: write the misunderstanding as a mutant that ends, or drop the mutation.
   The mutation's `reason` is then `stack-stop`, and its `action` says the same.
-  `krs kink fuzz` on such a mutation warns `stack-stop` before any case and ends its search after 25 cases in a row that stopped for lack of stack (`--stack-stops`), with the same advice, never a larger budget.
+  `krs kink fuzz` on such a mutation warns `stack-stop` before any case, when the last run judged it, and ends its search after 25 cases in a row that stopped for lack of stack (`--stack-stops`), with the same advice, never a larger budget.
 - **An end that holds an unevaluated call.**
   When a case's run under the mutant ends with an application of a function the mutation edits that no equation of the mutant evaluates, the case's `cause` names that application with its arguments, `plus ( s(zero) , zero )` for example, and when every case the mutant left undecided is undecided only by such applications, each end of its run that kink cannot compare holding one, the mutation's `reason` is `open-application`, whether the case ran or its outcome came from the cache.
   The end is no value, so kink cannot compare it.
   When the edit leaves the function's value open on every input that reaches it, as an edit that only narrows the equation does, no case kills it: write the misunderstanding as a replacement, an equation whose result differs, or drop the mutation.
+  The case's `cause` leads with the application, before the census of the run's ends.
+  `krs kink fuzz` on such a mutation warns `open-application` before any case, when the last run judged it, and ends its search after 25 cases in a row whose mutant run ends holding such a term (`--open-stops`), with the same advice, never a larger budget.
 - **A mutant that only narrows an equation.**
   A mutation that replaces an equation by an instance of itself, a narrower pattern or `requires` with the same result on every input it still covers, only weakens the specification, as deleting an equation does: every result the mutant computes is the specification's, and an application outside the narrowed pattern stays unevaluated.
+  Narrowing a rewrite rule is no weakening: a configuration the narrowed rule no longer rewrites is an end of the mutant, which differs from the specification's end there, so such a mutation runs and a case that reaches the configuration kills it.
   kink classifies such a mutation as `unkillable` and runs nothing, as it does a deletion: on the story, `replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )"` for `plus_succ` is one.
   It reads the sort of each variable the narrower pattern instantiates from the rule as K loads it, the sort written for it (`N:Nat` here) or the one K infers, so the same replacement written without sorts, `plus ( s ( M ) , s ( N ) ) => s ( plus ( M , s ( N ) ) )`, loads to the same mutant and is `unkillable` too.
   A narrowing it cannot read runs: a guard rewritten into a narrower one, or a wildcard given another sort.
@@ -357,7 +360,8 @@ A run over `refused.toml` judges nothing and exits 2:
 A template is a case of the corpus with some of its literals marked as holes.
 Build it on one of the survivor's `witnesses`, the cases whose coverage reaches a rule the mutation edits; `fuzz` warns when the template's case is not one of them.
 A mutation kink decides from its edit alone, `unkillable` or `equivalent` with reason `valid-condition`, is refused before any case and exits 2, with the row's action: no case can change a fact of the axioms.
-An edit of an equation's pattern or of one of its attributes is witnessed by every case (`witnesses_global`), since a changed pattern can match terms no case's run tried, so every case is then a witness by default and not by what it reaches: `fuzz` warns `global-witnesses`, and a template built on a case that reaches the edited equation, one that `krs kink results` lists in the equation's `matched_by`, is the better start.
+An edit of an equation's pattern or of one of its attributes is witnessed by every case (`witnesses_global`), since a changed pattern can match terms no case's run tried, so every case is then a witness by default and not by what it reaches: a template built on a case that reaches the edited equation, one that `krs kink results` lists in the equation's `matched_by`, is the better start, and `fuzz` warns `global-witnesses` when the template's case is not one.
+`fuzz` reads these facts from the last run of the mutation's list, in the same cache; when that run judged another list it warns `last-run-without-mutation` and names the run to make.
 On the introduction's corpus, the default `kink/` with its four cases, the witnesses of `survivors/one` are `t3` and `t4`, the cases that apply `plus_succ`, and the guide's `TEMPLATES.toml` makes the second argument of `t4` a hole:
 
 ```toml
@@ -375,6 +379,18 @@ A hole of `Nat`, the sort the cases are written in, is refused unless it says `a
 ```
 
 `krs kink query` checks whether each case reaches a pattern of interest.
+`kink/PATTERNS.toml` writes each pattern as a rule's left-hand side, with the cases claimed to reach it:
+
+```toml
+[[pattern]]
+id = "three"
+pattern = "<k> s ( s ( s ( zero ) ) ) ~> _ </k>"
+programs = ["t4"]
+```
+
+Each row of a pattern and a case is `hit`, with a reached state that matches, `no` or `unknown` with its cause.
+`no` says that no run of the case reaches a matching state: kink explored the case's whole state space within the budget, with no solver answer left undecided; when the case is among the pattern's `programs`, the claim is refuted and `krs kink query` exits 1.
+A run cut by a bound, or one that leaves a value open, is `unknown`, never `no`.
 The [fuzzing guide](/k-rust/fuzzing) teaches templates and holes at the K level, and kink-flow's README, ["Killing a survivor with `fuzz`"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#killing-a-survivor-with-fuzz), states every option.
 
 ## Why mutations are K patches, not Rust edits

@@ -2309,6 +2309,43 @@ fn parse_kink_verb(
     kink_request(options, corpus, locked, check, &verb, rest)
 }
 
+/// The first argument of `args`, the arguments of `krs kink VERB` that are not krs's own, that
+/// begins with `-` and is no option `verb` takes: kink-flow's options of the verb, and the flag by
+/// which krs names the list the verb takes as an operand (`run --mutations`, `query --patterns`,
+/// `fuzz --templates`). The value of an option that takes one is skipped.
+#[cfg(feature = "kink")]
+fn unlisted_option(verb: kink_flow::Verb, args: &[String]) -> Option<&str> {
+    let operand = match verb {
+        kink_flow::Verb::Run => Some("--mutations"),
+        kink_flow::Verb::Query => Some("--patterns"),
+        kink_flow::Verb::Fuzz => Some("--templates"),
+        kink_flow::Verb::Check | kink_flow::Verb::Results | kink_flow::Verb::Report => None,
+    };
+    let mut args = args.iter();
+    while let Some(argument) = args.next() {
+        if !argument.starts_with('-') {
+            continue;
+        }
+        if Some(argument.as_str()) == operand {
+            args.next();
+            continue;
+        }
+        match verb
+            .options()
+            .iter()
+            .find(|option| option.flag() == argument)
+        {
+            Some(option) => {
+                if option.spelling.contains(' ') {
+                    args.next();
+                }
+            }
+            None => return Some(argument),
+        }
+    }
+    None
+}
+
 /// The request of `krs kink VERB` with the options `parse_kink` read, and `rest`, the
 /// arguments that are not krs's.
 #[cfg(feature = "kink")]
@@ -2341,6 +2378,12 @@ fn kink_request(
                  stored run; emit --check fails on a stale definition.k"
                     .into(),
             ));
+        }
+        // An option the verb does not take is the first thing wrong with the command line, before
+        // a missing selection: kink-flow's parser would refuse it only after the package is
+        // read.
+        if let Some(argument) = unlisted_option(verb, &rest) {
+            return Err(kink(kink_flow::cli::unexpected_argument(argument)));
         }
         krs_cli::KinkVerb::Flow {
             verb,
@@ -2805,6 +2848,21 @@ mod tests {
                 &["kink", "run", "--definition", "d"][..],
                 "missing --package",
             ),
+            // An option the verb does not take comes first, in krs's wording, before a missing
+            // selection; a value of a listed option and krs's operand flag are no option.
+            (&["kink", "run", "--bogus"][..], "invalid option '--bogus'"),
+            (
+                &[
+                    "kink",
+                    "fuzz",
+                    "--seed",
+                    "-3",
+                    "--templates",
+                    "t.toml",
+                    "--bogus",
+                ][..],
+                "invalid option '--bogus'",
+            ),
             (
                 &["kink", "--package", "p", "--definition", "d"][..],
                 "missing verb",
@@ -2817,6 +2875,10 @@ mod tests {
             parse_args(&["kink", "--help"]),
             Ok(ParseResult::KinkHelp(None))
         ));
+        assert!(
+            error(&["kink", "run", "--only", "x", "--mutations", "m.toml"])
+                .contains("missing --package")
+        );
         // After a verb it is the verb's help.
         assert!(matches!(
             parse_args(&["kink", "--package", "p", "fuzz", "--template", "t", "-h"]),

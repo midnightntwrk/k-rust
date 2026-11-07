@@ -218,7 +218,8 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// comparable program took the stop rule's step; 31 since a lock compared with its rendering
 /// names the first line in which the file differs (`lock.difference`, [`crate::lock`]), and a run
 /// refused before its lock is read (a manifest or a mutation list that does not decode) carries
-/// the lock it left unwritten.
+/// the lock it left unwritten, and an `equivalent` row withdraws no claim (`removed_claims`
+/// empty), since its mutant is the specification's theory.
 pub const RUN_VERSION: u64 = 31;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
@@ -716,23 +717,32 @@ fn named_open(census: MutantCensus<'_>) -> Option<(&OpenApplication, String)> {
 /// [`census_clause`] alone.
 fn mutant_census_clause(census: MutantCensus<'_>) -> String {
     let mut clause = census_clause(census.census);
-    if let Some((open, label)) = named_open(census) {
-        let printed = census.reader.print(&open.application, HEAD_CAP);
-        let text = printed["text"].as_str().unwrap_or_default();
-        let ellipsis = if printed["truncated"] == true {
-            "..."
-        } else {
-            ""
-        };
-        clause.push_str(&format!(
-            "; its {} leaf at depth {} holds `{text}{ellipsis}`, an application of the function \
-             `{label}`, whose equations the mutation edits, that no equation of the mutant \
-             reduces: the mutant leaves its value open there",
-            kebab(&format!("{:?}", open.halt)),
-            open.depth,
-        ));
+    if let Some(open) = open_clause(census) {
+        clause.push_str("; ");
+        clause.push_str(&open);
     }
     clause
+}
+
+/// The clause of [`mutant_census_clause`] that names the open application ([`named_open`]):
+/// `its stuck leaf at depth 0 holds `plus ( s(zero) , zero )`, an application of the function
+/// `plus`, ...: the mutant leaves its value open there`; `None` when none is named.
+fn open_clause(census: MutantCensus<'_>) -> Option<String> {
+    let (open, label) = named_open(census)?;
+    let printed = census.reader.print(&open.application, HEAD_CAP);
+    let text = printed["text"].as_str().unwrap_or_default();
+    let ellipsis = if printed["truncated"] == true {
+        "..."
+    } else {
+        ""
+    };
+    Some(format!(
+        "its {} leaf at depth {} holds `{text}{ellipsis}`, an application of the function \
+         `{label}`, whose equations the mutation edits, that no equation of the mutant reduces: \
+         the mutant leaves its value open there",
+        kebab(&format!("{:?}", open.halt)),
+        open.depth,
+    ))
 }
 
 /// Whether some compared slot of the mutant's run is `unknown` or `timeout` for a reason of its
@@ -849,6 +859,12 @@ pub fn executed_cause(
                 Some(SideRun::Sides { sides }) => sides.as_slice(),
                 _ => &[],
             };
+            // The open application the mutant's run ends holding, when one is named: the cause
+            // leads with it, and a slot it leaves undecided needs no list of every other way a
+            // run can end short of a value, which the census still shows.
+            let open = census
+                .filter(|_| incomplete(sides, across))
+                .and_then(open_clause);
             // Slots with the same cause are named together: `exit-stop, whole-term: <cause>`.
             let mut groups: Vec<(Vec<&str>, String)> = Vec::new();
             // An unknown or timed-out side: the census tells a depth bound from an undecided end.
@@ -873,7 +889,12 @@ pub fn executed_cause(
                     })
                 });
                 let cause = cross.map_or_else(
-                    || slot_cause(*outcome, sides.get(slot), budget),
+                    || match (sides.get(slot), &open) {
+                        (Some(OracleSide::Unknown), Some(_)) => {
+                            "the mutant's run did not end in a value kink can compare".to_owned()
+                        }
+                        (side, _) => slot_cause(*outcome, side, budget),
+                    },
                     cross_cause,
                 );
                 match groups.iter_mut().find(|(_, existing)| *existing == cause) {
@@ -886,11 +907,17 @@ pub fn executed_cause(
                 .map(|(names, cause)| format!("{}: {cause}", names.join(", ")))
                 .collect::<Vec<_>>()
                 .join("; ");
+            if let Some(open) = &open {
+                cause = format!("{open}; {cause}");
+            }
             if let (true, Some(census)) = (incomplete(sides, across), census) {
-                cause.push_str(&format!(
-                    "; the mutant's run: {}",
+                // With the open application named first, the census follows without it.
+                let clause = if open.is_some() {
+                    census_clause(census.census)
+                } else {
                     mutant_census_clause(census)
-                ));
+                };
+                cause.push_str(&format!("; the mutant's run: {clause}"));
             }
             Some(cause)
         }

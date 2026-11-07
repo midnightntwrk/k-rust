@@ -80,7 +80,12 @@
 //! stack: after `--stack-stops N` such cases in a row (default [`DEFAULT_STACK_STOPS`]) the search
 //! ends (`stopped: stack-stops`), with the advice of kink's `stack-stop` reason in place of a
 //! larger budget. A kill job whose mutation the last run left `unknown` with reason `stack-stop`
-//! warns so before any case (`stack-stop`).
+//! warns so before any case (`stack-stop`). Of a kill job, a case whose mutant run ends holding a
+//! term not shown to exist (`not-ceil-free`: an application the mutant leaves open) judges nothing
+//! either, whatever the budget: after `--open-stops N` such cases in a row (default
+//! [`DEFAULT_OPEN_STOPS`]) the search ends (`stopped: open-stops`), with the advice of kink's
+//! `open-application` reason, and a mutation the last run left `unknown` with that reason is
+//! warned before any case (`open-application`). Each stop is a count of cases, never a clock.
 //!
 //! **Output.** One document ([`FUZZ_SCHEMA`]): the fuzz report of the attempt, the candidate (the
 //! shrunk witness case, else the first), and the `[[program]]` fragment, printed, never written.
@@ -182,8 +187,13 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// consecutive cases that stopped for lack of native stack), the warning `stack-stop` (the last
 /// run's reason for the mutation) and the warning `not-ceil-free` (each function the campaign's
 /// report names as held unevaluated in a leaf it could not judge).
+/// Version 10 adds the `stopped` value `open-stops` (`--open-stops N` consecutive cases of a kill
+/// job whose mutant run ends holding a term not shown to exist), the warnings `open-application`
+/// (the last run's reason for the mutation) and `last-run-without-mutation` (the last run has no
+/// row for it), gives `global-witnesses` only where the template's own program does not reach an
+/// edited rule, and names the kill job's list and cache in every next step that runs `run`.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 9;
+pub const FUZZ_VERSION: u32 = 10;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -199,6 +209,15 @@ pub const DEFAULT_MAX_WORK: u64 = 100_000;
 /// The stop ends a search and decides no verdict: a search it ends has found no witness, as one
 /// the budget ends.
 pub const DEFAULT_STACK_STOPS: u64 = 25;
+/// How many consecutive cases of a kill job whose mutant run ends holding a term not shown to
+/// exist end the search when `--open-stops` is not given ([`FuzzOptions::open_stops`]). Such a
+/// case is unjudged (k-rust-fuzz's `not-ceil-free`): where the mutant leaves an edited function's
+/// value open (kink's reason `open-application`), every case that reaches the application ends so,
+/// whatever the budget, and no case of them can be a witness. The count is the stack stop's, by
+/// the same argument ([`DEFAULT_STACK_STOPS`]): 25 cases in a row none of which could be a witness
+/// are as many as a template that can kill needed in the guide's trials. The stop ends a search
+/// and decides no verdict.
+pub const DEFAULT_OPEN_STOPS: u64 = 25;
 
 // ---------------------------------------------------------------------------------------------
 // TEMPLATES.toml
@@ -501,6 +520,35 @@ fn template_hole(
 // The kill job
 // ---------------------------------------------------------------------------------------------
 
+/// A front end's spelling with `run` replaced by the run of one mutation list and cache
+/// ([`CommandSpelling::run_list`]).
+struct ListRun<'a> {
+    inner: &'a dyn CommandSpelling,
+    run: String,
+}
+
+impl CommandSpelling for ListRun<'_> {
+    fn command(&self, verb: Verb) -> String {
+        if verb == Verb::Run {
+            self.run.clone()
+        } else {
+            self.inner.command(verb)
+        }
+    }
+
+    fn verb(&self, verb: Verb) -> String {
+        if verb == Verb::Run {
+            self.run.clone()
+        } else {
+            self.inner.verb(verb)
+        }
+    }
+
+    fn run_list(&self, mutations: &Path, cache: Option<&Path>) -> String {
+        self.inner.run_list(mutations, cache)
+    }
+}
+
 /// Options of `kink-flow fuzz` (module docs, "Budgets").
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FuzzOptions {
@@ -528,6 +576,10 @@ pub struct FuzzOptions {
     /// `--stack-stops N`: how many consecutive cases that stopped for lack of native stack end
     /// the search (`stopped: stack-stops`); at least 1. Default [`DEFAULT_STACK_STOPS`].
     pub stack_stops: u64,
+    /// `--open-stops N`: of a kill job, how many consecutive cases whose mutant run ends holding
+    /// a term not shown to exist (not-ceil-free) end the search (`stopped: open-stops`); at least
+    /// 1. Default [`DEFAULT_OPEN_STOPS`].
+    pub open_stops: u64,
 }
 
 impl Default for FuzzOptions {
@@ -543,6 +595,7 @@ impl Default for FuzzOptions {
             confirm: false,
             filter: true,
             stack_stops: DEFAULT_STACK_STOPS,
+            open_stops: DEFAULT_OPEN_STOPS,
         }
     }
 }
@@ -933,20 +986,31 @@ fn under_watchdog<T>(
 /// The run of consecutive cases that stopped for lack of native stack, which ends the search at
 /// `limit` ([`FuzzOptions::stack_stops`]): a case is counted when it could not be judged for that
 /// reason (k-rust-fuzz's `stack-stops`, on either side), and any other case starts the run again.
+/// Of a kill job, the run of consecutive cases whose mutant run ends holding a term not shown to
+/// exist (k-rust-fuzz's `not-ceil-free`, on the mutant's side: an application the mutant leaves
+/// open, which no budget decides) ends it at its own limit ([`FuzzOptions::open_stops`]).
 struct StackStops {
     limit: u64,
     run: u64,
     /// Whether every case of the current run was `unsupported` (the mutant's run, or the only
     /// side's), not `baseline-incomplete`.
     unsupported: bool,
+    /// The not-ceil-free run of a kill job: its limit (0 for another job, which counts none),
+    /// its length, and whether every case observed so far was one.
+    open_limit: u64,
+    open_run: u64,
+    all_open: bool,
 }
 
 impl StackStops {
-    const fn new(limit: u64) -> Self {
+    const fn new(limit: u64, open_limit: u64) -> Self {
         Self {
             limit,
             run: 0,
             unsupported: true,
+            open_limit,
+            open_run: 0,
+            all_open: true,
         }
     }
 
@@ -961,7 +1025,15 @@ impl StackStops {
         } else {
             self.run = 0;
         }
-        self.ended()
+        let open = note.class == k_rust_fuzz::OutcomeClass::Unsupported
+            && note.unjudged == Some(k_rust_fuzz::exec::UnjudgedReason::NotCeilFree);
+        if open {
+            self.open_run += 1;
+        } else {
+            self.open_run = 0;
+            self.all_open = false;
+        }
+        self.ended() || self.open_ended()
     }
 
     /// Whether the run reached the limit (the observer ended the search).
@@ -969,9 +1041,44 @@ impl StackStops {
         self.limit > 0 && self.run >= self.limit
     }
 
+    /// Whether the not-ceil-free run reached its limit (the observer ended the search).
+    const fn open_ended(&self) -> bool {
+        self.open_limit > 0 && self.open_run >= self.open_limit
+    }
+
     const fn all_unsupported(&self) -> bool {
         self.unsupported
     }
+
+    /// Whether every case observed was not-ceil-free on the mutant (and some case was).
+    const fn all_open(&self) -> bool {
+        self.all_open && self.open_run > 0
+    }
+}
+
+/// The advice of a budget stop where every case's run ended holding a term not shown to exist:
+/// a kill job (`kill`) judges a case on its mutant run, while a rule or pattern job has no mutant
+/// and its one run is the template's own.
+const fn all_open_hint(kill: bool) -> &'static str {
+    if kill {
+        "Every case's mutant run ended holding a term not shown to exist (not-ceil-free), which \
+         no budget decides: rather than raising --cases or --work, choose a program or hole range \
+         whose runs do not reach that application"
+    } else {
+        "Every case's run ended holding a term not shown to exist (not-ceil-free), which no \
+         budget decides: rather than raising --cases or --work, choose a program or hole range \
+         whose runs do not reach that application"
+    }
+}
+
+/// The campaign's no-witness statement of a search kink-flow's observer ended (`flag`'s count):
+/// k-rust-fuzz words every observer stop as its caller's cancellation, which kink-flow is, so the
+/// sentence is replaced by the stop it was.
+fn observer_stopped(statement: &str, flag: &str) -> String {
+    statement.replace(
+        " The caller cancelled the campaign.",
+        &format!(" The search ended at its {flag} count."),
+    )
 }
 
 /// The `[[program]]` a witness case re-enters the corpus as, and its printed fragment.
@@ -1407,6 +1514,17 @@ fn last_run(
         .cloned()
         .unwrap_or_default();
     let Some(entry) = mutations.iter().find(|entry| entry["id"] == mutation) else {
+        // The last run judged another list (or selected other mutations): it says nothing of
+        // this mutation, so no witness is checked and no up-front warning can be given.
+        warnings.push(warning(
+            "last-run-without-mutation",
+            format!(
+                "the last run document has no row for this mutation (it judged another list or \
+                 selection), so neither its status nor its witnesses are known here: run `{}` \
+                 first",
+                spelling.command(Verb::Run)
+            ),
+        ));
         return json!({
             "found": true,
             "current": true,
@@ -1445,6 +1563,25 @@ fn last_run(
             ),
         ));
     }
+    if status == "unknown" && entry["reason"] == crate::report::OPEN_APPLICATION_REASON {
+        // Every program the last run left undecided holds an application of an edited function
+        // that no equation of the mutant reduces: a case whose run reaches it is undecided too.
+        warnings.push(warning(
+            "open-application",
+            format!(
+                "the last run left this mutation unknown with reason open-application: {}; a \
+                 case whose mutant run ends holding such an application is no witness either, so \
+                 the search ends after {} such cases in a row (--open-stops)",
+                crate::report::action_spelled(
+                    status,
+                    Some(crate::report::OPEN_APPLICATION_REASON),
+                    spelling
+                )
+                .unwrap_or_default(),
+                options.open_stops,
+            ),
+        ));
+    }
     if status == "killed" {
         warnings.push(warning(
             "already-killed",
@@ -1475,7 +1612,12 @@ fn last_run(
             ));
         }
     } else if global {
-        if crate::report::SURVIVOR_STATUSES.contains(&status) {
+        // The warning's advice is to build on a program that reaches an edited rule: a template
+        // whose own program's baseline coverage matches one already does.
+        let reaches = template_id.is_some_and(|id| {
+            template_reaches(manifest, spec, inputs, options, id, &entry["rules"])
+        });
+        if crate::report::SURVIVOR_STATUSES.contains(&status) && !reaches {
             warnings.push(warning(
                 "global-witnesses",
                 "the mutant's compiled edit is not confined to what its edited rules do once \
@@ -1532,9 +1674,12 @@ fn last_run(
 #[derive(Clone, Copy, Debug)]
 pub enum FuzzJob<'a> {
     /// `--kill MUTATION --mutations MUTATIONS.toml`: hole values whose program kills the mutation.
+    /// `path` is where the list was read from, which a next step that runs `run` names, so that
+    /// the run judges this list; `None` for a list that is no file.
     Kill {
         list: &'a MutationList,
         mutation: &'a str,
+        path: Option<&'a Path>,
     },
     /// `--matched RULE` (`fired` false) or `--fired RULE`: hole values whose program's all-paths
     /// baseline run is comparable and matches the rule (begins to decide its condition: a rule's
@@ -1557,6 +1702,53 @@ impl FuzzJob<'_> {
     }
 }
 
+/// Whether the corpus program `id`'s current result record (its baseline run, read from the cache
+/// without running anything) is `comparable` and matched a sentence of `rules`, a run row's
+/// edited rules (`{module, index, ...}`): its coverage's `sentences`, k-rust's `matched`, the
+/// predicate the `results` document's `matched_by` lists, which counts comparable records only.
+/// False without a record or rules, or for a record of another class.
+fn template_reaches(
+    manifest: &FlowManifest,
+    spec: &AdmittedSpec,
+    inputs: &InputSession<'_>,
+    options: &FuzzOptions,
+    id: &str,
+    rules: &Value,
+) -> bool {
+    let Some(program) = manifest.programs.iter().find(|program| program.id == id) else {
+        return false;
+    };
+    let edited = rules
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|rule| Some((rule["module"].as_str()?, rule["index"].as_u64()?)))
+        .collect::<BTreeSet<_>>();
+    if edited.is_empty() {
+        return false;
+    }
+    let cache = crate::results::cache_directory(manifest, options.cache.as_deref());
+    let execution = crate::digest::execution_digest(manifest, spec);
+    let Some(record) = inputs.read(program).ok().and_then(|case| {
+        crate::results::current_record(manifest, execution, program, &case, &cache)
+    }) else {
+        return false;
+    };
+    if record["class"] != crate::results::ResultClass::Comparable.as_str() {
+        return false;
+    }
+    record["coverage"]["sentences"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|sentence| {
+            sentence["module"]
+                .as_str()
+                .zip(sentence["index"].as_u64())
+                .is_some_and(|at| edited.contains(&at))
+        })
+}
+
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations
 /// MUTATIONS.toml`: the document and whether the job was done (a witness, or none within the
 /// budget or the time limit); `false` when an input, the template or the mutation is refused, the
@@ -1573,7 +1765,11 @@ pub fn kill(
         manifest,
         templates,
         template,
-        FuzzJob::Kill { list, mutation },
+        FuzzJob::Kill {
+            list,
+            mutation,
+            path: None,
+        },
         options,
     )
 }
@@ -1608,7 +1804,21 @@ pub fn fuzz_front(
     options: &FuzzOptions,
     front: &FrontEnd<'_>,
 ) -> (Value, bool) {
-    let spelling = front.spelling;
+    // A kill job's next steps that run `run` name its list and its cache: a run of another list
+    // would not judge the mutation, and one of another cache writes a document fuzz never reads.
+    let list_run = match job {
+        FuzzJob::Kill {
+            path: Some(path), ..
+        } => Some(ListRun {
+            inner: front.spelling,
+            run: front.spelling.run_list(path, options.cache.as_deref()),
+        }),
+        _ => None,
+    };
+    let spelling: &dyn CommandSpelling = match &list_run {
+        Some(list_run) => list_run,
+        None => front.spelling,
+    };
     let mut document = document();
     document["job"] = json!({
         "kind": job.kind(),
@@ -1645,7 +1855,7 @@ pub fn fuzz_front(
         return refuse(document, refusal, "name a template of TEMPLATES.toml");
     };
     let mutation_entry = match job {
-        FuzzJob::Kill { list, mutation } => {
+        FuzzJob::Kill { list, mutation, .. } => {
             let Some(entry) = list.mutations.iter().find(|m| m.id == mutation) else {
                 let refusal = Refusal::new(
                     "mutation",
@@ -2258,7 +2468,14 @@ pub fn fuzz_front(
     }
     // A case whose run stopped for lack of native stack judges nothing, and no budget bounds the
     // stack: `--stack-stops` of them in a row end the search ([`DEFAULT_STACK_STOPS`]).
-    let mut stack_stops = StackStops::new(options.stack_stops);
+    let mut stack_stops = StackStops::new(
+        options.stack_stops,
+        if matches!(job, FuzzJob::Kill { .. }) {
+            options.open_stops
+        } else {
+            0
+        },
+    );
     let (report, fired) =
         under_watchdog(options.time_limit_ms.map(Duration::from_millis), |token| {
             let filter = filter
@@ -2574,7 +2791,13 @@ pub fn fuzz_front(
             // spends `max-work` on the mutant, and the statement suggests no bound, so the action
             // points at the template and its holes instead of the budget (KINK-R4 review N5: a
             // choice of advice, not a claim that more cases cannot help).
-            let hint = if report.totals.coverage_stalled_since().is_some()
+            // Where every case's run ended holding a term not shown to exist, more cases of this
+            // template would end so too, whatever the budget. A kill job's case is judged on its
+            // mutant run; a rule or pattern job has no mutant, and its one run is the template's
+            // own.
+            let hint = if stack_stops.all_open() {
+                all_open_hint(matches!(job, FuzzJob::Kill { .. }))
+            } else if report.totals.coverage_stalled_since().is_some()
                 || report.totals.diverging.is_some()
             {
                 "Rather than raising --cases or --work, mark other literals as holes"
@@ -2616,7 +2839,26 @@ pub fn fuzz_front(
                 "no witness: the last {} cases in a row each stopped for lack of native stack \
                  (unjudged reason stack-stops), which no budget bounds, so no such case can be a \
                  witness and the search ended there (--stack-stops); {advice}. {}",
-                stack_stops.limit, no_witness.statement
+                stack_stops.limit,
+                observer_stopped(&no_witness.statement, "--stack-stops")
+            ));
+            true
+        }
+        CampaignOutcome::Cancelled { no_witness } if stack_stops.open_ended() => {
+            // The observer ended the search: the last cases' mutant runs each ended holding a term
+            // not shown to exist, which no budget decides. The advice is that of kink's
+            // `open-application` reason.
+            document["stopped"] = json!("open-stops");
+            document["action"] = json!(format!(
+                "no witness: the last {} cases in a row each ended, on the mutant, holding a term \
+                 not shown to exist (unjudged reason not-ceil-free; a warning names the function \
+                 when it is known), which no budget decides, so no such case can be a witness and \
+                 the search ended there (--open-stops); choose a program or hole range whose runs \
+                 do not reach that application, and when the edit leaves the function's value \
+                 open on every input that reaches it, no case kills it: write the \
+                 misunderstanding as a replacement whose result differs, or drop the mutation. {}",
+                stack_stops.open_limit,
+                observer_stopped(&no_witness.statement, "--open-stops")
             ));
             true
         }
@@ -3102,7 +3344,7 @@ fn confirm(
     let cache = Some(scratch.0.clone());
     let id = program.id.as_str();
     match job {
-        FuzzJob::Kill { list, mutation } => {
+        FuzzJob::Kill { list, mutation, .. } => {
             let list = MutationList {
                 mutations: list
                     .mutations
@@ -3241,5 +3483,93 @@ fn confirm(
                 },
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod streak_tests {
+    use super::*;
+    use k_rust_fuzz::{CaseNote, OutcomeClass, exec::UnjudgedReason};
+
+    fn note(class: OutcomeClass, unjudged: Option<UnjudgedReason>) -> CaseNote {
+        CaseNote {
+            case: 0,
+            class,
+            unjudged,
+        }
+    }
+
+    /// Of a kill job, `--open-stops` consecutive cases whose mutant run ends not-ceil-free end
+    /// the search, a count and never a clock; any other case starts the count again, and a
+    /// baseline-side case is not counted. Without an open limit (a rule or pattern job) none
+    /// ends it.
+    #[test]
+    fn consecutive_not_ceil_free_mutant_cases_end_a_kill_search() {
+        let open = || note(OutcomeClass::Unsupported, Some(UnjudgedReason::NotCeilFree));
+        let mut streak = StackStops::new(25, 3);
+        assert!(!streak.observe(&open()));
+        assert!(!streak.observe(&open()));
+        assert!(!streak.observe(&note(OutcomeClass::Unsupported, None)));
+        assert!(!streak.all_open());
+        assert!(!streak.observe(&open()));
+        assert!(!streak.observe(&open()));
+        assert!(!streak.observe(&note(
+            OutcomeClass::BaselineIncomplete,
+            Some(UnjudgedReason::NotCeilFree)
+        )));
+        assert!(!streak.observe(&open()));
+        assert!(!streak.observe(&open()));
+        assert!(streak.observe(&open()));
+        assert!(streak.open_ended() && !streak.ended());
+
+        let mut all = StackStops::new(25, 30);
+        for _ in 0..4 {
+            assert!(!all.observe(&open()));
+        }
+        assert!(all.all_open());
+
+        let mut rule_job = StackStops::new(25, 0);
+        for _ in 0..40 {
+            assert!(!rule_job.observe(&open()));
+        }
+    }
+
+    /// A budget stop whose every case ended holding an open application blames the mutant run
+    /// only of a kill job: a rule or pattern job has no mutant.
+    #[test]
+    fn an_open_budget_stop_names_a_mutant_run_only_of_a_kill_job() {
+        assert!(all_open_hint(true).starts_with("Every case's mutant run ended"));
+        assert!(all_open_hint(false).starts_with("Every case's run ended"));
+        assert!(!all_open_hint(false).contains("mutant"));
+    }
+
+    /// The statement of a search kink-flow's observer ended names the count that ended it, not a
+    /// caller's cancellation.
+    #[test]
+    fn an_observer_stop_is_not_called_a_cancellation() {
+        assert_eq!(
+            observer_stopped(
+                "No case witnessed it in 25 cases. The caller cancelled the campaign.",
+                "--open-stops"
+            ),
+            "No case witnessed it in 25 cases. The search ended at its --open-stops count."
+        );
+    }
+
+    /// A kill job's next steps run its own list and cache: kink-flow names the list as `run`'s
+    /// operand, a front end with `--mutations`.
+    #[test]
+    fn a_kill_jobs_run_names_its_list_and_cache() {
+        let list = ListRun {
+            inner: &crate::cli::KinkFlowSpelling,
+            run: crate::cli::KinkFlowSpelling
+                .run_list(Path::new("other/mine.toml"), Some(Path::new("my cache"))),
+        };
+        assert_eq!(
+            list.command(Verb::Run),
+            "kink-flow run FLOW.toml other/mine.toml --cache 'my cache'"
+        );
+        assert_eq!(list.verb(Verb::Run), list.command(Verb::Run));
+        assert_eq!(list.verb(Verb::Check), "kink-flow check");
     }
 }

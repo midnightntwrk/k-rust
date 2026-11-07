@@ -1101,6 +1101,52 @@ note = "narrows the pattern to a nonzero second argument"
         let kinds = warning_kinds(&document);
         assert!(kinds.contains(&"global-witnesses"), "{document:#}");
         assert!(!kinds.contains(&"template-not-a-witness"), "{document:#}");
+        // The last run left `shifted` unknown with reason open-application: `fuzz` says so before
+        // any case.
+        assert!(kinds.contains(&"open-application"), "{document:#}");
+
+        // `t4`'s comparable baseline run matches `plus_succ`, so a template of `t4` already is
+        // what `global-witnesses` advises: it is not warned, though the witnesses stay global.
+        let (document, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STORY_TEMPLATES),
+            "t4-second",
+            "shifted",
+            FuzzOptions {
+                cache: Some(cache.clone()),
+                ..imp_options(1)
+            },
+        );
+        let last = &document["template"]["last_run"]["mutation"];
+        assert_eq!(last["witnesses_global"], true, "{document:#}");
+        let kinds = warning_kinds(&document);
+        assert!(!kinds.contains(&"global-witnesses"), "{document:#}");
+        assert!(!kinds.contains(&"template-not-a-witness"), "{document:#}");
+        assert!(kinds.contains(&"open-application"), "{document:#}");
+
+        // A mutation the last run did not judge (another list): its status and witnesses are
+        // unknown here, which `fuzz` says instead of checking them.
+        std::fs::write(dir.join("OTHER.toml"), STORY_MUTATIONS).unwrap();
+        let (document, _) = fuzz_kill(
+            &dir,
+            "OTHER.toml",
+            Some(STORY_TEMPLATES),
+            "t4-second",
+            "one",
+            FuzzOptions {
+                cache: Some(cache.clone()),
+                ..imp_options(1)
+            },
+        );
+        assert_eq!(
+            document["template"]["last_run"]["mutation"],
+            Value::Null,
+            "{document:#}"
+        );
+        let kinds = warning_kinds(&document);
+        assert!(kinds.contains(&"last-run-without-mutation"), "{document:#}");
+        assert!(!kinds.contains(&"global-witnesses"), "{document:#}");
     }
 
     /// What kink decides from a mutation's edit, no case can change, so `fuzz --kill` refuses it
@@ -1115,7 +1161,9 @@ note = "narrows the pattern to a nonzero second argument"
     /// row (`stopped: stack-stops`, exit 3) with the advice of the reason, never a larger budget.
     /// `shifted`'s cases whose second argument is `zero` end on an application of `plus` its
     /// equations leave open, which the campaign cannot judge (`not-ceil-free`): the document
-    /// names `plus` in a `not-ceil-free` warning, as its action says.
+    /// names `plus` in a `not-ceil-free` warning, as its action says; on a template every case of
+    /// which ends so, the search ends after `--open-stops` such cases in a row
+    /// (`stopped: open-stops`).
     #[test]
     #[ignore = "kink"]
     fn a_decided_mutation_is_refused_and_a_recursion_without_end_ends_the_search() {
@@ -1166,8 +1214,11 @@ note = "narrows the pattern to a nonzero second argument"
 "#;
         // `no-decrease` stops at the native stack's bound, a bound on work: the clock never
         // decides a run of the tests (R4-WALLCLOCK), so the budget's time is far above it.
+        // `t5`'s first argument is nonzero and its second `zero`: every `plus(s(A), zero)` its
+        // template makes ends, on `shifted`'s mutant, on an application of `plus` that no
+        // equation reduces.
         let manifest = format!(
-            "{STORY_MANIFEST}\n[budget]\n# the clock never decides a run of the tests (R4-WALLCLOCK)\ntime_ms = 600000\n"
+            "{STORY_MANIFEST}\n[[program]]\nid = \"t5\"\ntext = \"plus(s(s(zero)), zero)\"\n\n[budget]\n# the clock never decides a run of the tests (R4-WALLCLOCK)\ntime_ms = 600000\n"
         );
         let dir = scratch_flow("story-decided", "story.k", STORY_K, &manifest, mutations);
         let cache = scratch("story-decided-cache");
@@ -1221,6 +1272,12 @@ note = "narrows the pattern to a nonzero second argument"
         let isnat = row(&run, "isnat");
         assert_eq!(
             isnat["weakening"][0]["kind"], "valid-condition",
+            "{isnat:#}"
+        );
+        // The mutant is the specification's theory: it withdraws not even `plus`'s `total`.
+        assert_eq!(
+            isnat["removed_claims"],
+            serde_json::json!({"removed": [], "unsupported": []}),
             "{isnat:#}"
         );
         assert!(
@@ -1295,6 +1352,45 @@ note = "narrows the pattern to a nonzero second argument"
         assert!(action.contains("a mutant that ends"), "{action}");
         assert!(!action.contains("--cases"), "{action}");
         assert!(!action.contains("raise"), "{action}");
+        // k-rust-fuzz words the observer's stop as its caller's cancellation; the action names
+        // the count that ended the search instead.
+        assert!(
+            action.contains("The search ended at its --stack-stops count."),
+            "{action}"
+        );
+        assert!(!action.contains("cancelled"), "{action}");
+
+        // Every case of `t5-first` ends, on `shifted`'s mutant, holding an application its
+        // equations leave open: the search ends after `--open-stops` of them in a row, a count
+        // and never a clock, with the advice of the reason open-application.
+        let templates = format!(
+            "{STORY_TEMPLATES}\n[[template]]\nid = \"t5-first\"\nprogram = \"t5\"\n\n  [[template.hole]]\n  name = \"A\"\n  sort = \"Nat\"\n  find = \"plus(s(s(zero))\"\n  literal = \"s(zero)\"\n  allow-refused-sort = true\n"
+        );
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(&templates),
+            "t5-first",
+            "shifted",
+            FuzzOptions {
+                open_stops: 2,
+                ..options()
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], "open-stops", "{document:#}");
+        assert_eq!(
+            kink_flow::cli::fuzz_status(&document),
+            kink_flow::cli::EXIT_UNANSWERED
+        );
+        assert_eq!(totals(&document)["cases"], 2, "{document:#}");
+        let action = document["action"].as_str().unwrap();
+        assert!(action.contains("(--open-stops)"), "{action}");
+        assert!(
+            action.contains("The search ended at its --open-stops count."),
+            "{action}"
+        );
+        assert!(!action.contains("cancelled"), "{action}");
 
         let (document, _) = fuzz_kill(
             &dir,
