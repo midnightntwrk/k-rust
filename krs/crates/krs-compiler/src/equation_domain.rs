@@ -10,8 +10,10 @@
 //! bounded equation does not apply and an unbounded one does not read the
 //! argument). Up to [`POINT_LIMIT`] such vectors, each equation's guard is
 //! evaluated on every one, which decides exactly which equations apply
-//! where. Two consumers read it: the overlap check of equations at one
-//! priority, and the coverage lint of `total` functions.
+//! where. Three consumers read it: the overlap check of equations at one
+//! priority, the coverage lint of `total` functions, and the guard families,
+//! which evaluate a `k::bits!` argument's conditions on its values through
+//! [`holding_values`].
 //!
 //! The evaluation is the builtins' definition on literals (`int_facts`),
 //! constructors as free terms, `k::matches!` (`P :=K t`) of a value as
@@ -1283,6 +1285,47 @@ pub(crate) fn render_point(head: &str, domain: &Domain<'_>, point: &[i128]) -> S
     format!("{head}({})", arguments.join(", "))
 }
 
+/// The equations of one function instance at one rank ([`equation_rank`]):
+/// the equations the overlap check of equations compares with one another,
+/// and so a family of the guard families. An `owise` equation is in the
+/// band of its own rank.
+pub(crate) struct EquationFamily<'m> {
+    pub(crate) production: &'m SemanticProduction,
+    /// The argument sorts of the instance the heads name.
+    pub(crate) columns: Vec<Sort>,
+    #[expect(dead_code, reason = "the guard families read it")]
+    pub(crate) rank: u32,
+    /// The equations, in stable-identity order.
+    pub(crate) rules: Vec<&'m SemanticRule>,
+}
+
+/// Every equation family of `modules`: by function in declaration order,
+/// then by instance, then by rank, lowest first.
+pub(crate) fn equation_families(modules: &[SemanticModule]) -> Vec<EquationFamily<'_>> {
+    let mut families = Vec::new();
+    for (production, instance, rules) in function_equations(modules) {
+        let columns = instantiate(
+            &production_argument_sorts(production),
+            production.parameters(),
+            &instance,
+        );
+        let mut ranks = BTreeMap::<u32, Vec<&SemanticRule>>::new();
+        for rule in rules {
+            ranks.entry(equation_rank(rule)).or_default().push(rule);
+        }
+        for (rank, mut rules) in ranks {
+            rules.sort_by(|left, right| left.id().cmp(right.id()));
+            families.push(EquationFamily {
+                production,
+                columns: columns.clone(),
+                rank,
+                rules,
+            });
+        }
+    }
+    families
+}
+
 /// The first overlap of two equations at one priority whose results differ.
 /// Equations at one priority that the analysis can enumerate (see the
 /// module documentation) are decided on every argument; the others pair by
@@ -1293,40 +1336,91 @@ pub(crate) fn render_point(head: &str, domain: &Domain<'_>, point: &[i128]) -> S
 pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<EquationOverlap> {
     let signature = EquationSignature::new(modules);
     let evaluator = signature.evaluator(modules);
-    for (production, instance, rules) in function_equations(modules) {
-        let columns = instantiate(
-            &production_argument_sorts(production),
-            production.parameters(),
-            &instance,
-        );
-        let mut priorities = BTreeMap::<u32, Vec<&SemanticRule>>::new();
-        for rule in rules {
-            priorities
-                .entry(equation_rank(rule))
-                .or_default()
-                .push(rule);
+    for family in equation_families(modules) {
+        let EquationFamily {
+            production,
+            columns,
+            rules,
+            ..
+        } = family;
+        if rules.len() < 2 {
+            continue;
         }
-        for (_, mut rules) in priorities {
-            if rules.len() < 2 {
-                continue;
-            }
-            rules.sort_by(|left, right| left.id().cmp(right.id()));
-            let ground = rules
-                .iter()
-                .map(|rule| equation_view(rule))
-                .collect::<Option<Vec<_>>>()
-                .ok_or(Undecided)
-                .and_then(|views| overlap_among(&evaluator, production, &columns, &views));
-            let overlap = match ground {
-                Ok(overlap) => overlap,
-                Err(Undecided) => symbolic_overlap(&signature, &evaluator, production, &rules),
-            };
-            if overlap.is_some() {
-                return overlap;
-            }
+        let ground = rules
+            .iter()
+            .map(|rule| equation_view(rule))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(Undecided)
+            .and_then(|views| overlap_among(&evaluator, production, &columns, &views));
+        let overlap = match ground {
+            Ok(overlap) => overlap,
+            Err(Undecided) => symbolic_overlap(&signature, &evaluator, production, &rules),
+        };
+        if overlap.is_some() {
+            return overlap;
         }
     }
     None
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// One question to [`holding_values`]: at which values of `binder` every
+/// one of `conjuncts` holds.
+pub(crate) struct ValueQuery<'a> {
+    pub(crate) binder: &'a SemanticId,
+    pub(crate) conjuncts: Vec<&'a SemanticTerm>,
+    /// The values asked about are `0..2^width`.
+    pub(crate) width: u32,
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// The bounded evaluation of guards at chosen values, for each query: entry
+/// `x` of the answer is whether every conjunct of the query holds with its
+/// binder at `x`, for `x` in `0..2^width`.
+///
+/// The evaluation is the analysis's own ([`Evaluator`]): builtins on
+/// literals, constructors, `k::matches!` of a value, and the definition's
+/// total functions by their equations. A conjunct holds only where it
+/// evaluates to `true`; false or undefined does not hold.
+///
+/// The bound: a query enumerates `2^width` values, and an answer exists
+/// only for at most [`POINT_LIMIT`] of them. A wider query has no answer
+/// (`None`), and neither has one with a conjunct the evaluation cannot
+/// decide at some value where no other conjunct is false (it reads another
+/// binder, calls a function the evaluation cannot apply, or overflows
+/// `i128`).
+pub(crate) fn holding_values(
+    modules: &[SemanticModule],
+    queries: &[ValueQuery<'_>],
+) -> Vec<Option<Vec<bool>>> {
+    let signature = EquationSignature::new(modules);
+    let evaluator = signature.evaluator(modules);
+    queries
+        .iter()
+        .map(|query| {
+            let count = 1_u64.checked_shl(query.width)?;
+            if count > POINT_LIMIT {
+                return None;
+            }
+            (0..count)
+                .map(|value| {
+                    let environment =
+                        Environment::from([(query.binder, Ground::Int(i128::from(value)))]);
+                    // A false conjunct decides the conjunction, whatever
+                    // the others evaluate to.
+                    let mut undecided = false;
+                    for conjunct in &query.conjuncts {
+                        match guard_holds(&evaluator, conjunct, &environment) {
+                            Some(false) => return Some(false),
+                            Some(true) => {}
+                            None => undecided = true,
+                        }
+                    }
+                    (!undecided).then_some(true)
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// The first overlap among equations at one priority, sorted by identity,

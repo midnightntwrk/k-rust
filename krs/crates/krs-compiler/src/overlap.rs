@@ -20,6 +20,15 @@
 //! List, Set and K-sequence patterns are unified modulo their collection
 //! axioms by an over-approximation that answers "disjoint" only when no
 //! collection matches both sides (clause 7e).
+//!
+//! The pairs of transitions the check compares, each with the unifications
+//! of its heads, its guards' conjuncts and the complementary-conjunct test,
+//! and the families those pairs form, are one value ([`Siblings`],
+//! [`Unification`]): the check decides from it, and the guard families read
+//! it, so a flip of transitions keeps apart exactly the pairs the check
+//! compares. The overlap check of equations (`equation_domain`) decides by
+//! evaluation and has no such pair; [`Siblings::equation_unifications`] is
+//! the guard families' own reading of two equations' heads.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -114,7 +123,7 @@ impl Pattern {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct VariableCatalog {
     by_rule: [BTreeMap<SemanticId, VariableKey>; 2],
     /// Variables standing for cells read only through a function context.
@@ -1856,24 +1865,33 @@ impl Unifier<'_> {
 
     /// Whether some conjunct of one guard is the complement of a conjunct of
     /// the other (F2 amendment, clause 4).
+    #[cfg(test)]
     fn guards_complementary(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
-        let (Some(left), Some(right)) = (left, right) else {
-            return false;
-        };
-        let left = conjuncts(left);
-        let right = conjuncts(right);
+        let left = left.map(pattern_conjuncts).unwrap_or_default();
+        let right = right.map(pattern_conjuncts).unwrap_or_default();
         left.iter()
             .any(|left| right.iter().any(|right| self.complementary(left, right)))
     }
 
-    /// Whether the two guards cannot both hold under the current
-    /// substitution: a pair of conjuncts is complementary, or a conjunct of
-    /// either guard evaluates to false (F2 amendment, clause 4).
+    /// [`Self::conjuncts_separate`] of two whole guards.
+    #[cfg(test)]
     fn guards_separate(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
-        self.guards_complementary(left, right)
-            || self.guard_refuted(left)
-            || self.guard_refuted(right)
-            || self.int_facts_conflict(left, right)
+        let left = left.map(pattern_conjuncts).unwrap_or_default();
+        let right = right.map(pattern_conjuncts).unwrap_or_default();
+        self.conjuncts_separate(&left, &right)
+    }
+
+    /// Whether two guards, given as their conjuncts, cannot both hold under
+    /// the current substitution, as [`Unification::separated`] decides it.
+    #[cfg(test)]
+    fn conjuncts_separate(&self, left: &[&Pattern], right: &[&Pattern]) -> bool {
+        left.iter()
+            .any(|left| right.iter().any(|right| self.complementary(left, right)))
+            || left
+                .iter()
+                .chain(right)
+                .any(|conjunct| self.ground_truth(conjunct) == Some(false))
+            || self.int_facts_conflict(left.iter().chain(right).copied())
     }
 
     /// Whether the Int facts the conjuncts of both guards state cannot hold
@@ -1882,9 +1900,9 @@ impl Unifier<'_> {
     /// leave no integer (see [`IntFact`]). Each fact is implied by its
     /// conjunct, so unsatisfiable facts make the guards' conjunction
     /// unsatisfiable; an unrecognized conjunct states no fact.
-    fn int_facts_conflict(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
+    fn int_facts_conflict<'p>(&self, conjuncts: impl Iterator<Item = &'p Pattern>) -> bool {
         let mut facts = Vec::<(Pattern, IntFact)>::new();
-        for conjunct in left.into_iter().chain(right).flat_map(conjuncts) {
+        for conjunct in conjuncts {
             let conjunct = self.resolve(conjunct.clone());
             match self.int_fact(&conjunct) {
                 Some(Ok(fact)) => facts.push(fact),
@@ -1981,12 +1999,10 @@ impl Unifier<'_> {
     /// Whether some conjunct of a guard, after the unifier's substitution,
     /// evaluates to false, such as `x >=Int 10` once the other rule's
     /// pattern binds `x` to `0`.
-    fn guard_refuted(&self, guard: Option<&Pattern>) -> bool {
-        guard.is_some_and(|guard| {
-            conjuncts(guard)
-                .into_iter()
-                .any(|conjunct| self.ground_truth(conjunct) == Some(false))
-        })
+    fn conjuncts_refuted(&self, conjuncts: &[(&SemanticTerm, Pattern)]) -> bool {
+        conjuncts
+            .iter()
+            .any(|(_, conjunct)| self.ground_truth(conjunct) == Some(false))
     }
 
     /// The value of a guard conjunct under the current substitution: a Bool
@@ -2382,39 +2398,76 @@ fn string_value(token: &str) -> Option<String> {
     Some(value)
 }
 
+/// Whether an application is a conjunction ([`GuardMeaning::Conjunction`]:
+/// `bool::and` and `bool::and_then`, `&&`), which holds only when both
+/// operands do.
+fn is_conjunction(application: &SemanticApplicationRef) -> bool {
+    matches!(
+        application,
+        ApplicationRef::Builtin(operation)
+            if matches!(operation.guard_meaning(), GuardMeaning::Conjunction)
+    )
+}
+
 /// The conjuncts of a guard: the operands of nested conjunctions
-/// ([`GuardMeaning::Conjunction`]: `bool::and` and `bool::and_then`, `&&`),
-/// each of which holds only when both operands do.
-fn conjuncts(pattern: &Pattern) -> Vec<&Pattern> {
-    match pattern {
-        Pattern::Application {
-            application: ApplicationRef::Builtin(operation),
+/// ([`is_conjunction`]), in order. Every reader of a guard's conjuncts (the
+/// overlap check through [`Unification`], and the guard families) splits it
+/// here.
+pub(crate) fn guard_conjuncts(term: &SemanticTerm) -> Vec<&SemanticTerm> {
+    match term.kind() {
+        SemanticTermKind::Application {
+            application,
             arguments,
             ..
-        } if matches!(operation.guard_meaning(), GuardMeaning::Conjunction) => {
-            arguments.iter().flat_map(conjuncts).collect()
-        }
+        } if is_conjunction(application) => arguments.iter().flat_map(guard_conjuncts).collect(),
+        _ => vec![term],
+    }
+}
+
+/// [`guard_conjuncts`] of a guard already read as a pattern, for the unit
+/// tests of the guard procedure, which build patterns directly.
+#[cfg(test)]
+fn pattern_conjuncts(pattern: &Pattern) -> Vec<&Pattern> {
+    match pattern {
+        Pattern::Application {
+            application,
+            arguments,
+            ..
+        } if is_conjunction(application) => arguments.iter().flat_map(pattern_conjuncts).collect(),
         other => vec![other],
     }
 }
 
-/// Whether two transitions can apply to one configuration: their shared cells
-/// unify, no pair of guard conjuncts is complementary, and no guard conjunct
-/// evaluates to false on literal operands.
+/// Whether two transitions can apply to one configuration: some
+/// [`Unification`] of them is not [`Unification::separated`].
 fn transitions_overlap(
     left: &TransitionView<'_>,
     right: &TransitionView<'_>,
     graph: &SortGraph,
 ) -> bool {
+    transition_unifications(left, right, graph)
+        .iter()
+        .any(|unification| !unification.separated())
+}
+
+/// Every way two transitions' patterns match one configuration, before their
+/// guards are read: none when they are over different configurations, have
+/// different computation heads, or have disjoint footprints, and otherwise
+/// one per combination of or-pattern alternatives whose shared cells unify.
+fn transition_unifications<'g, 'm>(
+    left: &TransitionView<'m>,
+    right: &TransitionView<'m>,
+    graph: &'g SortGraph,
+) -> Vec<Unification<'g, 'm>> {
     if left.configuration != right.configuration {
-        return false;
+        return Vec::new();
     }
     if let (Some(left), Some(right)) = (left.head, right.head)
         && !graph.same_head(left, right)
     {
-        return false;
+        return Vec::new();
     }
-    clauses_overlap(
+    clause_unifications(
         &left.clauses,
         left.requires,
         &right.clauses,
@@ -2423,18 +2476,18 @@ fn transitions_overlap(
     )
 }
 
-/// Whether two transitions' clauses over one configuration can match the same
-/// configuration. Disjoint footprints are independent: the rules commute (F2
-/// amendment, clause 5; a cell read through a function context is in the
-/// footprint as an unconstrained clause). Otherwise only the shared cells are
-/// unified.
-fn clauses_overlap(
-    left: &[ClauseView<'_>],
-    left_requires: Option<&SemanticTerm>,
-    right: &[ClauseView<'_>],
-    right_requires: Option<&SemanticTerm>,
-    graph: &SortGraph,
-) -> bool {
+/// The unifications of two transitions' clauses over one configuration.
+/// Disjoint footprints are independent: the rules commute (F2 amendment,
+/// clause 5; a cell read through a function context is in the footprint as
+/// an unconstrained clause), and have none. Otherwise only the shared cells
+/// are unified.
+fn clause_unifications<'g, 'm>(
+    left: &[ClauseView<'m>],
+    left_requires: Option<&'m SemanticTerm>,
+    right: &[ClauseView<'m>],
+    right_requires: Option<&'m SemanticTerm>,
+    graph: &'g SortGraph,
+) -> Vec<Unification<'g, 'm>> {
     let right_cells = right
         .iter()
         .map(|clause| (clause.cell, clause))
@@ -2447,10 +2500,10 @@ fn clauses_overlap(
                 .iter()
                 .any(|other| graph.nested(clause.cell, other.cell))
     }) {
-        return false;
+        return Vec::new();
     }
     // An or-pattern contributes the cross product of its alternatives
-    // (clause 7b): the rules overlap when some combination unifies.
+    // (clause 7b): each combination that unifies is one unification.
     let mut left_nodes = Vec::new();
     for clause in left.iter().filter(|clause| !clause.unconstrained) {
         or_nodes(clause.before, &mut left_nodes);
@@ -2460,34 +2513,52 @@ fn clauses_overlap(
         or_nodes(clause.before, &mut right_nodes);
     }
     let right_choices = choices(&right_nodes);
-    choices(&left_nodes).into_iter().any(|left_choice| {
-        right_choices.iter().any(|right_choice| {
+    let mut unifications = Vec::new();
+    for left_choice in choices(&left_nodes) {
+        for right_choice in &right_choices {
             let catalog = VariableCatalog {
                 choices: [left_choice.clone(), right_choice.clone()],
                 ..VariableCatalog::default()
             };
-            chosen_clauses_overlap(
+            unifications.extend(chosen_clause_unification(
                 left,
                 left_requires,
                 &right_cells,
                 right_requires,
                 graph,
                 catalog,
-            )
-        })
-    })
+            ));
+        }
+    }
+    unifications
 }
 
-/// Whether one combination of the two sides' or-pattern alternatives
-/// unifies, completing [`clauses_overlap`].
-fn chosen_clauses_overlap(
-    left: &[ClauseView<'_>],
-    left_requires: Option<&SemanticTerm>,
-    right_cells: &BTreeMap<&SemanticId, &ClauseView<'_>>,
-    right_requires: Option<&SemanticTerm>,
+/// Whether two transitions' clauses can match one configuration: some
+/// unification of them is not separated.
+#[cfg(test)]
+fn clauses_overlap<'m>(
+    left: &[ClauseView<'m>],
+    left_requires: Option<&'m SemanticTerm>,
+    right: &[ClauseView<'m>],
+    right_requires: Option<&'m SemanticTerm>,
     graph: &SortGraph,
-    mut catalog: VariableCatalog,
 ) -> bool {
+    clause_unifications(left, left_requires, right, right_requires, graph)
+        .iter()
+        .any(|unification| !unification.separated())
+}
+
+/// The unification of one combination of the two sides' or-pattern
+/// alternatives, completing [`clause_unifications`]: `None` when the shared
+/// cells or an alias do not unify.
+fn chosen_clause_unification<'g, 'm>(
+    left: &[ClauseView<'m>],
+    left_requires: Option<&'m SemanticTerm>,
+    right_cells: &BTreeMap<&SemanticId, &ClauseView<'m>>,
+    right_requires: Option<&'m SemanticTerm>,
+    graph: &'g SortGraph,
+    mut catalog: VariableCatalog,
+) -> Option<Unification<'g, 'm>> {
     let mut unifier = Unifier::new(graph);
     let cells_unify = left.iter().all(|left_clause| {
         right_cells
@@ -2504,16 +2575,397 @@ fn chosen_clauses_overlap(
             })
     });
     if !cells_unify {
-        return false;
+        return None;
     }
-    for (key, sort, aliased) in std::mem::take(&mut catalog.aliases) {
-        if !unifier.unify(Pattern::Variable { key, sort }, aliased) {
-            return false;
+    Unification::completed(unifier, catalog, [left_requires, right_requires])
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// One side of a pair of sentences: the left one is rule 0 of a
+/// unification's variable catalog, the right one rule 1.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Side {
+    Left,
+    Right,
+}
+
+impl Side {
+    #[expect(dead_code, reason = "the guard families read it")]
+    const fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
         }
     }
-    let left_guard = left_requires.map(|term| pattern(term, 0, &mut catalog));
-    let right_guard = right_requires.map(|term| pattern(term, 1, &mut catalog));
-    !unifier.guards_separate(left_guard.as_ref(), right_guard.as_ref())
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// How two Bool terms of a pair of sentences relate under one of its
+/// unifications ([`Unification::relate`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtomRelation {
+    /// They are one term, or literals of one relation with one polarity on
+    /// the same operands.
+    Same,
+    /// They are complements ([`Unification::complementary`]'s test).
+    Complement,
+    /// Neither.
+    Unrelated,
+}
+
+/// One way two sentences' patterns match one term: the unifier that one
+/// combination of their or-pattern alternatives found for their heads
+/// (clauses, or an equation's left-hand side), with each side's guard split
+/// into its conjuncts ([`guard_conjuncts`]) and read under that unifier.
+///
+/// The overlap check of transitions decides a pair from these values alone
+/// ([`Self::separated`]), and the guard families read the same values, so
+/// the pairs of transitions a flip must keep apart are exactly the pairs the
+/// check compares. For equations, see [`Siblings::equation_unifications`].
+pub(crate) struct Unification<'g, 'm> {
+    unifier: Unifier<'g>,
+    #[expect(dead_code, reason = "the guard families read it")]
+    /// The variables of both sides as the unifier names them, to read more
+    /// terms of either side ([`Self::relate`]).
+    catalog: VariableCatalog,
+    /// Each side's guard conjuncts, with their patterns.
+    conjuncts: [Vec<(&'m SemanticTerm, Pattern)>; 2],
+}
+
+impl<'g, 'm> Unification<'g, 'm> {
+    /// Completes a unification of two heads: unifies each alias with the
+    /// term its pattern matches (clause 7b), then reads both guards, the
+    /// left one first. `None` when an alias does not unify.
+    fn completed(
+        mut unifier: Unifier<'g>,
+        mut catalog: VariableCatalog,
+        guards: [Option<&'m SemanticTerm>; 2],
+    ) -> Option<Self> {
+        for (key, sort, aliased) in std::mem::take(&mut catalog.aliases) {
+            if !unifier.unify(Pattern::Variable { key, sort }, aliased) {
+                return None;
+            }
+        }
+        let mut read = |rule: usize| {
+            guards[rule]
+                .map(guard_conjuncts)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|conjunct| (conjunct, pattern(conjunct, rule, &mut catalog)))
+                .collect::<Vec<_>>()
+        };
+        let left = read(0);
+        let right = read(1);
+        Some(Self {
+            unifier,
+            catalog,
+            conjuncts: [left, right],
+        })
+    }
+
+    /// The complementary-conjunct test applied to the pair: whether
+    /// conjunct `left` of the left guard and conjunct `right` of the right
+    /// guard (indices into [`Self::conjuncts`]) cannot both hold under this
+    /// unifier, because one is `bool::not` of the other or both are literals
+    /// of one relation on the same operands with opposite polarity (the
+    /// catalog's [`GuardMeaning`]).
+    pub(crate) fn complementary(&self, left: usize, right: usize) -> bool {
+        self.unifier
+            .complementary(&self.conjuncts[0][left].1, &self.conjuncts[1][right].1)
+    }
+
+    /// Whether the guards keep the pair apart under this unifier (F2
+    /// amendment, clause 4): a pair of conjuncts is complementary
+    /// ([`Self::complementary`]), a conjunct evaluates to false on the
+    /// literals unification put in it, or the Int facts the conjuncts state
+    /// conflict.
+    pub(crate) fn separated(&self) -> bool {
+        let [left, right] = &self.conjuncts;
+        (0..left.len())
+            .any(|first| (0..right.len()).any(|second| self.complementary(first, second)))
+            || self.unifier.conjuncts_refuted(left)
+            || self.unifier.conjuncts_refuted(right)
+            || self
+                .unifier
+                .int_facts_conflict(left.iter().chain(right).map(|(_, pattern)| pattern))
+    }
+
+    #[expect(dead_code, reason = "the guard families read it")]
+    /// How two Bool terms of the pair's guards, each a subterm of its
+    /// side's guard, relate under this unifier: one term, complements, or
+    /// neither.
+    pub(crate) fn relate(
+        &self,
+        first: (Side, &SemanticTerm),
+        second: (Side, &SemanticTerm),
+    ) -> AtomRelation {
+        let mut catalog = self.catalog.clone();
+        let first = pattern(first.1, first.0.index(), &mut catalog);
+        let second = pattern(second.1, second.0.index(), &mut catalog);
+        relation(&self.unifier, &first, &second)
+    }
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// How two patterns relate under `unifier`'s substitution.
+fn relation(unifier: &Unifier<'_>, first: &Pattern, second: &Pattern) -> AtomRelation {
+    if unifier.complementary(first, second) {
+        return AtomRelation::Complement;
+    }
+    if unifier.same(first, second) {
+        return AtomRelation::Same;
+    }
+    if let (Some(first), Some(second)) = (relation_literal(first), relation_literal(second))
+        && first.relation == second.relation
+        && first.positive == second.positive
+        && ((unifier.same(first.operands[0], second.operands[0])
+            && unifier.same(first.operands[1], second.operands[1]))
+            || (first.symmetric
+                && unifier.same(first.operands[0], second.operands[1])
+                && unifier.same(first.operands[1], second.operands[0])))
+    {
+        return AtomRelation::Same;
+    }
+    AtomRelation::Unrelated
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// One transition the overlap check compares, as the guard families read it.
+#[derive(Clone, Copy)]
+pub(crate) struct SiblingRule<'m> {
+    pub(crate) rule: &'m SemanticRule,
+    pub(crate) priority: u32,
+    /// The `nondet` group it belongs to: its package and name.
+    pub(crate) group: Option<(&'m krs_ir::PackageId, &'m str)>,
+    /// Its Bool `requires`.
+    pub(crate) guard: Option<&'m SemanticTerm>,
+}
+
+/// Two transitions at one priority, in identity order, each in one of its
+/// instance views, and every unification of them (one per combination of
+/// or-pattern alternatives that unifies).
+pub(crate) struct SiblingPair<'g, 'm> {
+    #[expect(dead_code, reason = "the guard families read it")]
+    pub(crate) rules: [&'m SemanticRule; 2],
+    pub(crate) unifications: Vec<Unification<'g, 'm>>,
+}
+
+impl SiblingPair<'_, '_> {
+    /// Whether the two transitions can apply to one configuration: some
+    /// unification is not separated by the guards.
+    pub(crate) fn overlaps(&self) -> bool {
+        self.unifications
+            .iter()
+            .any(|unification| !unification.separated())
+    }
+}
+
+#[expect(dead_code, reason = "the guard families read it")]
+/// A family of transitions: the transitions at one priority that the
+/// overlap check compares with one another, a connected component of the
+/// "patterns unify" relation over [`Siblings::pairs`]. An overlapping pair
+/// always lies in one family, since its patterns unify.
+pub(crate) struct RuleFamily<'m> {
+    pub(crate) priority: u32,
+    /// Its transitions, in identity order.
+    pub(crate) rules: Vec<SiblingRule<'m>>,
+}
+
+/// The transitions of a definition the overlap check covers, the pairs it
+/// compares, and the families those pairs form: one definition of sibling
+/// transitions for the check ([`first_overlap_violation`]) and for the guard
+/// families. It also reads two equations' heads for the guard families
+/// ([`Self::equation_unifications`]), which the equation check does not.
+pub(crate) struct Siblings<'m> {
+    graph: SortGraph,
+    views: Vec<TransitionView<'m>>,
+}
+
+impl<'m> Siblings<'m> {
+    /// The transitions of `modules` and the sort graph they unify over.
+    pub(crate) fn of(modules: &'m [SemanticModule]) -> Self {
+        Self {
+            graph: SortGraph::from_modules(modules),
+            views: transitions(modules),
+        }
+    }
+
+    /// Every pair of transitions the check compares: two views of different
+    /// transitions at one priority, in identity order (the left view first),
+    /// with their unifications. A pair inside one `nondet` group is
+    /// included; the check validates the group with it.
+    #[expect(dead_code, reason = "the guard families read it")]
+    pub(crate) fn pairs(&self) -> Vec<SiblingPair<'_, 'm>> {
+        let mut pairs = Vec::new();
+        for left in 0..self.views.len() {
+            pairs.extend((left + 1..self.views.len()).filter_map(|right| self.pair(left, right)));
+        }
+        pairs
+    }
+
+    /// The pair of views `left` and `right` (indices into the check's
+    /// transitions, `left < right`) with its unifications, when the check
+    /// compares them: two different transitions at one priority.
+    fn pair(&self, left: usize, right: usize) -> Option<SiblingPair<'_, 'm>> {
+        let (first, second) = (&self.views[left], &self.views[right]);
+        // Views of one rule are its instance choices (X10.6).
+        if first.priority != second.priority || first.id() == second.id() {
+            return None;
+        }
+        Some(SiblingPair {
+            rules: [first.rule, second.rule],
+            unifications: transition_unifications(first, second, &self.graph),
+        })
+    }
+
+    #[expect(dead_code, reason = "the guard families read it")]
+    /// The transitions, one per rule, in identity order.
+    pub(crate) fn rules(&self) -> Vec<SiblingRule<'m>> {
+        let mut rules: Vec<SiblingRule<'m>> = Vec::new();
+        for view in &self.views {
+            if rules.last().is_some_and(|last| last.rule.id() == view.id()) {
+                continue;
+            }
+            rules.push(SiblingRule {
+                rule: view.rule,
+                priority: view.priority,
+                group: view.group,
+                guard: view.requires,
+            });
+        }
+        rules
+    }
+
+    #[expect(dead_code, reason = "the guard families read it")]
+    /// The families `pairs` (this check's [`Self::pairs`]) form, ordered by
+    /// their first transition.
+    pub(crate) fn families(&self, pairs: &[SiblingPair<'_, 'm>]) -> Vec<RuleFamily<'m>> {
+        fn root(parent: &mut [usize], mut node: usize) -> usize {
+            while parent[node] != node {
+                parent[node] = parent[parent[node]];
+                node = parent[node];
+            }
+            node
+        }
+        let rules = self.rules();
+        let index = rules
+            .iter()
+            .enumerate()
+            .map(|(position, rule)| (rule.rule.id(), position))
+            .collect::<BTreeMap<_, _>>();
+        let mut parent = (0..rules.len()).collect::<Vec<_>>();
+        for pair in pairs.iter().filter(|pair| !pair.unifications.is_empty()) {
+            let left = root(&mut parent, index[pair.rules[0].id()]);
+            let right = root(&mut parent, index[pair.rules[1].id()]);
+            parent[left.max(right)] = left.min(right);
+        }
+        let mut families = BTreeMap::<usize, Vec<SiblingRule<'m>>>::new();
+        for (position, rule) in rules.into_iter().enumerate() {
+            families
+                .entry(root(&mut parent, position))
+                .or_default()
+                .push(rule);
+        }
+        families
+            .into_values()
+            .map(|rules| RuleFamily {
+                priority: rules[0].priority,
+                rules,
+            })
+            .collect()
+    }
+
+    #[expect(dead_code, reason = "the guard families read it")]
+    /// Every way two equations' left-hand sides match one application, with
+    /// their guards, as [`Self::pairs`] reads two transitions: one
+    /// unification per combination of or-pattern alternatives that unifies.
+    ///
+    /// The overlap check of equations does not read these values: it
+    /// evaluates the guards at argument values (`equation_domain`), or
+    /// decides a guard abstraction pair by pair (`coverage::overlap`), and
+    /// neither has a unifier whose terms a flip could name. Only the family
+    /// is shared ([`crate::equation_domain::equation_families`]). These
+    /// unifications over-approximate the check's pairs: two equations the
+    /// check finds both applying at some argument have heads that match that
+    /// argument, and this unifier answers "no unification" only when no term
+    /// matches both heads. A pair the check would never find overlapping can
+    /// still unify here, which only adds a constraint to the guard families.
+    ///
+    /// A literal at an argument in `any_literal` of either head stands for
+    /// any value there: a reader that holds those arguments' literals apart
+    /// by itself (the bit arguments of the guard families) still gets the
+    /// pair of two equations whose literals differ.
+    pub(crate) fn equation_unifications(
+        &self,
+        left: &'m SemanticRule,
+        right: &'m SemanticRule,
+        any_literal: &[usize],
+    ) -> Vec<Unification<'_, 'm>> {
+        let (Some(left_body), Some(right_body)) = (left.body(), right.body()) else {
+            return Vec::new();
+        };
+        let guard = |rule: &'m SemanticRule| {
+            rule.requires()
+                .and_then(IrCondition::as_bool)
+                .map(krs_ir_levels::SemanticRuleCondition::term)
+        };
+        let mut left_nodes = Vec::new();
+        or_nodes(left_body.from(), &mut left_nodes);
+        let mut right_nodes = Vec::new();
+        or_nodes(right_body.from(), &mut right_nodes);
+        let right_choices = choices(&right_nodes);
+        let mut unifications = Vec::new();
+        for left_choice in choices(&left_nodes) {
+            for right_choice in &right_choices {
+                let mut catalog = VariableCatalog {
+                    choices: [left_choice.clone(), right_choice.clone()],
+                    ..VariableCatalog::default()
+                };
+                let mut unifier = Unifier::new(&self.graph);
+                let mut read = |term, rule| {
+                    let mut head = pattern(term, rule, &mut catalog);
+                    if let Pattern::Application { arguments, .. } = &mut head {
+                        for &column in any_literal {
+                            if let Some(argument @ Pattern::Token { .. }) =
+                                arguments.get_mut(column)
+                            {
+                                *argument = Pattern::Variable {
+                                    key: catalog.unconstrained(rule),
+                                    sort: argument.sort().clone(),
+                                };
+                            }
+                        }
+                    }
+                    head
+                };
+                let left_pattern = read(left_body.from(), 0);
+                let right_pattern = read(right_body.from(), 1);
+                if !unifier.unify(left_pattern, right_pattern) {
+                    continue;
+                }
+                unifications.extend(Unification::completed(
+                    unifier,
+                    catalog,
+                    [guard(left), guard(right)],
+                ));
+            }
+        }
+        unifications
+    }
+
+    #[expect(dead_code, reason = "the guard families read it")]
+    /// How two Bool subterms of one sentence's guard relate, read in that
+    /// sentence alone.
+    pub(crate) fn relate_within(
+        &self,
+        first: &SemanticTerm,
+        second: &SemanticTerm,
+    ) -> AtomRelation {
+        let mut catalog = VariableCatalog::default();
+        let first = pattern(first, 0, &mut catalog);
+        let second = pattern(second, 0, &mut catalog);
+        relation(&Unifier::new(&self.graph), &first, &second)
+    }
 }
 
 /// Whether two static clauses' subjects overlap: some term matches both.
@@ -2792,11 +3244,12 @@ pub(crate) const OWISE_UNORDERED_FROM: u32 = 200;
 /// cannot match one configuration need no order, so only an overlapping pair
 /// is refused.
 pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<OverlapViolation> {
-    let graph = SortGraph::from_modules(modules);
-    if let Some(violation) = first_ambiguous_alternatives(modules, &graph) {
+    let siblings = Siblings::of(modules);
+    let graph = &siblings.graph;
+    if let Some(violation) = first_ambiguous_alternatives(modules, graph) {
         return Some(violation);
     }
-    let rules = transitions(modules);
+    let rules = &siblings.views;
     if rules.is_empty() {
         return None;
     }
@@ -2804,7 +3257,7 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
         let after = rules.iter().find(|rule| {
             !rule.owise
                 && rule.priority >= OWISE_UNORDERED_FROM
-                && transitions_overlap(owise, rule, &graph)
+                && transitions_overlap(owise, rule, graph)
         });
         if let Some(rule) = after {
             return Some(OverlapViolation::AfterOwise {
@@ -2818,16 +3271,17 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
             });
         }
     }
+    // Each pair is decided as it is built, so the first overlap ends the
+    // check and no pair's unifications outlive its decision.
     for (index, left) in rules.iter().enumerate() {
-        for right in &rules[index + 1..] {
-            // Views of one rule are its instance choices (X10.6).
-            if left.priority != right.priority || left.id() == right.id() {
-                continue;
-            }
+        for (offset, right) in rules[index + 1..].iter().enumerate() {
             if left.group.is_some() && left.group == right.group {
                 continue;
             }
-            if transitions_overlap(left, right, &graph) {
+            if siblings
+                .pair(index, index + 1 + offset)
+                .is_some_and(|pair| pair.overlaps())
+            {
                 return Some(OverlapViolation::Overlap {
                     first: left.id().clone(),
                     second: right.id().clone(),
@@ -2835,10 +3289,10 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
             }
         }
     }
-    let mut groups = BTreeMap::<(&krs_ir::PackageId, &str), Vec<&TransitionView<'_>>>::new();
-    for rule in &rules {
+    let mut groups = BTreeMap::<(&krs_ir::PackageId, &str), Vec<usize>>::new();
+    for (view, rule) in rules.iter().enumerate() {
         if let Some(group) = rule.group {
-            groups.entry(group).or_default().push(rule);
+            groups.entry(group).or_default().push(view);
         }
     }
     for ((_, name), members) in groups {
@@ -2846,27 +3300,39 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
         if let [only] = members.as_slice() {
             return Some(OverlapViolation::SingleMemberGroup {
                 group,
-                rule: only.id().clone(),
+                rule: rules[*only].id().clone(),
             });
         }
+        let first = &rules[members[0]];
         if let Some(other) = members
             .iter()
-            .find(|member| member.priority != members[0].priority)
+            .map(|member| &rules[*member])
+            .find(|member| member.priority != first.priority)
         {
             return Some(OverlapViolation::MixedPriorityGroup {
                 group,
                 rule: other.id().clone(),
-                priorities: (members[0].priority, other.priority),
+                priorities: (first.priority, other.priority),
             });
         }
+        // The members share a priority, so every two of different rules are
+        // one of the check's pairs.
+        let mut overlapping = BTreeSet::new();
+        for (position, &left) in members.iter().enumerate() {
+            for &right in &members[position + 1..] {
+                if siblings
+                    .pair(left, right)
+                    .is_some_and(|pair| pair.overlaps())
+                {
+                    overlapping.extend([left, right]);
+                }
+            }
+        }
         for member in &members {
-            let overlaps = members.iter().any(|other| {
-                member.id() != other.id() && transitions_overlap(member, other, &graph)
-            });
-            if !overlaps {
+            if !overlapping.contains(member) {
                 return Some(OverlapViolation::StaleGroupMember {
                     group,
-                    rule: member.id().clone(),
+                    rule: rules[*member].id().clone(),
                 });
             }
         }
