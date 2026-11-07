@@ -332,10 +332,15 @@ doc = "an anonymous rest (`..`) in an initializer's value, `k::k![x, ..]` or `[0
 examples = ["init ; init ; - ; computation ; k::k![Cmd::Go(), ..] ; -", "init ; init ; - ; leaf List ; [0, ..] ; -"]
 advice = "init/k/k::k![pgm]"
 
+[class.instance-binder]
+code = "krs::analysis::collection-entry"
+doc = "an instance list item that is only a name or `_` (`job: [x, ..]`, `job: [.., x]`, `acct: { x, .. }`), which stands for one whole instance of the collection, its front or back one in a List, any one in a Set or Map, as an instance record labelled with the name (`x @ Decl { .. }`) names it: not supported yet; a pattern names the instance by its record, labelled where the rule names it again"
+advice = ["readable/subject/job/[Job { payload: x, .. }, ..]", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
-doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item in an unordered collection's braces (Q2: its instance is chosen by a written record); or, a stated limitation, a List collection rule the product does not lower: one that changes instances at both ends, or keeps a back instance in place (it creates or removes instances at the back, and reads and updates them at the front)"
-examples = ["readable ; subject ; - ; * List of G ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; * Set of G ; [x, ..] ; -", "readable ; subject ; - ; * Set of G ; [..] ; -", "readable ; subject ; - ; * Map of G ; [G { a: x, .. }, ..] ; -", "readable ; subject ; - ; * Set of G ; { x, .. } ; -", "cells ; subject ; - ; * Set of G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
+doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item other than a name or `_` in an unordered collection's braces (Q2: its instance is chosen by a written record, and a name or `_` is a whole instance, `instance-binder`); or, a stated limitation, a List collection rule the product does not lower: one that changes instances at both ends, or keeps a back instance in place (it creates or removes instances at the back, and reads and updates them at the front)"
+examples = ["readable ; subject ; - ; * List of G ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; * Set of G ; [x, ..] ; -", "readable ; subject ; - ; * Set of G ; [..] ; -", "readable ; subject ; - ; * Map of G ; [G { a: x, .. }, ..] ; -", "readable ; subject ; - ; * Set of G ; { 0, .. } ; -", "cells ; subject ; - ; * Set of G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
 advice = ["readable/subject/job/[Job { payload: x, .. }, ..]", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }", "claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }", "sweep/claim/result/job/[..]", "sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }", "sweep/claim/result/bag/{ Gs { sa: x, .. }, .. }"]
 
 [class.instance-update-base-elsewhere]
@@ -959,6 +964,13 @@ at = "spelling"
 match = '{claim,readable}/{result,subject}/job/{[..\, Job \{ payload: 0\, .. \}],\{ .. \}}'
 class = "instance-list-shape"
 at = "entry"
+
+# instance-binder (TRI-A5): a name in a List collection's brackets is its front instance, which
+# the principles admit and the product does not lower yet
+[[refuse]]
+match = '{claim,readable}/subject/job/[x\, ..]'
+class = "instance-binder"
+at = "spelling"
 
 # instances-on-plain-cell
 [[refuse]]
@@ -3627,7 +3639,7 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/{acct,bag,job}/\{ x\, .. \}'
+match = 'sweep/{claim,readable}/overwrite/job/\{ x\, .. \}'
 class = "instance-list-shape"
 at = "entry"
 
@@ -3692,7 +3704,7 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/result/{acct,bag,job}/\{ x\, .. \}'
+match = 'sweep/{claim,readable}/result/job/\{ x\, .. \}'
 class = "instance-list-shape"
 at = "entry"
 
@@ -3762,8 +3774,36 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/subject/{acct,bag,job}/\{ x\, .. \}'
+match = 'sweep/{claim,readable}/subject/job/\{ x\, .. \}'
 class = "instance-list-shape"
+at = "entry"
+
+# Q2 (TRI-A5): a name in a Set or Map collection's braces is one whole instance, any one it holds,
+# which the principles admit and the product does not lower yet (limit instance-binder); over a
+# collection the subject does not match, the result's `..` is a rest the subject never wrote.
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/{[x\, ..],[x\, r @ ..],[x]}'
+class = "instance-binder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/{[..\, x],[x\, ..],[x\, r @ ..],[x]}'
+class = "instance-binder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/[x\, ..]'
+class = "instance-binder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/{result,subject,written}/{acct,bag}/\{ x\, .. \}'
+class = "instance-binder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag}/\{ x\, .. \}'
+class = "rest-mismatch"
 at = "entry"
 
 [[refuse]]
@@ -3832,7 +3872,7 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/written/{acct,bag,job}/\{ x\, .. \}'
+match = 'sweep/{claim,readable}/written/job/\{ x\, .. \}'
 class = "instance-list-shape"
 at = "entry"
 
@@ -6090,8 +6130,20 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
-match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,ljob,qacct,qbag,qjob}/\{ x\, .. \}'
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{ljob,qjob}/\{ x\, .. \}'
 class = "instance-list-shape"
+at = "entry"
+
+# Q2 (TRI-A5): a name in a Set or Map collection's braces is one of its instances, so the entry is
+# judged by the collection's marked ancestor, as an instance record is.
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag}/\{ x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{qacct,qbag}/\{ x\, .. \}'
+class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
@@ -7958,8 +8010,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."claim/subject/job/[x, ..]"]
 
 [accept."claim/subject/k/[..]"]
 lint = "no-effect-entry"
@@ -11133,8 +11183,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."readable-run/subject/job/[x, ..]"]
-
 [accept."readable-run/subject/pc/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells-run/subject/pc/k::configuration::Cell(_)"]
@@ -11668,8 +11716,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."readable/subject/job/[x, ..]"]
 
 [accept."readable/subject/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -13988,8 +14034,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/claim/result/job/[x, ..]"]
-
 [accept."sweep/claim/result/ogroup/None"]
 k = """
 claim [case-TAG]:
@@ -14202,10 +14246,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/subject/job/[x, r @ ..]"]
-
-[accept."sweep/claim/subject/job/[x]"]
 
 [accept."sweep/claim/subject/ogroup/Some(Gp { .. })"]
 k = """
@@ -14532,8 +14572,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/claim/written/job/[.., x]"]
-
 [accept."sweep/claim/written/job/[..]"]
 k = """
 claim [case-TAG]:
@@ -14559,12 +14597,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/written/job/[x, ..]"]
-
-[accept."sweep/claim/written/job/[x, r @ ..]"]
-
-[accept."sweep/claim/written/job/[x]"]
 
 [accept."sweep/claim/written/ogroup/None"]
 k = """
@@ -15833,8 +15865,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/readable/result/job/[x, ..]"]
-
 [accept."sweep/readable/result/ogroup/None"]
 k = """
 rule [case-TAG]:
@@ -16047,10 +16077,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/readable/subject/job/[x, r @ ..]"]
-
-[accept."sweep/readable/subject/job/[x]"]
 
 [accept."sweep/readable/subject/ogroup/Some(Gp { .. })"]
 k = """
@@ -16377,8 +16403,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/readable/written/job/[.., x]"]
-
 [accept."sweep/readable/written/job/[..]"]
 k = """
 rule [case-TAG]:
@@ -16404,12 +16428,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/readable/written/job/[x, ..]"]
-
-[accept."sweep/readable/written/job/[x, r @ ..]"]
-
-[accept."sweep/readable/written/job/[x]"]
 
 [accept."sweep/readable/written/ogroup/None"]
 k = """
@@ -17381,6 +17399,11 @@ principle = "C-lim: a map read has no result side until M3; an instance record's
 code = "krs::analysis::collection-entry"
 docs = "A collection's overwrite replaces every instance it holds"
 findings = ["S5-A1"]
+
+[limit.instance-binder]
+code = "krs::analysis::collection-entry"
+docs = "An instance item that is only a name or `_`"
+findings = ["S5-Q2"]
 
 [limit.instance-update-base-elsewhere]
 code = "krs::analysis::invalid-record-update"

@@ -1711,7 +1711,7 @@ fn parse_unkeyed_cells(
                     ));
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
-                let (wrapper, value) = parse_entry_value(input, context, looks_up)?;
+                let (wrapper, value) = parse_entry_value(input, &name, context, looks_up)?;
                 entries.push(CellsEntry {
                     name,
                     owner,
@@ -1760,6 +1760,7 @@ fn parse_unkeyed_cells(
 /// group entry, an instance list, a wrapped leaf, or a group entry.
 fn parse_entry_value(
     input: ParseStream<'_>,
+    cell: &Ident,
     context: StateMacroContext,
     looks_up: bool,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
@@ -1773,7 +1774,7 @@ fn parse_entry_value(
         let (wrapper, value) = structured_with(
             inner,
             move |inner| {
-                let parsed = parse_entry_value(inner, context, looks_up)?;
+                let parsed = parse_entry_value(inner, cell, context, looks_up)?;
                 if !inner.is_empty() {
                     return Err(state_error(
                         "cells",
@@ -1799,6 +1800,11 @@ fn parse_entry_value(
     }
     if input.peek(syn::token::Brace) || input.peek(syn::token::Bracket) {
         let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
+        if let Some(error) =
+            instance_binder_error(cell, &group, crate::cell_entry::EntryForm::Cells, context)
+        {
+            return Err(error);
+        }
         return Ok((
             None,
             StateTerm::Instances(parse_instance_list(&group, context, looks_up)?),
@@ -2692,6 +2698,51 @@ fn macro_payload(tokens: &TokenStream) -> Option<(String, TokenStream)> {
         return None;
     };
     (bang.as_char() == '!').then(|| (name.to_string(), group.stream()))
+}
+
+/// The refusal of the first item of the braced instance list `group`, the entry of the cell
+/// `cell` written in `form`, that is only a name or `_`: a whole instance of a Set or Map
+/// collection, any one it holds ([`crate::cell_entries::Refusal::InstanceBinder`]). The macro
+/// reads a braced item only as an instance record, and an instance list carries records only,
+/// so the entry stops here, at the item, with the limit's code and reason; `None` where no item
+/// is one, or `group` is no braced list.
+pub(crate) fn instance_binder_error(
+    cell: &Ident,
+    group: &proc_macro2::Group,
+    form: crate::cell_entry::EntryForm,
+    context: StateMacroContext,
+) -> Option<SyntaxError> {
+    use crate::cell_entries::{EntryKind, EntrySide, Refusal, instance_binder_advice};
+    use syn::ext::IdentExt;
+    if group.delimiter() != Delimiter::Brace {
+        return None;
+    }
+    let trees = group.stream().into_iter().collect::<Vec<_>>();
+    let item = trees
+        .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ','))
+        .find_map(|part| match part {
+            [TokenTree::Ident(name)] => Some(name.clone()),
+            _ => None,
+        })?;
+    let side = match context {
+        StateMacroContext::Expression => EntrySide::Result,
+        StateMacroContext::Pattern => EntrySide::Subject,
+    };
+    let name = (item != "_").then(|| item.unraw().to_string());
+    let reason = format!(
+        "{}; {}",
+        Refusal::InstanceBinder.reason(
+            form,
+            &cell.unraw().to_string(),
+            &EntryKind::default(),
+            None
+        ),
+        instance_binder_advice(side, "Decl", name.as_deref()),
+    );
+    Some(SyntaxError::new(
+        SyntaxErrorKind::InstanceBinder { reason },
+        item.span(),
+    ))
 }
 
 fn state_error(macro_name: &'static str, reason: &'static str, span: Span) -> SyntaxError {

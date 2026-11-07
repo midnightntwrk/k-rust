@@ -506,6 +506,53 @@ fn a_lone_wildcard_is_no_shorthand_instance_child() {
     );
 }
 
+/// A name or `_` alone in braces is one whole instance of a Set or Map
+/// collection, which the macro, reading a braced item only as an instance
+/// record, cannot carry: readable and `cells!` stop at the item with the
+/// cell-entry limit's code, in a pattern and in a result.
+#[test]
+fn a_braced_name_or_wildcard_item_is_the_instance_binder_limit() {
+    let refused = |error: krs_syntax::SyntaxError, source: &str| {
+        assert!(
+            matches!(
+                error.kind(),
+                krs_syntax::SyntaxErrorKind::InstanceBinder { .. }
+            ),
+            "{source}: {:?}",
+            error.kind()
+        );
+        assert_eq!(
+            error.kind().code().as_str(),
+            "krs::analysis::collection-entry",
+            "{source}"
+        );
+        assert!(
+            error.to_string().contains("not supported yet") && error.to_string().contains("`acct`"),
+            "{source}: {error}"
+        );
+        error.to_string()
+    };
+    for source in [
+        "for Machine; read: { k: [Go(), ..], acct: { x, .. } } => { k: [..] };",
+        "for Machine; read: { k: [Go(), ..], acct: { _, .. } } => { k: [..] };",
+        "for Machine; read: { k: [Go(), ..], acct: { A { id: 1, .. }, .. } } => { k: [..], acct: { x, .. } };",
+    ] {
+        refused(
+            krs_syntax::RuleBlock::parse_source(source).unwrap_err(),
+            source,
+        );
+    }
+    let labelled = refused(
+        parse_cells_pattern(
+            krs_syntax::parse::tokens_from_source("Accts::acct: { x, rest @ .. }, state @ ..")
+                .unwrap(),
+        )
+        .unwrap_err(),
+        "cells! pattern",
+    );
+    assert!(labelled.contains("`x @ Decl { .. }`"), "{labelled}");
+}
+
 /// A keyword is no binder and no variable, so it is no shorthand instance
 /// child: readable refuses it as `cells!` does, with the same message (a raw
 /// identifier such as `r#type` is a name, above).

@@ -1111,7 +1111,11 @@ impl Judge<'_> {
                     }
                     // Q2: one instance of an ordered collection is a value (its front one).
                     _ if order == Order::List => self.value(base, depth + 1)?,
-                    // Q2: an unordered collection's instance is chosen by a written record.
+                    // Q2: a name or `_` is one whole instance of an unordered collection, any
+                    // one it holds, as a record labelled with the name names it.
+                    (Spelling::Binder(_) | Spelling::Wild, _) => self.value(base, depth + 1)?,
+                    // Q2: any other value is no instance of an unordered collection, whose
+                    // instance is chosen by a written record.
                     _ => return refuse("instance-list-shape", Step::Inside, depth + 1),
                 }
             }

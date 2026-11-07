@@ -112,11 +112,13 @@ fn readable_error(span: proc_macro2::Span, reason: &'static str) -> ParseError {
     .into()
 }
 
-/// Parses a subject-record value that is `None`, `Some(p)`, or an instance
-/// list (KF-023), or returns `None` for every other value; a rule's braced
-/// list reads its cells as keys when `looks_up` ([`parse_readable_instances`]).
+/// Parses the cell `cell`'s subject-record value that is `None`, `Some(p)`,
+/// or an instance list (KF-023), or returns `None` for every other value; a
+/// rule's braced list reads its cells as keys when `looks_up`
+/// ([`parse_readable_instances`]).
 fn parse_readable_pattern_state(
     input: ParseStream<'_>,
+    cell: &Ident,
     looks_up: bool,
 ) -> Result<Option<StateTerm>, ParseError> {
     let fork = input.fork();
@@ -152,6 +154,14 @@ fn parse_readable_pattern_state(
         let group: proc_macro2::Group = input.fork().parse()?;
         if !contains_top_level_arrow(&group) {
             let group: proc_macro2::Group = input.parse()?;
+            if let Some(error) = crate::state_macro::instance_binder_error(
+                cell,
+                &group,
+                crate::cell_entry::EntryForm::Readable,
+                StateMacroContext::Pattern,
+            ) {
+                return Err(error.into());
+            }
             return Ok(Some(StateTerm::Instances(
                 parse_readable_instances_reading(&group, StateMacroContext::Pattern, looks_up)?,
             )));
@@ -160,10 +170,11 @@ fn parse_readable_pattern_state(
     Ok(None)
 }
 
-/// Parses the result-record value of a cell whose subject value was an
-/// optional or collection state.
+/// Parses the result-record value of the cell `cell`, whose subject value was
+/// an optional or collection state.
 fn parse_readable_result_state(
     input: ParseStream<'_>,
+    cell: &Ident,
     family: StateFamily,
 ) -> Result<StateTerm, ParseError> {
     match family {
@@ -204,6 +215,14 @@ fn parse_readable_result_state(
                 ));
             }
             let group: proc_macro2::Group = input.parse()?;
+            if let Some(error) = crate::state_macro::instance_binder_error(
+                cell,
+                &group,
+                crate::cell_entry::EntryForm::Readable,
+                StateMacroContext::Expression,
+            ) {
+                return Err(error.into());
+            }
             Ok(StateTerm::Instances(parse_readable_instances(
                 &group,
                 StateMacroContext::Expression,
@@ -618,7 +637,7 @@ fn parse_machine_pattern_record(
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
         let looks_up = sentence == ReadableSentence::Rule;
-        let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up)? {
+        let value = if let Some(state) = parse_readable_pattern_state(&content, &cell, looks_up)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
@@ -854,7 +873,9 @@ fn parse_machine_result_record(
         };
         let value =
             if let Some(family) = family.or(unmatched_presence.then_some(StateFamily::Optional)) {
-                MachineResultCell::State(Box::new(parse_readable_result_state(&content, family)?))
+                MachineResultCell::State(Box::new(parse_readable_result_state(
+                    &content, &cell, family,
+                )?))
             } else if content.peek(syn::token::Bracket) {
                 MachineResultCell::Bracket(content.parse()?)
             } else {
