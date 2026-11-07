@@ -141,7 +141,7 @@ krs_macros_positive::readable_imp_grammar|if_true|Rule|15
 krs_macros_positive::readable_imp_grammar|or_false|Rule|15
 krs_macros_positive::readable_imp_grammar|or_true|Rule|11
 krs_macros_positive::readable_imp_grammar|step|Rule|20
-krs_macros_positive::readable_imp_grammar|var|Rule|21
+krs_macros_positive::readable_imp_grammar|var|Rule|27
 krs_macros_positive::readable_imp_grammar|while|Rule|29
 krs_macros_positive::readable_sorts|Diamond|Sort|3
 krs_macros_positive::readable_sorts|DiamondLeft|Sort|2

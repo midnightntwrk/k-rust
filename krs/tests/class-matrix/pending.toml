@@ -925,12 +925,6 @@ match = 'sweep-paths/*/result/{lenv,qenv}/[..\, x]'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep-paths: 4
-[[family]]
-match = 'sweep-paths/*/subject/{qacct,qbag}/\{ x\, .. \}'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep-paths: 168
 [[family]]
 match = 'sweep-paths/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
