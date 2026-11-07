@@ -574,6 +574,115 @@ fn run_together(
 mod kink_tier {
     use super::*;
 
+    /// KINK-guard-coverage: a rule's status names the predicate it tests, and a guarded rule's
+    /// row reports its guard per operand. No program halts, so the complementary rules `wake`
+    /// and `halted` are matched (their conditions entered) and never fired, with no `held_by`,
+    /// and `wake`'s operand `H` is never `true`; `dispatch`'s `notBool H` is never `false` and
+    /// its `I` is reached only where `notBool H` is `true`; no program writes a high address, so
+    /// the equation `low` is never refuted. The verdicts rendering lists each fired or matched
+    /// rule whose guard misses an outcome, without program lists.
+    #[test]
+    #[ignore = "kink"]
+    fn guards_report_each_operand_and_statuses_name_their_predicate() {
+        let manifest = fixture("guards", "guards").join("FLOW.toml");
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let rule = |label: &str| {
+            document["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|rule| rule["label"] == format!("GUARDS.{label}"))
+                .unwrap_or_else(|| panic!("no rule {label}: {document:#}"))
+                .clone()
+        };
+        let statuses = ["dispatch", "run", "wake", "halted", "low", "writing"]
+            .map(|label| (label, rule(label)["status"].as_str().unwrap().to_owned()));
+        assert_eq!(
+            statuses,
+            [
+                ("dispatch", "fired".to_owned()),
+                ("run", "fired".to_owned()),
+                ("wake", "matched".to_owned()),
+                ("halted", "matched".to_owned()),
+                ("low", "fired".to_owned()),
+                ("writing", "fired".to_owned()),
+            ]
+        );
+        assert!(
+            !document.to_string().contains("\"covered\""),
+            "no status reads covered"
+        );
+        for label in ["wake", "halted"] {
+            let guard = &rule(label)["guard"];
+            assert_eq!(guard["held_by"], json!([]), "{label}: {guard:#}");
+            assert_eq!(guard["never"], json!(["held"]), "{label}: {guard:#}");
+        }
+        let wake = &rule("wake")["guard"];
+        let operands = wake["operands"].as_array().unwrap();
+        assert_eq!(operands[0]["path"], "0");
+        assert_eq!(operands[0]["kind"], "conjunction");
+        assert_eq!(operands[0]["connective"], "andThenBool");
+        assert_eq!(operands[0]["operands"], json!(["0.0", "0.1"]));
+        assert_eq!(operands[1]["path"], "0.0");
+        assert_eq!(operands[1]["kind"], "atom");
+        assert_eq!(operands[1]["true_by"], json!([]));
+        assert_eq!(operands[1]["false_by"], json!(["irq", "idle"]));
+        assert_eq!(operands[1]["never"], json!(["true"]));
+        // `I` is reached only where `H` is true: never.
+        assert_eq!(operands[2]["true_by"], json!([]));
+        assert_eq!(operands[2]["false_by"], json!([]));
+        let dispatch = &rule("dispatch")["guard"];
+        assert_eq!(dispatch["held_by"], json!(["irq"]));
+        assert_eq!(dispatch["refuted_by"], json!(["idle"]));
+        // A negation restates its operand: `notBool H` never false is `H` never true.
+        let not_h = &dispatch["operands"][1];
+        assert_eq!(not_h["kind"], "negation");
+        assert!(not_h.get("never").is_none(), "{dispatch:#}");
+        assert_eq!(not_h["true_by"], json!(["irq", "idle"]));
+        let h = &dispatch["operands"][2];
+        assert_eq!(h["kind"], "atom");
+        assert_eq!(h["never"], json!(["true"]));
+        // The conjunction restates its operands too.
+        assert!(
+            dispatch["operands"][0].get("never").is_none(),
+            "{dispatch:#}"
+        );
+        let i = &dispatch["operands"][3];
+        assert_eq!(i["path"], "0.1");
+        assert_eq!(i["true_by"], json!(["irq"]));
+        assert_eq!(i["false_by"], json!(["idle"]));
+        let low = &rule("low")["guard"];
+        assert_eq!(low["held_by"], json!(["write"]));
+        assert_eq!(low["refuted_by"], json!([]));
+        assert_eq!(low["never"], json!(["refuted"]));
+        assert_eq!(low["operands"][0]["kind"], "atom");
+        assert!(
+            low["operands"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("32768"),
+            "{low:#}"
+        );
+        assert!(
+            document["summary"]["guards"]["never_held"]
+                .as_u64()
+                .unwrap()
+                >= 2,
+            "wake, halted: {document:#}"
+        );
+        let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
+        assert!(
+            verdicts.contains("\n[[guard]]\nrule = \"GUARDS.wake\"\nnever = [\"held\"]\n"),
+            "{verdicts}"
+        );
+        assert!(verdicts.contains("never = [\"refuted\"]"), "{verdicts}");
+        assert!(
+            !verdicts.contains("irq\", \"idle"),
+            "no program list: {verdicts}"
+        );
+    }
+
     /// kink27 R5-BYTES-ENDS: a Bytes domain value has a trusted injective codec (its payload is its
     /// sort's one stored form), so the Bytes-keyed Map the `store` rule leaves is a value and the
     /// program is comparable. Before, TV-01 refused the key's Bytes value (CS-T04), and the oracle
@@ -696,7 +805,7 @@ text = 'h(opaque(1), 2)'
 
     /// Re-pin L2-1-tail (review L2-1-1, D1): a `non-executable` rule is one k-rust never runs, so no
     /// program can reach it. It has no coverage signal, with its own reason, and is never listed
-    /// `uncovered`, the group of the next program to write.
+    /// `unmatched`, the group of the next program to write.
     #[test]
     #[ignore = "kink"]
     fn a_non_executable_rule_has_no_coverage_signal() {
@@ -723,12 +832,12 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             listed,
             [
-                (json!("LOOP.spin"), json!("uncovered")),
-                (json!("LOOP.unused"), json!("uncovered")),
-                (json!(null), json!("covered")),
-                (json!("LOOP.countdown"), json!("covered")),
-                (json!("LOOP.done"), json!("covered")),
-                (json!("LOOP.twice"), json!("covered")),
+                (json!("LOOP.spin"), json!("unmatched")),
+                (json!("LOOP.unused"), json!("unmatched")),
+                (json!(null), json!("fired")),
+                (json!("LOOP.countdown"), json!("fired")),
+                (json!("LOOP.done"), json!("fired")),
+                (json!("LOOP.twice"), json!("fired")),
                 (json!("LOOP.neDouble"), json!("no-coverage-signal")),
             ]
         );
@@ -744,8 +853,8 @@ text = 'h(opaque(1), 2)'
         );
         assert_eq!(
             document["summary"],
-            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "uncovered": 2,
-                   "covered": 4, "claim_helper": 0, "no_coverage_signal": 1, "mismatches": 0})
+            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "unmatched": 2,
+                   "matched": 0, "fired": 4, "claim_helper": 0, "no_coverage_signal": 1, "mismatches": 0})
         );
     }
 
@@ -968,12 +1077,12 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             listed,
             [
-                rule("LOOP.spin", 20, "uncovered", &[]),
-                rule("LOOP.unused", 24, "uncovered", &[]),
-                rule("-", 19, "covered", &["twice"]),
-                rule("LOOP.countdown", 21, "covered", &["countdown"]),
-                rule("LOOP.done", 22, "covered", &["countdown"]),
-                rule("LOOP.twice", 23, "covered", &["twice"]),
+                rule("LOOP.spin", 20, "unmatched", &[]),
+                rule("LOOP.unused", 24, "unmatched", &[]),
+                rule("-", 19, "fired", &["twice"]),
+                rule("LOOP.countdown", 21, "fired", &["countdown"]),
+                rule("LOOP.done", 22, "fired", &["countdown"]),
+                rule("LOOP.twice", 23, "fired", &["twice"]),
             ]
         );
         assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
@@ -988,10 +1097,10 @@ text = 'h(opaque(1), 2)'
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
         assert_eq!(
             document["summary"],
-            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 2,
-                   "covered": 4, "claim_helper": 0, "no_coverage_signal": 0, "mismatches": 0})
+            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "unmatched": 2,
+                   "matched": 0, "fired": 4, "claim_helper": 0, "no_coverage_signal": 0, "mismatches": 0})
         );
-        // calc: every rule is covered, the unlabelled one by `sub` alone.
+        // calc: every rule fires, the unlabelled one by `sub` alone.
         let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);
         assert_eq!(
             calc["rules"]
@@ -1007,22 +1116,22 @@ text = 'h(opaque(1), 2)'
             [
                 (
                     json!("CALC.add"),
-                    json!("covered"),
+                    json!("fired"),
                     json!(["add", "nested", "inline"])
                 ),
                 (
                     json!("CALC.mul"),
-                    json!("covered"),
+                    json!("fired"),
                     json!(["nested", "inline"])
                 ),
-                (json!(null), json!("covered"), json!(["sub"])),
+                (json!(null), json!("fired"), json!(["sub"])),
             ]
         );
     }
 
     /// CF-45: a claim helper (an equation of a function only claims apply, named by the front end
     /// that sees the claims) that no comparable program matched has status `claim-helper` and
-    /// leaves the program-coverage denominator; one that some program matched stays `covered`.
+    /// leaves the program-coverage denominator; one that some program fired is `fired`.
     /// The loop fixture's `double` equation, which `twice` reaches, stands in for the matched one,
     /// and `unused` and `spin`, which no program reaches, for unmatched ones. A sentence may write
     /// its label bare or as `MODULE.x`, so the unmatched helpers are named once in each form
@@ -1073,22 +1182,22 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             listed,
             [
-                (json!("LOOP.double"), json!("covered"), json!(["twice"])),
+                (json!("LOOP.double"), json!("fired"), json!(["twice"])),
                 (
                     json!("LOOP.countdown"),
-                    json!("covered"),
+                    json!("fired"),
                     json!(["countdown"])
                 ),
-                (json!("LOOP.done"), json!("covered"), json!(["countdown"])),
-                (json!("LOOP.twice"), json!("covered"), json!(["twice"])),
+                (json!("LOOP.done"), json!("fired"), json!(["countdown"])),
+                (json!("LOOP.twice"), json!("fired"), json!(["twice"])),
                 (json!("LOOP.spin"), json!("claim-helper"), json!([])),
                 (json!("LOOP.unused"), json!("claim-helper"), json!([])),
             ]
         );
         assert_eq!(
             document["summary"],
-            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 0,
-                   "covered": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
+            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "unmatched": 0,
+                   "matched": 0, "fired": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
         );
         assert_eq!(document["version"], 10);
     }
@@ -1459,7 +1568,7 @@ endmodule
         assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert!(document["programs"][0]["cause"].is_null());
-        assert_eq!(document["rules"][0]["status"], "covered");
+        assert_eq!(document["rules"][0]["status"], "fired");
         assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
         let path = record_path(&manifest, &document, "store");
         let mut record = stored_record(&manifest, &document, "store");

@@ -2283,27 +2283,34 @@ fn program_row(
 
 /// Every authored rule of the specification, with the comparable programs whose coverage
 /// matches it (`matched_by`, k-rust `matched`, the record's `sentences`) and fires it
-/// (`fired_by`, the record's
-/// `fired_sentences`: for a rewrite rule k-rust `committed`, some path of the run takes the
-/// rule's step; since KINK-R4, before which it read `applied`, which also holds a candidate
-/// rolled back because its successor was undefined and an undefined step's rule, neither of which
-/// any path takes, and which `kink-flow fuzz --fired` never offered): uncovered
-/// rules first, then covered rules, then the claim helpers no comparable program matched, then
-/// the rules with no coverage signal (no compiled id in kink-native's `coverage_domain`: a rule
-/// that compiles to no axiom, a `non-executable` rule (re-pin L2-1-tail: k-rust never runs one,
-/// so no program can match it), a macro or alias rule, an `smt-lemma`; re-pin L2-1, before which
-/// every equation was `not-observable`).
+/// (`fired_by`, the record's `fired_sentences`: for a rewrite rule k-rust `committed`, some path
+/// of the run takes the rule's step; for an equation k-rust `applied`, an instance gave a
+/// result), and the outcomes of its guard ([`crate::guards`]).
+///
+/// A rule's status is named for the predicate it tests, so the token is true of every row it
+/// labels:
+/// - `fired`: some comparable program fired the rule;
+/// - `matched`: some comparable program matched it and none fired it: its left-hand side matched
+///   and its condition was entered, but its right-hand side was never instantiated on a path, so
+///   no program can tell a change of its result apart;
+/// - `unmatched`: no comparable program matched it;
+/// - `claim-helper`: an unmatched equation of a function only claims apply;
+/// - `no-coverage-signal`: no compiled id in kink-native's `coverage_domain` (a rule that
+///   compiles to no axiom, a `non-executable` rule, a macro or alias rule, an `smt-lemma`).
+///
+/// Firing implies matching, so the statuses partition the rules with the precedence
+/// `no-coverage-signal`, `fired`, `matched`, `claim-helper`, `unmatched`. Rules are listed by
+/// status in the order `unmatched`, `matched`, `fired`, `claim-helper`, `no-coverage-signal`:
+/// the gaps first.
 ///
 /// A claim helper ([`FlowManifest::claim_helpers`]) is an equation of a function that only
 /// claims apply: it serves the claims, proof obligations a proof checks, and not the runs of the
-/// definition, which is why it is `claim-helper` and not `uncovered`, which would name it as the
+/// definition, which is why it is `claim-helper` and not `unmatched`, which would name it as the
 /// target of the next program to write. That no program text reaches it does not set it apart:
 /// no program text reaches a function nothing applies either, and such a sentence stays
-/// `uncovered`, since neither a run nor a claim accounts for it. A typed input can still apply
-/// any function, so a claim helper some comparable program matched is a fact of coverage and
-/// stays `covered`. The precedence is `no-coverage-signal`, then `covered`, then
-/// `claim-helper`, then `uncovered`, so that `covered / (covered + uncovered)` leaves out exactly
-/// the unmatched sentences whose only use is a claim.
+/// `unmatched`, since neither a run nor a claim accounts for it. A typed input can still apply
+/// any function, so a claim helper some comparable program matched or fired has that status, a
+/// fact of coverage.
 fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> Vec<Value> {
     let mut matched = BTreeMap::<(String, u64), Vec<&str>>::new();
     let mut fired = BTreeMap::<(String, u64), Vec<&str>>::new();
@@ -2326,13 +2333,25 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
             }
         }
     }
+    let comparable = manifest
+        .programs
+        .iter()
+        .zip(rows)
+        .filter_map(|(program, row)| {
+            let record = row.record.as_ref()?;
+            (record["class"] == ResultClass::Comparable.as_str())
+                .then_some((program.id.as_str(), record))
+        })
+        .collect::<Vec<_>>();
+    let guards = crate::guards::SentenceGuards::of(comparable.iter().copied());
+    let printer = EndReader::of(&spec.compiled);
     let no_signal = no_coverage_signal(spec);
     let claim_helpers = manifest
         .claim_helpers
         .iter()
         .map(|(module, label)| qualified_label(label, module))
         .collect::<BTreeSet<_>>();
-    let mut groups: [Vec<Value>; 4] = Default::default();
+    let mut groups: [Vec<Value>; 5] = Default::default();
     for (at, sentence) in spec.loaded.baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. }) {
             continue;
@@ -2340,6 +2359,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         let mut value = sentence_value(spec, &at);
         let key = (at.module.clone(), u64::from(at.index));
         let programs = matched.get(&key).cloned().unwrap_or_default();
+        let firing = fired.get(&key).cloned().unwrap_or_default();
         let claim_helper = || {
             sentence
                 .attributes()
@@ -2347,17 +2367,30 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
                 .is_some_and(|label| claim_helpers.contains(&qualified_label(label, &at.module)))
         };
         let (group, status) = if no_signal.contains_key(&at) {
-            (3, NO_COVERAGE_SIGNAL)
+            (4, NO_COVERAGE_SIGNAL)
+        } else if !firing.is_empty() {
+            (2, FIRED)
         } else if !programs.is_empty() {
-            (1, "covered")
+            (1, MATCHED)
         } else if claim_helper() {
-            (2, CLAIM_HELPER)
+            (3, CLAIM_HELPER)
         } else {
-            (0, "uncovered")
+            (0, UNMATCHED)
         };
         value["status"] = json!(status);
         value["matched_by"] = json!(programs);
-        value["fired_by"] = json!(fired.get(&key).cloned().unwrap_or_default());
+        value["fired_by"] = json!(firing);
+        if let Sentence::Rule {
+            requires,
+            attributes,
+            ..
+        } = sentence
+            && !crate::guards::unconditional(requires)
+            && !attributes.has(AttributeKey::Simplification)
+            && matches!(status, FIRED | MATCHED | UNMATCHED)
+        {
+            value["guard"] = crate::guards::row_guard(guards.get(&key), &printer);
+        }
         if let Some(reason) = no_signal.get(&at) {
             value["reason"] = json!(reason);
         }
@@ -2421,12 +2454,21 @@ pub fn current_record(
 }
 
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: never
-/// `uncovered`, since no program can match it in coverage's sense.
+/// `unmatched`, since no program can match it in coverage's sense.
 const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
 
-/// The status of a claim helper no comparable program matched ([`rules`]): never `uncovered`,
+/// The status of a claim helper no comparable program matched ([`rules`]): never `unmatched`,
 /// since it serves the claims, which a proof checks, and not the definition's runs.
 const CLAIM_HELPER: &str = "claim-helper";
+
+/// The status of a rule some comparable program fired ([`rules`]).
+pub const FIRED: &str = "fired";
+
+/// The status of a rule some comparable program matched and none fired ([`rules`]).
+pub const MATCHED: &str = "matched";
+
+/// The status of a rule no comparable program matched ([`rules`]).
+pub const UNMATCHED: &str = "unmatched";
 
 fn document(
     record: &AdmissionRecord,
@@ -2443,14 +2485,22 @@ fn document(
         "comparable": programs.iter().filter(|p| p["class"] == "comparable").count(),
         "computed": programs.iter().filter(|p| p["cached"] == false).count(),
         "rules": rules.len(),
-        "uncovered": count("uncovered"),
-        "covered": count("covered"),
+        "unmatched": count(UNMATCHED),
+        "matched": count(MATCHED),
+        "fired": count(FIRED),
         "claim_helper": count(CLAIM_HELPER),
         "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
+        "guards": crate::guards::summary(&rules),
         "mismatches": mismatches.len(),
     });
     json!({
         "schema": "kink-flow-results",
+        // 11 since KINK-guard-coverage: a rule's status is named for the predicate it tests:
+        // `fired` (some comparable program fired it), `matched` (some matched it and none fired
+        // it) and `unmatched` replace `covered` (which read `matched` alone, so it named rules no
+        // program ran) and `uncovered`, with the summary keys `fired`, `matched` and `unmatched`;
+        // and a guarded rule's row carries `guard`, its guard outcomes over the comparable
+        // programs, with the summary's `guards` (`crate::guards`).
         // 10 since `result` may name cells inside `?` and `*` cells, each left out (or compared)
         // in every instance, and a narrowing's `compared` names the key of each Map that encloses
         // a named cell (`crate::observed`); where the slot is `cells`, a program's ends are then
@@ -2502,7 +2552,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 10,
+        "version": 11,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,

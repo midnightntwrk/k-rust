@@ -93,7 +93,8 @@ pub const HELP: &str = concat!(
     "
 
 The loop:
-  1. write programs in FLOW.toml; kink-flow results FLOW.toml until no rule in scope is uncovered
+  1. write programs in FLOW.toml; kink-flow results FLOW.toml until every rule in scope fires
+     and every guard outcome is seen or argued unreachable
   2. write mutations (MUTATIONS.toml, or one <topic>.toml per topic in a directory);
      kink-flow check FLOW.toml --mutations MUTATIONS until it exits 0
   3. kink-flow run FLOW.toml MUTATIONS: it reports the survivors, mutations no program kills

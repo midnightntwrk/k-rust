@@ -37,7 +37,11 @@
 //! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
 //! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`), each
 //! rule named by its KRS item when a front end annotated it (`krs.item`), else its label, else
-//! its `file:line`, ordered by module name, then by position in the module. A `run` document
+//! its `file:line`, ordered by module name, then by position in the module; then each fired or
+//! matched rule whose guard misses an outcome (`[[guard]]`, in the same order): the guard
+//! outcomes no program saw (`never`) and each authored operand that misses `true` or `false`
+//! (`[[guard.operand]]`, its text and `never`), without program lists, so that a lock moves when
+//! a gap opens or closes. A `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), and, when a corpus error stopped it, the mutation and the reason under
@@ -81,8 +85,9 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `invalid-mutation` or `not-admitted` mutation has its `reason`; 6 since a killed mutation of a
 /// run has its `killer` under both schedules (the recorded killer while it kills, else the first
 /// in the search's order), the header no longer names the schedule, a run rendering no longer has
-/// `krs_annotation`, and a refused lock has its `[lock]` section.
-pub const VERDICTS_VERSION: u64 = 6;
+/// `krs_annotation`, and a refused lock has its `[lock]` section; 7 since a `results` rendering
+/// lists each fired or matched rule whose guard misses an outcome (`[[guard]]`).
+pub const VERDICTS_VERSION: u64 = 7;
 
 /// The rendering of a `results` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -158,6 +163,7 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     }
     if kind == "results" {
         cases(&mut text, document);
+        guards(&mut text, document);
     } else {
         mutations(&mut text, document, killed_by);
     }
@@ -265,6 +271,64 @@ fn cases(text: &mut String, document: &Value) {
         );
         line(text, "fired", &strings(&names("fired_by", id)));
         line(text, "matched", &strings(&names("matched_by", id)));
+    }
+}
+
+/// Each fired or matched rule whose guard misses an outcome (`crate::guards`), ordered by
+/// module and position: the guard outcomes no comparable program saw (`never`, of `held` and
+/// `refuted`), then each authored operand that misses `true` or `false`, by its text (the KRS
+/// construct's where the front end named it). `undecided = true` marks a gap beside which some
+/// program left the guard or the operand undecided, so that the gap may be the report's and not
+/// the corpus's. Program lists are left out, so a lock moves when a gap opens or closes, not
+/// with every new case.
+fn guards(text: &mut String, document: &Value) {
+    let mut rules = document["rules"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter(|rule| matches!(rule["status"].as_str(), Some("fired" | "matched")))
+        .filter(|rule| rule.get("guard").is_some_and(crate::guards::misses))
+        .collect::<Vec<_>>();
+    rules.sort_by_key(|rule| (rule["module"].as_str(), rule["index"].as_u64()));
+    let names = |values: &Value| {
+        values
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let undecided = |value: &Value| {
+        value["undecided_by"]
+            .as_array()
+            .is_some_and(|programs| !programs.is_empty())
+    };
+    for rule in rules {
+        let guard = &rule["guard"];
+        text.push_str("\n[[guard]]\n");
+        line(text, "rule", &string(&rule_name(rule)));
+        line(text, "never", &strings(&names(&guard["never"])));
+        if undecided(guard) && !names(&guard["never"]).is_empty() {
+            line(text, "undecided", "true");
+        }
+        for operand in guard["operands"].as_array().into_iter().flatten() {
+            let never = names(&operand["never"]);
+            if never.is_empty() {
+                continue;
+            }
+            text.push_str("\n[[guard.operand]]\n");
+            let shown = operand["krs"]["text"]
+                .as_str()
+                .or_else(|| operand["text"].as_str())
+                .unwrap_or_default();
+            line(text, "text", &string(shown));
+            line(text, "never", &strings(&never));
+            if undecided(operand) {
+                line(text, "undecided", "true");
+            }
+        }
     }
 }
 

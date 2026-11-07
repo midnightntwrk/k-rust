@@ -259,12 +259,14 @@ The corpus is <package>/kink (or --corpus DIR):
                     holding /.kink-flow/ keeps them out)
 
 The loop:
-  1. write cases (FLOW.toml, cases/); krs kink results until no rule in scope is
-     uncovered: its JSON document's rules[].status is covered, uncovered (write a case
-     that reaches the rule), claim-helper (the claims serve it: krs prove checks them) or
-     no-coverage-signal (no run can show it matched: a macro or alias), and a
-     simplification equation needs no case; the verdicts rendering lists cases, not
-     rule statuses
+  1. write cases (FLOW.toml, cases/); krs kink results until every rule in scope fires
+     and every guard outcome is seen or argued unreachable: its JSON document's
+     rules[].status is fired, matched (matched, never fired: write a case that takes its
+     step), unmatched (write a case that reaches the rule), claim-helper (the claims
+     serve it: krs prove checks them) or no-coverage-signal (no run can show it matched:
+     a macro or alias), a guarded rule's guard lists the outcomes no case saw, and a
+     simplification equation needs no case; the verdicts rendering lists the guard gaps
+     and cases, not rule statuses
   2. write mutations (mutations/<topic>.toml); krs kink check until it exits 0
   3. krs kink run; for each survivor write a case that kills it, or argue that no case
      can and drop the mutation, or keep it with the argument in its misunderstanding

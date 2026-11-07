@@ -1,0 +1,18 @@
+# kink-flow corpus manifest for the guards fixture: no program halts, so `wake` and `halted`
+# never hold, and no program writes a high address, so `low` is never refuted.
+[spec]
+entry = "guards.k"
+main_module = "GUARDS"
+syntax_module = "GUARDS-SYNTAX"
+
+[[program]]
+id = "irq"
+file = "programs/irq.guards"
+
+[[program]]
+id = "idle"
+file = "programs/idle.guards"
+
+[[program]]
+id = "write"
+file = "programs/write.guards"
