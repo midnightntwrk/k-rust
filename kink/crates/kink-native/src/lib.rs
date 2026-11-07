@@ -57,8 +57,8 @@ pub use validator::{
 /// and the documents' `k_rust_revision` / `k_rust.revision` fields are kept. No store's soundness
 /// rests on it: every store honoured without re-deriving its verdicts also keys on `kink_build`,
 /// the SHA-256 of the executable, which changes with the linked k-rust (kink-campaign `identity`).
-/// The k-rust commit kink's premises were last judged at is `[reference_pin]` of
-/// upstream/k-rust.toml.
+/// kink's premises on k-rust, and the k-rust commit the passages they cite are read at, are
+/// stated in kink's trust document (`kink/trust.md`).
 pub const K_RUST_REVISION: &str = env!("KINK_K_RUST_VERSION");
 
 /// The solver options of every backend kink builds, unless a corpus states its own resource

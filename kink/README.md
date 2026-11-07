@@ -501,9 +501,9 @@ It checks the schema, the manifest digest, the build environment and the artifac
 It returns `Reproduced` only when the regenerated report is byte-identical to the input; anything else is a refusal or a divergence, never a verdict.
 Replay assumes the same kink build and operator code, no time bound firing in either run, and k-rust's provenance round trip and compilation determinism.
 
-## Upstream requests
+## Premises on k-rust
 
-Requests kink makes of k-rust and KRS, and kink's premises on the in-repo k-rust, are recorded in the ledgers under [`upstream/`](upstream/README.md).
+kink's premises on the in-repo k-rust are stated in [`trust.md`](trust.md), with the k-rust commit at which the passages they cite are read; kink's drift pins (light-tier tests, "Gate") fail when a k-rust passage or source they rest on moves.
 
 ## Gate
 
