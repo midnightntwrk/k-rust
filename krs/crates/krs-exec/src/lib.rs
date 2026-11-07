@@ -1296,19 +1296,8 @@ impl Semantics {
             Configuration::new(&frontend_definition, configuration_variables)
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
-        // A step that follows one path where several rules of one priority apply takes the
-        // first of them in the order `origin::choice_key` states, so the path a run takes is a
-        // function of the definition's rules and of how it names them.
         let mut backend = timings.try_span("exec.backend", |_| {
-            let syntax = parse_definition(&definition_kore).map_err(|error| {
-                ExecError::Backend(format!("could not parse KORE definition: {error}"))
-            })?;
-            let mut internalized = Backend::internalize_definition(&syntax, &main_module)?;
-            internalized.order_rewrites_by(|rule| {
-                let unique_id = rule.attributes.unique_id.as_str();
-                origin::choice_key(sentence_provenance.get(unique_id), unique_id)
-            });
-            Backend::from_internalized(internalized, solver).map_err(ExecError::from)
+            backend_in_item_order(&definition_kore, &main_module, &sentence_provenance, solver)
         })?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
         let (values, cell_types) = timings.try_span("exec.values", |_| {
@@ -1414,7 +1403,12 @@ impl Semantics {
         if !self.spec_modules.contains(&stage.module) {
             return Err(self.unknown_spec_module(&stage.module));
         }
-        let mut backend = Backend::new(&stage.definition_kore, stage.module.clone(), self.solver)?;
+        let mut backend = backend_in_item_order(
+            &stage.definition_kore,
+            &stage.module,
+            &stage.provenance,
+            self.solver,
+        )?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
         let claims =
             claims::spec_catalog(&stage.definition_kore, &stage.provenance, &mut self.origins)?;
@@ -3292,6 +3286,11 @@ impl Semantics {
     /// Prove `claim`, one of [`Semantics::prove_selection`]'s for the same `options`, as one
     /// backend proof per disjunct of its left-hand side.
     ///
+    /// A `one_path` claim's proof follows one path, taking at each state the first rule that
+    /// applies in the order [`Semantics::run`] takes them, in the generated `<MAIN>-SPEC` and in
+    /// an author spec module alike, so where several rules apply its verdict may rest on that
+    /// order.
+    ///
     /// # Errors
     ///
     /// Returns an error of [`Semantics::prove_selection`], or [`ExecError::Backend`].
@@ -4156,6 +4155,32 @@ fn search_backend(
     request.max_depth = options.depth;
     request.max_results = options.max_solutions;
     Ok(backend.search_kore(request)?)
+}
+
+/// The backend of the module `module` of the compiled definition `definition_kore`, whose
+/// rewrite rules of one priority are tried in the order [`origin::choice_key`] states from the
+/// sentences' provenance `provenance`.
+///
+/// A step that follows one path where several rules of one priority apply takes the first of
+/// them: a run's step, and a `one_path` proof's, which reports a failure where the one path it
+/// follows misses its target. Every backend of a [`Semantics`] that steps, the definition's and
+/// each author spec module's, is built here, so the path a run takes and a `one_path` claim's
+/// verdict are functions of the definition's rules and of how it names them, the same in the
+/// generated `<MAIN>-SPEC` and in an author spec module.
+fn backend_in_item_order(
+    definition_kore: &str,
+    module: &str,
+    provenance: &SentenceProvenance,
+    solver: BackendOptions,
+) -> Result<Backend, ExecError> {
+    let syntax = parse_definition(definition_kore)
+        .map_err(|error| ExecError::Backend(format!("could not parse KORE definition: {error}")))?;
+    let mut internalized = Backend::internalize_definition(&syntax, module)?;
+    internalized.order_rewrites_by(|rule| {
+        let unique_id = rule.attributes.unique_id.as_str();
+        origin::choice_key(provenance.get(unique_id), unique_id)
+    });
+    Ok(Backend::from_internalized(internalized, solver)?)
 }
 
 /// The sort hooks of the definition `backend` runs, by KAST sort name: a result's domain value

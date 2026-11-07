@@ -19,6 +19,9 @@
 //!
 //! The fifth ([`CHOICE_AT_STOP`]) has a choice at a stop rule: `advance` and `leap`, one
 //! `nondet` group, are both enabled at the start.
+//!
+//! The sixth ([`STREAM_CHOICE`]) has a choice between an item's rule and a rule of a stream
+//! cell.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -1759,6 +1762,265 @@ fn krs_run_takes_the_first_rule_in_item_order_whatever_the_package_name() {
     );
     let (report, _) = fixture.run(&[]);
     assert_eq!(phase_and_ticks(&report), (4, 0), "{report}");
+}
+
+/// A `one_path` claim over [`CHOICE_AT_STOP`] that only `advance` from the start proves, written
+/// twice: beside the definition, in the generated spec module, and in an author spec module,
+/// under another label, since a definition's labels name one sentence each.
+/// From the start, `leap` goes to phase 2 and then 4, where the run is stuck, so a proof that
+/// takes `leap` there never reaches phase 1.
+const CHOICE_CLAIMS: &str = r#"
+k::claims! {
+    for Machine;
+
+    #[k::claim(one_path)]
+    advance_first: { k: [Step::Go], phase: 0, ticks: 0 } => { k: [Step::Go], phase: 1, ticks: 1 };
+}
+
+#[k::spec_module(name = "ORG-KRS-EXEC-CHOICE-AUTHOR-SPEC", imports = [crate])]
+mod choice_spec {
+    use super::*;
+
+    k::claims! {
+        for Machine;
+
+        #[k::claim(one_path)]
+        advance_first_again: { k: [Step::Go], phase: 0, ticks: 0 } => { k: [Step::Go], phase: 1, ticks: 1 };
+    }
+}
+"#;
+
+/// `krs prove --output json` of `fixture` with `extra`: each claim's label and verdict.
+fn verdicts(fixture: &ChoiceAtStop, extra: &[&str]) -> Vec<(String, String)> {
+    let mut arguments = vec!["--output", "json"];
+    arguments.extend(extra);
+    let (_, stdout, stderr) = fixture.krs("prove", &arguments);
+    let document: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stderr}"));
+    document["prove"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document}"))
+        .iter()
+        .map(|report| {
+            (
+                report["claim"].as_str().unwrap().to_owned(),
+                report["verdict"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// A `one_path` proof takes one rule at each state, so whether it reaches its target rests on
+/// which rule it takes where several apply; it takes the first in item order, as `krs run` does,
+/// in the generated spec module and in an author spec module alike, whatever the package is
+/// named. [`CHOICE_CLAIMS`] is proven in both under both package names; with `advance` renamed
+/// `vault`, `leap` comes first, and it fails in both.
+#[test]
+fn a_one_path_proof_takes_the_first_rule_in_item_order_in_every_spec_module() {
+    let author = ["--spec-module", "ORG-KRS-EXEC-CHOICE-AUTHOR-SPEC"];
+    let claims = |source: &str, package: &'static str| {
+        let fixture = ChoiceAtStop::of(source, package);
+        (verdicts(&fixture, &[]), verdicts(&fixture, &author))
+    };
+    let source = format!("{CHOICE_AT_STOP}{CHOICE_CLAIMS}");
+    for package in [CHOICE_AT_STOP_PACKAGE, "krs-exec-choice-at-stop-fixture"] {
+        let (generated, authored) = claims(&source, package);
+        assert_eq!(
+            generated,
+            [(
+                "ORG-KRS-EXEC-CHOICE-SPEC.advance-first".to_owned(),
+                "proven".to_owned()
+            )],
+            "{package}"
+        );
+        assert_eq!(
+            authored,
+            [(
+                "ORG-KRS-EXEC-CHOICE-AUTHOR-SPEC.advance-first-again".to_owned(),
+                "proven".to_owned()
+            )],
+            "{package}"
+        );
+    }
+
+    let renamed = source.replace("advance:", "vault:");
+    assert_ne!(renamed, source);
+    let (generated, authored) = claims(&renamed, "krs-exec-choice-at-stop-fixture");
+    let verdicts = generated
+        .iter()
+        .chain(&authored)
+        .map(|(_, verdict)| verdict.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(verdicts, ["failed", "failed"], "{generated:?} {authored:?}");
+}
+
+/// [`STRICT`] with `Add` strict in both operands, run from `(1 + 2) + (3 + 4)`: both of the start's
+/// heat rules apply.
+fn strict_both() -> String {
+    let source = STRICT.replace("#[k::seqstrict]", "#[k::strict]").replace(
+        "Arith::Add { lhs: Arith::Add { lhs: 1, rhs: 2 }, rhs: 3 }",
+        "Arith::Add { lhs: Arith::Add { lhs: 1, rhs: 2 }, rhs: Arith::Add { lhs: 3, rhs: 4 } }",
+    );
+    assert_eq!(source.matches("#[k::strict]").count(), 1);
+    assert!(source.contains("rhs: Arith::Add { lhs: 3"));
+    source
+}
+
+/// An item's several rules are tried by `UNIQUE_ID`: from `(1 + 2) + (3 + 4)` both of `Add`'s heat
+/// rules apply, and the run takes the one of smaller `UNIQUE_ID` first, under either package
+/// name, heating the other operand three steps later.
+#[test]
+fn krs_run_takes_an_items_rules_by_unique_id_whatever_the_package_name() {
+    let source = strict_both();
+    let mut traces = Vec::new();
+    for package in [STRICT_PACKAGE, "krs-exec-fixture-strict"] {
+        let compiled: &'static _ =
+            Box::leak(Box::new(compile(&source, package, "ORG-KRS-EXEC-STRICT")));
+        on(compiled, |semantics| {
+            let start = initial(semantics);
+            let whole = semantics
+                .run(
+                    &start,
+                    RunOptions {
+                        trace: true,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap();
+            // Heat, add, cool for each operand, then the outer add.
+            assert_eq!((whole.halt, whole.steps), (Halt::Stuck, 7), "{whole:?}");
+            let ids = rule_ids(&whole);
+            let (first, second) = (&ids[0], &ids[3]);
+            assert_ne!(first, second);
+            for heat in [first, second] {
+                assert_eq!(
+                    semantics.stop_name(heat).as_deref(),
+                    Some("crate::Arith::Add"),
+                    "{package}"
+                );
+            }
+            assert!(first < second, "{package}: {ids:?}");
+            traces.push(ids);
+        });
+    }
+    assert_eq!(traces[0], traces[1]);
+}
+
+/// A `stream = "stdout"` cell, and an item's rule at the priority of K's rule that moves an Int
+/// written to the stream into its buffer (`stdoutBufferInt`, priority 25): `say` writes `n` and
+/// leaves `next`, so both apply to its successor, and the run ends stuck after both.
+const STREAM_CHOICE: &str = r#"
+use k::builtin::{Int, KSequence, List, list};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("say {n}")]
+    Say { n: Int },
+    #[k::syntax("next")]
+    Next(),
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    say: { k: [Say(n), ..], output: out } => { k: [Next(), ..], output: list::concat(out, list::item(n)) };
+
+    #[k::rule(priority = 25)]
+    next: { k: [Next(), ..], count } => { k: [..], count: count + 1 };
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub count: Int,
+    #[k::cell(stream = "stdout")]
+    pub output: List,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(start: Int) -> Self {
+        Self { k: k::k![StmtSyntax::Say { n: start }], count: 0, output: list::empty() }
+    }
+}
+"#;
+
+/// [`STREAM_CHOICE`] with its configuration in the module `rig`.
+fn stream_choice_in_rig() -> String {
+    let at = STREAM_CHOICE.find("#[k::configuration]").unwrap();
+    let (head, configuration) = STREAM_CHOICE.split_at(at);
+    let source = format!(
+        "{}pub mod rig {{\n    use super::*;\n\n{configuration}}}\n",
+        head.replace("for Machine;", "for rig::Machine;")
+    );
+    assert!(source.contains("for rig::Machine;"));
+    source
+}
+
+/// The rule labels and `UNIQUE_ID`s of a run of `source` as `package` from 0.
+fn traced_rules(source: &str, package: &str) -> Vec<(Option<String>, String)> {
+    let compiled: &'static _ = Box::leak(Box::new(compile(
+        source,
+        package,
+        "ORG-KRS-EXEC-STREAM-CHOICE",
+    )));
+    let mut steps = Vec::new();
+    on(compiled, |semantics| {
+        let start = initial(semantics);
+        let whole = semantics
+            .run(
+                &start,
+                RunOptions {
+                    trace: true,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!((whole.halt, whole.steps), (Halt::Stuck, 3), "{whole:?}");
+        steps = whole
+            .trace
+            .iter()
+            .map(|step| (step.label.clone(), step.rule_id.clone()))
+            .collect();
+    });
+    steps
+}
+
+/// K's stdout rules instantiated for a stream cell are written by K's builtin closure and by the
+/// item that declares the cell, and stand where that item does in item order. In
+/// [`STREAM_CHOICE`], `stdoutBufferInt` stands at `Machine`, which comes before `next` in
+/// the root module, so the run takes it first; with the configuration in the module `rig`, it
+/// comes after `next`. The two rules' `UNIQUE_ID`s are the same in both, and `next`'s is the
+/// smaller, so the order is the items', not the digests'.
+#[test]
+fn krs_run_takes_a_stream_rule_where_the_item_declaring_the_cell_stands() {
+    let label = |rule: &str| Some(rule.to_owned());
+    let root = traced_rules(STREAM_CHOICE, "krs-exec-stream-choice-fixture");
+    let labels = root
+        .iter()
+        .map(|(label, _)| label.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        labels,
+        [
+            label("ORG-KRS-EXEC-STREAM-CHOICE.say"),
+            label("STDOUT-STREAM.stdoutBufferInt"),
+            label("ORG-KRS-EXEC-STREAM-CHOICE.next"),
+        ]
+    );
+    let (buffer, next) = (&root[1].1, &root[2].1);
+    assert!(next < buffer, "{root:?}");
+
+    let rig = traced_rules(&stream_choice_in_rig(), "krs-exec-stream-choice-fixture");
+    assert_eq!(rig, [root[0].clone(), root[2].clone(), root[1].clone()]);
 }
 
 /// A case of [`CHOICE_AT_STOP`] stops where `krs run`'s flags do, at `advance`'s one arrival;

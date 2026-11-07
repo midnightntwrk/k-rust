@@ -200,10 +200,14 @@ fn origin_item(origin: &NodeOrigin) -> Option<&StableItemId> {
         })
 }
 
-/// Where a rewrite rule stands in the order in which a one-path run tries the rules of one
-/// priority: the rules KRS items write in item order (K namespace, Rust module path, item name,
-/// declaration kind, disambiguator: the item's identity without its Cargo package name, version
-/// and source), each item's rules, and then the rules of K's builtin closure, by `UNIQUE_ID`.
+/// Where a rewrite rule stands in the order in which a one-path run, or a `one_path` proof, tries
+/// the rules of one priority: the rules KRS items write in item order (K namespace, Rust module
+/// path, item name, declaration kind, disambiguator: the item's identity without its Cargo
+/// package name, version and source), each item's several rules by `UNIQUE_ID`, and then the
+/// rules no KRS item writes, by `UNIQUE_ID`.
+/// A rule whose authors include KRS items stands where the first of them in item order does:
+/// K's stream rules, which the builtin closure and the item declaring the stream cell write
+/// together, stand at that item.
 ///
 /// A step that follows one path where several rules of one priority apply takes the first of
 /// them, so this order is what the path is a function of. Every part of it is part of the
@@ -215,7 +219,6 @@ pub(crate) fn choice_key<'a>(
     provenance: Option<&'a EmittedProvenance>,
     unique_id: &str,
 ) -> (bool, Option<ChoiceItem<'a>>, String) {
-    // A rule several equal sentences write stands where the first of their items does.
     let item = provenance
         .into_iter()
         .flat_map(EmittedProvenance::authors)
