@@ -938,7 +938,9 @@ note = "right-hand side"
         // `stop`; CF-24f: version 21 names each `difference`'s format; version 22 adds named
         // cases and a case's `expectation`; CF-33: version 23 adds `decider_smt_unknowns`; CF-33d: version 24 caches an unknown with its cause;
         // U8 stage 4b: version 25 names cells inside `?` and `*` cells in `result`.
-        assert_eq!(document["version"], 25);
+        // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
+        // an open application of a stuck end and adds the reason `open-application`.
+        assert_eq!(document["version"], 27);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

@@ -906,14 +906,15 @@ mod kink_tier {
     /// `I >Int 0` into `I >Int 1`, so no equation of the mutant reduces `f(1)`. The mutant's run
     /// of `f1` steps `runf(1)` to `f(1)` and stops there indeterminate: `out`'s left-hand side
     /// `v(I)` cannot be matched against the open application. The cause names the function and
-    /// that leaf's depth (1: the one step of `runf`). Fix round 1: only a function whose equations
-    /// the mutation edits is named. `fz1`'s state `pair(z(5), f(1))` holds `z(5)` first, which no
-    /// equation reduces in the baseline either, and `pair`'s `v(I)` cannot be matched against the
-    /// open `f(1)`: the cause names `f`, never `z`. Every leaf of either run whose path is
-    /// incomplete holds `f(1)` (the trivial leaf is an undefined step, no end), so the row's
-    /// reason is `open-application`, with the replacement advice; a second run on the same cache
-    /// reads both unknowns from the outcome cache and gives the same row reason, causes and
-    /// action, since each record keeps whether its program is undecided by the open application.
+    /// that leaf's depth (1: the one step of `runf`), and the application with its arguments. Fix
+    /// round 1: only a function whose equations the mutation edits is named. `fz1`'s state
+    /// `pair(z(5), f(1))` holds `z(5)` first, which no equation reduces in the baseline either,
+    /// and `pair`'s `v(I)` cannot be matched against the open `f(1)`: the cause names `f`, never
+    /// `z`. Every leaf of either run whose path is incomplete holds `f(1)` (the trivial leaf is an
+    /// undefined step, no end), so the row's reason is `open-application`, with the replacement
+    /// advice; a second run on the same cache reads both unknowns from the outcome cache and gives
+    /// the same row reason, causes and action, since each record keeps whether its program is
+    /// undecided by the open application.
     #[test]
     #[ignore = "kink"]
     fn an_open_function_application_is_named_in_the_cause() {
@@ -938,16 +939,17 @@ mod kink_tier {
         assert!(
             f1.contains(
                 "k-rust returned 2 leaves (trivial 1, indeterminate 1), the deepest at depth 1; \
-                 its indeterminate leaf at depth 1 holds an application of the function `f`, \
-                 whose equations the mutation edits, that no equation of the mutant reduces: the \
-                 mutant leaves its value open there"
+                 its indeterminate leaf at depth 1 holds `f ( 1 )`, an application of the \
+                 function `f`, whose equations the mutation edits, that no equation of the mutant \
+                 reduces: the mutant leaves its value open there"
             ),
             "{f1}"
         );
         let fz1 = cause_of("fz1");
         assert!(
             fz1.contains(
-                "holds an application of the function `f`, whose equations the mutation edits"
+                "holds `f ( 1 )`, an application of the function `f`, whose equations the \
+                 mutation edits"
             ),
             "{fz1}"
         );

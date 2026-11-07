@@ -6,7 +6,8 @@ $ krs kink --package story-plus --definition main fuzz --templates guide/TEMPLAT
     "witnesses": [
       "t3",
       "t4"
-    ]
+    ],
+    "witnesses_global": false
   },
   "program": {
     "confirmed": true,

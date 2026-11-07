@@ -38,12 +38,15 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// stage and the warning kinds are values the reader does not take). Version 7 adds the refusal
 /// of a corpus with `[stop]`; the digest is unchanged, since its stage and reason are arguments of
 /// `Refusal::new`, which the reader does not take, its `action` is a message, not a token, and its
-/// `stopped` value `refused` and its key `action` were already in the document.
+/// `stopped` value `refused` and its key `action` were already in the document. Version 8 adds
+/// `template.last_run.mutation.witnesses_global` and the warning `global-witnesses`; the digest
+/// moved by the key `witnesses_global` alone, since a warning kind passed to `warning(..)` is not
+/// a value the reader takes.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    7,
+    8,
     10,
     2,
-    "354a34995bfb9adf32910561f811533ca6eb32c4739e94d4be12517a753b3734",
+    "0b13a5a1ef6b1ea5074504e1e4dbab3a1ed8b4492d3f465a1a038e50a1f39418",
 );
 
 /// `source` without `//` comments, string literals kept whole.

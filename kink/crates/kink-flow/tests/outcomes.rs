@@ -2425,6 +2425,7 @@ misunderstanding = "a test mutation"
                     "mutant_run_sha256": read_json(&outcome_file(&manifest, &cold, "add-swaps-operands"))
                         ["records"][program_digest(&cold, "add")]["mutant_run_sha256"],
                     "cause": null,
+                    "open_application": false,
                     "smt_unknowns": 0,
                     "decider_smt_unknowns": 0,
                 },
@@ -2432,6 +2433,7 @@ misunderstanding = "a test mutation"
                     "outcome": "agree",
                     "mutant_run_sha256": verified["mismatches"][0]["live"]["mutant_run_sha256"],
                     "cause": null,
+                    "open_application": false,
                     "smt_unknowns": 0,
                     "decider_smt_unknowns": 0,
                 },
