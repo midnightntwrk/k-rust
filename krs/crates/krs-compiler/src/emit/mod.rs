@@ -475,23 +475,18 @@ impl<'a> EmitContext<'a> {
             .ok_or_else(|| EmitError::InvalidReference(format!("missing fixed cell {id}")))
     }
 
-    /// The instances a sentence's `cells` lie in, outermost first, whose cells its clauses are
-    /// written in ([`DefinitionIndex::sentence_instances`]).
-    fn sentence_instances<'c>(
+    /// Where a sentence's clauses, whose cells are `cells`, are written: inside the cells of the
+    /// instances they lie in, or at the top ([`DefinitionIndex::clause_layout`]).
+    fn clause_layout<'c>(
         &self,
         cells: impl IntoIterator<Item = &'c SymbolId>,
-    ) -> Result<Vec<&SymbolId>, EmitError> {
+    ) -> Result<krs_ir_levels::k_surface::ClauseLayout<'_>, EmitError> {
         self.index
-            .sentence_instances(cells)
+            .clause_layout(cells)
             .map_err(|error| EmitError::UnsupportedShape {
                 node: "sentence about one instance",
                 detail: error.to_string(),
             })
-    }
-
-    /// The instance a cell lies in directly ([`DefinitionIndex::instance_holder`]).
-    fn instance_holder(&self, cell: &SymbolId) -> Option<&SymbolId> {
-        self.index.instance_holder(cell)
     }
 
     /// The parent of a nested cell (KF-023: an exact or List collection

@@ -8,7 +8,7 @@ use krs_ir::{
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, LabelIdentity, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
-    k_surface::SentenceVariables,
+    k_surface::{InstancesItem, SentenceVariables, instances_layout},
 };
 
 use super::{
@@ -937,42 +937,39 @@ fn emit_configuration_clauses(
 }
 
 /// Writes the items whose cells are `cells`, each on its own line by `emit` (given the item's
-/// index and its indentation), inside the cells of the instances they lie in
-/// ([`DefinitionIndex::sentence_instances`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instances)):
-/// each instance's cell holds the items that lie in it directly, then the cell of the next
-/// instance, open on the right for the instance's other cells. Items outside every instance
-/// are written at the top.
+/// index and its indentation), where
+/// [`DefinitionIndex::clause_layout`](krs_ir_levels::k_surface::DefinitionIndex::clause_layout)
+/// places them: inside the cells of the instances they lie in, each instance's cell holding the
+/// items that lie in it directly, then the cell of the next instance, open on the right for the
+/// instance's other cells; items outside every instance at the top.
 fn emit_in_instances<'c>(
     cells: impl IntoIterator<Item = &'c SymbolId>,
     context: &EmitContext<'_>,
     writer: &mut Writer,
     mut emit: impl FnMut(usize, usize, &mut Writer) -> Result<(), EmitError>,
 ) -> Result<(), EmitError> {
-    let cells = cells.into_iter().collect::<Vec<_>>();
-    let chain = context.sentence_instances(cells.iter().copied())?;
+    let layout = context.clause_layout(cells)?;
     let mut indent = 4;
-    if chain.is_empty() {
-        for index in 0..cells.len() {
+    if layout.chain.is_empty() {
+        for &index in layout.levels.iter().flatten() {
             writer.push("\n");
             emit(index, indent, writer)?;
         }
         return Ok(());
     }
-    for instance in &chain {
+    for (instance, level) in layout.chain.iter().zip(&layout.levels) {
         writer.push("\n");
         writer.push(&" ".repeat(indent));
         writer.push("<");
         writer.push(context.cell_name(instance)?);
         writer.push(">");
         indent += 4;
-        for (index, cell) in cells.iter().enumerate() {
-            if context.instance_holder(cell) == Some(*instance) {
-                writer.push("\n");
-                emit(index, indent, writer)?;
-            }
+        for &index in level {
+            writer.push("\n");
+            emit(index, indent, writer)?;
         }
     }
-    for instance in chain.iter().rev() {
+    for instance in layout.chain.iter().rev() {
         writer.push("\n");
         writer.push(&" ".repeat(indent));
         writer.push("...");
@@ -1132,10 +1129,10 @@ fn emit_cell_image(
 
 /// Emits a collection (`*`) clause (KF-023): matched instances in place,
 /// `(<c> .. </c> => .Bag)` for a removed one, `(.Bag => <c> .. </c>)` for a
-/// new one. An open Set or Map entry leaves the parent cell to K; an exact
-/// entry, and a List entry, is written inside its parent cell, and a List
-/// entry's back instances follow the other instances, which a variable
-/// names.
+/// new one, laid out by [`instances_layout`]: an open Set or Map entry leaves
+/// the parent cell to K; an exact entry, and a List entry, is written inside
+/// its parent cell, and a List entry's back instances follow the other
+/// instances, which a variable names.
 fn emit_instances_clause(
     clause: &krs_ir::InstancesClause<SymbolId, DefinitionTerm>,
     index: usize,
@@ -1144,15 +1141,9 @@ fn emit_instances_clause(
     indent: usize,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    // One emitted item: an instance, `...`, or the rest variable.
-    enum Item<'a> {
-        Instance(&'a krs_ir::InstanceClause<SymbolId, DefinitionTerm>),
-        Dots,
-        Rest,
-    }
     let start = writer.source.len();
-    let list = clause.ordering() == krs_ir::InstanceOrdering::List;
-    let wrapped = list || !clause.is_open();
+    let layout = instances_layout(clause);
+    let wrapped = layout.in_parent;
     let item_indent = if wrapped { indent + 4 } else { indent };
     let parent = if wrapped {
         let parent = context.parent_cell(clause.cell()).ok_or_else(|| {
@@ -1170,34 +1161,19 @@ fn emit_instances_clause(
     } else {
         None
     };
-    // The items in order: front instances, the other instances (`...`, or
-    // a variable when back instances follow them), back instances.
-    let mut items = clause
-        .front()
-        .iter()
-        .map(Item::Instance)
-        .collect::<Vec<_>>();
-    if clause.is_open() {
-        if !clause.back().is_empty() {
-            items.push(Item::Rest);
-        } else if wrapped {
-            items.push(Item::Dots);
-        }
-    }
-    items.extend(clause.back().iter().map(Item::Instance));
-    for (position, item) in items.into_iter().enumerate() {
+    for (position, item) in layout.items.into_iter().enumerate() {
         if wrapped || position > 0 {
             writer.push("\n");
         }
         match item {
-            Item::Instance(instance) => {
+            InstancesItem::Instance(instance) => {
                 emit_instance(instance, clause.cell(), names, context, item_indent, writer)?;
             }
-            Item::Dots => {
+            InstancesItem::Others => {
                 writer.push(&" ".repeat(item_indent));
                 writer.push("...");
             }
-            Item::Rest => {
+            InstancesItem::Rest => {
                 writer.push(&" ".repeat(item_indent));
                 writer.push(&format!("_Instances{index}:Bag"));
             }
