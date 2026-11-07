@@ -368,6 +368,53 @@ pub fn instances_layout<C, T>(clause: &krs_ir::InstancesClause<C, T>) -> Instanc
     InstancesLayout { in_parent, items }
 }
 
+/// The one instance a collection (`*`) clause steps
+/// ([`krs_ir::InstancesClause::stepped_instance`]), where it is written
+/// ([`stepped_instance_layout`]).
+#[derive(Debug)]
+pub struct SteppedInstanceLayout<'c, C, T> {
+    /// The instance's children, the cells of that instance the clause reads or rewrites in place,
+    /// in the order the instance's cell holds them, each as one cell.
+    pub children: &'c [krs_ir::FixedCellClause<C, T>],
+    /// Whether the instance's cell is open on the right for the instance's other cells.
+    pub open: bool,
+    /// Whether the clause is written inside the collection's parent cell
+    /// ([`InstancesLayout::in_parent`]).
+    pub in_parent: bool,
+    /// The instance's place among the items the clause is written as
+    /// ([`InstancesLayout::items`]); an item before it is a variable of the parent cell's
+    /// content, never its frame.
+    pub position: usize,
+}
+
+/// Where the clause `clause` writes the one instance it steps, if it steps one
+/// ([`krs_ir::InstancesClause::stepped_instance`]): that instance's cell is one item of
+/// [`instances_layout`], and it holds the instance's children, one cell each, in order, then its
+/// frame where the instance is open. The children are the clauses of a rule about that one
+/// instance, as the cells of an instance a rule lies in are ([`DefinitionIndex::clause_layout`]),
+/// and the rest of the collection is no part of the step. `None` for a clause about the
+/// collection whole.
+#[must_use]
+pub fn stepped_instance_layout<C, T>(
+    clause: &krs_ir::InstancesClause<C, T>,
+) -> Option<SteppedInstanceLayout<'_, C, T>> {
+    // `stepped_instance` names only a kept instance; the pattern destructures it.
+    let krs_ir::InstanceClause::Kept { children, open, .. } = clause.stepped_instance()? else {
+        return None;
+    };
+    let layout = instances_layout(clause);
+    let position = layout
+        .items
+        .iter()
+        .position(|item| matches!(item, InstancesItem::Instance(_)))?;
+    Some(SteppedInstanceLayout {
+        children,
+        open: *open,
+        in_parent: layout.in_parent,
+        position,
+    })
+}
+
 /// Two cells of one sentence that lie in different instances
 /// ([`DefinitionIndex::sentence_instances`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1581,6 +1628,71 @@ mod tests {
                     reads: true
                 }
             )]),
+            None
+        );
+    }
+
+    /// An entry steps one instance when it matches exactly one, keeps it and frames the others;
+    /// the instance is then one item of its layout, beside the other cells of an open Map or Set
+    /// entry and inside the parent cell, after the variable naming the other instances, as a List
+    /// entry's back instance. An entry that creates or removes its instance, names two, or names
+    /// every instance steps none.
+    #[test]
+    fn an_entry_that_steps_one_instance_writes_it_as_one_item() {
+        let cell = || symbol_id("cell.core");
+        let child = || {
+            krs_ir::FixedCellClause::new(
+                origin("core.k"),
+                symbol_id("cell.k"),
+                DefinitionTerm::token(origin("core.k.term"), int_sort(), "0").unwrap(),
+                krs_ir::CellPost::Preserve,
+                CellContentFrame::Exact,
+            )
+        };
+        let kept = || krs_ir::InstanceClause::Kept {
+            origin: origin("core"),
+            label: Some("me".into()),
+            children: vec![child()],
+            open: true,
+        };
+        let entry = |ordering, front, back, open| {
+            krs_ir::InstancesClause::new(origin("cores"), cell(), ordering, front, back, open)
+        };
+        let shape = |clause: &krs_ir::InstancesClause<SymbolId, DefinitionTerm>| {
+            stepped_instance_layout(clause).map(|layout| {
+                (
+                    layout.children.len(),
+                    layout.open,
+                    layout.in_parent,
+                    layout.position,
+                )
+            })
+        };
+        let unordered = krs_ir::InstanceOrdering::Unordered;
+        let list = krs_ir::InstanceOrdering::List;
+        assert_eq!(
+            shape(&entry(unordered, vec![kept()], Vec::new(), true)),
+            Some((1, true, false, 0))
+        );
+        assert_eq!(
+            shape(&entry(list, Vec::new(), vec![kept()], true)),
+            Some((1, true, true, 1))
+        );
+        assert_eq!(
+            shape(&entry(unordered, vec![kept()], Vec::new(), false)),
+            None
+        );
+        assert_eq!(
+            shape(&entry(unordered, vec![kept(), kept()], Vec::new(), true)),
+            None
+        );
+        let created = krs_ir::InstanceClause::Created {
+            origin: origin("new"),
+            children: Vec::new(),
+            defaults: true,
+        };
+        assert_eq!(
+            shape(&entry(unordered, vec![created], Vec::new(), true)),
             None
         );
     }
