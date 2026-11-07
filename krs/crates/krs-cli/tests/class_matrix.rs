@@ -90,7 +90,7 @@ use krs_test_support::class_matrix::pending::{
     TWIN, case_of, test_of,
 };
 use krs_test_support::class_matrix::table::{
-    Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
+    Expected, Glob, Resolution, Said, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
 };
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
@@ -382,6 +382,16 @@ fn table_miss(
             };
             if error.code.as_deref() != Some(class.code.as_str()) {
                 return Some(format!("the table expects {}", class.code));
+            }
+            // A limit said in the product's message (`[limit]`'s `message`) is said in every
+            // refusal of its class.
+            if let Some(Said::Message(fragment)) =
+                spec().table.limits.get(*name).map(|limit| &limit.said)
+                && !error.message.contains(fragment.as_str())
+            {
+                return Some(format!(
+                    "the limit {name}'s message does not say {fragment:?}"
+                ));
             }
             let site = at.range(placed);
             (!error.located_inside(site))

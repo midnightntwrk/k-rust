@@ -38,7 +38,9 @@ use krs_test_support::class_matrix::sweep::{
     more_spellings as sweep_more_spellings, nested_collection_stack, spellings as sweep_spellings,
     stack_name, stacks as sweep_stacks, subject as sweep_subject, untexted,
 };
-use krs_test_support::class_matrix::table::{At, Expected, Glob, TERM_ACCEPTS_FILE, Table, twin};
+use krs_test_support::class_matrix::table::{
+    At, Expected, Glob, NOT_SUPPORTED_YET, Said, TERM_ACCEPTS_FILE, Table, twin,
+};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Side, entry_cases};
 
 fn read_class_matrix(file: &str) -> String {
@@ -88,13 +90,26 @@ static ANSWERS: LazyLock<BTreeMap<String, (Outcome, bool)>> = LazyLock::new(|| {
         .collect()
 });
 
+/// Whether the table's row `expected` is a limit class's ([`Table::limits`]).
+fn limited(expected: &Expected<'_>) -> Option<&'static str> {
+    match expected {
+        Expected::Refuse { name, .. } => TABLE
+            .limits
+            .get_key_value(*name)
+            .map(|(name, _)| name.as_str()),
+        Expected::Accept(_) => None,
+    }
+}
+
 /// Whether the oracle's `got` agrees with the table's `expected` (§3, check 1): a refusal with
 /// a refusal of its class; an admission with an accept owing the same lint; `After` with an
 /// accept owing none or a sort class's refusal; and any admission with a rule-level row, which
-/// check 1r judges.
+/// check 1r judges, or with a limit class's row: a limit is the product's, not a principle, so
+/// the principles admit what it refuses.
 fn agrees(got: Outcome, expected: &Expected<'_>) -> bool {
     match expected {
         Expected::Refuse { name, .. } if RULE_CLASSES.contains(name) => got.admits(),
+        _ if limited(expected).is_some() => got.admits(),
         Expected::Refuse { name, .. } => match got {
             Outcome::Refuse(class) => class == *name,
             Outcome::After => SORT_CLASSES.contains(name),
@@ -162,7 +177,9 @@ fn check_0_every_class_of_the_oracle_is_the_tables_with_its_code() {
 }
 
 /// Check 1: every cell-entry case's row agrees with the oracle (steps 1–3), or a
-/// `[cell-exception]` names it with the principle it departs by; no exception is stale.
+/// `[cell-exception]` names it with the principle it departs by; no exception is stale. A limit
+/// class's row agrees with an admission only ([`agrees`]): a limit the principles refuse is no
+/// limit, and no exception excuses it.
 #[test]
 fn check_1_every_cell_entry_row_agrees_with_the_principles() {
     let exceptions = exceptions();
@@ -199,6 +216,16 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
                 case.id
             ));
         }
+        if let Some(limit) = limited(expected)
+            && !got.admits()
+        {
+            failures.push(format!(
+                "{}: the limit class {limit} refuses what the principles refuse ({got:?}): a \
+                 limit names a meaningful construct only",
+                case.id
+            ));
+            continue;
+        }
         if agrees(got, expected) {
             continue;
         }
@@ -228,6 +255,96 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
         hits.values().sum::<usize>(),
         exceptions.len()
     );
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Where a limit is said, by its [`Said`]: its message fragment, or the line of the language
+/// reference that holds its docs fragment.
+fn said(name: &str, said: &Said, reference: &str) -> Result<String, String> {
+    match said {
+        Said::Message(fragment) => Ok(fragment.clone()),
+        Said::Docs(fragment) => {
+            let lines = reference
+                .lines()
+                .filter(|line| line.contains(fragment.as_str()))
+                .collect::<Vec<_>>();
+            match lines[..] {
+                [line] => Ok(line.to_owned()),
+                _ => Err(format!(
+                    "limit.{name}.docs {fragment:?} is on {} lines of the language reference, not \
+                     one",
+                    lines.len()
+                )),
+            }
+        }
+    }
+}
+
+/// Check 1l (TRI-C2): every limit class is said and decides cell-entry cases only. Its message
+/// fragment, or the reference's sentence its docs fragment names, says [`NOT_SUPPORTED_YET`], the
+/// sentence with the class's code too, so that a limit is never a silent over-refusal; it is no
+/// class the oracle or the lattice answers with; and it decides some case, each a cell-entry case,
+/// so that check 1 sees the principles admit it. The full tier checks a message fragment
+/// against the product's messages.
+#[test]
+fn check_1l_every_limit_is_said_and_decides_cell_entry_cases() {
+    let reference = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs-site/src/pages/reference/language.mdx"),
+    )
+    .expect("the language reference reads");
+    let oracle = CODES
+        .iter()
+        .map(|(class, _)| *class)
+        .chain(SORT_CLASSES)
+        .collect::<BTreeSet<_>>();
+    let entries = ENTRIES
+        .iter()
+        .map(|(case, _)| case.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut failures = Vec::new();
+    let mut decided = BTreeMap::<&str, usize>::new();
+    for (id, expected) in EXPECTED.iter() {
+        let Some(limit) = limited(expected) else {
+            continue;
+        };
+        *decided.entry(limit).or_default() += 1;
+        if !entries.contains(id.as_str()) {
+            failures.push(format!(
+                "{id}: the limit class {limit} decides a case that is no cell entry, which the \
+                 principles do not judge"
+            ));
+        }
+    }
+    for (name, limit) in &TABLE.limits {
+        if oracle.contains(name.as_str()) {
+            failures.push(format!(
+                "limit.{name}: a class the oracle or the lattice answers with is a principle"
+            ));
+        }
+        if !decided.contains_key(name.as_str()) {
+            failures.push(format!(
+                "limit.{name} decides no case: it is stale, remove it"
+            ));
+        }
+        match said(name, &limit.said, &reference) {
+            Err(error) => failures.push(error),
+            Ok(text) if !text.contains(NOT_SUPPORTED_YET) => failures.push(format!(
+                "limit.{name}: {text:?} does not say {NOT_SUPPORTED_YET:?}"
+            )),
+            Ok(text)
+                if matches!(limit.said, Said::Docs(_))
+                    && !text.contains(&format!("`{}`", limit.code)) =>
+            {
+                failures.push(format!(
+                    "limit.{name}: the reference's sentence does not name `{}`",
+                    limit.code
+                ));
+            }
+            Ok(_) => {}
+        }
+    }
+    println!("limit classes by cases decided: {decided:?}");
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
@@ -5822,9 +5939,9 @@ fn sweep_answer(cell: &sweep::Cell) -> Outcome {
 
 /// Whether a case witnesses a root cell whose sweep answer is `answer`: its row agrees with
 /// `outcome`, and so its compiled verdict, which conforms (no pending entry names it), is
-/// `outcome`'s; it means the cell (its `outcome` is the cell's answer); and no
-/// `[cell-exception]` names it (an excepted row departs from `outcome`, so its verdict witnesses
-/// the departure, not `outcome`).
+/// `outcome`'s; it means the cell (its `outcome` is the cell's answer); no `[cell-exception]`
+/// names it (an excepted row departs from `outcome`, so its verdict witnesses the departure, not
+/// `outcome`); and its row is no limit class's (the product refuses what `outcome` admits).
 fn witnesses_cell(
     id: &str,
     entry: &EntryCase,
@@ -5833,6 +5950,7 @@ fn witnesses_cell(
     red: &BTreeMap<String, BTreeSet<String>>,
 ) -> bool {
     agrees(entry.outcome(), &EXPECTED[id])
+        && limited(&EXPECTED[id]).is_none()
         && entry.outcome() == answer
         && naming(id, exceptions).is_empty()
         && !red.contains_key(id)
@@ -5840,8 +5958,9 @@ fn witnesses_cell(
 
 /// Each root sweep cell no compiled case witnesses, with the reason, from the cases themselves:
 /// `red: FINDINGS (ID)` where the cell's case is red (the compiler departs from `outcome` there,
-/// under those findings), `excepted: PRINCIPLE (ID)` where an exception holds its row at the
-/// product's answer, or the generator's `unbuilt:` reason where no case can be compiled; and
+/// under those findings), `limited: CLASS (ID)` where its row is a limit class's, which the
+/// product refuses as not supported yet, `excepted: PRINCIPLE (ID)` where an exception holds its
+/// row at the product's answer, or the generator's `unbuilt:` reason where no case can be compiled; and
 /// `no witness (IDS)` where a case exists and witnesses nothing for another reason (its row or
 /// its answer disagrees), which is no reason and fails.
 fn unwitnessed_cells() -> BTreeMap<sweep::Key, String> {
@@ -5887,6 +6006,11 @@ fn unwitnessed_cells() -> BTreeMap<sweep::Key, String> {
         {
             let findings = red[&case.id].iter().cloned().collect::<Vec<_>>();
             format!("red: {} ({})", findings.join(", "), case.id)
+        } else if let Some((case, limit)) = candidates
+            .iter()
+            .find_map(|(case, _)| limited(&EXPECTED[&case.id]).map(|limit| (case, limit)))
+        {
+            format!("limited: {limit} ({})", case.id)
         } else if let Some((case, _)) = candidates
             .iter()
             .find(|(case, _)| !naming(&case.id, &exceptions).is_empty())
@@ -5946,8 +6070,9 @@ fn every_root_sweep_cell_is_witnessed_by_a_compiled_case() {
     let mut text = String::from(concat!(
         "# The root sweep cells no compiled case witnesses (measure (a), in the S5.0g fixes review's\n",
         "# ruling 2 key): `TABLE  SIDE  STACK  COLUMN  REASON`, one line per sweep cell at path `-`\n",
-        "# whose case is red (the compiler departs from `outcome`, under the findings named), excepted\n",
-        "# (its row holds the product's answer, by the principle named), or cannot be compiled (the\n",
+        "# whose case is red (the compiler departs from `outcome`, under the findings named), limited\n",
+        "# (its row is the limit class named, which the product does not support yet), excepted (its\n",
+        "# row holds the product's answer, by the principle named), or cannot be compiled (the\n",
         "# generator's reason). Generated by krs-test-support `--test cells_oracle`\n",
         "# (`every_root_sweep_cell_is_witnessed_by_a_compiled_case`), which fails where the file\n",
         "# differs from the cases; rewrite with KRS_CELLS_WITNESSES_RECORD=1 and review the diff.\n",

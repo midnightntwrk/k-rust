@@ -74,11 +74,6 @@ kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first"
 by_test = { k8 = "S5" }
 
-["S5-A1"]
-owner = "S5"
-kind = "feature"
-what = "a readable result over a collection the subject does not match (Q1's overwrite of a `*` cell: `acct: { Gm { ma: x, mb: y } }`, `bag: { Gs { .. } }`, `job: [x]`) replaces every instance the collection holds; the table admits it, and KRS refuses it at the entry (`krs::analysis::collection-entry`, S5.2 part a) rather than lower it as another rule: a collection's instance clause keeps the instances it does not name with `..` or names every one, so no lowering matches the whole collection whatever it holds (`<bank> _ => <acct> .. </acct> </bank>` where the parent holds only the collection). S5.2c's, with the instance-list form over a whole collection; `job: [x]` also needs Q2's value instance"
-
 ["S5-B1"]
 owner = "S5"
 kind = "bug"
@@ -99,11 +94,6 @@ owner = "S5"
 kind = "bug"
 what = "a `cells!` group fragment's child content written bare (`hl: [x, ..]`, `mm: k::map![..]`) is refused (`invalid-state-macro`), though readable `G { a: x, .. }` abbreviates to that fragment (P7, design §2.3 `abbreviate`) and a field's value is its child's entry (P1, P6; F-1); S5.3's. The subject half (an open fragment's `..` in a subject, R-F1/S5-F2) landed in lane F (2026-11-05, `positions.rs` `Construct::OpenFragment`); the child half stays: a fragment's children are read as terms, so `mm: k::map![y -> x]` in a pattern is the literal's calls (`function-in-pattern`) and a nested group record's `..` (`wg: Gw { wa: x, .. }`) is refused"
 
-["S5-G1"]
-owner = "S5"
-kind = "bug"
-what = "readable (S5.2's): an instance update whose base is a record of the instance's constructor matched in another cell (`stack: [me @ Acct { id: z, .. }, ..]`, then `account: { Acct { aframe: Ag { aa: x }, ..me }, .. }`, g1-b, and `Acct { aprog: [x], ..me }`, g1-c, in rules and claims) is refused (\"`..me` names no instance of `account` labelled `me @` in the pattern\", `invalid-record-update`): the label names no subject instance and its base is matched elsewhere, so it is a created instance taking `me`'s other fields (S5.0g pattern review P-R3, P0; P6 `..base` updates). `cells!` has no such update: Sebastien ruled (2026-11-06) that it stays explicit, so the table refuses its twins `record-remainder-in-cells-term`, as the product does (S6-1d-2), and readable KEVM restore (`G { a: x, ..saved }`) is accepted and prints with every field named, at the names readable's K gives them (S6-1d). S5-LOW (S5.3 part 2, ruling 4): product feature work after S5.2, not routing"
-
 ["S5-G3"]
 owner = "S5"
 kind = "bug"
@@ -121,13 +111,8 @@ what = "a readable result writing an updated instance's Map child with a map rea
 
 ["S5-K1"]
 owner = "S5"
-kind = "bug"
-what = "a result's anonymous `..` that keeps the subject's anonymous rest at a content root is refused outside a readable record's top-level cell and a `cells!` list cell entry's root brackets (`an anonymous `..` keeps the rest only in a readable record cell`): a `cells!` fragment's or instance's child (`hl: [x, ..]`) and a readable result below presence or in a group record's child (`Some([..])`, `H { hl: [x, ..], hb: 0 }`), though P6 reads `..` in a result as the subject's unnamed rest kept, at every content root and in every form (design D2); a `KCell(..)` entry's `..` keeps it (K1), and so does a `cells!` list cell entry's root brackets' `..` (`Cell([x, ..])`, the wire's kept rest, named for its cell: S6-1c2); a nested content root's list still needs the subject's anonymous rest named and shared with the result there; S5.5's"
-
-["S5-M1"]
-owner = "S5"
-kind = "bug"
-what = "an initializer that also places the program in a second computation cell beside `k` (`prog: k::k![pgm]`) is refused `krs::analysis::main-cell` (\"more than one reads the program\"), though `k` is the computation cell by its name and the other cell holds a copy of the program (P1: a cell's role plays no part); S5.4's"
+kind = "diagnostic"
+what = "a `cells!` subject on a list leaf that its own kind refuses (`KCell(x, ..)`, an instance list, `Cell(k::map![y -> x, ..])`, a cons leaf's `Cell([.., x])`), written by the result `Cell([..])`: the result's anonymous `..` with no item before it is the limit class `nested-anonymous-rest` (TRI-C2: a result's anonymous `..` below a record's own cell is not supported yet, as the docs say), and the product answers that limit first, where the table's answer is the subject's kind refusal. The limit's own rows moved to `nested-anonymous-rest`"
 
 ["S5-P1"]
 owner = "S5"
@@ -151,18 +136,13 @@ what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable
 
 ["S5-U1"]
 owner = "S5"
-kind = "bug"
-what = "an initializer's record update on a group or a collection-of-group cell (`frame: G { a: 0, ..base }`, an instance template `Gl { la: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\"), though P5 reads `..base` as the base the record updates, so the record names its fields through it and uses the configuration variable (S5.0g item 3a fixes, ruling 2 and F-1); on a leaf stack the same refusal stands where the lattice's sort class is the answer. Deferred (ruling R-N2, 2026-11-05): its lowering needs a projection out of `base` for each child the record leaves unnamed, which rests on a question the principles do not settle: may a `*` collection's instance template read a configuration variable? No real code writes `..base`"
+kind = "diagnostic"
+what = "an initializer's record update on a leaf stack (`env`, `pc`, `seq`, `set`, `stack`: `G { a: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\") where the lattice's sort class is the answer: a struct literal names no leaf's sort. On a group cell and a `*` collection's instance template the same refusal is the limit class `template-record-update` (TRI-C2, ruling R6: not supported yet, as the docs say); its rows moved there. The leaf half needs the initializer reader (krs-syntax `initializer.rs`) to know the cell's kind before refusing"
 
 ["S5-V2"]
 owner = "S5"
 kind = "bug"
 what = "a readable instance record's List child written with brackets, in a result or a subject (`acc: { A { aid: 5, al: [x] }, .. }`, the subject `al: [y, ..]` of `c19-acc`) is refused \"a `[..]` sequence occurs in a cell that is not the computation cell\": the compiler misreads the child's kind, reading the brackets of a List leaf as a K sequence, though P2 gives brackets inside a List leaf as its mark and the `cells!` twin is accepted with `<al> ListItem(V0:Int) </al>` (P7)"
-
-["S5-X1"]
-owner = "S5"
-kind = "bug"
-what = "a result that creates an optional group cell with a record that leaves its other fields to their defaults (`ogroup: Some(Gp { pa: x, .. })` over `None`, and its `cells!` fragment) is refused \"the cell term must name every child field exactly once\", though P6 and R4 read a created record's bare `..` as the defaults of the fields it does not name; S5-LOW (S5.3 part 2, ruling 4): the table admits it and the compiler cannot lower it yet, product feature work after S5.2, not routing"
 
 ["S5-Z1"]
 owner = "S5"

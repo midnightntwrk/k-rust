@@ -1373,14 +1373,6 @@ match = 'sweep/cells/written/{prog,seq}/k::configuration::Cell(k::map![y -> x\, 
 finding = "S5-K1"
 kind = "diagnostic"
 
-# S5-M1, k8: 2 reds
-
-# init: 2
-[[family]]
-match = 'k8/init/kinds/{code,prog}/k::k![pgm]'
-finding = "S5-M1"
-kind = "k8"
-
 # S5-Q1, diagnostic: 4 reds
 
 # sweep-paths: 4
@@ -2165,14 +2157,6 @@ deviation = "krs::expand::not-a-declaration @ spelling"
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ item"
 
-["claim/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
-finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["claim/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
-finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
 ["claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -2188,10 +2172,6 @@ deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declarati
 ["claim/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-term @ spelling"
-
-["claim/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
 
 ["claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 finding = "S5-H2"
@@ -2225,14 +2205,6 @@ deviation = "krs::expand::not-a-declaration @ spelling"
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ item"
 
-["readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
-finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
-finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
 ["readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -2248,10 +2220,6 @@ deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declarati
 ["readable/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-term @ spelling"
-
-["readable/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
 
 ["readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 finding = "S5-H2"
@@ -2432,81 +2400,9 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
 
-["sweep/cells/result/c10-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/c19-acc/{ k::fragment![crate::A { al: [x, ..], ..me }], .. }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/written/seq/k::configuration::Cell([x, ..])"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/cells/written/stack/k::configuration::Cell([.., x])"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/cells/written/stack/k::configuration::Cell([x, ..])"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/claim/result/c01-hcell/H { hl: [x, ..], hb: 0 }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/result/f09-hcell/H { hl: [x, ..], hb: 0 }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/result/f16-ccell/C { cc: [x, ..], cn: 0 }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/result/olist/Some([..])"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/result/c01-hcell/H { hl: [x, ..], hb: 0 }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/result/f09-hcell/H { hl: [x, ..], hb: 0 }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/result/f16-ccell/C { cc: [x, ..], cn: 0 }"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/result/olist/Some([..])"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
 ["sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
-
-["sweep/claim/overwrite/acct/{ Gm { ma: x, mb: y } }"]
-finding = "S5-A1"
-deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/claim/overwrite/bag/{ Gs { sa: x, sb: y } }"]
-finding = "S5-A1"
-deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/claim/overwrite/job/[x]"]
-finding = "S5-A1"
-deviation = "krs::analysis::collection-entry @ spelling"
 
 ["sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
 finding = "S5-V2"
@@ -2539,18 +2435,6 @@ deviation = "krs::analysis::collection-entry @ entry"
 ["sweep/claim/written/stack/[..]"]
 finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/readable/overwrite/acct/{ Gm { ma: x, mb: y } }"]
-finding = "S5-A1"
-deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/readable/overwrite/bag/{ Gs { sa: x, sb: y } }"]
-finding = "S5-A1"
-deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/readable/overwrite/job/[x]"]
-finding = "S5-A1"
-deviation = "krs::analysis::collection-entry @ spelling"
 
 ["sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
 finding = "S5-V2"
@@ -2632,22 +2516,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/init/init/acct/Gm { ma: 0, ..base }"]
-finding = "S5-U1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["sweep/init/init/bag/Gs { sa: 0, ..base }"]
-finding = "S5-U1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["sweep/init/init/frame/G { a: 0, ..base }"]
-finding = "S5-U1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["sweep/init/init/job/Gl { la: 0, ..base }"]
-finding = "S5-U1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/claim/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
 finding = "S5-V2"
 deviation = "krs::analysis::invalid-term @ item"
@@ -2662,18 +2530,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/readable/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
 finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/cells/result/c36-ogroup/Some(k::fragment![crate::Gp { pa: x, .. }])"]
-finding = "S5-X1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/result/c36-ogroup/Some(Gp { pa: x, .. })"]
-finding = "S5-X1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/result/c36-ogroup/Some(Gp { pa: x, .. })"]
-finding = "S5-X1"
 deviation = "krs::analysis::invalid-term @ spelling"
 
 # S5.3 part 5: the path sweep's reds (shard `sweep-paths`): a red takes its root twin's finding (the root sweep's case of the same

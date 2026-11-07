@@ -204,7 +204,7 @@ const STATUSES: &[&str] = &[
     "113 no value: a matching-logic predicate, which only a prover reads",
     "175 no value: a pattern, which names or tests a term and builds none",
     "35 no value: an anonymous variable, which names no value",
-    "124 no value: refused at K2, so no definition is emitted to run",
+    "126 no value: refused at K2, so no definition is emitted to run",
     "5 no value: the condition's stated value, \"s\", is no Bool",
     "5 no value: the condition's stated value, $x, is no Bool",
     "5 no value: the condition's stated value, -1, is no Bool",
@@ -249,7 +249,7 @@ const STATUSES: &[&str] = &[
     "1675 runs, liveness",
     "246 runs, undefined",
     "266 runs, undefined result",
-    "2796 runs, value",
+    "2794 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it

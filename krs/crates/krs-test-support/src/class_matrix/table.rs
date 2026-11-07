@@ -22,6 +22,11 @@
 //!    --record`) and reviewed as a diff, never by hand; an entry without `k` is a case that should
 //!    be accepted and is refused today, whose K is recorded once it is accepted.
 //!
+//! Two parts qualify a cell entry's row against the cells oracle ([`super::cells_oracle`]):
+//! `[cell-exception."GLOB"]` ([`CellException`]), a row that departs from the principles, and
+//! `[limit.NAME]` ([`Limit`]), a class whose refusal is a limit of the product's, not a
+//! principle: the principles admit its cases, and the product refuses them as not supported yet.
+//!
 //! The term families' accept entries (`terms/..`, `import/..`, `notation/..`) and the attribute
 //! axis's (`attrs/..`), the families the oracle judges, live in a file of their own,
 //! `krs/tests/class-matrix/accepted-terms.toml` ([`TERM_ACCEPTS_FILE`]), which holds only
@@ -219,6 +224,34 @@ pub struct CellException {
     pub principle: String,
 }
 
+/// The phrase a limit's message or docs sentence says, so that a limit is never a silent
+/// over-refusal.
+pub const NOT_SUPPORTED_YET: &str = "not supported yet";
+
+/// A limit class (`[limit.NAME]`, NAME a `[class]` of the table): a construct the principles give
+/// a meaning to, which the product refuses honestly because it does not build it yet. The cells
+/// oracle admits its cases, and its rows record the product's refusal (TRI-C2).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Limit {
+    /// The class's code, restated: it must be the class's.
+    pub code: String,
+    /// Where the limit is said: the product message fragment (`message`), or a fragment of the
+    /// reference page's sentence that states it (`docs`), either saying [`NOT_SUPPORTED_YET`].
+    pub said: Said,
+    /// The findings whose rows the limit states: closed by it, or still open for other reds.
+    pub findings: Vec<String>,
+}
+
+/// Where a [`Limit`] is said.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Said {
+    /// A fragment of the message every refused case of the class reports.
+    Message(String),
+    /// A fragment of the sentence of the language reference (`docs-site/src/pages/reference/
+    /// language.mdx`) that states the limit with the class's code.
+    Docs(String),
+}
+
 /// The parsed table.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Table {
@@ -230,6 +263,8 @@ pub struct Table {
     pub accept: BTreeMap<String, Accepted>,
     /// The cell-entry exceptions, in table order.
     pub cell_exceptions: Vec<CellException>,
+    /// The limit classes by name ([`Limit`]).
+    pub limits: BTreeMap<String, Limit>,
     /// The lint classes: every class an accept entry owes as its `lint`.
     pub lints: BTreeSet<String>,
 }
@@ -534,7 +569,8 @@ impl Table {
     /// Returns every schema error and every glob that does not parse.
     pub fn parse(text: &str) -> Result<Self, Vec<TableError>> {
         let table = Self::parse_parts(text)?;
-        let errors = table.undeclared_lints(&table.accept);
+        let mut errors = table.undeclared_lints(&table.accept);
+        errors.extend(table.undeclared_limits());
         if errors.is_empty() {
             Ok(table)
         } else {
@@ -557,6 +593,30 @@ impl Table {
             .collect()
     }
 
+    /// An error for each limit that names no class of the table, restates another code than its
+    /// class's, or says no [`NOT_SUPPORTED_YET`] in its message fragment.
+    fn undeclared_limits(&self) -> Vec<TableError> {
+        let mut errors = Vec::new();
+        for (name, limit) in &self.limits {
+            match self.classes.get(name) {
+                None => errors.push(schema(format!("limit.{name} is no declared class"))),
+                Some(class) if class.code != limit.code => errors.push(schema(format!(
+                    "limit.{name}.code is {:?}, its class's {:?}",
+                    limit.code, class.code
+                ))),
+                Some(_) => {}
+            }
+            if let Said::Message(fragment) = &limit.said
+                && !fragment.contains(NOT_SUPPORTED_YET)
+            {
+                errors.push(schema(format!(
+                    "limit.{name}.message does not say {NOT_SUPPORTED_YET:?}: a limit is said"
+                )));
+            }
+        }
+        errors
+    }
+
     /// The table's parts, before an accept entry's lint is checked against the classes, which
     /// for [`TERM_ACCEPTS_FILE`] are another text's.
     fn parse_parts(text: &str) -> Result<Self, Vec<TableError>> {
@@ -571,6 +631,7 @@ impl Table {
                 "refuse" => table.refuse = parse_rules(item, &mut errors),
                 "accept" => table.accept = parse_accepts(item, &mut errors),
                 "cell-exception" => table.cell_exceptions = parse_exceptions(item, &mut errors),
+                "limit" => table.limits = parse_limits(item, &mut errors),
                 other => errors.push(schema(format!("unknown part {other:?}"))),
             }
         }
@@ -625,6 +686,7 @@ impl Table {
                 if !terms.classes.is_empty()
                     || !terms.refuse.is_empty()
                     || !terms.cell_exceptions.is_empty()
+                    || !terms.limits.is_empty()
                 {
                     errors.push(schema(format!(
                         "{TERM_ACCEPTS_FILE} holds parts other than accept entries"
@@ -1238,6 +1300,51 @@ fn parse_exceptions(item: &Item, errors: &mut Vec<TableError>) -> Vec<CellExcept
         });
     }
     exceptions
+}
+
+fn parse_limits(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, Limit> {
+    let mut limits = BTreeMap::new();
+    let Some(table) = table_of(item, "[limit]", errors) else {
+        return limits;
+    };
+    for (name, item) in table {
+        let owner = format!("limit.{name}");
+        let Some(limit) = table_of(item, &owner, errors) else {
+            continue;
+        };
+        let fields = fields(
+            limit,
+            &owner,
+            &["code", "findings"],
+            &["message", "docs"],
+            errors,
+        );
+        let said = match (fields.get("message"), fields.get("docs")) {
+            (Some(message), None) => {
+                Said::Message(string(Some(message), &owner, "message", errors))
+            }
+            (None, Some(docs)) => Said::Docs(string(Some(docs), &owner, "docs", errors)),
+            _ => {
+                errors.push(schema(format!(
+                    "{owner} names exactly one of `message` and `docs`"
+                )));
+                Said::Docs(String::new())
+            }
+        };
+        let findings = strings(fields.get("findings"), &owner, "findings", errors);
+        if findings.is_empty() && fields.contains_key("findings") {
+            errors.push(schema(format!("{owner}.findings names no finding")));
+        }
+        limits.insert(
+            name.to_owned(),
+            Limit {
+                code: string(fields.get("code"), &owner, "code", errors),
+                said,
+                findings,
+            },
+        );
+    }
+    limits
 }
 
 /// A parsed glob over case IDs.

@@ -179,6 +179,11 @@ code = "krs::analysis::collection-element-sort"
 doc = "an element, key or value of a typed collection whose sort is not below the declared one"
 advice = "none"
 
+[class.collection-overwrite]
+code = "krs::analysis::collection-entry"
+doc = "a result entry over a `*` collection the subject does not match (`acct: { Gm { ma: x, mb: y } }`, `job: [x]`), which replaces every instance the collection holds, whatever it holds: not supported yet; the rule matches the instances it replaces in its pattern instead"
+advice = "none"
+
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
 doc = "a `*` collection written without its instance list, the spellings of its examples, where the entry's inside passes form and kind against the instance group (P3c, with P3's reason at every depth: otherwise the inside's own refusal is named, S5.0g pattern review P-R5); or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
@@ -333,6 +338,11 @@ doc = "an instance list of the wrong shape for its collection's order (P2, P3b):
 examples = ["readable ; subject ; - ; * List of G ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; * Set of G ; [x, ..] ; -", "readable ; subject ; - ; * Set of G ; [..] ; -", "readable ; subject ; - ; * Map of G ; [G { a: x, .. }, ..] ; -", "readable ; subject ; - ; * Set of G ; { x, .. } ; -", "cells ; subject ; - ; * Set of G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
 advice = ["readable/subject/job/[Job { payload: x, .. }, ..]", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }", "claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }", "sweep/claim/result/job/[..]", "sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }", "sweep/claim/result/bag/{ Gs { sa: x, .. }, .. }"]
 
+[class.instance-update-base-elsewhere]
+code = "krs::analysis::invalid-record-update"
+doc = "a readable instance update whose label names a record of the instance's constructor matched in another cell (`stack: [me @ Acct { id: z, .. }, ..]`, then `account: { Acct { aframe: Ag { aa: x }, ..me }, .. }`): it creates an instance taking that record's other fields, which is not supported yet; `..me` updates the instance its own cell's instance list labels `me @`"
+advice = "none"
+
 [class.instances-on-plain-cell]
 code = "krs::analysis::collection-entry"
 doc = "an instance list on a cell that is no `*` collection, the spellings of its examples: readable instance braces, or a `cells!` instance list or set (P3b). Readable brackets there are no instance list: they are `bracket-reading`, or the computation's or a list leaf's own mark"
@@ -438,6 +448,11 @@ code = "krs::analysis::invalid-ml-predicate"
 doc = "a matching-logic predicate as an operand of an object constructor or function"
 advice = "none"
 
+[class.nested-anonymous-rest]
+code = "krs::syntax::invalid-list-notation"
+doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell and a `cells!` list cell's root brackets after an item: a group record's or an instance's child (`H { hl: [x, ..], hb: 0 }`, a fragment's `tk: [x, ..]`), inside a readable `Some([..])`, or a `cells!` `Cell([..])` with no item; not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
+advice = "none"
+
 [class.never-cools]
 code = "krs::analysis::never-cools"
 doc = "a lint, never a refusal: a context, or a position of a strict production, heats its hole while it is no result and cools it once it is a result of the step's sort `R` (`result = R` on the context, the strictness or the context alias the position is evaluated through, `KResult` otherwise); both steps match the hole at its sort `H`, so where no sort that has terms is below both `H` and `R` nothing the heating moves is ever plugged back, and a run that reaches it stays under the freezer; `krs check` reports it as a warning at the context's `hole` key or at the strict position"
@@ -480,6 +495,11 @@ advice = "terms/desugar/subject/Cmd::Pair { a: x, .. }"
 code = "krs::syntax::invalid-record-update"
 doc = "an open record (`Ctor { f: e, .. }`) in a built term or a condition, which has no value for the fields `..` leaves open: only a pattern leaves fields unconstrained"
 examples = ["readable ; result ; - ; leaf List ; [G { a: x, .. }, ..] ; [y, ..]", "readable ; result ; - ; group G ; G { a: x, .. } ; G { a: y, .. }", "readable ; result ; - ; ? leaf Int ; Some(G { .. }) ; Some(old)"]
+advice = "none"
+
+[class.optional-group-defaults]
+code = "krs::analysis::invalid-term"
+doc = "a result that creates a `?` group with a record that leaves its other children to template defaults (`ogroup: Some(Gp { pa: x, .. })` over `None`, and its `cells!` fragment): not supported yet; a rule writes a `?` group as a whole group term, which names every child or takes them from a matched group"
 advice = "none"
 
 [class.optional-without-presence]
@@ -629,6 +649,11 @@ advice = ["terms/{form}/result-root/x + 1", "terms/{form}/result/x"]
 code = "krs::analysis::invalid-static-clause"
 doc = "a desugar or alias clause whose subject's root is no production marked as the clause is (a constructor of an unmarked production, a function, a value): the root is the production the clause expands"
 advice = ["terms/alias/subject/1", "terms/desugar/subject/x"]
+
+[class.template-record-update]
+code = "krs::syntax::unsupported-initializer-body"
+doc = "an initializer's record update `G { a: 0, ..base }` on a group cell or a `*` collection's instance template: not supported yet; a nested cell group's struct literal writes every cell of the group"
+advice = "none"
 
 [class.unexpandable-static-application]
 code = "krs::analysis::invalid-static-clause"
@@ -7002,6 +7027,108 @@ match = '{claim,readable}/g4-d/kinds/account/\{ Acct \{ aenv: \{ v -> x\, .. \}\
 class = "map-read-in-result"
 at = "spelling"
 
+# TRI-C2: constructs the principles admit and the product refuses as not supported yet, each a
+# limit class (`[limit]` below)
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/\{ Gm \{ ma: x\, mb: y \} \}'
+class = "collection-overwrite"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/\{ Gs \{ sa: x\, sb: y \} \}'
+class = "collection-overwrite"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/[x]'
+class = "collection-overwrite"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c36-ogroup/Some(Gp \{ pa: x\, .. \})'
+class = "optional-group-defaults"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/c36-ogroup/Some(k::fragment![crate::Gp \{ pa: x\, .. \}])'
+class = "optional-group-defaults"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/g1-b/kinds/account/\{ Acct \{ aframe: Ag \{ aa: x \}\, ..me \}\, .. \}'
+class = "instance-update-base-elsewhere"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/g1-c/kinds/account/\{ Acct \{ aprog: [x]\, ..me \}\, .. \}'
+class = "instance-update-base-elsewhere"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/g4-c/kinds/account/\{ Acct \{ aqueue: Aqueue \{ ajob: [Ajob \{ apay: x\, ..j \}\, ..] \}\, ..me \}\, .. \}'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/c10-tjob/[k::fragment![crate::T \{ tk: [x\, ..]\, ..me \}]\, ..]'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/c19-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{c01-hcell,f09-hcell}/H \{ hl: [x\, ..]\, hb: 0 \}'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c10-tjob/[T \{ tk: [x\, ..]\, ..me \}\, ..]'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/f16-ccell/C \{ cc: [x\, ..]\, cn: 0 \}'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/olist/Some([..])'
+class = "nested-anonymous-rest"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/seq/k::configuration::Cell([x\, ..])'
+class = "nested-anonymous-rest"
+at = "item"
+
+[[refuse]]
+match = 'sweep/cells/written/stack/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
+class = "nested-anonymous-rest"
+at = "item"
+
+[[refuse]]
+match = 'sweep/init/init/acct/Gm \{ ma: 0\, ..base \}'
+class = "template-record-update"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/bag/Gs \{ sa: 0\, ..base \}'
+class = "template-record-update"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/frame/G \{ a: 0\, ..base \}'
+class = "template-record-update"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/job/Gl \{ la: 0\, ..base \}'
+class = "template-record-update"
+at = "spelling"
+
 [accept."cells/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -12875,8 +13002,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/cells/result/c10-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
-
 [accept."sweep/cells/result/c11-tjob/[k::fragment![crate::T { tn: 0, ..me }], ..]"]
 k = """
 rule [case-TAG]:
@@ -12918,8 +13043,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/cells/result/c19-acc/{ k::fragment![crate::A { al: [x, ..], ..me }], .. }"]
 
 [accept."sweep/cells/result/c20-acc/{ k::fragment![crate::A { aid: 5, al: [x] }], .. }"]
 k = """
@@ -12971,8 +13094,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/cells/result/c36-ogroup/Some(k::fragment![crate::Gp { pa: x, .. }])"]
 
 [accept."sweep/cells/result/f05-mcell/k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }]"]
 
@@ -13431,8 +13552,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/cells/written/seq/k::configuration::Cell([x, ..])"]
-
 [accept."sweep/cells/written/seq/k::configuration::Cell(_)"]
 k = """
 rule [case-TAG]:
@@ -13469,10 +13588,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/cells/written/stack/k::configuration::Cell([.., x])"]
-
-[accept."sweep/cells/written/stack/k::configuration::Cell([x, ..])"]
-
 [accept."sweep/cells/written/stack/k::configuration::Cell(_)"]
 k = """
 rule [case-TAG]:
@@ -13490,10 +13605,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/overwrite/acct/{ Gm { ma: x, mb: y } }"]
-
-[accept."sweep/claim/overwrite/bag/{ Gs { sa: x, sb: y } }"]
 
 [accept."sweep/claim/overwrite/c05-hcell/H { hl: [x], hb: 0 }"]
 k = """
@@ -13530,8 +13641,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
-
-[accept."sweep/claim/overwrite/job/[x]"]
 
 [accept."sweep/claim/overwrite/pc/x"]
 k = """
@@ -13608,8 +13717,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/claim/result/c01-hcell/H { hl: [x, ..], hb: 0 }"]
-
 [accept."sweep/claim/result/c03-hcell/H { hl: [x], hb: 0 }"]
 k = """
 claim [case-TAG]:
@@ -13627,8 +13734,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/claim/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
 
 [accept."sweep/claim/result/c11-tjob/[T { tn: 0, ..me }, ..]"]
 k = """
@@ -13717,11 +13822,7 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/claim/result/c36-ogroup/Some(Gp { pa: x, .. })"]
-
 [accept."sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
-
-[accept."sweep/claim/result/f09-hcell/H { hl: [x, ..], hb: 0 }"]
 
 [accept."sweep/claim/result/f12-hcell/H { hl: [x], hb: 0 }"]
 k = """
@@ -13731,8 +13832,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/claim/result/f16-ccell/C { cc: [x, ..], cn: 0 }"]
 
 [accept."sweep/claim/result/f19-ccell/C { cc: [x], cn: 0 }"]
 
@@ -13798,8 +13897,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/result/olist/Some([..])"]
 
 [accept."sweep/claim/result/omap/None"]
 
@@ -14593,8 +14690,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/init/init/acct/Gm { ma: 0, ..base }"]
-
 [accept."sweep/init/init/acct/Gm { ma: 0, mb: 0 }"]
 k = """
 configuration
@@ -14679,8 +14774,6 @@ configuration
 </pjs>
 </pcell>
 """
-
-[accept."sweep/init/init/bag/Gs { sa: 0, ..base }"]
 
 [accept."sweep/init/init/bag/Gs { sa: 0, sb: 0 }"]
 k = """
@@ -14851,8 +14944,6 @@ configuration
 </pjs>
 </pcell>
 """
-
-[accept."sweep/init/init/frame/G { a: 0, ..base }"]
 
 [accept."sweep/init/init/i03-pcell/P { pjs: Jp { pp: 0 } }"]
 k = """
@@ -15194,8 +15285,6 @@ configuration
 </pcell>
 """
 
-[accept."sweep/init/init/job/Gl { la: 0, ..base }"]
-
 [accept."sweep/init/init/job/Gl { la: 0, lb: 0 }"]
 k = """
 configuration
@@ -15281,10 +15370,6 @@ configuration
 </pcell>
 """
 
-[accept."sweep/readable/overwrite/acct/{ Gm { ma: x, mb: y } }"]
-
-[accept."sweep/readable/overwrite/bag/{ Gs { sa: x, sb: y } }"]
-
 [accept."sweep/readable/overwrite/c05-hcell/H { hl: [x], hb: 0 }"]
 k = """
 rule [case-TAG]:
@@ -15320,8 +15405,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
-
-[accept."sweep/readable/overwrite/job/[x]"]
 
 [accept."sweep/readable/overwrite/pc/x"]
 k = """
@@ -15398,8 +15481,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/readable/result/c01-hcell/H { hl: [x, ..], hb: 0 }"]
-
 [accept."sweep/readable/result/c03-hcell/H { hl: [x], hb: 0 }"]
 k = """
 rule [case-TAG]:
@@ -15417,8 +15498,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/readable/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
 
 [accept."sweep/readable/result/c11-tjob/[T { tn: 0, ..me }, ..]"]
 k = """
@@ -15507,11 +15586,7 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."sweep/readable/result/c36-ogroup/Some(Gp { pa: x, .. })"]
-
 [accept."sweep/readable/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
-
-[accept."sweep/readable/result/f09-hcell/H { hl: [x, ..], hb: 0 }"]
 
 [accept."sweep/readable/result/f12-hcell/H { hl: [x], hb: 0 }"]
 k = """
@@ -15521,8 +15596,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/readable/result/f16-ccell/C { cc: [x, ..], cn: 0 }"]
 
 [accept."sweep/readable/result/f19-ccell/C { cc: [x], cn: 0 }"]
 
@@ -15588,8 +15661,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/readable/result/olist/Some([..])"]
 
 [accept."sweep/readable/result/omap/None"]
 
@@ -16670,10 +16741,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
 
-[accept."claim/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
-
-[accept."claim/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
-
 [accept."claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 
 [accept."claim/g1-restore/kinds/frame/G { a: x, ..saved }"]
@@ -16727,8 +16794,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."claim/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
 
 [accept."claim/g5-a/kinds/olist/Some([..r])"]
 k = """
@@ -16817,10 +16882,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
 
-[accept."readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
-
-[accept."readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
-
 [accept."readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 
 [accept."readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
@@ -16879,9 +16940,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."readable/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
-same_k_as = ["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 
 [accept."readable/g5-a/kinds/olist/Some([..r])"]
 same_k_as = ["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
@@ -17041,3 +17099,37 @@ principle = "C-lim: a map read has no result side until M3, below a marked ances
 
 [cell-exception.'{claim,readable}/g4-d/kinds/account/\{ Acct \{ aenv: \{ v -> x\, .. \}\, ..me \}\, .. \}']
 principle = "C-lim: a map read has no result side until M3; an instance record's field value is its Map child's content root (S5.0g fixes review F-1), so P6 reads the updated instance's `aenv: { v -> x, .. }` as the frame write `Cell(k::map![v -> x, ..])`, as its `cells!` twin's fragment child, and the product refuses it as at a group record's child (TRI-C)"
+
+# Limit classes (TRI-C2): a class whose refusal is a limit of the product's, not a principle. Its
+# cases are cell entries the cells oracle admits, and its rows record the product's honest refusal.
+# Each restates its class's `code`, says where the limit is stated, `message` (a fragment of the
+# product's message, which the full tier checks) or `docs` (a fragment of the language reference's
+# sentence, which names the code), saying "not supported yet", and names the findings whose rows it
+# states. Check 1 counts its row as agreeing with an admission and fails where the principles
+# refuse a case of it; check 2 asks the product's admission for the principles' answer.
+[limit]
+
+[limit.collection-overwrite]
+code = "krs::analysis::collection-entry"
+docs = "A collection's overwrite replaces every instance it holds"
+findings = ["S5-A1"]
+
+[limit.instance-update-base-elsewhere]
+code = "krs::analysis::invalid-record-update"
+docs = "an update whose label names a record of the instance's constructor matched in another cell"
+findings = ["S5-G1"]
+
+[limit.nested-anonymous-rest]
+code = "krs::syntax::invalid-list-notation"
+docs = "An anonymous `..` keeps a rest this way only in a cell of the record itself"
+findings = ["S5-K1"]
+
+[limit.optional-group-defaults]
+code = "krs::analysis::invalid-term"
+docs = "A `?` group created with a record that leaves its other children"
+findings = ["S5-X1"]
+
+[limit.template-record-update]
+code = "krs::syntax::unsupported-initializer-body"
+docs = "A group's struct literal, and a `*` collection's instance template, takes no record update"
+findings = ["S5-U1"]
