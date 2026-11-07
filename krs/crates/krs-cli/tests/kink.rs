@@ -3920,6 +3920,63 @@ fn a_narrowed_equation_of_the_story_is_unkillable() {
     assert_eq!(weakening[0]["kind"], "narrowed", "{row:#}");
 }
 
+/// A status is a property of the loaded axiom: kink reads each variable's sort from the rule as
+/// loaded, written or inferred, so the story's `plus_succ` narrowing written without sorts,
+/// which loads to the mutant of the sorted narrowing (one digest, one identity), is `unkillable`
+/// as that one is.
+#[test]
+fn a_narrowing_written_without_sorts_gets_the_sorted_narrowings_status() {
+    let project = story();
+    let cache = project.path().join("target/sorts-kink-cache");
+    let cache = cache.to_str().unwrap();
+    let plus_succ = "plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )";
+    project.write(
+        "kink/sorts-mutations.toml",
+        [
+            mutation(
+                "guide-pattern",
+                "plus_succ",
+                plus_succ,
+                "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )",
+            ),
+            mutation(
+                "unsorted",
+                "plus_succ",
+                plus_succ,
+                "plus ( s ( M ) , s ( N ) ) => s ( plus ( M , s ( N ) ) )",
+            ),
+        ]
+        .concat(),
+    );
+    let ran = project.kink(
+        "run",
+        &["--mutations", "kink/sorts-mutations.toml", "--cache", cache],
+    );
+    assert_status(&ran, 0);
+    let document = json(&ran);
+    let rows = document["mutations"].as_array().unwrap();
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("no row {id}: {document:#}"))
+    };
+    let (sorted, unsorted) = (row("guide-pattern"), row("unsorted"));
+    assert_eq!(sorted["digest"], unsorted["digest"], "{document:#}");
+    assert_eq!(sorted["identity"], unsorted["identity"], "{document:#}");
+    for narrowed in [sorted, unsorted] {
+        assert_eq!(narrowed["status"], "unkillable", "{narrowed:#}");
+        assert_eq!(narrowed["reason"], "weakening", "{narrowed:#}");
+        assert_eq!(narrowed["executed"], serde_json::json!([]), "{narrowed:#}");
+        assert_eq!(narrowed["weakening"], sorted["weakening"], "{narrowed:#}");
+        assert_eq!(
+            narrowed["weakening"][0]["label"], "nat--plus_succ",
+            "{narrowed:#}"
+        );
+        assert_eq!(narrowed["weakening"][0]["kind"], "narrowed", "{narrowed:#}");
+    }
+    assert_eq!(rows.len(), 2, "{document:#}");
+}
+
 /// A case witnesses a mutation when its baseline run reaches a sentence the mutant changes,
 /// whatever the mutant then does. `no-decrease` edits only `plus_succ`'s result, into one that
 /// reuses its left-hand side's `s(M)` (which k-rust's compiler writes as an alias of the
