@@ -39,7 +39,7 @@
 //! Under the Z3 profile with kink's resource-bounded solver an answer is a function of its key,
 //! which names the solver's units and Z3 build (the budget's `smt`).
 //!
-//! No answer enters a result record, an outcome record, a hint or a run document: pattern answers
+//! No answer enters a result record, an outcome record, a lock or a run document: pattern answers
 //! feed no kill and no mutation verdict.
 
 use crate::{

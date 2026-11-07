@@ -1,12 +1,12 @@
 //! Re-pin L1-3: `kink-flow run --compile-workers N` changes nothing but wall time. Each list runs
 //! cold, then warm, in private copies of its fixture, with 1 (the sequential path) and with more
 //! compile workers; every run document must be equal once the wall times are removed, and the
-//! outcome cache (`outcomes/`), the killer hints and the stored report must be byte-equal. With 2
+//! outcome cache (`outcomes/`), the lock and the stored report must be byte-equal. With 2
 //! workers a chunk holds 8 mutations, so `collstore`'s 9 span two chunks. `run --full` (CF-23)
 //! is compared the same way. These comparisons show that the worker count changes no row, record
-//! or hint; they cannot show which mutants were compiled ahead, since a wrong compile-ahead guess
+//! or lock; they cannot show which mutants were compiled ahead, since a wrong compile-ahead guess
 //! costs a compile and nothing a document or a store holds. The tier-1 rule the guess shares with
-//! the search, under each schedule, is pinned by `search.rs`'s `tier_one_decides_by_the_schedule`.
+//! the search, under each schedule, is pinned by `search.rs`'s `tier_one_follows_the_record`.
 
 use kink_campaign::ScheduleMode;
 use kink_flow::{
@@ -55,22 +55,31 @@ fn fixture(name: &str, list: &str, workers: usize) -> PathBuf {
 /// The document without its wall times (`call_wall_ms`, `wall_ms`, `baseline_ms`: the session's
 /// timings, flow F-13), which are the only fields that differ between equal runs.
 fn timeless(value: &Value) -> Value {
+    let mut value = untimed(value);
+    // Each copy's lock is its own file: its path is the copy's.
+    if let Some(lock) = value.get_mut("lock").and_then(Value::as_object_mut) {
+        lock.remove("path");
+    }
+    value
+}
+
+fn untimed(value: &Value) -> Value {
     match value {
         Value::Object(map) => Value::Object(
             map.iter()
                 .filter(|(key, _)| {
                     !matches!(key.as_str(), "call_wall_ms" | "wall_ms" | "baseline_ms")
                 })
-                .map(|(key, value)| (key.clone(), timeless(value)))
+                .map(|(key, value)| (key.clone(), untimed(value)))
                 .collect(),
         ),
-        Value::Array(items) => Value::Array(items.iter().map(timeless).collect()),
+        Value::Array(items) => Value::Array(items.iter().map(untimed).collect()),
         other => other.clone(),
     }
 }
 
-/// Every file of the cache directory's outcome store and hints, by relative path, with its
-/// bytes.
+/// Every file of the cache directory's outcome store, and the locks beside the cache directory,
+/// by relative path, with its bytes.
 fn stores(cache: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     fn walk(root: &Path, dir: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
         let Ok(entries) = fs::read_dir(dir) else {
@@ -90,8 +99,17 @@ fn stores(cache: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     }
     let mut files = BTreeMap::new();
     walk(cache, &cache.join("outcomes"), &mut files);
-    if let Ok(bytes) = fs::read(cache.join("hints.json")) {
-        files.insert(PathBuf::from("hints.json"), bytes);
+    for entry in fs::read_dir(cache.parent().unwrap()).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "lock")
+        {
+            files.insert(
+                PathBuf::from(path.file_name().unwrap()),
+                fs::read(&path).unwrap(),
+            );
+        }
     }
     files
 }
@@ -108,6 +126,8 @@ fn search(dir: &Path, list: &str, workers: usize, schedule: ScheduleMode) -> (Va
             compile_workers: Some(workers),
             memo: kink_flow::memo::MemoUse::On,
             schedule,
+            lock: Some(dir.join(list).with_extension("lock")),
+            locked: false,
         },
     )
 }
@@ -188,7 +208,7 @@ fn warn_if_one_worker() {
     }
 }
 
-/// One test per fixture list (test-gate TG-F, formerly `compile_workers_change_no_row_record_or_hint`):
+/// One test per fixture list (test-gate TG-F, formerly `compile_workers_change_no_row_record_or_lock`):
 /// calc's status list, which holds every status class the former test required of the two lists
 /// together, in the kink tier, and collstore, whose 9 mutations span two chunks of 2 workers, in
 /// the heavy tier.
@@ -197,7 +217,7 @@ mod kink_tier {
 
     #[test]
     #[ignore = "kink"]
-    fn compile_workers_change_no_row_record_or_hint_on_calc() {
+    fn compile_workers_change_no_row_record_or_lock_on_calc() {
         warn_if_one_worker();
         let calc = compare("calc", "MUTATIONS-statuses.toml", &[1, 4]);
         assert_eq!(calc.len(), 6);
@@ -212,10 +232,10 @@ mod kink_tier {
     }
 
     /// CF-23: the full schedule, cold and warm, with 1 and 4 workers: the worker count changes
-    /// no full row, record or hint (the module documentation says what this cannot show).
+    /// no full row, record or lock (the module documentation says what this cannot show).
     #[test]
     #[ignore = "kink"]
-    fn compile_workers_change_no_full_row_record_or_hint_on_calc() {
+    fn compile_workers_change_no_full_row_record_or_lock_on_calc() {
         warn_if_one_worker();
         let calc = compare_as(
             "calc",
@@ -233,7 +253,7 @@ mod heavy {
 
     #[test]
     #[ignore = "heavy"]
-    fn compile_workers_change_no_row_record_or_hint_on_collstore() {
+    fn compile_workers_change_no_row_record_or_lock_on_collstore() {
         warn_if_one_worker();
         let collstore = compare("collections/collstore", "MUTATIONS.toml", &[1, 2, 4]);
         assert_eq!(collstore.len(), 9);

@@ -1831,6 +1831,8 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                     compile_workers: Some(1),
                     memo: kink_flow::memo::MemoUse::On,
                     schedule: kink_campaign::ScheduleMode::FirstKill,
+                    lock: None,
+                    locked: false,
                 },
             );
             (results, run)

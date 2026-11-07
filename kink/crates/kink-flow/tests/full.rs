@@ -9,16 +9,11 @@ mod flow_support;
 
 use flow_support::{copy_all, copy_dir, flow};
 use kink_campaign::ScheduleMode;
-use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
-    admit::corpus_source,
     cli::{CommandFiles, EXIT_UNASKED, EXIT_YES, FlowCommand, OutputFormat},
-    digest::hint_key,
-    hints::{HINTS_SCHEMA, hints_path},
     memo::MemoUse,
     outcomes::{OUTCOMES_DIRECTORY, record_sha256},
-    resolve,
     results::CACHE_DIRECTORY,
     search::{RunMode, RunOptions, run_with},
     verdicts::verdicts,
@@ -57,6 +52,19 @@ fn run_as(
     mode: RunMode,
     memo: MemoUse,
 ) -> (Value, bool) {
+    run_locked(manifest, mutations, only, schedule, mode, memo, None)
+}
+
+/// [`run_as`] with the lock `lock`.
+fn run_locked(
+    manifest: &Path,
+    mutations: &Path,
+    only: &[&str],
+    schedule: ScheduleMode,
+    mode: RunMode,
+    memo: MemoUse,
+    lock: Option<&Path>,
+) -> (Value, bool) {
     let manifest = FlowManifest::read(manifest).unwrap();
     let list = MutationList::read(mutations).unwrap();
     run_with(
@@ -67,6 +75,7 @@ fn run_as(
             compile_workers: Some(1),
             memo,
             schedule,
+            lock: lock.map(Path::to_path_buf),
             ..RunOptions::default()
         },
         mode,
@@ -218,7 +227,7 @@ fn outcome_store(manifest: &Path) -> BTreeMap<PathBuf, Value> {
     files
 }
 
-/// Every file of the outcome store and the hints, by relative path, with its bytes.
+/// Every file of the outcome store, by relative path, with its bytes.
 fn store_bytes(manifest: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let cache = cache_of(manifest);
     let mut files = BTreeMap::new();
@@ -238,9 +247,6 @@ fn store_bytes(manifest: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
                 );
             }
         }
-    }
-    if let Ok(bytes) = fs::read(cache.join("hints.json")) {
-        files.insert(PathBuf::from("hints.json"), bytes);
     }
     files
 }
@@ -393,58 +399,16 @@ fn forge_kill(manifest: &Path, document: &Value, from: &str, to: &str, program: 
     write_json(&path, &file);
 }
 
-/// The hint key of mutation `id` of `mutations` under `manifest`.
-fn hint_key_of(manifest: &Path, mutations: &Path, id: &str) -> String {
-    let flow = FlowManifest::read(manifest).unwrap();
-    let list = MutationList::read(mutations).unwrap();
-    let loaded = load_source(&corpus_source(&flow)).unwrap();
-    let mutation = list.mutations.iter().find(|m| m.id == id).unwrap();
-    let resolved = resolve(&flow, &loaded, mutation).unwrap();
-    hint_key(mutation, &resolved).to_string()
-}
-
-/// The hints file as mutation id -> hinted program id.
-fn hints(manifest: &Path) -> BTreeMap<String, String> {
-    let value = read_json(&hints_path(&cache_of(manifest)));
-    assert_eq!(value["schema"], HINTS_SCHEMA);
-    value["hints"]
-        .as_object()
-        .unwrap()
-        .values()
-        .map(|entry| {
-            (
-                entry["mutation_id"].as_str().unwrap().to_owned(),
-                entry["program_id"].as_str().unwrap().to_owned(),
-            )
-        })
-        .collect()
-}
-
-/// Set the hint of mutation `id` to program `program` of `document`.
-fn set_hint(manifest: &Path, mutations: &Path, document: &Value, id: &str, program: &str) {
-    let key = hint_key_of(manifest, mutations, id);
-    let path = hints_path(&cache_of(manifest));
-    let mut value = read_json(&path);
-    value["hints"][key] = json!({
-        "mutation_id": id,
-        "program_id": program,
-        "program_digest": program_digest(document, program),
-    });
-    write_json(&path, &value);
-}
-
-/// The hint a full run leaves for each killed row: the first of its `killed_by`.
-fn first_killers(document: &Value) -> BTreeMap<String, String> {
-    rows(document)
-        .iter()
-        .filter(|row| row["status"] == "killed")
-        .map(|row| {
-            (
-                row["id"].as_str().unwrap().to_owned(),
-                row["killed_by"][0].as_str().unwrap().to_owned(),
-            )
-        })
-        .collect()
+/// The list of `mutations` with only the mutation `id`, written beside it as `name`: a list a
+/// run judges whole, so that it writes its lock.
+fn one_mutation(mutations: &Path, name: &str, id: &str) -> PathBuf {
+    let mut list: toml::Table = fs::read_to_string(mutations).unwrap().parse().unwrap();
+    let rows = list["mutation"].as_array_mut().unwrap();
+    rows.retain(|row| row["id"].as_str() == Some(id));
+    assert_eq!(rows.len(), 1);
+    let path = mutations.with_file_name(name);
+    fs::write(&path, toml::to_string(&list).unwrap()).unwrap();
+    path
 }
 
 /// A manifest of `programs` (ids of the fixture's `FLOW.toml`, in that order), written beside it
@@ -909,9 +873,6 @@ mod kink_tier {
                 assert_eq!(row["killer_from_cache"], true, "{id}");
             }
         }
-        // The hints are the first-kill rule's: each killed row's killer, the first of its
-        // `killed_by` (`full_hints_follow_killed_by` pins the rule).
-        assert_eq!(hints(&manifest), first_killers(&warm));
         // A first-kill run after it is decided by tier 1 for every mutation, with no call.
         let first = first_kill(&manifest, &mutations);
         assert_eq!(first["outcome_cache"]["mutations_from_cache"], 5);
@@ -1032,94 +993,77 @@ mod kink_tier {
         }
     }
 
-    /// Why `killed_by` is full-only: the first-kill killer is history (a valid killed record
-    /// decides before a cheaper killer is tried), `killed_by` is not.
+    /// CF-23 §3.3's example inverted: with a lock, the first-kill killer is the recorded one while
+    /// it kills, warm and cold, so prepending another killer moves nothing, and a full row names
+    /// the same killer although it is not the first of `killed_by`; without a lock the killer is
+    /// the first killing program in the search's order. `killed_by` stays full-only because
+    /// first-kill establishes one killer.
     #[test]
     #[ignore = "kink"]
-    fn the_first_kill_killer_is_history_but_killed_by_is_not() {
+    fn the_first_kill_killer_follows_the_record() {
         let dir = fixture("calc", "history");
-        let mutations = dir.join("MUTATIONS.toml");
-        let only = ["add-becomes-sub"];
+        let mutations = one_mutation(
+            &dir.join("MUTATIONS.toml"),
+            "MUTATIONS-one.toml",
+            "add-becomes-sub",
+        );
+        let lock = dir.join("verdicts.lock");
         let two = subset_manifest(&dir, "FLOW-two.toml", &["nested", "inline"]);
         let three = subset_manifest(&dir, "FLOW-three.toml", &["add", "nested", "inline"]);
-        let killer = |manifest: &Path, schedule| {
-            let (document, ok) = run_as(
+        let killer = |manifest: &Path, schedule, lock: Option<&Path>| {
+            let (document, ok) = run_locked(
                 manifest,
                 &mutations,
-                &only,
+                &[],
                 schedule,
                 RunMode::Search,
                 MemoUse::On,
+                lock,
             );
             assert!(ok, "{document:#}");
-            let row = mutation(&document, "add-becomes-sub");
+            let row = mutation(&document, "add-becomes-sub").clone();
             assert_eq!(row["status"], "killed");
-            (row["killer"].clone(), row["killed_by"].clone())
+            (
+                row["killer"].clone(),
+                row["killed_by"].clone(),
+                row["calls"].clone(),
+            )
         };
-        assert_eq!(killer(&two, ScheduleMode::FirstKill).0, "nested");
-        // Warm: the valid `nested` record decides, where a cold run reports `add`.
-        assert_eq!(killer(&three, ScheduleMode::FirstKill).0, "nested");
         assert_eq!(
-            killer(&three, ScheduleMode::Full),
-            (json!("add"), json!(["add", "nested", "inline"]))
+            killer(&two, ScheduleMode::FirstKill, Some(&lock)).0,
+            "nested"
         );
+        let recorded = fs::read_to_string(&lock).unwrap();
+        assert!(recorded.contains("killer = \"nested\""), "{recorded}");
+        // Warm: the recorded killer's valid record decides, with no call.
+        let (first, _, calls) = killer(&three, ScheduleMode::FirstKill, Some(&lock));
+        assert_eq!((first, calls), (json!("nested"), json!([])));
+        // A full row names the recorded killer, which is not the first of `killed_by`.
+        let (full_killer, killed_by, _) = killer(&three, ScheduleMode::Full, Some(&lock));
+        assert_eq!(
+            (full_killer, killed_by),
+            (json!("nested"), json!(["add", "nested", "inline"]))
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+        // Cold, with the same lock: the recorded killer runs alone and kills.
         let cold = fixture("calc", "history-cold");
         let cold_three = subset_manifest(&cold, "FLOW-three.toml", &["add", "nested", "inline"]);
-        assert_eq!(killer(&cold_three, ScheduleMode::FirstKill).0, "add");
-        let cold = fixture("calc", "history-cold-full");
-        let cold_three = subset_manifest(&cold, "FLOW-three.toml", &["add", "nested", "inline"]);
+        let cold_lock = cold.join("verdicts.lock");
+        fs::write(&cold_lock, &recorded).unwrap();
+        let (first, _, calls) = killer(&cold_three, ScheduleMode::FirstKill, Some(&cold_lock));
+        assert_eq!(first, "nested");
+        assert_eq!(calls[0]["programs"], json!(["nested"]));
+        // Without a lock the killer is the search's first.
+        let bare = fixture("calc", "history-bare");
+        let bare_three = subset_manifest(&bare, "FLOW-three.toml", &["add", "nested", "inline"]);
+        assert_eq!(killer(&bare_three, ScheduleMode::FirstKill, None).0, "add");
+        let bare = fixture("calc", "history-bare-full");
+        let bare_three = subset_manifest(&bare, "FLOW-three.toml", &["add", "nested", "inline"]);
+        let (full_killer, killed_by, _) = killer(&bare_three, ScheduleMode::Full, None);
         assert_eq!(
-            killer(&cold_three, ScheduleMode::Full),
+            (full_killer, killed_by),
             (json!("add"), json!(["add", "nested", "inline"]))
         );
-    }
-
-    /// A full run's hint is the first of `killed_by` (corpus order), on a live and on a cached
-    /// row alike, and a row with no kill removes it; a hint naming no comparable program is
-    /// reported (`stale_killer`) and replaced.
-    #[test]
-    #[ignore = "kink"]
-    fn full_hints_follow_killed_by() {
-        let dir = fixture("calc", "hints");
-        let manifest = dir.join("FLOW.toml");
-        let mutations = dir.join("MUTATIONS.toml");
-        let cold = full(&manifest, &mutations);
-        assert_eq!(
-            hints(&manifest),
-            [
-                ("add-becomes-sub", "add"),
-                ("mul-becomes-add", "nested"),
-                ("no-mul", "nested"),
-                ("sub-off-by-one", "sub"),
-            ]
-            .into_iter()
-            .map(|(id, program)| (id.to_owned(), program.to_owned()))
-            .collect()
-        );
-        // A hint on no-mul's last killer and one on the survivor: a warm full run, decided by
-        // tier 1 with no call, puts back the first killer and removes the survivor's hint.
-        set_hint(&manifest, &mutations, &cold, "no-mul", "inline");
-        set_hint(&manifest, &mutations, &cold, "add-swaps-operands", "add");
-        let warm = full(&manifest, &mutations);
-        assert_eq!(warm["outcome_cache"]["mutations_from_cache"], 5);
-        assert_eq!(hints(&manifest), first_killers(&cold));
-        // A hint naming a program that left the corpus.
-        let without = subset_manifest(&dir, "FLOW-without-nested.toml", &["add", "sub", "inline"]);
-        let (stale, ok) = run_as(
-            &without,
-            &mutations,
-            &["no-mul"],
-            ScheduleMode::Full,
-            RunMode::Search,
-            MemoUse::On,
-        );
-        assert!(ok, "{stale:#}");
-        let row = mutation(&stale, "no-mul");
-        assert!(row["stale_killer"].is_string(), "{row:#}");
-        assert_eq!(row["status"], "killed");
-        assert_eq!(row["killed_by"], json!(["inline"]));
-        assert!(calls(&stale, "no-mul").is_empty());
-        assert_eq!(hints(&without)["no-mul"], "inline");
     }
 
     /// A cached kill next to a mutant that no longer compiles: under first-kill the kill decides
@@ -1432,8 +1376,8 @@ mod kink_tier {
         );
         assert!(
             full_cold.contains(
-                "\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkilled_by = \
-                 [\"add\", \"nested\", \"inline\"]\n"
+                "\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \
+                 \"add\"\nkilled_by = [\"add\", \"nested\", \"inline\"]\n"
             ),
             "{full_cold}"
         );
@@ -1451,5 +1395,16 @@ mod kink_tier {
             "{first_cold}"
         );
         assert!(!first_cold.contains("killed_by"), "{first_cold}");
+        // Both schedules name the same killers: the renderings differ in `killed_by` lines only.
+        let without_killed_by = |text: &str| {
+            text.lines()
+                .filter(|line| !line.starts_with("killed_by = "))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(
+            without_killed_by(&full_cold),
+            without_killed_by(&first_cold)
+        );
     }
 }

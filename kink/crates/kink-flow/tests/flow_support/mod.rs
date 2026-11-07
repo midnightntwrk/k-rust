@@ -81,6 +81,8 @@ pub fn corpus_run(manifest: &Path, mutations: &Path) -> (Value, bool) {
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
         },
     )
 }

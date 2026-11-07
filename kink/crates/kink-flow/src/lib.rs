@@ -9,7 +9,9 @@
 //! and the `run` command ([`search`]). F-06 adds the survivor report to the run document and the
 //! `report` command ([`report`]). F-14 adds the outcome cache: tier 1, the proved outcome of a
 //! mutation on a program under an exact key ([`outcomes`]), and tier 2, killer hints that
-//! survive specification edits ([`hints`], which replaces F-05's killer cache). F-12 runs each
+//! survived specification edits, since replaced by the killer record ([`lock`]: one recorded
+//! killer per killed mutation, kept while it still kills, in a `verdicts.lock` the run reads and
+//! rewrites). F-12 runs each
 //! program's baseline at most once per command; F-13 names the oracle slots of the report,
 //! records timings and leaf censuses and lists the rules no mutation targets. F-18 adds the per-input pattern checks: `PATTERNS.toml`, the
 //! lowering of a K pattern and its evaluation by k-rust's search ([`pattern`]), and the `query`
@@ -48,7 +50,7 @@ pub mod exclusion;
 pub mod expect;
 pub mod fuzz;
 pub mod fuzz_filter;
-pub mod hints;
+pub mod lock;
 pub mod manifest;
 pub mod memo;
 pub mod mutation;

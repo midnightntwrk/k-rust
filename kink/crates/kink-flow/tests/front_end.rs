@@ -13,7 +13,6 @@ use kink_flow::{
     admit::corpus_source,
     cli::{EXIT_UNASKED, EXIT_YES, FuzzJobRequest},
     dispatch,
-    hints::Hints,
     memo::resolution_path,
     outcomes::OUTCOMES_DIRECTORY,
     report::{action, action_spelled},
@@ -306,7 +305,7 @@ fn a_refused_mutation_runs_nothing_and_writes_nothing() {
     assert_eq!(refused["killer"], Value::Null);
     assert_eq!(refused["rules"], Value::Null);
     assert_eq!(document["counts"]["invalid-mutation"], 1, "{document:#}");
-    // No outcome record or hint: the only mutation selected was refused. Every other mutation of
+    // No outcome record: the only mutation selected was refused. Every other mutation of
     // the list is resolved (for `untargeted_rules`), so its resolution memo is written; the
     // refused one's is not.
     let cache = dir.join(".kink-flow");
@@ -328,7 +327,6 @@ fn a_refused_mutation_runs_nothing_and_writes_nothing() {
             mutation.id
         );
     }
-    assert!(Hints::read(&cache).is_empty());
     // The refused mutation still targets the rule its edit resolves to (the unlabelled `-` rule,
     // which no other mutation of the list targets), so `untargeted_rules` is the list `results
     // --mutations` gives, which no front end's refusal reaches.
@@ -805,7 +803,19 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     );
     let other_order = verdicts(&reversed_document).unwrap();
     assert_eq!(cold, warm);
-    assert_eq!(cold, other_order);
+    // The order of `FLOW.toml` is an input of the killer (the first killing program in the search's
+    // order, with no lock), never of a status: the renderings differ in `killer` lines only.
+    let without_killers = |text: &str| {
+        text.lines()
+            .filter(|line| !line.starts_with("killer = "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(without_killers(&cold), without_killers(&other_order));
+    assert_ne!(
+        cold, other_order,
+        "the reversed manifest names other killers"
+    );
     assert_eq!(cold_results, warm_results);
     // CF-23: version 2 names the schedule and the solver profile.
     assert!(
@@ -816,15 +826,17 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         )),
         "{cold}"
     );
-    // A first-kill rendering writes no killer: the first killer depends on the order and the
-    // cache.
+    // A first-kill rendering writes each killed mutation's killer, a function of the inputs, and
+    // no `killed_by`, which first-kill does not establish.
     assert!(!cold.contains("killed_by"), "{cold}");
     assert!(
         cold.contains("\n[[mutation]]\nid = \"add-swaps-operands\"\nstatus = \"survived\"\n"),
         "{cold}"
     );
     assert!(
-        cold.contains("\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\n"),
+        cold.contains(
+            "\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \"add\"\n"
+        ),
         "{cold}"
     );
     assert!(

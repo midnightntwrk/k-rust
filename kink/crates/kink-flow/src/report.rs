@@ -96,6 +96,17 @@
 //! `run --verify` row has the reason `run` gives its cold call (`stack-stop`,
 //! `open-application`).
 //!
+//! Version 29 (the killer record, [`crate::lock`]): the document carries `lock`, null without
+//! `--lock`, else `{path, status, reason, header, changes}`: `status` `created`, `written`,
+//! `unchanged`, `stale` (under `--locked`, a finding) or `not-written`, `reason` (`only`, `verify`,
+//! `stopped`, `refused`, `write-failed` or `locked`) when nothing was written, `header` whether
+//! the lines before the first mutation differ, `changes` each mutation whose `(status, killer,
+//! reason)` differs, `{mutation, recorded, now}`; a lock that does not decode is `{path, outcome:
+//! "refused", detail}` and refuses the run. Every row carries `recorded_killer`, the lock's killer
+//! or null, and `killer_change`: null when the killer is the recorded one, else `no-record`,
+//! `not-in-corpus`, `not-comparable` (with `unusable_killer`, `source` `record`),
+//! `no-longer-kills` or `not-run`. The document's `order` leaves: the search order is fixed.
+//!
 //! Version 23: an executed entry of a live run on which kink's own solver questions about
 //! it (its leaf feasibility and observation decider, kink-campaign
 //! `RunNotes::decider_smt_unknowns`) took an undecided answer carries `decider_smt_unknowns`, and
@@ -192,8 +203,14 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `weakening` kind can be `valid-condition` (an edited equation's `requires` adds only conjuncts
 /// that hold under every valuation of their variables, so the equation is the specification's
 /// own), and a row every edited sentence of which has that kind is `equivalent` with the reason
-/// `valid-condition` ([`crate::search::VALID_CONDITION_REASON`]), not `unkillable`.
-pub const RUN_VERSION: u64 = 28;
+/// `valid-condition` ([`crate::search::VALID_CONDITION_REASON`]), not `unkillable`; 29 since the
+/// killer record ([`crate::lock`]): the search runs in one order (the document's `order` leaves),
+/// a killed row's `killer` is the lock's recorded killer while it kills and is in the corpus, else
+/// the first killing program in the search's order, under both schedules, its `killer_source` is
+/// `outcome-cache`, `record` (the recorded killer's one-program call) or `search` (`hint` and
+/// `stale_killer` leave with the hint store), each row carries `recorded_killer` and
+/// `killer_change`, and the document carries `lock`.
+pub const RUN_VERSION: u64 = 29;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

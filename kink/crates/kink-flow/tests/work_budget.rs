@@ -85,6 +85,8 @@ fn search_with(manifest: &Path, schedule: kink_campaign::ScheduleMode) -> Value 
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule,
+            lock: None,
+            locked: false,
         },
     );
     assert!(ok, "{document:#}");

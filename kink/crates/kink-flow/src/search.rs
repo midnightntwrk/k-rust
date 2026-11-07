@@ -47,22 +47,30 @@
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
-//!    the program digest and the program's baseline run digest). A valid `killed` record makes
-//!    the status `killed` with no call (its killer the first such program in the order a live
-//!    call would run O: first the programs that witness the compiled edit the outcome file
-//!    keeps, then the rest, each in O's order; so after `--full` cached every killer, the killer
-//!    is the one a cold first-kill call finds first); otherwise the
-//!    programs with a valid `agree` or `unknown` record (CF-33d: an unknown that is a function
-//!    of the key, [`crate::outcomes`]) form A, in that order, and L = O minus A. With L empty the
-//!    status is the runner's fold over A's cached outcomes (survived, or unknown when some record
-//!    is), with no call.
-//! 4. Otherwise the mutant runs live on L. Tier 2 (README 7.5.5): when the killer hint names a
-//!    comparable program of L, one call runs that program alone; if it kills, that is the
-//!    verdict. Otherwise the cold call runs L (the hinted program included), the programs that
-//!    witness the compiled edit first, then the rest, each in O's order.
+//!    the program digest and the program's baseline run digest), decide with no call
+//!    ([`tier1_decision`]) when the killer the row must name is decided by them. Let k be the
+//!    lock's killer of the mutation ([`crate::lock`]) when it names a program of O. A valid
+//!    `killed` record of k decides: the killer is k. If k has no valid record, tier 1 does not
+//!    decide: k must run. Otherwise the killer is the canonical one, the first killing program in
+//!    C, and the records decide when every program of O has one (with no cached kill, the status
+//!    is the fold over them: survived, or unknown when some record is), or when C is known from
+//!    the compiled edit the outcome file keeps and every program before the first cached kill in
+//!    C has a record (that kill is the killer), or when every program has a record and exactly one
+//!    is a kill. With several cached kills, every program cached and no stored compiled edit, the
+//!    row runs live as if no record were valid (the no-witness fallback; records are written with
+//!    the edit, so this does not arise from the records this command writes). A cached unknown
+//!    (CF-33d) is a function of the key ([`crate::outcomes`]), as an agreement is.
+//! 4. Otherwise the mutant runs live. Tier 2: when k is a program of O with no valid record, one
+//!    call runs k alone; if it kills, that is the verdict (`killer_source` `record`). Otherwise the
+//!    canonical call runs every program of O without a valid record (k included), the programs
+//!    that witness the compiled edit first, then the rest, each in O's order, so in C; when a
+//!    cached kill exists and C is known (from k's call's compiled edit or the stored one), it takes
+//!    only the programs before the first cached kill in C. That cut saves cost only: the killer is
+//!    the earlier in C of the call's first kill and the first cached kill, since the call ran every
+//!    program before its own first kill in C that had no record.
 //! 5. Every status is `kink_campaign::derive_mutant_report` (schedule `FirstKill`) over the
-//!    assembled plan: A's cached outcomes in step 3's order, then the last live call's tests in
-//!    their order, with that call's mutant-scope failure. kink-flow adds no fold and compares
+//!    assembled plan: the valid records' cached outcomes in O's order, then the last live call's
+//!    tests in their order, with that call's mutant-scope failure. kink-flow adds no fold and compares
 //!    no terms: a mutation is killed only by a proved `Distinguish`, live from
 //!    `run_campaign_multi` in this command or cached under an exactly matching key. A cached
 //!    agreement is the fold's bottom, and a cached unknown is the outcome the cold call's test of
@@ -78,9 +86,11 @@
 //! 7. After a verdict, every live test whose outcome is cacheable (killed, agree, or, since
 //!    CF-33d, an unknown of a judged run, with its cause; [`crate::outcomes::cacheable`]) gets a
 //!    tier-1 record, unless its call's plan carries a mutant-scope failure, and the mutation's
-//!    outcome file keeps the call's compiled edit ([`EditWitness`]). A `killed` status
-//!    makes its first killing program the mutation's hint; any other status removes it. The
-//!    hints file and the report are written after every mutation, corpus errors included.
+//!    outcome file keeps the call's compiled edit ([`EditWitness`]). The report is written after
+//!    every mutation, corpus errors included; the lock is settled once, after the last
+//!    ([`crate::lock::Lock::settle`]: rewritten after a run that judged every mutation of the
+//!    list, compared under `--locked`). Each row carries `recorded_killer` and `killer_change`,
+//!    why its killer is not the recorded one ([`Search::record_fields`]).
 //!
 //! The steps above are the first-kill search ([`ScheduleMode::FirstKill`], the default).
 //! `run --full` ([`RunOptions::schedule`] [`ScheduleMode::Full`]) runs every comparable program on
@@ -91,16 +101,16 @@
 //! - Tier 1 decides with no call only when every program of O has a valid record (step 3): a
 //!   `killed` record does not decide a full row, which needs every cell. The valid records,
 //!   killed, agreements and unknowns alike, are the cached cells C, and L = O minus C.
-//! - No one-program call is made for the hint (step 4): a hint only orders the first-kill
-//!   search, and under `Full` every program of L runs in one call. A hint that names
-//!   no comparable program is still reported and removed.
+//! - No one-program call is made for k (step 4): under `Full` every program of L runs in one
+//!   call anyway.
 //! - The fold (step 5) is `derive_mutant_report` under `Full` over C's outcomes then the call's
 //!   tests, with the same `outcome-conflict` and `Infrastructure` rules.
-//! - Records and the hint follow step 7 unchanged. Each row carries `killed_by`, every killing
-//!   program in corpus order (null under first-kill, whose killer depends on the order and on what
-//!   the cache holds), its `killer` is the first of them, and its `executed` lists every program
-//!   of O in corpus order, cached and live; the document carries the per-program `matrix`
-//!   ([`crate::report::matrix`]).
+//! - Records follow step 7 unchanged. Each row carries `killed_by`, every killing program in
+//!   corpus order (null under first-kill, which establishes one killer), its `killer` is k when k
+//!   is among them, else the first of them in C (C from the call's compiled edit or the stored
+//!   one, with the same no-witness fallback), so it is the first-kill row's killer, and its
+//!   `executed` lists every program of O in corpus order, cached and live; the document carries
+//!   the per-program `matrix` ([`crate::report::matrix`]).
 //!
 //! A tier-1 record is the outcome of one executed test, and the schedule decides only whether a
 //! test is executed, never what an executed test's request, sides or slots are; wherever tier 1
@@ -109,7 +119,9 @@
 //! and the records either schedule writes serve both. A full row's status is the first-kill
 //! row's: both are kink-campaign's fold over the same per-program outcomes, in which a kill ranks
 //! above every inconclusive outcome, and under `FirstKill` the fold only reads fewer outcomes
-//! below a kill.
+//! below a kill. And both choose k when k's cell is a kill, else the first kill in C, from the
+//! same per-program outcomes, so both write the same lock: the killer is a function of the lock
+//! and the inputs, never of the cache, the compile workers or the memos.
 //!
 //! Every campaign call goes through the command's one [`BaselineRunner`] and its in-memory
 //! baseline session (flow F-12, README 6.3): each program's baseline runs live at most once per
@@ -122,13 +134,13 @@
 //! two sides), carries the session's timings (`wall_ms`, `baseline_ms`, `baseline_reused`) and,
 //! for a stopped run, the leaf census in its cause; every row carries `call_wall_ms`; the
 //! document lists the rules no resolving mutation of the list targets. None of these enters an
-//! evidence row, a digest, a key, an outcome record or a hint.
+//! evidence row, a digest, a key, an outcome record or a lock.
 //!
 //! CF-16: every live call computes the kill evidence of each distinguishing test from its own
 //! evidence ([`crate::evidence`]: the first differing cell path of the two sides' ends and both
 //! values as K text), which the test's executed entry shows and its `killed` tier-1 record keeps
 //! (outside the key, inside the record digest), so a kill decided from tier 1 shows it too. It
-//! enters no evidence row, run digest, key or hint, and nothing decides a status from it.
+//! enters no evidence row, run digest, key or lock, and nothing decides a status from it.
 //!
 //! Threads (re-pin L1-3, L1-3-fix-1): only relinking and compiling run on several threads
 //! ([`RunOptions::compile_workers`]). The selected mutations are taken in chunks; each chunk's
@@ -142,12 +154,14 @@
 //! through a recursion with no stack guard, review L1-3-1 D1; relinking and compiling depend on
 //! neither, "Concurrency").
 //!
-//! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs the cold call over
-//! O for every mutation, then one call per valid record whose program the cold call did not
-//! execute, and reports every record (and the cached path's status) that differs from the live
-//! runs as `outcome-mismatch:<program id>`. A compiled edit the outcome file keeps that differs
-//! from the cold call's is reported in `mismatches` (`{cached: {witness}, live: {witness}}`)
-//! and leaves the row's status alone, since it decides none. It writes no record and no hint.
+//! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs step 4 with tier 1
+//! off for every mutation (under first-kill k alone when k is in O, then the cold call over O
+//! unless k killed), then one call per valid record whose program those calls did not execute,
+//! and reports every record (and the cached path's status) that differs from the live runs as
+//! `outcome-mismatch:<program id>`; a killer that differs implies such an outcome. A compiled
+//! edit the outcome file keeps that differs from the cold call's is reported in `mismatches`
+//! (`{cached: {witness}, live: {witness}}`) and leaves the row's status alone, since it decides
+//! none. It writes no record and no lock.
 //!
 //! Memos (re-pin L1-4, [`crate::memo`]): the declaration census of the admission and the facts
 //! of each mutation's resolution are memoised under keys that name every input they depend on,
@@ -163,8 +177,8 @@ use crate::evidence::EndReader;
 use crate::{
     admit::{AdmittedSpec, InputSession, admit_spec_with},
     cli::{CommandSpelling, FrontEnd, Verb},
-    digest::{hint_key_of, mutation_identity, outcome_context, spec_digest},
-    hints::{HintEntry, Hints},
+    digest::{mutation_identity, outcome_context, spec_digest},
+    lock::{Lock, Settle},
     manifest::{Budget, FlowManifest},
     memo::{self, Facts, MemoUse},
     mutation::{
@@ -248,8 +262,9 @@ pub const TIER1_CLOCK: &str = "tier 1 is disabled under the z3 profile when solv
 
 /// The `killer_source` of a status decided by a valid tier-1 `killed` record.
 pub const SOURCE_OUTCOME_CACHE: &str = "outcome-cache";
-/// The `killer_source` of a kill found by the one-program call over the hinted program.
-pub const SOURCE_HINT: &str = "hint";
+/// The `killer_source` of a kill found by the one-program call over the recorded killer (the
+/// lock's, [`crate::lock`]).
+pub const SOURCE_RECORD: &str = "record";
 /// The `killer_source` of a kill found by the cold call.
 pub const SOURCE_SEARCH: &str = "search";
 
@@ -303,17 +318,24 @@ pub struct RunOptions {
     pub cache: Option<PathBuf>,
     /// How many threads compile mutants ahead of their turn (`--compile-workers`; `None`:
     /// [`DEFAULT_COMPILE_WORKERS`]). 1 compiles each mutant in its own campaign call, on the
-    /// calling thread. Every run document, outcome record and hint is the same for every value
+    /// calling thread. Every run document, outcome record and lock is the same for every value
     /// (re-pin L1-3; [`run_with`]).
     pub compile_workers: Option<usize>,
     /// Whether the warm path's memos are used (`--no-memo`: [`MemoUse::Off`]; re-pin L1-4,
-    /// [`crate::memo`]). Every run document, outcome record and hint is the same either way.
+    /// [`crate::memo`]). Every run document, outcome record and lock is the same either way.
     pub memo: MemoUse,
     /// Which programs each mutation runs on: [`ScheduleMode::FirstKill`] (the default), the kill
     /// search, which stops at the first killing program; [`ScheduleMode::Full`] (`--full`), every
     /// comparable program in corpus order, so that each row holds every cell of the kill matrix
     /// (module documentation).
     pub schedule: ScheduleMode,
+    /// The killer record (`--lock FILE`, [`crate::lock`]): read before admission, its killers
+    /// tried first, and rewritten after a run that judged every mutation of the list. `None`: no
+    /// record, and nothing is written outside the cache.
+    pub lock: Option<PathBuf>,
+    /// `--locked`: compare the lock the run would write with the file and write nothing; a
+    /// difference is a finding (exit 1).
+    pub locked: bool,
 }
 
 // `ScheduleMode` has no default of its own: a campaign schedule is not something kink-campaign's
@@ -326,6 +348,8 @@ impl Default for RunOptions {
             compile_workers: None,
             memo: MemoUse::default(),
             schedule: ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
         }
     }
 }
@@ -353,7 +377,7 @@ pub enum RunMode {
     #[default]
     Search,
     /// Re-prove every valid tier-1 record and decide nothing from it (`kink-flow run
-    /// --verify`, README 7.5.3): no tier-1 decision, no hint, no write but the report.
+    /// --verify`, README 7.5.3): no tier-1 decision, no write but the report.
     Verify,
 }
 
@@ -475,7 +499,8 @@ struct Search<'a, 's> {
     mode: RunMode,
     /// The tier-1 store; `None` when kink's build identity cannot be computed.
     tier1: Option<OutcomeStore>,
-    hints: Hints,
+    /// The lock's killer of each mutation, by mutation id (program ids).
+    recorded: BTreeMap<String, String>,
     store: Store,
     stats: Stats,
     /// `run --verify`'s disagreements, for the run document's `mismatches`.
@@ -868,6 +893,120 @@ impl Search<'_, '_> {
         (0..self.candidates.len()).collect()
     }
 
+    /// The search order C of `order` for a compiled edit: the programs whose coverage witnesses
+    /// it ([`witnesses`]) first, then the rest, each group in `order`'s order, which is the order
+    /// a first-kill call runs them in ([`Search::call_untimed`]).
+    fn search_order(&self, order: &[usize], witness: &EditWitness) -> Vec<usize> {
+        let mut search = order.to_vec();
+        search.sort_by_key(|&c| !witnesses(&self.candidates[c], witness));
+        search
+    }
+
+    /// The lock's killer of the mutation `id` as a candidate, when it names a comparable program.
+    fn recorded_candidate(&self, id: &str) -> Option<usize> {
+        self.recorded
+            .get(id)
+            .and_then(|program| self.position(program))
+    }
+
+    /// What tier 1 decides for the mutation `id` from its valid `records` ([`tier1_decision`]),
+    /// with C from the compiled edit the outcome file keeps (`stored`).
+    fn tier1(
+        &self,
+        id: &str,
+        order: &[usize],
+        records: &[(usize, OutcomeRecord)],
+        stored: Option<&EditWitness>,
+    ) -> Tier1 {
+        let search = stored.map(|witness| self.search_order(order, witness));
+        tier1_decision(
+            order,
+            records,
+            search.as_deref(),
+            self.recorded_candidate(id),
+            self.schedule,
+        )
+    }
+
+    /// The first of `programs` in the search order `search` (in `order` when C is unknown, which
+    /// only a row with at most one killing program meets).
+    fn first_in(
+        &self,
+        search: Option<&[usize]>,
+        order: &[usize],
+        programs: impl IntoIterator<Item = usize>,
+    ) -> Option<usize> {
+        let programs = programs.into_iter().collect::<BTreeSet<_>>();
+        search
+            .unwrap_or(order)
+            .iter()
+            .copied()
+            .find(|c| programs.contains(c))
+    }
+
+    /// The killer of a full row whose killing programs are `killed_by` (ids, corpus order): the
+    /// recorded killer of the mutation `id` when it is one of them, else the first of them in C
+    /// (`search`); `None` without a kill.
+    fn full_killer(
+        &self,
+        killed_by: Option<&[String]>,
+        id: &str,
+        search: Option<&[usize]>,
+        order: &[usize],
+    ) -> Option<usize> {
+        let killers = killed_by?
+            .iter()
+            .filter_map(|program| self.position(program))
+            .collect::<Vec<_>>();
+        if let Some(recorded) = self.recorded_candidate(id).filter(|k| killers.contains(k)) {
+            return Some(recorded);
+        }
+        self.first_in(search, order, killers)
+    }
+
+    /// The row's `recorded_killer`, the lock's killer of the mutation or null, and its
+    /// `killer_change`, why the row's killer is not the recorded one (README, "The killer
+    /// record"): null when they are equal, else `no-record`, `not-in-corpus`, `not-comparable`
+    /// (with the row's `unusable_killer`, `source: "record"`, unless it reports a cached kill's),
+    /// `no-longer-kills` (the recorded killer ran, live or cached, and did not distinguish) or
+    /// `not-run` (no program ran it: the status was decided before any run).
+    fn record_fields(&self, row: &mut Value, mutation: &Mutation) {
+        let recorded = self.recorded.get(&mutation.id).cloned();
+        let killer = row["killer"].as_str().map(str::to_owned);
+        let change = match &recorded {
+            _ if killer == recorded => None,
+            None => Some("no-record"),
+            Some(id) => Some(
+                match self.manifest.programs.iter().position(|p| &p.id == id) {
+                    None => "not-in-corpus",
+                    Some(index) if self.position(id).is_none() => {
+                        if row["unusable_killer"].is_null() {
+                            row["unusable_killer"] = json!({
+                                "program": id,
+                                "class": self.rows[index].row["class"],
+                                "cause": self.rows[index].row["cause"],
+                                "source": SOURCE_RECORD,
+                            });
+                        }
+                        "not-comparable"
+                    }
+                    Some(_)
+                        if row["executed"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|entry| entry["program"] == id.as_str()) =>
+                    {
+                        "no-longer-kills"
+                    }
+                    Some(_) => "not-run",
+                },
+            ),
+        };
+        row["recorded_killer"] = json!(recorded);
+        row["killer_change"] = json!(change);
+    }
+
     /// The row's `witnesses` ([`Self::witness_programs`]) and `witnesses_global`: whether the
     /// compiled edit is not site-local, so that every program is a witness whatever its coverage
     /// reaches (an equation's left-hand side or attribute, a declaration, ...;
@@ -1034,15 +1173,6 @@ impl Search<'_, '_> {
             .collect()
     }
 
-    fn hint_entry(&self, candidate: usize, mutation: &Mutation) -> HintEntry {
-        let candidate = &self.candidates[candidate];
-        HintEntry {
-            program_digest: candidate.digest.to_string(),
-            program_id: candidate.id.to_owned(),
-            mutation_id: mutation.id.clone(),
-        }
-    }
-
     /// The kill search for one mutation: its row of the run document, and whether it ended in
     /// a corpus error (the run then stops, and nothing is written to tier 1 for it).
     /// The mutants [`Search::search_one`] would compile for `resolution` given the stores now
@@ -1052,7 +1182,11 @@ impl Search<'_, '_> {
     /// patch ([`kink_campaign::mutant_compiles`]). Under [`ScheduleMode::Full`] a valid killed
     /// record does not decide ([`tier1_decides`]). A guess that differs from what the search then
     /// does costs a compile, never a row.
-    fn live_compiles(&self, resolution: &Result<ResolvedMutation, InvalidMutation>) -> Vec<Patch> {
+    fn live_compiles(
+        &self,
+        mutation: &Mutation,
+        resolution: &Result<ResolvedMutation, InvalidMutation>,
+    ) -> Vec<Patch> {
         let Ok(resolved) = resolution else {
             return Vec::new();
         };
@@ -1070,8 +1204,11 @@ impl Search<'_, '_> {
         }
         if self.mode == RunMode::Search {
             let identity = mutation_identity(&self.spec.loaded.baseline, &resolved.patch);
-            let (records, _) = self.valid_records(identity, &order, &mut Map::new());
-            if tier1_decides(&order, &records, self.schedule) {
+            let (records, stored) = self.valid_records(identity, &order, &mut Map::new());
+            if self
+                .tier1(&mutation.id, &order, &records, stored.as_ref())
+                .decides()
+            {
                 return Vec::new();
             }
         }
@@ -1156,6 +1293,7 @@ impl Search<'_, '_> {
             row,
             &report,
             killed_by,
+            None,
             Some(kebab(&format!(
                 "{:?}",
                 MutantScopeFailure::BaselineFindings
@@ -1193,11 +1331,10 @@ impl Search<'_, '_> {
         }
     }
 
-    /// Whether tier 1 decides the mutation of `facts` with no call given the stores now: no
-    /// program is in O (the row is the corpus error `no-comparable-program`), or a valid killed
-    /// record (first-kill only), or a valid record for every program of O ([`tier1_decides`],
-    /// [`Search::search_facts`] steps 2 and 3). Only in search mode. The resolution memo is used only then (re-pin L1-4).
-    fn decided(&self, facts: &Facts) -> bool {
+    /// Whether tier 1 decides the mutation of `facts` with no call given the stores and the lock
+    /// now ([`tier1_decision`], [`Search::search_facts`] step 3). Only in search mode. The
+    /// resolution memo is used only then (re-pin L1-4).
+    fn decided(&self, mutation: &Mutation, facts: &Facts) -> bool {
         if self.mode != RunMode::Search {
             return false;
         }
@@ -1209,8 +1346,9 @@ impl Search<'_, '_> {
         if !order.is_empty() && self.gated() {
             return true;
         }
-        let (records, _) = self.valid_records(facts.identity, &order, &mut Map::new());
-        tier1_decides(&order, &records, self.schedule)
+        let (records, stored) = self.valid_records(facts.identity, &order, &mut Map::new());
+        self.tier1(&mutation.id, &order, &records, stored.as_ref())
+            .decides()
     }
 
     /// The row of a mutation whose facts the resolution memo holds, when tier 1 decides it with
@@ -1218,7 +1356,7 @@ impl Search<'_, '_> {
     /// of the same inputs, built from the same facts by the same code. `None` when tier 1 does
     /// not decide it; the caller then resolves the mutation live.
     fn search_memo(&mut self, mutation: &Mutation, facts: &Facts) -> Option<(Value, bool)> {
-        if !self.decided(facts) {
+        if !self.decided(mutation, facts) {
             return None;
         }
         let mut row = Map::new();
@@ -1232,10 +1370,9 @@ impl Search<'_, '_> {
 
     /// The kill search for one mutation from the facts of its resolution: steps 2 to 7 of the
     /// module docs. `generation` is the live resolution's, or `None` for the facts of the
-    /// resolution memo; then the search stops with `None`, before it reads or removes the hint
-    /// and before it counts or writes anything, if tier 1 does not decide after all (another
-    /// command wrote the tier-1 store since [`Search::decided`] read it), and the caller resolves
-    /// the mutation live, so the live search sees the hint as a run without memos does.
+    /// resolution memo; then the search stops with `None`, before it counts or writes anything,
+    /// if tier 1 does not decide after all (another command wrote the tier-1 store since
+    /// [`Search::decided`] read it), and the caller resolves the mutation live.
     fn search_facts(
         &mut self,
         mutation: &Mutation,
@@ -1262,14 +1399,10 @@ impl Search<'_, '_> {
         // an inconsistent mutant; empty otherwise.
         row.insert("inconsistent_pairs".into(), json!([]));
         row.insert("weakening".into(), facts.weakening.clone());
-        let key = hint_key_of(mutation, &facts.rules);
         // fz26 KINK-BASELINE-FINDINGS: on a baseline with a finding no `[spec] assume_joined`
         // name assumes, no end is data, so no program can kill: the mutation is unknown before
         // any store is read or any call made (no cached outcome decides it, whatever it says).
         if !order.is_empty() && self.gated() {
-            if self.mode == RunMode::Search {
-                self.hints.remove(key);
-            }
             return Some((self.baseline_findings_row(row, &order), false));
         }
         // kink27 R5-WEAKENING: a mutation whose edit only weakens the specification has every
@@ -1282,43 +1415,19 @@ impl Search<'_, '_> {
             let (status, reason) = weakening_status(&facts.weakening);
             row.insert("status".into(), json!(status));
             row.insert("reason".into(), json!(reason));
-            if self.mode == RunMode::Search {
-                self.hints.remove(key);
-            }
             return Some((
                 finish(row, None, None, RowCalls::default(), Vec::new()),
                 false,
             ));
         }
         let (records, stored) = self.valid_records(identity, &order, &mut row);
+        let decision = self.tier1(&mutation.id, &order, &records, stored.as_ref());
         // A memo's facts carry no generation (re-pin L1-4): they are used only when tier 1
         // decides with no call. Otherwise the search stops here, on the records it decides from,
-        // before the hint is read or removed and before anything is counted or written (re-pin
-        // L1-4 fix 1, review D6), and the caller resolves the mutation live.
-        if generation.is_none() && !tier1_decides(&order, &records, self.schedule) {
+        // before anything is counted or written (re-pin L1-4 fix 1, review D6), and the caller
+        // resolves the mutation live.
+        if generation.is_none() && !decision.decides() {
             return None;
-        }
-        // Tier 2: the hint, when it names a comparable program; otherwise it is removed.
-        let mut hint = None;
-        if self.mode == RunMode::Search
-            && let Some(entry) = self.hints.get(key).cloned()
-        {
-            hint = self
-                .candidates
-                .iter()
-                .position(|c| c.digest.to_string() == entry.program_digest);
-            if hint.is_none() {
-                row.insert(
-                    "stale_killer".into(),
-                    json!(format!(
-                        "the hinted killer {} (digest {}) is not a comparable program; the hint \
-                         is removed",
-                        entry.program_id, entry.program_digest
-                    )),
-                );
-                self.unusable(&mut row, &entry.program_digest, SOURCE_HINT);
-                self.hints.remove(key);
-            }
         }
         if order.is_empty() {
             row.insert("status".into(), json!("error"));
@@ -1330,9 +1439,6 @@ impl Search<'_, '_> {
                 "detail".into(),
                 json!("no program of the corpus has a comparable result, so nothing can kill"),
             );
-            if self.mode == RunMode::Search {
-                self.hints.remove(key);
-            }
             return Some((
                 finish(row, None, None, RowCalls::default(), Vec::new()),
                 false,
@@ -1350,48 +1456,74 @@ impl Search<'_, '_> {
             ));
         }
         if self.schedule == ScheduleMode::Full {
-            return Some(self.search_full(mutation, row, facts, generation, &order, records));
-        }
-
-        // The valid records in the order a live call would run O: the programs the outcome file's
-        // compiled edit says witness it first, then the rest, each in O's order (O's order
-        // without one). It names the cached killer and orders the cached entries.
-        let mut records = records;
-        if let Some(witness) = &stored {
-            records.sort_by_key(|(c, _)| !witnesses(&self.candidates[*c], witness));
-        }
-        // Tier 1, step 2: a valid killed record decides, with no call, its killer the first.
-        if let Some((c, record)) = records
-            .iter()
-            .find(|(_, record)| record.outcome == CachedOutcome::Killed)
-        {
-            let report = self.assemble(&[(*c, record.clone())], None);
-            let report = report.expect("one cached killed test is a valid plan");
-            debug_assert_eq!(report.status, MutantStatus::Killed);
-            self.stats.mutations_from_cache += 1;
-            self.stats.programs_from_cache += 1;
-            self.hints.insert(key, self.hint_entry(*c, mutation));
-            let executed = vec![self.cached_entry(*c, record)];
-            return Some((
-                verdict_row(
-                    row,
-                    &report,
-                    None,
-                    None,
-                    Some(SOURCE_OUTCOME_CACHE),
-                    RowCalls::default(),
-                    executed,
-                ),
-                false,
+            let cached = match decision {
+                Tier1::Call { records: false } => Vec::new(),
+                _ => records,
+            };
+            return Some(self.search_full(
+                mutation,
+                row,
+                facts,
+                generation,
+                &order,
+                cached,
+                stored.as_ref(),
             ));
         }
-        // Step 3: A (every valid record is now an agreement or an unknown) and L.
-        let agree = records;
-        let live_order = order
-            .iter()
-            .copied()
-            .filter(|c| !agree.iter().any(|(a, _)| a == c))
-            .collect::<Vec<_>>();
+
+        // The search order C from the outcome file's compiled edit, until a live call gives its
+        // own; every call of one mutation compiles the same mutant. The cached entries are listed
+        // in it, the order a live call would run them in.
+        let mut search_order = stored.as_ref().map(|w| self.search_order(&order, w));
+        let in_search_order = |records: &mut Vec<(usize, OutcomeRecord)>| {
+            if let Some(search) = &search_order {
+                records.sort_by_key(|(c, _)| search.iter().position(|p| p == c));
+            }
+        };
+        let keep = match decision {
+            // Tier 1, step 3: the recorded killer's cached kill, or the first cached kill in C
+            // with every program before it in C cached, or every program of O cached.
+            Tier1::Decided { killer, read } => {
+                let mut read = read
+                    .iter()
+                    .filter_map(|c| records.iter().find(|(r, _)| r == c).cloned())
+                    .collect::<Vec<_>>();
+                in_search_order(&mut read);
+                let report = self
+                    .assemble(&read, None)
+                    .expect("cached outcomes of executed tests form a valid plan");
+                debug_assert_eq!(report.status == MutantStatus::Killed, killer.is_some());
+                self.stats.mutations_from_cache += 1;
+                self.stats.programs_from_cache += read.len();
+                let executed = read
+                    .iter()
+                    .map(|(c, record)| self.cached_entry(*c, record))
+                    .collect::<Vec<_>>();
+                let reason = open_reason(&report, &cached_opens(&read, |c| self.candidates[c].id));
+                let killer = killer.map(|c| self.candidates[c].id.to_owned());
+                let source = killer.as_ref().map(|_| SOURCE_OUTCOME_CACHE);
+                return Some((
+                    verdict_row(
+                        row,
+                        &report,
+                        None,
+                        killer,
+                        reason,
+                        source,
+                        RowCalls::default(),
+                        executed,
+                    ),
+                    false,
+                ));
+            }
+            Tier1::Empty => unreachable!("an empty O returned above"),
+            Tier1::Call { records } => records,
+        };
+        // Step 4: the valid records the plan reads (none when the no-witness fallback ignores
+        // them) and the live calls.
+        let mut agree = if keep { records } else { Vec::new() };
+        in_search_order(&mut agree);
+        let known = |c: usize| agree.iter().any(|(a, _)| *a == c);
         let mut executed = agree
             .iter()
             .map(|(c, record)| self.cached_entry(*c, record))
@@ -1401,31 +1533,13 @@ impl Search<'_, '_> {
         // unknown's from its record, a live one's from its call's census, a later call's
         // replacing an earlier's, as its record does (step 7).
         let mut opens = cached_opens(&agree, |c| self.candidates[c].id);
-        if live_order.is_empty() {
-            let report = self
-                .assemble(&agree, None)
-                .expect("cached outcomes of executed tests form a valid plan");
-            self.stats.mutations_from_cache += 1;
-            self.hints.remove(key);
-            let reason = open_reason(&report, &opens);
-            return Some((
-                verdict_row(
-                    row,
-                    &report,
-                    None,
-                    reason,
-                    None,
-                    RowCalls::default(),
-                    executed,
-                ),
-                false,
-            ));
-        }
-
-        // Step 4: live calls, the hinted program alone first. A memo's facts never reach here:
-        // tier 1 decides them (checked above on these records), so step 2 or 3 returned.
-        let generation = generation
-            .expect("a memo's facts are searched only when tier 1 decides, in step 2 or 3");
+        let generation =
+            generation.expect("a memo's facts are searched only when tier 1 decides, in step 3");
+        let cached_kills = agree
+            .iter()
+            .filter(|(_, record)| record.outcome == CachedOutcome::Killed)
+            .map(|(c, _)| *c)
+            .collect::<Vec<_>>();
         let mut calls = Calls::new();
         // Each live call's order, run, and its entries' causes and open applications (CF-33d): a
         // record keeps those of its own call's run.
@@ -1440,16 +1554,23 @@ impl Search<'_, '_> {
         let mut differences = BTreeMap::<String, Value>::new();
         let mut witness = None;
         let mut source = SOURCE_SEARCH;
-        if let Some(h) = hint.filter(|h| live_order.contains(h)) {
-            match self.call(generation, &[h]) {
+        // The killer the row names, once a call or the records give it (its status decides
+        // whether it is one).
+        let mut killer = None;
+        // Tier 2: the recorded killer, when it is a program of O with no valid record, alone.
+        if let Some(k) = self.recorded_candidate(&mutation.id).filter(|k| !known(*k)) {
+            match self.call(generation, &[k]) {
                 (wall_ms, Err(error)) => {
-                    calls.push((vec![h], json!("error"), wall_ms));
+                    calls.push((vec![k], json!("error"), wall_ms));
                     return Some(self.corpus_error(row, error, &calls, executed));
                 }
                 (wall_ms, Ok(live)) => {
                     let status = live.mutant.report.status;
-                    calls.push((vec![h], json!(status_name(status)), wall_ms));
+                    calls.push((vec![k], json!(status_name(status)), wall_ms));
                     self.set_witnesses(&mut row, &order, &live, &mut witness);
+                    if search_order.is_none() {
+                        search_order = live.witness.as_ref().map(|w| self.search_order(&order, w));
+                    }
                     executed.extend(executed_entries(
                         &live,
                         self.runner.end_reader(),
@@ -1458,7 +1579,8 @@ impl Search<'_, '_> {
                         first_killer(&live),
                     ));
                     if status == MutantStatus::Killed {
-                        source = SOURCE_HINT;
+                        source = SOURCE_RECORD;
+                        killer = Some(k);
                     }
                     let causes = entry_causes(
                         &live,
@@ -1469,50 +1591,86 @@ impl Search<'_, '_> {
                     let open = entry_opens(&live);
                     opens.extend(open.clone());
                     differences.extend(live.differences);
-                    runs.push((vec![h], live.mutant, causes, open));
+                    runs.push((vec![k], live.mutant, causes, open));
                 }
             }
         }
-        if source != SOURCE_HINT {
-            match self.call(generation, &live_order) {
-                (wall_ms, Err(error)) => {
-                    calls.push((live_order.clone(), json!("error"), wall_ms));
-                    return Some(self.corpus_error(row, error, &calls, executed));
-                }
-                (wall_ms, Ok(live)) => {
-                    calls.push((
-                        live.order.clone(),
-                        json!(status_name(live.mutant.report.status)),
-                        wall_ms,
-                    ));
-                    self.set_witnesses(&mut row, &order, &live, &mut witness);
-                    // Each program is listed once (F-14 review 1 m3, flow F-16): a hinted
-                    // program this call ran again is listed with this call's run, the one the
-                    // status is folded from.
-                    let entries = executed_entries(
-                        &live,
-                        self.runner.end_reader(),
-                        self.spec.result.slots(),
-                        self.manifest.budget,
-                        first_killer(&live),
-                    );
-                    executed.retain(|entry| {
-                        entry["cached"] == true
-                            || !entries
-                                .iter()
-                                .any(|again| again["program"] == entry["program"])
-                    });
-                    executed.extend(entries);
-                    let causes = entry_causes(
-                        &live,
-                        self.runner.end_reader(),
-                        self.spec.result.slots(),
-                        self.manifest.budget,
-                    );
-                    let open = entry_opens(&live);
-                    opens.extend(open.clone());
-                    differences.extend(live.differences);
-                    runs.push((live.order, live.mutant, causes, open));
+        if source != SOURCE_RECORD {
+            // The canonical call: every program of O with no valid record (the recorded killer
+            // included), cut before the first cached kill in C when C is known (a saving only:
+            // the killer is the earlier in C of the call's first kill and that cached kill).
+            let first_cached = search_order
+                .as_ref()
+                .and_then(|c| c.iter().position(|p| cached_kills.contains(p)));
+            let live_order = order
+                .iter()
+                .copied()
+                .filter(|c| !known(*c))
+                .filter(|c| match (&search_order, first_cached) {
+                    (Some(search), Some(cut)) => search[..cut].contains(c),
+                    _ => true,
+                })
+                .collect::<Vec<_>>();
+            if live_order.is_empty() {
+                // Every program before the first cached kill in C is cached: it is the killer.
+                killer = search_order
+                    .as_ref()
+                    .zip(first_cached)
+                    .map(|(search, cut)| search[cut]);
+            } else {
+                match self.call(generation, &live_order) {
+                    (wall_ms, Err(error)) => {
+                        calls.push((live_order.clone(), json!("error"), wall_ms));
+                        return Some(self.corpus_error(row, error, &calls, executed));
+                    }
+                    (wall_ms, Ok(live)) => {
+                        calls.push((
+                            live.order.clone(),
+                            json!(status_name(live.mutant.report.status)),
+                            wall_ms,
+                        ));
+                        self.set_witnesses(&mut row, &order, &live, &mut witness);
+                        if search_order.is_none() {
+                            search_order =
+                                live.witness.as_ref().map(|w| self.search_order(&order, w));
+                        }
+                        let call_kill = first_killer(&live).and_then(|id| self.position(id));
+                        killer = self.first_in(
+                            search_order.as_deref(),
+                            &order,
+                            cached_kills.iter().copied().chain(call_kill),
+                        );
+                        let live_killer = killer
+                            .filter(|k| Some(*k) == call_kill)
+                            .map(|k| self.candidates[k].id);
+                        // Each program is listed once (F-14 review 1 m3, flow F-16): a recorded
+                        // killer this call ran again is listed with this call's run, the one
+                        // the status is folded from.
+                        let entries = executed_entries(
+                            &live,
+                            self.runner.end_reader(),
+                            self.spec.result.slots(),
+                            self.manifest.budget,
+                            live_killer,
+                        );
+                        executed.retain(|entry| {
+                            entry["cached"] == true
+                                || !entries
+                                    .iter()
+                                    .any(|again| again["program"] == entry["program"])
+                        });
+                        executed.extend(entries);
+                        let causes = entry_causes(
+                            &live,
+                            self.runner.end_reader(),
+                            self.spec.result.slots(),
+                            self.manifest.budget,
+                        );
+                        let open = entry_opens(&live);
+                        opens.extend(open.clone());
+                        differences.extend(live.differences);
+                        runs.push((live.order, live.mutant, causes, open));
+                    }
                 }
             }
         }
@@ -1554,37 +1712,40 @@ impl Search<'_, '_> {
         verdict_claims(&mut row, &last.plan.claims, |claims| {
             claims_value(self.spec.validator.baseline(), claims)
         });
-        // Step 7: the records of the live calls, then the hint. A program both calls ran has
-        // one record, the second call's (the store keeps the last of equal program digests and
-        // counts each program once).
+        // Step 7: the records of the live calls. A program both calls ran has one record, the
+        // second call's (the store keeps the last of equal program digests and counts each
+        // program once).
         let records = runs
             .iter()
             .flat_map(|(_, run, causes, opens)| self.live_records(run, &differences, causes, opens))
             .collect::<Vec<_>>();
         self.write_records(identity, mutation, &mut row, &records, witness.as_ref());
-        let killer = (report.status == MutantStatus::Killed)
-            .then(|| report.killing_test_ids.first())
-            .flatten()
-            .and_then(|program| self.position(program));
-        match killer {
-            Some(killer) => self.hints.insert(key, self.hint_entry(killer, mutation)),
-            None => self.hints.remove(key),
-        }
-        let source = (report.status == MutantStatus::Killed).then_some(source);
+        let killer = killer.filter(|_| report.status == MutantStatus::Killed);
+        let source = killer.map(|k| {
+            if cached_kills.contains(&k) {
+                SOURCE_OUTCOME_CACHE
+            } else {
+                source
+            }
+        });
+        let killer = killer.map(|k| self.candidates[k].id.to_owned());
         let calls = self.calls(&calls);
         Some((
-            verdict_row(row, &report, None, reason, source, calls, executed),
+            verdict_row(row, &report, None, killer, reason, source, calls, executed),
             false,
         ))
     }
 
     /// A full row (`run --full`, module documentation): every program of O, in corpus order, is a
-    /// cell, cached (C: every valid record, killed, agreement or unknown) or live (L = O minus C, one call
-    /// under [`ScheduleMode::Full`]). Tier 1 decides with no call only when L is empty; no
-    /// one-program call is made for the hint. The status is the fold over C then the call's tests,
-    /// under `Full`; `killed_by` lists every killing program in corpus order, `killer` is the
-    /// first, from the outcome cache when its cell is cached; `executed` lists every cell in corpus
-    /// order. Records and the hint follow the first-kill rules (step 7).
+    /// cell, cached (every valid record, killed, agreement or unknown) or live (the rest, one
+    /// call under [`ScheduleMode::Full`]). Tier 1 decides with no call only when every cell is
+    /// cached; no one-program call is made for the recorded killer. The status is the fold over
+    /// the cached cells then the call's tests, under `Full`; `killed_by` lists every killing
+    /// program in corpus order, `killer` is the recorded killer when it is among them, else the
+    /// first of them in the search order C ([`Search::full_killer`]), from the outcome cache when
+    /// its cell is cached; `executed` lists every cell in corpus order. Records follow the
+    /// first-kill rules (step 7).
+    #[allow(clippy::too_many_arguments)]
     fn search_full(
         &mut self,
         mutation: &Mutation,
@@ -1593,8 +1754,8 @@ impl Search<'_, '_> {
         generation: Option<&CandidateGeneration<'_>>,
         order: &[usize],
         cached: Vec<(usize, OutcomeRecord)>,
+        stored: Option<&EditWitness>,
     ) -> (Value, bool) {
-        let key = hint_key_of(mutation, &facts.rules);
         let live_order = order
             .iter()
             .copied()
@@ -1707,14 +1868,16 @@ impl Search<'_, '_> {
             );
         }
         let killed_by = self.killed_by(&report);
-        let killer = killed_by
+        let witness = live
             .as_ref()
-            .and_then(|killers| killers.first())
-            .and_then(|id| self.position(id));
-        match killer {
-            Some(killer) => self.hints.insert(key, self.hint_entry(killer, mutation)),
-            None => self.hints.remove(key),
-        }
+            .and_then(|live| live.witness.as_ref())
+            .or(stored);
+        let killer = self.full_killer(
+            killed_by.as_deref(),
+            &mutation.id,
+            witness.map(|w| self.search_order(order, w)).as_deref(),
+            order,
+        );
         let source = killer.map(|killer| {
             if cached.iter().any(|(c, _)| *c == killer) {
                 SOURCE_OUTCOME_CACHE
@@ -1736,11 +1899,13 @@ impl Search<'_, '_> {
             )));
         }
         let calls = self.calls(&calls);
+        let killer = killer.map(|killer| self.candidates[killer].id.to_owned());
         (
             verdict_row(
                 row,
                 &report,
                 killed_by,
+                killer,
                 reason,
                 source,
                 calls,
@@ -1764,9 +1929,11 @@ impl Search<'_, '_> {
             .collect()
     }
 
-    /// `run --verify` for one resolved mutation (README 7.5.3): the cold call over O, a
-    /// one-program call per valid record the cold call did not execute, and the comparison of
-    /// every valid record and of the cached path's status with the live ones.
+    /// `run --verify` for one resolved mutation (README 7.5.3): the search of step 4 with tier 1
+    /// off (under first-kill the recorded killer alone, when it is a program of O, then, unless it
+    /// killed, the cold call over O), a one-program call per valid record those calls did not
+    /// execute, and the comparison of every valid record and of the cached path's status with the
+    /// live ones.
     fn verify_one(
         &mut self,
         mut row: Map<String, Value>,
@@ -1777,40 +1944,65 @@ impl Search<'_, '_> {
         stored: Option<&EditWitness>,
     ) -> (Value, bool) {
         let mut calls = Calls::new();
-        let mut executed = Vec::new();
+        let mut executed = Vec::<Value>::new();
         let mut witness = None;
-        let cold = match self.call(generation, order) {
-            (wall_ms, Err(error)) => {
-                calls.push((order.to_vec(), json!("error"), wall_ms));
-                return self.corpus_error(row, error, &calls, executed);
-            }
-            (wall_ms, Ok(live)) => {
-                calls.push((
-                    live.order.clone(),
-                    json!(status_name(live.mutant.report.status)),
-                    wall_ms,
-                ));
-                self.set_witnesses(&mut row, order, &live, &mut witness);
-                executed.extend(executed_entries(
-                    &live,
-                    self.runner.end_reader(),
-                    self.spec.result.slots(),
-                    self.manifest.budget,
-                    first_killer(&live),
-                ));
-                let causes = entry_causes(
-                    &live,
-                    self.runner.end_reader(),
-                    self.spec.result.slots(),
-                    self.manifest.budget,
-                );
-                let opens = entry_opens(&live);
-                (live.mutant, causes, opens)
-            }
-        };
-        let (cold, cold_causes, cold_opens) = cold;
         let mut live = BTreeMap::new();
-        self.collect_live(&cold, &cold_causes, &cold_opens, &mut live);
+        let mut source = SOURCE_SEARCH;
+        let mut cold = None;
+        // Under first-kill the recorded killer runs alone first, as the search runs it; under
+        // `Full` every program runs in the one call anyway.
+        let recorded = self
+            .recorded_candidate(&mutation.id)
+            .filter(|_| self.schedule == ScheduleMode::FirstKill);
+        let mut steps = recorded.map(|k| vec![k]).into_iter().collect::<Vec<_>>();
+        steps.push(order.to_vec());
+        for (step, programs) in steps.into_iter().enumerate() {
+            let alone = recorded.is_some() && step == 0;
+            let one = match self.call(generation, &programs) {
+                (wall_ms, Err(error)) => {
+                    calls.push((programs, json!("error"), wall_ms));
+                    return self.corpus_error(row, error, &calls, executed);
+                }
+                (wall_ms, Ok(one)) => {
+                    calls.push((
+                        one.order.clone(),
+                        json!(status_name(one.mutant.report.status)),
+                        wall_ms,
+                    ));
+                    one
+                }
+            };
+            self.set_witnesses(&mut row, order, &one, &mut witness);
+            let entries = executed_entries(
+                &one,
+                self.runner.end_reader(),
+                self.spec.result.slots(),
+                self.manifest.budget,
+                first_killer(&one),
+            );
+            // Each program is listed once, with its last live run.
+            executed.retain(|entry| {
+                !entries
+                    .iter()
+                    .any(|again| again["program"] == entry["program"])
+            });
+            executed.extend(entries);
+            let causes = entry_causes(
+                &one,
+                self.runner.end_reader(),
+                self.spec.result.slots(),
+                self.manifest.budget,
+            );
+            let opens = entry_opens(&one);
+            self.collect_live(&one.mutant, &causes, &opens, &mut live);
+            let killed = one.mutant.report.status == MutantStatus::Killed;
+            cold = Some((one.mutant, opens));
+            if alone && killed {
+                source = SOURCE_RECORD;
+                break;
+            }
+        }
+        let (cold, cold_opens) = cold.expect("the cold call ran");
         for (c, _) in records {
             if live.contains_key(c) {
                 continue;
@@ -1943,15 +2135,36 @@ impl Search<'_, '_> {
         verdict_claims(&mut row, &cold.plan.claims, |claims| {
             claims_value(self.spec.validator.baseline(), claims)
         });
-        let source = (cold.report.status == MutantStatus::Killed).then_some(SOURCE_SEARCH);
         // Under `Full` the cold call ran every program of O in corpus order, so its killers are
-        // the row's `killed_by`.
+        // the row's `killed_by`; under first-kill the call ran in C, so its first killer is the
+        // first in C, unless the recorded killer killed alone.
         let killed_by = self.killed_by(&cold.report);
+        let killer = match &killed_by {
+            Some(killers) => self.full_killer(
+                Some(killers),
+                &mutation.id,
+                witness
+                    .as_ref()
+                    .map(|w| self.search_order(order, w))
+                    .as_deref(),
+                order,
+            ),
+            None => cold
+                .report
+                .killing_test_ids
+                .first()
+                .and_then(|id| self.position(id)),
+        };
+        let killer = killer
+            .filter(|_| cold.report.status == MutantStatus::Killed)
+            .map(|k| self.candidates[k].id.to_owned());
+        let source = killer.as_ref().map(|_| source);
         (
             verdict_row(
                 row,
                 &cold.report,
                 killed_by,
+                killer,
                 reason,
                 source,
                 calls,
@@ -2337,7 +2550,7 @@ pub fn run_with(
 /// [`run_with`] for a front end ([`FrontEnd`]): next steps take its spelling; a mutation it
 /// refused ([`FrontEnd::refused`]) gets the row of a mutation that does not resolve, with the
 /// front end's reason, and is not resolved, looked up in a memo, compiled or run, so no outcome
-/// record, hint or memo record is written for it; and the document is annotated
+/// record or memo record is written for it; and the document is annotated
 /// ([`FrontEnd::annotate`]) before every write of the report and before it is returned, so that
 /// `report` prints what `run` printed.
 pub fn run_front(
@@ -2352,6 +2565,18 @@ pub fn run_front(
             annotate(&mut document);
         }
         document
+    };
+    // The killer record is an input: read after the manifest and the list decode, before
+    // admission; one that does not decode refuses the run, as a list that does not decode does.
+    let lock = match options.lock.as_deref().map(Lock::read).transpose() {
+        Ok(lock) => lock,
+        Err(detail) => {
+            let path = options.lock.as_deref().unwrap_or_else(|| Path::new(""));
+            return (
+                annotated(lock_refused(path, &detail, options.schedule)),
+                false,
+            );
+        }
     };
     let selected_count = list
         .mutations
@@ -2384,6 +2609,9 @@ pub fn run_front(
                 mismatches,
                 schedule: json!(schedule_name(options.schedule)),
                 stop: manifest.stop.as_ref().map(|_| manifest),
+                lock: lock
+                    .as_ref()
+                    .map_or(Value::Null, |lock| lock.not_written("refused")),
                 ..Accounting::NONE
             },
         ));
@@ -2467,7 +2695,6 @@ pub fn run_front(
     );
     // Once per command: the definition exclusion every document this run writes names.
     let exclusion = runner.definition_exclusion();
-    let hints = Hints::read(&cache);
     let mut ok = update.ok();
     // The front end's evidence identity is asked for only where tier 1 could be on: it may cost
     // a pass over the front end's definition.
@@ -2525,7 +2752,7 @@ pub fn run_front(
         candidates,
         mode,
         tier1,
-        hints,
+        recorded: lock.as_ref().map(Lock::killers).unwrap_or_default(),
         store: Store::new(&cache),
         stats: Stats::default(),
         mismatches: Vec::new(),
@@ -2589,7 +2816,11 @@ pub fn run_front(
             let stored = memo
                 .as_ref()
                 .and_then(|(key, path)| memo::read_facts(path, key));
-            if !verify && let Some(facts) = stored.as_ref().filter(|facts| search.decided(facts)) {
+            if !verify
+                && let Some(facts) = stored
+                    .as_ref()
+                    .filter(|facts| search.decided(mutation, facts))
+            {
                 return Resolution::Memo(facts.clone());
             }
             let live = resolve(manifest, &spec.loaded, mutation);
@@ -2673,8 +2904,8 @@ pub fn run_front(
             drop(ahead.take());
             let patches = selected[position..selected.len().min(position + chunk)]
                 .iter()
-                .flat_map(|(_, _, resolution)| match resolution {
-                    Resolution::Live(resolution) => search.live_compiles(resolution),
+                .flat_map(|(_, mutation, resolution)| match resolution {
+                    Resolution::Live(resolution) => search.live_compiles(mutation, resolution),
                     // Tier 1 decides it with no call (or it is resolved live at its turn).
                     Resolution::Memo(_) => Vec::new(),
                 })
@@ -2691,6 +2922,7 @@ pub fn run_front(
             search.mismatches.push(mismatch);
             row = resolution_mismatch(row);
         }
+        search.record_fields(&mut row, mutation);
         row["action"] = json!(
             front
                 .refused
@@ -2713,11 +2945,6 @@ pub fn run_front(
         if corpus_error {
             stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
             ok = false;
-        }
-        // The hints are written after every mutation, a corpus error included (F-05 review 1
-        // minor 3); `--verify` writes none.
-        if !verify && let Err(e) = search.hints.write(&store) {
-            row["cache_error"] = json!(format!("cannot write the hints: {e}"));
         }
         if row.get("cache_error").is_some()
             || (row["status"] == "error" && row["reason"] == "no-comparable-program")
@@ -2742,6 +2969,8 @@ pub fn run_front(
                 result: spec.result.value(),
                 execution: update.execution.value(),
                 stop: manifest.stop.as_ref().map(|_| manifest),
+                // Nothing is written to the lock before the run ends.
+                lock: lock.as_ref().map_or(Value::Null, Lock::pending),
             },
         ));
         match store.write_json(&report_path, &document) {
@@ -2767,7 +2996,8 @@ pub fn run_front(
     if !search.mismatches.is_empty() {
         ok = false;
     }
-    let document = annotated(document(
+    let was_stopped = stopped.is_some();
+    let mut document = document(
         &record,
         Some(update.spec_digest),
         &program_rows,
@@ -2784,8 +3014,27 @@ pub fn run_front(
             result: spec.result.value(),
             execution: update.execution.value(),
             stop: manifest.stop.as_ref().map(|_| manifest),
+            lock: Value::Null,
         },
-    ));
+    );
+    // The lock, compared and written once the run's rows are final (README, "The killer
+    // record"): its text is the rendering of this document, which neither the `lock` member nor
+    // a front end's annotation is part of.
+    if let Some(lock) = &lock {
+        let (value, written) = lock.settle(
+            &store,
+            &document,
+            Settle {
+                locked: options.locked,
+                verify,
+                only: &options.only,
+                stopped: was_stopped,
+            },
+        );
+        document["lock"] = value;
+        ok &= written;
+    }
+    let document = annotated(document);
     // The stored report is the document the command prints: write it unless the last write
     // already stored exactly this document (no mutation was selected, or a write failed).
     if written.as_ref() != Some(&document) && store.write_json(&report_path, &document).is_err() {
@@ -2799,22 +3048,147 @@ fn plural(count: usize, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
 }
 
-/// Whether tier 1 decides, with no call, a mutation whose comparable programs in search order are
-/// `order` and whose valid tier-1 records are `records` (of programs of `order`): no program is in
-/// O, or every program of O has a record (step 3), or, under [`ScheduleMode::FirstKill`], a
-/// record is killed (step 2). Under [`ScheduleMode::Full`] a killed record does not decide: the
-/// row needs every cell.
-fn tier1_decides(
+/// What tier 1 decides for a mutation with no call ([`tier1_decision`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Tier1 {
+    /// No program is in O: the row is the corpus error `no-comparable-program`.
+    Empty,
+    /// The records decide: the killer (a candidate) when the status is killed, and the records
+    /// the row reads (candidates, in the order the row lists them).
+    Decided {
+        killer: Option<usize>,
+        read: Vec<usize>,
+    },
+    /// The mutant runs live. `records` is false for the no-witness fallback: the canonical killer
+    /// needs C and no compiled edit is stored, so the row runs as if no record were valid.
+    Call { records: bool },
+}
+
+impl Tier1 {
+    const fn decides(&self) -> bool {
+        !matches!(self, Self::Call { .. })
+    }
+}
+
+/// What tier 1 decides, with no call, for a mutation whose comparable programs are `order` (O, in
+/// corpus order), whose valid tier-1 records are `records` (of programs of O), whose search order
+/// C is `search` when the outcome file keeps the compiled edit, and whose lock names the program
+/// `recorded` of O (README, "The killer record").
+///
+/// Under [`ScheduleMode::FirstKill`]: an empty O decides; a recorded killer with a valid `killed`
+/// record decides, as the killer; a recorded killer with no valid record does not (it must run);
+/// otherwise (no recorded killer in O, or one whose record is not a kill) the canonical killer,
+/// the first killing program in C, must be decided by the records alone: with no cached kill when
+/// every program of O has a record (the fold), and with cached kills when C is known and every
+/// program before the first cached kill in C has a record (that kill is the killer; the row reads
+/// that prefix and the kill), or when every program has a record and exactly one is a kill (C
+/// does not matter). Every program cached with several kills and no stored C is the no-witness
+/// fallback.
+///
+/// Under [`ScheduleMode::Full`] the records decide only when every program of O has one: a
+/// `killed` record does not decide a full row, which needs every cell. Its killer is the recorded
+/// one when it is among the kills, else the only kill, else the first kill in C; several kills
+/// with no stored C and no recorded killer among them is the no-witness fallback.
+fn tier1_decision(
     order: &[usize],
     records: &[(usize, OutcomeRecord)],
+    search: Option<&[usize]>,
+    recorded: Option<usize>,
     schedule: ScheduleMode,
-) -> bool {
-    order.is_empty()
-        || records.len() == order.len()
-        || (schedule == ScheduleMode::FirstKill
-            && records
+) -> Tier1 {
+    if order.is_empty() {
+        return Tier1::Empty;
+    }
+    let has = |program: usize| records.iter().any(|(c, _)| *c == program);
+    let killed = |program: usize| {
+        records
+            .iter()
+            .any(|(c, record)| *c == program && record.outcome == CachedOutcome::Killed)
+    };
+    let every = order.iter().all(|&program| has(program));
+    let kills = order
+        .iter()
+        .copied()
+        .filter(|&program| killed(program))
+        .collect::<Vec<_>>();
+    let cached = || {
+        order
+            .iter()
+            .copied()
+            .filter(|&program| has(program))
+            .collect::<Vec<_>>()
+    };
+    let recorded = recorded.filter(|k| order.contains(k));
+    if schedule == ScheduleMode::Full {
+        if !every {
+            return Tier1::Call { records: true };
+        }
+        let killer = if kills.is_empty() {
+            None
+        } else if let Some(k) = recorded.filter(|k| kills.contains(k)) {
+            Some(k)
+        } else if let [only] = kills[..] {
+            Some(only)
+        } else if let Some(search) = search {
+            search.iter().copied().find(|c| kills.contains(c))
+        } else {
+            return Tier1::Call { records: false };
+        };
+        return Tier1::Decided {
+            killer,
+            read: cached(),
+        };
+    }
+    if let Some(k) = recorded {
+        if killed(k) {
+            return Tier1::Decided {
+                killer: Some(k),
+                read: vec![k],
+            };
+        }
+        if !has(k) {
+            return Tier1::Call { records: true };
+        }
+    }
+    if kills.is_empty() {
+        return if every {
+            Tier1::Decided {
+                killer: None,
+                read: cached(),
+            }
+        } else {
+            Tier1::Call { records: true }
+        };
+    }
+    // The recorded killer's record, not a kill, is part of what decides: the row reads it too.
+    let with_recorded = |mut read: Vec<usize>| {
+        if let Some(k) = recorded.filter(|k| !read.contains(k)) {
+            read.push(k);
+        }
+        read
+    };
+    match search {
+        Some(search) => {
+            let first = search
                 .iter()
-                .any(|(_, record)| record.outcome == CachedOutcome::Killed))
+                .position(|c| kills.contains(c))
+                .expect("C orders every program of O");
+            if search[..first].iter().all(|&program| has(program)) {
+                Tier1::Decided {
+                    killer: Some(search[first]),
+                    read: with_recorded(search[..=first].to_vec()),
+                }
+            } else {
+                Tier1::Call { records: true }
+            }
+        }
+        None if every && kills.len() == 1 => Tier1::Decided {
+            killer: Some(kills[0]),
+            read: cached(),
+        },
+        None if every => Tier1::Call { records: false },
+        None => Tier1::Call { records: true },
+    }
 }
 
 /// What `run` knows of a mutation's resolution (re-pin L1-4).
@@ -2937,14 +3311,16 @@ fn verdict_claims(
     }
 }
 
-/// The row of a verdict: the report's status, the killer, the killer's source, the deciding
-/// call's mutant-scope failure as the reason. Under first-kill (`killed_by` `None`) the killer
-/// is the report's first killing program; under `Full` it is the first of `killed_by`
-/// ([`Search::killed_by`]), which the row carries.
+/// The row of a verdict: the report's status, the killer (the search's choice: the recorded
+/// killer while it kills, else the first killing program in C), the killer's source, the deciding
+/// call's mutant-scope failure as the reason, and under `Full` `killed_by`
+/// ([`Search::killed_by`]).
+#[allow(clippy::too_many_arguments)]
 fn verdict_row(
     mut row: Map<String, Value>,
     report: &MutantReport,
     killed_by: Option<Vec<String>>,
+    killer: Option<String>,
     reason: Option<String>,
     source: Option<&str>,
     calls: RowCalls,
@@ -2962,12 +3338,7 @@ fn verdict_row(
                 .collect::<Vec<_>>()
         ),
     );
-    let killer = match &killed_by {
-        None => (report.status == MutantStatus::Killed)
-            .then(|| report.killing_test_ids.first().cloned())
-            .flatten(),
-        Some(killers) => killers.first().cloned(),
-    };
+    let killer = killer.filter(|_| report.status == MutantStatus::Killed);
     if let Some(killers) = killed_by {
         row.insert("killed_by".into(), json!(killers));
     }
@@ -3094,10 +3465,7 @@ fn finish(
     row.insert("killer_source".into(), json!(source));
     row.insert(
         "killer_from_cache".into(),
-        json!(matches!(
-            source,
-            Some(SOURCE_OUTCOME_CACHE) | Some(SOURCE_HINT)
-        )),
+        json!(source == Some(SOURCE_OUTCOME_CACHE)),
     );
     row.insert("executed".into(), json!(executed));
     row.insert("calls".into(), json!(calls));
@@ -3262,6 +3630,8 @@ struct Accounting<'m> {
     /// The manifest, when it declares `[stop]`: the document names the stop (`stop`), and each
     /// survivor that edits a rule the stop stops before says so (`stop_hides_edit`).
     stop: Option<&'m FlowManifest>,
+    /// The document's `lock`: null without a lock ([`crate::lock`]).
+    lock: Value,
 }
 
 impl Accounting<'_> {
@@ -3276,6 +3646,7 @@ impl Accounting<'_> {
         result: Value::Null,
         execution: Value::Null,
         stop: None,
+        lock: Value::Null,
     };
 }
 
@@ -3358,6 +3729,7 @@ fn document(
         "matrix": matrix,
         "untargeted_rules": accounting.untargeted_rules,
         "data": accounting.data,
+        "lock": accounting.lock,
     });
     // Absent without a stop, so a document without one is the document it was before stops.
     if let Some(stop) = accounting.stop.and_then(FlowManifest::stop_value) {
@@ -3386,6 +3758,23 @@ pub fn mutation_list_refused(detail: &str, schedule: ScheduleMode) -> Value {
         "kink_build": run_document_build(),
         "kink": kink_campaign::kink_identity(),
         "mutation_list": {"outcome": "refused", "detail": detail},
+    })
+}
+
+/// The run document of a run whose lock at `path` does not decode (README, "The killer record"):
+/// it names the schedule and the refused lock (`lock: {path, outcome: "refused", detail}`), and has
+/// no specification and no mutation row, since the lock is read before admission.
+pub fn lock_refused(path: &Path, detail: &str, schedule: ScheduleMode) -> Value {
+    json!({
+        "schema": RUN_SCHEMA,
+        "version": RUN_VERSION,
+        "schedule": schedule_name(schedule),
+        "matrix": null,
+        "k_rust_revision": crate::k_rust_revision(),
+        "profile": SolverProfile::BUILD.name(),
+        "kink_build": run_document_build(),
+        "kink": kink_campaign::kink_identity(),
+        "lock": crate::lock::refused_value(path, detail),
     })
 }
 
@@ -3534,12 +3923,12 @@ mod tests {
         assert_eq!(row["removed_claims"], json!(["unread-equation"]));
     }
 
-    /// The tier-1 rule that both the search ([`Search::search_facts`]) and the compile-ahead
-    /// guess ([`Search::live_compiles`]) decide by, under each schedule. No run document can
-    /// show the guess: a wrong one costs a compile, never a row, a record or a hint, so the
-    /// rule they share is pinned here.
+    /// The tier-1 rule that the search ([`Search::search_facts`]), the memo stop and the
+    /// compile-ahead guess ([`Search::live_compiles`]) decide by, under each schedule, with and
+    /// without a recorded killer and a stored C. No run document can show the guess: a wrong one
+    /// costs a compile, never a row, a record or a lock, so the rule they share is pinned here.
     #[test]
-    fn tier_one_decides_by_the_schedule() {
+    fn tier_one_follows_the_record() {
         let record = |outcome| OutcomeRecord {
             program_id: String::new(),
             baseline_run_sha256: String::new(),
@@ -3555,34 +3944,88 @@ mod tests {
         };
         let killed = |c| (c, record(CachedOutcome::Killed));
         let agree = |c| (c, record(CachedOutcome::Agree));
-        let decides = |order: &[usize], records: &[(usize, OutcomeRecord)]| {
-            [ScheduleMode::FirstKill, ScheduleMode::Full]
-                .map(|schedule| tier1_decides(order, records, schedule))
-        };
-        // No program in O: nothing can run, under either schedule.
-        assert_eq!(decides(&[], &[]), [true, true]);
-        // No record, or agreements for part of O: the rest of O runs.
-        assert_eq!(decides(&[0, 1, 2], &[]), [false, false]);
-        assert_eq!(decides(&[0, 1, 2], &[agree(0), agree(2)]), [false, false]);
-        // A cached kill decides a first-kill row, never a full one, which needs every cell.
-        assert_eq!(decides(&[0, 1, 2], &[agree(0), killed(2)]), [true, false]);
-        assert_eq!(decides(&[0, 1, 2], &[killed(1)]), [true, false]);
-        // A record for every program of O decides both.
-        assert_eq!(
-            decides(&[0, 1, 2], &[killed(0), agree(1), killed(2)]),
-            [true, true]
-        );
-        assert_eq!(
-            decides(&[0, 1, 2], &[agree(0), agree(1), agree(2)]),
-            [true, true]
-        );
-        // CF-33d: a cached unknown is a cell like an agreement: it decides nothing alone, and a
-        // record for every program of O, unknowns included, decides both.
         let unknown = |c| (c, record(CachedOutcome::Unknown));
-        assert_eq!(decides(&[0, 1, 2], &[unknown(0), agree(2)]), [false, false]);
+        let o = [0, 1, 2];
+        // C with the witness 2 first.
+        let c = [2, 0, 1];
+        let first = |records: &[(usize, OutcomeRecord)], search, recorded| {
+            tier1_decision(&o, records, search, recorded, ScheduleMode::FirstKill)
+        };
+        let full = |records: &[(usize, OutcomeRecord)], search, recorded| {
+            tier1_decision(&o, records, search, recorded, ScheduleMode::Full)
+        };
+        let decided = |killer, read: &[usize]| Tier1::Decided {
+            killer,
+            read: read.to_vec(),
+        };
+        let call = Tier1::Call { records: true };
+        let fallback = Tier1::Call { records: false };
+        // No program in O: nothing can run, under either schedule.
+        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
+            assert_eq!(tier1_decision(&[], &[], None, None, schedule), Tier1::Empty);
+        }
+        // No record, or records for part of O with no kill: the rest of O runs.
+        assert_eq!(first(&[], Some(&c), None), call);
+        assert_eq!(first(&[agree(0), unknown(2)], Some(&c), None), call);
+        assert_eq!(full(&[agree(0), killed(2)], Some(&c), None), call);
+        // Every program cached with no kill: the fold, under both schedules.
+        let all = [agree(0), unknown(1), agree(2)];
+        assert_eq!(first(&all, None, None), decided(None, &[0, 1, 2]));
+        assert_eq!(full(&all, None, Some(1)), decided(None, &[0, 1, 2]));
+        // The recorded killer's cached kill decides a first-kill row, alone, wherever it is in C.
         assert_eq!(
-            decides(&[0, 1, 2], &[unknown(0), agree(1), unknown(2)]),
-            [true, true]
+            first(&[killed(1)], Some(&c), Some(1)),
+            decided(Some(1), &[1])
+        );
+        assert_eq!(first(&[killed(1)], None, Some(1)), decided(Some(1), &[1]));
+        // A recorded killer with no valid record runs, whatever else is cached.
+        assert_eq!(first(&[killed(2), agree(0)], Some(&c), Some(1)), call);
+        // A recorded killer that agreed: the canonical killer, the first cached kill in C once
+        // every program before it in C is cached.
+        assert_eq!(
+            first(&[killed(0), agree(1)], Some(&c), Some(1)),
+            call,
+            "2 comes before 0 in C and has no record"
+        );
+        // The recorded killer's agreement is read beside the prefix: it decides that the
+        // killer is not the recorded one.
+        assert_eq!(
+            first(&[agree(2), killed(0), agree(1)], Some(&c), Some(1)),
+            decided(Some(0), &[2, 0, 1])
+        );
+        assert_eq!(first(&[killed(2)], Some(&c), None), decided(Some(2), &[2]));
+        // A recorded killer outside O reads as none.
+        assert_eq!(
+            first(&[killed(2)], Some(&c), Some(7)),
+            decided(Some(2), &[2])
+        );
+        // Kills cached and no stored C: the prefix is unknown, so the row runs; with every
+        // program cached, one kill decides (C does not matter), several are the fallback.
+        assert_eq!(first(&[killed(2), agree(0)], None, None), call);
+        assert_eq!(
+            first(&[agree(0), agree(1), killed(2)], None, None),
+            decided(Some(2), &[0, 1, 2])
+        );
+        assert_eq!(
+            first(&[killed(0), agree(1), killed(2)], None, None),
+            fallback
+        );
+        assert_eq!(
+            first(&[killed(0), agree(1), killed(2)], Some(&c), None),
+            decided(Some(2), &[2])
+        );
+        // Full: a cached kill never decides alone; with every cell cached the killer is the
+        // recorded one among the kills, else the only one, else the first in C.
+        let kills = [killed(0), agree(1), killed(2)];
+        assert_eq!(full(&kills, None, Some(0)), decided(Some(0), &[0, 1, 2]));
+        assert_eq!(
+            full(&kills, Some(&c), Some(1)),
+            decided(Some(2), &[0, 1, 2])
+        );
+        assert_eq!(full(&kills, None, Some(1)), fallback);
+        assert_eq!(
+            full(&[killed(0), agree(1), agree(2)], None, None),
+            decided(Some(0), &[0, 1, 2])
         );
     }
 }

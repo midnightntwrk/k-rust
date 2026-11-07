@@ -2503,7 +2503,8 @@ pub fn fuzz_front(
                 let mut action = match job {
                     FuzzJob::Kill { mutation, .. } => format!(
                         "{append}, then run `{} --only {mutation}`: kink's own run decides \
-                         whether it kills, and writes the hint when it does",
+                         whether it kills, and a run that judges the whole list records it as \
+                         the mutation's killer in its lock",
                         spelling.command(Verb::Run)
                     ),
                     FuzzJob::Rule { fired, .. } => format!(

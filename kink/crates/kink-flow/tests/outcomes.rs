@@ -1,10 +1,13 @@
 //! The outcome cache (flow F-14, README 7.5): tier 1, the proved outcome of a mutation on a
-//! program under an exact key, and tier 2, the killer hint that survives specification edits.
+//! program under an exact key, and tier 2, the recorded killer of the lock (`--lock`), which
+//! survives specification edits.
 //!
 //! Every status here is checked against a cold run (a fresh cache) of the same files: a
-//! cached outcome or a hint may change the calls and the killer found first, never a status.
-//! The tests read the run document, `outcomes/` and `hints.json`, and edit them by hand only
-//! to forge what a corrupted or hostile cache would hold.
+//! cached outcome or a recorded killer may change the calls and the killer, never a status.
+//! Each run here uses the lock `verdicts.lock` beside the manifest, which a copied cold run
+//! starts with as that run would have written it. The tests read the run document, `outcomes/`
+//! and the lock, and edit them by hand only to forge what a corrupted or hostile cache, or a
+//! hand-edited lock, would hold.
 
 mod flow_support;
 
@@ -14,13 +17,13 @@ use kink_flow::{
     FlowManifest, MutationList,
     admit::corpus_source,
     cli::{EXIT_UNASKED, EXIT_YES, results},
-    digest::{hint_key, mutation_identity, spec_digest},
-    hints::{HINTS_SCHEMA, hints_path},
+    digest::{mutation_identity, spec_digest},
     mutation::InvalidReason,
     outcomes::{OUTCOMES_DIRECTORY, record_sha256},
     resolve,
     results::{CACHE_DIRECTORY, ResultsOptions},
     search::{RunMode, RunOptions, drift_reason, run_with},
+    verdicts::lock_text,
 };
 use kink_patch::{Edit, Patch};
 use serde_json::{Value, json};
@@ -77,6 +80,8 @@ fn fixture(name: &str, test: &str) -> PathBuf {
 fn after_cold(name: &str, manifest: &str, mutations: &str, test: &str) -> (PathBuf, Value) {
     let dir = scratch(test).join(name);
     let cold = flow_support::after_cold(name, manifest, mutations, &dir);
+    // The lock the cold run writes with an empty one: its killers are the search's first.
+    fs::write(lock_of(&dir.join(manifest)), lock_text(&cold).unwrap()).unwrap();
     (dir, cold)
 }
 
@@ -117,6 +122,7 @@ fn append(path: &Path, text: &str) {
 
 /// `kink-flow run` (or `run --verify`) through the library, as the binary runs it.
 fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) -> (Value, bool) {
+    let lock = lock_of(manifest);
     let manifest = FlowManifest::read(manifest).unwrap();
     let list = MutationList::read(mutations).unwrap();
     run_with(
@@ -128,9 +134,16 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: Some(lock),
+            locked: false,
         },
         mode,
     )
+}
+
+/// The lock every run of this binary uses: `verdicts.lock` beside the manifest.
+fn lock_of(manifest: &Path) -> PathBuf {
+    manifest.with_file_name("verdicts.lock")
 }
 
 fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
@@ -325,61 +338,40 @@ fn forge_record(
     write_json(&path, &file);
 }
 
-/// The hint key of every mutation of `mutations` that resolves under `manifest`.
-fn hint_keys(manifest: &Path, mutations: &Path) -> BTreeMap<String, String> {
-    let flow = FlowManifest::read(manifest).unwrap();
-    let list = MutationList::read(mutations).unwrap();
-    let loaded = load_source(&corpus_source(&flow)).unwrap();
-    list.mutations
-        .iter()
-        .filter_map(|mutation| {
-            let resolved = resolve(&flow, &loaded, mutation).ok()?;
-            Some((
-                mutation.id.clone(),
-                hint_key(mutation, &resolved).to_string(),
-            ))
-        })
-        .collect()
-}
-
-/// The hint key of mutation `id` of `mutations` under `manifest`.
-fn hint_key_of(manifest: &Path, mutations: &Path, id: &str) -> String {
-    hint_keys(manifest, mutations).remove(id).unwrap()
-}
-
-/// The hints file: hint key -> (mutation id, program id).
-fn hints(manifest: &Path) -> BTreeMap<String, (String, String)> {
-    let value = read_json(&hints_path(&cache_of(manifest)));
-    assert_eq!(value["schema"], HINTS_SCHEMA);
-    value["hints"]
-        .as_object()
+/// The lock's recorded killer of each mutation it lists.
+fn recorded_killers(manifest: &Path) -> BTreeMap<String, Option<String>> {
+    let lock: toml::Table = fs::read_to_string(lock_of(manifest))
+        .unwrap()
+        .parse()
+        .unwrap();
+    lock["mutation"]
+        .as_array()
         .unwrap()
         .iter()
-        .map(|(key, entry)| {
+        .map(|row| {
             (
-                key.clone(),
-                (
-                    entry["mutation_id"].as_str().unwrap().to_owned(),
-                    entry["program_id"].as_str().unwrap().to_owned(),
-                ),
+                row["id"].as_str().unwrap().to_owned(),
+                row.get("killer")
+                    .and_then(toml::Value::as_str)
+                    .map(str::to_owned),
             )
         })
         .collect()
 }
 
-fn set_hint(manifest: &Path, key: &str, mutation: &str, program: &str, digest: &str) {
-    let path = hints_path(&cache_of(manifest));
-    let mut value = fs::read_to_string(&path)
-        .ok()
-        .map(|text| serde_json::from_str::<Value>(&text).unwrap())
-        .unwrap_or_else(|| json!({"schema": HINTS_SCHEMA, "version": 1, "hints": {}}));
-    value["hints"][key] = json!({
-        "mutation_id": mutation,
-        "program_id": program,
-        "program_digest": digest,
-    });
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    write_json(&path, &value);
+/// Hand-edit the lock: the recorded killer of `mutation` becomes `program`.
+fn set_record(manifest: &Path, mutation: &str, program: &str) {
+    let path = lock_of(manifest);
+    let mut lock: toml::Table = fs::read_to_string(&path).unwrap().parse().unwrap();
+    let rows = lock["mutation"].as_array_mut().unwrap();
+    let row = rows
+        .iter_mut()
+        .find(|row| row["id"].as_str() == Some(mutation))
+        .unwrap_or_else(|| panic!("the lock lists no {mutation}"));
+    row.as_table_mut()
+        .unwrap()
+        .insert("killer".into(), toml::Value::String(program.to_owned()));
+    fs::write(&path, toml::to_string(&lock).unwrap()).unwrap();
 }
 
 fn result_record_path(manifest: &Path, document: &Value, program: &str) -> PathBuf {
@@ -414,11 +406,18 @@ fn warm_after_no_change(manifest: &Path, mutations: &Path, cold: &Value, name: &
                 assert_eq!(row["killer_source"], "outcome-cache", "{id}");
                 assert_eq!(row["killer_from_cache"], true, "{id}");
                 assert_eq!(row["calls"], json!([]), "{id}");
+                // The cached prefix of the search order up to the killer, which comes last.
                 let entries = executed(&warm, id);
-                assert_eq!(entries.len(), 1, "{id}");
+                let (killer, prefix) = entries.split_last().unwrap();
                 assert_eq!(
-                    (entries[0].1.as_str(), entries[0].2),
-                    ("distinguish", true),
+                    (killer.0.as_str(), killer.1.as_str(), killer.2),
+                    (row["killer"].as_str().unwrap(), "distinguish", true),
+                    "{id}"
+                );
+                assert!(
+                    prefix
+                        .iter()
+                        .all(|(_, outcome, cached)| outcome != "distinguish" && *cached),
                     "{id}"
                 );
                 from_cache += 1;
@@ -814,7 +813,7 @@ fn partially_cached_equals_cold(
 }
 
 /// (a) and (g) on one fixture list after its cold run: a warm run after no change, then a run
-/// with every hint forged and tier 1 deleted.
+/// with every recorded killer forged and tier 1 deleted.
 fn warm_and_forged(name: &str, manifest: &str, mutations: &str) {
     let (dir, cold) = after_cold(
         name,
@@ -824,7 +823,7 @@ fn warm_and_forged(name: &str, manifest: &str, mutations: &str) {
     );
     let (manifest, mutations) = (dir.join(manifest), dir.join(mutations));
     warm_after_no_change(&manifest, &mutations, &cold, name);
-    forged_hints_change_no_status(&manifest, &mutations, &cold, name);
+    forged_records_change_no_status(&manifest, &mutations, &cold, name);
 }
 
 /// (e) on one fixture list against its cold run.
@@ -935,9 +934,10 @@ fn a_replacement_with_other_input_addresses_has_no_identity() {
     assert_eq!(mutation_identity(&loaded.baseline, &forged), None);
 }
 
-/// (g): a hint never changes a status. Every mutation's hint is forged to a program the cold
-/// run did not find killing it, tier 1 is deleted, and the statuses are the cold run's.
-fn forged_hints_change_no_status(manifest: &Path, mutations: &Path, cold: &Value, name: &str) {
+/// (g): a recorded killer never changes a status. Every mutation's recorded killer is forged to a
+/// program the cold run did not find killing it, tier 1 is deleted, and the statuses are the cold
+/// run's.
+fn forged_records_change_no_status(manifest: &Path, mutations: &Path, cold: &Value, name: &str) {
     let programs = cold["programs"]
         .as_array()
         .unwrap()
@@ -945,7 +945,6 @@ fn forged_hints_change_no_status(manifest: &Path, mutations: &Path, cold: &Value
         .filter(|p| p["class"] == "comparable")
         .map(|p| p["id"].as_str().unwrap().to_owned())
         .collect::<Vec<_>>();
-    let keys = hint_keys(manifest, mutations);
     let mut forged = 0;
     for row in rows(cold) {
         if row["digest"].is_null() || row["status"] == "error" {
@@ -960,19 +959,13 @@ fn forged_hints_change_no_status(manifest: &Path, mutations: &Path, cold: &Value
             .filter(|e| e["outcome"] != "distinguish")
             .find_map(|e| e["program"].as_str())
             .map_or_else(|| programs.last().unwrap().clone(), str::to_owned);
-        set_hint(
-            manifest,
-            &keys[id],
-            id,
-            &program,
-            &program_digest(cold, &program),
-        );
+        set_record(manifest, id, &program);
         forged += 1;
     }
     assert!(forged > 0);
     forget_outcomes(manifest);
-    let (hinted, _) = search(manifest, mutations, &[]);
-    assert_eq!(status_only(&hinted), status_only(cold), "{name}");
+    let (recorded, _) = search(manifest, mutations, &[]);
+    assert_eq!(status_only(&recorded), status_only(cold), "{name}");
 }
 
 #[test]
@@ -1143,13 +1136,13 @@ mod heavy {
 
     #[test]
     #[ignore = "heavy"]
-    fn warm_and_forged_hints_on_register() {
+    fn warm_and_forged_records_on_register() {
         warm_and_forged("register", "FLOW.toml", "MUTATIONS.toml");
     }
 
     #[test]
     #[ignore = "heavy"]
-    fn warm_and_forged_hints_on_markdown() {
+    fn warm_and_forged_records_on_markdown() {
         warm_and_forged("markdown", "FLOW.toml", "MUTATIONS.toml");
     }
 
@@ -1366,7 +1359,7 @@ misunderstanding = "a test mutation"
         // so the unknown is a function of the key and is written with its cause, beside twice's
         // agreement. The next command decides the row from the cache with no call, and reports
         // the cached unknown's cause as the live one gave it. (The timeout case, which is never
-        // written: warm_and_forged_hints_on_loop.)
+        // written: warm_and_forged_records_on_loop.)
         let dir = fixture("loop", "depth-unknown");
         let manifest = dir.join("FLOW-depth.toml");
         let mutations = dir.join("MUTATIONS.toml");
@@ -1658,9 +1651,10 @@ note = "go picks any integer"
 
     #[test]
     #[ignore = "kink"]
-    fn a_corpus_error_writes_no_record_and_keeps_the_hints_written() {
+    fn a_corpus_error_writes_no_record_and_leaves_the_lock() {
         // (d) and (i): a hand-edited result run digest is a corpus error; no record is written
-        // for the mutation, and the hints file is written with the ignored hint removed.
+        // for the mutation, and the lock, whose recorded killer names no program, is left as it
+        // was, since the run judged no mutation.
         let dir = fixture("calc", "corpus-error");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
@@ -1670,8 +1664,13 @@ note = "go picks any integer"
         let mut value = read_json(&record);
         value["run_sha256"] = json!("0".repeat(64));
         write_json(&record, &value);
-        let key = hint_key_of(&manifest, &mutations, "add-becomes-sub");
-        set_hint(&manifest, &key, "add-becomes-sub", "gone", &"f".repeat(64));
+        fs::write(
+            lock_of(&manifest),
+            "schema = \"kink-flow-verdicts\"\ndocument = \"run\"\n\n[[mutation]]\nid = \
+             \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \"gone\"\n",
+        )
+        .unwrap();
+        let lock = fs::read_to_string(lock_of(&manifest)).unwrap();
         let (document, ok) = search(&manifest, &mutations, &[]);
         assert!(!ok);
         assert_eq!(
@@ -1682,10 +1681,17 @@ note = "go picks any integer"
             mutation(&document, "add-becomes-sub")["reason"],
             "baseline-mismatch:add"
         );
-        assert!(mutation(&document, "add-becomes-sub")["stale_killer"].is_string());
+        assert_eq!(
+            mutation(&document, "add-becomes-sub")["killer_change"],
+            "not-in-corpus"
+        );
         assert!(!outcome_file(&manifest, &document, "add-becomes-sub").exists());
         assert_eq!(document["outcome_cache"]["records_written"], 0);
-        assert!(hints(&manifest).is_empty());
+        assert_eq!(
+            (&document["lock"]["status"], &document["lock"]["reason"]),
+            (&json!("not-written"), &json!("stopped"))
+        );
+        assert_eq!(fs::read_to_string(lock_of(&manifest)).unwrap(), lock);
     }
 
     /// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17), through
@@ -1930,18 +1936,16 @@ misunderstanding = "a test mutation"
         assert_eq!(record["record_sha256"], json!(sealed.to_string()));
     }
 
-    /// F-14 review 1 m3 (flow F-16): a hinted program that does not kill runs again in the cold
-    /// call; it is listed once in `executed` (with the cold call's run, the one the status folds)
-    /// and its record is counted once in `records_written`.
+    /// F-14 review 1 m3 (flow F-16): a recorded killer that does not kill runs again in the
+    /// canonical call; it is listed once in `executed` (with the canonical call's run, the one the
+    /// status folds) and its record is counted once in `records_written`.
     #[test]
     #[ignore = "kink"]
-    fn a_hinted_program_run_twice_is_listed_and_counted_once() {
-        let (dir, cold) = calc_after_cold("hint-counted-once");
+    fn a_recorded_killer_run_twice_is_listed_and_counted_once() {
+        let (dir, _) = calc_after_cold("record-counted-once");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
-        let key = hint_key_of(&manifest, &mutations, "add-swaps-operands");
-        let add = program_digest(&cold, "add");
-        set_hint(&manifest, &key, "add-swaps-operands", "add", &add);
+        set_record(&manifest, "add-swaps-operands", "add");
         forget_outcomes(&manifest);
         let (document, ok) = search(&manifest, &mutations, &["add-swaps-operands"]);
         assert!(ok, "{document:#}");
@@ -1967,11 +1971,16 @@ misunderstanding = "a test mutation"
         );
         assert_eq!(document["outcome_cache"]["records_written"], 4);
         assert_eq!(records(&manifest, &document, "add-swaps-operands").len(), 4);
+        let row = mutation(&document, "add-swaps-operands");
+        assert_eq!(
+            (&row["recorded_killer"], &row["killer_change"]),
+            (&json!("add"), &json!("no-longer-kills"))
+        );
     }
 
     #[test]
     #[ignore = "kink"]
-    fn warm_and_forged_hints_on_loop() {
+    fn warm_and_forged_records_on_loop() {
         // countdown never ends on the mutant: under a small time bound its outcome is a timeout,
         // which is never written (d); twice's agreement is.
         let (dir, cold) = after_cold("loop", "FLOW-search.toml", "MUTATIONS.toml", "loop-records");
@@ -2114,14 +2123,17 @@ misunderstanding = "a test mutation"
 
     #[test]
     #[ignore = "kink"]
-    fn a_hint_naming_a_removed_program_is_ignored_and_removed() {
-        // (g): no-mul's hint names nested; nested leaves the corpus. The hint names no comparable
-        // program: it is reported, removed, and the status is a cold run's.
-        let (dir, _) = calc_after_cold("hint-removed");
+    fn a_recorded_killer_that_left_the_corpus_is_replaced() {
+        // (g): no-mul's recorded killer is nested; nested leaves the corpus. The record names no
+        // program: the row says so, the status is a cold run's, and a run of the whole list
+        // records the search's first killer.
+        let (dir, _) = calc_after_cold("record-removed");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
-        let key = hint_key_of(&manifest, &mutations, "no-mul");
-        assert_eq!(hints(&manifest)[&key].1, "nested");
+        assert_eq!(
+            recorded_killers(&manifest)["no-mul"].as_deref(),
+            Some("nested")
+        );
         edit(
             &manifest,
             "[[program]]\nid = \"nested\"\nfile = \"programs/nested.calc\"\n",
@@ -2129,9 +2141,13 @@ misunderstanding = "a test mutation"
         );
         let (removed, ok) = search(&manifest, &mutations, &["no-mul"]);
         assert!(ok, "{removed:#}");
-        assert!(mutation(&removed, "no-mul")["stale_killer"].is_string());
+        assert_eq!(
+            mutation(&removed, "no-mul")["killer_change"],
+            "not-in-corpus"
+        );
         assert_eq!(mutation(&removed, "no-mul")["unusable_killer"], Value::Null);
-        let cold_dir = scratch("hint-removed-cold").join("calc");
+        assert_eq!(removed["lock"]["status"], "not-written");
+        let cold_dir = scratch("record-removed-cold").join("calc");
         copy_dir(&dir, &cold_dir);
         let (cold, ok) = search(
             &cold_dir.join("FLOW.toml"),
@@ -2140,12 +2156,18 @@ misunderstanding = "a test mutation"
         );
         assert!(ok, "{cold:#}");
         assert_eq!(statuses(&removed), statuses(&cold));
-        assert_eq!(hints(&manifest)[&key].1, "inline");
+        let (whole, ok) = search(&manifest, &mutations, &[]);
+        assert!(ok, "{whole:#}");
+        assert_eq!(whole["lock"]["status"], "written");
+        assert_eq!(
+            recorded_killers(&manifest)["no-mul"].as_deref(),
+            mutation(&cold, "no-mul")["killer"].as_str()
+        );
     }
 
     #[test]
     #[ignore = "kink"]
-    fn warm_and_forged_hints_on_calc_statuses() {
+    fn warm_and_forged_records_on_calc_statuses() {
         warm_and_forged("calc", "FLOW.toml", "MUTATIONS-statuses.toml");
     }
 
@@ -2203,7 +2225,7 @@ misunderstanding = "a test mutation"
 
     #[test]
     #[ignore = "kink"]
-    fn warm_and_forged_hints_on_calc() {
+    fn warm_and_forged_records_on_calc() {
         warm_and_forged("calc", "FLOW.toml", "MUTATIONS.toml");
     }
 
@@ -2263,7 +2285,7 @@ misunderstanding = "a test mutation"
         assert_eq!(statuses(&document), statuses(&cold));
         for (id, status, killer) in statuses(&document) {
             if status == "killed" {
-                assert_eq!(mutation(&document, &id)["killer_source"], "hint", "{id}");
+                assert_eq!(mutation(&document, &id)["killer_source"], "record", "{id}");
                 assert_eq!(calls(&document, &id), vec![vec![killer.unwrap()]], "{id}");
             }
         }
@@ -2305,7 +2327,7 @@ misunderstanding = "a test mutation"
         assert_eq!(budget["outcome_cache"]["mutations_from_cache"], 0);
         assert_eq!(
             mutation(&budget, "add-becomes-sub")["killer_source"],
-            "hint"
+            "record"
         );
         assert_eq!(calls(&budget, "add-becomes-sub"), vec![strings(&["add"])]);
         assert_eq!(
@@ -2329,10 +2351,10 @@ misunderstanding = "a test mutation"
 
     #[test]
     #[ignore = "kink"]
-    fn a_hint_that_stops_killing_changes_no_status() {
-        // (g): after an edit of the add rule, (1 + 2) is stuck, so nested, the hint of
-        // mul-becomes-add, agrees on it; the hint's call agrees and the cold call decides.
-        let (dir, first) = calc_after_cold("hint-stops");
+    fn a_recorded_killer_that_stops_killing_changes_no_status() {
+        // (g): after an edit of the add rule, (1 + 2) is stuck, so nested, the recorded killer of
+        // mul-becomes-add, agrees on it; its call agrees and the canonical call decides.
+        let (dir, first) = calc_after_cold("record-stops");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
         assert_eq!(mutation(&first, "mul-becomes-add")["killer"], "nested");
@@ -2341,7 +2363,7 @@ misunderstanding = "a test mutation"
             "rule [add]: I1:Int + I2:Int => I1 +Int I2",
             "rule [add]: I1:Int + I2:Int => I1 +Int I2 requires I1 >Int 5",
         );
-        let cold_dir = scratch("hint-stops-cold").join("calc");
+        let cold_dir = scratch("record-stops-cold").join("calc");
         copy_dir(&dir, &cold_dir);
         let (edited, ok) = search(&manifest, &mutations, &[]);
         assert!(ok, "{edited:#}");
@@ -2355,11 +2377,15 @@ misunderstanding = "a test mutation"
         assert_eq!(
             calls(&edited, "mul-becomes-add")[0],
             strings(&["nested"]),
-            "the hint is tried first"
+            "the recorded killer is tried first"
         );
         assert_eq!(
             mutation(&edited, "mul-becomes-add")["killer_source"],
             "search"
+        );
+        assert_eq!(
+            mutation(&edited, "mul-becomes-add")["killer_change"],
+            "no-longer-kills"
         );
         assert_eq!(statuses(&edited), statuses(&cold));
     }
@@ -2374,7 +2400,7 @@ misunderstanding = "a test mutation"
         let (dir, cold) = calc_after_cold("verify");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
-        let hints_before = fs::read_to_string(hints_path(&cache_of(&manifest))).unwrap();
+        let lock_before = fs::read_to_string(lock_of(&manifest)).unwrap();
         let (verified, ok) = search_mode(&manifest, &mutations, &[], RunMode::Verify);
         assert!(ok, "{verified:#}");
         assert_eq!(verified["mismatches"], json!([]));
@@ -2407,7 +2433,6 @@ misunderstanding = "a test mutation"
             mutation(&trusted, "add-swaps-operands")["killer_source"],
             "outcome-cache"
         );
-        let hints_forged = fs::read_to_string(hints_path(&cache_of(&manifest))).unwrap();
         let (verified, ok) = search_mode(&manifest, &mutations, &[], RunMode::Verify);
         assert!(!ok);
         let row = mutation(&verified, "add-swaps-operands");
@@ -2447,17 +2472,16 @@ misunderstanding = "a test mutation"
                     && m["cached"]["status"] == "killed"
                     && m["live"]["status"] == "survived")
         );
-        // The other mutations are verified and keep their statuses; --verify writes no hint.
+        // The other mutations are verified and keep their statuses; neither `--only` nor
+        // `--verify` writes the lock.
         for (id, status, _) in statuses(&cold) {
             if id != "add-swaps-operands" {
                 assert_eq!(mutation(&verified, &id)["status"], status.as_str(), "{id}");
             }
         }
-        assert_eq!(
-            fs::read_to_string(hints_path(&cache_of(&manifest))).unwrap(),
-            hints_forged
-        );
-        assert_ne!(hints_before, hints_forged);
+        assert_eq!(verified["lock"]["status"], "not-written");
+        assert_eq!(verified["lock"]["reason"], "verify");
+        assert_eq!(fs::read_to_string(lock_of(&manifest)).unwrap(), lock_before);
     }
 
     #[test]
@@ -2540,7 +2564,7 @@ misunderstanding = "a test mutation"
     fn a_stored_timeout_record_is_never_honoured() {
         // (i): add's record says timeout (as a build that cached timeouts, or a hand edit, could
         // have left it). A timeout depends on the host's load, so no record of it is read: add's
-        // baseline runs again, comparable, the record is replaced, and the hint's program kills
+        // baseline runs again, comparable, the record is replaced, and the recorded killer kills
         // again.
         let (dir, cold) = calc_after_cold("rerun");
         let manifest = dir.join("FLOW.toml");
@@ -2572,11 +2596,15 @@ misunderstanding = "a test mutation"
         assert!(replaced["wall_ms"].is_u64() && original["wall_ms"].is_u64());
         assert_eq!(without_wall_ms(&replaced), without_wall_ms(&original));
         assert_eq!(statuses(&rerun), statuses_of(&cold, &only));
-        assert_eq!(mutation(&rerun, "add-becomes-sub")["killer_source"], "hint");
+        assert_eq!(
+            mutation(&rerun, "add-becomes-sub")["killer_source"],
+            "record"
+        );
         assert_eq!(calls(&rerun, "add-becomes-sub"), vec![strings(&["add"])]);
 
-        // A stored unknown is honoured, so the program is not run again: its killed record and its
-        // hint are reported as unusable, never silently dropped, and the search goes on.
+        // A stored unknown is honoured, so the program is not run again: its killed record and the
+        // lock's record of it are reported as unusable, never silently dropped, and the search
+        // goes on.
         let mut unknown = original.clone();
         unknown["class"] = json!("unknown");
         unknown["cause"] = json!("hand-edited");
@@ -2595,19 +2623,11 @@ misunderstanding = "a test mutation"
         assert_eq!(row["killer"], "nested");
         forget_outcomes(&manifest);
         write_json(&record, &unknown);
-        let key = hint_key_of(&manifest, &mutations, "add-becomes-sub");
-        set_hint(
-            &manifest,
-            &key,
-            "add-becomes-sub",
-            "add",
-            &program_digest(&cold, "add"),
-        );
-        let (hinted, ok) = search(&manifest, &mutations, &only);
-        assert!(ok, "{hinted:#}");
-        assert_eq!(
-            mutation(&hinted, "add-becomes-sub")["unusable_killer"]["source"],
-            "hint"
-        );
+        set_record(&manifest, "add-becomes-sub", "add");
+        let (recorded, ok) = search(&manifest, &mutations, &only);
+        assert!(ok, "{recorded:#}");
+        let row = mutation(&recorded, "add-becomes-sub");
+        assert_eq!(row["unusable_killer"]["source"], "record");
+        assert_eq!(row["killer_change"], "not-comparable");
     }
 }

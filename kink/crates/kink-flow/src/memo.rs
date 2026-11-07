@@ -100,7 +100,7 @@
 //! `--only` does not select or a corpus error left unsearched). No memo is ever written by
 //! `--verify`, and a memo never enters the run document: on a host that grants the stack and heap
 //! resolution needs (the host premise above), a run with and without memos writes the same
-//! document, outcomes and hints.
+//! document, outcomes and lock.
 
 use crate::{
     manifest::Budget,

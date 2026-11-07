@@ -2,7 +2,7 @@
 //! record is used only under exactly its key.
 //!
 //! - With and without memos (`MemoUse::On` against `MemoUse::Off`), cold then warm, the run
-//!   documents (wall times removed), the outcome cache, the killer hints and the stored report are
+//!   documents (wall times removed), the outcome cache, the lock and the stored report are
 //!   byte-equal, on a `.k` and a Markdown fixture with every status.
 //! - A forged record under exactly the current key is used (the positive control that the memo
 //!   is read at all), and `run --verify` reports it and writes nothing.
@@ -71,16 +71,25 @@ fn fixture(name: &str, tag: &str) -> PathBuf {
 
 /// The document without its wall times, the only fields that differ between equal runs.
 fn timeless(value: &Value) -> Value {
+    let mut value = untimed(value);
+    // Each copy's lock is its own file: its path is the copy's.
+    if let Some(lock) = value.get_mut("lock").and_then(Value::as_object_mut) {
+        lock.remove("path");
+    }
+    value
+}
+
+fn untimed(value: &Value) -> Value {
     match value {
         Value::Object(map) => Value::Object(
             map.iter()
                 .filter(|(key, _)| {
                     !matches!(key.as_str(), "call_wall_ms" | "wall_ms" | "baseline_ms")
                 })
-                .map(|(key, value)| (key.clone(), timeless(value)))
+                .map(|(key, value)| (key.clone(), untimed(value)))
                 .collect(),
         ),
-        Value::Array(items) => Value::Array(items.iter().map(timeless).collect()),
+        Value::Array(items) => Value::Array(items.iter().map(untimed).collect()),
         other => other.clone(),
     }
 }
@@ -108,11 +117,20 @@ fn files(cache: &Path, dir: &str) -> BTreeMap<PathBuf, Vec<u8>> {
     found
 }
 
-/// The outcome cache and the hints.
+/// The outcome cache and the locks beside the cache directory.
 fn stores(cache: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut stores = files(cache, "outcomes");
-    if let Ok(bytes) = fs::read(cache.join("hints.json")) {
-        stores.insert(PathBuf::from("hints.json"), bytes);
+    for entry in fs::read_dir(cache.parent().unwrap()).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "lock")
+        {
+            stores.insert(
+                PathBuf::from(path.file_name().unwrap()),
+                fs::read(&path).unwrap(),
+            );
+        }
     }
     stores
 }
@@ -140,6 +158,8 @@ fn search_only(
             compile_workers: Some(1),
             memo,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: Some(dir.join(list).with_extension("lock")),
+            locked: false,
         },
         mode,
     )
@@ -283,7 +303,7 @@ fn compare(name: &str, list: &str, rounds: &[&str]) {
         assert_eq!(
             stores(&on_cache),
             stores(&off_cache),
-            "STOP: {name} {list} {round}: the memos changed the outcome cache or the hints"
+            "STOP: {name} {list} {round}: the memos changed the outcome cache or the lock"
         );
         let report = |cache: &Path| {
             timeless(
@@ -324,22 +344,22 @@ fn compare(name: &str, list: &str, rounds: &[&str]) {
     }
 }
 
-/// Deliverable 4: with and without memos, every document, outcome, hint and report is equal,
+/// Deliverable 4: with and without memos, every document, outcome, lock and report is equal,
 /// cold and warm, on calc (every status: invalid-mutation, killed, survived, equivalent, invalid)
 /// and on the Markdown fixture (K views of a `.md` source); one test per fixture (test-gate TG-F,
-/// formerly `memos_change_no_row_record_or_hint`), the second warm round in the heavy tier.
+/// formerly `memos_change_no_row_record_or_lock`), the second warm round in the heavy tier.
 mod kink_tier {
     use super::*;
 
     #[test]
     #[ignore = "kink"]
-    fn memos_change_no_row_record_or_hint_on_calc() {
+    fn memos_change_no_row_record_or_lock_on_calc() {
         compare("calc", "MUTATIONS-statuses.toml", &ROUNDS[..2]);
     }
 
     #[test]
     #[ignore = "kink"]
-    fn memos_change_no_row_record_or_hint_on_markdown() {
+    fn memos_change_no_row_record_or_lock_on_markdown() {
         compare("markdown", "MUTATIONS.toml", &ROUNDS[..2]);
     }
 
@@ -617,7 +637,7 @@ mod kink_tier {
         let dir = fixture("calc", "inputs");
         let cache = dir.join(CACHE_DIRECTORY);
         let store = Store::new(&cache);
-        // The reference runs without memos through the same history (its hints and caches).
+        // The reference runs without memos through the same history (its lock and caches).
         let reference = fixture("calc", "inputs-reference");
         search(&dir, LIST, MemoUse::On, RunMode::Search);
         search(&reference, LIST, MemoUse::Off, RunMode::Search);
@@ -878,7 +898,7 @@ mod kink_tier {
     /// Re-pin L1-4 fix 1 (review D2, end to end): mutations that differ from a killed base in one
     /// field each (an `invalid-mutation` for `file`, `rule`, `line` and `find`, a survivor for
     /// `replace`, the rule deleted for `delete`) never share a record. With memos and without, cold,
-    /// warm and warm again, the documents, outcome cache and hints are equal, also after the base's
+    /// warm and warm again, the documents, outcome cache and lock are equal, also after the base's
     /// record is copied to every other mutation's path. Had the key dropped a field, the warm run
     /// would give that field's mutation the base's facts, which tier 1 decides: `killed` for an
     /// `invalid-mutation` (review L1-4-1: dropping all fields but `replace` reported markdown's
@@ -940,13 +960,13 @@ mod heavy {
 
     #[test]
     #[ignore = "heavy"]
-    fn memos_change_no_row_record_or_hint_on_calc_in_three_rounds() {
+    fn memos_change_no_row_record_or_lock_on_calc_in_three_rounds() {
         compare("calc", "MUTATIONS-statuses.toml", &ROUNDS);
     }
 
     #[test]
     #[ignore = "heavy"]
-    fn memos_change_no_row_record_or_hint_on_markdown_in_three_rounds() {
+    fn memos_change_no_row_record_or_lock_on_markdown_in_three_rounds() {
         compare("markdown", "MUTATIONS.toml", &ROUNDS);
     }
 }

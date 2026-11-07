@@ -1,24 +1,20 @@
-//! The kill search with its killer cache and `kink-flow run` (flow F-05 deliverables 1-5).
+//! The kill search with its killer record and `kink-flow run` (flow F-05 deliverables 1-5).
 //!
 //! Every test pins statuses and killer ids. Each verdict is the status kink-campaign's
-//! runner derives; the tests only read the run document, the killer hints file and the
-//! result records. Since F-14 the killer cache is tier 2 of the outcome cache (`hints.json`,
-//! keyed by the hint key); a test that pins the warm cost of a killer deletes tier 1
-//! (`outcomes/`) first, so that the hint, not a cached outcome, decides the calls.
+//! runner derives; the tests only read the run document, the lock and the result records. Every
+//! library run here uses the lock `verdicts.lock` beside the manifest (`--lock`), tier 2 of the
+//! search: a test that pins the warm cost of a killer deletes tier 1 (`outcomes/`) first, so that
+//! the recorded killer, not a cached outcome, decides the calls.
 
 mod flow_support;
 
-use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
-    admit::corpus_source,
     cli::{EXIT_UNASKED, EXIT_YES, results},
-    digest::hint_key,
-    hints::{HINTS_SCHEMA, hints_path},
     outcomes::OUTCOMES_DIRECTORY,
-    resolve,
     results::{CACHE_DIRECTORY, ResultsOptions},
     search::{REPORT_FILE, RunOptions, run},
+    verdicts::lock_text,
 };
 use kink_patch::Sha256Digest;
 use serde_json::{Value, json};
@@ -75,6 +71,7 @@ fn append(path: &Path, text: &str) {
 
 /// `kink-flow run` through the library, as the binary runs it.
 fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
+    let lock = killers_file(manifest);
     let manifest = FlowManifest::read(manifest).unwrap();
     let list = MutationList::read(mutations).unwrap();
     run(
@@ -86,6 +83,8 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: Some(lock),
+            locked: false,
         },
     )
 }
@@ -200,70 +199,68 @@ fn cache_of(manifest: &Path) -> PathBuf {
     manifest.parent().unwrap().join(CACHE_DIRECTORY)
 }
 
+/// The lock every library run of this binary uses.
 fn killers_file(manifest: &Path) -> PathBuf {
-    hints_path(&cache_of(manifest))
+    manifest.with_file_name("verdicts.lock")
 }
 
-/// Delete tier 1 of the outcome cache, so that the next run's calls come from the hints.
+/// Delete tier 1 of the outcome cache, so that the next run's calls come from the lock.
 fn forget_outcomes(manifest: &Path) {
     let _ = fs::remove_dir_all(cache_of(manifest).join(OUTCOMES_DIRECTORY));
 }
 
-/// The hint key of mutation `id` of the manifest's `MUTATIONS.toml`.
-fn hint_key_of(manifest: &Path, id: &str) -> String {
-    let flow = FlowManifest::read(manifest).unwrap();
-    let list = MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap();
-    let mutation = list.mutations.iter().find(|m| m.id == id).unwrap();
-    let loaded = load_source(&corpus_source(&flow)).unwrap();
-    let resolved = resolve(&flow, &loaded, mutation).unwrap();
-    hint_key(mutation, &resolved).to_string()
-}
-
-/// The killer hints: hint key -> (mutation id, program id, program digest).
-fn killers(manifest: &Path, _document: &Value) -> Vec<(String, String, String, String)> {
-    let path = killers_file(manifest);
-    let Ok(text) = fs::read_to_string(&path) else {
+/// The lock's recorded killers: (mutation id, program id), in the lock's order; none without a
+/// lock.
+fn killers(manifest: &Path, _document: &Value) -> Vec<(String, String)> {
+    let Ok(text) = fs::read_to_string(killers_file(manifest)) else {
         return Vec::new();
     };
-    let value: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(value["schema"], HINTS_SCHEMA);
-    value["hints"]
-        .as_object()
-        .unwrap()
-        .iter()
-        .map(|(digest, entry)| {
-            (
-                digest.clone(),
-                entry["mutation_id"].as_str().unwrap().to_owned(),
-                entry["program_id"].as_str().unwrap().to_owned(),
-                entry["program_digest"].as_str().unwrap().to_owned(),
-            )
+    let lock: toml::Table = text.parse().unwrap();
+    lock.get("mutation")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            Some((
+                row["id"].as_str()?.to_owned(),
+                row.get("killer")?.as_str()?.to_owned(),
+            ))
         })
         .collect()
 }
 
-fn killer_of(manifest: &Path, document: &Value, id: &str) -> Option<(String, String)> {
-    let key = hint_key_of(manifest, id);
+fn killer_of(manifest: &Path, document: &Value, id: &str) -> Option<String> {
     killers(manifest, document)
         .into_iter()
-        .find(|(k, ..)| *k == key)
-        .map(|(_, _, program, program_digest)| (program, program_digest))
+        .find(|(mutation, _)| mutation == id)
+        .map(|(_, program)| program)
 }
 
-/// Replace the killer hint of mutation `id` by hand.
-fn set_killer(manifest: &Path, _document: &Value, id: &str, program: &str, program_digest: &str) {
+/// Replace the recorded killer of mutation `id` by hand, adding its row when the lock has none.
+fn set_killer(manifest: &Path, id: &str, program: &str) {
     let path = killers_file(manifest);
-    let mut value: Value = fs::read_to_string(&path)
-        .ok()
-        .map(|text| serde_json::from_str(&text).unwrap())
-        .unwrap_or_else(|| json!({"schema": HINTS_SCHEMA, "version": 1, "hints": {}}));
-    value["hints"][hint_key_of(manifest, id)] = json!({
-        "mutation_id": id,
-        "program_id": program,
-        "program_digest": program_digest,
-    });
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    let mut lock: toml::Table = fs::read_to_string(&path)
+        .unwrap_or_else(|_| "schema = \"kink-flow-verdicts\"\ndocument = \"run\"\n".to_owned())
+        .parse()
+        .unwrap();
+    let rows = lock
+        .entry("mutation")
+        .or_insert_with(|| toml::Value::Array(Vec::new()))
+        .as_array_mut()
+        .unwrap();
+    let mut row = toml::Table::new();
+    row.insert("id".into(), toml::Value::String(id.to_owned()));
+    row.insert("killer".into(), toml::Value::String(program.to_owned()));
+    match rows.iter_mut().find(|row| row["id"].as_str() == Some(id)) {
+        Some(existing) => {
+            existing
+                .as_table_mut()
+                .unwrap()
+                .insert("killer".into(), toml::Value::String(program.to_owned()));
+        }
+        None => rows.push(toml::Value::Table(row)),
+    }
+    fs::write(path, toml::to_string(&lock).unwrap()).unwrap();
 }
 
 fn record_path(manifest: &Path, document: &Value, program: &str) -> PathBuf {
@@ -326,7 +323,7 @@ fn the_runner_runs_the_mutant_in_the_chosen_order() {
         calls(&document, "add-swaps-operands"),
         vec![strings(&["add", "nested", "inline", "sub"])]
     );
-    // A survivor creates no entry: the cache file holds none.
+    // An `--only` run writes no lock.
     assert!(killers(&manifest, &document).is_empty());
 }
 
@@ -383,10 +380,9 @@ mod kink_tier {
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
         let cache = scratch("binary-cache");
-        // Re-pin R0c-fix-3 (R0c-fix-2 review major 3): corpus order, as the library-level tests use
-        // (`search` above). Under the default cost order the killer is the first killing program by
-        // measured baseline wall_ms, and store, increment and double each measure 1-3 ms on this
-        // fixture, so a 1 ms jitter on a loaded host made increment the killer.
+        // The search order is fixed (store, increment and double each measure 1-3 ms on this
+        // fixture: a cost order made increment the killer on a loaded host, R0c-fix-2 review
+        // major 3).
         let output = Command::new(binary)
             .arg("run")
             .arg(&manifest)
@@ -403,7 +399,8 @@ mod kink_tier {
             expect(&[("put-offset", "killed", Some("store"), false)])
         );
         assert!(cache.join(REPORT_FILE).is_file());
-        assert!(hints_path(&cache).is_file());
+        // Without `--lock` nothing is written outside the cache.
+        assert!(!killers_file(&manifest).exists());
         assert!(!dir.join(CACHE_DIRECTORY).exists());
 
         let bad = dir.join("BAD.toml");
@@ -475,10 +472,8 @@ mod kink_tier {
             vec![strings(&["increment", "double", "store"])]
         );
         assert_eq!(
-            killer_of(&manifest, &document, "put-and-get-offset")
-                .unwrap()
-                .0,
-            "store"
+            killer_of(&manifest, &document, "put-and-get-offset").as_deref(),
+            Some("store")
         );
     }
 
@@ -618,7 +613,12 @@ note = "right-hand side"
                 ("no-seq", "killed", Some("increment"), false),
             ])
         );
-        assert_eq!(killers(&manifest, &document).len(), 2);
+        // An `--only` run judged part of the list: the lock is not written.
+        assert_eq!(
+            (&document["lock"]["status"], &document["lock"]["reason"]),
+            (&json!("not-written"), &json!("only"))
+        );
+        assert!(killers(&manifest, &document).is_empty());
     }
 
     /// L2-2 (decision 4; findings C-02, C-03 (a)): `TWICE` imports only `INT-SYNTAX`, so its own
@@ -895,10 +895,7 @@ note = "right-hand side"
             assert_eq!(calls(&document, id).len(), 1, "{id}");
         }
         assert_eq!(
-            killers(&manifest, &document)
-                .into_iter()
-                .map(|(_, mutation, program, _)| (mutation, program))
-                .collect::<Vec<_>>(),
+            killers(&manifest, &document),
             vec![("add-becomes-sub".to_owned(), "add".to_owned())]
         );
         assert_eq!(
@@ -1108,6 +1105,8 @@ note = "right-hand side"
         let first = flow_support::after_cold("calc", "FLOW.toml", "MUTATIONS.toml", &dir);
         let manifest = dir.join("FLOW.toml");
         let mutations = manifest.with_file_name("MUTATIONS.toml");
+        // The lock the cold run writes.
+        fs::write(killers_file(&manifest), lock_text(&first).unwrap()).unwrap();
         assert_eq!(
             verdicts(&first),
             CALC_VERDICTS
@@ -1134,16 +1133,9 @@ note = "right-hand side"
             mutation(&first, "add-becomes-sub")["witnesses"],
             json!(["add", "nested", "inline"])
         );
-        // The killer cache holds exactly the killed mutations, each with its first killing test
-        // and that program's digest; the survivor has no entry.
-        let mut entries = killers(&manifest, &first)
-            .into_iter()
-            .map(|(key, mutation, program, program_digest)| {
-                assert_eq!(key, hint_key_of(&manifest, &mutation));
-                assert_eq!(program_digest, self::program_digest(&first, &program));
-                (mutation, program)
-            })
-            .collect::<Vec<_>>();
+        // The lock records exactly the killed mutations, each with its killer; the survivor has
+        // none.
+        let mut entries = killers(&manifest, &first);
         entries.sort();
         assert_eq!(
             entries,
@@ -1167,9 +1159,9 @@ note = "right-hand side"
                    "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0})
         );
 
-        // Warm cache: a killed mutation costs one campaign call over one program, whose baseline
-        // and mutant run once each; the survivor is scanned again. (Tier 1 is deleted: with it,
-        // a killed mutation and the survivor cost no call at all; tests/outcomes.rs.)
+        // Warm cache: a killed mutation costs one campaign call over its recorded killer, whose
+        // baseline and mutant run once each; the survivor is scanned again. (Tier 1 is deleted:
+        // with it, a killed mutation and the survivor cost no call at all; tests/outcomes.rs.)
         forget_outcomes(&manifest);
         let (second, ok) = search(&manifest, &mutations, &[]);
         assert!(ok, "{second:#}");
@@ -1181,7 +1173,7 @@ note = "right-hand side"
                     (*id).to_owned(),
                     (*status).to_owned(),
                     killer.map(str::to_owned),
-                    killer.is_some()
+                    false
                 ))
                 .collect::<Vec<_>>()
         );
@@ -1199,6 +1191,12 @@ note = "right-hand side"
             calls(&second, "add-swaps-operands"),
             vec![strings(&["add", "nested", "inline", "sub"])]
         );
+        for (id, _, killer) in CALC_VERDICTS {
+            if killer.is_some() {
+                assert_eq!(mutation(&second, id)["killer_source"], "record", "{id}");
+            }
+        }
+        assert_eq!(second["lock"]["status"], "unchanged");
         assert_eq!(killers(&manifest, &second), killers(&manifest, &first));
     }
 
@@ -1221,17 +1219,11 @@ note = "right-hand side"
         );
         assert!(killers(&manifest, &first).is_empty());
 
-        // A hand-made entry naming the program that times out: the cached call is a timeout, so
-        // the entry is removed and the full call decides. Its status stays Timeout: a stale entry
-        // never turns the verdict into the status of the other programs alone.
-        let countdown = program_digest(&first, "countdown");
-        set_killer(
-            &manifest,
-            &first,
-            "countdown-escapes",
-            "countdown",
-            &countdown,
-        );
+        // A hand-made record naming the program that times out: its call is a timeout, so the
+        // canonical call decides, and the rewritten lock records no killer. Its status stays
+        // Timeout: a stale record never turns the verdict into the status of the other programs
+        // alone.
+        set_killer(&manifest, "countdown-escapes", "countdown");
         forget_outcomes(&manifest);
         let (stale, ok) = search(&manifest, &mutations, &[]);
         assert!(ok);
@@ -1264,31 +1256,27 @@ note = "right-hand side"
             pairs(&[("countdown", "timeout"), ("countdown-one", "distinguish")])
         );
         assert_eq!(
-            killer_of(&manifest, &second, "countdown-escapes")
-                .unwrap()
-                .0,
-            "countdown-one"
+            killer_of(&manifest, &second, "countdown-escapes").as_deref(),
+            Some("countdown-one")
         );
         forget_outcomes(&manifest);
         let (third, ok) = search(&manifest, &mutations, &[]);
         assert!(ok);
         assert_eq!(
             verdicts(&third),
-            expect(&[("countdown-escapes", "killed", Some("countdown-one"), true)])
+            expect(&[("countdown-escapes", "killed", Some("countdown-one"), false)])
+        );
+        assert_eq!(
+            mutation(&third, "countdown-escapes")["killer_source"],
+            "record"
         );
         assert_eq!(
             calls(&third, "countdown-escapes"),
             vec![strings(&["countdown-one"])]
         );
 
-        // A cached killer that times out never keeps its entry: the full call decides again.
-        set_killer(
-            &manifest,
-            &third,
-            "countdown-escapes",
-            "countdown",
-            &countdown,
-        );
+        // A recorded killer that times out is replaced: the canonical call decides again.
+        set_killer(&manifest, "countdown-escapes", "countdown");
         forget_outcomes(&manifest);
         let (fourth, ok) = search(&manifest, &mutations, &[]);
         assert!(ok);
@@ -1304,10 +1292,12 @@ note = "right-hand side"
             ]
         );
         assert_eq!(
-            killer_of(&manifest, &fourth, "countdown-escapes")
-                .unwrap()
-                .0,
-            "countdown-one"
+            mutation(&fourth, "countdown-escapes")["killer_change"],
+            "no-longer-kills"
+        );
+        assert_eq!(
+            killer_of(&manifest, &fourth, "countdown-escapes").as_deref(),
+            Some("countdown-one")
         );
     }
 
@@ -1336,13 +1326,12 @@ note = "right-hand side"
             document["stopped"],
             json!({"mutation": "add-becomes-sub", "reason": "baseline-mismatch:add"})
         );
-        // Since F-14 the hints are written after a corpus error too (F-05 review 1 minor 3): the
-        // file holds no hint.
-        assert!(killers_file(&manifest).is_file());
-        assert!(killers(&manifest, &filled).is_empty());
+        // A run a corpus error stopped judged part of the list: it writes no lock.
+        assert_eq!(document["lock"]["reason"], "stopped");
+        assert!(!killers_file(&manifest).exists());
 
-        // Warm killer cache: the one-program call over a cached killer checks its baseline too.
-        // The mutations before it keep their verdicts; its entry is not touched.
+        // A warm lock: the one-program call over a recorded killer checks its baseline too.
+        // The mutations before it keep their verdicts; the lock is not touched.
         let manifest = fixture("calc", "mismatch-warm").join("FLOW.toml");
         let (warm, ok) = search(&manifest, &mutations, &[]);
         assert!(ok);
@@ -1354,8 +1343,8 @@ note = "right-hand side"
         assert_eq!(
             verdicts(&document),
             expect(&[
-                ("add-becomes-sub", "killed", Some("add"), true),
-                ("sub-off-by-one", "killed", Some("sub"), true),
+                ("add-becomes-sub", "killed", Some("add"), false),
+                ("sub-off-by-one", "killed", Some("sub"), false),
                 ("mul-becomes-add", "error", None, false),
             ])
         );
@@ -1377,29 +1366,28 @@ note = "right-hand side"
 
     #[test]
     #[ignore = "kink"]
-    fn a_wrong_or_stale_killer_entry_changes_cost_but_never_the_verdict() {
+    fn a_wrong_or_stale_recorded_killer_changes_cost_but_never_the_verdict() {
         let manifest = fixture("calc", "stale").join("FLOW.toml");
         let mutations = manifest.with_file_name("MUTATIONS.toml");
-        let only = ["add-becomes-sub", "add-swaps-operands"];
-        let (first, _) = search(&manifest, &mutations, &only);
+        let (first, _) = search(&manifest, &mutations, &[]);
         assert_eq!(
-            killer_of(&manifest, &first, "add-becomes-sub").unwrap().0,
-            "add"
+            killer_of(&manifest, &first, "add-becomes-sub").as_deref(),
+            Some("add")
         );
 
-        // An entry naming a comparable program that does not kill: one call over it alone, then
-        // the entry is removed and the call a cold cache makes decides; the new killer replaces
-        // the entry.
-        let sub = program_digest(&first, "sub");
-        set_killer(&manifest, &first, "add-becomes-sub", "sub", &sub);
-        // An entry for the survivor naming a program that does not kill it.
-        let add = program_digest(&first, "add");
-        set_killer(&manifest, &first, "add-swaps-operands", "add", &add);
+        // A record naming a comparable program that does not kill: one call over it alone, then
+        // the canonical call decides, and the rewritten lock records the new killer.
+        set_killer(&manifest, "add-becomes-sub", "sub");
+        // A record for the survivor naming a program that does not kill it.
+        set_killer(&manifest, "add-swaps-operands", "add");
         forget_outcomes(&manifest);
-        let (second, ok) = search(&manifest, &mutations, &only);
+        let (second, ok) = search(&manifest, &mutations, &[]);
         assert!(ok, "{second:#}");
         assert_eq!(
-            verdicts(&second),
+            verdicts(&second)
+                .into_iter()
+                .filter(|(id, ..)| id == "add-becomes-sub" || id == "add-swaps-operands")
+                .collect::<Vec<_>>(),
             expect(&[
                 ("add-becomes-sub", "killed", Some("add"), false),
                 ("add-swaps-operands", "survived", None, false),
@@ -1423,18 +1411,23 @@ note = "right-hand side"
                 strings(&["add", "nested", "inline", "sub"])
             ]
         );
+        for id in ["add-becomes-sub", "add-swaps-operands"] {
+            assert_eq!(
+                mutation(&second, id)["killer_change"],
+                "no-longer-kills",
+                "{id}"
+            );
+        }
+        assert_eq!(second["lock"]["status"], "written");
         assert_eq!(
-            killer_of(&manifest, &second, "add-becomes-sub"),
-            Some(("add".to_owned(), add.clone()))
+            killer_of(&manifest, &second, "add-becomes-sub").as_deref(),
+            Some("add")
         );
         assert_eq!(killer_of(&manifest, &second, "add-swaps-operands"), None);
 
-        // Entries naming a program that no longer exists, or a program whose digest changed, are
-        // ignored and removed: the mutation is scanned as with a cold cache. Since F-14 a hint
-        // names a program by its digest (a renamed program keeps its hint), so both entries name
-        // a digest no program of the corpus has.
-        let gone = "f".repeat(64);
-        set_killer(&manifest, &first, "add-becomes-sub", "gone", &gone);
+        // A record naming a program that is not in the corpus: the mutation is scanned as with
+        // no record.
+        set_killer(&manifest, "add-becomes-sub", "gone");
         forget_outcomes(&manifest);
         let (third, ok) = search(&manifest, &mutations, &["add-becomes-sub"]);
         assert!(ok);
@@ -1442,42 +1435,21 @@ note = "right-hand side"
             verdicts(&third),
             expect(&[("add-becomes-sub", "killed", Some("add"), false)])
         );
-        assert!(mutation(&third, "add-becomes-sub")["stale_killer"].is_string());
+        assert_eq!(
+            mutation(&third, "add-becomes-sub")["killer_change"],
+            "not-in-corpus"
+        );
         assert_eq!(
             calls(&third, "add-becomes-sub"),
             vec![strings(&["add", "nested", "inline", "sub"])]
         );
-        let changed = "1".repeat(64);
-        set_killer(&manifest, &first, "add-becomes-sub", "add", &changed);
-        forget_outcomes(&manifest);
-        let (fourth, ok) = search(&manifest, &mutations, &["add-becomes-sub"]);
-        assert!(ok);
-        assert_eq!(
-            verdicts(&fourth),
-            expect(&[("add-becomes-sub", "killed", Some("add"), false)])
-        );
-        assert_eq!(
-            calls(&fourth, "add-becomes-sub"),
-            vec![strings(&["add", "nested", "inline", "sub"])]
-        );
-        assert_eq!(
-            killer_of(&manifest, &fourth, "add-becomes-sub"),
-            Some(("add".to_owned(), add))
-        );
 
-        // A killer cache file that does not parse is empty, and is replaced.
-        fs::write(killers_file(&manifest), "{ not json").unwrap();
-        forget_outcomes(&manifest);
+        // A lock that does not decode refuses the run.
+        fs::write(killers_file(&manifest), "{ not toml").unwrap();
         let (fifth, ok) = search(&manifest, &mutations, &["add-becomes-sub"]);
-        assert!(ok);
-        assert_eq!(
-            verdicts(&fifth),
-            expect(&[("add-becomes-sub", "killed", Some("add"), false)])
-        );
-        assert_eq!(
-            killer_of(&manifest, &fifth, "add-becomes-sub").unwrap().0,
-            "add"
-        );
+        assert!(!ok);
+        assert_eq!(fifth["lock"]["outcome"], "refused", "{fifth:#}");
+        assert!(fifth.get("mutations").is_none());
     }
 
     /// kink27 R5-WEAKENING (`testdata/flow/weakening`): a mutation whose edit only deletes

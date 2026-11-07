@@ -3,7 +3,7 @@
 //! rules no mutation targets.
 //!
 //! The soundness conditions pinned here: no timing or census value enters an evidence row, a
-//! digest, a key or a hint (two cold runs give equal digests, keys, outcome records and hints);
+//! digest, a key or a lock (two cold runs give equal digests, keys and outcome records);
 //! a timeout program is classified from this command's one live run, never comparable; and the
 //! order of the programs in `FLOW.toml` changes which killer is found first and the cost, never a
 //! status (every fixture list gives the same statuses with its programs in either order, warm
@@ -15,7 +15,6 @@ use kink_campaign::{FinalResult, OracleOutcome, OracleSide, OracleValue, SideRun
 use kink_flow::{
     FlowManifest, MutationList,
     cli::{EXIT_UNASKED, results, results_status},
-    hints::hints_path,
     outcomes::OUTCOMES_DIRECTORY,
     report::{KORE_CAP, slots_value},
     results::{CACHE_DIRECTORY, ResultsOptions},
@@ -79,6 +78,8 @@ fn search(manifest: &Path, mutations: &Path) -> Value {
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
         },
     );
     assert!(ok, "{document:#}");
@@ -330,12 +331,11 @@ fn statuses_do_not_depend_on_the_order(
     let flow = corpus.join(manifest);
     let list = corpus.join(mutations);
 
-    // The same result records with the programs reversed; outcomes, hints and report forgotten.
+    // The same result records with the programs reversed; outcomes and report forgotten.
     flow_support::reverse_programs(&flow);
     let cache = cache_of(&flow);
     let corpus_records = outcome_records(&cache);
     let _ = fs::remove_dir_all(cache.join(OUTCOMES_DIRECTORY));
-    let _ = fs::remove_file(hints_path(&cache));
     let _ = fs::remove_file(cache.join(REPORT_FILE));
     let reversed = search(&flow, &list);
     let programs = reversed["programs"].as_array().unwrap();
@@ -796,9 +796,9 @@ text = 'h(opaque(1), 2)'
 
     #[test]
     #[ignore = "kink"]
-    fn timings_are_recorded_outside_every_digest_key_record_digest_and_hint() {
-        // Two cold runs of the same files: the result records differ at most in wall_ms, the outcome records and the
-        // hints are byte-identical, and the run documents differ only in timing fields.
+    fn timings_are_recorded_outside_every_digest_key_and_record_digest() {
+        // Two cold runs of the same files: the result records differ at most in wall_ms, the
+        // outcome records are byte-identical, and the run documents differ only in timing fields.
         let one = fixture("calc", "timings-1");
         let two = fixture("calc", "timings-2");
         let mut documents = Vec::new();
@@ -855,10 +855,6 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             files(&cache_of(&one.join("FLOW.toml")).join(OUTCOMES_DIRECTORY)),
             files(&cache_of(&two.join("FLOW.toml")).join(OUTCOMES_DIRECTORY))
-        );
-        assert_eq!(
-            fs::read_to_string(hints_path(&cache_of(&one.join("FLOW.toml")))).unwrap(),
-            fs::read_to_string(hints_path(&cache_of(&two.join("FLOW.toml")))).unwrap()
         );
     }
 
@@ -935,6 +931,8 @@ text = 'h(opaque(1), 2)'
                 compile_workers: None,
                 memo: kink_flow::memo::MemoUse::On,
                 schedule: kink_campaign::ScheduleMode::FirstKill,
+                lock: None,
+                locked: false,
             },
         );
         assert!(ok, "{only:#}");

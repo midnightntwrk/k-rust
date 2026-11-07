@@ -97,6 +97,8 @@ fn search_in(dir: &std::path::Path, depth: usize, rounds: usize) -> Vec<Vec<Valu
         compile_workers: None,
         memo: kink_flow::memo::MemoUse::On,
         schedule: kink_campaign::ScheduleMode::FirstKill,
+        lock: None,
+        locked: false,
     };
     (0..rounds)
         .map(|_| {

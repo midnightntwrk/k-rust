@@ -66,7 +66,7 @@ macro_rules! usage_line {
          results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
          [--output json|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
-         [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
+         [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
          FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
@@ -207,6 +207,10 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             }
         },
     };
+    // A lock `--locked` found stale: what would change, one line each, whatever the output.
+    for line in crate::lock::stale_lines(&document) {
+        eprintln!("kink-flow: {line}");
+    }
     let text = match output {
         OutputFormat::Json => format!("{}\n", render(&document)),
         OutputFormat::Verdicts => match crate::verdicts::verdicts(&document) {
@@ -351,6 +355,15 @@ const RUN_OPTIONS: &[VerbOption] = &[
     option(
         "--full",
         "run every comparable program on every mutation, and list every killer (killed_by)",
+    ),
+    option(
+        "--lock FILE",
+        "the killer record: try each mutation's recorded killer first, and rewrite FILE after a \
+         run that judged the whole list",
+    ),
+    option(
+        "--locked",
+        "with --lock: write nothing, and exit 1 when the run would change FILE",
     ),
     option(
         "--compile-workers N",
@@ -542,8 +555,8 @@ impl Verb {
                  json|verdicts]"
             }
             Self::Run => {
-                "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] \
-                 [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
+                "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] [--lock FILE \
+                 [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
                  json|verdicts]"
             }
             Self::Report => "report FLOW.toml [--cache DIR] [--output json|verdicts]",
@@ -1270,12 +1283,13 @@ pub fn mutation_exit_status(status: &str, reason: Option<&str>) -> u8 {
 
 /// The exit status of a run document, which `run` prints and `report` prints again: the join of
 /// every mutation's ([`mutation_exit_status`]) and each program's baseline row's
-/// ([`baseline_status`]), [`EXIT_NO`] for a `--verify` mismatch, and [`EXIT_UNASKED`] for a
-/// refused specification or a record, hints or report a mutation's row says the run could not
-/// write.
+/// ([`baseline_status`]), [`EXIT_NO`] for a `--verify` mismatch and for a lock `--locked` found
+/// the run would change (`lock.status` `stale`: a stored record that differs from the live value,
+/// as `--verify` reports one), and [`EXIT_UNASKED`] for a refused specification or lock, or a
+/// record, report or lock the run could not write.
 #[must_use]
 pub fn run_status(document: &Value) -> u8 {
-    if spec_refused(document) {
+    if spec_refused(document) || document["lock"]["outcome"] == "refused" {
         return EXIT_UNASKED;
     }
     let programs = document["programs"]
@@ -1296,7 +1310,15 @@ pub fn run_status(document: &Value) -> u8 {
             exit_join(status, record_status(row))
         })
         .fold(EXIT_YES, exit_join);
-    exit_join(exit_join(programs, mutations), mismatch_status(document))
+    let lock = match document["lock"]["status"].as_str() {
+        Some("stale") => EXIT_NO,
+        Some("not-written") if document["lock"]["reason"] == "write-failed" => EXIT_UNASKED,
+        _ => EXIT_YES,
+    };
+    exit_join(
+        exit_join(exit_join(programs, mutations), mismatch_status(document)),
+        lock,
+    )
 }
 
 /// The status of one row of a query document: `query` asks whether each program reaches a state
@@ -1574,8 +1596,16 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
                 options.cache = Some(PathBuf::from(directory));
             }
             "--progress" if !progress => progress = true,
+            "--lock" if options.lock.is_none() => {
+                let file = args.next().ok_or("--lock needs a file")?;
+                options.lock = Some(PathBuf::from(file));
+            }
+            "--locked" if !options.locked => options.locked = true,
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
+    }
+    if options.locked && options.lock.is_none() {
+        return Err("--locked compares the run with its lock: give --lock FILE".to_owned());
     }
     Ok((options, mode, output.unwrap_or_default(), progress))
 }
@@ -1880,11 +1910,12 @@ pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
     )
 }
 
-/// `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--cache DIR]`: the run
-/// document (README 5.6, 7.5) and the exit status ([`run_status`]): [`EXIT_YES`] when every
-/// selected mutation got its verdict (survivors included); [`EXIT_NO`] when `--verify` found a
-/// cached outcome or memo record that differs from a live one; [`EXIT_UNANSWERED`] when a
-/// mutation is `timeout` or `unknown`; [`EXIT_UNASKED`] when the manifest, the mutation list, the
+/// `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--lock FILE [--locked]]
+/// [--cache DIR]`: the run document (README 5.6, 7.5) and the exit status ([`run_status`]):
+/// [`EXIT_YES`] when every selected mutation got its verdict (survivors included); [`EXIT_NO`]
+/// when `--verify` found a cached outcome or memo record that differs from a live one, or
+/// `--locked` found that the run would change its lock; [`EXIT_UNANSWERED`] when a mutation is
+/// `timeout` or `unknown`; [`EXIT_UNASKED`] when the manifest, the mutation list, the lock, the
 /// specification or a program is refused, a selected mutation is invalid (`invalid-mutation` or
 /// `not-admitted`: [`invalid_mutations`]), a run failed, a cache file could not be written, no
 /// program is comparable, or a baseline run no longer matches its cached result (the run then

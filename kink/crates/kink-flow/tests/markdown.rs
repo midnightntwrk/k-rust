@@ -711,6 +711,8 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
         },
     )
 }

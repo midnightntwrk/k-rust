@@ -71,3 +71,20 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
   The statuses the two share are the campaign runner's, and each has one name in kink-campaign's reports (a mutant's `status` and its tally key), kink-corpus's summary and kink-flow's documents (kink-flow `tests/statuses.rs`); kink-flow's only other statuses, `unkillable` and `invalid-mutation`, are its own.
   Rejected: exposing KORE-state inputs or term paths in `FLOW.toml` (reason 2); deleting the harness binary (it is the only end-to-end route for generated campaigns, process isolation and the replay of stored reports, which kink's tests exercise); splitting the crate into a library and a harness crate (no document and no verdict changes, while the library's import sites in kink-flow would all move).
   Reopen on a user need that no form in the specification's own terms can serve.
+
+- **U2 — one recorded killer per killed mutation, kept while it still kills.**
+  `kink-flow run --lock FILE` (the krs front end: `kink/verdicts.lock` for the corpus's own mutation list) records each killed mutation's killer in a lock, which the corpus commits as it commits `Cargo.lock`.
+  The killer is the recorded one while it is a comparable program of the corpus that kills the mutant; otherwise it is the first killing program in the search's order (the programs whose coverage witnesses the edit first, then the rest, each in `FLOW.toml`'s order).
+  `run` rewrites the lock after a run that judged the whole list, and `--locked` writes nothing and makes a difference a finding (exit 1).
+  There is no hint store in the cache and no cost order.
+  [the single recorded killer is Sebastien's product decision, 2026-11-07; the rule settled from first principles]
+  1. *A killer is a fact a reviewer reads.*
+     A killer that depends on the cache or the clock moves in review for no reason the corpus or the specification gives, so the lock must be an input the run reads and a function of the inputs it writes.
+  2. *Kept while it kills.*
+     Re-checking the recorded killer by a run (or a record keyed by every input) makes a stale record cost a run, never a status or a wrong killer; dropping it on an unrelated edit would only repeat the search.
+  3. *The replacement is canonical.*
+     When no recorded killer kills, the first killer in the search's order is a function of the inputs, computed from keyed facts by the predicate the live call and tier 1 share.
+
+  Accepted cost: a run without a lock after a specification edit recomputes the canonical prefix up to each killer, where a cache-held hint ran one program.
+  Rejected: the full rendering as the lock, which costs every cell of every mutation (Foldiboy measured 81 against 11 calls when a case is added); a cache-held hint, because its killer depends on the cache; a cost order, because its killer depends on the clock; partial writes under `--only`, because they give a lock nobody checked; program digests in the lock, which are unreadable and hide renames.
+  Reopen on a use where killer stability across corpus edits is not wanted.

@@ -175,6 +175,8 @@ fn kink_run(dir: &Path, only: &str) -> Value {
         compile_workers: None,
         memo: MemoUse::On,
         schedule: kink_campaign::ScheduleMode::FirstKill,
+        lock: None,
+        locked: false,
     };
     let (document, ok) = on_stack(move || run(&manifest, &list, &options));
     assert!(ok, "{document:#}");

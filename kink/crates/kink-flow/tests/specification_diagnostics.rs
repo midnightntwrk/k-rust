@@ -258,6 +258,8 @@ mod kink_tier {
                 compile_workers: Some(1),
                 memo: kink_flow::memo::MemoUse::On,
                 schedule: kink_campaign::ScheduleMode::FirstKill,
+                lock: None,
+                locked: false,
             },
         );
         assert_eq!(document["version"], kink_flow::report::RUN_VERSION);

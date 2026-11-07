@@ -46,6 +46,8 @@ fn only_cause(manifest: &Path, mutations: &Path) -> String {
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
         },
     );
     assert!(ok, "{document:#}");

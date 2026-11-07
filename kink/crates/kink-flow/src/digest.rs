@@ -4,8 +4,8 @@
 //! program digest key the result cache (flow README 5.3), tier 1 and the pattern cache. The
 //! specification digest ([`spec_digest`]: every source byte) keys the resolution and census
 //! memos, whose values cite lines, texts and sources, and names the specification in every
-//! document. F-14 adds the other keys of the outcome cache (README 7.5): the tier-1 context, the
-//! position-free mutation identity and the killer-hint key. kink's build identity, which every
+//! document. F-14 adds the other keys of the outcome cache (README 7.5): the tier-1 context and the
+//! position-free mutation identity. kink's build identity, which every
 //! cache and the run document hold, is kink-campaign's `identity::kink_build` (packet
 //! CACHE-ID-fix-1).
 //!
@@ -16,7 +16,6 @@
 use crate::{
     admit::{AdmittedSpec, CaseInputs},
     manifest::{Budget, FlowManifest, Program},
-    mutation::{EditAction, EditedRule, Mutation, ResolvedMutation},
     observed::ResultProjection,
     results::budget_value,
 };
@@ -164,8 +163,6 @@ pub const OUTCOME_SCHEMA_VERSION: &str = "kink-flow/outcome/v3";
 pub const OUTCOME_CONTEXT_DOMAIN: &str = "kink-flow/outcome-context/v1";
 /// Domain of a mutation's position-free identity (flow README 7.5.4).
 pub const MUTATION_IDENTITY_DOMAIN: &str = "kink-flow/mutation-identity/v1";
-/// Domain of a mutation's killer-hint key (flow README 7.5.5).
-pub const HINT_DOMAIN: &str = "kink-flow/hint/v1";
 /// The classifier of every flow campaign, as the tier-1 context names it.
 pub const CLASSIFIER: &str = "all-normal";
 
@@ -521,45 +518,4 @@ pub fn mutation_identity(baseline: &Baseline, patch: &Patch) -> Option<Sha256Dig
         MUTATION_IDENTITY_DOMAIN,
         canonical_json(&json!({"edits": edits})).as_bytes(),
     ))
-}
-
-/// The killer-hint key of a mutation (flow README 7.5.5): `payload_digest("kink-flow/hint/v1",
-/// canonical JSON of {edits, rules})`. `edits` are the `MUTATIONS.toml` entry's edits as
-/// written, in list order, each `{file, rule, find, replace, delete}` without `line` (a line
-/// number moves with unrelated edits); `rules` are, per addressed rule in sentence order,
-/// `{module, label, text}` with the rule's K text before the edit. No position, no
-/// specification digest, no mutation id or note: the key survives edits elsewhere in the
-/// specification, and a hint only orders the work.
-pub fn hint_key(mutation: &Mutation, resolved: &ResolvedMutation) -> Sha256Digest {
-    hint_key_of(mutation, &resolved.rules)
-}
-
-/// [`hint_key`] from the mutation's edited rules (re-pin L1-4: a row the resolution memo
-/// decides has the rules, not the patch).
-pub fn hint_key_of(mutation: &Mutation, rules: &[EditedRule]) -> Sha256Digest {
-    let edits = mutation
-        .edits
-        .iter()
-        .map(|edit| {
-            let (find, replace, delete) = match &edit.action {
-                EditAction::Replace { find, replace } => (json!(find), json!(replace), false),
-                EditAction::Delete => (Value::Null, Value::Null, true),
-            };
-            json!({
-                "file": edit.file,
-                "rule": edit.rule,
-                "find": find,
-                "replace": replace,
-                "delete": delete,
-            })
-        })
-        .collect::<Vec<_>>();
-    let rules = rules
-        .iter()
-        .map(|rule| json!({"module": rule.at.module, "label": rule.label, "text": rule.before}))
-        .collect::<Vec<_>>();
-    payload_digest(
-        HINT_DOMAIN,
-        canonical_json(&json!({"edits": edits, "rules": rules})).as_bytes(),
-    )
 }
