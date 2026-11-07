@@ -3,7 +3,7 @@ schema = "kink-flow-verdicts"
 version = 6
 document = "results"
 profile = "z3"
-krs_annotation = 2
+krs_annotation = 3
 
 [spec]
 outcome = "admitted"

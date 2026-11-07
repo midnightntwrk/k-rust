@@ -533,8 +533,8 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     }
     assert_eq!(
         document["krs"],
-        serde_json::json!({"version": 2}),
-        "every rule is named, by version 2 of the annotation"
+        serde_json::json!({"version": 3}),
+        "every rule is named, by version 3 of the annotation"
     );
 
     // The verdicts rendering names the rules by the same items, as the docs-site's recorded
@@ -544,7 +544,7 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     let verdicts = stdout(&output);
     // Its header says which annotation version spells the names.
     assert!(
-        verdicts.lines().any(|line| line == "krs_annotation = 2"),
+        verdicts.lines().any(|line| line == "krs_annotation = 3"),
         "{verdicts}"
     );
     // The story's rules are equations, each fired where it applies, and each case matches
@@ -2337,7 +2337,7 @@ impl Machine {
         record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert_eq!(document["krs"], serde_json::json!({"version": 2}));
+    assert_eq!(document["krs"], serde_json::json!({"version": 3}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
@@ -3828,7 +3828,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     let output = project.kink("check", &[]);
     assert_status(&output, 0);
     let check = json(&output);
-    assert_eq!(check["version"], 11, "{check:#}");
+    assert_eq!(check["version"], 12, "{check:#}");
     assert_eq!(results["result_cache"]["enabled"], true, "{results:#}");
     assert_eq!(verdicts(&check), expected, "{check:#}");
 

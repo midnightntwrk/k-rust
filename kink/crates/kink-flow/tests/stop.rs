@@ -537,7 +537,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
 fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
     let dir = fixture("run", &[]);
     let document = search(&dir.join("FLOW.toml"));
-    assert_eq!(document["version"], 29);
+    assert_eq!(document["version"], 30);
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1})
@@ -577,7 +577,7 @@ fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
             cache: None,
         },
     );
-    assert_eq!(check["version"], 11);
+    assert_eq!(check["version"], 12);
     assert!(
         warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()),
         "{check:#}"

@@ -483,14 +483,16 @@ fn the_identity_is_an_object_of_its_components() {
     // one-sidedly too, so an identity written under v2 differs at the rule. v4: a run with a stop
     // gives one-sided evidence across its stages, so one written under v3 differs too. v5: the
     // cell projection reaches cells inside `?` and `*` cells, so one written under v4 differs.
+    // v6: a run with a stop condition gives one-sided evidence, so one written under v5 differs.
     assert_eq!(
         kink_campaign::ONE_SIDED_VERSION,
-        "kink-campaign/one-sided/v5"
+        "kink-campaign/one-sided/v6"
     );
     for retired in [
         "kink-campaign/one-sided/v2",
         "kink-campaign/one-sided/v3",
         "kink-campaign/one-sided/v4",
+        "kink-campaign/one-sided/v5",
     ] {
         let mut old = identity.clone();
         old["one_sided"] = retired.into();
@@ -499,15 +501,18 @@ fn the_identity_is_an_object_of_its_components() {
     // The counted stop is a component: an identity written before it (every other component
     // equal) differs at it. v2: a run to the Nth stop event is one request, whose depth bound
     // bounds each whole path and whose work budget follows k-rust's exploration, so one written
-    // under v1, which staged the run, differs too.
+    // under v1, which staged the run, differs too. v3: a stop may carry a condition, so one
+    // written under v2 differs as well.
     assert_eq!(identity["stop"], kink_campaign::STOP_VERSION);
-    assert_eq!(kink_campaign::STOP_VERSION, "kink-campaign/stop/v2");
+    assert_eq!(kink_campaign::STOP_VERSION, "kink-campaign/stop/v3");
     let mut before = identity.clone();
     before.as_object_mut().unwrap().remove("stop");
     assert_eq!(identity_difference(&before).as_deref(), Some("stop"));
-    let mut staged = identity.clone();
-    staged["stop"] = "kink-campaign/stop/v1".into();
-    assert_eq!(identity_difference(&staged).as_deref(), Some("stop"));
+    for retired in ["kink-campaign/stop/v1", "kink-campaign/stop/v2"] {
+        let mut staged = identity.clone();
+        staged["stop"] = retired.into();
+        assert_eq!(identity_difference(&staged).as_deref(), Some("stop"));
+    }
     assert_eq!(identity_difference(&identity), None);
     // Re-pin L2-1: coverage v2 (equations, matched and applied) is another coverage reading, so
     // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and
