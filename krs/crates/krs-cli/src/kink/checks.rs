@@ -34,6 +34,10 @@
 //! `run` and a `fuzz` kill job give each refused mutation its first refusal, by edit order,
 //! through [`kink_flow::FrontEnd::refused`], so it runs nothing and its row is `invalid-mutation`
 //! with the refusal's reason.
+//!
+//! Each judgement is stored in the corpus's judge cache ([`JudgeCache`]), which `check`, `run`, a
+//! kill job and the condition flips ([`super::flips`]) read alike, so a mutation is judged once per
+//! build and emission.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -111,9 +115,12 @@ const fn generated_only_next(kind: InsertedNode) -> &'static str {
             "this is KRS's encoding of a `let` block or `k::matches!`; edits of it are not judged \
              yet, so mutate another part of the rule"
         }
-        _ => "edit the authored node the detail names instead of what KRS inserted",
+        _ => NEXT_INSERTED,
     }
 }
+
+/// What the author does next for an edit of a node KRS inserted of a kind without its own step.
+const NEXT_INSERTED: &str = "edit the authored node the detail names instead of what KRS inserted";
 
 /// What the author does next for KRS's refusal `code` of the source a mutation stands for.
 /// `siblings` says whether the detail lists siblings, renderings of an edited construct that the
@@ -506,6 +513,240 @@ impl Judged {
         refusals.sort_by_key(|refusal| refusal.edit.unwrap_or(usize::MAX));
         refusals
     }
+
+    /// The judgement as the judge cache stores it: every refusal and warning with its edit, and
+    /// the row's `krs` value. A warning's sentence is not stored: it is the sentence of its edit.
+    fn stored(&self) -> Value {
+        json!({
+            "refusals": self.refusals.iter().map(|refusal| json!({
+                "reason": refusal.reason,
+                "next": refusal.next,
+                "edit": refusal.edit,
+                "detail": refusal.detail,
+            })).collect::<Vec<_>>(),
+            "warnings": self.warnings.iter().map(|warning| json!({
+                "reason": warning.reason,
+                "edit": warning.edit,
+                "detail": warning.detail,
+                "next": warning.next,
+            })).collect::<Vec<_>>(),
+            "edits": self.edits,
+            "siblings": self.siblings,
+        })
+    }
+
+    /// The judgement `stored` holds ([`Self::stored`]) of `resolved`, or `None` when it is not
+    /// one this build writes: a reason or next step that is none of the front end's, or an edit
+    /// the mutation does not have.
+    fn from_stored(stored: &Value, resolved: &ResolvedMutation) -> Option<Self> {
+        let edit_at = |edit: usize| {
+            resolved
+                .edits
+                .iter()
+                .find(|resolved| resolved.edit == edit)
+                .map(|resolved| resolved.at.clone())
+        };
+        let mut judged = Self::default();
+        for refusal in stored.get("refusals")?.as_array()? {
+            let reason = refusal_reason(refusal.get("reason")?.as_str()?)?;
+            let next = refusal.get("next")?.as_str()?;
+            let next = next_steps(reason)
+                .into_iter()
+                .find(|known| *known == next)?;
+            let edit = match refusal.get("edit")? {
+                Value::Null => None,
+                edit => Some(usize::try_from(edit.as_u64()?).ok()?),
+            };
+            if edit.is_some_and(|edit| edit >= resolved.edits.len()) {
+                return None;
+            }
+            judged.refuse(
+                reason,
+                next,
+                edit,
+                refusal.get("detail")?.as_str()?.to_owned(),
+            );
+        }
+        for warning in stored.get("warnings")?.as_array()? {
+            let edit = match warning.get("edit")? {
+                Value::Null => None,
+                edit => Some(usize::try_from(edit.as_u64()?).ok()?),
+            };
+            let at = match edit {
+                Some(edit) => Some(edit_at(edit)?),
+                None => None,
+            };
+            judged.warnings.push(Finding::warning(
+                warning.get("reason")?.as_str()?,
+                edit,
+                at,
+                warning.get("detail")?.as_str()?.to_owned(),
+                warning.get("next")?.as_str().map(str::to_owned),
+            ));
+        }
+        judged.edits.clone_from(stored.get("edits")?.as_array()?);
+        judged.siblings = match stored.get("siblings")? {
+            Value::Null => None,
+            siblings => Some(siblings.as_array()?.clone()),
+        };
+        Some(judged)
+    }
+}
+
+/// The front end's reason spelled `reason`, borrowed for the life of the program: one of its own
+/// reasons, or a code KRS registers.
+fn refusal_reason(reason: &str) -> Option<&'static str> {
+    [
+        GENERATED_ONLY,
+        CHANGES_NO_NODE,
+        DERIVED_MISMATCH,
+        NO_CHANGE,
+        NOT_JUDGED,
+    ]
+    .into_iter()
+    .find(|own| *own == reason)
+    .or_else(|| krs_diagnostic::codes::static_spelling(reason))
+}
+
+/// Every next step the front end gives a refusal for `reason`.
+fn next_steps(reason: &'static str) -> Vec<&'static str> {
+    match reason {
+        GENERATED_ONLY => [
+            InsertedNode::DefinednessTest,
+            InsertedNode::LookupGuard,
+            InsertedNode::GeneratedBinder,
+            InsertedNode::CellFrame,
+            InsertedNode::LocalFunction,
+        ]
+        .into_iter()
+        .map(generated_only_next)
+        .chain([NEXT_INSERTED])
+        .collect(),
+        CHANGES_NO_NODE => vec![NEXT_CHANGES_NO_NODE],
+        DERIVED_MISMATCH => vec![NEXT_DERIVED_MISMATCH],
+        NO_CHANGE => vec![NEXT_NO_CHANGE],
+        NOT_JUDGED => vec![NEXT_NOT_JUDGED],
+        code => vec![krs_next(code, false), krs_next(code, true)],
+    }
+}
+
+/// The format of a judge cache entry; any other is not read.
+const JUDGE_CACHE_VERSION: u32 = 1;
+
+/// The directory of the judge cache inside a corpus's cache directory.
+pub(crate) const JUDGE_CACHE_DIRECTORY: &str = "krs-judge";
+
+/// The front end's judgements of mutations, stored under the corpus's cache directory so that a
+/// mutation is judged once per definition: `check --mutations`, `run`, a `fuzz` kill job and the
+/// condition flips read and write the same entries.
+///
+/// A judgement is a function of what the judge reads, so an entry's key holds each of them: the
+/// build that judges (kink-campaign `identity::kink_build`, the running executable's digest,
+/// which fixes the judge's code and every message it writes), the emission it judges against
+/// (`definition.k` and the source map, whose source identities carry the digest of every
+/// authored file the Rust locations are read from), and the mutation as the judge reads it (each
+/// resolved edit's file, bytes and replacement, and the mutant's text). The patch digest alone is
+/// not the key: two mutations with one patch can differ in how their edits are spelled, which the
+/// judgement's Rust locations and refused edits name. An entry whose key differs, which does
+/// not decode, or which holds a reason or next step this build does not give, is judged again
+/// and rewritten; a build whose identity is unknown reads and writes nothing.
+pub(crate) struct JudgeCache {
+    directory: std::path::PathBuf,
+    /// The build and emission parts of every key; `None` when the build's identity is unknown.
+    identity: Option<(String, String)>,
+}
+
+impl JudgeCache {
+    /// The judge cache of a corpus whose cache directory is `cache`, for judgements against
+    /// `emitted`.
+    pub(crate) fn new(cache: &std::path::Path, emitted: &EmittedDefinition) -> Self {
+        let directory = cache.join(JUDGE_CACHE_DIRECTORY);
+        let identity = kink_campaign::identity::kink_build()
+            .ok()
+            .and_then(|build| {
+                let sources = emitted.source_map.to_canonical_json().ok()?;
+                let emission = digest_parts(&[emitted.definition.as_bytes(), sources.as_bytes()]);
+                Some((build.to_string(), emission))
+            });
+        Self {
+            directory,
+            identity,
+        }
+    }
+
+    /// The key of `resolved`'s judgement, as the file name and the stored key.
+    fn key(&self, resolved: &ResolvedMutation) -> Option<(String, Value)> {
+        let (build, emission) = self.identity.as_ref()?;
+        let edits = resolved
+            .edits
+            .iter()
+            .map(|edit| {
+                json!([
+                    edit.edit,
+                    edit.file,
+                    edit.range.start,
+                    edit.range.end,
+                    edit.replacement
+                ])
+            })
+            .collect::<Vec<_>>();
+        let mutant = resolved
+            .edited_views
+            .iter()
+            .map(|(file, text)| json!([file, digest_parts(&[text.as_bytes()])]))
+            .collect::<Vec<_>>();
+        let key = json!({
+            "version": JUDGE_CACHE_VERSION,
+            "build": build,
+            "emission": emission,
+            "edits": edits,
+            "mutant": mutant,
+        });
+        let name = digest_parts(&[key.to_string().as_bytes()]);
+        Some((name, key))
+    }
+
+    fn read(&self, name: &str, key: &Value, resolved: &ResolvedMutation) -> Option<Judged> {
+        let text = std::fs::read_to_string(self.directory.join(format!("{name}.json"))).ok()?;
+        let entry = serde_json::from_str::<Value>(&text).ok()?;
+        if entry.get("key")? != key {
+            return None;
+        }
+        Judged::from_stored(entry.get("judged")?, resolved)
+    }
+
+    /// Store `judged` under `name`, written whole or not at all; a cache that cannot be written
+    /// only means the next command judges again.
+    fn write(&self, name: &str, key: &Value, judged: &Judged) {
+        let entry = json!({"key": key, "judged": judged.stored()});
+        let Ok(()) = std::fs::create_dir_all(&self.directory) else {
+            return;
+        };
+        let Ok(mut file) = tempfile::NamedTempFile::new_in(&self.directory) else {
+            return;
+        };
+        if std::io::Write::write_all(&mut file, entry.to_string().as_bytes()).is_ok() {
+            _ = file.persist(self.directory.join(format!("{name}.json")));
+        }
+    }
+}
+
+/// The SHA-256 of `parts`, each prefixed by its length so that no two sequences share a digest,
+/// in lowercase hexadecimal.
+fn digest_parts(parts: &[&[u8]]) -> String {
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    for part in parts {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part);
+    }
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 /// The emission a command judges mutations against, with the lowering it is emitted from.
@@ -538,6 +779,8 @@ pub(crate) struct KrsChecks<'a> {
     by_label: BTreeMap<&'a str, &'a EmittedRule>,
     /// The command that checks a mutation list, as this front end spells it.
     check_command: String,
+    /// The judge cache the judgements are read from and written to, when one is given.
+    cache: Option<JudgeCache>,
 }
 
 impl<'a> KrsChecks<'a> {
@@ -624,7 +867,64 @@ impl<'a> KrsChecks<'a> {
                 .map(|rule| (rule.label.as_str(), rule))
                 .collect(),
             check_command: spelling.command(Verb::Check),
+            cache: None,
         }
+    }
+
+    /// The emitted bytes and depth of the Definition IR node `key` in `definition.k`.
+    pub(crate) fn node(&self, key: &SourceMapKey) -> Option<(Range<usize>, u32)> {
+        self.nodes
+            .get(key)
+            .map(|node| (node.range.clone(), node.depth))
+    }
+
+    /// The emitted bytes and the rule table entry of the Definition IR rule sentence `key`.
+    pub(crate) fn sentence(&self, key: &SourceMapKey) -> Option<(Range<usize>, &'a EmittedRule)> {
+        self.sentences
+            .get(key)
+            .map(|sentence| (sentence.range.clone(), sentence.rule))
+    }
+
+    /// The distinct ranges of the nodes inside the sentence bytes `sentence` that hold the bytes
+    /// `range`, innermost first.
+    pub(crate) fn enclosing(
+        &self,
+        sentence: &Range<usize>,
+        range: &Range<usize>,
+    ) -> Vec<Range<usize>> {
+        let mut holding = self
+            .nodes
+            .values()
+            .filter(|node| {
+                sentence.start <= node.range.start
+                    && node.range.end <= sentence.end
+                    && node.range.start <= range.start
+                    && range.end <= node.range.end
+            })
+            .map(|node| node.range.clone())
+            .collect::<Vec<_>>();
+        holding.sort_by_key(|node| (node.len(), std::cmp::Reverse(node.start)));
+        holding.dedup();
+        holding
+    }
+
+    /// The bytes of the node of the sentence bytes `sentence` directly above the node at
+    /// `range`: the innermost node that strictly holds it.
+    pub(crate) fn parent(
+        &self,
+        sentence: &Range<usize>,
+        range: &Range<usize>,
+    ) -> Option<Range<usize>> {
+        self.enclosing(sentence, range)
+            .into_iter()
+            .find(|node| node != range)
+    }
+
+    /// The checks, reading and writing their judgements in the judge cache of the corpus cache
+    /// directory `cache` ([`JudgeCache`]).
+    pub(crate) fn with_cache(mut self, cache: &std::path::Path) -> Self {
+        self.cache = Some(JudgeCache::new(cache, self.emitted));
+        self
     }
 
     /// `check --mutations`: add each resolved row's findings and its `krs` value.
@@ -674,31 +974,35 @@ impl<'a> KrsChecks<'a> {
             .filter(|mutation| run.runs(&mutation.id))
             .filter_map(|mutation| {
                 let resolved = kink_flow::resolve(manifest, &loaded, mutation).ok()?;
-                let judged = self.judge(&resolved);
-                let ordered = judged.ordered();
-                let first = ordered.first()?;
-                let more = ordered.len() - 1;
-                let detail = if more == 0 {
-                    first.detail.clone()
-                } else {
-                    format!(
-                        "{} ({more} more: run `{}`)",
-                        first.detail, self.check_command
-                    )
-                };
-                Some((
-                    mutation.id.clone(),
-                    InvalidMutation {
-                        edit: first.edit.map(|index| resolved.edits[index].edit),
-                        reason: InvalidReason::External {
-                            name: first.reason,
-                            next: first.next,
-                        },
-                        detail,
-                    },
-                ))
+                Some((mutation.id.clone(), self.refusal(&resolved)?))
             })
             .collect()
+    }
+
+    /// The front end's first refusal of `resolved`, by edit order, as a run gives it: its
+    /// reason, next step and detail, the detail counting the other refusals; `None` when the
+    /// front end admits the mutation.
+    pub(crate) fn refusal(&self, resolved: &ResolvedMutation) -> Option<InvalidMutation> {
+        let judged = self.judge(resolved);
+        let ordered = judged.ordered();
+        let first = ordered.first()?;
+        let more = ordered.len() - 1;
+        let detail = if more == 0 {
+            first.detail.clone()
+        } else {
+            format!(
+                "{} ({more} more: run `{}`)",
+                first.detail, self.check_command
+            )
+        };
+        Some(InvalidMutation {
+            edit: first.edit.map(|index| resolved.edits[index].edit),
+            reason: InvalidReason::External {
+                name: first.reason,
+                next: first.next,
+            },
+            detail,
+        })
     }
 
     /// The Rust construct the node `key` renders, whose authored range is `authored`
@@ -774,8 +1078,26 @@ impl<'a> KrsChecks<'a> {
         )
     }
 
-    /// Everything the front end says of `resolved`.
+    /// Everything the front end says of `resolved`, from the judge cache when it holds the
+    /// judgement ([`JudgeCache`]).
     fn judge(&self, resolved: &ResolvedMutation) -> Judged {
+        let Some((cache, (name, key))) = self
+            .cache
+            .as_ref()
+            .and_then(|cache| Some((cache, cache.key(resolved)?)))
+        else {
+            return self.judge_fresh(resolved);
+        };
+        if let Some(judged) = cache.read(&name, &key, resolved) {
+            return judged;
+        }
+        let judged = self.judge_fresh(resolved);
+        cache.write(&name, &key, &judged);
+        judged
+    }
+
+    /// Everything the front end says of `resolved`, judged now.
+    fn judge_fresh(&self, resolved: &ResolvedMutation) -> Judged {
         let mut judged = Judged::default();
         self.claim_helpers(resolved, &mut judged);
         // Every path that judges nothing still names each edit's rule, by its item.

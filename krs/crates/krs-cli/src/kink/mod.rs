@@ -56,6 +56,7 @@ mod cells;
 mod checks;
 mod condition;
 mod emit;
+mod flips;
 mod guards;
 mod inputs;
 mod render;
@@ -79,6 +80,7 @@ use crate::{
 };
 
 pub use emit::DefinitionStatus;
+pub use flips::{DerivedFlip, DerivedFlips, FlipAtom, FlipNotGenerated, FlipSentence, FlipStatus};
 
 /// The corpus directory's name inside the root package, when `--corpus` names none.
 pub const CORPUS_DIRECTORY: &str = "kink";
@@ -240,6 +242,106 @@ pub fn execute_kink(request: &KinkRequest, measurement: &mut Measurement) -> Kin
             )
         }
     }
+}
+
+/// The condition flips of the definition `request` selects ([`DerivedFlips`]), each spelled as a
+/// K patch of the corpus's `definition.k` and judged by the front end's checks through the
+/// corpus's judge cache, as `run` judges a list's mutation; `request.verb` plays no part. The
+/// corpus manifest is read and `definition.k` kept fresh as every verb does (under
+/// `request.locked`, a stale file refuses). `target_directory` is Cargo's target directory for the
+/// package and its collector, in place of the environment's.
+///
+/// # Errors
+///
+/// The outcome of a command refused before any flip is judged, whose `notes` say why: a package
+/// krs refuses, a corpus that is not this package's, a stale or unwritable `definition.k`, a
+/// specification kink-flow cannot load.
+pub fn condition_flips(
+    request: &KinkRequest,
+    target_directory: Option<&Path>,
+    measurement: &mut Measurement,
+) -> Result<DerivedFlips, Box<KinkOutcome>> {
+    let mut sources = DiagnosticSources::default();
+    let selection = selection_request(request);
+    let planned = match plan_collection(&selection, target_directory, measurement, &mut sources) {
+        Ok(planned) => planned,
+        Err(error) => {
+            let mut outcome = KinkOutcome::new(sources);
+            outcome
+                .notes
+                .push(format!("krs kink: {}", krs_refused_detail(&error)));
+            outcome.error = Some(error);
+            outcome.status = EXIT_UNASKED;
+            return Err(Box::new(outcome));
+        }
+    };
+    let mut outcome = KinkOutcome::new(sources);
+    let refuse = |mut outcome: KinkOutcome, detail: String| {
+        outcome.notes.push(format!("krs kink: {detail}"));
+        outcome.status = EXIT_UNASKED;
+        Box::new(outcome)
+    };
+    let root = planned.root_directory();
+    let Some(corpus) = request
+        .corpus
+        .clone()
+        .or_else(|| root.as_ref().map(|root| root.join(CORPUS_DIRECTORY)))
+    else {
+        return Err(refuse(
+            outcome,
+            "the root package has no directory; give --corpus DIR".to_owned(),
+        ));
+    };
+    let declared = match corpus_manifest(&corpus.join(MANIFEST_FILE), &request.root.definition) {
+        Ok(declared) => declared,
+        Err(error) => return Err(refuse(outcome, error.to_string())),
+    };
+    let (emitted, kept) = match build(planned, &mut outcome, measurement, true) {
+        Ok((emitted, Some(kept))) => (emitted, kept),
+        Ok((_, None)) => unreachable!("a retained build keeps its lowering"),
+        Err(error) => {
+            let detail = krs_refused_detail(&error);
+            outcome.error = Some(error);
+            return Err(refuse(outcome, detail));
+        }
+    };
+    let definition_path = corpus.join(DEFINITION_FILE);
+    let shown = emit::shown_path(&definition_path, root.as_deref());
+    match emit::freshen(&definition_path, &emitted.definition, !request.locked) {
+        Ok(DefinitionStatus::Stale) => {
+            let spelling = spelling::KrsSpelling::new(request);
+            return Err(refuse(outcome, stale_detail(&shown, "--locked", &spelling)));
+        }
+        Ok(_) => {}
+        Err(error) => return Err(refuse(outcome, error.detail(&shown))),
+    }
+    let manifest = match declared.bind(Some(bound_spec(&emitted))) {
+        Ok(manifest) => manifest,
+        Err(error) => return Err(refuse(outcome, error.to_string())),
+    };
+    let loaded =
+        match kink_corpus::resolver::load_source(&kink_flow::admit::corpus_source(&manifest)) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                return Err(refuse(
+                    outcome,
+                    format!("kink cannot load {shown}: {error}"),
+                ));
+            }
+        };
+    let sources = outcome.sources.clone();
+    let baseline = checks::Baseline {
+        emitted: &emitted,
+        retained: &kept.retained,
+        lowered: &kept.lowered,
+        sources: &sources,
+    };
+    let spelling = spelling::KrsSpelling::new(request);
+    let derived = kink_flow::on_stack(|| {
+        let checks = judged_checks(&baseline, &spelling, &manifest, None);
+        flips::derive(&baseline, &checks, &manifest, &loaded)
+    });
+    derived.ok_or_else(|| refuse(outcome, "the flip thread panicked".to_owned()))
 }
 
 /// The detail of a document refused at stage `krs-build`.
@@ -504,7 +606,8 @@ fn run_flow(
                     options.cache.as_deref(),
                 );
                 if let Some(rows) = checked.mutations.as_mut() {
-                    checks::KrsChecks::new(baseline, spelling).annotate_check(rows);
+                    judged_checks(baseline, spelling, &manifest, options.cache.as_deref())
+                        .annotate_check(rows);
                 }
                 let (mut document, status) =
                     kink_flow::cli::check_mutations_document(&checked, spelling);
@@ -631,9 +734,34 @@ fn front_refusals(
     );
     measurement.timings.span("kink.krs-checks", |_| {
         kink_flow::on_stack(|| {
-            checks::KrsChecks::new(baseline, spelling).refusals(manifest, &list, &run)
+            judged_checks(baseline, spelling, manifest, command_cache(command))
+                .refusals(manifest, &list, &run)
         })
     })
+}
+
+/// The front end's checks over `baseline`, reading and writing the judge cache of the corpus
+/// `manifest` describes, whose cache directory `cache` names, else its default.
+fn judged_checks<'a>(
+    baseline: &checks::Baseline<'a>,
+    spelling: &spelling::KrsSpelling,
+    manifest: &kink_flow::FlowManifest,
+    cache: Option<&Path>,
+) -> checks::KrsChecks<'a> {
+    checks::KrsChecks::new(baseline, spelling)
+        .with_cache(&kink_flow::results::cache_directory(manifest, cache))
+}
+
+/// The corpus cache directory `command` names (`--cache`), if any.
+fn command_cache(command: &FlowCommand) -> Option<&Path> {
+    match command {
+        FlowCommand::Check(options) => options.cache.as_deref(),
+        FlowCommand::Results { options, .. } => options.cache.as_deref(),
+        FlowCommand::Run { options, .. } => options.cache.as_deref(),
+        FlowCommand::Report { options, .. } => options.cache.as_deref(),
+        FlowCommand::Query { options, .. } => options.cache.as_deref(),
+        FlowCommand::Fuzz { request, .. } => request.options.cache.as_deref(),
+    }
 }
 
 /// A run's progress line on stderr as it happens, as `kink-flow run` prints it, under the same
