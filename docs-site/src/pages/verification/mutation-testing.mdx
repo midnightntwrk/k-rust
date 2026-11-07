@@ -328,6 +328,8 @@ A run over `refused.toml` judges nothing and exits 2:
   A case that reaches an application outside the narrowed pattern then ends with an unevaluated call on the mutant, which kink cannot compare, so it is `unknown`, and no case kills the mutation: write the misunderstanding as a replacement, an equation whose result differs, or drop the mutation.
   A narrower `requires` may use only the operations the emitted K imports: the story's `definition.k` imports no Bool operations, so `notBool` or `andBool` in its `requires` is refused as `edited-load-failed`.
 - **Machines that do not halt.** A run of a machine that never halts ends where `[stop]` and `stop_count` say ([the corpus loop](/reference/workflow#the-corpus-loop)), and a kill is then relative to that stop.
+  Where the end is a fact about the state rather than a count, `[stop] when = { function, cells, observer }` names a condition as a case's `run.stop_when` does: a stop is then an arrival where the condition holds, evaluated in the observer (the definition itself by default) for the definition and every mutant alike, so an edit changes where the condition is asked, never the condition.
+  A case whose run's condition is undecided or has no value at an arrival is `unknown` (`stop-condition`), and a mutant that declares the read cells' constructors otherwise is `not-admitted` (`stop-condition-incompatible`).
 - **Internal state.** State no case may observe is declared [`#[k::cell(unobservable)]`](/reference/language#unobservable-cells), or left out of `[result] cells`; a kill then needs a difference in a compared cell.
 - **Claims an edit leaves unbacked.** An edit that leaves a trusted claim unbacked, which no removal takes away, makes the mutation `unknown` (`unsupported-claims`).
 
