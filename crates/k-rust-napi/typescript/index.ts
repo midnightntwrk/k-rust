@@ -214,6 +214,8 @@ export interface BackendCapabilities {
   coverageConditions: boolean
   /** `execute` and `executeObserved` accept `collectGuards` beside `collectCoverage`. */
   coverageGuards: boolean
+  /** `execute` and `executeObserved` accept `collectBindings` beside `collectCoverage`. */
+  coverageBindings: boolean
   /** `execute` and `executeObserved` accept `collectCommitted` beside `collectCoverage`. */
   coverageCommitted: boolean
   /** `execute` and `executeObserved` accept `matchStates` and report `stateMatches`. */
@@ -305,6 +307,14 @@ export interface ExecuteOptions {
    * "Run coverage").
    */
   collectGuards?: GuardCollection
+  /**
+   * With `collectCoverage`, also report `coverage.bindings`: per rule and equation, the named
+   * symbols that were the head of an operand of a fired instance (a committed rewrite step, an
+   * equation instance that gave a result), and the values of the selected template binders. A
+   * request that sets it without `collectCoverage`, or selects one binder twice, is refused;
+   * asking changes no other field (docs/compatibility.md, "Run coverage").
+   */
+  collectBindings?: BindingCollection
   /**
    * The most states the run may visit across all its paths; absent: no bound. A run that
    * reaches it ends with one 'work-bound' leaf for the state it did not visit, the last leaf,
@@ -722,6 +732,37 @@ export interface RunCoverage {
    * and equation whose `requires` the run entered, by id.
    */
   guards?: AxiomGuard[]
+  /**
+   * Present exactly when the request set `collectBindings`: the operand heads and binder values
+   * of the run's fired instances.
+   */
+  bindings?: RunBindings
+}
+
+/** What an execute request records of its run's fired instances (`collectBindings`). */
+export interface BindingCollection {
+  /** Symbols by KORE name, recorded where one is the head (through injections) of an operand. */
+  symbols?: string[]
+  /** Template binders: a rule or equation by `UNIQUE_ID` or label, a variable by its name in the definition, and the most values kept. */
+  binders?: { axiom: string; variable: string; cap: number }[]
+}
+
+/** The bindings of a run's fired instances. */
+export interface RunBindings {
+  /** Per rule and equation, by id, the named symbols that were the head of an operand. */
+  operands: { axiom: string; symbols: string[] }[]
+  /**
+   * Per selected binder bound at some fired instance: the least `cap` `Int` literals bound, in
+   * decimal and ascending; `truncated` (present when true) when a further one was left out;
+   * `nonliteral` (present when true) when some instance bound a value that is no `Int` literal.
+   */
+  binders: {
+    axiom: string
+    variable: string
+    values: string[]
+    truncated?: boolean
+    nonliteral?: boolean
+  }[]
 }
 
 /** Which rules' and equations' guard outcomes an execute request collects (`collectGuards`). */

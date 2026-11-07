@@ -541,6 +541,10 @@ pub struct BackendCapabilities {
     /// ([`RunCoverageOutput::guards`]) when the request sets `collect_guards` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_guards`]).
     pub coverage_guards: bool,
+    /// An execution also reports the bindings of the run's fired instances
+    /// ([`RunCoverageOutput::bindings`]) when the request sets `collect_bindings` beside
+    /// `collect_coverage` ([`ExecuteRequest::collect_bindings`]).
+    pub coverage_bindings: bool,
     /// An execution accepts `collect_committed` beside `collect_coverage`
     /// ([`RunCoverageOutput::committed`]).
     pub coverage_committed: bool,
@@ -690,6 +694,16 @@ pub struct ExecuteRequest {
     /// coverage").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collect_guards: Option<GuardCollection>,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::bindings`] (wire
+    /// `collectBindings`): per rule and equation, the symbols it names that were the head of an
+    /// operand of a fired instance (a committed rewrite step, an equation instance that gave a
+    /// result), and the values of the template binders it selects, capped
+    /// ([`BindingCollection`]). Off by default; a request that sets it without
+    /// `collect_coverage`, or that selects one binder twice, is refused. Asking changes no other
+    /// field of the result and evaluates nothing: each fired instance costs one pass over the
+    /// substitution its match produced (docs/compatibility.md, "Run coverage").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collect_bindings: Option<BindingCollection>,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
     /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
     /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
@@ -818,6 +832,7 @@ impl ExecuteRequest {
             collect_counts: false,
             collect_conditions: None,
             collect_guards: None,
+            collect_bindings: None,
             max_work: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
@@ -1186,6 +1201,12 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   absorbed is in it. On a run whose explored paths all end in leaves it is the union of the
 ///   rewrite entries of every explored path's trace, absorbed paths included; it is a subset of
 ///   `applied` (docs/compatibility.md, "Committed transitions").
+///
+/// - `bindings`, present exactly when the request set `collect_bindings`: per rule and equation,
+///   the named symbols that were the head, through injections, of a value a fired instance bound
+///   to a left-hand-side variable, and the values of the selected template binders
+///   ([`BindingsOutput`]). A rewrite rule's instance is fired where the run committed to its
+///   successor, as for `committed`; an equation's where it gave a result.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -1202,6 +1223,104 @@ pub struct RunCoverageOutput<K = Value> {
     pub committed: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guards: Option<Vec<AxiomGuardOutput<K>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bindings: Option<BindingsOutput>,
+}
+
+/// What an execute request records of its run's fired instances (wire `collectBindings`;
+/// [`ExecuteRequest::collect_bindings`]).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct BindingCollection {
+    /// The symbols, by KORE name, recorded where one is the head of an operand of a fired
+    /// instance.
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    /// The template binders whose values are recorded; a binder is selected at most once.
+    #[serde(default)]
+    pub binders: Vec<BinderSelection>,
+}
+
+impl BindingCollection {
+    /// The symbols `symbols`, with no binder selected.
+    pub fn new<S: Into<String>>(symbols: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            symbols: symbols.into_iter().map(Into::into).collect(),
+            binders: Vec::new(),
+        }
+    }
+
+    /// The backend's collection, or the binder selected twice.
+    fn into_backend(self) -> Result<k_rust_backend::coverage::BindingCollection, (String, String)> {
+        let mut collection = k_rust_backend::coverage::BindingCollection::new(self.symbols);
+        for BinderSelection {
+            axiom,
+            variable,
+            cap,
+        } in self.binders
+        {
+            let key = k_rust_backend::coverage::BinderKey { axiom, variable };
+            if collection.binders.contains_key(&key) {
+                return Err((key.axiom, key.variable));
+            }
+            collection.binders.insert(key, cap);
+        }
+        Ok(collection)
+    }
+}
+
+/// A template binder an execute request selects: a variable of a rule or equation, and the most
+/// values the run keeps of it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct BinderSelection {
+    /// The rule or equation, by its `UNIQUE_ID` or its label.
+    pub axiom: String,
+    /// The variable, by its name in the definition (`VarB`).
+    pub variable: String,
+    /// The most values kept: the least ones in integer order.
+    pub cap: usize,
+}
+
+/// The bindings of a run's fired instances ([`RunCoverageOutput::bindings`]).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct BindingsOutput {
+    /// Per rule and equation with a recorded head, sorted by id.
+    pub operands: Vec<AxiomOperandsOutput>,
+    /// Per selected binder bound at some fired instance, sorted by axiom, then variable, as the
+    /// request names them.
+    pub binders: Vec<BinderValuesOutput>,
+}
+
+/// The operand heads of one rule's or equation's fired instances.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AxiomOperandsOutput {
+    /// The axiom's `UNIQUE_ID`.
+    pub axiom: String,
+    /// The named symbols that were the head of an operand, sorted.
+    pub symbols: Vec<String>,
+}
+
+/// The values a selected binder took at the fired instances of its axiom.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct BinderValuesOutput {
+    /// The axiom, as the request names it.
+    pub axiom: String,
+    /// The variable, as the request names it.
+    pub variable: String,
+    /// The `Int` literals bound, in decimal: the least `cap` of them, ascending.
+    pub values: Vec<String>,
+    /// Whether a further literal was bound that the cap left out (wire: present only when
+    /// true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    /// Whether some fired instance bound the variable to a value that is no `Int` literal (wire:
+    /// present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nonliteral: bool,
 }
 
 /// Which rules' and equations' guard outcomes an execute request collects (wire
@@ -2461,6 +2580,7 @@ impl Backend {
             coverage_counts: true,
             coverage_conditions: true,
             coverage_guards: true,
+            coverage_bindings: true,
             coverage_committed: true,
             state_matches: true,
             stack_stops: true,
@@ -2657,7 +2777,7 @@ impl Backend {
 
     fn execute_using<K: wire::WireKore>(
         &mut self,
-        request: ExecuteRequest,
+        mut request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
         in_process: InProcess<'_>,
     ) -> Result<ExecutionResult<K>, BackendError> {
@@ -2682,6 +2802,21 @@ impl Backend {
                 "collectGuards requires collectCoverage: the guard outcomes are part of the run's coverage",
             ));
         }
+        if request.collect_bindings.is_some() && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectBindings requires collectCoverage: the bindings are part of the run's coverage",
+            ));
+        }
+        let collect_bindings = request
+            .collect_bindings
+            .take()
+            .map(BindingCollection::into_backend)
+            .transpose()
+            .map_err(|(axiom, variable)| {
+                BackendError::new(format!(
+                    "collectBindings selects the binder {variable} of {axiom} twice"
+                ))
+            })?;
         if request.collect_committed && !request.collect_coverage {
             return Err(BackendError::new(
                 "collectCommitted requires collectCoverage: the committed transitions are part of the run's coverage",
@@ -2776,7 +2911,7 @@ impl Backend {
                 collect_counts: request.collect_counts,
                 collect_conditions: request.collect_conditions.map(Into::into),
                 collect_guards: request.collect_guards.map(Into::into),
-                collect_bindings: None,
+                collect_bindings,
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
                 match_states,

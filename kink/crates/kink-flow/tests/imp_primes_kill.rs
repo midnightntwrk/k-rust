@@ -98,6 +98,7 @@ fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) 
             collect_counts: false,
             collect_conditions: None,
             collect_guards: None,
+            collect_bindings: None,
             max_work: None,
             trace: false,
             cancelled_result: CancelledResultOutput::Error,

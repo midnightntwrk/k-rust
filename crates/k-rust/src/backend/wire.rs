@@ -2311,7 +2311,32 @@ fn run_coverage_output<K: WireKore>(
             .guards
             .map(|axioms| axioms.into_iter().map(axiom_guard_output).collect())
             .transpose()?,
+        bindings: coverage.bindings.map(run_bindings_output),
     })
+}
+
+fn run_bindings_output(bindings: k_rust_backend::coverage::RunBindings) -> super::BindingsOutput {
+    super::BindingsOutput {
+        operands: bindings
+            .operands
+            .into_iter()
+            .map(|operands| super::AxiomOperandsOutput {
+                axiom: operands.axiom,
+                symbols: operands.symbols.into_iter().collect(),
+            })
+            .collect(),
+        binders: bindings
+            .binders
+            .into_iter()
+            .map(|values| super::BinderValuesOutput {
+                axiom: values.binder.axiom,
+                variable: values.binder.variable,
+                values: values.values.iter().map(ToString::to_string).collect(),
+                truncated: values.truncated,
+                nonliteral: values.nonliteral,
+            })
+            .collect(),
+    }
 }
 
 fn axiom_guard_output<K: WireKore>(

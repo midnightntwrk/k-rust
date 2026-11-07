@@ -943,6 +943,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         collect_counts: false,
         collect_conditions: None,
         collect_guards: guards.map(|axioms| GuardCollection::new(axioms.iter().cloned())),
+        collect_bindings: None,
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,

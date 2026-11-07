@@ -370,6 +370,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
             applied_counts: None,
             committed: Some(ids(applied)),
             guards: None,
+            bindings: None,
         }),
         stack_stops: 0,
         smt_unknowns: 0,

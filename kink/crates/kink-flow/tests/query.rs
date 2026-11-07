@@ -770,6 +770,7 @@ fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {
         collect_counts: false,
         collect_conditions: None,
         collect_guards: None,
+        collect_bindings: None,
         max_work: None,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
