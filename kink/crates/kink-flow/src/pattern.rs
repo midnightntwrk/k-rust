@@ -121,9 +121,47 @@
 //!   short-circuit reading that counts on its list, an allowance refusal); the definition passes
 //!   decision 1's census and kink's other definition exclusions (no implementation-chosen hook, no
 //!   condition equating two terms, no load stack stop), and so does the initial state (it applies
-//!   no such hook, kink-native `state_references_implementation_chosen`); and the build is not the
-//!   Z3 profile. Another model of an open value could reach the pattern, so a `no` is relative to
-//!   the definition only when no implementation-chosen value is in play.
+//!   no such hook, kink-native `state_references_implementation_chosen`); and the search received
+//!   no undecided solver answer (its count is zero, below). Another model of an open value could
+//!   reach the pattern, so a `no` is relative to the definition only when no implementation-chosen
+//!   value is in play. Under the Z3 profile a `no`'s cause names the count that licensed it.
+//!
+//!   **Undecided solver answers** (KINK-query-no-z3). A search's decisions take the answers of
+//!   the solver k-rust's facade gives the operation, and every one of them passes through the
+//!   facade's counting solver (`Backend::with_solver_on`, `smt::UndecidedCounting`), which notes
+//!   each undecided answer in the innermost open operation record of the thread
+//!   (`stop::with_operation_record`); [`Searcher::search`] opens one around the search and reads its
+//!   `unknown_answers`. An answer is one of: a decided answer (`Sat`, `Unsat`, a validity verdict, a
+//!   model), a fact about the query and the build; a failure (`Err`: a query that does not
+//!   translate, a script Z3 rejects, an internal error of Z3, no solver), also a function of the
+//!   query and the build; a model `Unknown` that reports an approximate translation, a fact about
+//!   the query; an undecided `Unknown` (a query Z3 did not decide within
+//!   `budget.smt_resource_limit` and its retries, or did not decide by its incompleteness), the
+//!   one kind counted; or a stop (a cancellation, a failed prelude), which ends
+//!   the search ([`outcome`]: the clock, or `error`) or the state it met (an incomplete entry), so a
+//!   completed exploration has none. Every query kind goes through that solver: a rule's condition
+//!   and its remainder, an equation's side condition, a definedness obligation, a state's
+//!   feasibility and the pattern's match against each state, since the backend builds no solver of
+//!   its own outside the caller's (the load's discharge and critical-pair check use none, and run
+//!   before the search, detached from it). The record is the calling thread's, and the search runs
+//!   on it (a deeper stack is a segment of the same thread). Work isolated from the run
+//!   (`coverage::isolated`, a condition record or execute's state matcher) is counted by no record,
+//!   and the search request asks for none of it. So a completed search whose count is zero took
+//!   every decision from decided answers and failures: from facts about its queries (the
+//!   definition's `smt-hook` and `smt-lemma` claims are trusted as every claim of the baseline is,
+//!   and an `Unsat` is no K valuation on every definition kink answers on, since a condition
+//!   equating two terms makes every answer unknown), and from failures, which k-rust reads as no
+//!   refutation wherever a search takes a solver answer: only a decided `Unsat` or refutation
+//!   refutes a condition, a match or a state. Without Z3 every failure is `Unavailable`; under Z3 a
+//!   query can also fail with `Translation`, `SolverFault` or `MalformedScript`, which no portable
+//!   run exercises, so the `no` also rests on k-rust reading those as no refutation, which
+//!   `kink/trust.md` checks site by site. Such a `no` rests on nothing else the portable
+//!   profile's does not, besides Z3's decided answers. The solver's caches hold decided answers
+//!   only, and k-rust's memos of condition verdicts close inside the search, so a served verdict
+//!   that rested on an undecided answer was counted when the search first decided it. A search
+//!   that counted an undecided answer gives `unknown` with its count: its `no` would also rest on
+//!   every consumer of an undecided answer reading it as no information about reachability, a
+//!   premise the portable profile, whose solver never answers `Unknown`, does not exercise.
 //!
 //!   **A pattern holding an equation-head application** (fz26 KRUST-ANYWHERE-HEAD, review N5),
 //!   such as SIMPLE's `array(_, _)[2]`, which an `anywhere` rule reduces. Neither the pattern
@@ -136,7 +174,8 @@
 //!   matcher reads as values, which hold whatever the equations make of that application.
 //! - `unknown`, with its cause, in every other case: a depth bound, the clock, an undecided step
 //!   or match, a matched state not shown defined, a stack-exhausted state, the census, a load
-//!   stack stop, a baseline run that is not comparable, the Z3 profile.
+//!   stack stop, a baseline run that is not comparable, an undecided solver answer the search
+//!   received.
 //! - `invalid-pattern` (above) and `error` (a program that is not admitted, a search k-rust
 //!   refuses).
 //!
@@ -185,7 +224,7 @@ use k_rust::{
     definition::{AttributeKey, Attributes, ResolvedDefinition},
     k_rust_backend::{
         definition::{BackendDefinition, DefinitionError},
-        stop::{CancellationToken, StopCause},
+        stop::{CancellationToken, StopCause, with_operation_record},
     },
     kompile::{ProgramGrammar, compile_search_pattern},
     kore::{
@@ -530,8 +569,10 @@ pub enum SearchOutcome {
     /// A decided match: the witness (`{depth, state: {kore, truncated}, bindings, rules,
     /// rendering, note}`).
     Hit(Value),
-    /// The exploration completed and no state matched.
-    Complete,
+    /// The exploration completed and no state matched: with the undecided solver answers the
+    /// search received (its operation record's `unknown_answers`, module docs), always zero
+    /// without Z3.
+    Complete { smt_unknowns: usize },
     /// The search found no decided answer: the cause.
     Incomplete(String),
     /// k-rust refused the search: its message.
@@ -579,8 +620,9 @@ pub fn no_data(data: &kink_native::data::DataFacts) -> Option<String> {
     })
 }
 
-/// An answer: `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with its cause (null for
-/// `hit` and `no`) and its witness (a hit's).
+/// An answer: `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with its cause (null for a
+/// `hit`, and for a `no` without Z3; under Z3 a `no`'s cause names the count of undecided solver
+/// answers that licensed it) and its witness (a hit's).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Answer {
     pub answer: &'static str,
@@ -676,7 +718,7 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
         },
         SearchOutcome::Failed(message) => Answer::error(message.clone()),
         SearchOutcome::Incomplete(cause) => Answer::unknown(cause.clone()),
-        SearchOutcome::Complete => {
+        SearchOutcome::Complete { smt_unknowns } => {
             let would = "the exploration completed with no match, but a no is not given";
             // The short-circuit reading is judged on the search's own list ([`outcome`]).
             if let Some(exclusion) = exclusions.definition_exclusion() {
@@ -697,16 +739,24 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
                     &format!("{would} (the program's initial state)"),
                 ));
             }
-            if facts.profile == SolverProfile::Z3 {
+            // KINK-query-no-z3 (module docs): a no rests on decided answers and failures only.
+            if *smt_unknowns > 0 {
                 return Answer::unknown(format!(
-                    "{would} under the z3 profile: a solver query can time out and k-rust \
-                     reports no per-run signal that one did"
+                    "{would}: the search received {smt_unknowns} undecided solver answer(s) (a \
+                     query Z3 did not decide within budget.smt_resource_limit and its retries, \
+                     or by its incompleteness), so a decision it took may rest on one"
                 ));
             }
             match facts.baseline_class {
                 Some("comparable") => Answer {
                     answer: "no",
-                    cause: None,
+                    // Under Z3 the count licensed the no; without Z3 no query is ever undecided.
+                    cause: (facts.profile == SolverProfile::Z3).then(|| {
+                        "the exploration completed with no match, and the search received 0 \
+                         undecided solver answers, so no solver query it made was left \
+                         undecided"
+                            .to_owned()
+                    }),
                     witness: None,
                 },
                 class => Answer::unknown(format!(
@@ -826,11 +876,15 @@ impl Searcher {
         let listed = self.backend.capabilities().short_circuit_readings;
         let ground = initial.free_variables().is_empty();
         let started = Instant::now();
-        let (result, fired) = watchdog(time, || self.backend.search_pattern_kore(request));
+        // The search's undecided solver answers are read from its operation record (module docs).
+        let ((result, record), fired) = watchdog(time, || {
+            with_operation_record(|| self.backend.search_pattern_kore(request))
+        });
         let definition = &self.definition;
         let exclusions = &self.exclusions;
         let outcome = outcome(
             result,
+            record.unknown_answers,
             fired,
             self.budget,
             lowered,
@@ -998,13 +1052,17 @@ fn holds_conjunction(pattern: &Pattern) -> bool {
     found
 }
 
-/// The search's outcome (module docs: what makes a match decided and an exploration complete).
+/// The search's outcome (module docs: what makes a match decided and an exploration complete);
+/// `smt_unknowns` is the undecided solver answers the search received, which a completed
+/// exploration carries.
 /// `defined` decides whether a decided match's state is defined ([`defined_state`] on the
 /// searcher's definition; the unit tests pass their own); `readings` says why the search's
 /// `shortCircuitReadings` list keeps a completed exploration from being complete, or `None`
 /// ([`readings_cause`] on the searcher's definition).
+#[allow(clippy::too_many_arguments)]
 fn outcome(
     result: Result<KorePatternSearchResponse, BackendError>,
+    smt_unknowns: usize,
     fired: bool,
     budget: Budget,
     lowered: &LoweredPattern,
@@ -1090,7 +1148,7 @@ fn outcome(
              reach the pattern"
         ));
     }
-    SearchOutcome::Complete
+    SearchOutcome::Complete { smt_unknowns }
 }
 
 /// The cause a `no` is refused for when the search read an operand a short-circuiting backend
@@ -1400,6 +1458,7 @@ mod tests {
     ) -> SearchOutcome {
         outcome(
             Ok(response),
+            0,
             false,
             Budget::default(),
             &lowered(),
@@ -1470,6 +1529,7 @@ mod tests {
         lowered.generated.insert("VarHidden".to_owned());
         let outcome = outcome(
             Ok(response(vec![found], vec![])),
+            0,
             false,
             Budget::default(),
             &lowered,
@@ -1564,7 +1624,7 @@ mod tests {
         }
         assert_eq!(
             run(response(vec![], vec![]), &always),
-            SearchOutcome::Complete
+            SearchOutcome::Complete { smt_unknowns: 0 }
         );
     }
 
@@ -1594,7 +1654,7 @@ mod tests {
         // An empty list is no mark.
         assert_eq!(
             run(response(vec![], vec![]), &always),
-            SearchOutcome::Complete
+            SearchOutcome::Complete { smt_unknowns: 0 }
         );
     }
 
@@ -1609,6 +1669,44 @@ mod tests {
         incomplete(&run(both, &always), "initial_bottom");
     }
 
+    /// KINK-query-no-z3: a completed exploration carries the undecided solver answers the search
+    /// received, which [`judge`] reads; an incomplete one and a hit are what they are without it.
+    #[test]
+    fn a_complete_exploration_carries_the_searchs_undecided_answers() {
+        let counted = |response, smt_unknowns| {
+            outcome(
+                Ok(response),
+                smt_unknowns,
+                false,
+                Budget::default(),
+                &lowered(),
+                &BTreeMap::new(),
+                &always,
+                &|_| None,
+            )
+        };
+        assert_eq!(
+            counted(response(vec![], vec![]), 3),
+            SearchOutcome::Complete { smt_unknowns: 3 }
+        );
+        assert!(matches!(
+            counted(response(vec![decided_match()], vec![]), 3),
+            SearchOutcome::Hit(_)
+        ));
+        incomplete(
+            &counted(
+                response(
+                    vec![],
+                    vec![IncompleteSearchOutput::DepthBound {
+                        state: reached(configuration(), 3),
+                    }],
+                ),
+                3,
+            ),
+            "max_depth",
+        );
+    }
+
     /// An exploration is complete only when its incomplete list is empty; each entry names its
     /// cause, a simplification that stopped for lack of stack apart from one that failed
     /// otherwise.
@@ -1616,7 +1714,7 @@ mod tests {
     fn a_complete_exploration_has_no_incomplete_entry() {
         assert_eq!(
             run(response(vec![], vec![]), &always),
-            SearchOutcome::Complete
+            SearchOutcome::Complete { smt_unknowns: 0 }
         );
         incomplete(
             &run(
@@ -1664,6 +1762,7 @@ mod tests {
     fn a_fired_watchdog_leaves_no_answer() {
         let fired = outcome(
             Ok(response(vec![decided_match()], vec![])),
+            0,
             true,
             Budget::default(),
             &lowered(),
@@ -1711,6 +1810,7 @@ mod tests {
             response.short_circuit_readings = list;
             outcome(
                 Ok(response),
+                0,
                 false,
                 Budget::default(),
                 &lowered(),
@@ -1736,7 +1836,7 @@ mod tests {
         );
         assert_eq!(
             judged(&flagged, vec![entry(Some("other"))], true, true, vec![]),
-            SearchOutcome::Complete,
+            SearchOutcome::Complete { smt_unknowns: 0 },
             "an unflagged rule's entry on a ground search counts not"
         );
         incomplete(
@@ -1745,7 +1845,7 @@ mod tests {
         );
         assert_eq!(
             judged(&flagged, vec![], true, true, vec![]),
-            SearchOutcome::Complete,
+            SearchOutcome::Complete { smt_unknowns: 0 },
             "an empty list on a backend that lists readings"
         );
         incomplete(
@@ -1754,7 +1854,7 @@ mod tests {
         );
         assert_eq!(
             judged(&clear, vec![entry(None)], true, true, vec![]),
-            SearchOutcome::Complete,
+            SearchOutcome::Complete { smt_unknowns: 0 },
             "a definition the analysis clears does not read the list"
         );
         assert!(matches!(
@@ -1775,7 +1875,7 @@ mod tests {
         for exclusions in [&clear, &flagged] {
             assert_eq!(
                 judged_with(exclusions, vec![], true, true, true, vec![]),
-                SearchOutcome::Complete,
+                SearchOutcome::Complete { smt_unknowns: 0 },
                 "a state whose search lists nothing is judged"
             );
             assert_eq!(
@@ -1787,7 +1887,7 @@ mod tests {
                     true,
                     vec![]
                 ),
-                SearchOutcome::Complete,
+                SearchOutcome::Complete { smt_unknowns: 0 },
                 "an unflagged rule's entry on a ground search counts not against the state"
             );
             incomplete(

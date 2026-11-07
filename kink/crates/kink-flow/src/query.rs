@@ -69,9 +69,11 @@ use std::{
 /// `unsupported-verb`) of a corpus with `[stop]`. Added to 2 without a new version, since a
 /// corpus without a case expectation or a named case has the document it had and no command
 /// reads a query document back: a program row of a case with an expectation carries
-/// `expectation` (`crate::expect`).
+/// `expectation` (`crate::expect`). Version 3 (KINK-query-no-z3) answers `no` under the Z3
+/// profile where the search received no undecided solver answer, with a `cause` naming that
+/// count, and names the count in the `cause` of an `unknown` it withholds a `no` for.
 pub const QUERY_SCHEMA: &str = "kink-flow-query";
-pub const QUERY_VERSION: u64 = 2;
+pub const QUERY_VERSION: u64 = 3;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -90,8 +92,11 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// reading-dependent function is judged by the same list on every definition, as a run's is; a
 /// `no` may now be given where a v5 answer was `unknown`, and a `hit` is unchanged; v7: answers
 /// are stored under the Z3 profile too, where the solver is resource-bounded and the key's budget
-/// names its units and Z3 build, so a record may hold an answer that rests on solver answers).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v7";
+/// names its units and Z3 build, so a record may hold an answer that rests on solver answers; v8,
+/// KINK-query-no-z3: a `no` is given under the Z3 profile too, on a completed search that received
+/// no undecided solver answer, so a `no` may now be given where a v7 answer was `unknown`, and a
+/// stored `no` stands for a search that counted none).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v8";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.
@@ -175,12 +180,13 @@ struct Stored {
 }
 
 impl Stored {
-    /// The search outcome the record stands for.
+    /// The search outcome the record stands for. A `no` is stored only as `judge` gave it, on a
+    /// completed search that received no undecided solver answer, so it stands for that search.
     fn outcome(&self) -> SearchOutcome {
         if self.answer == "hit" {
             SearchOutcome::Hit(self.witness.clone())
         } else {
-            SearchOutcome::Complete
+            SearchOutcome::Complete { smt_unknowns: 0 }
         }
     }
 }

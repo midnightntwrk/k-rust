@@ -302,9 +302,10 @@ Exit status, by what the caller does next, as krs run's (krs --help):
      expectation, an unknown pattern answer, a fuzz that ended without a witness kink accepts
 A command with several parts exits 2 when one could not be asked, else 1 when one is a
 finding, else 3 when one has no answer, else 0.
-Under the Z3 solver profile, which krs builds kink with by default, query answers no pair
-`no`: a pattern a case does not reach is unknown (3) and a claim it does not reach
-unconfirmed, not refuted, so query exits 0 only when every pair asked hits.
+Under the Z3 solver profile, which krs builds kink with by default, query answers `no`
+only where the search received no undecided solver answer, and its cause names that count;
+a pair whose search received one is unknown (3), with the count in its cause, and a claim
+such a pair does not reach is unconfirmed, not refuted.
 
 The selection options (--manifest-path, --package, --package-id, --definition,
 --dependency, --cfg, --profile, --message-format, --timings, --counters, and --registration,

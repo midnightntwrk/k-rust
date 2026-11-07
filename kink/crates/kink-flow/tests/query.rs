@@ -63,6 +63,18 @@ const REFUTED_STATUS: u8 = if cfg!(feature = "z3") {
     EXIT_NO
 };
 
+/// The cause of a `no`: under Z3 the count that licensed it, without Z3 none.
+fn no_cause() -> Value {
+    if SolverProfile::BUILD == SolverProfile::Z3 {
+        json!(
+            "the exploration completed with no match, and the search received 0 undecided solver \
+             answers, so no solver query it made was left undecided"
+        )
+    } else {
+        Value::Null
+    }
+}
+
 /// A fresh directory for one test, under the target's temporary directory.
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -475,7 +487,7 @@ fn facts<'a>(
 fn the_answer_rules() {
     let clean = exclusions();
     let hit = SearchOutcome::Hit(json!({"depth": 0}));
-    let complete = SearchOutcome::Complete;
+    let complete = SearchOutcome::Complete { smt_unknowns: 0 };
     let no = judge(&complete, &facts(&clean, "comparable", SolverProfile::NoZ3));
     assert_eq!(no.answer, "no");
     assert_eq!(
@@ -495,6 +507,23 @@ fn the_answer_rules() {
     let z3 = judge(&complete, &facts(&clean, "comparable", SolverProfile::Z3));
     assert_eq!(z3.answer, "unknown");
     assert!(z3.cause.unwrap().contains("z3 profile"));
+    let undecided = SearchOutcome::Complete { smt_unknowns: 2 };
+    for (profile, class) in [
+        (SolverProfile::Z3, "comparable"),
+        (SolverProfile::Z3, "timeout"),
+        (SolverProfile::NoZ3, "comparable"),
+    ] {
+        let answer = judge(&undecided, &facts(&clean, class, profile));
+        assert_eq!(answer.answer, "unknown", "{profile:?} {class}");
+        assert!(
+            answer
+                .cause
+                .as_deref()
+                .unwrap()
+                .contains("the search received 2 undecided solver answer(s)"),
+            "{answer:?}"
+        );
+    }
     assert_eq!(
         judge(&hit, &facts(&clean, "comparable", SolverProfile::Z3)).answer,
         "hit"
@@ -636,6 +665,96 @@ endmodule
             "hit",
             "{program}"
         );
+    }
+}
+
+/// A definition whose only rule rewrites `go(N)` to `res(f(N))`, where `f`'s equations are
+/// guarded by conditions over `h(N) *Int h(N)`, which no equation of `h` reduces: only the solver
+/// decides them (a square is never negative), so the end is `res(1)` under Z3 and `res(f(3))`,
+/// with `f(3)` left unevaluated, without it.
+const UNDECIDED_SPEC: &str = r"module UNDECIDED-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+               | res(Int) [symbol(res)]
+endmodule
+
+module UNDECIDED
+  imports UNDECIDED-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+
+  syntax Int ::= h(Int) [function, total, symbol(h)]
+  syntax Int ::= f(Int) [function, total, symbol(f)]
+
+  rule f(N) => 1 requires h(N) *Int h(N) >=Int 0
+  rule f(N) => 0 requires h(N) *Int h(N) <Int 0
+
+  rule [step]: <k> go(N) => res(f(N)) </k>
+endmodule
+";
+
+/// KINK-query-no-z3: a completed exploration is a `no` exactly when the search received no
+/// undecided solver answer. Under Z3, with the default resource units the equation conditions of
+/// [`UNDECIDED_SPEC`] are decided, the search counts none, and `go(4)` (never reached) is a `no`
+/// whose cause names the count, while `res(1)` is a hit; with one unit per first attempt (set
+/// through the manifest's budget, not the clock) Z3 decides neither condition, `f(3)` stays
+/// unevaluated, the exploration still completes, and the answer is `unknown` with the count.
+/// Without Z3 no answer is ever undecided, and the run that leaves `f(3)` unevaluated is not
+/// comparable, so `go(4)` is `unknown` for its baseline as before.
+#[test]
+fn a_no_needs_a_search_without_undecided_solver_answers() {
+    let dir = scratch("undecided-solver-answers");
+    write(&dir.join("undecided.k"), UNDECIDED_SPEC);
+    let spec = "[spec]\nentry = \"undecided.k\"\nmain_module = \"UNDECIDED\"\n\
+                syntax_module = \"UNDECIDED-SYNTAX\"\n\n\
+                [[program]]\nid = \"three\"\ntext = \"go(3)\"\n";
+    // R4-WALLCLOCK: the clock is never what ends these searches and runs.
+    write(
+        &dir.join("FLOW.toml"),
+        &format!("[budget]\ntime_ms = 600000\n\n{spec}"),
+    );
+    write(
+        &dir.join("FLOW-units.toml"),
+        &format!("[budget]\ntime_ms = 600000\nsmt_resource_limit = 1\n\n{spec}"),
+    );
+    write(
+        &dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"unreached\"\npattern = \"<k> go(4) </k>\"\n\n\
+         [[pattern]]\nid = \"one\"\npattern = \"<k> res(1) </k>\"\n",
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    let unreached = row(&document, "unreached", "three");
+    if SolverProfile::BUILD == SolverProfile::Z3 {
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        assert_eq!(unreached["answer"], "no", "{unreached:#}");
+        assert_eq!(unreached["cause"], no_cause(), "{unreached:#}");
+        assert_eq!(row(&document, "one", "three")["answer"], "hit");
+
+        let (units, status) = plain(&dir.join("FLOW-units.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_UNANSWERED, "{units:#}");
+        let unreached = row(&units, "unreached", "three");
+        assert_eq!(unreached["answer"], "unknown", "{unreached:#}");
+        let cause = unreached["cause"].as_str().unwrap();
+        assert!(
+            cause.starts_with("the exploration completed with no match, but a no is not given")
+                && cause.contains("undecided solver answer(s)")
+                && !cause.contains("received 0 "),
+            "{unreached:#}"
+        );
+        // The run that leaves `f(3)` unevaluated also counted the undecided answers.
+        let program = &units["programs"][0];
+        assert!(program["smt_unknowns"].as_u64().unwrap() > 0, "{program:#}");
+        assert_eq!(row(&units, "one", "three")["answer"], "unknown");
+    } else {
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        assert_eq!(unreached["answer"], "unknown", "{unreached:#}");
+        let cause = unreached["cause"].as_str().unwrap();
+        assert!(
+            cause.contains("a no also needs the program's baseline run to be comparable")
+                && !cause.contains("undecided solver answer"),
+            "{unreached:#}"
+        );
+        assert_eq!(document["programs"][0]["smt_unknowns"], 0, "{document:#}");
     }
 }
 
