@@ -259,7 +259,7 @@ kink-flow's README states each, in ["`MUTATIONS.toml`"](https://github.com/midni
 | `killed` | some case's result differs on the mutant | nothing | 0 |
 | `survived` | every case ran to a comparable result and agreed | write a case that reaches the edited rule and whose result the edit changes (the row's `witnesses` are the cases whose coverage reaches a rule the mutation edits; a definedness claim kink drops from the mutant, such as `plus`'s `total` in `removed_claims`, adds none through coverage), or argue that no case can kill it, which leaves it `survived` | 0 |
 | `equivalent` | the mutant compiles to the specification's own executable definition | drop or change the mutation | 0 |
-| `unkillable` | the edit only weakens the specification: it deletes equations, or narrows a `requires` | nothing is run; write the misunderstanding as a replacement instead | 0 |
+| `unkillable` | the edit only weakens the specification: it deletes equations, or narrows an equation's pattern or `requires`, such as `plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )` for `plus_succ` | nothing is run; to test the misunderstanding, write what it gives on the inputs the narrowed equation no longer covers, as a replacement | 0 |
 | `invalid-mutation` | the mutation does not resolve, or krs refuses it (in `check`'s document, `outcome` `refused`) | `check` names the reason and the next step | 2 |
 | `not-admitted` | kink cannot judge the mutant: it does not compile, or its equations are inconsistent (`inconsistent-mutant`) | fix the edit | 2 |
 | `unknown` | no case killed it, and some case's result on the mutant could not be judged | read the `cause` of each case's outcome, `mutations[].executed[].cause` in the JSON document ([Unknowns and budgets](#unknowns-and-budgets)) | 3 |
@@ -292,9 +292,12 @@ A run over `refused.toml` judges nothing and exits 2:
   When the mutant ends on some input that reaches the edit, as one that forgets to decrease its argument on one branch only does, write a case of that input, which kills the mutant when its end differs from the specification's.
   When it recurses without end on every input that reaches the edit, no case kills it: write the misunderstanding as a mutant that ends, or drop the mutation.
 - **A mutant that only narrows an equation.**
-  A mutation that narrows an equation's pattern and keeps its result on the instances left, such as `plus ( s ( M ) , s ( N ) )` for `plus ( s ( M ) , N )`, only weakens the specification, as deleting an equation does: every result the mutant computes is the specification's, and an application outside the narrowed pattern stays unevaluated.
-  A case that reaches such an application ends with an unevaluated call on the mutant, which kink cannot compare, so it is `unknown`, and no case kills the mutation.
-  kink does not yet classify a narrowing as `unkillable`, as it does a deletion: write the misunderstanding as a replacement, an equation whose result differs, or drop the mutation.
+  A mutation that replaces an equation by an instance of itself, a narrower pattern or `requires` with the same result on every input it still covers, only weakens the specification, as deleting an equation does: every result the mutant computes is the specification's, and an application outside the narrowed pattern stays unevaluated.
+  kink classifies such a mutation as `unkillable` and runs nothing, as it does a deletion: on the story, `replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )"` for `plus_succ` is one.
+  It reads the sort of each variable the narrower pattern instantiates from the K text, `N:Nat` here, as krs writes every variable of the K it emits.
+  A narrowing it cannot read runs: a guard rewritten into a narrower one, a variable written without its sort, or a wildcard given another sort.
+  A case that reaches an application outside the narrowed pattern then ends with an unevaluated call on the mutant, which kink cannot compare, so it is `unknown`, and no case kills the mutation: write the misunderstanding as a replacement, an equation whose result differs, or drop the mutation.
+  A narrower `requires` may use only the operations the emitted K imports: the story's `definition.k` imports no Bool operations, so `notBool` or `andBool` in its `requires` is refused as `edited-load-failed`.
 - **Machines that do not halt.** A run of a machine that never halts ends where `[stop]` and `stop_count` say ([the corpus loop](/reference/workflow#the-corpus-loop)), and a kill is then relative to that stop.
 - **Internal state.** State no case may observe is declared [`#[k::cell(unobservable)]`](/reference/language#unobservable-cells), or left out of `[result] cells`; a kill then needs a difference in a compared cell.
 - **Claims an edit leaves unbacked.** An edit that leaves a trusted claim unbacked, which no removal takes away, makes the mutation `unknown` (`unsupported-claims`).
