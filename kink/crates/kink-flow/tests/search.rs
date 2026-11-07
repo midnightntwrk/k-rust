@@ -1643,4 +1643,63 @@ note = "right-hand side"
         weakened(row);
         assert_eq!(document["counts"]["unkillable"], 1);
     }
+
+    /// KINK-narrowing-unkillable (`tests/narrowing/narrow.k`): a mutation that replaces an
+    /// equation by an instance of itself, `plus-succ` narrowed to a nonzero second argument with
+    /// the same value on every input it still covers, is `unkillable` with reason `weakening` and
+    /// runs nothing: every model of the specification is a model of the mutant. A rewrite rule
+    /// narrowed the same way is killed: `run(zero)` ends `<k> zero </k>` on the specification,
+    /// and on the mutant no rule rewrites `run(zero)`, a stuck end that is data, so the narrowed
+    /// rule changes an end, as it does in every model.
+    #[test]
+    #[ignore = "kink"]
+    fn a_pattern_narrowing_is_unkillable_and_a_rewrite_narrowing_is_killed() {
+        let dir = scratch("narrowing");
+        fs::write(dir.join("narrow.k"), include_str!("narrowing/narrow.k")).unwrap();
+        let manifest = dir.join("FLOW.toml");
+        fs::write(
+            &manifest,
+            "[spec]\nentry = \"narrow.k\"\nmain_module = \"NARROW\"\nsyntax_module = \"NARROW-SYNTAX\"\n\n\
+             [[program]]\nid = \"zero\"\ntext = \"run(zero)\"\n\n\
+             [[program]]\nid = \"one\"\ntext = \"run(s(zero))\"\n",
+        )
+        .unwrap();
+        let mutations = dir.join("MUTATIONS.toml");
+        fs::write(
+            &mutations,
+            "[[mutation]]\nid = \"plus-needs-nonzero\"\nmisunderstanding = \"adds only to a nonzero number\"\n\n\
+             \x20 [[mutation.edit]]\n  rule = \"plus-succ\"\n\
+             \x20 find = \"plus(s(M:Nat), N:Nat) => s(plus(M:Nat, N:Nat))\"\n\
+             \x20 replace = \"plus(s(M:Nat), s(N:Nat)) => s(plus(M:Nat, s(N:Nat)))\"\n\n\
+             [[mutation]]\nid = \"run-needs-nonzero\"\nmisunderstanding = \"runs only a nonzero number\"\n\n\
+             \x20 [[mutation.edit]]\n  rule = \"run\"\n\
+             \x20 find = \"run(N:Nat) => plus(N:Nat, zero)\"\n\
+             \x20 replace = \"run(s(N:Nat)) => plus(s(N:Nat), zero)\"\n",
+        )
+        .unwrap();
+        let (document, ok) = search(&manifest, &mutations, &[]);
+        assert!(ok, "{document:#}");
+        let row = mutation(&document, "plus-needs-nonzero");
+        assert_eq!(row["status"], "unkillable", "{row:#}");
+        assert_eq!(row["reason"], "weakening", "{row:#}");
+        assert_eq!(row["executed"], json!([]), "{row:#}");
+        assert_eq!(row["calls"], json!([]), "{row:#}");
+        assert!(
+            row["action"]
+                .as_str()
+                .unwrap()
+                .starts_with("nothing can kill it"),
+            "{row:#}"
+        );
+        let weakening = row["weakening"].as_array().unwrap();
+        assert_eq!(weakening.len(), 1, "{row:#}");
+        assert_eq!(weakening[0]["label"], "NARROW.plus-succ", "{row:#}");
+        assert_eq!(weakening[0]["head"], "plus", "{row:#}");
+        assert_eq!(weakening[0]["kind"], "narrowed", "{row:#}");
+        let row = mutation(&document, "run-needs-nonzero");
+        assert_eq!(row["status"], "killed", "{row:#}");
+        assert_eq!(row["killer"], "zero", "{row:#}");
+        assert_eq!(row["weakening"], Value::Null, "{row:#}");
+        assert_eq!(document["counts"]["unkillable"], 1);
+    }
 }

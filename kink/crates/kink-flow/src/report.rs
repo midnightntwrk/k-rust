@@ -51,9 +51,10 @@
 //! reason `baseline-findings` lists the unnamed `findings`; and a `comparable` program row is
 //! marked `unable_to_kill: "baseline-findings"` while such a finding is left.
 //!
-//! kink27 R5-WEAKENING (version 11): a mutation whose edit only weakens the specification has the
-//! status `unkillable` with reason `weakening`, runs nothing, and its row's `weakening` names each
-//! edited equation (null on every other row); a mutant run's cause names the function whose
+//! kink27 R5-WEAKENING (version 11): a mutation whose edit only weakens the specification (it
+//! deletes equations of functions or lemmas, or replaces one by an instance of itself: a narrower
+//! pattern or `requires`) has the status `unkillable` with reason `weakening`, runs nothing, and
+//! its row's `weakening` names each edited equation or lemma (null on every other row); a mutant run's cause names the function whose
 //! application an indeterminate leaf holds unreduced ([`executed_cause`]).
 //!
 //! CF-03 (version 15): a run of a definition whose short-circuit analysis flags a rule is judged
@@ -371,16 +372,18 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              change the mutation"
         }
         "unkillable" => {
-            "nothing can kill it: the edit only deletes equations of functions or narrows their \
-             requires, so every model of the specification is a model of the mutant and no \
-             execution can tell them apart (weakening); change a right-hand side or a rewrite \
-             rule, or drop the mutation"
+            "nothing can kill it: the edit only deletes equations of functions or lemmas, or \
+             replaces one by an instance of itself (a narrower pattern or requires, giving each \
+             remaining input the value it had), so every model of the specification is a model \
+             of the mutant and no execution can tell them apart (weakening); to test the \
+             misunderstanding, write what it gives on the inputs the narrowed equation no longer \
+             covers, or change a right-hand side or a rewrite rule, or drop the mutation"
         }
         "not-admitted" if reason == Some("inconsistent-mutant") => {
             "fix the mutation: two equations of one function are not shown to agree where both \
              apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
              guard, make the guards exclusive or the results equal; if it only narrowed one (the \
-             equation applies to fewer inputs with the same sides, ensures and attributes) and \
+             equation gives every input it still covers the value the baseline gives) and \
              no equation of that function ranks after it (priority, owise), no program can kill \
              it whatever the check says, since the specification is one of its models: change a \
              right-hand side or a rewrite rule instead; a narrowing ranked before another \

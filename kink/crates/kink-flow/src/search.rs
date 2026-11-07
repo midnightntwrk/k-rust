@@ -5,7 +5,8 @@
 //!
 //! 1. Resolve it into one pinned patch (F-04); an `invalid-mutation` ends there. A mutation
 //!    whose edit only weakens the specification (kink-patch `ClaimSupport::weakening`: it deletes
-//!    equations of functions or lemmas, or narrows an equation's `requires`) is `unkillable`
+//!    equations of functions or lemmas, or replaces one by an instance of itself, a narrower
+//!    pattern or `requires`) is `unkillable`
 //!    there too, with reason `weakening`: every model of the specification is a model of the
 //!    mutant, so no program can kill it, and nothing runs (kink27 R5-WEAKENING). It is decided
 //!    after the `baseline-findings` check (before tier 1, a baseline with a finding no

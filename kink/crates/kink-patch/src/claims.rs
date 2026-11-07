@@ -75,9 +75,10 @@
 use crate::apply::{Mutant, SentenceOrigin, apply};
 use crate::failure::PatchFailure;
 use crate::{Baseline, Edit, POSITION_KEYS, Patch, SentenceRef};
-use k_rust::definition::{AttributeKey, Definition, Sentence};
-use k_rust::kast::{InternalLabel, Term};
+use k_rust::definition::{AttributeKey, Definition, PartialOrder, Sentence, compute_subsorts};
+use k_rust::kast::{InternalLabel, Label, Sort, Term};
 use k_rust::kompile::CompileOptions;
+use k_rust::names::BuiltinSort;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -95,7 +96,9 @@ pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
 /// round 1): a label is a conjunction only when it denotes conjunction in every model (a
 /// `function` hooked `BOOL.and` or `BOOL.andThen`, not macro-like, heading no rule outside the
 /// builtin catalog), so a macro production hooked `BOOL.and` no longer makes an edit a narrowing.
-pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v2";
+/// v3: a replacement by an instance of the sentence (a narrower pattern or `requires`,
+/// [`ClaimSupport::weakening`]) is a narrowing, and a lemma may be narrowed.
+pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v3";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 0068938b1
 /// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
@@ -321,7 +324,8 @@ pub struct WeakenedSentence {
 pub enum WeakeningKind {
     /// The equation or lemma is deleted.
     Deleted,
-    /// The equation's `requires` is replaced by one that implies it, all else unchanged.
+    /// The equation or lemma is replaced by an instance of itself: a narrower pattern or
+    /// `requires`, with the same value on every instance it still covers.
     Narrowed,
 }
 
@@ -358,6 +362,8 @@ pub struct ClaimSupport {
     /// Labels that denote conjunction in every model: the conjunctions [`Self::weakening`]
     /// flattens a `requires` through ([`conjunction_labels`]).
     conjunctions: BTreeSet<String>,
+    /// What the instance test reads of the baseline's main module ([`Self::instance`]).
+    instances: InstanceFacts,
 }
 
 impl ClaimSupport {
@@ -399,6 +405,7 @@ impl ClaimSupport {
             }),
             overloaded: labels_where(&|attributes| attributes.has(AttributeKey::Overload)),
             conjunctions: conjunction_labels(definition, &defined),
+            instances: InstanceFacts::new(definition),
             defined,
             hooked: hooked_labels(definition),
             dependents,
@@ -664,26 +671,33 @@ impl ClaimSupport {
     }
 
     /// Whether `patch` only weakens the baseline's theory, and how: `Some` when every edit deletes
-    /// an equation of a `function` head or a `simplification` lemma, or replaces an equation by
-    /// one with the same body, `ensures` and attributes (positions aside) whose `requires`
-    /// implies the original's ([`Self::narrows`]), and no equation of an edited head that the
-    /// patch keeps ranks after an edited equation of it. `None` for every other patch.
+    /// an equation of a `function` head or a `simplification` lemma, or replaces one by an
+    /// instance of itself (a `requires` that implies the original's, [`Self::narrows`], or a
+    /// narrower pattern, [`Self::instance`]), and no equation of an edited head that the patch
+    /// keeps ranks after an edited equation of it. `None` for every other patch.
     ///
-    /// An equation `l => r requires c` of a head `f` at rank p (`priority(N)` gives N, `owise`
-    /// [`k_rust::names::OWISE_RULE_PRIORITY`], else [`k_rust::names::DEFAULT_RULE_PRIORITY`]) is
-    /// the axiom: for every instance σ, if σl matches, σc is true and no equation of `f` of a
-    /// smaller rank applies to σl, then `f(σl) = σr`. A deleted axiom is gone; a narrowed one has a
-    /// stronger antecedent, so the baseline's axiom implies it; every other axiom is literally
-    /// the baseline's, since what could change for it is only the set of equations of its head
-    /// ranked before it, and the rank condition keeps that set. Deleting a lemma removes a claim.
-    /// So every axiom and claim of the mutant is one of the baseline's, and every model of the
+    /// An equation `l => r requires c ensures e` of a head `f` at rank p (`priority(N)` gives N,
+    /// `owise` [`k_rust::names::OWISE_RULE_PRIORITY`], else
+    /// [`k_rust::names::DEFAULT_RULE_PRIORITY`]) is the axiom: for every valuation of its
+    /// variables, if no equation of `f` of a smaller rank applies to `l` and `c` is true, then
+    /// `l = r` and `e`. Universal instantiation by a substitution σ whose terms each denote one
+    /// element of their variable's sort gives the same axiom over `σl`, `σc`, `σr` and `σe`, and a
+    /// `requires` with every conjunct of `σc` among its conjuncts implies `σc`; the instance keeps
+    /// the attributes, so its rank and the equations ranked before it are the original's. So a
+    /// narrowed axiom holds in every model of the baseline. A deleted axiom is gone; every other
+    /// axiom is literally the baseline's, since what could change for it is only the set of
+    /// equations of its head ranked before it, and the rank condition keeps that set. A lemma
+    /// is a claim, and deleting it or replacing it by an instance claims less. So every axiom and
+    /// claim of the mutant is one of the baseline's or entailed by one, and every model of the
     /// baseline is a model of the mutant: no program can kill it.
     ///
     /// Fail closed: a rule with `anywhere` or a macro-like attribute (deleting the last
     /// `anywhere` rule of a symbol makes it a constructor, whose no-confusion the baseline need
     /// not satisfy; a macro rule is expanded into other sentences), a head of an `overload`
-    /// family (kompile's overload axiom ties the family's equations), an edited lemma, and any
-    /// edit of a rewrite rule, a production or anything else.
+    /// family (kompile's overload axiom ties the family's equations), a replacement that is no
+    /// instance the syntactic tests find, and any edit of a rewrite rule (a configuration no rule
+    /// rewrites is an end, so a narrowed rule changes the ends of a run in every model), a
+    /// production or anything else.
     #[must_use]
     pub fn weakening(&self, baseline: &Baseline, patch: &Patch) -> Option<Weakening> {
         let mut equations = Vec::new();
@@ -697,8 +711,10 @@ impl ClaimSupport {
             let head = self.weakenable(sentence)?;
             let kind = match replacement {
                 None => WeakeningKind::Deleted,
-                // An edited lemma is a new claim, never a weakening.
-                Some(replacement) if head.is_some() && self.narrows(sentence, replacement) => {
+                Some(replacement)
+                    if self.narrows(sentence, replacement)
+                        || self.instance(sentence, replacement) =>
+                {
                     WeakeningKind::Narrowed
                 }
                 Some(_) => return None,
@@ -805,13 +821,6 @@ impl ClaimSupport {
         else {
             return false;
         };
-        let positionless = |attributes: &k_rust::definition::Attributes| {
-            let mut attributes = attributes.clone();
-            for key in POSITION_KEYS {
-                attributes.remove(key.as_str());
-            }
-            attributes
-        };
         if body != new_body
             || ensures != new_ensures
             || positionless(attributes) != positionless(new_attributes)
@@ -822,6 +831,97 @@ impl ClaimSupport {
         self.conjuncts(requires)
             .iter()
             .all(|conjunct| narrower.contains(conjunct))
+    }
+
+    /// Whether `replacement` is an instance of the rule `original` under a substitution σ,
+    /// decided syntactically: the one-way match of `original`'s body against
+    /// `replacement`'s with `replacement`'s variables held fixed gives σ (unique when it exists),
+    /// σ of the original's `ensures` is the replacement's, every conjunct of σ of the original's
+    /// `requires` is a conjunct of the replacement's ([`Self::conjuncts`]), and the attributes
+    /// are equal without the position keys. A sorted variable `x:S` (a semantic cast of a
+    /// variable, written or inserted by sort inference) is one variable occurrence, matched as a
+    /// whole; each later occurrence of `x` must meet the same term, variables compared by name.
+    /// An anonymous variable (`_`, `?_`, `!_`, `@_`) binds nothing and meets only an equal term,
+    /// its cast and sort included, and every variable of the original's `requires` and `ensures`
+    /// must be bound by its body.
+    ///
+    /// σ maps a variable to itself (same name, sort and written sort), or a variable written with
+    /// its sort, `x:S` at some occurrence ([`written_sorts`]), to a constructor term whose root
+    /// sort is S or a subsort of it ([`InstanceFacts::constructor_sort`]): built from tokens,
+    /// variables and labels whose one production is a constructor, it denotes one element of S
+    /// under every valuation, so the instance holds in every model of the original. Fail closed
+    /// when σ moves a variable and either sentence holds a construct compilation expands or
+    /// resolves by the shape of the terms below it ([`InstanceFacts::expands`]), or the rule
+    /// carries `concrete` or `symbolic`, which name the variables σ may replace: the instance of
+    /// the text need not be the instance of the axiom it compiles to. A variable written without
+    /// its sort, or with a cast over another sort of its own, bound to anything but itself fails
+    /// closed too, as does a wildcard against anything but itself: its sort in the baseline's
+    /// axiom is not read here. The test is iterative, as sentences can be deep.
+    fn instance(&self, original: &Sentence, replacement: &Sentence) -> bool {
+        let (
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            },
+            Sentence::Rule {
+                body: new_body,
+                requires: new_requires,
+                ensures: new_ensures,
+                attributes: new_attributes,
+            },
+        ) = (original, replacement)
+        else {
+            return false;
+        };
+        if positionless(attributes) != positionless(new_attributes) {
+            return false;
+        }
+        let (Some(sorts), Some(new_sorts)) = (written_sorts(original), written_sorts(replacement))
+        else {
+            return false;
+        };
+        let mut sigma = BTreeMap::new();
+        if !match_terms(body, new_body, &mut sigma, true)
+            || !match_terms(ensures, new_ensures, &mut sigma, false)
+        {
+            return false;
+        }
+        let narrower = self.conjuncts(new_requires);
+        let entailed = self.conjuncts(requires).into_iter().all(|conjunct| {
+            narrower
+                .iter()
+                .any(|candidate| match_terms(conjunct, candidate, &mut sigma, false))
+        });
+        if !entailed {
+            return false;
+        }
+        let mut moved = false;
+        for (name, term) in &sigma {
+            if occurrence(term).is_some_and(|found| {
+                found.name == *name
+                    && new_sorts.sort(name) == sorts.sort(name)
+                    && new_sorts.written(name) == sorts.written(name)
+            }) {
+                continue;
+            }
+            moved = true;
+            let (Some(sort), Some(root)) = (
+                sorts.written(name),
+                self.instances.constructor_sort(term, &new_sorts),
+            ) else {
+                return false;
+            };
+            if !self.instances.at_most(&root, sort) {
+                return false;
+            }
+        }
+        !moved
+            || !(attributes.has(AttributeKey::Concrete)
+                || attributes.has(AttributeKey::Symbolic)
+                || self.instances.expands(original)
+                || self.instances.expands(replacement))
     }
 
     /// The conjuncts of a `requires`: through annotations, each application of a conjunction
@@ -856,6 +956,475 @@ impl ClaimSupport {
         }
         affected
     }
+}
+
+/// `attributes` without the position keys.
+fn positionless(attributes: &k_rust::definition::Attributes) -> k_rust::definition::Attributes {
+    let mut attributes = attributes.clone();
+    for key in POSITION_KEYS {
+        attributes.remove(key.as_str());
+    }
+    attributes
+}
+
+/// What the instance test ([`ClaimSupport::instance`]) reads of a baseline, from the sentences of
+/// its main module and the modules it imports, transitively.
+#[derive(Clone, Debug)]
+struct InstanceFacts {
+    /// Every label with a production, and the result sort of that production when the label has
+    /// exactly one and it is a constructor: no sort parameter, no `function`, macro-like, `hook`
+    /// or `binder` attribute, not a cast, and no `anywhere` rule headed by the label (an
+    /// `anywhere` rule is an equation of its head). Each such label is a total symbol that no
+    /// equation reduces, so an application of it to terms that each denote one element denotes
+    /// one element.
+    labels: BTreeMap<String, Option<Sort>>,
+    /// Labels with a macro-like or `binder` production: compilation expands an application of
+    /// one, or binds its variables, by the terms below it.
+    expanded: BTreeSet<String>,
+    /// The subsort order the text declares (k-rust's `compute_subsorts` over the main module's
+    /// sentences), or `None` when it has a cycle: then only equal sorts are related.
+    subsorts: Option<PartialOrder<Sort>>,
+}
+
+impl InstanceFacts {
+    fn new(definition: &Definition) -> Self {
+        let sentences = main_module_sentences(definition);
+        let mut anywhere_heads = BTreeSet::new();
+        let mut unread_anywhere = false;
+        for sentence in &sentences {
+            if let Sentence::Rule {
+                body, attributes, ..
+            } = sentence
+                && attributes.has(AttributeKey::Anywhere)
+            {
+                match head(matched_term(body)) {
+                    Some(head) => {
+                        anywhere_heads.insert(head.to_owned());
+                    }
+                    None => unread_anywhere = true,
+                }
+            }
+        }
+        let mut labels = BTreeMap::<String, Option<Sort>>::new();
+        let mut expanded = BTreeSet::new();
+        for sentence in &sentences {
+            let Sentence::Production {
+                label: Some(label),
+                parameters,
+                sort,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            let expanding = attributes.has_any(&AttributeKey::MACRO_LIKE)
+                || attributes.has(AttributeKey::Binder);
+            if expanding {
+                expanded.insert(label.name.clone());
+            }
+            let constructor = !unread_anywhere
+                && !expanding
+                && parameters.is_empty()
+                && label.parameters.is_empty()
+                && !attributes.has(AttributeKey::Function)
+                && !attributes.has(AttributeKey::Hook)
+                && !excluded_label(label)
+                && !anywhere_heads.contains(&label.name);
+            labels
+                .entry(label.name.clone())
+                .and_modify(|entry| *entry = None)
+                .or_insert_with(|| constructor.then(|| sort.clone()));
+        }
+        Self {
+            labels,
+            expanded,
+            subsorts: compute_subsorts(sentences.iter().copied(), false).ok(),
+        }
+    }
+
+    /// Whether every element of `lesser` is one of `greater`: the sorts are equal, or the text
+    /// declares `lesser` below `greater` (K's injections compose, `inj{S,R}(inj{S',S}(t))` being
+    /// `inj{S',R}(t)`), or `greater` is `KItem` and compilation declares `lesser` a subsort of it.
+    /// Parametric sorts, and every sort under a cyclic order, are related only when equal; no
+    /// sort is a subsort of `K`, since a K item is a `K` as a one-element sequence.
+    fn at_most(&self, lesser: &Sort, greater: &Sort) -> bool {
+        if lesser == greater {
+            return true;
+        }
+        let Some(subsorts) = &self.subsorts else {
+            return false;
+        };
+        if !lesser.parameters.is_empty()
+            || !greater.parameters.is_empty()
+            || greater.is_builtin(BuiltinSort::K)
+        {
+            return false;
+        }
+        if greater.is_builtin(BuiltinSort::KItem) {
+            return lesser.has_implicit_kitem_subsort();
+        }
+        subsorts.less_than(lesser, greater)
+    }
+
+    /// The root sort of `term` when it is a constructor term of the replacement whose variables
+    /// carry `sorts`: a sorted variable written with its sort, a token, or an application of a
+    /// label whose one production is a constructor ([`Self::labels`]), with every subterm a
+    /// token, a named variable or such an application. An anonymous variable is refused, since
+    /// each of its occurrences is another variable.
+    fn constructor_sort(&self, term: &Term, sorts: &WrittenSorts) -> Option<Sort> {
+        let root = if let Some(found) = occurrence(term) {
+            sorts.written(found.name)?.clone()
+        } else {
+            match term.unannotated() {
+                Term::Token { sort, .. } => sort.clone(),
+                Term::Apply { label, .. } => self.labels.get(&label.name)?.clone()?,
+                _ => return None,
+            }
+        };
+        let mut pending = vec![term];
+        while let Some(term) = pending.pop() {
+            if let Some(found) = occurrence(term) {
+                if anonymous(found.name) {
+                    return None;
+                }
+                continue;
+            }
+            match term.unannotated() {
+                Term::Token { .. } => {}
+                Term::Apply { label, arguments }
+                    if self.labels.get(&label.name).is_some_and(Option::is_some) =>
+                {
+                    pending.extend(arguments);
+                }
+                _ => return None,
+            }
+        }
+        Some(root)
+    }
+
+    /// Whether `sentence` holds a construct compilation expands or resolves by the shape of the
+    /// terms below it, so that the instance of its text need not be the instance of its axiom: a
+    /// macro-like or `binder` label, a cast other than a variable's sort, `#withConfig`, `#let`,
+    /// `#fun`, a generated label, an injected label, a label without a production, or a `?`,
+    /// `!` or `@` variable.
+    fn expands(&self, sentence: &Sentence) -> bool {
+        let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        } = sentence
+        else {
+            return true;
+        };
+        let mut pending = vec![body, requires, ensures];
+        while let Some(term) = pending.pop() {
+            if let Some(found) = occurrence(term) {
+                if found.name.starts_with(['?', '!', '@']) {
+                    return true;
+                }
+                continue;
+            }
+            match term.unannotated() {
+                Term::InjectedLabel(_) => return true,
+                Term::Apply { label, arguments } => {
+                    if excluded_label(label)
+                        || self.expanded.contains(&label.name)
+                        || !self.labels.contains_key(&label.name)
+                    {
+                        return true;
+                    }
+                    pending.extend(arguments);
+                }
+                Term::Rewrite { left, right } => pending.extend([&**left, &**right]),
+                Term::As { pattern, alias } => pending.extend([&**pattern, &**alias]),
+                Term::Sequence(items) => pending.extend(items),
+                Term::Variable { .. } | Term::Token { .. } | Term::Annotated { .. } => {}
+            }
+        }
+        false
+    }
+}
+
+/// Whether `label` is one compilation resolves by the terms below it: a semantic or syntactic
+/// cast, another generated label (a projection, a `#let` or `#fun` lambda), `#withConfig`,
+/// `#let` or `#fun`.
+fn excluded_label(label: &Label) -> bool {
+    label.generated().is_some()
+        || [
+            InternalLabel::WithConfig,
+            InternalLabel::Let,
+            InternalLabel::Fun2,
+            InternalLabel::Fun3,
+            InternalLabel::OuterCast,
+            InternalLabel::SyntacticCast,
+            InternalLabel::SyntacticCastBraced,
+        ]
+        .into_iter()
+        .any(|internal| label.is(internal))
+}
+
+/// The sentences of `definition`'s main module and of every module it imports, transitively.
+fn main_module_sentences(definition: &Definition) -> Vec<&Sentence> {
+    let modules = definition
+        .modules
+        .iter()
+        .map(|module| (module.name.as_str(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut pending = vec![definition.main_module.as_str()];
+    let mut sentences = Vec::new();
+    while let Some(name) = pending.pop() {
+        if !seen.insert(name) {
+            continue;
+        }
+        if let Some(module) = modules.get(name) {
+            sentences.extend(module.local_sentences.iter().map(|sentence| &**sentence));
+            pending.extend(module.imports.iter().map(|import| import.name.as_str()));
+        }
+    }
+    sentences
+}
+
+/// One occurrence of a variable: `x`, or `x` under a semantic cast to `S` (`x:S`).
+struct Occurrence<'t> {
+    name: &'t str,
+    /// The variable's sort at this occurrence: the cast's, unless the variable carries another
+    /// one under it (sort inference narrowed it), else the variable's own.
+    sort: Option<Sort>,
+    /// `S` when the text writes `x:S` here and `S` is the variable's sort: the cast spans more
+    /// text than the variable (the casts sort inference inserts span none), and the variable
+    /// carries no other sort under it. A variable whose own sort differs from its written cast
+    /// has no written sort here (fail closed): the text does not say which of the two its axiom
+    /// quantifies over.
+    written: Option<Sort>,
+}
+
+/// The variable occurrence `term` is, through annotations.
+fn occurrence(term: &Term) -> Option<Occurrence<'_>> {
+    let mut span = None;
+    let mut term = term;
+    while let Term::Annotated {
+        term: inner,
+        metadata,
+    } = term
+    {
+        span = metadata.span.or(span);
+        term = inner;
+    }
+    match term {
+        Term::Variable { name, sort } => Some(Occurrence {
+            name,
+            sort: sort.clone(),
+            written: None,
+        }),
+        Term::Apply { label, arguments } if arguments.len() == 1 => {
+            let cast = label.semantic_cast_sort()?;
+            let variable = &arguments[0];
+            let Term::Variable { name, sort: under } = variable.unannotated() else {
+                return None;
+            };
+            let variable_span = match variable {
+                Term::Annotated { metadata, .. } => metadata.span,
+                _ => None,
+            };
+            let spans_more = matches!(
+                (span, variable_span),
+                (Some(cast_span), Some(variable_span))
+                    if cast_span.source == variable_span.source
+                        && cast_span.start <= variable_span.start
+                        && cast_span.end >= variable_span.end
+                        && (cast_span.start, cast_span.end) != (variable_span.start, variable_span.end)
+            );
+            let written = (spans_more && under.as_ref().is_none_or(|under| *under == cast))
+                .then(|| cast.clone());
+            Some(Occurrence {
+                name,
+                written,
+                sort: Some(under.clone().unwrap_or(cast)),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Whether a variable name is anonymous as written (`_`, `?_`, `!_`, `@_`): each occurrence is
+/// another variable. A name such as `_X` is a named variable, each of its occurrences the same
+/// one ([`k_rust::kast::binding::is_unresolved_anonymous`]).
+fn anonymous(name: &str) -> bool {
+    k_rust::kast::binding::is_unresolved_anonymous(name)
+}
+
+/// The sort of each named variable of a rule, and the sort its text writes for it.
+struct WrittenSorts {
+    sorts: BTreeMap<String, Option<Sort>>,
+    written: BTreeMap<String, Sort>,
+}
+
+impl WrittenSorts {
+    fn sort(&self, name: &str) -> Option<&Sort> {
+        self.sorts.get(name)?.as_ref()
+    }
+
+    fn written(&self, name: &str) -> Option<&Sort> {
+        self.written.get(name)
+    }
+}
+
+/// The sorts of the named variables of the rule `sentence`; `None` when a name carries two
+/// sorts, or the sentence is no rule (fail closed).
+fn written_sorts(sentence: &Sentence) -> Option<WrittenSorts> {
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    let mut sorts = WrittenSorts {
+        sorts: BTreeMap::new(),
+        written: BTreeMap::new(),
+    };
+    let mut pending = vec![body, requires, ensures];
+    while let Some(term) = pending.pop() {
+        if let Some(found) = occurrence(term) {
+            if anonymous(found.name) {
+                continue;
+            }
+            let known = sorts.sorts.entry(found.name.to_owned()).or_insert(None);
+            match (&*known, found.sort) {
+                (Some(known), Some(sort)) if *known != sort => return None,
+                (None, Some(sort)) => *known = Some(sort),
+                _ => {}
+            }
+            if let Some(written) = found.written {
+                sorts.written.insert(found.name.to_owned(), written);
+            }
+            continue;
+        }
+        match term.unannotated() {
+            Term::Apply { arguments, .. } => pending.extend(arguments),
+            Term::Rewrite { left, right } => pending.extend([&**left, &**right]),
+            Term::As { pattern, alias } => pending.extend([&**pattern, &**alias]),
+            Term::Sequence(items) => pending.extend(items),
+            Term::InjectedLabel(_)
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::Annotated { .. } => {}
+        }
+    }
+    Some(sorts)
+}
+
+/// The one-way match of `original` against `replacement`, the replacement's variables held
+/// fixed, extending `sigma` (each named variable of the original to the replacement's term at
+/// its first occurrence) when `bind`, else only reading it. Annotations are transparent; each
+/// later occurrence of a variable must meet the same term ([`same_by_name`]). An anonymous
+/// variable binds nothing, so it meets only an equal term (its name, its cast and its sort, by
+/// [`Term`]'s equality): `_:Nat` against `_:KItem` or `_` would widen the sentence, not
+/// instantiate it.
+fn match_terms<'r>(
+    original: &Term,
+    replacement: &'r Term,
+    sigma: &mut BTreeMap<String, &'r Term>,
+    bind: bool,
+) -> bool {
+    let mut pending = vec![(original, replacement)];
+    while let Some((original, replacement)) = pending.pop() {
+        if let Some(found) = occurrence(original) {
+            if anonymous(found.name) {
+                if original != replacement {
+                    return false;
+                }
+            } else if let Some(bound) = sigma.get(found.name) {
+                if !same_by_name(bound, replacement) {
+                    return false;
+                }
+            } else if bind {
+                sigma.insert(found.name.to_owned(), replacement);
+            } else {
+                return false;
+            }
+            continue;
+        }
+        if !same_node(original, replacement, &mut pending) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether two terms of the replacement are the same term, each variable occurrence compared
+/// by its name. Two occurrences of an anonymous variable are two variables, never the same.
+fn same_by_name(left: &Term, right: &Term) -> bool {
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        match (occurrence(left), occurrence(right)) {
+            (Some(left), Some(right)) if left.name == right.name && !anonymous(left.name) => {
+                continue;
+            }
+            (Some(_), _) | (_, Some(_)) => return false,
+            (None, None) => {}
+        }
+        if !same_node(left, right, &mut pending) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether two terms that are no variable occurrences have the same node, through annotations,
+/// pushing their pairs of children onto `pending`.
+fn same_node<'o, 'r>(
+    left: &'o Term,
+    right: &'r Term,
+    pending: &mut Vec<(&'o Term, &'r Term)>,
+) -> bool {
+    match (left.unannotated(), right.unannotated()) {
+        (
+            Term::Rewrite { left: l, right: r },
+            Term::Rewrite {
+                left: l2,
+                right: r2,
+            },
+        ) => {
+            pending.extend([(&**l, &**l2), (&**r, &**r2)]);
+        }
+        (
+            Term::As { pattern, alias },
+            Term::As {
+                pattern: pattern2,
+                alias: alias2,
+            },
+        ) => pending.extend([(&**pattern, &**pattern2), (&**alias, &**alias2)]),
+        (Term::Sequence(items), Term::Sequence(items2)) if items.len() == items2.len() => {
+            pending.extend(items.iter().zip(items2));
+        }
+        (
+            Term::Apply { label, arguments },
+            Term::Apply {
+                label: label2,
+                arguments: arguments2,
+            },
+        ) if label == label2 && arguments.len() == arguments2.len() => {
+            pending.extend(arguments.iter().zip(arguments2));
+        }
+        (
+            Term::Token { token, sort },
+            Term::Token {
+                token: token2,
+                sort: sort2,
+            },
+        ) => {
+            return token == token2 && sort == sort2;
+        }
+        (Term::InjectedLabel(label), Term::InjectedLabel(label2)) => return label == label2,
+        _ => return false,
+    }
+    true
 }
 
 /// The rank of a rule among the equations of its head: its `priority`, else

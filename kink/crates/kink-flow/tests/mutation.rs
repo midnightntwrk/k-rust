@@ -1472,6 +1472,235 @@ fn a_conjunction_label_heading_a_user_rule_is_no_conjunction() {
 }
 
 // ---------------------------------------------------------------------------------------
+// KINK-narrowing-unkillable: a replacement of an equation or lemma by an instance of itself.
+
+/// The narrowing tests' specification (`tests/narrowing/narrow.k`), loaded from a scratch copy.
+fn narrow_spec(test: &str) -> Spec {
+    let dir = scratch(test);
+    write(&dir.join("narrow.k"), include_str!("narrowing/narrow.k"));
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"narrow.k\"\nmain_module = \"NARROW\"\nsyntax_module = \"NARROW-SYNTAX\"\n",
+    );
+    Spec::at(&dir.join("FLOW.toml"))
+}
+
+/// A replacement of an equation or lemma by an instance of itself is a narrowing: matching the
+/// original against the replacement gives a substitution σ of each variable written with its
+/// sort by a constructor term of that sort or a subsort (or by itself), σ of the right-hand side
+/// and `ensures` is the replacement's, and σ of each conjunct of the `requires` is one of the
+/// replacement's. The instance holds in every model of the original, so the mutant is a
+/// weakening, as a deletion is. The rank condition still applies (narrowing an equation widens
+/// the owise one after it), and the test fails closed on a function in σ's range, a macro, a
+/// variable written without its sort, a `concrete` lemma and a generalization; a rewrite rule is
+/// never weakened by narrowing. A wildcard binds nothing, so it meets only itself, its sort
+/// included: `_:Nat` widened to `_:KItem` or `_` is no instance, in an equation or a lemma. `_X`
+/// is a named variable, instantiated like any other and refused when its sort widens.
+#[test]
+fn an_instance_of_an_equation_or_lemma_is_a_narrowing() {
+    use kink_patch::{ClaimSupport, WeakeningKind};
+    let spec = narrow_spec("narrowing-instances");
+    let baseline = &spec.loaded.baseline;
+    let support = ClaimSupport::new(baseline);
+    let edit = |rule: &str, find: &str, replace: &str| {
+        format!(
+            "[[mutation.edit]]\nrule = \"{rule}\"\nfind = \"{find}\"\nreplace = \"{replace}\"\n"
+        )
+    };
+    let plus_succ = "plus(s(M:Nat), N:Nat) => s(plus(M:Nat, N:Nat))";
+    let q_def = "q(I:Int, J:Int) => v(I:Int +Int J:Int) requires I:Int >Int 0";
+    let w_zero = "w(I:Int) +Int 0 => w(I:Int)";
+    let weakenings = [
+        (
+            "plus-succ second argument",
+            edit(
+                "plus-succ",
+                plus_succ,
+                "plus(s(M:Nat), s(N:Nat)) => s(plus(M:Nat, s(N:Nat)))",
+            ),
+            "plus-succ",
+            Some("plus"),
+        ),
+        (
+            "q non-injective with a conjunct",
+            edit(
+                "q-def",
+                q_def,
+                "q(I:Int, I:Int) => v(I:Int +Int I:Int) requires I:Int >Int 0 andBool I:Int <Int 9",
+            ),
+            "q-def",
+            Some("q"),
+        ),
+        (
+            "q token",
+            edit(
+                "q-def",
+                q_def,
+                "q(1, J:Int) => v(1 +Int J:Int) requires 1 >Int 0",
+            ),
+            "q-def",
+            Some("q"),
+        ),
+        (
+            "g owise, the last-ranked equation",
+            edit("g-else", "g(N:Nat) => v(0)", "g(s(s(N:Nat))) => v(0)"),
+            "g-else",
+            Some("g"),
+        ),
+        (
+            "k subsort Nat of KItem",
+            edit("k-def", "k(X:KItem)", "k(s(zero))"),
+            "k-def",
+            Some("k"),
+        ),
+        (
+            "w lemma token",
+            edit("w-zero", w_zero, "w(3) +Int 0 => w(3)"),
+            "w-zero",
+            None,
+        ),
+        (
+            "w lemma requires",
+            edit(
+                "w-zero",
+                w_zero,
+                "w(I:Int) +Int 0 => w(I:Int) requires I:Int >Int 0",
+            ),
+            "w-zero",
+            None,
+        ),
+        (
+            "hp beside a wildcard met by itself",
+            edit("hp-def", "hp(_:Nat, N:Nat)", "hp(_:Nat, s(N:Nat))"),
+            "hp-def",
+            Some("hp"),
+        ),
+        (
+            "hn named _X instantiated",
+            edit("hn-def", "hn(_X:Nat)", "hn(s(zero))"),
+            "hn-def",
+            Some("hn"),
+        ),
+    ];
+    for (case, edits, rule, head) in &weakenings {
+        let resolved = spec
+            .resolve_edits(edits)
+            .unwrap_or_else(|e| panic!("{case}: {e}"));
+        let found = support
+            .weakening(baseline, &resolved.patch)
+            .unwrap_or_else(|| panic!("{case} is a weakening"))
+            .equations
+            .iter()
+            .map(|weakened| {
+                (
+                    spec.sentence(&weakened.at)
+                        .attributes()
+                        .string(AttributeKey::Label)
+                        .unwrap()
+                        .to_owned(),
+                    weakened.kind,
+                    weakened.head.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            found,
+            [(
+                format!("NARROW.{rule}"),
+                WeakeningKind::Narrowed,
+                head.map(str::to_owned)
+            )],
+            "{case}"
+        );
+    }
+    let not_weakenings = [
+        (
+            "g-succ narrowed widens the owise equation",
+            edit("g-succ", "g(s(N:Nat))", "g(s(s(N:Nat)))"),
+        ),
+        (
+            "plus-succ right-hand side is not σ of it",
+            edit(
+                "plus-succ",
+                "plus(s(M:Nat), N:Nat)",
+                "plus(s(M:Nat), s(N:Nat))",
+            ),
+        ),
+        (
+            "plus-succ generalized",
+            edit("plus-succ", plus_succ, "plus(M:Nat, N:Nat) => N:Nat"),
+        ),
+        (
+            "q with a function in σ's range",
+            edit(
+                "q-def",
+                q_def,
+                "q(w(I:Int), J:Int) => v(w(I:Int) +Int J:Int) requires w(I:Int) >Int 0",
+            ),
+        ),
+        (
+            "t through a macro",
+            edit(
+                "t-def",
+                "t(I:Int) => v(twice(I:Int))",
+                "t(2) => v(twice(2))",
+            ),
+        ),
+        (
+            "f without a written sort",
+            edit(
+                "f-def",
+                "f(I) => v(I) requires I >Int 0",
+                "f(5) => v(5) requires 5 >Int 0",
+            ),
+        ),
+        (
+            "w concrete lemma",
+            edit(
+                "w-one",
+                "w(I:Int) *Int 1 => w(I:Int)",
+                "w(3) *Int 1 => w(3)",
+            ),
+        ),
+        (
+            "run, a rewrite rule",
+            edit(
+                "run",
+                "run(N:Nat) => plus(N:Nat, zero)",
+                "run(s(N:Nat)) => plus(s(N:Nat), zero)",
+            ),
+        ),
+        (
+            "h wildcard sort widened",
+            edit("h-nat", "h(_:Nat)", "h(_:KItem)"),
+        ),
+        ("h wildcard sort dropped", edit("h-nat", "h(_:Nat)", "h(_)")),
+        (
+            "hp wildcard sort widened beside an instantiation",
+            edit("hp-def", "hp(_:Nat, N:Nat)", "hp(_:KItem, s(N:Nat))"),
+        ),
+        (
+            "hn named _X sort widened",
+            edit("hn-def", "hn(_X:Nat)", "hn(_X:KItem)"),
+        ),
+        (
+            "hz lemma wildcard sort widened",
+            edit("hz-nat", "hz(_:Nat)", "hz(_:KItem)"),
+        ),
+    ];
+    for (case, edits) in &not_weakenings {
+        let resolved = spec
+            .resolve_edits(edits)
+            .unwrap_or_else(|e| panic!("{case}: {e}"));
+        assert_eq!(
+            support.weakening(baseline, &resolved.patch),
+            None,
+            "{case} is not a weakening"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------
 // CF-13: the misunderstanding, the mutations directory, anchors by a suffix of a label's
 // components, and an edit that changes nothing.
 
