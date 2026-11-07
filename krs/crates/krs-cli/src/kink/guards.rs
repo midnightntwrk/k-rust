@@ -98,11 +98,18 @@
 //!   condition's: for an unentered sentence both are empty and `never` lists `held` and
 //!   `refuted`;
 //! - with templates, where no program reached the condition, the `templates`' `matched_by` and
-//!   `not_matched_by` are empty.
+//!   `not_matched_by` are empty, and the row's `krs.status` is `unmatched`.
 //!
 //! Where a program reached the condition and the outcomes of the author's conjuncts cannot be
 //! told from those of a template or an inserted test without nodes, the sentence is named by no
 //! guess and listed under `krs.unmatched_guards`.
+//!
+//! A sentence with templates also gains, in its row's `krs`, `matched_by` (the templates'
+//! `matched_by`) and `status`: `fired` where kink-flow's is, else `matched` where some program
+//! matched its templates, else `unmatched`. The K left-hand side of such a sentence is a bare
+//! variable, because the templates moved into the condition, so kink-flow's `matched_by` lists
+//! every program that evaluated the function at all; the KRS pattern is matched only where the
+//! templates are.
 //!
 //! The document's `summary.guards` is computed again over the annotated rows
 //! (`kink_flow::guards::summary`), so that it counts the authored operands the rows report.
@@ -1000,10 +1007,32 @@ struct Condition {
     inserted: bool,
 }
 
-/// Put `grouped`, a guard's `krs`, in `row` (module documentation, "The grouping").
+/// Put `grouped`, a guard's `krs`, in `row`, and, where the sentence has templates, its row's
+/// `krs.matched_by` and `krs.status` (module documentation, "The grouping").
 fn insert_grouping(row: &mut Map<String, Value>, grouped: Map<String, Value>) {
+    let matched = grouped
+        .get("templates")
+        .and_then(|templates| templates.get("matched_by"))
+        .cloned();
     if let Some(guard) = row.get_mut("guard").and_then(Value::as_object_mut) {
         guard.insert("krs".into(), Value::Object(grouped));
+    }
+    if let Some(matched_by) = matched {
+        let fired = row.get("status").and_then(Value::as_str) == Some(kink_flow::results::FIRED);
+        let status = if fired {
+            kink_flow::results::FIRED
+        } else if matched_by
+            .as_array()
+            .is_some_and(|programs| !programs.is_empty())
+        {
+            kink_flow::results::MATCHED
+        } else {
+            kink_flow::results::UNMATCHED
+        };
+        if let Some(krs) = row.get_mut("krs").and_then(Value::as_object_mut) {
+            krs.insert("matched_by".into(), matched_by);
+            krs.insert("status".into(), json!(status));
+        }
     }
 }
 

@@ -314,7 +314,8 @@ fn authored<'d>(guard: &'d Value, text: &str) -> &'d Value {
 /// a guard's `held_by`, `refuted_by` and `never` at the KRS level read the author's conjuncts
 /// alone: a template that did not match and an inserted test that was `false` refute nothing,
 /// and a condition with no authored conjunct (a template's or a lookup guard's alone) has no
-/// guard gap.
+/// guard gap; and a decode template no case matches reads `unmatched` at the KRS level, although
+/// every decoded program matches its bare K left-hand side.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -503,7 +504,7 @@ fn results_report_each_guards_outcomes_per_operand() {
     assert_eq!(rule(&document, "crate::boundary_wake")["status"], "matched");
     // A template alone is no condition of the author's: no guard gap.
     let alu = rule(&document, "crate::decode_alu");
-    assert_eq!(alu["status"], "fired", "{alu:#}");
+    assert_eq!(alu["krs"]["status"], "fired", "{alu:#}");
     assert_eq!(
         alu["guard"]["refuted_by"],
         json!(["load", "load-six", "other"]),
@@ -513,13 +514,20 @@ fn results_report_each_guards_outcomes_per_operand() {
     assert_eq!(alu["guard"]["krs"]["held_by"], Value::Null, "{alu:#}");
     assert_eq!(alu["guard"]["krs"]["refuted_by"], Value::Null, "{alu:#}");
     assert_eq!(alu["guard"]["krs"]["never"], json!([]), "{alu:#}");
-    // A template no case matches has no authored operand: its guard is its pattern.
+    // A template no case matches.
     let xor = rule(&document, "crate::decode_xor");
+    assert_eq!(xor["status"], "matched", "{xor:#}");
+    assert_eq!(xor["krs"]["status"], "unmatched", "{xor:#}");
+    assert_eq!(xor["krs"]["matched_by"], json!([]), "{xor:#}");
     assert_eq!(xor["guard"]["krs"]["authored"], json!([]), "{xor:#}");
     assert_eq!(
         xor["guard"]["krs"]["templates"]["matched_by"],
         json!([]),
         "{xor:#}"
+    );
+    assert_eq!(
+        rule(&document, "crate::decode_ld_r_r")["krs"]["matched_by"],
+        json!(["load", "load-six"])
     );
     // The summary counts the authored operands.
     let summary = &document["summary"]["guards"];
@@ -570,9 +578,14 @@ fn results_report_each_guards_outcomes_per_operand() {
         verdicts.contains("[[guard.operand]]\ntext = \"halted\"\nnever = [\"true\"]"),
         "{verdicts}"
     );
-    // Neither the inserted tests nor a template's conjuncts are guard gaps.
+    // Neither the inserted tests nor a template's conjuncts are guard gaps, and a sentence whose
+    // template no case matched is no fired or matched rule.
     assert!(!verdicts.contains("=/=Int 0"), "{verdicts}");
     assert!(!verdicts.contains("bitRangeInt"), "{verdicts}");
+    assert!(
+        !verdicts.contains("rule = \"crate::decode_xor\""),
+        "{verdicts}"
+    );
     // A condition with no authored conjunct is no guard gap.
     let gaps = verdicts
         .split_once("\n[[guard]]")
@@ -587,6 +600,12 @@ fn results_report_each_guards_outcomes_per_operand() {
         gaps.contains("rule = \"crate::scale\"\nnever = [\"refuted\"]"),
         "{verdicts}"
     );
+    let cases = verdicts.split("\n[[guard]]").next().unwrap();
+    let other_case = cases
+        .split("[[case]]")
+        .find(|case| case.contains("id = \"other\""))
+        .unwrap();
+    assert!(!other_case.contains("decode_ld_r_r"), "{other_case}");
 }
 
 /// Which conjuncts of a condition are the author's is a fact of the definition, not of the cases
@@ -650,6 +669,16 @@ fn results_group_the_guards_no_case_entered() {
         guard_of(&document, "crate::fetch")["krs"]["templates"],
         Value::Null
     );
+    // No case decodes, so no case matched a template.
+    for item in [
+        "crate::decode_ld_r_r",
+        "crate::decode_alu",
+        "crate::decode_xor",
+    ] {
+        let row = rule(&document, item);
+        assert_eq!(row["krs"]["status"], "unmatched", "{item}: {row:#}");
+        assert_eq!(row["krs"]["matched_by"], json!([]), "{item}: {row:#}");
+    }
     // Every guard is grouped, and the summary counts those with an authored conjunct.
     let guards = document["rules"]
         .as_array()

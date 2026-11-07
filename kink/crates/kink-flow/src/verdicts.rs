@@ -35,9 +35,10 @@
 //! moving.
 //!
 //! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
-//! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`), each
-//! rule named by its KRS item when a front end annotated it (`krs.item`), else its label, else
-//! its `file:line`, ordered by module name, then by position in the module; then each fired or
+//! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`, or the
+//! front end's `krs.matched_by` where it reads the match at its own level), each rule named by
+//! its KRS item when a front end annotated it (`krs.item`), else its label, else its
+//! `file:line`, ordered by module name, then by position in the module; then each fired or
 //! matched rule whose guard misses an outcome (`[[guard]]`, in the same order): the guard
 //! outcomes no program saw (`never`) and each operand that misses `true` or `false`
 //! (`[[guard.operand]]`, its text and `never`; the front end's authored operands, by source
@@ -251,9 +252,14 @@ fn cases(text: &mut String, document: &Value) {
     let names = |key: &str, id: &str| {
         let mut names = Vec::<String>::new();
         for rule in &rules {
-            let listed = rule[key]
+            // A front end that reads a sentence's match at its own level (krs: a pattern's
+            // templates, which the K moved into the condition) lists it as `krs.matched_by`.
+            let programs = rule["krs"][key]
                 .as_array()
-                .is_some_and(|programs| programs.iter().any(|program| program == id));
+                .filter(|_| key == "matched_by")
+                .or_else(|| rule[key].as_array());
+            let listed =
+                programs.is_some_and(|programs| programs.iter().any(|program| program == id));
             let name = rule_name(rule);
             if listed && !names.contains(&name) {
                 names.push(name);
@@ -278,9 +284,9 @@ fn cases(text: &mut String, document: &Value) {
 /// Each fired or matched rule whose guard misses an outcome (`crate::guards::gaps`), ordered by
 /// module and position: the guard outcomes no comparable program saw (`never`, of `held` and
 /// `refuted`), then each operand that misses `true` or `false`, by its text. Where a front end
-/// grouped the guard by its own constructs (`guard.krs`), its `never` and its authored operands,
-/// named by their source text, are read; the tests it inserted and a pattern's templates are not
-/// guard gaps. `undecided = true` marks a gap beside which some
+/// grouped the guard by its own constructs (`guard.krs`), its status (`krs.status`), its `never`
+/// and its authored operands, named by their source text, are read; the tests it inserted and a
+/// pattern's templates are not guard gaps. `undecided = true` marks a gap beside which some
 /// program left the guard or the operand undecided, so that the gap may be the report's and not
 /// the corpus's. Program lists are left out, so a lock moves when a gap opens or closes, not
 /// with every new case.
@@ -290,7 +296,7 @@ fn guards(text: &mut String, document: &Value) {
         .map(Vec::as_slice)
         .unwrap_or_default()
         .iter()
-        .filter(|rule| matches!(rule["status"].as_str(), Some("fired" | "matched")))
+        .filter(|rule| matches!(rule_status(rule), Some("fired" | "matched")))
         .filter(|rule| rule.get("guard").is_some_and(crate::guards::misses))
         .collect::<Vec<_>>();
     rules.sort_by_key(|rule| (rule["module"].as_str(), rule["index"].as_u64()));
@@ -387,6 +393,14 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
 
 /// A rule's name: its KRS item, as the document's annotation version spells it (the header's
 /// `krs_annotation`), its label, or its `file:line` (`module#index` without a file).
+/// A rule's status: the front end's (`krs.status`, which reads a sentence's match at its own
+/// level) where it gave one, else kink-flow's.
+fn rule_status(rule: &Value) -> Option<&str> {
+    rule["krs"]["status"]
+        .as_str()
+        .or_else(|| rule["status"].as_str())
+}
+
 fn rule_name(rule: &Value) -> String {
     if let Some(item) = rule["krs"]["item"].as_str() {
         return item.to_owned();
