@@ -784,7 +784,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // CF-23: version 2 names the schedule and the solver profile.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 4\ndocument = \"run\"\nschedule = \
+            "schema = \"kink-flow-verdicts\"\nversion = 5\ndocument = \"run\"\nschedule = \
              \"first-kill\"\nprofile = \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )),
@@ -848,7 +848,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 4\ndocument = \"run\"\nschedule = \
+            "schema = \"kink-flow-verdicts\"\nversion = 5\ndocument = \"run\"\nschedule = \
              \"first-kill\"\nprofile = \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )
@@ -899,6 +899,33 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         refusal_details(&stopped),
         ["stopped at b: baseline-mismatch:add: drift"]
+    );
+    // A mutation its author must fix renders its reason, a function of the specification and
+    // the mutation; its text is a detail. A verdict's reason is not rendered.
+    let refused = json!({
+        "schema": "kink-flow-run",
+        "spec": {"outcome": "admitted"},
+        "mutations": [
+            {"id": "a", "status": "invalid-mutation", "reason": "unknown-label", "detail": "no rule"},
+            {"id": "b", "status": "not-admitted", "reason": "inconsistent-mutant", "action": "fix"},
+            {"id": "c", "status": "unknown", "reason": "stack-stop"},
+        ],
+    });
+    let rendered = verdicts(&refused).unwrap();
+    assert!(
+        rendered.ends_with(
+            "\n[[mutation]]\nid = \"a\"\nstatus = \"invalid-mutation\"\nreason = \
+             \"unknown-label\"\n\n[[mutation]]\nid = \"b\"\nstatus = \"not-admitted\"\nreason = \
+             \"inconsistent-mutant\"\n\n[[mutation]]\nid = \"c\"\nstatus = \"unknown\"\n"
+        ),
+        "{rendered}"
+    );
+    assert_eq!(
+        refusal_details(&refused),
+        [
+            "mutation a: invalid-mutation unknown-label: no rule",
+            "mutation b: not-admitted inconsistent-mutant: fix",
+        ]
     );
     // A KRS corpus is refused by kink-flow, naming the command to use.
     fs::write(

@@ -157,7 +157,8 @@ A run that has an `unknown` or `timeout` mutation exits 3 and still prints the w
 status=0
 krs kink run --package story-plus --definition main --full --output verdicts --locked > verdicts.new || status=$?
 # 0: every mutation has a verdict; 3: some have none, and the rendering says which;
-# 2: the run could not be asked (the rendering names the refusal)
+# 2: the run could not be asked: the rendering names the refused spec or list, each
+#    mutation to fix with its reason, or an error, and stderr has each refusal's text
 [ "$status" -eq 0 ] || [ "$status" -eq 3 ] || exit "$status"
 diff kink/verdicts.lock verdicts.new
 ```

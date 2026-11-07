@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 4
+//! version = 5
 //! document = "results"
 //! profile = "no-z3"
 //! krs_annotation = 2
@@ -40,9 +40,13 @@
 //! error stopped it, the mutation and the reason under `[stopped]` (the mutations after it have
 //! no status). A refused specification has its `stage` and `reason` under `[spec]`, and a refused
 //! mutation list its `outcome` under `[mutation_list]` (a run document of a list that does not
-//! decode has no `[spec]`), with no case or mutation; the refusal's text is not rendered, since
-//! it explains a refusal rather than records a verdict ([`refusal_details`] gives it, and
-//! `kink-flow` prints it on stderr). `report --output verdicts` renders the stored run document,
+//! decode has no `[spec]`), with no case or mutation. A mutation its author must fix before it is
+//! judged, `invalid-mutation` or `not-admitted`, has its `reason` too, as a refused specification
+//! has: the reason is a function of the specification and the mutation alone (the resolution,
+//! the mutant's compile, its consistency, its stop), so it is the refusal's verdict, and a lock
+//! shows which refusal moved. The refusals' texts are not rendered, since they explain a refusal
+//! rather than record a verdict ([`refusal_details`] gives them, and `kink-flow` prints them on
+//! stderr). `report --output verdicts` renders the stored run document,
 //! so it prints what `run --output verdicts` printed; when there is no stored run document to
 //! render, the reason is the error ([`verdicts`]).
 //!
@@ -50,8 +54,8 @@
 //! timings, digests, the build's identity (its solver profile is in the header) and the cache's
 //! state; the killer of a first-kill run, since it is the first killing program the search
 //! reached, which depends on the order (`--order cost` reads wall times) and on the outcomes the
-//! cache already holds; and a status's reason, since the reason of `unknown` is the first
-//! exclusion in run order. A status itself does not depend
+//! cache already holds; and the reason of any other status, since the reason of `unknown` is the
+//! first exclusion in run order. A status itself does not depend
 //! on the order or the cache in the no-Z3 profile while no `budget.time_ms` bound fires (README,
 //! the program order), and neither does a full run's `killed_by`: it is the set of comparable
 //! programs whose cell is a proved difference, each cell an outcome that does not depend on the
@@ -69,8 +73,9 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// the runner status version 2 rendered `invalid` `not-admitted` (run document version 18), so a
 /// lock that moves from one name to the other shows a new version, not a moved verdict; 4 since
 /// the header's `krs_annotation` names the front end's annotation version, which a rule's KRS
-/// item is spelled by, so that a lock whose names move with the annotation shows why.
-pub const VERDICTS_VERSION: u64 = 4;
+/// item is spelled by, so that a lock whose names move with the annotation shows why; 5 since an
+/// `invalid-mutation` or `not-admitted` mutation has its `reason`.
+pub const VERDICTS_VERSION: u64 = 5;
 
 /// The rendering of a `results` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -142,9 +147,11 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
 }
 
 /// The texts of a document's refusals and of the stop of its run, which [`verdicts`] leaves out
-/// (`spec`, `mutation_list`: `<section>: <stage or outcome> <reason>: <detail>`; a stopped run:
-/// `stopped at <mutation>: <reason>: <detail>`), for a front end to print beside the rendering
-/// (`kink-flow` prints them on stderr).
+/// (`spec`, `mutation_list`: `<section>: <stage or outcome> <reason>: <detail>`; a mutation its
+/// author must fix: `mutation <id>: <status> <reason>: <detail>`, its `action` when it has no
+/// `detail`; a stopped run: `stopped at
+/// <mutation>: <reason>: <detail>`), for a front end to print beside the rendering (`kink-flow`
+/// prints them on stderr).
 #[must_use]
 pub fn refusal_details(document: &Value) -> Vec<String> {
     let mut details = Vec::new();
@@ -167,6 +174,20 @@ pub fn refusal_details(document: &Value) -> Vec<String> {
             "{section}: {what}: {}",
             object["detail"].as_str().unwrap_or("no detail")
         ));
+    }
+    for row in document["mutations"].as_array().into_iter().flatten() {
+        if refused_mutation(row) {
+            details.push(format!(
+                "mutation {}: {} {}: {}",
+                row["id"].as_str().unwrap_or("?"),
+                row["status"].as_str().unwrap_or("?"),
+                row["reason"].as_str().unwrap_or("?"),
+                row["detail"]
+                    .as_str()
+                    .or_else(|| row["action"].as_str())
+                    .unwrap_or("no detail")
+            ));
+        }
     }
     if let Some(stopped) = document["stopped"].as_object() {
         let mutation = stopped.get("mutation").and_then(Value::as_str);
@@ -221,8 +242,18 @@ fn cases(text: &mut String, document: &Value) {
     }
 }
 
-/// Each mutation's id and status; under `full` (a run document of `run --full`) a killed
-/// mutation's `killed_by` too, which a first-kill rendering never writes (module documentation).
+/// Whether a run document's row is of a mutation its author must fix before it is judged:
+/// `invalid-mutation` or `not-admitted` ([`crate::cli::invalid_mutations`]).
+fn refused_mutation(row: &Value) -> bool {
+    matches!(
+        row["status"].as_str(),
+        Some(crate::search::INVALID_MUTATION | "not-admitted")
+    )
+}
+
+/// Each mutation's id and status, and the reason of one its author must fix
+/// ([`refused_mutation`]); under `full` (a run document of `run --full`) a killed mutation's
+/// `killed_by` too, which a first-kill rendering never writes (module documentation).
 fn mutations(text: &mut String, document: &Value, full: bool) {
     for row in document["mutations"].as_array().into_iter().flatten() {
         text.push_str("\n[[mutation]]\n");
@@ -232,6 +263,11 @@ fn mutations(text: &mut String, document: &Value, full: bool) {
             "status",
             &string(row["status"].as_str().unwrap_or_default()),
         );
+        if refused_mutation(row)
+            && let Some(reason) = row["reason"].as_str()
+        {
+            line(text, "reason", &string(reason));
+        }
         if full
             && row["status"] == "killed"
             && let Some(killers) = row["killed_by"].as_array()
