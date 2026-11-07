@@ -3911,9 +3911,9 @@ fn a_refused_expectation(project: &Project) {
 
 /// A mutation that replaces an equation by an instance of itself only weakens the specification:
 /// the reviewer's `plus_succ` narrowed to a nonzero second argument, with the same result on
-/// every input it still covers, is `unkillable` with reason `weakening` and runs nothing. KRS
-/// writes every variable of the emitted K with its sort (`N:Nat`), which is what lets kink read
-/// the narrowing as an instance. A `requires isNat ( N:Nat )` holds of every `Nat`, so it
+/// every input it still covers, is `unkillable` with reason `weakening` and runs nothing: kink
+/// reads each variable's sort from the loaded rule (KRS writes it, `N:Nat`), which is what lets
+/// it read the narrowing as an instance. A `requires isNat ( N:Nat )` holds of every `Nat`, so it
 /// narrows nothing: the mutant is the specification, `equivalent` with reason
 /// `valid-condition`. `fuzz --kill` refuses both before any case, exit 2, with the row's status
 /// and action: no case can change a fact of the axioms.
