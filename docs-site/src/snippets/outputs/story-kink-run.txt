@@ -1,6 +1,6 @@
 $ krs kink --package story-plus --definition main run --full --output verdicts --locked
 schema = "kink-flow-verdicts"
-version = 4
+version = 5
 document = "run"
 schedule = "full"
 profile = "z3"

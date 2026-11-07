@@ -1,6 +1,6 @@
 $ krs kink --package story-plus --definition main results --output verdicts --locked
 schema = "kink-flow-verdicts"
-version = 4
+version = 5
 document = "results"
 profile = "z3"
 krs_annotation = 2

@@ -57,7 +57,7 @@
   },
   "mutation-testing-check-refused": {
     "inputs": "4ec534a64204d42f5fd2e64ee66ef0781844c756b691e108026d9d7271f32610",
-    "output": "8114acaab30571c8dda12389608adff0f2d130927bdeb0dc16bf9ed93666d3c4"
+    "output": "9427b81c694dc74bc07fef259f8b8b8bd0ae99f5124ac7c682f709cff678ca31"
   },
   "mutation-testing-emit-check": {
     "inputs": "359779bf43827620a36e8c639c8cf2f01ef9acb200afddfc953a22905f4b39a8",
@@ -73,15 +73,15 @@
   },
   "mutation-testing-run-after": {
     "inputs": "d773ce41ddb0bc1ace72b5df55078dd725b0a73b571ada8ad0f977058d906efc",
-    "output": "275f3a6a1e2b52b1f040c4613fb14468e725f6cd7d94ad4f19593d1bdb495969"
+    "output": "88638e5760c0843948274d9faa4b565ab2b6d0faf824958c634184eb03958fbe"
   },
   "mutation-testing-run-before": {
     "inputs": "ef0b0ee96478a2c7fccd8d8b84e095df49a987f5284060e50c946bb2d4d25fff",
-    "output": "7349bb948e5be79884c4ce51b47396106a9b248ac7e84e930bd0f8f6ba5237f4"
+    "output": "5c44e564f4c2451802ac96b96240d5c3152332a04437c83a5b26b65f6f38fb2e"
   },
   "mutation-testing-run-refused": {
     "inputs": "ca25e2106bd1b24589b08312768e33bdcca27450409f3e33841beabdb8ea4858",
-    "output": "5d60344fbdeed30767facac6fcb4c84398b9726fd2ec02562b5e82cffe9d41df"
+    "output": "858b4d27073f8b6fa3daa4568a1c908c25f09e18e5afdb14d463f7d4b8879001"
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",
@@ -205,11 +205,11 @@
   },
   "story-kink-results": {
     "inputs": "9d975046877c69e8770217d9aa9f5cef7d97c832a52648c81d104fdee79bd788",
-    "output": "e4089f2f34c207809b68ca8a37a73f1efc3fdca0a3312fae9ebe0d9fc6f8861a"
+    "output": "ef19c04e233a7eeaf6f43f8baef6dd4eab0a464702ac20998ea64faeb44235f8"
   },
   "story-kink-run": {
     "inputs": "a6e9cc6dd1d7e6b0399b873f8e13b58a931cbf75aac3e15ec36fb7742e5f40e1",
-    "output": "dd2f206825123b1a4ec9e7b7cd204149186bb85a56dff160087d9e585481f09d"
+    "output": "c26fa134f30317402e704aa4e70dcbc6b4a080e1bc7593a1e986288bb8145436"
   },
   "story-parse": {
     "inputs": "370cf91ba880e653e50f47b6b6a62d5a9d4d20f8a6e0a1bdfa59a87efa2e4f0b",
