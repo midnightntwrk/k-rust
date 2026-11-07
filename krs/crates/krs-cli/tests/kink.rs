@@ -3656,3 +3656,35 @@ fn a_refused_expectation(project: &Project) {
         );
     }
 }
+
+/// A mutation that replaces an equation by an instance of itself only weakens the specification:
+/// the reviewer's `plus_succ` narrowed to a nonzero second argument, with the same result on
+/// every input it still covers, is `unkillable` with reason `weakening` and runs nothing. KRS
+/// writes every variable of the emitted K with its sort (`N:Nat`), which is what lets kink read
+/// the narrowing as an instance.
+#[test]
+fn a_narrowed_equation_of_the_story_is_unkillable() {
+    let project = project_of("story-plus-narrow", "NAT", &story_files());
+    project.write(
+        "kink/narrowing.toml",
+        "[[mutation]]\nid = \"needs-nonzero\"\nmisunderstanding = \"adds only to a nonzero number\"\n\n  \
+         [[mutation.edit]]\n  rule = \"plus_succ\"\n  \
+         find = \"plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )\"\n  \
+         replace = \"plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )\"\n",
+    );
+    let output = project.kink("run", &["--mutations", "kink/narrowing.toml"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let rows = document["mutations"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{document:#}");
+    let row = &rows[0];
+    assert_eq!(row["id"], "needs-nonzero", "{row:#}");
+    assert_eq!(row["status"], "unkillable", "{row:#}");
+    assert_eq!(row["reason"], "weakening", "{row:#}");
+    assert_eq!(row["executed"], serde_json::json!([]), "{row:#}");
+    let weakening = row["weakening"].as_array().unwrap();
+    assert_eq!(weakening.len(), 1, "{row:#}");
+    assert_eq!(weakening[0]["label"], "nat--plus_succ", "{row:#}");
+    assert_eq!(weakening[0]["head"], "plus", "{row:#}");
+    assert_eq!(weakening[0]["kind"], "narrowed", "{row:#}");
+}
