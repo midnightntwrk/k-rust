@@ -1109,7 +1109,9 @@ note = "narrows the pattern to a nonzero second argument"
     /// action: `requires false` and a narrower pattern are `unkillable` (reason `weakening`), and
     /// `requires isNat ( N:Nat )`, which holds of every `Nat`, keeps `plus_succ`'s axiom, so the
     /// mutant is the specification: `equivalent`, reason `valid-condition`, kind
-    /// `valid-condition`. `no-decrease` recurses without end on every case that reaches `plus_succ`: `fuzz` warns
+    /// `valid-condition`. `run --verify` gives each row the reason `run` gives it, the
+    /// `stack-stop` of `no-decrease` and the `open-application` of `shifted` included.
+    /// `no-decrease` recurses without end on every case that reaches `plus_succ`: `fuzz` warns
     /// `stack-stop` before any case, and ends the search after `--stack-stops` such cases in a
     /// row (`stopped: stack-stops`, exit 3) with the advice of the reason, never a larger budget.
     /// `shifted`'s cases whose second argument is `zero` end on an application of `plus` its
@@ -1175,13 +1177,21 @@ note = "narrows the pattern to a nonzero second argument"
             dir.join("MUTATIONS.toml"),
             cache.clone(),
         );
-        let (run, _) = on_stack(move || {
+        let ((run, _), (verified, _)) = on_stack(move || {
             let options = RunOptions {
                 order: kink_flow::search::ProgramOrder::Corpus,
                 cache: Some(run_cache),
                 ..RunOptions::default()
             };
-            kink_flow::cli::run(&flow, &list, &options)
+            (
+                kink_flow::cli::run(&flow, &list, &options),
+                kink_flow::cli::run_mode(
+                    &flow,
+                    &list,
+                    &options,
+                    kink_flow::search::RunMode::Verify,
+                ),
+            )
         });
         let row = |document: &Value, id: &str| {
             document["mutations"]
@@ -1199,10 +1209,13 @@ note = "narrows the pattern to a nonzero second argument"
             ("no-decrease", "unknown", "stack-stop"),
             ("shifted", "unknown", "open-application"),
         ] {
-            let row = row(&run, id);
-            assert_eq!(row["status"], status, "{row:#}");
-            assert_eq!(row["reason"], reason, "{row:#}");
+            for document in [&run, &verified] {
+                let row = row(document, id);
+                assert_eq!(row["status"], status, "{row:#}");
+                assert_eq!(row["reason"], reason, "{row:#}");
+            }
         }
+        assert_eq!(verified["mismatches"], serde_json::json!([]), "{verified:#}");
         let isnat = row(&run, "isnat");
         assert_eq!(isnat["weakening"][0]["kind"], "valid-condition", "{isnat:#}");
         assert!(
