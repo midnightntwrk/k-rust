@@ -8,9 +8,10 @@ mod support;
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use k_rust::backend::{Backend, BackendOptions};
+use k_rust::backend::{AxiomGuardOutput, Backend, BackendOptions};
 use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
@@ -21,7 +22,7 @@ use kink_campaign::{
     StateProjection, TestCase, run_campaign,
 };
 use kink_native::coverage::{RuleAuthors, TestCoverage, coverage_digest};
-use kink_native::execution::{ExecutionAdapter, ExecutionBudget, SolverProfile};
+use kink_native::execution::{ExecutionAdapter, ExecutionBudget, ResultRun, SolverProfile};
 use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{
@@ -187,6 +188,32 @@ fn direct(side: &ValidatedDefinition, test: &TestCase) -> TestCoverage {
     TestCoverage::of_execution(&test.id, &execution, &RuleAuthors::of(side))
 }
 
+/// The guard outcomes of `test`'s result run that collects them, which the baseline runtime's
+/// result run is.
+fn direct_guards(
+    side: &ValidatedDefinition,
+    test: &TestCase,
+) -> BTreeMap<SentenceRef, Vec<AxiomGuardOutput<Pattern>>> {
+    let mut backend = Backend::from_definition(
+        parse_definition(&side.artifacts().definition_kore).expect("KORE"),
+        "COUNTER",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+        .execute_result(
+            &mut backend,
+            &test.initial_state,
+            BUDGET,
+            ResultRun {
+                guards: true,
+                ..ResultRun::default()
+            },
+        )
+        .expect("result run");
+    TestCoverage::of_execution(&test.id, &execution, &RuleAuthors::of(side)).guards
+}
+
 mod kink_tier {
     use super::*;
 
@@ -214,7 +241,14 @@ mod kink_tier {
             );
             assert_eq!(full.baseline_coverage, first_kill.baseline_coverage);
             for (test, coverage) in tests.iter().zip(&full.baseline_coverage) {
-                assert_eq!(coverage, &direct(&side, test), "{}", test.id);
+                // The guard outcomes come from the baseline's result run, which collects them;
+                // the rest of the coverage is that of a direct run.
+                let unguarded = TestCoverage {
+                    guards: BTreeMap::new(),
+                    ..coverage.clone()
+                };
+                assert_eq!(unguarded, direct(&side, test), "{}", test.id);
+                assert_eq!(coverage.guards, direct_guards(&side, test), "{}", test.id);
                 assert!(coverage.complete, "{}", test.id);
                 assert!(coverage.unmapped.is_empty(), "{}", test.id);
             }

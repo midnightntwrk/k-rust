@@ -854,7 +854,9 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             document["summary"],
             json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "unmatched": 2,
-                   "matched": 0, "fired": 4, "claim_helper": 0, "no_coverage_signal": 1, "mismatches": 0})
+                   "matched": 0, "guards": {"sentences": 1, "never_held": 0, "never_refuted": 0,
+                               "operands_missing_an_outcome": 0},
+                   "fired": 4, "claim_helper": 0, "no_coverage_signal": 1, "mismatches": 0})
         );
     }
 
@@ -1098,7 +1100,9 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             document["summary"],
             json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "unmatched": 2,
-                   "matched": 0, "fired": 4, "claim_helper": 0, "no_coverage_signal": 0, "mismatches": 0})
+                   "matched": 0, "guards": {"sentences": 1, "never_held": 0, "never_refuted": 0,
+                               "operands_missing_an_outcome": 0},
+                   "fired": 4, "claim_helper": 0, "no_coverage_signal": 0, "mismatches": 0})
         );
         // calc: every rule fires, the unlabelled one by `sub` alone.
         let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);
@@ -1197,7 +1201,9 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             document["summary"],
             json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "unmatched": 0,
-                   "matched": 0, "fired": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
+                   "matched": 0, "guards": {"sentences": 1, "never_held": 0, "never_refuted": 0,
+                               "operands_missing_an_outcome": 0},
+                   "fired": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
         );
         assert_eq!(document["version"], 10);
     }

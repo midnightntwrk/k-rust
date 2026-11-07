@@ -810,7 +810,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 31] = [
+const CORPUS: [(&str, &[&str], Minimums); 32] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -838,6 +838,7 @@ const CORPUS: [(&str, &[&str], Minimums); 31] = [
     ("diamonds", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("diamonds/unguarded", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("divide", &["FLOW.toml"], at_least(4, 2, 1, 1)),
+    ("guards", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     (
         "loop",
         &[
@@ -1053,6 +1054,12 @@ mod kink_tier {
     #[ignore = "kink"]
     fn modality_on_divide() {
         corpus_specification("divide", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_guards() {
+        corpus_specification("guards", &["FLOW.toml"]);
     }
 
     #[test]
