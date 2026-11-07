@@ -442,3 +442,51 @@ fn the_prelude_has_no_reading_dependent_rule() {
         });
     });
 }
+
+/// A conjunctive call at the top of a condition makes no visit, since the readings differ in no
+/// rule there, but it holds its place in the order of its function's applications: `go`'s
+/// application of `ok` in its right-hand side is the second of the rule's, as a reader of the
+/// written rule, who cannot tell which functions are conjunctive, counts them (`krs check` places
+/// a finding through the prelude by that count).
+#[test]
+fn a_conjunctive_call_at_the_top_of_a_condition_holds_its_place() {
+    on_a_big_stack(|| {
+        with_load("sccnj", |kore, _, analysis| {
+            let (pattern, attributes) = kore
+                .modules
+                .iter()
+                .flat_map(|module| &module.sentences)
+                .find_map(|sentence| match sentence {
+                    Sentence::Axiom {
+                        pattern,
+                        attributes,
+                        ..
+                    } if attributes
+                        .string(KoreAttribute::Label)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|label| label == "go" || label.ends_with(".go")) =>
+                    {
+                        Some((pattern, attributes))
+                    }
+                    _ => None,
+                })
+                .expect("the fixture has the rule go");
+            let applied = analysis
+                .axiom_visits(pattern, attributes, &BTreeMap::new())
+                .expect("go is a rewrite rule")
+                .into_iter()
+                .filter_map(|visit| match visit {
+                    Visit::Applied {
+                        symbol,
+                        condition,
+                        occurrence,
+                        ..
+                    } => Some((symbol, condition, occurrence)),
+                    Visit::Operator { .. } => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(applied, [("Lblok".to_owned(), false, 1)]);
+        });
+    });
+}

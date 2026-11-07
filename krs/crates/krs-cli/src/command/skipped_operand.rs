@@ -547,7 +547,10 @@ fn argument_head(
 
 /// The authored range of the application in `sentence` of the builtin operation with the K
 /// label `label` that is the `occurrence`th in the order the analysis walks the emitted
-/// sentence's places ([`sentence_nodes`]), else of the first.
+/// sentence's places ([`sentence_nodes`]), else of the first. The analysis counts every
+/// application of the function there, a conjunctive call at the top of a condition included
+/// (`Visit::Applied`'s `occurrence`), as this count does, whether or not the function is
+/// conjunctive, which only the analysis knows.
 fn applied_at(sentence: &RuleSentence, label: &str, occurrence: usize) -> Option<SourceRange> {
     let found = sentence_nodes(sentence)
         .into_iter()

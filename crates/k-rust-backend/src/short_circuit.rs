@@ -1093,6 +1093,13 @@ pub enum Visit {
         dependence: ReadingDependence,
         /// The inlined functions whose equations hold the place, outermost first.
         within: Vec<String>,
+        /// The index of the application among the applications of its symbol the walk visits,
+        /// in its order: those it walks as terms, and the conjunctive calls at the top of a
+        /// condition, which make no visit (the readings differ in no rule there). So it counts
+        /// every application of the symbol a reader of the axiom's places sees, whatever the
+        /// analysis concluded about it, as [`Self::Operator`]'s `occurrence` counts every
+        /// application of an operator.
+        occurrence: usize,
     },
 }
 
@@ -1114,7 +1121,9 @@ struct Walk<'w, 'd, 'k> {
     inline: &'w BTreeMap<String, Vec<Inlined<'k>>>,
     /// The inlined functions around the place walked, outermost first.
     within: Vec<String>,
-    /// The number of applications of each operator symbol walked as terms so far.
+    /// The number of applications of each operator symbol walked as terms so far, and of each
+    /// reading-dependent function's walked as terms or as a conjunctive call at the top of a
+    /// condition.
     applications: BTreeMap<String, usize>,
     out: Vec<Visit>,
 }
@@ -1185,6 +1194,8 @@ impl Walk<'_, '_, '_> {
                 for argument in arguments {
                     self.term(argument, condition);
                 }
+                // No visit, but a place in the order of the function's applications.
+                self.next_occurrence(&symbol.name);
             }
             _ => self.term(term, condition),
         }
@@ -1198,9 +1209,7 @@ impl Walk<'_, '_, '_> {
             };
             let name = symbol.name.as_str();
             if self.analysis.operators.contains_key(name) {
-                let count = self.applications.entry(name.to_owned()).or_default();
-                let occurrence = *count;
-                *count += 1;
+                let occurrence = self.next_occurrence(name);
                 for witness in self.analysis.node_witnesses(node) {
                     self.out.push(Visit::Operator {
                         condition,
@@ -1212,14 +1221,24 @@ impl Walk<'_, '_, '_> {
             } else if self.inlines(name) {
                 self.inlined(name, false, condition);
             } else if let Some(dependence) = self.analysis.dependence(node) {
+                let occurrence = self.next_occurrence(name);
                 self.out.push(Visit::Applied {
                     condition,
                     symbol: name.to_owned(),
                     dependence,
                     within: self.within.clone(),
+                    occurrence,
                 });
             }
         }
+    }
+
+    /// The index of the next application of `symbol` the walk counts ([`Self::applications`]).
+    fn next_occurrence(&mut self, symbol: &str) -> usize {
+        let count = self.applications.entry(symbol.to_owned()).or_default();
+        let occurrence = *count;
+        *count += 1;
+        occurrence
     }
 
     /// Whether `symbol` is read in place here: a function of the inlined ones, not already

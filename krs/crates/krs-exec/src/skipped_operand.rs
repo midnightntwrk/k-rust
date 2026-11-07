@@ -129,7 +129,9 @@ pub struct SkippedOperand {
     /// of the operator, whatever its operand, since no term the analysis picks for one decides
     /// which written operator it is. For a finding through the prelude, the index of the
     /// application among the sentence's applications of the same prelude function, in that
-    /// order; `0` for a finding with no anchor.
+    /// order ([`Visit::Applied`]'s `occurrence`), a conjunctive call at the top of a condition
+    /// counted though it has no finding, so that the count is of every application a reader of
+    /// the written sentence sees; `0` for a finding with no anchor.
     pub occurrence: usize,
     /// Whether [`Self::term`]'s head is a local function k-rust generates from the anchor (a
     /// `let` block's, a `k::matches!` test's), which the author wrote as that expression.
@@ -247,9 +249,6 @@ impl Finder<'_> {
                 let Some(visits) = self.analysis.axiom_visits(pattern, attributes, &inline) else {
                     continue;
                 };
-                // Each prelude application's index among the earlier ones of its function
-                // ([`SkippedOperand::occurrence`]).
-                let mut applied = Vec::new();
                 for visit in visits {
                     match visit {
                         Visit::Operator {
@@ -279,11 +278,9 @@ impl Finder<'_> {
                             condition,
                             symbol,
                             dependence,
+                            occurrence,
                             ..
                         } => {
-                            let occurrence =
-                                applied.iter().filter(|earlier| **earlier == symbol).count();
-                            applied.push(symbol.clone());
                             let start = Witness::Function {
                                 symbol: symbol.clone(),
                                 dependence,
