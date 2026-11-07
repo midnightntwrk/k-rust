@@ -177,9 +177,13 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
         .collect::<Vec<_>>();
     assert!(roles.contains(&ProvenanceRole::RuleBindingType));
     assert!(roles.contains(&ProvenanceRole::RuleRightCellsField));
-    assert!(roles.contains(&ProvenanceRole::RuleRightMapUpdateBase));
-    assert!(roles.contains(&ProvenanceRole::RuleRightMapKey));
-    assert!(roles.contains(&ProvenanceRole::RuleRightMapValue));
+    // The update is a term written into the whole cell: its arguments are
+    // keyed as the term's positions, and no map-entry role names them.
+    assert!(roles.contains(&ProvenanceRole::RuleRightApplicationHead));
+    assert!(roles.contains(&ProvenanceRole::RuleRightReference));
+    assert!(!roles.contains(&ProvenanceRole::RuleRightMapUpdateBase));
+    assert!(!roles.contains(&ProvenanceRole::RuleRightMapKey));
+    assert!(!roles.contains(&ProvenanceRole::RuleRightMapValue));
 
     let block = krs_syntax::RuleBlock::parse_source(
         r"

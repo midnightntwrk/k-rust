@@ -548,6 +548,17 @@ k::rules! {
 "#,
     ),
     (
+        "rules_table_update",
+        r"
+k::rules! {
+    for Stmt;
+    use StmtSyntax::*;
+
+    assign: Assign(name, value) => () where update env = map::update(env, name, value);
+}
+",
+    ),
+    (
         "rules_sort_test",
         r"
 k::rules! {

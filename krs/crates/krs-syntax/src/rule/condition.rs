@@ -237,12 +237,12 @@ impl RuleMapEntry {
     }
 }
 
-/// One validated ordinary three-argument map update.
+/// One validated ordinary three-argument map update: the term the clause
+/// writes into the whole cell. Its arguments are ordinary positions of that
+/// term, keyed as the term's own.
 #[derive(Clone, Debug)]
 pub struct RuleMapUpdate {
     term: TermExpression,
-    arguments: [Expr; 3],
-    argument_keys: [Option<ProvenanceKey>; 3],
 }
 
 impl RuleMapUpdate {
@@ -257,29 +257,9 @@ impl RuleMapUpdate {
         &mut self.term
     }
 
-    /// Returns the authored base, key, and value expressions.
-    #[must_use]
-    pub fn arguments(&self) -> [&Expr; 3] {
-        self.arguments.each_ref()
-    }
-
-    /// The keys of the base, key, and value expressions, given by the clause
-    /// that writes the update; each has the ordinal of the updated cell's
-    /// result field.
-    #[must_use]
-    pub fn argument_keys(&self) -> [Option<&ProvenanceKey>; 3] {
-        self.argument_keys.each_ref().map(Option::as_ref)
-    }
-
-    /// Records the keys of the base, key, and value expressions.
-    pub(super) fn set_argument_keys(&mut self, keys: [ProvenanceKey; 3]) {
-        self.argument_keys = keys.map(Some);
-    }
-
     /// Forgets the keys of the update, before a clause's pass keys it.
     pub(super) fn clear_keys(&mut self) {
         self.term.clear_keys();
-        self.argument_keys = [None, None, None];
     }
 }
 
@@ -423,14 +403,13 @@ pub(super) fn parse_map_update(
         .into());
     }
     let arguments = args.iter().collect::<Vec<_>>();
-    let [base, key, value] = arguments.as_slice() else {
+    let [base, _, _] = arguments.as_slice() else {
         return Err(syn::Error::new(
             args.span(),
             "a map update term requires exactly three arguments",
         )
         .into());
     };
-    let base_expression = *base;
     let Expr::Path(base) = base else {
         return Err(syn::Error::new(
             base.span(),
@@ -452,11 +431,7 @@ pub(super) fn parse_map_update(
     Ok(MapUpdateExtra {
         cell: cell.clone(),
         base: base.path.segments[0].ident.clone(),
-        update: Box::new(RuleMapUpdate {
-            term: update,
-            arguments: [base_expression.clone(), (*key).clone(), (*value).clone()],
-            argument_keys: [None, None, None],
-        }),
+        update: Box::new(RuleMapUpdate { term: update }),
     })
 }
 

@@ -1055,12 +1055,9 @@ fn allocate_head_item_keys(
 
 /// Keys one extra cell: its field on each side it is written on, then its
 /// terms, and returns the keys of its names. A map read numbers its keys
-/// and values per entry, across every map read; a map update's base, key,
-/// and value are numbered as its result cell is.
-#[expect(
-    clippy::too_many_lines,
-    reason = "One arm per extra-cell form, each keying its cells in expansion order."
-)]
+/// and values per entry, across every map read; a cell update is its result
+/// field and the term written into the whole cell, whose arguments are that
+/// term's own positions.
 fn allocate_extra_keys(
     keys: &mut KeyAllocator,
     extra: &mut RuleExtra,
@@ -1087,17 +1084,10 @@ fn allocate_extra_keys(
             }
         }
         RuleExtra::UpdateMap { cell, update, .. } => {
-            let [base, key, value] = update.arguments().map(TokenRange::for_tokens);
-            let field = keys.key(
+            names.result_cell = Some(keys.key(
                 ProvenanceRole::RuleRightCellsField,
                 TokenRange::for_tokens(cell)?,
-            )?;
-            update.set_argument_keys([
-                keys.paired(ProvenanceRole::RuleRightMapUpdateBase, &field, base?)?,
-                keys.paired(ProvenanceRole::RuleRightMapKey, &field, key?)?,
-                keys.paired(ProvenanceRole::RuleRightMapValue, &field, value?)?,
-            ]);
-            names.result_cell = Some(field);
+            )?);
             allocate_rule_term_keys(keys, update.term_mut(), RuleTermSide::Right)?;
         }
         RuleExtra::RewriteState {
@@ -1926,9 +1916,6 @@ fn keyed_extra_nodes(
         }
         RuleExtra::UpdateMap { cell, update, .. } => {
             nodes.push_tokens(names.result_cell.as_ref(), cell)?;
-            for (key, argument) in update.argument_keys().into_iter().zip(update.arguments()) {
-                nodes.push_tokens(key, argument)?;
-            }
             update.term().keyed_nodes(nodes)?;
         }
         RuleExtra::RewriteState {
