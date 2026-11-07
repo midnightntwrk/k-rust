@@ -60,7 +60,7 @@ Step 4 adds a case in the guide's own corpus, `guide/`, which holds the introduc
 
 ## The loop
 
-### 1. Write cases until every rule in scope is covered
+### 1. Write cases until every rule in scope fires and every guard outcome is seen
 
 `krs kink results` runs each new or changed case once, caches its result, and reports which rules its run matched and fired; `--output verdicts` renders that case by case:
 
@@ -69,7 +69,7 @@ Step 4 adds a case in the guide's own corpus, `guide/`, which holds the introduc
 ```
 
 The rendering lists cases, not rules.
-Each rule's status is in the JSON document, the default output, as `rules[].status`, and `summary.uncovered` counts the uncovered rules, here none:
+Each rule's status is in the JSON document, the default output, as `rules[].status`, and the summary counts each status (`summary.fired`, `summary.matched`, `summary.unmatched`), here every rule fires:
 
 ```console [recorded with krs]
 // [!include ~/snippets/outputs/mutation-testing-results.txt]
@@ -77,13 +77,18 @@ Each rule's status is in the JSON document, the default output, as `rules[].stat
 
 | status | the rule | what to do |
 | --- | --- | --- |
-| `covered` | some comparable case matches it | nothing |
-| `uncovered` | no comparable case matches it, so a mutation of it cannot be killed | write a case that reaches it |
+| `fired` | some comparable case fires it: a path takes its step, or its equation gives a result | read its `guard` |
+| `matched` | some comparable case matches it and none fires it: its condition was entered but its right-hand side never ran, so no case can tell a change of its result apart | write a case that takes its step |
+| `unmatched` | no comparable case matches it, so a mutation of it cannot be killed | write a case that reaches it |
 | `claim-helper` | is an equation of a function only claims apply, and no case matches it | nothing: the claims serve it, and `krs prove` checks them |
 | `no-coverage-signal` | cannot be recorded by k-rust's coverage (a macro, an alias, an `smt-lemma` or a rule that never runs), so no case can be shown to match it | nothing a case can change |
 
-Continue until no rule in scope is `uncovered`.
-A simplification (`#[k::simplification]`, whose `krs.kind` is `simplification`), a `symbolic` equation or a ceil equation can be `uncovered` and is out of scope: a run of concrete cases need not use it, so it needs no case.
+A rule or equation with a condition also has `guard`: which cases saw its condition hold (`held_by`) and refuted (`refuted_by`), and for each operand of the condition (`guard.operands`, printed as K) the cases for which it was `true` and `false` where it was reached.
+An operand is reached in written order: for `a && b`, `b` is reached only where `a` is true, so "a false", "a true and b false" and "both true" are `a`'s `false`, `b`'s `false` and the guard's `held`.
+`never` lists what no case saw, and the verdicts rendering lists each rule whose guard misses an outcome as `[[guard]]`: a boundary rule no case holds, or a guard no case refutes, is a case to write, or an outcome to argue unreachable.
+
+Continue until every rule in scope fires and every guard outcome is seen or argued unreachable.
+A simplification (`#[k::simplification]`, whose `krs.kind` is `simplification`), a `symbolic` equation or a ceil equation can be `unmatched` and is out of scope: a run of concrete cases need not use it, so it needs no case.
 
 ### 2. Write mutations, and check them until they resolve
 
@@ -410,7 +415,7 @@ It is a K patch for these reasons, which kink's decision register states in full
 
 ## Checklist for an agent
 
-1. Run `krs kink results` until no rule in scope is `uncovered` (`summary.uncovered` of its JSON document; a simplification needs no case).
+1. Run `krs kink results` until every rule in scope fires (`summary.matched` and `summary.unmatched` of its JSON document are 0; a simplification needs no case) and every guard outcome is seen or argued unreachable (the verdicts rendering's `[[guard]]`).
 2. Write one misunderstanding per mutation, in its `misunderstanding`.
 3. Anchor every edit by `rule`, never by `line`.
 4. Run `krs kink check` after every edit of a mutation file, until it exits 0.

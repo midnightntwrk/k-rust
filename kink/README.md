@@ -39,8 +39,8 @@ Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { d
    A literate Markdown specification (`.md`) works too: every text kink-flow addresses, searches or shows is the K text k-rust parsed from the selected fences (prose and fence lines count as whitespace, and line numbers are the file's), and kink-flow never edits the Markdown file.
 2. **Corpus with cached results.** Write concrete programs for it in `FLOW.toml`.
    `kink-flow results` runs each new or changed program once on the specification,
-   caches its final configuration, and lists the rules no comparable program matches (`uncovered`).
-   Write programs until no rule in scope is uncovered ("What coverage covers", below).
+   caches its final configuration, and gives each rule the status of what the corpus did with it: `fired`, `matched` (matched, never fired) or `unmatched`, with each guard's outcomes per operand.
+   Write programs until every rule in scope fires and every guard outcome is seen or argued unreachable ("What coverage covers", below).
 3. **Mutation list.** Write `MUTATIONS.toml` (or one `<topic>.toml` per topic in a mutations directory): edits of rules that are likely to expose bugs,
    either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation),
    each with the plausible misunderstanding of the specification it writes (`misunderstanding`).
@@ -62,7 +62,7 @@ Definitive answers are cached under a key that names the specification, the prog
 
 **Killing a survivor with `fuzz`.** When no program you can think of tells a survivor apart, take a program that matches the edited rule (the run report's `witnesses` lists the programs whose coverage witnesses the edit), mark its literals as holes in `TEMPLATES.toml` (k-rust-fuzz's `[[hole]]` keys), and run `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml`.
 It runs a k-rust-fuzz campaign in process on kink's own two sides (the admitted baseline and the claim-free mutant `run` would test), judges each candidate by kink's own rules inside the campaign (`--no-filter` turns that off), has kink's own `run` confirm the witness on the flow with the fragment as its only program (`--no-confirm` skips it), and prints the killing program as a `[[program]]` fragment; it never writes `FLOW.toml` or the cache.
-The same command looks for a program that matches an uncovered rule (`--matched FILE:LINE`, as `results` lists it; `--fired` for one that fires it) or hits a pattern (`--pattern ID --patterns PATTERNS.toml`); [docs/fuzzing.md](../docs/fuzzing.md) is the user guide to the three jobs.
+The same command looks for a program that matches an unmatched rule (`--matched FILE:LINE`, as `results` lists it; `--fired` for one that fires it) or hits a pattern (`--pattern ID --patterns PATTERNS.toml`); [docs/fuzzing.md](../docs/fuzzing.md) is the user guide to the three jobs.
 Append the fragment and run `kink-flow run --only MUTATION`: only `run` decides the kill, with its own oracle.
 The fuzz refuses up front what `run` could not confirm: a mutation `run` refuses, a definition exclusion on either side, a mutant that parses the template differently from kink's input (a `[macro]` edit), and a definition whose full critical-pair check has a finding you have not named (`--assume-joined NAME`, then `[spec] assume_joined`; every assumed name is printed beside the fragment as a premise, genuine ones flagged).
 Each candidate's input is checked against kink's own assembly of the fragment, and the document warns about a template whose program is not comparable or does not witness the mutant's edit in the last run, suggesting the witnesses as templates ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "Killing a survivor with `fuzz`").
@@ -99,7 +99,7 @@ This is the boundary (kink27 R2-COVERAGE-DOCS); each item in scope says whether 
 In scope:
 
 - **Rewrite rules.** Built.
-  `kink-flow results` lists every authored `rule` sentence (kink-flow `results::rules`) and gives it status `uncovered` when no comparable program's baseline run matched it.
+  `kink-flow results` lists every authored `rule` sentence (kink-flow `results::rules`) and gives it the status named for the predicate it tests: `fired` when some comparable program's baseline run fired it, `matched` when some matched it and none fired it, `unmatched` when none matched it.
   `matched_by` is k-rust's `matched` (kink-native `TestCoverage::of_run`): the run began to decide the rule's `requires` for an instance whose left-hand side matched, whatever the verdict, or applied the rule.
   `kink-flow fuzz --matched` targets one (kink-flow `resolve_rule`), as `krust fuzz --reach-rule` does (k-rust-fuzz `resolve_rule_recorded`).
 - **Function equations**, `owise`, `anywhere` and the equations of an overloaded function included. Built in `results`, not built yet in the fuzz.
@@ -107,20 +107,24 @@ In scope:
   Those lists also hold an equation that the load-time discharge of a matched rule's definedness used, which the run never evaluated, so `matched_by` can list a program for an equation it did not evaluate.
   That is why the fuzz does not target an equation yet: `kink-flow fuzz --matched` and `--fired` refuse one as `equation-target` (`resolve_rule`) and `krust fuzz --reach-rule` as an equation (`TargetProblem::Equation`, in `resolve_rule_recorded`; finding REACH-EQUATIONS).
   Target a rewrite rule whose step evaluates the function instead.
-- **A rule's `requires`, counted as two outcomes**: the rule applied, and the rule was matched and did not apply.
-  The first is built as a listing and as a fuzz target, not as a status: `fired_by` lists the programs that fired the rule (for a rewrite rule, some path takes its step, k-rust `committed`; for an equation, an instance gave a result, `applied`; kink-native `TestCoverage::of_run`), and `kink-flow fuzz --fired RULE` targets it for a rewrite rule, but the status reads `matched_by` alone, so a rule some program matched and none fired is `covered`.
-  The second is not built yet: kink asks k-rust for no condition records (`collect_conditions: None`, kink-native `execution::request`), and `matched` holds a rule whatever the verdict, so no kink document tells a rule whose `requires` held on every instance a run reached from one whose `requires` also failed on some instance, and no reach mode targets a failed `requires`.
-  `krust fuzz`'s summary lists the rewrite rules whose condition the campaign's cases reached but which never applied (k-rust-fuzz `write_coverage`): the rules the first outcome is missing for, not the second outcome.
+- **A rule's `requires`, per outcome and per operand.** Built in `results`.
+  `fired_by` lists the programs that fired the rule (for a rewrite rule, some path takes its step, k-rust `committed`; for an equation, an instance gave a result, `applied`; kink-native `TestCoverage::of_run`), and the status reads it: a rule some program matched and none fired is `matched`, since its right-hand side was never instantiated on a path and no program can tell a change of its result apart.
+  A guarded rewrite rule's or function equation's row carries `guard` (kink-flow `guards::row_guard`): the programs whose entries into its `requires` held, were refuted (false, undefined, or by the solver alone), stayed undecided (with the cause) or stopped, and per operand of the written condition the programs for each outcome it took where it was reached.
+  An operand is reached, in written order, where every operand before it in a conjunction is `true` (in a disjunction, `false`), so for `A && B` the outcomes "A false", "A true and B false" and "both true" are A's `false`, B's `false` and the guard's `held`; `andBool` and `andThenBool` report alike, since both are strict.
+  The baseline run of each program collects the outcomes (k-rust `collect_guards`, kink-native `ResultRun::guards`) with a solver-free evaluation isolated from the run, so an operand the evaluation leaves open is `undecided` with its cause (`symbolic`, `unevaluated`, `stopped`), and a gap beside undecided entries may be the report's and not the corpus's.
+  The record also keeps each guard's distinct valuations of its atoms with the guard outcome, bounded, from which unique-cause MC/DC can be computed without a run; no command reports it yet.
+  `kink-flow fuzz --fired RULE` targets the fired outcome for a rewrite rule; no reach mode targets a refuted `requires` or a missing operand outcome yet.
+  An equation that only the load-time discharge of a matched rule's definedness used can be `fired` with no guard entry, which its row shows (no outcome).
 
 - **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits. Not built yet: `results` lists `rule` sentences only, so they have no row.
 
 Out of scope, each for its reason:
 
 - **Simplification, `symbolic` and ceil equations.** They state facts about functions and compute no step; a mutant of one is a claim edit (claims are premises, [`trust.md`](trust.md), "What a kill trusts").
-  `results` does not leave them out yet: they are in kink-native's coverage domain and k-rust records them when a run applies them, so `results` gives each a status, and an `uncovered` row can be one of them, which no program needs to reach.
+  `results` does not leave them out yet: they are in kink-native's coverage domain and k-rust records them when a run applies them, so `results` gives each a status, and an `unmatched` row can be one of them, which no program needs to reach; their rows carry no `guard`.
 - **Overload axioms kompile generates** (an equation between an overloaded symbol's application and its overload's, through an injection). They state that the overloads agree and compute no step of their own. The authored equations of an overloaded function are in scope (above).
-- **Macros and aliases.** They are expanded at compile time, so their rules are the expanded ones, covered where they occur.
-  `results` lists such a rule as `no-coverage-signal`, never `uncovered` (`results::rules`; k-rust's coverage never names a macro or alias rule).
+- **Macros and aliases.** They are expanded at compile time, so their rules are the expanded ones, counted where they occur.
+  `results` lists such a rule as `no-coverage-signal`, never `unmatched` (`results::rules`; k-rust's coverage never names a macro or alias rule).
 - **Syntax productions.** Parsing the corpus covers them. `results` lists `rule` sentences only, so a production has no row.
 - **Hooks.** They are the backend's code, not the specification's; they are no axioms, and k-rust's coverage never names one.
 - **The initial configuration.** Every run uses it. The `configuration` sentence has no row.
@@ -221,12 +225,12 @@ kink-flow results FLOW.toml
 ```
 
 `results` lists the rules no comparable program matches first.
-Here the unlabelled subtraction rule on line 23 is uncovered:
+Here the unlabelled subtraction rule on line 23 is unmatched:
 
 <!-- example: output /rules/0 -->
 ```json
 {"module": "CALC", "file": "calc.k", "label": null, "start_line": 23, "end_line": 23,
- "status": "uncovered", "matched_by": []}
+ "status": "unmatched", "matched_by": []}
 ```
 
 Cover it with a program, `programs/sub.calc`:
@@ -249,15 +253,15 @@ file = "programs/sub.calc"
 kink-flow results FLOW.toml
 ```
 
-Only the new program runs (`computed`); the others come from the cache, and no rule is uncovered:
+Only the new program runs (`computed`); the others come from the cache, and every rule fires:
 
 <!-- example: output /summary -->
 ```json
-{"programs": 3, "comparable": 3, "computed": 1, "uncovered": 0, "covered": 3}
+{"programs": 3, "comparable": 3, "computed": 1, "unmatched": 0, "matched": 0, "fired": 3}
 ```
 
-Coverage covers rewrite rules and equations alike: a `[function]` rule a program evaluates is covered too.
-A rule none of whose compiled forms a run's coverage can name (a macro, alias or `smt-lemma` rule) is listed as `no-coverage-signal`, never as uncovered.
+Coverage counts rewrite rules and equations alike: a `[function]` rule a program evaluates fires too.
+A rule none of whose compiled forms a run's coverage can name (a macro, alias or `smt-lemma` rule) is listed as `no-coverage-signal`, never as unmatched.
 A program whose class is not `comparable` cannot kill a mutant; `cause` says why:
 `timeout` (the program did not end within `time_ms`: make it end, or raise the budget),
 `unknown` (it ended without a value kink compares, for example a collection holding a `Float` or `max_depth` reached),

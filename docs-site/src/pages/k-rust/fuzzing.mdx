@@ -5,7 +5,7 @@
 This guide is for an author, a person or an LLM agent, who has a K definition and a test program and wants to do one of three jobs:
 
 - **Kill a survivor.** A mutation of the definition survives because no test program tells it apart from the definition. Find an input on which the two give different results.
-- **Cover an uncovered rule.** No test program matches some rule (its run never begins to decide the rule's condition). Find an input whose run does.
+- **Reach an unmatched rule.** No test program matches some rule (its run never begins to decide the rule's condition). Find an input whose run does.
 - **Hit a pattern.** You want a program that gets into some situation (a division by zero about to run, a balance above a limit). Find an input whose run reaches a configuration matching a K pattern.
 
 You do not hand the tool a blank page. You give it a program you already have, with some of its literals marked as *holes*, and the tool searches for hole values that do the job.
@@ -36,7 +36,7 @@ Put the executables on your `PATH`.
 The examples use two small flows over the IMP language of the K tutorial, kept in the repository:
 
 - `kink/testdata/flow/fuzz/imp`: two programs (`sum`, `primes`), seven mutations of `imp.k` that no program kills, four templates, and a pattern.
-- `kink/testdata/flow/fuzz/impu`: three programs that leave three rules of `imp.k` uncovered, and three templates.
+- `kink/testdata/flow/fuzz/impu`: three programs that leave three rules of `imp.k` unmatched, and three templates.
 
 Commands run from the repository root. `kink-flow run` and `kink-flow results` write a cache next to `FLOW.toml`, so copy a flow out of the repository before working in it.
 Each example shows the command, then the part of its output that matters. Every command prints one JSON document; save it to a file and read it with any JSON viewer.
@@ -244,7 +244,7 @@ Its status stays `survived`: `equivalent` is only the status of a mutant kink sh
 The tool cannot tell a mutation no input kills from a template that cannot show the difference. Read the edited rule: when every input that matches it gives the same result, say so and drop the mutation.
 A mutation `run` decides from its edit alone, `unkillable` or `equivalent` with reason `valid-condition`, is refused before any case (refusal stage `mutation`): no search can change a fact of the axioms.
 
-## Cover an uncovered rule
+## Reach an unmatched rule
 
 `kink-flow results` lists every rule with the programs that match it (`matched_by`) and fire it (`fired_by`):
 
@@ -256,11 +256,11 @@ kink-flow results FLOW.toml > results.json
 
 ```json
 {
-  "summary": { "rules": 17, "covered": 14, "uncovered": 3 },
+  "summary": { "rules": 17, "fired": 14, "matched": 0, "unmatched": 3 },
   "rules": [
-    { "file": "imp.k", "start_line": 47, "status": "uncovered" },
-    { "file": "imp.k", "start_line": 50, "status": "uncovered" },
-    { "file": "imp.k", "start_line": 52, "status": "uncovered" }
+    { "file": "imp.k", "start_line": 47, "status": "unmatched" },
+    { "file": "imp.k", "start_line": 50, "status": "unmatched" },
+    { "file": "imp.k", "start_line": 52, "status": "unmatched" }
   ]
 }
 ```
@@ -328,7 +328,7 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template bang-holes --matched imp.k:50
 
 kink counts a program as matching or firing a rule only when its run on every path ends in values kink can compare, so the witness must end naturally, on every path, in data.
 Only rewrite rules can be targets: a function's equation is refused before any case (`equation-target`), although `results` lists it; write a program that calls the function and target a rewrite rule that uses its result.
-Which rules coverage is meant to cover, and which rule targets are not built yet, are stated in [kink's README, section "What coverage covers"](https://github.com/midnightntwrk/k-rust/blob/main/kink/README.md#what-coverage-covers): an `uncovered` simplification, `symbolic` or ceil equation is out of scope and needs no witness.
+Which rules coverage is meant to cover, and which rule targets are not built yet, are stated in [kink's README, section "What coverage covers"](https://github.com/midnightntwrk/k-rust/blob/main/kink/README.md#what-coverage-covers): an `unmatched` simplification, `symbolic` or ceil equation is out of scope and needs no witness.
 
 ## Hit a pattern
 
@@ -657,7 +657,7 @@ On WebAssembly and KEVM, compile the definition and the mutant with `krust kcomp
 
 ## Checklist for an agent
 
-1. Run `kink-flow run` (kill) or `kink-flow results` (`--matched`, `--fired`) first, and pick the job from the document: a `survived` or `unknown` mutation, or an `uncovered` rule by `FILE:LINE`.
+1. Run `kink-flow run` (kill) or `kink-flow results` (`--matched`, `--fired`) first, and pick the job from the document: a `survived` or `unknown` mutation, or an `unmatched` rule by `FILE:LINE`.
 2. Template: start from a program in the mutation's `witnesses` (or one near the rule). Mark every data literal, with small ranges.
 3. Run with a small budget and a fixed seed: `--cases 50` to `300`, `--max-work 20000`, default `--seed 0`.
 4. `stopped: null`: append `program.fragment` (and any `premises` to `[spec] assume_joined`), run `kink-flow run --only ID` or `results`, and check the status.
