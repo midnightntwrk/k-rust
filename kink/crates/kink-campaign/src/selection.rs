@@ -59,7 +59,16 @@
 //!   left-hand side, of an attribute (priority, owise, concrete/symbolic, simplification, ...),
 //!   of an `smt-lemma` axiom or of an equation that carries `owise`, `concrete` or `symbolic`
 //!   (findings D-03: a set-aside instance with an empty `requires` is not counted); a removed or
-//!   inserted equation; a changed declaration, claim, macro, syntax or rewrite order.
+//!   inserted equation; a changed declaration, claim, macro, syntax or rewrite order. An
+//!   equation edit of its left-hand side is global because a changed pattern can match terms no
+//!   baseline run tried, an application its coverage holds nothing of.
+//!
+//! An alias of a left-hand side (K's `P #as V`, which k-rust's compiler also writes for a subterm
+//! of the left-hand side that the right-hand side builds again) is read as the pattern it names,
+//! with `P` for `V` in the rest of the axiom ([`unaliased`]): the axiom has the same instances.
+//! So an edit whose result reuses a subterm of the left-hand side, such as
+//! `plus(s(M), N) => s(plus(s(M), N))` for `plus(s(M), N) => s(plus(M, N))`, is confined to its
+//! result like any other, whatever its mutant then does (here it recurses without end).
 //!
 //! kink-flow's kill search reads the same classification ([`CompiledEdit::witness`]) over the
 //! coverage its result records keep by baseline sentence, ordering each mutant's programs once it
@@ -80,8 +89,9 @@ use k_rust::{
     backend::{ExecutionRole, execution_role},
     definition::AttributeKey,
     kore::{
-        ast::{Attributes, Definition, Pattern, Sentence},
+        ast::{Attributes, Definition, Pattern, Sentence, Sort, Variable, VariableKind},
         parser::parse_definition,
+        walk,
     },
     names::KoreAttribute,
 };
@@ -580,8 +590,11 @@ fn change(old: &Changed, new: &Changed) -> Change {
     {
         return Change::Other;
     }
+    let (Some(old), Some(new)) = (unaliased(old), unaliased(new)) else {
+        return Change::Other;
+    };
     let (Some((old_condition, old_result, old_rest)), Some((new_condition, new_result, new_rest))) =
-        (parts(old), parts(new))
+        (parts(&old), parts(&new))
     else {
         return Change::Other;
     };
@@ -593,6 +606,156 @@ fn change(old: &Changed, new: &Changed) -> Change {
         (false, true) => Change::Result,
         (true, true) => Change::Both,
         (false, false) => Change::Other,
+    }
+}
+
+/// `axiom` with every alias of its left-hand side taken out ([`Change`]'s reading of an edit):
+/// `None` when taking one out would capture a variable, which leaves the edit read as
+/// [`Change::Other`].
+///
+/// An alias is a conjunction `\and{S}(P, V)` (or `\and{S}(V, P)`) of a pattern and an element
+/// variable of the same sort at a position of the left-hand side (the term of a rewrite rule, the
+/// patterns of a function equation's `\in` arguments, the left-hand side of a direct equation).
+/// It is K's `P #as V`, and k-rust's compiler writes one for a subterm of the left-hand side that
+/// the right-hand side builds again (`minimize_term_construction`): the edit of
+/// `plus(s(M), N) => s(plus(M, N))` into `plus(s(M), N) => s(plus(s(M), N))` compiles to a
+/// left-hand side `plus(s(M) #as _Gen0, N)`. In a term position the conjunction matches exactly
+/// the terms `P` matches, under the same bindings of `P`'s variables, and binds `V` to the
+/// matched term, which is `P`'s instance under those bindings. So the axiom with the alias
+/// replaced by `P` and every other free occurrence of `V` by `P` has the same instances: it is
+/// tried and matched at the same terms, its condition decided under the same bindings, and its
+/// result built the same. An alias is an author's choice of names for the left-hand side, not a
+/// change of it, and reading an edit through its aliases is what keeps a result-only edit
+/// result-only when the edited result reuses a subterm of the left-hand side.
+///
+/// Each alias taken out is one with no alias inside `P`, so the substitution copies no alias and
+/// each round takes one conjunction out of the left-hand side.
+fn unaliased(axiom: &Changed) -> Option<Changed> {
+    let mut pattern = axiom.pattern.clone();
+    loop {
+        let mut found = None;
+        'roots: for root in matching_roots(&mut pattern, axiom.rewrite) {
+            let mut work = vec![root];
+            while let Some(node) = work.pop() {
+                let hit = alias(node)
+                    .filter(|(_, inner)| !contains_alias(inner))
+                    .map(|(variable, inner)| (variable.clone(), inner.clone()));
+                if let Some((variable, inner)) = hit {
+                    *node = inner.clone();
+                    found = Some((variable, inner));
+                    break 'roots;
+                }
+                work.extend(children_mut(node));
+            }
+        }
+        let Some((variable, inner)) = found else {
+            return Some(Changed {
+                parameters: axiom.parameters.clone(),
+                pattern,
+                attributes: axiom.attributes.clone(),
+                rewrite: axiom.rewrite,
+            });
+        };
+        pattern = pattern.substitute_free(&variable, &inner)?;
+    }
+}
+
+/// The positions of an axiom's left-hand side ([`unaliased`]): the term of a rewrite rule
+/// `\rewrites(\and(lhs, requires), right)`, the pattern of each `\in` argument of a function
+/// equation `\implies(\and(requires, matches), ..)` (its conjuncts through `\and`), and the
+/// left-hand side of a direct equation `\implies(requires, \equals(lhs, ..))`; none for another
+/// shape, which [`parts`] reads as [`Change::Other`].
+fn matching_roots(pattern: &mut Pattern, rewrite: bool) -> Vec<&mut Pattern> {
+    match pattern {
+        Pattern::Rewrites { left, .. } if rewrite => match left.as_mut() {
+            Pattern::And { arguments, .. } if arguments.len() == 2 => {
+                arguments.first_mut().into_iter().collect()
+            }
+            _ => Vec::new(),
+        },
+        Pattern::Implies { left, right, .. } if !rewrite => match left.as_mut() {
+            Pattern::And { arguments, .. } if arguments.len() == 2 => {
+                let mut roots = Vec::new();
+                let mut work = vec![&mut arguments[1]];
+                while let Some(conjunct) = work.pop() {
+                    match conjunct {
+                        Pattern::And { arguments, .. } => work.extend(arguments.iter_mut()),
+                        Pattern::In { right, .. } => roots.push(right.as_mut()),
+                        _ => {}
+                    }
+                }
+                roots
+            }
+            _ => match right.as_mut() {
+                Pattern::Equals { left, .. } => vec![left.as_mut()],
+                _ => Vec::new(),
+            },
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// The variable and the pattern of an alias `\and{S}(P, V)` or `\and{S}(V, P)` ([`unaliased`]),
+/// `V` an element variable of sort `S`.
+fn alias(pattern: &Pattern) -> Option<(&Variable, &Pattern)> {
+    let Pattern::And { sort, arguments } = pattern else {
+        return None;
+    };
+    let [first, second] = arguments.as_slice() else {
+        return None;
+    };
+    fn variable<'p>(pattern: &'p Pattern, sort: &Sort) -> Option<&'p Variable> {
+        match pattern {
+            Pattern::Variable(variable)
+                if variable.kind == VariableKind::Element && variable.sort == *sort =>
+            {
+                Some(variable)
+            }
+            _ => None,
+        }
+    }
+    variable(second, sort)
+        .map(|v| (v, first))
+        .or_else(|| variable(first, sort).map(|v| (v, second)))
+}
+
+/// Whether `pattern` holds an alias ([`alias`]).
+fn contains_alias(pattern: &Pattern) -> bool {
+    let mut work = vec![pattern];
+    while let Some(node) = work.pop() {
+        if alias(node).is_some() {
+            return true;
+        }
+        work.extend(walk::children(node));
+    }
+    false
+}
+
+/// The children of `pattern`, mutably, in [`walk::children`]'s order.
+fn children_mut(pattern: &mut Pattern) -> Vec<&mut Pattern> {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => arguments.iter_mut().collect(),
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => vec![argument.as_mut()],
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => vec![left.as_mut(), right.as_mut()],
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => vec![body.as_mut()],
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => Vec::new(),
     }
 }
 
@@ -840,6 +1003,78 @@ mod tests {
             ),
             Some(ids(&["old"])),
             "no baseline sentence: matched"
+        );
+    }
+
+    /// An alias of the left-hand side (K's `#as`, which k-rust's compiler writes for a subterm of
+    /// the left-hand side that the right-hand side builds again) names the pattern it stands for:
+    /// `f(s(M)) = s(f(M))` edited into `f(s(M)) = s(f(s(M)))` compiles to
+    /// `f(s(M) #as G) = s(f(G))`, which has the same left-hand side and only another result, so it
+    /// is witnessed by `applied`, as a rewrite rule edit of that shape is. An alias around another
+    /// pattern is still a left-hand side edit (global for an equation, `matched` for a rewrite
+    /// rule), and so is a variable aliased to two different patterns.
+    #[test]
+    fn an_alias_of_the_left_hand_side_is_no_edit_of_it() {
+        let eq = |id: &str, pattern: &str, right: &str| {
+            format!(
+                r#"axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \and{{R}}(\in{{S{{}},R}}(X0:S{{}}, {pattern}), \top{{R}}())), \equals{{S{{}},R}}(f{{}}(X0:S{{}}), \and{{S{{}}}}({right}, \top{{S{{}}}}()))) [{ID}{{}}("{id}")]"#
+            )
+        };
+        let rw = |id: &str, pattern: &str, right: &str| {
+            format!(
+                r#"axiom{{}} \rewrites{{S{{}}}}(\and{{S{{}}}}({pattern}, {TOP}), {right}) [{ID}{{}}("{id}")]"#
+            )
+        };
+        let (m, g) = ("M:S{}", "G:S{}");
+        let succ = |x: &str| format!("s{{}}({x})");
+        let f = |x: &str| format!("f{{}}({x})");
+        let alias = |p: &str, v: &str| format!(r"\and{{S{{}}}}({p}, {v})");
+        let old = eq("old", &succ(m), &succ(&f(m)));
+        assert_eq!(
+            local(&old, &eq("new", &alias(&succ(m), g), &succ(&f(g)))),
+            Some(BTreeSet::new()),
+            "an aliased subterm the result reuses: applied"
+        );
+        assert_eq!(
+            local(&old, &eq("new", &alias(&succ(m), g), &succ(&f(m)))),
+            None,
+            "an alias that changes nothing else leaves the axioms equal, which no edit pairs"
+        );
+        assert_eq!(
+            local(
+                &eq("old", &alias(&succ(m), g), &f(g)),
+                &eq("new", &alias(&succ(m), g), &succ(&f(g)))
+            ),
+            Some(BTreeSet::new()),
+            "an alias on both sides: applied"
+        );
+        assert_eq!(
+            local(&old, &eq("new", &alias(&succ(&succ(m)), g), &succ(&f(g)))),
+            None,
+            "an alias of another pattern: a left-hand side edit, global"
+        );
+        assert_eq!(
+            local(
+                &old,
+                &eq(
+                    "new",
+                    &alias(&succ(&alias(m, "H:S{}")), g),
+                    &succ(&f(&format!("p{{}}(H:S{{}}, {g})")))
+                )
+            ),
+            Some(BTreeSet::new()),
+            "nested aliases: applied"
+        );
+        let old = rw("old", &succ(m), &succ(&f(m)));
+        assert_eq!(
+            local(&old, &rw("new", &alias(&succ(m), g), &succ(&f(g)))),
+            Some(BTreeSet::new()),
+            "a rewrite rule's aliased subterm the result reuses: applied"
+        );
+        assert_eq!(
+            local(&old, &rw("new", &alias(&succ(&succ(m)), g), &succ(&f(g)))),
+            Some(ids(&["old"])),
+            "a rewrite rule's alias of another pattern: matched"
         );
     }
 

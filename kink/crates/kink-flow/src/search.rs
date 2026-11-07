@@ -785,7 +785,7 @@ impl Search<'_, '_> {
         let removed_claims = row.get("removed_claims").unwrap_or(&Value::Null);
         let witness = EditWitness::from_value(&witness, removed_claims);
         if let Some(witness) = &witness {
-            row.insert("witnesses".into(), self.witness_programs(order, witness));
+            self.insert_witnesses(row, order, witness);
         }
         for (program, record) in &stored {
             if record.outcome == CachedOutcome::Killed
@@ -911,6 +911,20 @@ impl Search<'_, '_> {
         }
     }
 
+    /// The row's `witnesses` ([`Self::witness_programs`]) and `witnesses_global`: whether the
+    /// compiled edit is not site-local, so that every program is a witness whatever its coverage
+    /// reaches (an equation's left-hand side or attribute, a declaration, ...;
+    /// [`EditWitness::global`]).
+    fn insert_witnesses(
+        &self,
+        row: &mut Map<String, Value>,
+        order: &[usize],
+        witness: &EditWitness,
+    ) {
+        row.insert("witnesses".into(), self.witness_programs(order, witness));
+        row.insert("witnesses_global".into(), json!(witness.global));
+    }
+
     /// The row's `witnesses`: the programs of `order` (O) whose coverage witnesses the compiled
     /// edit ([`witnesses`]), in O's order, which is the order a live call tries them in.
     fn witness_programs(&self, order: &[usize], witness: &EditWitness) -> Value {
@@ -935,7 +949,7 @@ impl Search<'_, '_> {
         kept: &mut Option<EditWitness>,
     ) {
         if let Some(witness) = &live.witness {
-            row.insert("witnesses".into(), self.witness_programs(order, witness));
+            self.insert_witnesses(row, order, witness);
             *kept = Some(witness.clone());
         }
     }
@@ -1276,6 +1290,7 @@ impl Search<'_, '_> {
         // Null until the outcome file's compiled edit ([`Search::valid_records`]) or a live call's
         // ([`Search::set_witnesses`]) gives it, or an empty O makes it empty.
         row.insert("witnesses".into(), Value::Null);
+        row.insert("witnesses_global".into(), Value::Null);
         let identity = facts.identity;
         row.insert(
             "identity".into(),
@@ -2941,6 +2956,7 @@ fn finish(
 ) -> Value {
     row.entry("reason").or_insert(Value::Null);
     row.entry("witnesses").or_insert(Value::Null);
+    row.entry("witnesses_global").or_insert(Value::Null);
     row.entry("rules").or_insert(Value::Null);
     row.entry("identity").or_insert(Value::Null);
     row.entry("unusable_killer").or_insert(Value::Null);

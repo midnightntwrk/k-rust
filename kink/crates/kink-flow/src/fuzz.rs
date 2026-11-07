@@ -163,8 +163,11 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// `template-not-reaching` are `witnesses-not-computed`, `no-witness` and `template-not-a-witness`;
 /// a version 5 document's names are the old ones. Version 7 adds the refusal at stage `stop`
 /// (reason `unsupported-verb`) of a corpus with `[stop]`, with its `stopped` value `refused` and
-/// its `action`. `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 7;
+/// its `action`. Version 8 adds `template.last_run.mutation.witnesses_global`, the last run row's
+/// `witnesses_global`, and the warning `global-witnesses`: the mutation's edit is not site-local,
+/// so every program is a witness by default, the template included, whatever its case reaches.
+/// `tests/formats.rs` ties the version to the document's shape.
+pub const FUZZ_VERSION: u32 = 8;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -1346,6 +1349,10 @@ fn last_run(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect::<Vec<_>>();
+    // The edit is not site-local (an equation's left-hand side or attribute, a declaration, ...):
+    // every program is a witness, whatever its coverage reaches, since a changed pattern can match
+    // terms no baseline run tried.
+    let global = known && entry["witnesses_global"] == true;
     let template_id = row.and_then(|row| row["id"].as_str());
     let status = entry["status"].as_str().unwrap_or_default();
     if status == crate::search::UNKILLABLE {
@@ -1384,6 +1391,19 @@ fn last_run(
                  needed, or holes that make the run do so",
             ));
         }
+    } else if global {
+        if crate::report::SURVIVOR_STATUSES.contains(&status) {
+            warnings.push(warning(
+                "global-witnesses",
+                "the mutant's compiled edit is not confined to what its edited rules do once \
+                 they apply (it edits an equation's left-hand side or an attribute, removes or \
+                 inserts an equation, or changes a declaration), so in the last run every \
+                 program is a witness by default, not because its coverage reaches an edited \
+                 rule: a changed pattern can match terms no baseline run tried, so the template \
+                 is a witness whatever it reaches; prefer one whose program reaches the edited \
+                 rule, one that the `results` document lists in that rule's `matched_by`",
+            ));
+        }
     } else if template_id.is_none_or(|id| !witnesses.iter().any(|r| r == id)) {
         warnings.push(warning(
             "template-not-a-witness",
@@ -1415,6 +1435,7 @@ fn last_run(
             "status": entry["status"],
             "reason": entry["reason"],
             "witnesses": if known { json!(witnesses) } else { Value::Null },
+            "witnesses_global": if known { json!(global) } else { Value::Null },
         },
         "suggested_templates": suggested,
     })

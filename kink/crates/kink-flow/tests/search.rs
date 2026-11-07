@@ -794,6 +794,10 @@ note = "right-hand side"
             json!([])
         );
         assert_eq!(
+            mutation(&document, "countdown-escapes")["witnesses_global"],
+            Value::Null
+        );
+        assert_eq!(
             calls(&document, "countdown-escapes"),
             Vec::<Vec<String>>::new()
         );
@@ -1542,6 +1546,14 @@ note = "right-hand side"
             assert_eq!(row["killer"], killer, "{id}");
             assert_eq!(row["weakening"], Value::Null, "{id}");
         }
+        // An edit of an equation's result is witnessed by the programs that applied it; an edit
+        // of its attributes by every program, since a changed rank or pattern can make it apply
+        // where no baseline run tried it.
+        assert_eq!(
+            mutation(&document, "f-zero-value")["witnesses_global"],
+            false
+        );
+        assert_eq!(mutation(&document, "f-zero-attr")["witnesses_global"], true);
         // A guard rewritten into a narrower one is missed by the syntactic test and runs: f1
         // meets the open `f(1)` (unknown), as the mixed mutation's f0 meets the open `f(0)`. A
         // changed rank that no overlap reads survives; a deleted rewrite rule is killed.

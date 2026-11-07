@@ -15,6 +15,10 @@
 //!   or `ensures`, programs that matched it (`matched`) otherwise, every program for an edit that
 //!   is not site-local; read from the command's live call, or from the
 //!   outcome file on a row tier 1 decided with no call, and `null` when there is neither;
+//! - `witnesses_global`: whether the edit is not site-local (an equation's left-hand side or
+//!   attribute, a removed or inserted equation, a declaration, ...), so that every program is a
+//!   witness whatever its coverage reaches, since a changed pattern can match terms no baseline
+//!   run tried; `null` when `witnesses` is `null` or no program is comparable;
 //! - `executed`: each program the mutant ran on, with its outcome and, when the outcome is
 //!   neither `agree` nor `distinguish`, a `cause` read from the runner's evidence for that run;
 //! - `action`: what the status asks of the LLM.
@@ -161,8 +165,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// since `result` may name cells inside `?` and `*` cells, each left out (or compared) in every
 /// instance, so a survivor of a `cells` slot may be relative to cells left out of each instance,
 /// and a narrowing's `compared` names the key of each Map that encloses a named cell
-/// ([`crate::observed`]).
-pub const RUN_VERSION: u64 = 25;
+/// ([`crate::observed`]); 26 since an alias of an edited axiom's left-hand side (K's `#as`, which
+/// k-rust's compiler writes for a subterm the right-hand side builds again) is read as the pattern
+/// it names, so an edit whose result reuses a subterm of the left-hand side is confined to its
+/// result and a row's `witnesses` can name fewer programs, and each row carries
+/// `witnesses_global`, whether its witnesses are every program because the edit is not site-local.
+pub const RUN_VERSION: u64 = 26;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
