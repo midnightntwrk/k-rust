@@ -529,6 +529,17 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// and is re-pinned. That shortcut now rests on k-rust's property test of it
 /// (`tests::definedness`) and on its debug-build check (`definedness::check_ceil_free`), not on a
 /// proof; kink-flow's README says so among the trusted claims. The rest is byte-identical.
+///
+/// Solver-only observation members (the k-rust commit after which observation readings and their
+/// solver-only helpers exist only where a solver query or a test builds them; re-pinned when it
+/// landed, as its own checks did not run this test): the `Field` that `Products::field` builds
+/// stores its column only in builds with Z3 or tests (`#[cfg(any(feature = "z3", test))]`), since
+/// only `Products::field_value` and `Products::reconstruction`, which exist under the same
+/// condition for the solver's queries, read it. The function's returned key and column, every
+/// condition under which it returns `None`, and the head, sorts, input and output of the `Field`
+/// are the same in every build, and no function this test pins reads a `Field`'s column. So the
+/// product catalog admits the same rows and kink's reading is unchanged. `products_field` is
+/// re-pinned; the rest is byte-identical.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -826,7 +837,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "products_field",
-                "86d58aff8f9ce789b754d01d2efb70109b15ef16aee356ad742c565dea5a1c45"
+                "200d31a89c6ee043848720636467c1874fed777389545a4bb3d6526126b6abc2"
             ),
             (
                 "list_domain",
