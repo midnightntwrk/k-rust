@@ -4595,6 +4595,139 @@ fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
     "#]].assert_debug_eq(&outcomes);
 }
 
+/// Edits of `go` in [`DEEPEST_CASES`]'s `instance-list`, a rule for the configuration whose
+/// entry of the cores steps one core, to which KRS adds the core's key cell `<cid>`, binding the
+/// key the entry's subject matches, which `go` passes to `cidPlus`.
+#[cfg(feature = "kink")]
+const STEPPED_MUTATIONS: &str = r##"[[mutation]]
+id = "step-two"
+misunderstanding = "the step adds two"
+
+  [[mutation.edit]]
+  rule = "ORG-KRS-GROUPS-SMT.go"
+  find = "cidPlus ( 1 )"
+  replace = "cidPlus ( 2 )"
+
+[[mutation]]
+id = "rekey"
+misunderstanding = "the step renumbers the core"
+
+  [[mutation.edit]]
+  rule = "ORG-KRS-GROUPS-SMT.go"
+  find = "<cid> Krs_KeyCore:Int </cid>"
+  replace = "<cid> Krs_KeyCore:Int => 1 </cid>"
+
+[[mutation]]
+id = "other-core"
+misunderstanding = "the step is core 1's"
+
+  [[mutation.edit]]
+  rule = "ORG-KRS-GROUPS-SMT.go"
+  find = "<cid> Krs_KeyCore:Int </cid>"
+  replace = "<cid> 1 </cid>"
+
+  [[mutation.edit]]
+  rule = "ORG-KRS-GROUPS-SMT.go"
+  find = "#instance ( Krs_KeyCore:Int )"
+  replace = "#instance ( 1 )"
+
+[[mutation]]
+id = "other-core-key-kept"
+misunderstanding = "the step is core 1's, evaluated in the core it steps"
+
+  [[mutation.edit]]
+  rule = "ORG-KRS-GROUPS-SMT.go"
+  find = "<cid> Krs_KeyCore:Int </cid>"
+  replace = "<cid> 1 </cid>"
+"##;
+
+/// An edit of a rule whose entry of a collection steps one instance is judged as an edit of a
+/// rule about that instance, in either spelling of `instance-list`. `step-two` edits the step
+/// and leaves the key cell and the key `cidPlus` receives alone: it is judged, runs, and the
+/// corpus kills it (`done ( 2 )` against `done ( 1 )`). The key cell KRS adds is the key of the
+/// core the entry's subject matches, whether or not the author wrote it: `rekey` writes it,
+/// which every Rust source that writes the core's `cid` in the step does, and is refused with
+/// the reason KRS gives that source (`map-collection-key`, an update that changes the key); `other-core` matches core 1, as a
+/// source that writes `cid: 1` in the entry's pattern does, with the key `cidPlus` receives
+/// following, and is judged, runs and is killed, since the one core is core 0 and `go` no longer
+/// steps it; `other-core-key-kept` leaves `cidPlus` the key of a core the rule no longer binds,
+/// which no source writes, and is refused, KRS deriving the key the edited rule passes.
+#[cfg(feature = "kink")]
+#[test]
+fn an_edit_of_an_entry_that_steps_one_instance_is_judged_as_that_instances_rule() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut spellings = Vec::new();
+    for (name, rules) in &DEEPEST_CASES[3..] {
+        let manifest = instance_definitions(
+            &temporary.path().join(name),
+            "",
+            &[("smt", &format!("{SMT}{TV_PLUS}{CID_PLUS}{rules}"))],
+        )
+        .remove(0);
+        let package = manifest.parent().unwrap();
+        let corpus = package.join("kink");
+        fs::create_dir_all(corpus.join("cases")).unwrap();
+        fs::create_dir_all(corpus.join("mutations")).unwrap();
+        fs::write(
+            corpus.join("FLOW.toml"),
+            "[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"go\"\nfile = \"cases/go.prog\"\n",
+        )
+        .unwrap();
+        fs::write(corpus.join("cases/go.prog"), "go\n").unwrap();
+        fs::write(corpus.join("mutations/stepped.toml"), STEPPED_MUTATIONS).unwrap();
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, target.path());
+        let output = process
+            .current_dir(package)
+            .args(["kink", "run", "--full", "--corpus", "kink"])
+            .args(["--package", "smt", "--definition", "main"])
+            .args(["--dependency", "lib:main"])
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // The refused mutations are invalid, which the run's status reports.
+        assert_eq!(output.status.code(), Some(2), "{name}:\n{stdout}\n{stderr}");
+        let run: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let mutations = run["mutations"].as_array().unwrap();
+        let rows = mutations
+            .iter()
+            .map(|row| {
+                format!(
+                    "{} {} {}",
+                    row["id"].as_str().unwrap(),
+                    row["status"].as_str().unwrap(),
+                    row["reason"].as_str().unwrap_or("-"),
+                )
+            })
+            .collect::<Vec<_>>();
+        // The key write is refused with the reason KRS gives the update of the core that
+        // changes its key, not a rule for the core's group.
+        let rekey = mutations
+            .iter()
+            .find(|row| row["id"] == "stepped/rekey")
+            .unwrap();
+        let detail = rekey["detail"].as_str().unwrap_or_default();
+        assert!(
+            detail.contains(&krs_ir::subject::key_update_reason("core", "cid")),
+            "{name}: {rekey:#}"
+        );
+        spellings.push((*name, rows));
+    }
+    assert_eq!(spellings[0].1, spellings[1].1, "{spellings:#?}");
+    expect_test::expect![[r#"
+        [
+            "stepped/step-two killed -",
+            "stepped/rekey invalid-mutation krs::analysis::map-collection-key",
+            "stepped/other-core killed -",
+            "stepped/other-core-key-kept invalid-mutation derived-mismatch",
+        ]
+    "#]]
+    .assert_debug_eq(&spellings[0].1);
+}
+
 /// The clauses of [`a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet`]:
 /// a table clause at the main cell, inside a core, whose `have` reads a
 /// device's map, beside the cores, or the memory, outside every instance.
