@@ -2493,8 +2493,11 @@ fn document(
         "guards": crate::guards::summary(&rules),
         "mismatches": mismatches.len(),
     });
-    json!({
+    crate::with_z3_build(json!({
         "schema": "kink-flow-results",
+        // Added to 11 without a new version, since a document of the no-Z3 profile is the
+        // document it was and no command reads a `results` document back: under the Z3 profile
+        // `z3`, the Z3 build the classes were decided on (`crate::with_z3_build`).
         // 11 since KINK-guard-coverage: a rule's status is named for the predicate it tests:
         // `fired` (some comparable program fired it), `matched` (some matched it and none fired
         // it) and `unmatched` replace `covered` (which read `matched` alone, so it named rules no
@@ -2584,7 +2587,7 @@ fn document(
         "untargeted_rules": null,
         "data": null,
         "result": null,
-    })
+    }))
 }
 
 /// `rows` (program rows of a document), each comparable row marked `unable_to_kill:

@@ -3716,7 +3716,7 @@ fn document(
             )
         })
         .collect::<Map<_, _>>();
-    let mut document = json!({
+    let mut document = crate::with_z3_build(json!({
         "schema": RUN_SCHEMA,
         "version": RUN_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
@@ -3753,7 +3753,7 @@ fn document(
         "untargeted_rules": accounting.untargeted_rules,
         "data": accounting.data,
         "lock": accounting.lock,
-    });
+    }));
     // Absent without a stop, so a document without one is the document it was before stops.
     if let Some(stop) = accounting.stop.and_then(FlowManifest::stop_value) {
         document["stop"] = stop;
@@ -3771,7 +3771,7 @@ fn run_document_build() -> Value {
 /// The run document of a mutation list that does not decode, for a run under `schedule`: it names
 /// the schedule, and its `matrix` is null, since no specification was admitted for it.
 pub fn mutation_list_refused(detail: &str, schedule: ScheduleMode) -> Value {
-    json!({
+    crate::with_z3_build(json!({
         "schema": RUN_SCHEMA,
         "version": RUN_VERSION,
         "schedule": schedule_name(schedule),
@@ -3781,14 +3781,14 @@ pub fn mutation_list_refused(detail: &str, schedule: ScheduleMode) -> Value {
         "kink_build": run_document_build(),
         "kink": kink_campaign::kink_identity(),
         "mutation_list": {"outcome": "refused", "detail": detail},
-    })
+    }))
 }
 
 /// The run document of a run whose lock at `path` does not decode (README, "The killer record"):
 /// it names the schedule and the refused lock (`lock: {path, outcome: "refused", detail}`), and has
 /// no specification and no mutation row, since the lock is read before admission.
 pub fn lock_refused(path: &Path, detail: &str, schedule: ScheduleMode) -> Value {
-    json!({
+    crate::with_z3_build(json!({
         "schema": RUN_SCHEMA,
         "version": RUN_VERSION,
         "schedule": schedule_name(schedule),
@@ -3798,7 +3798,7 @@ pub fn lock_refused(path: &Path, detail: &str, schedule: ScheduleMode) -> Value 
         "kink_build": run_document_build(),
         "kink": kink_campaign::kink_identity(),
         "lock": crate::lock::refused_value(path, detail),
-    })
+    }))
 }
 
 /// The path of the run document of the cache `cache` (or the manifest's default cache).

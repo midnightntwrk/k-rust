@@ -219,8 +219,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// names the first line in which the file differs (`lock.difference`, [`crate::lock`]), and a run
 /// refused before its lock is read (a manifest or a mutation list that does not decode) carries
 /// the lock it left unwritten, and an `equivalent` row withdraws no claim (`removed_claims`
-/// empty), since its mutant is the specification's theory.
-pub const RUN_VERSION: u64 = 31;
+/// empty), since its mutant is the specification's theory; 32 since under the Z3 profile the
+/// document names the Z3 build its verdicts were decided on (`z3`, [`crate::with_z3_build`]), and a
+/// lock compared with its rendering names each header key whose value differs
+/// (`lock.header_changes`), so that `--locked` says when a lock was recorded on another Z3 build.
+pub const RUN_VERSION: u64 = 32;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

@@ -143,3 +143,19 @@ pub fn after_cold(name: &str, manifest: &str, mutations: &str, into: &Path) -> V
     drop(lock);
     cold
 }
+
+/// The lines a verdicts rendering of this build writes for its solver, after `document`:
+/// `profile`, and under the Z3 profile the Z3 build, `z3_version` and, when the build names its
+/// library, `z3_library_sha256`, read from k-rust's `z3_build` rather than from kink-flow.
+pub fn solver_lines() -> String {
+    let profile = if cfg!(feature = "z3") { "z3" } else { "no-z3" };
+    let mut lines = format!("profile = \"{profile}\"\n");
+    if cfg!(feature = "z3") {
+        let build = k_rust::backend::z3_build().expect("a Z3 build links Z3");
+        lines.push_str(&format!("z3_version = \"{}\"\n", build.version));
+        if let Some(digest) = &build.library_sha256 {
+            lines.push_str(&format!("z3_library_sha256 = \"{digest}\"\n"));
+        }
+    }
+    lines
+}

@@ -683,7 +683,12 @@ impl Verb {
         };
         let mut document = manifest_refused(error);
         document["schema"] = json!(schema);
-        document
+        // A refused `results` or `run` document is rendered (`--output verdicts`), and every
+        // rendering under the Z3 profile names the build (`crate::with_z3_build`).
+        match self {
+            Self::Results | Self::Run => crate::with_z3_build(document),
+            _ => document,
+        }
     }
 
     /// What the thread that runs the verb is named in a panic's message.

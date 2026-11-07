@@ -7,6 +7,8 @@
 //! any run's time, so no row depends on the clock. Statuses are always the ones a run without a
 //! lock gives: the record orders the work and names the killer, never a status.
 
+mod flow_support;
+
 use kink_campaign::ScheduleMode;
 use kink_flow::{
     FlowManifest, MutationList,
@@ -669,7 +671,8 @@ mod kink_tier {
 
     /// `--locked` writes nothing: an unchanged lock gives the statuses' exit; a lock the run
     /// would change, or an absent one, is a finding (exit 1, `stale`, its `changes`), and the
-    /// binary names each change on stderr.
+    /// binary names each change on stderr. A lock recorded on another Z3 build is a finding with
+    /// every row agreeing, its header's differing keys named (`header_changes`).
     #[test]
     #[ignore = "kink"]
     fn locked() {
@@ -735,6 +738,66 @@ mod kink_tier {
             stderr.contains("verdicts.lock: add-swaps-operands: killed -> survived"),
             "{stderr}"
         );
+        // The recorded rows under another Z3 build's header: every verdict agrees, and it is
+        // still a finding, each header key that differs named.
+        let zeros = "0".repeat(64);
+        let foreign = recorded.replacen(
+            &flow_support::solver_lines(),
+            &format!(
+                "profile = \"z3\"\nz3_version = \"5.3.3.0 other\"\nz3_library_sha256 = \"{zeros}\"\n"
+            ),
+            1,
+        );
+        assert_ne!(foreign, recorded);
+        fs::write(&lock, &foreign).unwrap();
+        let output = binary(&manifest, &["--lock", "verdicts.lock", "--locked"]);
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["version"], 32);
+        assert_eq!(
+            (&document["lock"]["status"], &document["lock"]["header"]),
+            (&json!("stale"), &json!(true))
+        );
+        assert_eq!(document["lock"]["changes"], json!([]), "{document:#}");
+        let header_changes = &document["lock"]["header_changes"];
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(
+                "verdicts.lock: the header's z3_version differs: recorded \"5.3.3.0 other\", now "
+            ) && stderr.contains("(another Z3 build)"),
+            "{stderr}"
+        );
+        if cfg!(feature = "z3") {
+            let build = k_rust::backend::z3_build().unwrap();
+            let digest = build
+                .library_sha256
+                .clone()
+                .expect("this build names its Z3 library");
+            assert_eq!(
+                *header_changes,
+                json!([
+                    {"key": "z3_version", "recorded": "5.3.3.0 other", "now": build.version},
+                    {"key": "z3_library_sha256", "recorded": zeros, "now": digest},
+                ])
+            );
+            assert!(
+                stderr.contains(&format!(
+                    "verdicts.lock: the header's z3_library_sha256 differs: recorded \"{zeros}\", \
+                     now \"{digest}\" (another Z3 build)"
+                )),
+                "{stderr}"
+            );
+        } else {
+            assert_eq!(
+                *header_changes,
+                json!([
+                    {"key": "profile", "recorded": "z3", "now": "no-z3"},
+                    {"key": "z3_library_sha256", "recorded": zeros, "now": null},
+                    {"key": "z3_version", "recorded": "5.3.3.0 other", "now": null},
+                ])
+            );
+        }
+        assert_eq!(fs::read_to_string(&lock).unwrap(), foreign);
     }
 
     /// The library's default options name no lock: a run writes nothing beside the manifest.

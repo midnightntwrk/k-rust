@@ -855,6 +855,55 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     );
 }
 
+/// Under the Z3 profile a document names the Z3 build its verdicts were decided on (`z3`, k-rust's
+/// `z3_build`) and the rendering's header names it after `profile` (`z3_version`, and
+/// `z3_library_sha256` when the build names its library); under the portable profile neither the
+/// document nor the rendering names a Z3 build. The rendering names exactly what the document
+/// holds: a build that could not name its library has no digest line.
+#[test]
+fn the_header_names_the_z3_build_under_the_z3_profile() {
+    let dir = calc("z3-build");
+    let (document, status) = command(
+        &dir,
+        "results",
+        CommandFiles::default(),
+        &[],
+        FrontEnd::default(),
+    );
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let rendered = verdicts(&document).unwrap();
+    assert!(
+        rendered.starts_with(&format!(
+            "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"results\"\n{}\n",
+            flow_support::solver_lines()
+        )),
+        "{rendered}"
+    );
+    if cfg!(feature = "z3") {
+        let build = k_rust::backend::z3_build().unwrap();
+        assert_eq!(
+            document["z3"],
+            json!({"version": build.version, "library_sha256": build.library_sha256})
+        );
+        assert!(rendered.contains("\nz3_version = "), "{rendered}");
+    } else {
+        assert_eq!(document.get("z3"), None, "{document:#}");
+        assert!(!rendered.contains("z3_"), "{rendered}");
+    }
+    let unnamed = json!({
+        "schema": "kink-flow-run",
+        "profile": "z3",
+        "z3": {"version": "5.3.3.0", "library_sha256": null},
+        "spec": {"outcome": "admitted"},
+        "mutations": [],
+    });
+    assert_eq!(
+        verdicts(&unnamed).unwrap(),
+        "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\nprofile = \"z3\"\n\
+         z3_version = \"5.3.3.0\"\n\n[spec]\noutcome = \"admitted\"\n"
+    );
+}
+
 #[test]
 fn the_command_line_prints_verdicts() {
     let dir = calc("command-line");

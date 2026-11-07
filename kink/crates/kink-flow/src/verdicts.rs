@@ -7,9 +7,11 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 7
+//! version = 8
 //! document = "results"
-//! profile = "no-z3"
+//! profile = "z3"
+//! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
+//! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
 //! krs_annotation = 4
 //!
 //! [spec]
@@ -24,7 +26,20 @@
 //!
 //! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
 //! class, a status and a cell can move between `killed`, `unknown` and `survived` with the solver's
-//! answers, so a diff of two renderings across profiles shows why. A `results` document the KRS
+//! answers, so a diff of two renderings across profiles shows why. Under the Z3 profile it also
+//! names the Z3 build the answers came from (the document's `z3`): `z3_version`, Z3's own version
+//! string, and `z3_library_sha256`, the SHA-256 of the library file Z3's code comes from (k-rust
+//! `z3_build`; the archive of a static link, the shared library of a dynamic one). Whether a
+//! resource-bounded query is decided is a function of the query, its units and the machine code
+//! that counts them, so a kink build linking another Z3 can move a class, a status or a killer
+//! with the same inputs and the same profile; the two lines are the profile's argument applied
+//! to the build. The digest is the identity: two builds of one release (another compiler, other
+//! flags, another architecture) can count units differently and report one version string, which
+//! is there so that a reader sees which release moved. A build that cannot name its library (a
+//! shared library replaced since it was mapped, a static link whose archive the build could not
+//! name) has no `z3_library_sha256` line, the caches being off for it for the same reason
+//! (kink-native `UNNAMED_Z3_BUILD`). The portable profile renders neither line. A `results`
+//! document the KRS
 //! front end annotated also has `krs_annotation`, the version of that annotation (the document's
 //! `krs.version`), since a rule's KRS item is spelled as the annotation spells it: from version 2
 //! as a stop reads it (`crate::plus_zero`, `lang::step`), before it as the `// KRS` line names it
@@ -61,9 +76,9 @@
 //! so it prints what `run --output verdicts` printed; when there is no stored run document to
 //! render, the reason is the error ([`verdicts`]).
 //!
-//! Left out, each because it is not a function of the specification, the corpus, the budget and
-//! the killer record: timings, digests, the build's identity (its solver profile is in the
-//! header), the cache's state, the schedule, and the reason of any other status, since the reason
+//! Left out, each because it is not a function of the specification, the corpus, the budget, the
+//! killer record and the solver (the profile and, under Z3, its build, in the header): timings,
+//! digests, kink's own build identity, the cache's state, the schedule, and the reason of any other status, since the reason
 //! of `unknown` is the first exclusion in run order. A status does not depend on the order or the
 //! cache while no `budget.time_ms` bound fires (README, the program order), and neither does a
 //! full run's `killed_by`: it is the set of comparable programs whose cell is a proved difference,
@@ -89,8 +104,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// run has its `killer` under both schedules (the recorded killer while it kills, else the first
 /// in the search's order), the header no longer names the schedule, a run rendering no longer has
 /// `krs_annotation`, and a refused lock has its `[lock]` section; 7 since a `results` rendering
-/// lists each fired or matched rule whose guard misses an outcome (`[[guard]]`).
-pub const VERDICTS_VERSION: u64 = 7;
+/// lists each fired or matched rule whose guard misses an outcome (`[[guard]]`); 8 since the
+/// header names the Z3 build under the Z3 profile (`z3_version`, `z3_library_sha256`), so that a
+/// lock whose verdicts moved with the solver build says why, and one recorded on another build is
+/// a finding under `--locked` ([`crate::lock`]).
+pub const VERDICTS_VERSION: u64 = 8;
 
 /// The rendering of a `results` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -142,6 +160,14 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     line(&mut text, "document", &string(kind));
     if let Some(value) = document["profile"].as_str() {
         line(&mut text, "profile", &string(value));
+    }
+    // The Z3 build, which a document has under the Z3 profile only (`crate::with_z3_build`); its
+    // digest when the build could name its library.
+    if let Some(version) = document["z3"]["version"].as_str() {
+        line(&mut text, "z3_version", &string(version));
+    }
+    if let Some(digest) = document["z3"]["library_sha256"].as_str() {
+        line(&mut text, "z3_library_sha256", &string(digest));
     }
     if kind == "results"
         && let Some(annotation) = document["krs"]["version"].as_u64()

@@ -103,3 +103,22 @@ pub use verdicts::verdicts;
 pub fn k_rust_revision() -> String {
     k_rust::build_identity()
 }
+
+/// `document`, a `results` or `run` document, with `z3`, the Z3 build of this process
+/// (kink-native `z3_build_value`: `{version, library_sha256}`), under the Z3 profile; under the
+/// no-Z3 profile `document` unchanged, so a portable document is the document it was before the
+/// member existed.
+///
+/// Under the Z3 profile with resource-bounded queries, which is the only mode in which kink
+/// stores or renders a solver-dependent verdict as reproducible, every solver answer is a
+/// function of the query, its units and the machine code that counts them. A class, a status
+/// and a recorded killer are therefore functions of the Z3 build as much as of the `profile`, and
+/// the document names both, so that its verdicts rendering and a `verdicts.lock` name the build
+/// they were decided on ([`crate::verdicts`]).
+#[must_use]
+pub fn with_z3_build(mut document: serde_json::Value) -> serde_json::Value {
+    if let Some(build) = kink_native::z3_build_value() {
+        document["z3"] = build;
+    }
+    document
+}

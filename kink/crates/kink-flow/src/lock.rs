@@ -43,6 +43,9 @@ pub struct Lock {
     pub text: Option<String>,
     /// The rows, in the file's order.
     pub rows: Vec<LockRow>,
+    /// The file's header: each key outside its `[[mutation]]` rows (a section's as
+    /// `section.key`) with its value, read only to name what changed ([`header_values`]).
+    pub header: BTreeMap<String, Value>,
 }
 
 /// One `[[mutation]]` of a lock.
@@ -136,6 +139,7 @@ impl Lock {
             path: path.to_path_buf(),
             text: Some(text),
             rows,
+            header: header_values(&table),
         })
     }
 
@@ -164,8 +168,20 @@ impl Lock {
     /// Settle the lock after a run whose document is `document`: compare the rendering the run
     /// would write with the file, and write it after a run that judged every mutation of its list
     /// in search mode without `--locked`. The value is the document's `lock`: `{path, status,
-    /// reason, header, changes, difference}` (README, "The killer record"), with `detail` when a
-    /// write failed; the flag is false when it did.
+    /// reason, header, header_changes, changes, difference}` (README, "The killer record"), with
+    /// `detail` when a write failed; the flag is false when it did.
+    ///
+    /// Under `--locked` a lock that differs from the rendering only in its header is `stale`,
+    /// like one whose rows differ. In particular a lock recorded on another Z3 build (its
+    /// `z3_version` or `z3_library_sha256`) is a finding even when every row agrees. Under the Z3
+    /// profile a verdict is a function of the inputs and of the solver build, so the build is part
+    /// of the instrument the lock was measured with, as the profile is. `--locked` asks whether
+    /// this run, on this instrument, writes the committed lock. A run on another build cannot
+    /// confirm that, because rows that agree on today's corpus do not make two builds
+    /// interchangeable for the next edit. Passing it would leave the repository's lock naming a
+    /// build no check ran on, so a later moved row would be blamed on the corpus while the header
+    /// misnamed the solver. When every row agrees the fix is a header-only rewrite (a run
+    /// without `--locked`), which review sees as exactly that.
     #[must_use]
     pub fn settle(&self, store: &Store, document: &Value, run: Settle<'_>) -> (Value, bool) {
         let path = self.path.display().to_string();
@@ -181,6 +197,7 @@ impl Lock {
             .text
             .as_deref()
             .is_none_or(|old| head(old) != head(&text));
+        let header_changes = self.header_changes(&text);
         let changes = self.changes(document, run.only);
         // Under `--only` the rows it did not select may differ from the file's: only the selected
         // rows and the header are compared, so no first difference of the whole file is named.
@@ -195,6 +212,7 @@ impl Lock {
                 "status": status,
                 "reason": reason,
                 "header": header,
+                "header_changes": header_changes,
                 "changes": changes,
                 "difference": difference,
             })
@@ -277,6 +295,36 @@ impl Lock {
         json!({"kind": "text", "line": line, "recorded": recorded, "now": now})
     }
 
+    /// Each key of the header whose value differs between the file and `text`, the rendering the
+    /// run would write: `{key, recorded, now}`, either side null where that side has no such key,
+    /// in the order of the rendering's lines, then the keys only the file has, in key order. Empty
+    /// when the file is absent (there is no recorded header to compare) or the headers' values are
+    /// equal (they may still differ in a comment or spacing, which `header` and `difference`
+    /// show).
+    fn header_changes(&self, text: &str) -> Vec<Value> {
+        if self.text.is_none() {
+            return Vec::new();
+        }
+        let now = text
+            .parse::<toml::Table>()
+            .map(|table| header_values(&table))
+            .unwrap_or_default();
+        let mut keys = header_key_order(text);
+        keys.retain(|key| now.contains_key(key));
+        keys.extend(
+            self.header
+                .keys()
+                .filter(|key| !now.contains_key(*key))
+                .cloned(),
+        );
+        keys.into_iter()
+            .filter_map(|key| {
+                let (recorded, now) = (self.header.get(&key), now.get(&key));
+                (recorded != now).then(|| json!({"key": key, "recorded": recorded, "now": now}))
+            })
+            .collect()
+    }
+
     /// The mutation ids of the rendering `text`, in its order; none for a text that does not
     /// decode, which a rendering always does.
     fn read_text(text: &str) -> Vec<String> {
@@ -349,9 +397,61 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
         "status": "not-written",
         "reason": reason,
         "header": false,
+        "header_changes": [],
         "changes": [],
         "difference": null,
     })
+}
+
+/// The header of a decoded lock or rendering: each key outside its `[[mutation]]` rows, a
+/// section's keys as `section.key`, with its value as JSON (a string, an integer or a boolean
+/// as itself, any other value as its TOML text).
+fn header_values(table: &toml::Table) -> BTreeMap<String, Value> {
+    let json = |value: &toml::Value| match value {
+        toml::Value::String(text) => json!(text),
+        toml::Value::Integer(number) => json!(number),
+        toml::Value::Boolean(flag) => json!(flag),
+        other => json!(other.to_string()),
+    };
+    let mut header = BTreeMap::new();
+    for (key, value) in table {
+        match value {
+            toml::Value::Table(section) => {
+                for (inner, value) in section {
+                    header.insert(format!("{key}.{inner}"), json(value));
+                }
+            }
+            _ if key == "mutation" => {}
+            value => {
+                header.insert(key.clone(), json(value));
+            }
+        }
+    }
+    header
+}
+
+/// The header keys of a rendering's text, in the order of its lines, as [`header_values`]
+/// names them: a key before any table, or `section.key` in a `[section]`; none in a
+/// `[[mutation]]` row.
+fn header_key_order(text: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut section: Option<&str> = Some("");
+    for line in text.split('\n') {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[[") {
+            section = None;
+        } else if let Some(name) = trimmed.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            section = Some(name.trim());
+        } else if let (Some(section), Some((key, _))) = (section, trimmed.split_once('=')) {
+            let key = key.trim();
+            keys.push(if section.is_empty() {
+                key.to_owned()
+            } else {
+                format!("{section}.{key}")
+            });
+        }
+    }
+    keys
 }
 
 /// The `id` line of each `[[mutation]]` row of a lock's text, in order, with its line number
@@ -388,10 +488,14 @@ pub fn refused_value(path: &Path, detail: &str) -> Value {
 }
 
 /// One line per change of a run document whose lock is `stale` (`--locked` found that the run
-/// would change it), as `kink-flow` prints them on stderr: `verdicts.lock: plus/a: killer t4 ->
-/// t2 (t4: not-in-corpus)`, `verdicts.lock: plus/c: killed -> survived`; when neither the header
-/// nor any row's verdict differs, one line naming the first difference (`lock.difference`: the
-/// rows' order, or a line of text); empty otherwise.
+/// would change it), as `kink-flow` prints them on stderr: one per header key whose value differs
+/// (`lock.header_changes`: `` verdicts.lock: the header's z3_library_sha256 differs: recorded
+/// "7ca2…", now "1f0e…" (another Z3 build) ``), or one saying that the header differs when no
+/// value does (the file is absent, or a comment or spacing differs); then one per row,
+/// `verdicts.lock: plus/a: killer t4 -> t2 (t4: not-in-corpus)`, `verdicts.lock: plus/c:
+/// killed -> survived`; when neither the header nor any row's verdict differs, one line naming
+/// the first difference (`lock.difference`: the rows' order, or a line of text); empty
+/// otherwise.
 #[must_use]
 pub fn stale_lines(document: &Value) -> Vec<String> {
     let lock = &document["lock"];
@@ -401,9 +505,36 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
     let path = lock["path"].as_str().unwrap_or(LOCK_FILE);
     let mut lines = Vec::new();
     if lock["header"] == true {
-        lines.push(format!(
-            "{path}: the header differs (the file is absent, or another version or profile)"
-        ));
+        let header_changes = lock["header_changes"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice);
+        if header_changes.is_empty() {
+            lines.push(format!(
+                "{path}: the header differs (the file is absent, or a comment or spacing before \
+                 its first mutation differs)"
+            ));
+        }
+        for change in header_changes {
+            let key = change["key"].as_str().unwrap_or("?");
+            let side = |value: &Value| {
+                if value.is_null() {
+                    "absent".to_owned()
+                } else {
+                    value.to_string()
+                }
+            };
+            let why = match key {
+                "version" => " (another version of the rendering)",
+                "profile" => " (another solver profile)",
+                "z3_version" | "z3_library_sha256" => " (another Z3 build)",
+                _ => "",
+            };
+            lines.push(format!(
+                "{path}: the header's {key} differs: recorded {}, now {}{why}",
+                side(&change["recorded"]),
+                side(&change["now"])
+            ));
+        }
     }
     let rows = document["mutations"].as_array();
     let changes = lock["changes"].as_array().map_or(&[][..], Vec::as_slice);
@@ -492,6 +623,7 @@ mod tests {
             path,
             text: Some(text.to_owned()),
             rows,
+            header: header_values(&text.parse().unwrap()),
         }
     }
 
@@ -562,7 +694,70 @@ mod tests {
         assert_eq!(
             stale_lines(&document(true, json!([]))),
             [
-                "verdicts.lock: the header differs (the file is absent, or another version or profile)"
+                "verdicts.lock: the header differs (the file is absent, or a comment or spacing \
+                 before its first mutation differs)"
+            ]
+        );
+    }
+
+    /// A lock recorded on another Z3 build differs from the rendering in the header's values
+    /// only: `header_changes` names each key whose value differs, in the rendering's line order,
+    /// and `stale_lines` names each with why it matters; a key only one side has is null on the
+    /// other.
+    #[test]
+    fn a_lock_of_another_z3_build_names_the_build_lines() {
+        let header = |build: &str| {
+            format!(
+                "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\nprofile = \
+                 \"z3\"\nz3_version = \"5.3.3.0\"\n{build}\n[spec]\noutcome = \"admitted\"\n\n\
+                 [[mutation]]\nid = \"a\"\nstatus = \"survived\"\n"
+            )
+        };
+        let now = header("z3_library_sha256 = \"bbbb\"\n");
+        let recorded = lock(&header("z3_library_sha256 = \"aaaa\"\n"));
+        let changes = recorded.header_changes(&now);
+        assert_eq!(
+            changes,
+            [json!({"key": "z3_library_sha256", "recorded": "aaaa", "now": "bbbb"})]
+        );
+        // A build that could not name its library has no digest line.
+        assert_eq!(
+            lock(&header("")).header_changes(&now),
+            [json!({"key": "z3_library_sha256", "recorded": null, "now": "bbbb"})]
+        );
+        // The portable rendering of the same verdicts: another profile and no build lines.
+        let portable = "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\nprofile = \
+                        \"no-z3\"\n\n[spec]\noutcome = \"admitted\"\n\n[[mutation]]\nid = \"a\"\n\
+                        status = \"survived\"\n";
+        assert_eq!(
+            recorded.header_changes(portable),
+            [
+                json!({"key": "profile", "recorded": "z3", "now": "no-z3"}),
+                json!({"key": "z3_library_sha256", "recorded": "aaaa", "now": null}),
+                json!({"key": "z3_version", "recorded": "5.3.3.0", "now": null}),
+            ]
+        );
+        assert_eq!(
+            recorded.header_changes(&recorded.text.clone().unwrap()),
+            [] as [Value; 0]
+        );
+        assert_eq!(Lock::default().header_changes(&now), [] as [Value; 0]);
+        let document = json!({
+            "mutations": [],
+            "lock": {
+                "path": "verdicts.lock",
+                "status": "stale",
+                "header": true,
+                "header_changes": changes,
+                "changes": [],
+                "difference": {"kind": "text", "line": 6, "recorded": "z3_library_sha256 = \"aaaa\"", "now": "z3_library_sha256 = \"bbbb\""},
+            },
+        });
+        assert_eq!(
+            stale_lines(&document),
+            [
+                "verdicts.lock: the header's z3_library_sha256 differs: recorded \"aaaa\", now \
+                 \"bbbb\" (another Z3 build)"
             ]
         );
     }

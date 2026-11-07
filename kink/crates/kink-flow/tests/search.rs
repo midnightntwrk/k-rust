@@ -942,6 +942,16 @@ note = "right-hand side"
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`.
         assert_eq!(document["version"], 31);
+        // Under the Z3 profile the document names the Z3 build its verdicts were decided on,
+        // k-rust's; the portable document has no such member.
+        let z3 = k_rust::backend::z3_build().filter(|_| cfg!(feature = "z3"));
+        assert_eq!(
+            document.get("z3"),
+            z3.map(
+                |build| json!({"version": build.version, "library_sha256": build.library_sha256})
+            )
+            .as_ref()
+        );
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

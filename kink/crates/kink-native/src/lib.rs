@@ -98,15 +98,36 @@ pub fn solver_value(options: k_rust::backend::BackendOptions) -> Option<serde_js
     if execution::SolverProfile::BUILD == execution::SolverProfile::NoZ3 {
         return None;
     }
-    let build = k_rust::backend::z3_build();
     Some(serde_json::json!({
         "resource_limit": options.smt_resource_limit.map(std::num::NonZeroU32::get),
         "retries": options.smt_retry_limit,
-        "z3": build.map(|build| serde_json::json!({
+        "z3": z3_build_value(),
+    }))
+}
+
+/// The Z3 build of this process as kink names it, under the build's solver profile: `None`
+/// under the no-Z3 profile, where no answer depends on a solver; under the Z3 profile
+/// `{version, library_sha256}`, k-rust's `z3_build`: Z3's version string and the SHA-256 of the
+/// library file its code comes from (null when it cannot be named, [`solver_named`]).
+///
+/// Under the Z3 profile with resource-bounded queries an answer is a function of the query, the
+/// units and the machine code that counts them, so this object is part of what any answer kink
+/// computes depends on. The keys of every store take it inside [`solver_value`], and kink-flow's
+/// `results` and `run` documents carry it as `z3`, which their verdicts rendering and a
+/// `verdicts.lock` name, so that a verdict that moves with the Z3 build shows why. The version
+/// string is the reader's name for the build and names a release, not a build (two builds of one
+/// release can count units differently); the digest names the build.
+#[must_use]
+pub fn z3_build_value() -> Option<serde_json::Value> {
+    if execution::SolverProfile::BUILD == execution::SolverProfile::NoZ3 {
+        return None;
+    }
+    k_rust::backend::z3_build().map(|build| {
+        serde_json::json!({
             "version": build.version,
             "library_sha256": build.library_sha256,
-        })),
-    }))
+        })
+    })
 }
 
 /// Why no answer kink stores can name its solver under the Z3 profile ([`solver_named`]).
