@@ -170,6 +170,9 @@ Under `--locked` the run leaves `definition.k` and the lock unwritten (its cache
 // [!include ~/snippets/outputs/mutation-testing-run-locked.txt]
 ```
 
+The header names the Z3 build the verdicts were decided on: `z3_version`, Z3's version string, and `z3_library_sha256`, the digest of the Z3 library krs links.
+Whether a solver query is decided within its resource units depends on that build, so a lock recorded on another Z3 build is a finding under `--locked`, even when every verdict agrees: record the lock on the build your CI links.
+
 CI runs `krs kink emit --check`, then `krs kink run --locked`, and reads the exit status, here for the package's own corpus `kink/`:
 
 ```sh
@@ -178,7 +181,8 @@ status=0
 krs kink run --package story-plus --definition main --locked > /dev/null || status=$?
 # 0: the lock is current and every mutation has a verdict;
 # 3: the lock is current, and some mutations have no verdict (unknown or timeout);
-# 1: the verdicts or killers moved, and stderr names each change: run without --locked,
+# 1: the verdicts or killers moved, or the lock names another Z3 build, and stderr names
+#    each change: run without --locked,
 #    review the lock's diff, and commit it;
 # 2: the run could not be asked (a stale definition.k, a refused corpus, list, lock or
 #    mutation): stderr has each refusal's text
