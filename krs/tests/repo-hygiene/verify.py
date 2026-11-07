@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Fail when the tracked tree depends on local-only notes, has a dead gate, or drifts from policy.
 
-`draft/` holds untracked, machine-local working notes, and the former root
-tracking ledgers now live there. A tracked file must not reference either,
-because a fresh clone contains neither. For the same reason a tracked file
+The former root tracking ledgers were removed, so a tracked file must not
+reference them: a fresh clone contains none. For the same reason a tracked file
 must not cite a local ticket id (`IR-nn`, `BL-nnn`, `CQ-nnn`); it states the
-fact the ticket stood for instead. The check reads the Git index, so it covers
-staged additions and ignores untracked files.
+fact the ticket stood for instead. The repository's `scripts/repo_hygiene.py`
+refuses tracked files in, and references to, the local scratchpads, KRS's
+included. The check reads the Git index, so it covers staged additions and
+ignores untracked files.
 
 Every `tests/<gate>/` directory must also have an entry point: a `verify.py`,
 or a `README.md` that states the command that runs it. A directory with
@@ -61,15 +62,12 @@ from support.process import run  # noqa: E402
 SELF = Path(__file__).resolve().relative_to(ROOT).as_posix()
 WORKSPACE_MANIFEST = "../Cargo.toml"
 
-# A `draft/` path segment (not, for example, the npm scope `@open-draft/`),
-# or a quoted "draft" component joined into a path in code.
-DRAFT_PATH = re.compile(r"""(?:^|[^A-Za-z0-9_@-])draft/|["']draft["']\s*[/,)]""")
 REMOVED_LEDGERS = re.compile(
     r"K_RUST_HANDOFF|K_RUST_UPSTREAM|K_RUST_MORE_SEMANTICS_REQUESTS|"
     r"MIR_SEMANTICS_UPSTREAM|RECOVERY_AUDIT|LAST_KNOWN_PROMPT|RECOVERY_PROVENANCE"
 )
 # A path under a spikes directory: the tracked one was removed (git history is its
-# archive) and the browser-lessons spikes live in draft/. The bracket keeps this
+# archive) and the browser-lessons spikes live in a local scratchpad. The bracket keeps this
 # pattern itself out of a plain text search for the path.
 SPIKE_PATH = re.compile(r"\bspikes[/]")
 # A local ticket id. The bracket keeps this pattern out of its own search.
@@ -280,9 +278,6 @@ def main() -> int:
     workspace = (REPOSITORY / "Cargo.toml").read_text(encoding="utf-8")
     problems.extend(manifest_problems(WORKSPACE_MANIFEST, workspace, msrv))
     for relative in files:
-        if relative == "draft" or relative.startswith("draft/"):
-            problems.append(f"{relative}: tracked file under draft/")
-            continue
         if relative == SELF:
             continue
         path = ROOT / relative
@@ -301,7 +296,6 @@ def main() -> int:
             problems.extend(manifest_problems(relative, text, msrv))
         for number, line in enumerate(text.splitlines(), start=1):
             for pattern, what in (
-                (DRAFT_PATH, "references draft/"),
                 (REMOVED_LEDGERS, "references a removed root ledger"),
                 (SPIKE_PATH, "references a local-only spike path"),
                 (LOCAL_TICKET_ID, "cites a local ticket id"),

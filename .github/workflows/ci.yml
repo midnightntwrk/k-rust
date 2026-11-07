@@ -87,6 +87,9 @@ jobs:
       - name: Run the Python unit tests of the scripts
         run: scripts/script-unit-tests.sh
 
+      - name: Check that no tracked file lies in or names a local scratchpad
+        run: scripts/repo_hygiene.py
+
   rust:
     name: Rust
     runs-on: ubuntu-latest

@@ -96,7 +96,7 @@ The heavy port gates observe, in order: the port's Rust checks (Clippy, tests, t
 
 | A change to | Candidates | Not candidates, and why |
 |---|---|---|
-| `docs/`, Markdown, `krs/docs-plan/` | none; under `krs/`, `python3 krs/tests/repo-hygiene/verify.py` (seconds), which scans every tracked file | no gate reads them |
+| `docs/`, Markdown, `krs/docs-plan/` | none but `scripts/repo_hygiene.py` (the registry's `repo-hygiene`, seconds), which every change owes; under `krs/`, also `python3 krs/tests/repo-hygiene/verify.py` (seconds), which scans every tracked file of KRS | no other gate reads them |
 | a `docs-site/` page | the site's own checks (`docs-site/README.md`); `krs-tour-pages` for the three pages it reads | every other KRS gate: none reads `docs-site/` |
 | `krs-fmt` | its crate tests, `krs-light`, `krs-ports-emit` (the ports' `krs fmt --check`) | heavy: formatting reaches no emitted K, and the ports' format check is in `krs-ports-emit` |
 | the browser crates (`krs-expand-wasm`, `krs-wasm-abi`, `krs-lesson-policy`) | their crate tests, the `krs.yml` wasm lints, the browser gates; `krs-light` by its path set | `krs-ports-emit`, heavy: neither the `krs` binary nor the ports link them |

@@ -126,7 +126,7 @@ Review the resulting pin diff like any other change.
 `--record` never rewrites an input pin: a new checkout revision, corpus, or toolchain is a deliberate edit to the gate ledger or `Krs.lock`.
 The shared pin handling lives in `tests/support`, whose unit tests run with `python3 -m unittest discover support` from `tests/`.
 
-The repository hygiene check fails if any tracked file references the untracked, local-only notes directory or one of the retired root tracking ledgers:
+The repository hygiene check fails if any tracked file references one of the retired root tracking ledgers or cites a local ticket id; the repository's `scripts/repo_hygiene.py` refuses references to the local scratchpads:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py

@@ -362,6 +362,14 @@ run = "ci"
 command = "scripts/script-unit-tests.sh"
 paths = ['^scripts/(.+/)?[^/]+\.py$', '^scripts/script-unit-tests\.sh$']
 
+# Repository hygiene: no tracked file lies in or names a local scratchpad directory
+# (scripts/repo_hygiene.py). It reads every tracked file, so every change owes it; it takes seconds.
+[[gate]]
+name = "repo-hygiene"
+run = "ci"
+command = "scripts/repo_hygiene.py"
+paths = ['^']
+
 # Hand-run tools: each measures something when it is wanted, and none is owed by a change.
 [[gate]]
 name = "coverage"
