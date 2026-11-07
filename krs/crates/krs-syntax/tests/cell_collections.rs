@@ -616,6 +616,47 @@ fn an_optional_instance_child_is_the_instance_child_multiplicity_limit() {
     .unwrap();
 }
 
+/// A group record an instance child writes names cells of the same instance, so a `Some(..)` or
+/// `None` among its fields, at any depth of records, is the same presence inside one instance:
+/// the limit is said at that field, naming it and the instance child that holds it, before rustc
+/// would read it as Rust's `Option`.
+#[test]
+fn an_optional_cell_in_an_instance_child_s_group_record_is_the_instance_child_multiplicity_limit() {
+    for (source, cell, child, written) in [
+        (
+            "obj: { k::fragment![crate::Obj { key: n, oinfo: k::fragment![crate::Oinfo { omark: Some(n) }] }], .. }, state @ ..",
+            "omark",
+            "oinfo",
+            "`Some(..)`, a `?` cell's presence",
+        ),
+        (
+            "obj: { k::fragment![crate::Obj { oinfo: k::fragment![crate::Oinfo { deep: k::fragment![crate::Deep { mark: None }] }], .. }], .. }, state @ ..",
+            "mark",
+            "oinfo",
+            "`None`, a `?` cell's absence",
+        ),
+    ] {
+        let error = parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+            .unwrap_err();
+        assert!(
+            matches!(
+                error.kind(),
+                krs_syntax::SyntaxErrorKind::InstanceChildMultiplicity { .. }
+            ),
+            "{source}: {:?}",
+            error.kind()
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the cell `{cell}`, inside the instance child `{child}`, holds {written}: {}",
+                krs_syntax::INSTANCE_CHILD_MULTIPLICITY
+            ),
+            "{source}"
+        );
+    }
+}
+
 /// A keyword is no binder and no variable, so it is no shorthand instance
 /// child: readable refuses it as `cells!` does, with the same message (a raw
 /// identifier such as `r#type` is a name, above).

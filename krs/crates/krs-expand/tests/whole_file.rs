@@ -617,6 +617,43 @@ fn a_readable_claim_s_optional_instance_child_is_the_instance_child_multiplicity
     );
 }
 
+/// A `?` cell's `Some(..)` or `None` inside one instance reaches no rustc reading in the two
+/// places no macro reader sees it: a bracketed value's List reading, whose children are the terms
+/// of the reading the clause took (the computation cell's head here), and a group record an
+/// instance child writes. The expansion says the limit at the child or the record's field.
+#[test]
+fn an_optional_cell_inside_a_bracketed_or_grouped_instance_child_is_the_instance_child_multiplicity_limit()
+ {
+    for (clause, message) in [
+        (
+            "go: { k: [Go(), ..], job: [Job { note: Some(n), .. }, ..] } => { k: [..], job: [..] };",
+            "the instance child `note` holds `Some(..)`, a `?` cell's presence",
+        ),
+        (
+            "go: { k: [Go(), ..], job: [Job { info: Info { mark: None }, .. }, ..] } => { k: [..], job: [..] };",
+            "the cell `mark`, inside the instance child `info`, holds `None`, a `?` cell's absence",
+        ),
+        (
+            "go: { k: [Go(), ..], thread: { Thread { slot: Slot { held: Some(1) }, .. }, .. } } => { k: [..] };",
+            "the cell `held`, inside the instance child `slot`, holds `Some(..)`, a `?` cell's presence",
+        ),
+    ] {
+        let source =
+            format!("k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    {clause}\n}}\n");
+        let diagnostics = expand(&source).expect_err("an optional cell inside an instance");
+        assert_eq!(
+            diagnostics[0].code,
+            krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+            "{clause}"
+        );
+        assert_eq!(
+            diagnostics[0].message,
+            format!("{message}: {}", krs_syntax::INSTANCE_CHILD_MULTIPLICITY),
+            "{clause}"
+        );
+    }
+}
+
 /// A readable instance child's empty `[]` is keyed at its brackets, and its
 /// sequence's wire node carries that key.
 #[test]

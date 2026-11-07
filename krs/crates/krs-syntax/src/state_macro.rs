@@ -755,36 +755,78 @@ impl InstanceField {
     /// ([`INSTANCE_CHILD_MULTIPLICITY`]). `Some(..)` and `None` are read by their spelling, as a
     /// cell entry's are, so no declaration is needed and the child stops here, before its term
     /// would be read as Rust's `Option`; `None` for every other child.
+    ///
+    /// A record the child writes, a group record such as `Info { mark: Some(1) }`, names cells of
+    /// the same instance, so a `Some(..)` or `None` that stands as one of its fields, at any depth
+    /// of records, is the same presence inside one instance, refused at that field.
     #[must_use]
     pub fn multiplicity_limit(&self) -> Option<SyntaxError> {
         use syn::ext::IdentExt;
-        let StateTerm::Term(term) = &self.value else {
+        let (StateTerm::Term(term) | StateTerm::Group(term)) = &self.value else {
             return None;
         };
-        let (written, span) = match term.tree() {
-            TermTree::Application(application)
-                if application.head().is_ident("Some")
-                    && application.arguments().positional().is_some() =>
-            {
-                (
-                    "`Some(..)`, a `?` cell's presence",
-                    application.head().span(),
-                )
-            }
-            TermTree::Reference(path) if path.is_ident("None") => {
-                ("`None`, a `?` cell's absence", path.span())
-            }
-            _ => return None,
+        let child = self.name.unraw();
+        let (reason, span) = if let Some((written, span)) = presence_spelling(term.tree()) {
+            (
+                format!(
+                    "the instance child `{child}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}"
+                ),
+                span,
+            )
+        } else {
+            let (cell, written, span) = record_presence(term.tree())?;
+            (
+                format!(
+                    "the cell `{}`, inside the instance child `{child}`, holds {written}: {INSTANCE_CHILD_MULTIPLICITY}",
+                    cell.unraw()
+                ),
+                span,
+            )
         };
-        let reason = format!(
-            "the instance child `{}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}",
-            self.name.unraw()
-        );
         Some(SyntaxError::new(
             SyntaxErrorKind::InstanceChildMultiplicity { reason },
             span,
         ))
     }
+}
+
+/// What `tree` writes when it is a `?` cell's `Some(..)` or `None`, read by its spelling as a cell
+/// entry's is, with the span of its head.
+fn presence_spelling(tree: &TermTree) -> Option<(&'static str, proc_macro2::Span)> {
+    match tree {
+        TermTree::Application(application)
+            if application.head().is_ident("Some")
+                && application.arguments().positional().is_some() =>
+        {
+            Some((
+                "`Some(..)`, a `?` cell's presence",
+                application.head().span(),
+            ))
+        }
+        TermTree::Reference(path) if path.is_ident("None") => {
+            Some(("`None`, a `?` cell's absence", path.span()))
+        }
+        _ => None,
+    }
+}
+
+/// The first field, in reading order, of a record `tree` writes (a record, a `k::fragment!`, or
+/// either under an alias), or of a record nested in one, whose value is a `?` cell's `Some(..)`
+/// or `None` ([`presence_spelling`]): the field's name, what it writes, and where.
+fn record_presence(tree: &TermTree) -> Option<(&syn::Ident, &'static str, proc_macro2::Span)> {
+    let fields = match tree {
+        TermTree::As { pattern, .. } => return record_presence(pattern),
+        TermTree::Application(application) if !application.is_notation() => {
+            application.arguments().named()?
+        }
+        TermTree::Cell(cell) => cell.fields(),
+        _ => return None,
+    };
+    fields.iter().find_map(|field| {
+        presence_spelling(field.value())
+            .map(|(written, span)| (field.name(), written, span))
+            .or_else(|| record_presence(field.value()))
+    })
 }
 
 /// What an instance record meets at a child that is a `?` cell or a collection of its own: what

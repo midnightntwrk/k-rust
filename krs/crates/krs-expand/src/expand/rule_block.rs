@@ -1097,6 +1097,18 @@ fn alternative_instances(
     let StateTerm::Instances(list) = state else {
         return Ok(None);
     };
+    // The List reading's children are the terms of the reading the clause took, which rustc
+    // reads: a `Some(..)` or `None` there is a `?` cell's presence inside one instance, which an
+    // instance record does not name yet, said here as the braced reading says it.
+    if let Some(limit) = list
+        .front()
+        .iter()
+        .chain(list.back())
+        .flat_map(krs_syntax::InstanceItem::fields)
+        .find_map(krs_syntax::InstanceField::multiplicity_limit)
+    {
+        return Err(limit.into());
+    }
     let (front_records, back_records) = records;
     if list.front().len() != front_records.len()
         || list.back().len() != back_records.len()
