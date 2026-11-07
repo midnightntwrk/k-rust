@@ -18,9 +18,12 @@
 //! of a pair and are one term, or complements, under the pair's unifier
 //! ([`Unification::relate`], the comparison the overlap check's
 //! complementary-conjunct test makes). A comparison and its complement are
-//! one atom with opposite polarity. Nodes KRS inserted, `k::matches!` tests
-//! and `let` blocks stay in the abstraction as atoms nothing flips, and the
-//! conjuncts of a `k::bits!` template are no Boolean atoms at all.
+//! one atom with opposite polarity. A `k::matches!` test that binds nothing
+//! is an atom like any other: its negation is a guard an author can write.
+//! Nodes KRS inserted, `k::matches!` tests that bind a local (negated, the
+//! local would be bound by nothing) and `let` blocks stay in the abstraction
+//! as atoms nothing flips, and the conjuncts of a `k::bits!` template are no
+//! Boolean atoms at all.
 //!
 //! Each guard is a propositional formula over the family's atoms. A flip of
 //! atom `α` on a set `S` of sentences replaces `α` by `¬α` in each guard of
@@ -67,7 +70,7 @@
 //! guarantees the flipped family stays disjoint. Nor are flips of a `nondet`
 //! group's members (they overlap by design), of claim helpers (sentences of
 //! a spec module), of a family whose atom identity is not one relation, of
-//! an atom some node states that a flip cannot edit, or of the bits of an
+//! an authored atom some node states that a flip cannot edit, or of the bits of an
 //! argument whose values are no one evaluable domain. Each is reported with
 //! its reason. The abstraction is a sufficient condition: KRS's judge of the
 //! edit stays the authority on whether the flipped definition is admitted.
@@ -241,9 +244,10 @@ pub enum NotGeneratedReason {
     /// several atoms, or two relations (one construct, a pair's unifier)
     /// disagree on whether two occurrences are one atom.
     AtomIdentity,
-    /// An occurrence of the atom is a node a flip cannot edit: a node KRS
-    /// inserted, a `k::matches!` test, a `let` block, or a node without an
-    /// exact authored range.
+    /// An occurrence of an authored atom is a node a flip cannot edit: a
+    /// node KRS inserted, a `k::matches!` test that binds a local, a `let`
+    /// block, or a node without an exact authored range. An atom only KRS's
+    /// inserted nodes state is no guard the author wrote, and gets no row.
     Unflippable,
     /// The fixed bits of a `k::bits!` template are no bit atoms: the
     /// template is not on an `Int` argument of an equation (a rule's
@@ -813,7 +817,7 @@ struct Occurrence<'m> {
     term: &'m SemanticTerm,
     range: Option<SourceRange>,
     /// Whether a flip may edit it: authored, not inserted, and neither a
-    /// `k::matches!` test nor a `let` block.
+    /// `k::matches!` test that binds a local nor a `let` block.
     flippable: bool,
 }
 
@@ -866,8 +870,9 @@ fn formula<'m>(
         && range.is_some()
         && !matches!(
             term.kind(),
-            SemanticTermKind::Matches { .. } | SemanticTermKind::Let { .. }
-        );
+            SemanticTermKind::Matches { binds, .. } if !binds.is_empty()
+        )
+        && !matches!(term.kind(), SemanticTermKind::Let { .. });
     occurrences.push(Occurrence {
         sentence,
         term,
@@ -1400,24 +1405,32 @@ fn analyze(
             .collect::<Vec<_>>();
         let first = members_of[0];
         if !members_of.iter().all(|index| occurrences[*index].flippable) {
-            // An atom no authored occurrence states is no flip anyone could
-            // write, and a construct that renders several atoms is already
-            // reported; an authored atom that a node no flip edits also
-            // states is reported here.
-            if members_of.iter().any(|index| occurrences[*index].flippable)
+            // An atom only KRS's inserted nodes state is no guard the author
+            // wrote, and a construct that renders several atoms is already
+            // reported. Every other atom the author wrote gets its row here,
+            // so that no family's guard leaves the obligations unaccounted.
+            let authored_atom = members_of
+                .iter()
+                .any(|index| occurrences[*index].range.is_some());
+            if authored_atom
                 && !members_of
                     .iter()
                     .any(|index| renders_several.contains(index))
             {
+                let head = atom_head(occurrences[first].term);
+                let detail = if members_of.iter().any(|index| occurrences[*index].flippable) {
+                    format!("atom `{head}` is also stated by a node a flip cannot edit")
+                } else {
+                    format!(
+                        "atom `{head}` is stated only by nodes a flip cannot edit (a `k::matches!` that binds a local, a `let` block, a node KRS inserted)"
+                    )
+                };
                 family.not_generated.push(NotGenerated {
                     reason: NotGeneratedReason::Unflippable,
                     atom: None,
                     sentences: mentions,
                     pair: None,
-                    detail: format!(
-                        "atom `{}` is also stated by a node a flip cannot edit",
-                        atom_head(occurrences[first].term)
-                    ),
+                    detail,
                 });
             }
             continue;

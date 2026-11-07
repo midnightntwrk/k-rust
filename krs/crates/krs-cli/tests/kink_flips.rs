@@ -242,7 +242,7 @@ fn a_bit_pair_flip_and_a_chain_flip_are_judged() {
             ),
         ])
     );
-    // Every flip of the fixture but the one the next test names is admitted: the generator and
+    // Every flip of the fixture but the two the next test names is admitted: the generator and
     // KRS's admission agree.
     let refused = flips
         .flips
@@ -250,13 +250,23 @@ fn a_bit_pair_flip_and_a_chain_flip_are_judged() {
         .filter(|flip| !admitted(flip))
         .map(|flip| flip.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(refused, ["flip--peek--IntGreater"], "{:#}", flips.value());
+    assert_eq!(
+        refused,
+        [
+            "flip--peek--IntGreater",
+            "flip--tag_other+tag_raise--matches"
+        ],
+        "{:#}",
+        flips.value()
+    );
 }
 
 /// A flip the judge refuses is reported with the judge's reason and detail, not dropped: the
 /// condition of `peek` shares its `requires` with the lookup guard KRS writes for `ix[a]`, whose
 /// derivation reads more than the edited atom, so the edit is not judged. The two transitions kept
-/// apart by a `k::matches!` test have no flip: the test is an atom no flip edits.
+/// apart by a `k::matches!` test that binds nothing have the flip of that test, an atom like any
+/// other; the judge cannot yet read the edited `:=K` back to a Rust source, so it is not judged
+/// either.
 #[test]
 fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
     let (_, flips) = fixture();
@@ -276,15 +286,27 @@ fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
         detail.starts_with("`peek` (crate::peek, src/lib.rs:"),
         "{detail}"
     );
-    assert!(
-        flips
-            .flips
-            .iter()
-            .flat_map(|flip| &flip.sentences)
-            .all(|sentence| !sentence.label.starts_with("tag-")),
-        "{:#}",
-        flips.value()
+    let tag = flip(flips, "flip--tag_other+tag_raise--matches");
+    assert_eq!(
+        edits(tag),
+        triples(&[
+            (
+                "tag-other",
+                "notBool ( raise _ :=K Next:Cmd )",
+                "( raise _ :=K Next:Cmd )"
+            ),
+            (
+                "tag-raise",
+                "( raise _ :=K Next:Cmd )",
+                "(notBool (( raise _ :=K Next:Cmd )))"
+            ),
+        ])
     );
+    let FlipStatus::Refused { reason, detail, .. } = &tag.status else {
+        panic!("{:#}", flips.value());
+    };
+    assert_eq!(reason, "not-judged");
+    assert!(detail.contains("does not read a new `:=K`"), "{detail}");
 }
 
 /// Generation and judgement are functions of the definition: a second copy of the package, built
@@ -298,7 +320,7 @@ fn generation_is_byte_stable() {
         serde_json::to_string(&flips.value()).unwrap()
     );
     assert_eq!(flips.families, 5, "{:#}", flips.value());
-    assert_eq!(flips.flips.len(), 9, "{:#}", flips.value());
+    assert_eq!(flips.flips.len(), 10, "{:#}", flips.value());
 }
 
 /// The front end's judgements are read back from the corpus's judge cache, by the flips and by

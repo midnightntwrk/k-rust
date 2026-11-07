@@ -1508,3 +1508,82 @@ fn an_atom_identity_conflict_keeps_the_bit_flips() {
         vec![bit_flip(3, &["pair_high", "pair_low"])]
     );
 }
+
+/// `k::matches!(N, Raise(binds..))` at the construct `start`, whose pattern
+/// binds `binds`.
+fn matches_raise(terms: &Terms, start: u32, binds: &[&str]) -> SemanticTerm {
+    let arguments = binds.iter().map(|name| terms.var(name, BOOL)).collect();
+    SemanticTerm::matches(
+        terms.at(start),
+        BOOL,
+        terms.var("N", BOOL),
+        terms.apply("Raise", BOOL, arguments),
+        binds.iter().map(|name| sid(name)).collect(),
+    )
+}
+
+#[test]
+fn a_matches_test_that_binds_nothing_is_flipped() {
+    // `k::matches!(n, Raise { .. })` and its negation keep the two rules
+    // apart; its flip is a guard an author can write.
+    let terms = Terms::default();
+    let rules = vec![
+        transition(
+            &terms,
+            "tag_raise",
+            &["N"],
+            Some(matches_raise(&terms, 700, &[])),
+        ),
+        transition(
+            &terms,
+            "tag_other",
+            &["N"],
+            Some(terms.not(matches_raise(&terms, 800, &[]))),
+        ),
+    ];
+    let modules = [module(&terms, &[], rules)];
+    let families = guard_families(&modules);
+    let family = only(&families);
+    assert_eq!(
+        obligations(family),
+        vec![flip("matches", &["tag_other", "tag_raise"])]
+    );
+    assert!(
+        family.not_generated.is_empty(),
+        "{:#?}",
+        family.not_generated
+    );
+}
+
+#[test]
+fn a_matches_test_that_binds_a_local_is_reported() {
+    // Negated, `k::matches!(n, Raise(y))` would leave `y` bound by nothing,
+    // so the atom has no flip; the family still accounts for it.
+    let terms = Terms::default();
+    let rules = vec![
+        transition(
+            &terms,
+            "tag_raise",
+            &["N"],
+            Some(matches_raise(&terms, 700, &["Y"])),
+        ),
+        transition(
+            &terms,
+            "tag_other",
+            &["N"],
+            Some(terms.not(matches_raise(&terms, 800, &["Y"]))),
+        ),
+    ];
+    let modules = [module(&terms, &[], rules)];
+    let families = guard_families(&modules);
+    let family = only(&families);
+    assert!(family.obligations.is_empty(), "{:#?}", family.obligations);
+    assert_eq!(
+        family
+            .not_generated
+            .iter()
+            .map(|refused| (refused.reason, refused.sentences.clone()))
+            .collect::<Vec<_>>(),
+        [(NotGeneratedReason::Unflippable, vec![0, 1])]
+    );
+}
