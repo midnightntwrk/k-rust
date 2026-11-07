@@ -45,12 +45,14 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// (stage `mutation`, with `job.weakening`), drops the warning `unkillable`, and adds the
 /// `stopped` value `stack-stops` and the warnings `stack-stop` and `not-ceil-free`; the digest
 /// moved by the key `weakening` and the value `stack-stops`, since the refusal's reason is an
-/// argument of `Refusal::new` and a warning kind one of `warning(..)`.
+/// argument of `Refusal::new` and a warning kind one of `warning(..)`. Version 10 adds the
+/// `stopped` value `open-stops` and the warnings `open-application` and
+/// `last-run-without-mutation`; the digest moved by the value `open-stops`.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    9,
+    10,
     10,
     2,
-    "e635a597a0bb9c4e1c39d4e476971d4f0b0be05e0288865441341b30bf4ee7df",
+    "1c71700f809209d6e8f8e0bffbadce4abc958d1d12dcd76ac97d5a534f8a3856",
 );
 
 /// `source` without `//` comments, string literals kept whole.

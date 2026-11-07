@@ -1536,7 +1536,7 @@ fn krs_run_counts_stops_and_reports_them() {
     assert_eq!(status, Some(2), "{stderr}");
     assert!(
         stderr.contains(
-            "and the `run` stops of the case `counted.json`, both say where the run ends; give one"
+            "and the `run` stops of the case `counted.json` both say where the run ends; a flag may not change a case's question, so give one"
         ),
         "{stderr}"
     );
@@ -1683,7 +1683,7 @@ fn krs_run_passes_a_stop_rule_step_from_a_state_with_two_successors() {
         ),
         (
             &["--stop-before", "advance", "--stop-when", "phase=Start"][..],
-            "krs run: stuck after 3 steps, 0 of 1 stops reached, where `Start` holds; 1 arrival",
+            "krs run: stuck after 3 steps, 0 of 1 stops reached (no arrival where `Start` holds; 1 arrival)",
             (4, 2),
             0,
             Some(1),

@@ -695,7 +695,7 @@ fn a_run_meets_or_misses_its_expectation() {
         stderr(&run)
     );
     let report = json(&project.krs("run", &["--case", "unmet.json", "--output", "json"]));
-    assert_eq!(report["schema"], "krs-exec/5");
+    assert_eq!(report["schema"], "krs-exec/6");
     let expectation = &report["expectation"];
     assert_eq!(expectation["verdict"], "unmet", "{expectation}");
     let difference = &expectation["difference"];
@@ -937,7 +937,7 @@ fn a_case_names_its_rules_as_the_stop_flags_do() {
     assert_eq!(twice.status.code(), Some(2), "{}", stderr(&twice));
     assert!(
         stderr(&twice).contains(
-            "--stop-before, --stop-after, --stop-count and --stop-when, and the `run` stops of the case `cases/stops.json`, both say where the run ends; give one"
+            "the stop flags (--stop-before, --stop-after, --stop-count, --stop-when) and the `run` stops of the case `cases/stops.json#stopped` both say where the run ends; a flag may not change a case's question, so give one"
         ),
         "{}",
         stderr(&twice)

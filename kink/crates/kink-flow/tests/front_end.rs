@@ -381,9 +381,13 @@ fn a_fuzz_kill_job_of_a_refused_mutation_is_refused() {
     assert_eq!(status, EXIT_UNASKED, "{document:#}");
     assert_eq!(document["job"]["outcome"], "refused", "{document:#}");
     assert_eq!(document["job"]["reason"], "generated-only", "{document:#}");
-    assert_eq!(
-        document["action"],
-        "fix the mutation: edit the authored node instead (kink-flow run gives the same status)"
+    // The run it names judges the job's own list.
+    let action = document["action"].as_str().unwrap();
+    assert!(
+        action.starts_with(
+            "fix the mutation: edit the authored node instead (kink-flow run FLOW.toml "
+        ) && action.ends_with("/MUTATIONS.toml gives the same status)"),
+        "{action}"
     );
 }
 

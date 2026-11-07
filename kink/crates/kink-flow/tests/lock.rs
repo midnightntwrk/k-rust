@@ -226,7 +226,7 @@ fn the_lock_options_parse() {
     );
     assert_eq!(
         parse(&["--lock", "a", "--lock", "b"]).unwrap_err(),
-        "unexpected argument \"--lock\""
+        "--lock specified more than once"
     );
     assert_eq!(parse(&["--lock"]).unwrap_err(), "--lock needs a file");
 }

@@ -5123,11 +5123,12 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
         .unwrap_or_else(|| panic!("t4 ran: {shifted:#}"));
     assert_eq!(t4["outcome"], "unknown", "{t4:#}");
     assert!(
-        t4["cause"].as_str().unwrap().ends_with(
-            "k-rust returned 1 leaf (stuck 1), the deepest at depth 0; its stuck leaf at depth 0 \
-             holds `plus ( s(zero) , zero )`, an application of the function `plus`, whose \
-             equations the mutation edits, that no equation of the mutant reduces: the mutant \
-             leaves its value open there"
+        t4["cause"].as_str().unwrap().starts_with(
+            "its stuck leaf at depth 0 holds `plus ( s(zero) , zero )`, an application of the \
+             function `plus`, whose equations the mutation edits, that no equation of the mutant \
+             reduces: the mutant leaves its value open there; "
+        ) && t4["cause"].as_str().unwrap().ends_with(
+            "the mutant's run: k-rust returned 1 leaf (stuck 1), the deepest at depth 0"
         ),
         "{t4:#}"
     );

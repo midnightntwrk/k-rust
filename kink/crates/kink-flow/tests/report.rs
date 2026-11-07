@@ -936,12 +936,14 @@ mod kink_tier {
         };
         let f1 = cause_of("f1");
         assert!(
-            f1.contains(
-                "k-rust returned 2 leaves (trivial 1, indeterminate 1), the deepest at depth 1; \
-                 its indeterminate leaf at depth 1 holds `f ( 1 )`, an application of the \
+            f1.starts_with(
+                "its indeterminate leaf at depth 1 holds `f ( 1 )`, an application of the \
                  function `f`, whose equations the mutation edits, that no equation of the mutant \
-                 reduces: the mutant leaves its value open there"
-            ),
+                 reduces: the mutant leaves its value open there; "
+            ) && f1.ends_with(
+                "the mutant's run: k-rust returned 2 leaves (trivial 1, indeterminate 1), the \
+                 deepest at depth 1"
+            ) && !f1.contains("max_depth"),
             "{f1}"
         );
         let fz1 = cause_of("fz1");

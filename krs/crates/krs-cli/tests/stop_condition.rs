@@ -111,7 +111,7 @@ impl Workspace {
         let (status, stdout, stderr) = self.krs("run", &all);
         assert!(matches!(status, Some(0 | 3)), "{stderr}");
         let report: Json = serde_json::from_str(&stdout).unwrap();
-        assert_eq!(report["schema"], "krs-exec/5", "{report}");
+        assert_eq!(report["schema"], "krs-exec/6", "{report}");
         report["run"].clone()
     }
 
@@ -333,7 +333,7 @@ fn a_spent_budget_ends_stop_undecided() {
     assert_eq!(run["stop"], Json::Null, "{run}");
     assert_eq!(
         (run["stops"].clone(), run["arrivals"].clone()),
-        (Json::Null, 1.into()),
+        (0.into(), 1.into()),
         "{run}"
     );
     let undecided = &run["undecided"];
@@ -369,7 +369,7 @@ fn a_spent_budget_ends_stop_undecided() {
     let (status, stdout, stderr) = workspace.krs("cases", &arguments);
     assert_eq!(status, Some(3), "{stdout}{stderr}");
     let record: Json = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
-    assert_eq!(record["schema"], "krs-cases/3", "{record}");
+    assert_eq!(record["schema"], "krs-cases/4", "{record}");
     assert_eq!(record["halt"], "stop-undecided", "{record}");
     assert_eq!(record["verdict"], "inconclusive", "{record}");
     // The record carries the run's stops, and its reason where and why it has no end, with the
@@ -428,7 +428,7 @@ fn a_case_with_its_own_stops_takes_no_stop_flag() {
     );
     assert_eq!(status, Some(2), "{stderr}");
     assert!(
-        stderr.contains("--stop-before, --stop-after, --stop-count and --stop-when, and the `run` stops of the case"),
+        stderr.contains("the stop flags (--stop-before, --stop-after, --stop-count, --stop-when) and the `run` stops of the case"),
         "{stderr}"
     );
 }
@@ -714,7 +714,7 @@ fn cases_and_compare_agree_with_run_case() {
     let (status, stdout, stderr) = workspace.krs("cases", &[&case, "--output", "json"]);
     assert_eq!(status, Some(0), "{stdout}{stderr}");
     let record: Json = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
-    assert_eq!(record["schema"], "krs-cases/3");
+    assert_eq!(record["schema"], "krs-cases/4");
     assert_eq!(record["verdict"], "met", "{record}");
     let (status, end, stderr) = workspace.krs("run", &["--case", &case, "--output", "end"]);
     assert_eq!(status, Some(0), "{stderr}");

@@ -505,13 +505,13 @@ fn the_full_flag_parses() {
     ));
     assert_eq!(
         parse(&["--full", "--full"]).unwrap_err(),
-        "unexpected argument \"--full\""
+        "--full specified more than once"
     );
     for args in [
         ["--full", "--order", "corpus"],
         ["--order", "cost", "--full"],
     ] {
-        assert_eq!(parse(&args).unwrap_err(), "unexpected argument \"--order\"");
+        assert_eq!(parse(&args).unwrap_err(), "invalid option '--order'");
     }
 }
 
@@ -677,7 +677,7 @@ fn a_run_reports_its_progress_on_stderr() {
     ));
     assert_eq!(
         parse(&["--progress", "--progress"]).unwrap_err(),
-        "unexpected argument \"--progress\""
+        "--progress specified more than once"
     );
 }
 
@@ -1310,10 +1310,10 @@ mod kink_tier {
                 .unwrap()
         };
         for (args, message) in [
-            (&["--full", "--full"][..], "unexpected argument \"--full\""),
+            (&["--full", "--full"][..], "--full specified more than once"),
             (
                 &["--full", "--order", "corpus"][..],
-                "unexpected argument \"--order\"",
+                "invalid option '--order'",
             ),
         ] {
             let output = run(args);

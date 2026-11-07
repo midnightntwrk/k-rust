@@ -2542,9 +2542,10 @@ mod tests {
                     Verb::Fuzz => fuzz_options(&args, &CommandFiles::default()).err(),
                 };
                 assert!(
-                    !error
-                        .as_deref()
-                        .is_some_and(|error| error.starts_with("unexpected argument")),
+                    !error.as_deref().is_some_and(|error| {
+                        error.starts_with("unexpected argument")
+                            || error.starts_with("invalid option")
+                    }),
                     "{} {args:?}: {error:?}",
                     verb.as_str()
                 );
@@ -2558,7 +2559,7 @@ mod tests {
                 Verb::Query => query_options(&unlisted).err(),
                 Verb::Fuzz => fuzz_options(&unlisted, &CommandFiles::default()).err(),
             };
-            assert_eq!(error.as_deref(), Some("unexpected argument \"--unlisted\""));
+            assert_eq!(error.as_deref(), Some("invalid option '--unlisted'"));
         }
     }
 

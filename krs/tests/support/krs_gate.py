@@ -460,7 +460,7 @@ class Session:
         variables: Mapping[str, str] | None = None, depth: int | None = None, trace: bool = False,
         print_style: str | None = None,
     ) -> dict[str, Any]:
-        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/5` run report.
+        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/6` run report.
 
         With ``print_style="pretty"`` the report also carries ``printed``: the final state as `krs run`
         prints it (`krun --output pretty`), ``{"text": ..., "warnings": [...]}``.
