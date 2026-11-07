@@ -767,7 +767,7 @@ fn uses_framework(modules: &[SemanticModule]) -> bool {
 }
 
 /// Whether some term of `rule` reads a collection KRS projects to the sort its use expects.
-fn reads_projected_collection(rule: &krs_ir_levels::SemanticRule) -> bool {
+pub(crate) fn reads_projected_collection(rule: &krs_ir_levels::SemanticRule) -> bool {
     fn holds_read(term: &krs_ir_levels::SemanticTerm) -> bool {
         let projected = match term.kind() {
             krs_ir_levels::IrTermKind::Map(operands) => operands.operation().spec().is_projected(),

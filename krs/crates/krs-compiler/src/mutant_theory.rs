@@ -82,8 +82,9 @@ pub enum TheoryCheckError {
     /// A changed sentence is an alias or desugar clause: the static rewriting reads it, and the
     /// re-derivation's `A'` is the form after that rewriting, not the clause the checks take.
     StaticClause(SourceMapKey),
-    /// A replaced sentence names a framework item while the baseline lowered no framework
-    /// module: the source would keep a module the mutant lacks.
+    /// A replaced sentence names a framework item, or reads a collection KRS projects (a read
+    /// of a `KItem`), while the baseline lowered no framework module: the source would keep a
+    /// module the mutant lacks.
     FrameworkUse(SourceMapKey),
     /// KRS's refusal carries a code its registry does not hold.
     UnregisteredCode(String),
@@ -102,7 +103,8 @@ impl fmt::Display for TheoryCheckError {
             ),
             Self::FrameworkUse(key) => write!(
                 formatter,
-                "{key} names a framework item, and the specification lowers no framework module"
+                "{key} names a framework item or reads a collection KRS projects, and the \
+                 specification lowers no framework module"
             ),
             Self::UnregisteredCode(code) => {
                 write!(formatter, "KRS's refusal has the unregistered code {code}")
@@ -179,8 +181,9 @@ impl<'a> MutantTheory<'a> {
             }
             if let Some(rule) = replacement
                 && !self.framework
-                && serde_json::to_value(rule)
-                    .is_ok_and(|value| crate::semantic::names_framework_item(&value))
+                && (crate::semantic::reads_projected_collection(rule)
+                    || serde_json::to_value(rule)
+                        .is_ok_and(|value| crate::semantic::names_framework_item(&value)))
             {
                 return Err(TheoryCheckError::FrameworkUse(key.clone()));
             }

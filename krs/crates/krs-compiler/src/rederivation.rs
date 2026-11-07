@@ -58,6 +58,8 @@ pub struct Rederivation<'a> {
     declarations: Vec<SemanticModule>,
     /// The sentence key of each equation whose head is not its own authored syntax.
     fixed_heads: BTreeSet<SourceMapKey>,
+    /// Whether the baseline's theory holds a framework module.
+    framework: bool,
 }
 
 /// A sentence of the baseline that a re-derivation can replace.
@@ -110,6 +112,11 @@ pub enum RederiveFailure {
     /// validation of the sentence among the baseline's others. Its diagnostic carries KRS's
     /// code.
     Refused(DescriptorLoweringError),
+    /// The sentence reads a collection KRS projects (`m[k]`, `l[i]` at a sort), while the
+    /// baseline emits no framework module. Such a read is K's read of a `KItem`, so a source
+    /// with it emits the framework module (`uses_framework`): the mutant is the emission of no
+    /// source with the baseline's other sentences.
+    FrameworkUse,
     /// The sentence does not lower to Definition IR.
     Lowering(LoweringError),
     /// The lowered sentence does not render.
@@ -121,6 +128,9 @@ impl fmt::Display for RederiveFailure {
         match self {
             Self::LocalFunction => formatter.write_str(
                 "the sentence holds a block or test that KRS lifts into a function of its own, and the edit changes that function's declaration or equations, which are sentences of their own",
+            ),
+            Self::FrameworkUse => formatter.write_str(
+                "the sentence reads a collection KRS projects to a sort (`m[k]`, `l[i]`), whose value is the framework's `KItem`: a source with that read declares the framework module, and the specification emits none",
             ),
             Self::Refused(error) => error.fmt(formatter),
             Self::Lowering(error) => error.fmt(formatter),
@@ -292,6 +302,11 @@ impl<'a> Rederivation<'a> {
                 .map(|module| module.clone().with_rules(Vec::new()))
                 .collect(),
             fixed_heads: fixed_heads(retained.pre_derivation()),
+            framework: retained
+                .theory()
+                .modules()
+                .iter()
+                .any(|module| crate::partition::is_framework_module(module.id())),
         })
     }
 
@@ -375,7 +390,8 @@ impl<'a> Rederivation<'a> {
     ///
     /// # Errors
     ///
-    /// [`RederiveFailure`]: the sentence is not judged here, or KRS refuses it.
+    /// [`RederiveFailure`]: the sentence is not judged here, KRS refuses it, or it reads a
+    /// collection KRS projects while the baseline emits no framework module.
     pub fn rederive(
         &self,
         site: &Site<'_>,
@@ -387,6 +403,11 @@ impl<'a> Rederivation<'a> {
             .iter()
             .find(|module| module.id() == site.module)
             .ok_or(RederiveFailure::LocalFunction)?;
+        // Without the framework module the sorts' `KItem` is a stand-in, which only a theory
+        // with no projected read takes: a source with the read emits the framework module.
+        if !self.framework && crate::semantic::reads_projected_collection(&pre_derivation) {
+            return Err(RederiveFailure::FrameworkUse);
+        }
         let derivation = crate::semantic::derive_rule(module, &pre_derivation, &self.sorts)
             .map_err(RederiveFailure::Refused)?;
         // A function lifted out of the sentence is declared, and its equations stated, beside

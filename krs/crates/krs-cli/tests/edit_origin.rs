@@ -1276,3 +1276,81 @@ fn story_mutations_are_accepted() {
         );
     }
 }
+
+/// A package that names neither `KItem` nor `KResult` and reads no collection KRS projects, so
+/// it emits no framework module, with a rule that binds a `Map` cell it does not read.
+const UNREAD: &str = r#"
+use k::builtin::{Int, KSequence, Map};
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, reference)]
+pub enum StmtSyntax {
+    #[k::syntax("look {a}", format = "look {a}")]
+    Look { a: k::Term<Int> },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map<Int, Int>,
+    #[k::cell]
+    pub acc: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            env: k::builtin::map![1 -> 5],
+            acc: 0,
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::requires(a > 0)]
+    look: { k: [Look(a), ..], env: m, acc: _ } => { k: [..], env: m, acc: 1 };
+}
+"#;
+
+/// A typed `Map` read added to a condition of a specification that emits no framework module is
+/// the emission of no source with the specification's other sentences: the read is K's read of
+/// a `KItem`, and a source with it declares the framework module. The mutant is refused for
+/// that reason, with or without the read's tests written.
+#[test]
+fn a_projected_read_added_where_the_specification_emits_no_framework_module_is_refused() {
+    let baseline = baseline("unread", "ORG-KRS-UNREAD", UNREAD);
+    assert!(
+        !baseline.emitted.definition.contains("module KRS-FRAMEWORK"),
+        "{}",
+        baseline.emitted.definition
+    );
+    let look = "rule [look]";
+    for replacement in [
+        "(A:Int >Int 0) andThenBool ({M:Map [ A:Int ]}:>Int >Int 0)",
+        "(A:Int >Int 0) andThenBool (A:Int in_keys(M:Map) andThenBool (isInt(M:Map [ A:Int ]) andThenBool ({M:Map [ A:Int ]}:>Int >Int 0)))",
+    ] {
+        let check = baseline.check(look, &[("A:Int >Int 0", replacement)]);
+        assert!(!check.accepted(), "{check:#?}");
+        let refusal = outcome(&check).as_ref().unwrap_err();
+        assert!(
+            matches!(refusal, Refusal::NotJudged(NotJudged::Sentence(_))),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.to_string(),
+            "the sentence is not judged: the sentence reads a collection KRS projects to a sort \
+             (`m[k]`, `l[i]`), whose value is the framework's `KItem`: a source with that read \
+             declares the framework module, and the specification emits none"
+        );
+    }
+}
