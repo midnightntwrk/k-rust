@@ -138,8 +138,15 @@ Any other pair of guards is treated as possibly overlapping; KRS evaluates guard
 Members of one `overload` family are one head, as K's overload axioms make them: a rule on `ExpSyntax::Dot` whose base is an `LVal` overlaps a rule on `LValSyntax::Dot`, while a rule on `ExpSyntax::Dot` whose base is an `Int` does not.
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
-`krs search` finds every rule's successor; `krs run` follows one path and takes the first rule that applies in item order: by K namespace, then module path, then item name, so `advance` before `leap` in one module.
-The order is not part of the semantics, but it is a function of the definition: renaming the Cargo package or moving a rule within its file changes nothing, and renaming the rule may change the path.
+`krs search` finds every rule's successor; `krs run` follows one path, and so does the proof of a `one_path` claim ([reachability claims](/verification/reachability-claims)), in the generated `<MAIN>-SPEC` and in an author spec module alike.
+Where several rules of one priority apply, a step on one path takes the first of them in this order:
+
+- by the top symbol of the rule's left-hand side, which is `<generatedTop>` for every KRS rule, so it never separates two of them;
+- then in item order: by K namespace, then module path, then item name, then the item's kind and disambiguator, so `advance` before `leap` in one module;
+- an item's several rules, such as a strict production's heat rules, by `UNIQUE_ID`, a digest of the rule's text;
+- the rules no item writes, K's builtin closure's, last, by `UNIQUE_ID`; the rules of a [stream cell](#console-io-and-the-exit-cell) are not among them, since the item that declares the cell writes them too, and they stand where that item does.
+
+The order is not part of the semantics, but it is a function of the definition: renaming the Cargo package or moving a rule within its file changes nothing, and renaming the rule may change the path a run takes and whether a `one_path` claim is proven.
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
 
 ### Computation-cell patterns

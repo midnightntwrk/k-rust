@@ -2741,13 +2741,16 @@ impl BackendDefinition {
     }
 
     /// Orders the rewrite rules of each priority by `key`, rules with equal keys keeping their
-    /// order, within each index bucket of the rewrite theory.
+    /// order, within each index bucket of the rewrite theory (the top symbol of the rule's
+    /// left-hand side).
     ///
     /// Rule selection lists a priority's rules in bucket order, each bucket's in this order, and
-    /// a one-path step (`ExecutionMode::Any`) takes the first of them that gives a defined
-    /// result, so this order selects the successor such a step takes where several rules of one
-    /// priority apply. It is not part of the semantics: every other step, and every result that
-    /// explores all successors, is unchanged.
+    /// a step that follows one path takes the first of them that gives a defined result, so this
+    /// order selects the successor such a step takes where several rules of one priority apply:
+    /// an execution's step under `ExecutionMode::Any`, and a `one_path` proof's step, so a
+    /// `one_path` proof's verdict follows this order too. It is not part of the semantics.
+    /// A result that explores all successors keeps the same set of successors, while the order
+    /// it lists them in and the names of the fresh variables their steps introduce may change.
     pub fn order_rewrites_by<K: Ord>(&mut self, mut key: impl FnMut(&RewriteRule) -> K) {
         for priority_groups in self.rewrite_theory.values_mut() {
             for rules in priority_groups.values_mut() {
