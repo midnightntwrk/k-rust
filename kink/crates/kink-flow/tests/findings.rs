@@ -548,6 +548,7 @@ mod kink_tier {
                 mutant_run_sha256: "0".repeat(64),
                 difference: serde_json::Value::Null,
                 cause: None,
+                open_application: false,
                 smt_unknowns: 0,
                 decider_smt_unknowns: 0,
                 allowance_bytes: None,

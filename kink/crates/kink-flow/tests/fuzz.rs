@@ -1003,6 +1003,107 @@ mod kink_tier {
         );
     }
 
+    /// A program witnesses a mutation when its baseline run reaches a sentence the mutant
+    /// changes, whatever the mutant then does. `no-decrease` edits only `plus_succ`'s result, into
+    /// one that reuses its left-hand side's `s(M)` (an alias of the left-hand side in the compiled
+    /// rule), and its mutant recurses without end: its witnesses are `t3` and `t4`, never `t1` or
+    /// `t2`, which apply only `plus_zero`, and it stays `unknown` with the reason `stack-stop`.
+    /// `shifted` edits `plus_succ`'s pattern, which can match terms no baseline run tried, so
+    /// every program witnesses it (`witnesses_global`); its result is `plus`'s own value on the
+    /// narrowed instances, but not the old result's instance, so it runs, and on `t4` the mutant
+    /// ends on `plus(s(zero), zero)`, which none of its equations reduces: the reason is
+    /// `open-application`. `fuzz --kill shifted` on a template of `t2` warns `global-witnesses`,
+    /// not `template-not-a-witness`: `t2` is a witness by default, not by its coverage.
+    #[test]
+    #[ignore = "kink"]
+    fn a_result_edit_is_witnessed_by_coverage_and_a_pattern_edit_by_every_program() {
+        let mutations = r#"[[mutation]]
+id = "no-decrease"
+note = "recurses on s(M) instead of M"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( s ( M:Nat ) , N:Nat ) )"
+
+[[mutation]]
+id = "shifted"
+note = "narrows the pattern to a nonzero second argument"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )"
+  replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( s ( plus ( M:Nat , N:Nat ) ) )"
+"#;
+        // `no-decrease` stops at the native stack's bound, a bound on work: the clock never
+        // decides a run of the tests (R4-WALLCLOCK), so the budget's time is far above it.
+        let manifest = format!(
+            "{STORY_MANIFEST}\n[budget]\n# the clock never decides a run of the tests (R4-WALLCLOCK)\ntime_ms = 600000\n"
+        );
+        let dir = scratch_flow("story-witnesses", "story.k", STORY_K, &manifest, mutations);
+        let cache = scratch("story-witnesses-cache");
+        let (manifest, list, run_cache) = (
+            dir.join("FLOW.toml"),
+            dir.join("MUTATIONS.toml"),
+            cache.clone(),
+        );
+        let (run, _) = on_stack(move || {
+            kink_flow::cli::run(
+                &manifest,
+                &list,
+                &RunOptions {
+                    order: kink_flow::search::ProgramOrder::Corpus,
+                    cache: Some(run_cache),
+                    ..RunOptions::default()
+                },
+            )
+        });
+        let row = |id: &str| {
+            run["mutations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap_or_else(|| panic!("no row {id}: {run:#}"))
+                .clone()
+        };
+        let no_decrease = row("no-decrease");
+        assert_eq!(no_decrease["status"], "unknown", "{no_decrease:#}");
+        assert_eq!(no_decrease["reason"], "stack-stop", "{no_decrease:#}");
+        assert_eq!(
+            no_decrease["witnesses"],
+            serde_json::json!(["t3", "t4"]),
+            "{no_decrease:#}"
+        );
+        assert_eq!(no_decrease["witnesses_global"], false, "{no_decrease:#}");
+        let shifted = row("shifted");
+        assert_eq!(shifted["status"], "unknown", "{shifted:#}");
+        assert_eq!(
+            shifted["witnesses"],
+            serde_json::json!(["t1", "t2", "t3", "t4"]),
+            "{shifted:#}"
+        );
+        assert_eq!(shifted["witnesses_global"], true, "{shifted:#}");
+        assert_eq!(shifted["reason"], "open-application", "{shifted:#}");
+
+        let (document, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STORY_TEMPLATES),
+            "t2-second",
+            "shifted",
+            FuzzOptions {
+                cache: Some(cache.clone()),
+                ..imp_options(1)
+            },
+        );
+        let last = &document["template"]["last_run"]["mutation"];
+        assert_eq!(last["witnesses_global"], true, "{document:#}");
+        let kinds = warning_kinds(&document);
+        assert!(kinds.contains(&"global-witnesses"), "{document:#}");
+        assert!(!kinds.contains(&"template-not-a-witness"), "{document:#}");
+    }
+
     /// Design F4 (the review's probe A, kept as a test): every mutant kink builds converts through
     /// `from_artifacts` with the baseline's source table, and both provenance digests compute.
     #[test]

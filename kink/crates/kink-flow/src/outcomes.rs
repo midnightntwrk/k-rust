@@ -59,7 +59,9 @@
 //! (decisions D14-2 and D14-3).
 //!
 //! An `unknown` record keeps the live executed entry's `cause` (and every record the run's
-//! undecided-answer counts), so a cached unknown reports why, as the live one does.
+//! undecided-answer counts), so a cached unknown reports why, as the live one does, and whether
+//! that cause is an open application of an edited function (`open_application`), so that a row's
+//! `reason` is the same whether its unknowns were read live or from the cache.
 //!
 //! The Execute promise (k-rust `docs/compatibility.md`, "Execute"; re-pin finding B-02) is what
 //! makes a cached outcome a function of its key, and it excludes runs: a token cancelled before
@@ -77,10 +79,10 @@
 //! cannot be named, tier 1 is off (`search::tier1_refusal`).
 //!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
-//! `{schema: "kink-flow-outcomes", version: 5, context, context_sha256, mutation_identity,
+//! `{schema: "kink-flow-outcomes", version: 6, context, context_sha256, mutation_identity,
 //! mutation_id, removed_claims, witness, records: {<program digest>: {program_id,
-//! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, cause, smt_unknowns,
-//! decider_smt_unknowns, allowance_bytes, record_sha256}}}`.
+//! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, cause, open_application,
+//! smt_unknowns, decider_smt_unknowns, allowance_bytes, record_sha256}}}`.
 //!
 //! `removed_claims` is the row's (`report::claims_value`):
 //! the claims the mutant every record ran on does not carry (re-pin R0c-fix-2).
@@ -132,9 +134,16 @@
 //! `decider_smt_unknowns` the run's undecided solver answers: outside the key, of which they are
 //! functions, and inside the record digest (domain v3).
 //!
+//! `open_application` (version 6) is whether an `unknown` record's program is undecided because
+//! the ends of the mutant's run hold open applications of a function the mutation edits
+//! (`report::open_application_cause`; false on any other record): a function of the run, so of
+//! the key, outside the key and inside the record digest (domain v4). A row folds its `reason`
+//! `open-application` from it for a cached unknown as from the census for a live one; a version 5
+//! record, which does not keep it, is not current and is recomputed.
+//!
 //! [`OutcomeStore::read`] returns only the records that pass every check that needs no corpus
 //! (schema, version, context, record digest, outcome consistent with its slots, a cause exactly
-//! on an `unknown` record);
+//! on an `unknown` record, `open_application` true only on one);
 //! the kill search then requires the program to be a current comparable candidate
 //! whose result record has the record's `baseline_run_sha256`.
 //! Anything else is ignored, never trusted, and deleting `outcomes/` is always safe.
@@ -156,11 +165,13 @@ pub const OUTCOMES_SCHEMA: &str = "kink-flow-outcomes";
 /// keeps the mutant's compiled edit (`witness`, module doc); 4 since each record's `difference`
 /// names its format, and is a front end's evidence where the context names one (`evidence`); 5
 /// since a record's outcome can be `unknown` (CF-33d) and every record carries `cause`,
-/// `smt_unknowns` and `decider_smt_unknowns`.
-pub const OUTCOMES_VERSION: u64 = 5;
+/// `smt_unknowns` and `decider_smt_unknowns`; 6 since an `unknown` record keeps whether its cause
+/// is an open application of an edited function (`open_application`).
+pub const OUTCOMES_VERSION: u64 = 6;
 /// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest; v3
-/// since CF-33d added the record's report (`cause`, `smt_unknowns`, `decider_smt_unknowns`).
-pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v3";
+/// since CF-33d added the record's report (`cause`, `smt_unknowns`, `decider_smt_unknowns`); v4
+/// since the report holds `open_application`.
+pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v4";
 /// The tier-1 directory's name in the cache directory.
 pub const OUTCOMES_DIRECTORY: &str = "outcomes";
 
@@ -288,6 +299,11 @@ pub struct OutcomeRecord {
     /// does; `None` on a `killed` or `agree` record. Outside the key (a function of it), inside
     /// the record digest; read only by the report.
     pub cause: Option<String>,
+    /// Whether an `unknown` record's program is undecided because the ends of the mutant's run
+    /// hold open applications of a function the mutation edits (`report::open_application_cause`),
+    /// the fact a row's `open-application` reason is folded from; false on a `killed` or `agree`
+    /// record. Outside the key (a function of it), inside the record digest.
+    pub open_application: bool,
     /// The undecided solver answers of the mutant's run, k-rust's (`smt_unknowns`) and kink's
     /// own about it (`decider_smt_unknowns`), as the live executed entry reports them (decision
     /// D-7 (a1)). Outside the key, inside the record digest; read only by the report.
@@ -328,11 +344,12 @@ impl OutcomeRecord {
         )
     }
 
-    /// The record's report, as its digest holds it: `{cause, smt_unknowns,
+    /// The record's report, as its digest holds it: `{cause, open_application, smt_unknowns,
     /// decider_smt_unknowns}`.
     pub fn report(&self) -> Value {
         Self::report_of(
             self.cause.as_ref(),
+            self.open_application,
             self.smt_unknowns,
             self.decider_smt_unknowns,
         )
@@ -341,11 +358,13 @@ impl OutcomeRecord {
     /// A report of these fields ([`Self::report`]).
     pub fn report_of(
         cause: Option<&String>,
+        open_application: bool,
         smt_unknowns: u64,
         decider_smt_unknowns: u64,
     ) -> Value {
         json!({
             "cause": cause,
+            "open_application": open_application,
             "smt_unknowns": smt_unknowns,
             "decider_smt_unknowns": decider_smt_unknowns,
         })
@@ -353,7 +372,7 @@ impl OutcomeRecord {
 
     /// The report of a record with no cause and no undecided answer.
     pub fn no_report() -> Value {
-        Self::report_of(None, 0, 0)
+        Self::report_of(None, false, 0, 0)
     }
 
     /// The report of a stored record's JSON value, for its digest (a test that reseals a record
@@ -361,6 +380,7 @@ impl OutcomeRecord {
     pub fn report_value(record: &Value) -> Value {
         json!({
             "cause": record["cause"],
+            "open_application": record["open_application"],
             "smt_unknowns": record["smt_unknowns"],
             "decider_smt_unknowns": record["decider_smt_unknowns"],
         })
@@ -375,6 +395,7 @@ impl OutcomeRecord {
             "mutant_run_sha256": self.mutant_run_sha256,
             "difference": self.difference,
             "cause": self.cause,
+            "open_application": self.open_application,
             "smt_unknowns": self.smt_unknowns,
             "decider_smt_unknowns": self.decider_smt_unknowns,
             "allowance_bytes": self.allowance_bytes,
@@ -385,10 +406,10 @@ impl OutcomeRecord {
     }
 }
 
-/// `record_sha256 = payload_digest("kink-flow/outcome-record/v3", canonical JSON of
+/// `record_sha256 = payload_digest("kink-flow/outcome-record/v4", canonical JSON of
 /// {context_sha256, mutation_identity, program_digest, baseline_run_sha256, outcome, slots,
-/// mutant_run_sha256, difference, report})`, where `report` is `{cause, smt_unknowns,
-/// decider_smt_unknowns}`. It detects corruption and a record moved under another key, not
+/// mutant_run_sha256, difference, report})`, where `report` is `{cause, open_application,
+/// smt_unknowns, decider_smt_unknowns}`. It detects corruption and a record moved under another key, not
 /// forgery (README 7.5.1).
 #[allow(clippy::too_many_arguments)]
 pub fn record_sha256(
@@ -526,6 +547,11 @@ impl OutcomeStore {
             Value::Null if outcome != CachedOutcome::Unknown => None,
             _ => return None,
         };
+        // Only an `unknown` record can be undecided by an open application.
+        let open_application = value.get("open_application")?.as_bool()?;
+        if open_application && outcome != CachedOutcome::Unknown {
+            return None;
+        }
         let record = OutcomeRecord {
             program_id: field("program_id")?,
             baseline_run_sha256: field("baseline_run_sha256")?,
@@ -534,6 +560,7 @@ impl OutcomeStore {
             mutant_run_sha256: field("mutant_run_sha256")?,
             difference: value.get("difference")?.clone(),
             cause,
+            open_application,
             smt_unknowns: value.get("smt_unknowns")?.as_u64()?,
             decider_smt_unknowns: value.get("decider_smt_unknowns")?.as_u64()?,
             allowance_bytes: value.get("allowance_bytes").and_then(Value::as_u64),

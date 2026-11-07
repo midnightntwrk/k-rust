@@ -83,6 +83,16 @@
 //! `full` (null under first-kill and on a row no fold decided). A full row's `executed` lists
 //! every program in corpus order, its cached and live cells merged.
 //!
+//! Version 27: the cause of a mutant run's undecided end names the application of an edited
+//! function that a stuck, undefined-step, indeterminate or stop leaf holds unreduced, with its
+//! arguments
+//! ([`executed_cause`]), and an `unknown` row every undecided program of which, live or from the
+//! outcome cache, is undecided by such applications ([`open_application_cause`]: every leaf whose
+//! path is incomplete holds one) has the reason `open-application`, with its own `action`, as
+//! `stack-stop` has. A program's `mismatches` entry names each side's `open_application`, and a
+//! `run --verify` row has the reason `run` gives its cold call (`stack-stop`,
+//! `open-application`).
+//!
 //! Version 23: an executed entry of a live run on which kink's own solver questions about
 //! it (its leaf feasibility and observation decider, kink-campaign
 //! `RunNotes::decider_smt_unknowns`) took an undecided answer carries `decider_smt_unknowns`, and
@@ -95,6 +105,7 @@
 use crate::outcomes::slot_name;
 use crate::{
     cli::{CommandSpelling, Verb},
+    evidence::{EndReader, HEAD_CAP},
     manifest::{Budget, FlowManifest},
     mutation::{EditedRule, InvalidReason, RuleText},
     results::{ResultClass, corpus_cache_directory, kebab, non_value_text},
@@ -102,9 +113,9 @@ use crate::{
 };
 use kink_campaign::{
     CrossCause, CrossEnd, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus,
-    OracleOutcome, OracleSide, OracleValue, SideRun, TestRun,
+    OracleOutcome, OracleSide, OracleValue, SideRun, TestEvidence, TestRun,
 };
-use kink_native::execution::SolverProfile;
+use kink_native::{bridge::OpenApplication, execution::SolverProfile};
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
 use serde_json::{Value, json};
 use std::{
@@ -169,8 +180,13 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// k-rust's compiler writes for a subterm the right-hand side builds again) is read as the pattern
 /// it names, so an edit whose result reuses a subterm of the left-hand side is confined to its
 /// result and a row's `witnesses` can name fewer programs, and each row carries
-/// `witnesses_global`, whether its witnesses are every program because the edit is not site-local.
-pub const RUN_VERSION: u64 = 26;
+/// `witnesses_global`, whether its witnesses are every program because the edit is not site-local;
+/// 27 since an executed program's cause names an open application of an edited function that a
+/// stuck leaf, an undefined step or a stop's end holds, not only an indeterminate leaf, with the application and its
+/// arguments, an `unknown` row every undecided program of which, live or cached, is undecided by
+/// such applications carries the reason `open-application` ([`OPEN_APPLICATION_REASON`]), and a
+/// program's `mismatches` entry names each side's `open_application`.
+pub const RUN_VERSION: u64 = 27;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -370,6 +386,21 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         "unknown" if reason == Some("mutant-findings") => {
             "report it, or change the mutation: the claim-free mutant's findings outside the \
              heads its edit can change differ from the baseline's, so kink cannot compare its ends"
+        }
+        "unknown" if reason == Some("stack-stop") => {
+            "write a program on an input the mutant ends on, which kills it when its final \
+             configuration differs: the mutant's run recursed until it met a stop for lack of \
+             native stack, which no budget bounds, so a program on which it does not end cannot \
+             kill it; when it recurses without end on every input that reaches the edit, write \
+             the misunderstanding as a mutant that ends, or drop the mutation"
+        }
+        "unknown" if reason == Some(OPEN_APPLICATION_REASON) => {
+            "write a program on which the mutant reduces every application it builds of the \
+             function the cause names: every program the mutant did not judge ends with such an \
+             application, which no equation of the mutant reduces and kink cannot compare; when \
+             the edit leaves the function's value open on every input that reaches it (it only \
+             narrows the equation), no program can kill it: write the misunderstanding as a \
+             replacement, an equation whose result differs, or drop the mutation"
         }
         "unknown" => {
             "write a program whose final configuration under the mutant kink can compare: the \
@@ -609,30 +640,129 @@ pub fn census_clause(census: &LeafCensus) -> String {
     )
 }
 
-/// [`census_clause`] of a mutant's run, and, when an indeterminate leaf of it holds an application
-/// of a function whose equations the mutation edits (`edited`, kink-patch
-/// `ClaimSupport::edited_equation_heads`) that no equation of the mutant reduces (kink-campaign
-/// `LeafCensus::open`), that leaf's depth and the first such function (kink27 R5-WEAKENING, fix
-/// round 1). Only an edited function is named: an application of any other function is unreduced
-/// for a reason the edit does not name (it may be irreducible in the baseline as well), and an
-/// open value that only a rule's condition reads is in no state, so then no function is named.
-/// A baseline's census is described by [`census_clause`] alone.
-fn mutant_census_clause(census: &LeafCensus, edited: &BTreeSet<String>) -> String {
-    let mut clause = census_clause(census);
-    let named = census.open.iter().find_map(|open| {
+/// What [`executed_cause`] reads of a mutant's run beyond the runner's evidence, when the session
+/// recorded the run: its leaf census, the functions some of whose equations the mutation edits
+/// (kink-patch `ClaimSupport::edited_equation_heads`), and the reader that prints a term of it.
+#[derive(Clone, Copy)]
+pub struct MutantCensus<'c> {
+    pub census: &'c LeafCensus,
+    pub edited: &'c BTreeSet<String>,
+    pub reader: &'c EndReader,
+}
+
+/// The application [`mutant_census_clause`] names: the first open application of the census
+/// (kink-campaign `LeafCensus::open`) of a function whose equations the mutation edits, with the
+/// function's K label. Only an edited function is named: an application of any other function is
+/// unreduced for a reason the edit does not name (it may be irreducible in the baseline as well),
+/// and an open value that only a rule's condition reads is in no state, so then none is named.
+fn named_open(census: MutantCensus<'_>) -> Option<(&OpenApplication, String)> {
+    census.census.open.iter().find_map(|open| {
         let label = k_rust::kast::identifier::label_or_name(&open.symbol);
-        edited.contains(&label).then_some((open, label))
-    });
-    if let Some((open, label)) = named {
+        census.edited.contains(&label).then_some((open, label))
+    })
+}
+
+/// [`census_clause`] of a mutant's run, and, when a final leaf of it whose state k-rust normalised
+/// (stuck, an undefined step, indeterminate or a stop's) holds an application of a function whose equations the
+/// mutation edits that no equation of the mutant reduces ([`named_open`]), that leaf's halt and
+/// depth and the application, its arguments printed by the command's reader (kink27
+/// R5-WEAKENING, fix round 1). A baseline's census is described by
+/// [`census_clause`] alone.
+fn mutant_census_clause(census: MutantCensus<'_>) -> String {
+    let mut clause = census_clause(census.census);
+    if let Some((open, label)) = named_open(census) {
+        let printed = census.reader.print(&open.application, HEAD_CAP);
+        let text = printed["text"].as_str().unwrap_or_default();
+        let ellipsis = if printed["truncated"] == true {
+            "..."
+        } else {
+            ""
+        };
         clause.push_str(&format!(
-            "; its indeterminate leaf at depth {} holds an application of the function `{label}`, \
-             whose equations the mutation edits, that no equation of the mutant reduces: the \
-             mutant leaves its value open there",
+            "; its {} leaf at depth {} holds `{text}{ellipsis}`, an application of the function \
+             `{label}`, whose equations the mutation edits, that no equation of the mutant \
+             reduces: the mutant leaves its value open there",
+            kebab(&format!("{:?}", open.halt)),
             open.depth,
         ));
     }
     clause
 }
+
+/// Whether some compared slot of the mutant's run is `unknown` or `timeout` for a reason of its
+/// own run: its side is not a value, and the pair's cross-definition judgement did not refuse it
+/// (a side refused there ended in a value of its own definition, so its census says nothing of
+/// the cause; fz26 KINK-CAUSE-SUBTERM).
+fn incomplete(sides: &[OracleSide], across: &[CrossRefusal]) -> bool {
+    sides.iter().enumerate().any(|(slot, side)| {
+        matches!(side, OracleSide::Unknown | OracleSide::Timeout)
+            && !across
+                .iter()
+                .any(|refusal| refusal.slot == slot && !refusal.baseline_end)
+    })
+}
+
+/// Whether an executed program's outcome on the mutant is undecided (neither every slot
+/// `agree` nor some slot `distinguish`) because the ends of the mutant's run hold open
+/// applications of edited functions: the run was compared, a slot of it is undecided for a reason
+/// of its own run ([`incomplete`]), some leaf's path is incomplete, and every leaf whose path is
+/// incomplete (kink-campaign `RunNotes::incomplete_leaves`) holds, in its state or its path
+/// condition, an application of a function the mutation edits that no equation of the mutant
+/// reduces (`LeafCensus::leaf_open`, kink-native `open_symbols`). A failed run is undecided for
+/// another reason.
+///
+/// Each such leaf is final and its state one k-rust normalised (kink-native `open_applications`),
+/// so the application is one no equation of the mutant reduces. In its state, it makes a stuck,
+/// indeterminate or stop leaf's state no value and keeps an undefined step's pre-step
+/// configuration from being shown to exist; in its path condition, it leaves open whether the
+/// leaf has an instance (an undefined step whose rule's result is undefined where the function's
+/// value is, for example). Either way its path is incomplete by that application, and an
+/// incomplete path makes every state slot undecided by its stop before any end is read
+/// (kink-campaign `state_side`). When every
+/// incomplete path is such a leaf's, the slot is undecided by those applications. A leaf whose path is incomplete for
+/// another reason (a depth, breadth or work bound, an undecided step, an undecided feasibility)
+/// and that holds none keeps the slot undecided by itself, so its program does not have this
+/// cause, although its cause may still name an application another leaf holds
+/// ([`executed_cause`]). [`OPEN_APPLICATION_REASON`] is the mutation's reason when every
+/// undecided program has this cause.
+///
+/// `census` is the mutant run's leaf census, when the session recorded it, and `edited` the
+/// functions some of whose equations the mutation edits (kink-patch
+/// `ClaimSupport::edited_equation_heads`), by K label.
+#[must_use]
+pub fn open_application_cause(
+    run: &TestRun,
+    mutant: Option<&TestEvidence>,
+    census: Option<&LeafCensus>,
+    edited: &BTreeSet<String>,
+) -> bool {
+    let (TestRun::Compared(outcomes), Some(mutant), Some(census)) = (run, mutant, census) else {
+        return false;
+    };
+    let SideRun::Sides { sides } = &mutant.run else {
+        return false;
+    };
+    let leaves = &mutant.notes.incomplete_leaves;
+    let edited = |symbols: &BTreeSet<String>| {
+        symbols
+            .iter()
+            .any(|symbol| edited.contains(&k_rust::kast::identifier::label_or_name(symbol)))
+    };
+    !outcomes.contains(&OracleOutcome::Distinguish)
+        && !outcomes
+            .iter()
+            .all(|outcome| *outcome == OracleOutcome::Agree)
+        && incomplete(sides, &mutant.notes.across)
+        && !leaves.is_empty()
+        && leaves
+            .iter()
+            .all(|leaf| census.leaf_open.get(*leaf).is_some_and(edited))
+}
+
+/// The `reason` of an `unknown` mutation every undecided program of which ends, under the
+/// mutant, with an application of a function the mutation edits that no equation of the mutant
+/// reduces ([`open_application_cause`]): the end is no value, so kink cannot compare it.
+pub const OPEN_APPLICATION_REASON: &str = "open-application";
 
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
 /// that run and, when the session recorded it, the leaf census of the mutant's run: `None` when
@@ -644,20 +774,20 @@ pub fn executed_cause(
     mutant: Option<&SideRun>,
     across: &[CrossRefusal],
     budget: Budget,
-    census: Option<(&LeafCensus, &BTreeSet<String>)>,
+    census: Option<MutantCensus<'_>>,
 ) -> Option<String> {
     match run {
         TestRun::SkippedAfterKill => None,
         TestRun::Failed(kind) => Some(match (kind, census) {
-            (ExecutionFailureKind::TimeLimit, Some((census, edited))) => format!(
+            (ExecutionFailureKind::TimeLimit, Some(census)) => format!(
                 "{}; when the bound fired {}",
                 failure_cause(*kind, budget),
-                mutant_census_clause(census, edited)
+                mutant_census_clause(census)
             ),
-            (ExecutionFailureKind::ResourceLimit, Some((census, edited))) => format!(
+            (ExecutionFailureKind::ResourceLimit, Some(census)) => format!(
                 "{}; the mutant's run: {}",
                 failure_cause(*kind, budget),
-                mutant_census_clause(census, edited)
+                mutant_census_clause(census)
             ),
             _ => failure_cause(*kind, budget),
         }),
@@ -676,17 +806,11 @@ pub fn executed_cause(
             // Slots with the same cause are named together: `exit-stop, whole-term: <cause>`.
             let mut groups: Vec<(Vec<&str>, String)> = Vec::new();
             // An unknown or timed-out side: the census tells a depth bound from an undecided end.
-            // A side the pair's cross-definition judgement refused ended in a value of its own
-            // definition, so its census says nothing of the cause (fz26 KINK-CAUSE-SUBTERM).
             let refused = |slot: usize, baseline_end: bool| {
                 across
                     .iter()
                     .find(|refusal| refusal.slot == slot && refusal.baseline_end == baseline_end)
             };
-            let incomplete = sides.iter().enumerate().any(|(slot, side)| {
-                matches!(side, OracleSide::Unknown | OracleSide::Timeout)
-                    && refused(slot, false).is_none()
-            });
             for (slot, outcome) in outcomes.iter().enumerate() {
                 if *outcome == OracleOutcome::Agree {
                     continue;
@@ -716,10 +840,10 @@ pub fn executed_cause(
                 .map(|(names, cause)| format!("{}: {cause}", names.join(", ")))
                 .collect::<Vec<_>>()
                 .join("; ");
-            if let (true, Some((census, edited))) = (incomplete, census) {
+            if let (true, Some(census)) = (incomplete(sides, across), census) {
                 cause.push_str(&format!(
                     "; the mutant's run: {}",
-                    mutant_census_clause(census, edited)
+                    mutant_census_clause(census)
                 ));
             }
             Some(cause)
@@ -1104,4 +1228,95 @@ fn read_report(
         ));
     }
     Ok(document)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kink_campaign::{RunNotes, RunStop};
+    use std::collections::BTreeMap;
+
+    /// A mutant run's evidence with both slots `unknown` and the leaves whose paths the bridge
+    /// left incomplete.
+    fn unknown(incomplete: &[usize]) -> TestEvidence {
+        TestEvidence {
+            test_id: "t".into(),
+            run: SideRun::Sides {
+                sides: vec![OracleSide::Unknown, OracleSide::Unknown],
+            },
+            notes: RunNotes {
+                incomplete_leaves: incomplete.iter().copied().collect(),
+                ..RunNotes::default()
+            },
+            ends: BTreeSet::new(),
+            undefined_steps: false,
+            one_sided_ends: BTreeSet::new(),
+            stop_ends: BTreeSet::new(),
+            payloads: BTreeMap::new(),
+        }
+    }
+
+    /// A census whose leaves hold, each, the open applications of these KORE symbols.
+    fn census(leaf_open: &[&[&str]]) -> LeafCensus {
+        LeafCensus {
+            stop: RunStop::Finished,
+            leaves: BTreeMap::new(),
+            deepest: None,
+            rule_ids: BTreeSet::new(),
+            work: Some(1),
+            open: Vec::new(),
+            leaf_open: leaf_open
+                .iter()
+                .map(|symbols| symbols.iter().map(|s| (*s).to_owned()).collect())
+                .collect(),
+        }
+    }
+
+    /// A program is undecided by an open application only when every leaf whose path is
+    /// incomplete holds an application of an edited function: a leaf incomplete for another
+    /// reason (here a depth-bound leaf, which holds none) keeps the slots undecided by itself,
+    /// whatever another leaf holds. A run with no incomplete path, a failed run, a run some slot
+    /// of which distinguishes, and an application of a function the mutation does not edit give
+    /// no such cause.
+    #[test]
+    fn an_open_application_is_the_cause_only_when_every_incomplete_leaf_holds_one() {
+        let edited = BTreeSet::from(["f".to_owned()]);
+        let undecided = TestRun::Compared(vec![OracleOutcome::Unknown, OracleOutcome::Unknown]);
+        let cause = |run: &TestRun, incomplete: &[usize], leaves: &[&[&str]]| {
+            open_application_cause(
+                run,
+                Some(&unknown(incomplete)),
+                Some(&census(leaves)),
+                &edited,
+            )
+        };
+        assert!(cause(&undecided, &[0], &[&["Lblf"]]));
+        assert!(cause(&undecided, &[1], &[&[], &["Lblf", "Lblg"]]));
+        assert!(cause(&undecided, &[0, 1], &[&["Lblf"], &["Lblf"]]));
+        // A second leaf incomplete for another reason.
+        assert!(!cause(&undecided, &[0, 1], &[&["Lblf"], &[]]));
+        // An application of a function the mutation does not edit.
+        assert!(!cause(&undecided, &[0], &[&["Lblg"]]));
+        // No incomplete path, or a leaf the census does not know.
+        assert!(!cause(&undecided, &[], &[&["Lblf"]]));
+        assert!(!cause(&undecided, &[2], &[&["Lblf"]]));
+        // Not undecided.
+        let distinguished =
+            TestRun::Compared(vec![OracleOutcome::Distinguish, OracleOutcome::Unknown]);
+        assert!(!cause(&distinguished, &[0], &[&["Lblf"]]));
+        let agreed = TestRun::Compared(vec![OracleOutcome::Agree, OracleOutcome::Agree]);
+        assert!(!cause(&agreed, &[0], &[&["Lblf"]]));
+        assert!(!cause(
+            &TestRun::Failed(ExecutionFailureKind::TimeLimit),
+            &[0],
+            &[&["Lblf"]]
+        ));
+        // Without a recorded census nothing is known of the leaves.
+        assert!(!open_application_cause(
+            &undecided,
+            Some(&unknown(&[0])),
+            None,
+            &edited
+        ));
+    }
 }

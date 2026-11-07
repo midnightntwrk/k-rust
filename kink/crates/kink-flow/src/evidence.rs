@@ -1212,6 +1212,7 @@ mod tests {
             mutant_run_sha256: "1".repeat(64),
             difference: difference.clone(),
             cause: None,
+            open_application: false,
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
             allowance_bytes: None,

@@ -3919,3 +3919,178 @@ fn a_narrowed_equation_of_the_story_is_unkillable() {
     assert_eq!(weakening[0]["head"], "plus", "{row:#}");
     assert_eq!(weakening[0]["kind"], "narrowed", "{row:#}");
 }
+
+/// A case witnesses a mutation when its baseline run reaches a sentence the mutant changes,
+/// whatever the mutant then does. `no-decrease` edits only `plus_succ`'s result, into one that
+/// reuses its left-hand side's `s(M)` (which k-rust's compiler writes as an alias of the
+/// left-hand side), and its mutant recurses without end: its witnesses are the cases that apply
+/// `plus_succ`, `t3` and `t4`, never `t1` or `t2`, which apply only `plus_zero`, and it stays
+/// `unknown` with the reason `stack-stop`. `shifted` edits `plus_succ`'s pattern: an equation
+/// whose pattern changes can match terms no baseline run tried, so every case witnesses it
+/// (`witnesses_global`), and `fuzz --kill` says so. Its mutant also narrows `plus_succ` through
+/// a result the syntactic narrowing test does not read as an instance, so on `t4`,
+/// `plus(s(s(zero)), s(zero))`, it ends stuck on `plus(s(zero), zero)`, which no equation of the
+/// mutant reduces: the cause names that application and the mutation's reason is
+/// `open-application`, still `unknown`, on a warm cache as on a cold one.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One run of two mutations and the fuzz job that reads it."
+)]
+fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
+    let project = story();
+    let cache = project.path().join("target/witnesses-kink-cache");
+    let cache = cache.to_str().unwrap();
+    project.write(
+        "kink/witnesses-mutations.toml",
+        [
+            mutation(
+                "no-decrease",
+                "plus_succ",
+                "s ( plus ( M:Nat , N:Nat ) )",
+                "s ( plus ( s ( M:Nat ) , N:Nat ) )",
+            ),
+            mutation(
+                "shifted",
+                "plus_succ",
+                "plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )",
+                "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( s ( plus ( M:Nat , N:Nat ) ) )",
+            ),
+        ]
+        .concat(),
+    );
+    // `no-decrease` stops at the native stack's bound, a bound on work: the clock never decides
+    // a run of the tests (R4-WALLCLOCK), so this copy of the story's corpus gives its runs a time
+    // far above it.
+    project.write(
+        "corpora/witnesses/FLOW.toml",
+        format!(
+            "{STORY_FLOW}\n[budget]\n# the clock never decides a run of the tests (R4-WALLCLOCK)\ntime_ms = 600000\n"
+        ),
+    );
+    for (id, text) in STORY_CASES {
+        project.write(&format!("corpora/witnesses/cases/{id}.nat"), text);
+    }
+    let mutations = [
+        "--corpus",
+        "corpora/witnesses",
+        "--mutations",
+        "kink/witnesses-mutations.toml",
+    ];
+    let mut arguments = mutations.to_vec();
+    // Corpus order, so that each row's witnesses are listed in it.
+    arguments.extend(["--cache", cache, "--order", "corpus"]);
+    let ran = project.kink("run", &arguments);
+    assert_status(&ran, 3);
+    let document = json(&ran);
+    let rows = document["mutations"].as_array().unwrap();
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("no row {id}: {document:#}"))
+    };
+    let no_decrease = row("no-decrease");
+    assert_eq!(no_decrease["status"], "unknown", "{no_decrease:#}");
+    assert_eq!(no_decrease["reason"], "stack-stop", "{no_decrease:#}");
+    assert_eq!(
+        strings(&no_decrease["witnesses"]),
+        ["t3", "t4"],
+        "{no_decrease:#}"
+    );
+    assert_eq!(no_decrease["witnesses_global"], false, "{no_decrease:#}");
+    assert!(
+        no_decrease["action"]
+            .as_str()
+            .unwrap()
+            .contains("write the misunderstanding as a mutant that ends, or drop the mutation"),
+        "{no_decrease:#}"
+    );
+    let shifted = row("shifted");
+    assert_eq!(shifted["status"], "unknown", "{shifted:#}");
+    assert_eq!(
+        strings(&shifted["witnesses"]),
+        ["t1", "t2", "t3", "t4"],
+        "{shifted:#}"
+    );
+    assert_eq!(shifted["witnesses_global"], true, "{shifted:#}");
+    assert_eq!(shifted["reason"], "open-application", "{shifted:#}");
+    assert!(
+        shifted["action"]
+            .as_str()
+            .unwrap()
+            .contains("write the misunderstanding as a replacement"),
+        "{shifted:#}"
+    );
+    let t4 = shifted["executed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["program"] == "t4")
+        .unwrap_or_else(|| panic!("t4 ran: {shifted:#}"));
+    assert_eq!(t4["outcome"], "unknown", "{t4:#}");
+    assert!(
+        t4["cause"].as_str().unwrap().ends_with(
+            "k-rust returned 1 leaf (stuck 1), the deepest at depth 0; its stuck leaf at depth 0 \
+             holds `plus ( s(zero) , zero )`, an application of the function `plus`, whose \
+             equations the mutation edits, that no equation of the mutant reduces: the mutant \
+             leaves its value open there"
+        ),
+        "{t4:#}"
+    );
+
+    // The same inputs on the warm cache: t4's unknown comes from the outcome cache, whose record
+    // keeps whether the program is undecided by an open application, so the reason and the
+    // action are the cold run's.
+    let again = project.kink("run", &arguments);
+    assert_status(&again, 3);
+    let again = json(&again);
+    let warm = again["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "shifted")
+        .unwrap_or_else(|| panic!("no row shifted: {again:#}"));
+    let cached = warm["executed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["program"] == "t4")
+        .unwrap_or_else(|| panic!("t4 listed: {warm:#}"));
+    assert_eq!(cached["cached"], true, "{cached:#}");
+    assert_eq!(cached["outcome"], "unknown", "{cached:#}");
+    assert_eq!(cached["cause"], t4["cause"], "{cached:#}");
+    assert_eq!(warm["reason"], "open-application", "{warm:#}");
+    assert_eq!(warm["action"], shifted["action"], "{warm:#}");
+
+    project.write(
+        "kink/witnesses-templates.toml",
+        "[[template]]\nid = \"t1-first\"\nprogram = \"t1\"\n\n  [[template.hole]]\n  name = \"M\"\n  \
+         sort = \"Nat\"\n  find = \"(zero,\"\n  literal = \"zero\"\n  allow-refused-sort = true\n",
+    );
+    let mut arguments = mutations.to_vec();
+    arguments.extend([
+        "--cache",
+        cache,
+        "--templates",
+        "kink/witnesses-templates.toml",
+        "--template",
+        "t1-first",
+        "--kill",
+        "shifted",
+        "--cases",
+        "2",
+    ]);
+    let output = project.kink("fuzz", &arguments);
+    let document = json(&output);
+    assert_eq!(document["schema"], "kink-flow-fuzz", "{document:#}");
+    let last = &document["template"]["last_run"]["mutation"];
+    assert_eq!(last["witnesses_global"], true, "{document:#}");
+    let kinds = document["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| warning["kind"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(kinds.contains(&"global-witnesses"), "{document:#}");
+    assert!(!kinds.contains(&"template-not-a-witness"), "{document:#}");
+}

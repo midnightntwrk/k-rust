@@ -152,6 +152,7 @@
 //! `mismatches` also for a mutation `--only` does not select or a corpus error left unsearched,
 //! and for a census also when the live census refuses the specification; re-pin L1-4 fix 1).
 
+use crate::evidence::EndReader;
 use crate::{
     admit::{AdmittedSpec, InputSession, admit_spec_with},
     cli::{CommandSpelling, FrontEnd, Verb},
@@ -164,9 +165,10 @@ use crate::{
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
-        RUN_SCHEMA, RUN_VERSION, action, action_spelled, claims_value, executed_cause, matrix,
-        refused_action, rules_value, slots_value, specification_diagnostics_value, survivors,
-        typing_diagnostics_value, untargeted_rules, unusable_programs,
+        MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action, action_spelled,
+        claims_value, executed_cause, matrix, open_application_cause, refused_action, rules_value,
+        slots_value, specification_diagnostics_value, survivors, typing_diagnostics_value,
+        untargeted_rules, unusable_programs,
     },
     results::{
         BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory, kebab,
@@ -1018,13 +1020,15 @@ impl Search<'_, '_> {
     /// is cacheable ([`cacheable`]: `killed`, `agree`, or an `unknown` of a judged run), none when
     /// the call's plan carries a mutant-scope failure. A `killed` record carries the test's kill
     /// evidence from `differences` (CF-16), an `unknown` record its executed entry's cause from
-    /// `causes` (CF-33d, [`entry_causes`]; none without one), and every record the run's
-    /// undecided-answer counts.
+    /// `causes` (CF-33d, [`entry_causes`]; none without one) and whether that cause is an open
+    /// application of an edited function from `opens` ([`entry_opens`]), and every record the
+    /// run's undecided-answer counts.
     fn live_records(
         &self,
         run: &MutantRun,
         differences: &BTreeMap<String, Value>,
         causes: &BTreeMap<String, String>,
+        opens: &BTreeMap<String, bool>,
     ) -> Vec<(String, OutcomeRecord)> {
         if run.plan.mutant_failure.is_some() {
             return Vec::new();
@@ -1060,6 +1064,8 @@ impl Search<'_, '_> {
                                 .unwrap_or(Value::Null),
                             CachedOutcome::Agree | CachedOutcome::Unknown => Value::Null,
                         },
+                        open_application: outcome == CachedOutcome::Unknown
+                            && opens.get(&test.test_id) == Some(&true),
                         cause,
                         smt_unknowns: notes.map_or(0, |notes| count(notes.smt_unknowns)),
                         decider_smt_unknowns: notes
@@ -1435,18 +1441,23 @@ impl Search<'_, '_> {
             .map(|(c, record)| self.cached_entry(*c, record))
             .collect::<Vec<_>>();
         self.stats.programs_from_cache += agree.len();
+        // Each undecided program's [`report::open_application_cause`], by program: a cached
+        // unknown's from its record, a live one's from its call's census, a later call's
+        // replacing an earlier's, as its record does (step 7).
+        let mut opens = cached_opens(&agree, |c| self.candidates[c].id);
         if live_order.is_empty() {
             let report = self
                 .assemble(&agree, None)
                 .expect("cached outcomes of executed tests form a valid plan");
             self.stats.mutations_from_cache += 1;
             self.hints.remove(key);
+            let reason = open_reason(&report, &opens);
             return Some((
                 verdict_row(
                     row,
                     &report,
                     None,
-                    None,
+                    reason,
                     None,
                     RowCalls::default(),
                     executed,
@@ -1460,9 +1471,14 @@ impl Search<'_, '_> {
         let generation = generation
             .expect("a memo's facts are searched only when tier 1 decides, in step 2 or 3");
         let mut calls = Calls::new();
-        // Each live call's order, run and its entries' causes (CF-33d): a record keeps the cause
-        // of its own call's run.
-        let mut runs = Vec::<(Vec<usize>, MutantRun, BTreeMap<String, String>)>::new();
+        // Each live call's order, run, and its entries' causes and open applications (CF-33d): a
+        // record keeps those of its own call's run.
+        let mut runs = Vec::<(
+            Vec<usize>,
+            MutantRun,
+            BTreeMap<String, String>,
+            BTreeMap<String, bool>,
+        )>::new();
         // The kill evidence of the live calls, by program; a later call's replaces an earlier's,
         // as its record does (step 7).
         let mut differences = BTreeMap::<String, Value>::new();
@@ -1480,6 +1496,7 @@ impl Search<'_, '_> {
                     self.set_witnesses(&mut row, &order, &live, &mut witness);
                     executed.extend(executed_entries(
                         &live,
+                        self.runner.end_reader(),
                         self.spec.result.slots(),
                         self.manifest.budget,
                         first_killer(&live),
@@ -1487,10 +1504,16 @@ impl Search<'_, '_> {
                     if status == MutantStatus::Killed {
                         source = SOURCE_HINT;
                     }
-                    let causes =
-                        entry_causes(&live, self.spec.result.slots(), self.manifest.budget);
+                    let causes = entry_causes(
+                        &live,
+                        self.runner.end_reader(),
+                        self.spec.result.slots(),
+                        self.manifest.budget,
+                    );
+                    let open = entry_opens(&live);
+                    opens.extend(open.clone());
                     differences.extend(live.differences);
-                    runs.push((vec![h], live.mutant, causes));
+                    runs.push((vec![h], live.mutant, causes, open));
                 }
             }
         }
@@ -1512,6 +1535,7 @@ impl Search<'_, '_> {
                     // status is folded from.
                     let entries = executed_entries(
                         &live,
+                        self.runner.end_reader(),
                         self.spec.result.slots(),
                         self.manifest.budget,
                         first_killer(&live),
@@ -1523,15 +1547,21 @@ impl Search<'_, '_> {
                                 .any(|again| again["program"] == entry["program"])
                     });
                     executed.extend(entries);
-                    let causes =
-                        entry_causes(&live, self.spec.result.slots(), self.manifest.budget);
+                    let causes = entry_causes(
+                        &live,
+                        self.runner.end_reader(),
+                        self.spec.result.slots(),
+                        self.manifest.budget,
+                    );
+                    let open = entry_opens(&live);
+                    opens.extend(open.clone());
                     differences.extend(live.differences);
-                    runs.push((live.order, live.mutant, causes));
+                    runs.push((live.order, live.mutant, causes, open));
                 }
             }
         }
         // Step 5: the status of the assembled plan.
-        let (last_order, last, _) = runs.last().expect("a live call");
+        let (last_order, last, ..) = runs.last().expect("a live call");
         let report = match self.assemble(&agree, Some((last_order, &last.plan))) {
             Ok(report) => report,
             Err(failure) => {
@@ -1563,7 +1593,8 @@ impl Search<'_, '_> {
             .plan
             .mutant_failure
             .map(|failure| kebab(&format!("{failure:?}")))
-            .or_else(|| exclusion_reason(&report, runs.iter().map(|(_, run, _)| run)));
+            .or_else(|| exclusion_reason(&report, runs.iter().map(|(_, run, ..)| run)))
+            .or_else(|| open_reason(&report, &opens));
         verdict_claims(&mut row, &last.plan.claims, |claims| {
             claims_value(self.spec.validator.baseline(), claims)
         });
@@ -1572,7 +1603,7 @@ impl Search<'_, '_> {
         // counts each program once).
         let records = runs
             .iter()
-            .flat_map(|(_, run, causes)| self.live_records(run, &differences, causes))
+            .flat_map(|(_, run, causes, opens)| self.live_records(run, &differences, causes, opens))
             .collect::<Vec<_>>();
         self.write_records(identity, mutation, &mut row, &records, witness.as_ref());
         let killer = (report.status == MutantStatus::Killed)
@@ -1674,6 +1705,7 @@ impl Search<'_, '_> {
                     };
                     executed.extend(self.indexed(executed_entries(
                         live,
+                        self.runner.end_reader(),
                         self.spec.result.slots(),
                         self.manifest.budget,
                         None,
@@ -1682,8 +1714,11 @@ impl Search<'_, '_> {
                 }
             },
         };
-        let mut reason = None;
+        let mut opens = cached_opens(&cached, |c| self.candidates[c].id);
+        let mut reason = open_reason(&report, &opens);
         if let Some(live) = &live {
+            let open = entry_opens(live);
+            opens.extend(open.clone());
             if live.mutant.plan.mutant_failure == Some(MutantScopeFailure::Infrastructure) {
                 // `assemble` left the cached cells out of the plan (flow F-16): they leave the
                 // row and the counts too, so the row is the cold call's.
@@ -1695,12 +1730,18 @@ impl Search<'_, '_> {
                 .plan
                 .mutant_failure
                 .map(|failure| kebab(&format!("{failure:?}")))
-                .or_else(|| exclusion_reason(&report, std::iter::once(&live.mutant)));
+                .or_else(|| exclusion_reason(&report, std::iter::once(&live.mutant)))
+                .or_else(|| open_reason(&report, &opens));
             verdict_claims(&mut row, &live.mutant.plan.claims, |claims| {
                 claims_value(self.spec.validator.baseline(), claims)
             });
-            let causes = entry_causes(live, self.spec.result.slots(), self.manifest.budget);
-            let records = self.live_records(&live.mutant, &live.differences, &causes);
+            let causes = entry_causes(
+                live,
+                self.runner.end_reader(),
+                self.spec.result.slots(),
+                self.manifest.budget,
+            );
+            let records = self.live_records(&live.mutant, &live.differences, &causes, &open);
             self.write_records(
                 facts.identity,
                 mutation,
@@ -1732,6 +1773,7 @@ impl Search<'_, '_> {
                 .map(|killer| self.candidates[killer].id);
             executed.extend(self.indexed(executed_entries(
                 live,
+                self.runner.end_reader(),
                 self.spec.result.slots(),
                 self.manifest.budget,
                 live_killer,
@@ -1795,17 +1837,24 @@ impl Search<'_, '_> {
                 self.set_witnesses(&mut row, order, &live, &mut witness);
                 executed.extend(executed_entries(
                     &live,
+                    self.runner.end_reader(),
                     self.spec.result.slots(),
                     self.manifest.budget,
                     first_killer(&live),
                 ));
-                let causes = entry_causes(&live, self.spec.result.slots(), self.manifest.budget);
-                (live.mutant, causes)
+                let causes = entry_causes(
+                    &live,
+                    self.runner.end_reader(),
+                    self.spec.result.slots(),
+                    self.manifest.budget,
+                );
+                let opens = entry_opens(&live);
+                (live.mutant, causes, opens)
             }
         };
-        let (cold, cold_causes) = cold;
+        let (cold, cold_causes, cold_opens) = cold;
         let mut live = BTreeMap::new();
-        self.collect_live(&cold, &cold_causes, &mut live);
+        self.collect_live(&cold, &cold_causes, &cold_opens, &mut live);
         for (c, _) in records {
             if live.contains_key(c) {
                 continue;
@@ -1821,12 +1870,19 @@ impl Search<'_, '_> {
                     // An audit call: its kill is not the row's killer, so it shows no KORE.
                     executed.extend(executed_entries(
                         &one,
+                        self.runner.end_reader(),
                         self.spec.result.slots(),
                         self.manifest.budget,
                         None,
                     ));
-                    let causes = entry_causes(&one, self.spec.result.slots(), self.manifest.budget);
-                    self.collect_live(&one.mutant, &causes, &mut live);
+                    let causes = entry_causes(
+                        &one,
+                        self.runner.end_reader(),
+                        self.spec.result.slots(),
+                        self.manifest.budget,
+                    );
+                    let opens = entry_opens(&one);
+                    self.collect_live(&one.mutant, &causes, &opens, &mut live);
                     live.entry(*c).or_insert(Live::NotRun(status));
                 }
             }
@@ -1849,7 +1905,12 @@ impl Search<'_, '_> {
             {
                 let side = |outcome: &str, mutant: Value, report: Value| {
                     let mut side = json!({"outcome": outcome, "mutant_run_sha256": mutant});
-                    for field in ["cause", "smt_unknowns", "decider_smt_unknowns"] {
+                    for field in [
+                        "cause",
+                        "open_application",
+                        "smt_unknowns",
+                        "decider_smt_unknowns",
+                    ] {
                         side[field] = report[field].clone();
                     }
                     side
@@ -1916,10 +1977,13 @@ impl Search<'_, '_> {
             self.mismatches.extend(mismatches);
             return (finish(row, None, None, calls, executed), false);
         }
+        // The cold call's reason, as `run` gives it for the same call.
         let reason = cold
             .plan
             .mutant_failure
-            .map(|failure| kebab(&format!("{failure:?}")));
+            .map(|failure| kebab(&format!("{failure:?}")))
+            .or_else(|| exclusion_reason(&cold.report, std::iter::once(&cold)))
+            .or_else(|| open_reason(&cold.report, &cold_opens));
         verdict_claims(&mut row, &cold.plan.claims, |claims| {
             claims_value(self.spec.validator.baseline(), claims)
         });
@@ -1948,6 +2012,7 @@ impl Search<'_, '_> {
         &self,
         run: &MutantRun,
         causes: &BTreeMap<String, String>,
+        opens: &BTreeMap<String, bool>,
         live: &mut BTreeMap<usize, Live>,
     ) {
         for test in &run.plan.tests {
@@ -1963,10 +2028,10 @@ impl Search<'_, '_> {
                 .find(|evidence| evidence.test_id == test.test_id)
                 .map(|evidence| &evidence.notes);
             let outcome = cacheable(&test.run, notes);
+            let unknown = outcome.is_some_and(|(outcome, _)| outcome == CachedOutcome::Unknown);
             let report = OutcomeRecord::report_of(
-                outcome
-                    .filter(|(outcome, _)| *outcome == CachedOutcome::Unknown)
-                    .and_then(|_| causes.get(&test.test_id)),
+                causes.get(&test.test_id).filter(|_| unknown),
+                unknown && opens.get(&test.test_id) == Some(&true),
                 notes.map_or(0, |notes| count(notes.smt_unknowns)),
                 notes.map_or(0, |notes| count(notes.decider_smt_unknowns)),
             );
@@ -2070,7 +2135,7 @@ fn mutant_run_sha256(run: &MutantRun, test_id: &str) -> Option<String> {
 fn kill_differences<'a>(
     mutant: &'a MutantRun,
     baseline: &'a [TestEvidence],
-    reader: &crate::evidence::EndReader,
+    reader: &EndReader,
 ) -> BTreeMap<String, Value> {
     mutant
         .plan
@@ -2099,6 +2164,7 @@ fn kill_differences<'a>(
 /// program's live baseline run in this command) and `baseline_reused`.
 fn executed_entries(
     live: &LiveCall,
+    reader: &EndReader,
     slots: [&str; 2],
     budget: Budget,
     killer: Option<&str>,
@@ -2124,7 +2190,7 @@ fn executed_entries(
                 .recording
                 .mutant_run(mutant.plan.mutant_id, &test.test_id);
             let baseline_run = live.recording.baseline_of(&test.test_id);
-            let cause = entry_cause(live, slots, budget, test);
+            let cause = entry_cause(live, reader, slots, budget, test);
             let difference = live
                 .differences
                 .get(&test.test_id)
@@ -2183,6 +2249,7 @@ fn executed_entries(
 /// excluded by a short-circuit reading, followed by the readings (CF-03).
 fn entry_cause(
     live: &LiveCall,
+    reader: &EndReader,
     slots: [&str; 2],
     budget: Budget,
     test: &kink_campaign::TestPlan,
@@ -2201,7 +2268,11 @@ fn entry_cause(
         found.map(|evidence| &evidence.run),
         found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
         budget,
-        run.map(|run| (&run.census, &live.edited)),
+        run.map(|run| MutantCensus {
+            census: &run.census,
+            edited: &live.edited,
+            reader,
+        }),
     )?;
     Some(match (found, &test.run) {
         (
@@ -2217,7 +2288,12 @@ fn entry_cause(
 
 /// The cause of every executed entry of a live call that has one ([`entry_cause`]), by program:
 /// what an `unknown` outcome record of the call keeps (CF-33d).
-fn entry_causes(live: &LiveCall, slots: [&str; 2], budget: Budget) -> BTreeMap<String, String> {
+fn entry_causes(
+    live: &LiveCall,
+    reader: &EndReader,
+    slots: [&str; 2],
+    budget: Budget,
+) -> BTreeMap<String, String> {
     live.mutant
         .plan
         .tests
@@ -2225,7 +2301,7 @@ fn entry_causes(live: &LiveCall, slots: [&str; 2], budget: Budget) -> BTreeMap<S
         .filter_map(|test| {
             Some((
                 test.test_id.clone(),
-                entry_cause(live, slots, budget, test)?,
+                entry_cause(live, reader, slots, budget, test)?,
             ))
         })
         .collect()
@@ -2941,6 +3017,72 @@ fn exclusion_reason<'r>(
         })
 }
 
+/// Each program a live call left undecided (some slot neither `agree` nor `distinguish`, or a
+/// failed run), by id, with whether it is undecided because the ends of the mutant's run hold
+/// open applications of edited functions (`report::open_application_cause`); a failed run is
+/// undecided for another reason. What an `unknown` record of the call keeps
+/// (`OutcomeRecord::open_application`), and what the row's reason is folded from
+/// ([`open_reason`]).
+fn entry_opens(live: &LiveCall) -> BTreeMap<String, bool> {
+    let mutant = &live.mutant;
+    mutant
+        .plan
+        .tests
+        .iter()
+        .filter_map(|test| {
+            let open = match &test.run {
+                TestRun::SkippedAfterKill => return None,
+                TestRun::Failed(_) => false,
+                TestRun::Compared(outcomes) => {
+                    if outcomes.contains(&OracleOutcome::Distinguish)
+                        || outcomes
+                            .iter()
+                            .all(|outcome| *outcome == OracleOutcome::Agree)
+                    {
+                        return None;
+                    }
+                    open_application_cause(
+                        &test.run,
+                        mutant
+                            .evidence
+                            .iter()
+                            .find(|evidence| evidence.test_id == test.test_id),
+                        live.recording
+                            .mutant_run(mutant.plan.mutant_id, &test.test_id)
+                            .map(|run| &run.census),
+                        &live.edited,
+                    )
+                }
+            };
+            Some((test.test_id.clone(), open))
+        })
+        .collect()
+}
+
+/// The undecided programs of cached records, by id, as [`entry_opens`] gives them for a live
+/// call: each `unknown` record's `open_application`.
+fn cached_opens<'c>(
+    records: &[(usize, OutcomeRecord)],
+    id: impl Fn(usize) -> &'c str,
+) -> BTreeMap<String, bool> {
+    records
+        .iter()
+        .filter(|(_, record)| record.outcome == CachedOutcome::Unknown)
+        .map(|(c, record)| (id(*c).to_owned(), record.open_application))
+        .collect()
+}
+
+/// The reason [`OPEN_APPLICATION_REASON`] of an `unknown` row every undecided program of which,
+/// live or cached, is undecided because the ends of the mutant's run hold open applications of
+/// edited functions (`opens`, from [`entry_opens`] and [`cached_opens`]); none when no program is
+/// undecided or one is undecided for another reason.
+fn open_reason(report: &MutantReport, opens: &BTreeMap<String, bool>) -> Option<String> {
+    (report.status == MutantStatus::Unknown
+        && !opens.is_empty()
+        && opens.values().all(|open| *open))
+    .then(|| OPEN_APPLICATION_REASON.to_owned())
+}
+
 /// A row's `calls` and `call_wall_ms` (the same order).
 type RowCalls = (Vec<Value>, Vec<Value>);
 
@@ -3456,6 +3598,7 @@ mod tests {
             mutant_run_sha256: String::new(),
             difference: Value::Null,
             cause: None,
+            open_application: false,
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
             allowance_bytes: None,

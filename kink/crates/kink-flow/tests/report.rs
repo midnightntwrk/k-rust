@@ -909,7 +909,11 @@ mod kink_tier {
     /// that leaf's depth (1: the one step of `runf`). Fix round 1: only a function whose equations
     /// the mutation edits is named. `fz1`'s state `pair(z(5), f(1))` holds `z(5)` first, which no
     /// equation reduces in the baseline either, and `pair`'s `v(I)` cannot be matched against the
-    /// open `f(1)`: the cause names `f`, never `z`.
+    /// open `f(1)`: the cause names `f`, never `z`. Every leaf of either run whose path is
+    /// incomplete holds `f(1)` (the trivial leaf is an undefined step, no end), so the row's
+    /// reason is `open-application`, with the replacement advice; a second run on the same cache
+    /// reads both unknowns from the outcome cache and gives the same row reason, causes and
+    /// action, since each record keeps whether its program is undecided by the open application.
     #[test]
     #[ignore = "kink"]
     fn an_open_function_application_is_named_in_the_cause() {
@@ -948,5 +952,35 @@ mod kink_tier {
             "{fz1}"
         );
         assert!(!fz1.contains("`z`"), "{fz1}");
+        let row = mutation(&document, "f-pos-shift");
+        assert_eq!(row["reason"], "open-application", "{row:#}");
+        let action = row["action"].as_str().unwrap().to_owned();
+        assert!(
+            action.contains("write the misunderstanding as a replacement"),
+            "{action}"
+        );
+
+        // The same inputs on the warm cache.
+        let (again, ok) = search(
+            &manifest,
+            &manifest.with_file_name("MUTATIONS.toml"),
+            &["f-pos-shift"],
+        );
+        assert!(ok, "{again:#}");
+        let row = mutation(&again, "f-pos-shift");
+        assert_eq!(row["status"], "unknown", "{row:#}");
+        assert_eq!(row["reason"], "open-application", "{row:#}");
+        assert_eq!(row["action"], action.as_str(), "{row:#}");
+        for (id, cause) in [("f1", &f1), ("fz1", &fz1)] {
+            let entry = row["executed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["program"] == id)
+                .unwrap_or_else(|| panic!("{id} listed: {row:#}"));
+            assert_eq!(entry["cached"], true, "{entry:#}");
+            assert_eq!(entry["outcome"], "unknown", "{entry:#}");
+            assert_eq!(entry["cause"], cause.as_str(), "{entry:#}");
+        }
     }
 }

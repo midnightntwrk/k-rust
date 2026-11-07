@@ -292,6 +292,11 @@ A run over `refused.toml` judges nothing and exits 2:
   No budget bounds native stack, so no such case kills the mutant by comparing ends; `unknown` only says that no case killed it yet.
   When the mutant ends on some input that reaches the edit, as one that forgets to decrease its argument on one branch only does, write a case of that input, which kills the mutant when its end differs from the specification's.
   When it recurses without end on every input that reaches the edit, no case kills it: write the misunderstanding as a mutant that ends, or drop the mutation.
+  The mutation's `reason` is then `stack-stop`, and its `action` says the same.
+- **An end that holds an unevaluated call.**
+  When a case's run under the mutant ends with an application of a function the mutation edits that no equation of the mutant evaluates, the case's `cause` names that application with its arguments, `plus ( s(zero) , zero )` for example, and when every case the mutant left undecided is undecided only by such applications, each end of its run that kink cannot compare holding one, the mutation's `reason` is `open-application`, whether the case ran or its outcome came from the cache.
+  The end is no value, so kink cannot compare it.
+  When the edit leaves the function's value open on every input that reaches it, as an edit that only narrows the equation does, no case kills it: write the misunderstanding as a replacement, an equation whose result differs, or drop the mutation.
 - **A mutant that only narrows an equation.**
   A mutation that replaces an equation by an instance of itself, a narrower pattern or `requires` with the same result on every input it still covers, only weakens the specification, as deleting an equation does: every result the mutant computes is the specification's, and an application outside the narrowed pattern stays unevaluated.
   kink classifies such a mutation as `unkillable` and runs nothing, as it does a deletion: on the story, `replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )"` for `plus_succ` is one.

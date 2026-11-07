@@ -171,7 +171,7 @@ use k_rust::kore::{
 };
 use kink_native::bridge::{
     BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, leaf_keys, open_applications,
-    paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
+    open_symbols, paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
     work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
@@ -434,6 +434,15 @@ pub struct RunNotes {
     /// unknown is no function of the run's inputs and kink-flow's outcome cache never stores it
     /// (CF-33d). It decides no status here.
     pub unjudged: bool,
+    /// The leaves, by their ordinal in the run's response order (kink-native `leaf_keys`), whose
+    /// paths the bridge left incomplete when it read the run's own leaves for its state slots:
+    /// each such path makes every state slot `Unknown`, `Timeout` or `Error` by its stop, before
+    /// any end is read ([`state_side`]). Empty when no path is incomplete, and for a run that
+    /// failed, timed out, was excluded or was not judged. A reader ties an undecided state slot
+    /// to the leaves it is undecided by with it (kink-flow names an open application of an
+    /// edited function only when every such leaf holds one, [`LeafCensus::leaf_open`]). It decides
+    /// no status here.
+    pub incomplete_leaves: BTreeSet<usize>,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -1142,10 +1151,17 @@ pub struct LeafCensus {
     pub rule_ids: BTreeSet<String>,
     /// The states the run visited (k-rust `work`); `None` for a failed or timed-out run.
     pub work: Option<u64>,
-    /// The functions applied unreduced in the states of the indeterminate leaves (kink-native
-    /// [`open_applications`]), each once, with the first such leaf in run order: the definition
+    /// The functions applied unreduced in the states of the final leaves k-rust normalised,
+    /// stuck, undefined steps, indeterminate or a stop's (kink-native [`open_applications`]), each
+    /// once, with its first application in the first such leaf in run order: the definition
     /// leaves the application's value open there (kink27 R5-WEAKENING).
     pub open: Vec<OpenApplication>,
+    /// For each leaf in the run's response order, the functions applied unreduced in its state
+    /// or its path predicates when it is such a leaf (kink-native [`open_symbols`]), by KORE
+    /// symbol; empty for every other leaf. With
+    /// [`RunNotes::incomplete_leaves`] it says whether every leaf that keeps a state slot
+    /// undecided holds such an application.
+    pub leaf_open: Vec<BTreeSet<String>>,
 }
 
 impl LeafCensus {
@@ -1162,6 +1178,7 @@ impl LeafCensus {
                 rule_ids: BTreeSet::new(),
                 work: None,
                 open: Vec::new(),
+                leaf_open: Vec::new(),
             };
         };
         let mut leaves = BTreeMap::new();
@@ -1186,6 +1203,11 @@ impl LeafCensus {
                 .max(),
             rule_ids,
             work: (!execution.timed_out()).then(|| execution.work()),
+            leaf_open: execution
+                .leaves()
+                .iter()
+                .map(|leaf| open_symbols(leaf, functions))
+                .collect(),
             open: execution
                 .leaves()
                 .iter()
@@ -3742,6 +3764,7 @@ impl Runtime {
                 leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
                 across: Vec::new(),
                 unjudged: false,
+                incomplete_leaves: BTreeSet::new(),
             },
             _ => RunNotes::default(),
         };
@@ -3858,10 +3881,20 @@ impl Runtime {
                             // sides have read the paths, so their ends move into the evidence.
                             // A path's key names its leaf ([`leaf_keys`]), so the paths of
                             // stop leaves are known by key.
+                            let keys = leaf_keys(execution.leaves());
+                            notes.incomplete_leaves = bridged
+                                .paths
+                                .iter()
+                                .filter(|path| !path.complete)
+                                .filter_map(|path| {
+                                    let key = path.path_key.as_ref()?;
+                                    keys.iter().position(|other| other == key)
+                                })
+                                .collect();
                             let stopped = execution
                                 .leaves()
                                 .iter()
-                                .zip(leaf_keys(execution.leaves()))
+                                .zip(keys)
                                 .filter(|(leaf, _)| {
                                     matches!(
                                         leaf.halt,

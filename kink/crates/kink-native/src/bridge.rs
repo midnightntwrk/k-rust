@@ -606,42 +606,50 @@ struct SplitState<'s> {
     predicates: Vec<&'s Pattern>,
 }
 
-/// An application of a function that an indeterminate leaf holds unreduced
-/// ([`open_applications`]): the definition leaves its value open there.
+/// An application of a function that an end of a run holds unreduced ([`open_applications`]):
+/// the definition leaves its value open there.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OpenApplication {
     /// The KORE symbol of the function.
     pub symbol: String,
+    /// The first application of the function in the leaf's state, in pre-order of its terms: the
+    /// function's arguments there.
+    pub application: Pattern,
+    /// The leaf's halt: [`HaltClass::Stuck`], [`HaltClass::Trivial`],
+    /// [`HaltClass::Indeterminate`], [`HaltClass::CutPoint`] or [`HaltClass::TerminalRule`].
+    pub halt: HaltClass,
     /// The leaf's depth.
     pub depth: u64,
 }
 
-/// The functions applied in the state of an [`HaltClass::Indeterminate`] leaf, each once, in
-/// pre-order of the state's terms (its path predicates aside), among the symbols of `functions`;
-/// empty for every other leaf, or a state without one (kink27
-/// R5-WEAKENING).
+/// The functions applied in the state of a leaf whose state is an end k-rust normalised, each
+/// once with its first application, in pre-order of the state's terms (its path predicates
+/// aside), among the symbols of `functions`; empty for every other leaf, or a state without one
+/// (kink27 R5-WEAKENING).
 ///
-/// k-rust's states are normal forms, so a function application left in one is an application
-/// that no equation reduces: its value is open there. Which of them, if any, blocked the step
-/// that could not be decided (the indeterminate halt) is not read: a reader names the one it
+/// The leaves read are the stuck ones (no rewrite rule applies), the indeterminate ones (the next
+/// step could not be decided), a stop's (a final configuration of the truncated system,
+/// [`halt_stop`]) and an undefined step's (`Trivial`: its pre-step state, which k-rust normalised
+/// before it found the step undefined, and after which no step follows). k-rust's states are
+/// normal forms, so a function application left in one of them is an application that no
+/// equation reduces: its value is open there. A stuck, indeterminate or stop leaf's state is
+/// then no value; an undefined step's pre-step configuration is complete only when it is shown
+/// to exist (module documentation), which an application whose value is open keeps from being
+/// shown unless its state is shown feasible. A stuck leaf holds it as surely as an indeterminate
+/// one: what makes it stuck (no rule matches) does not make the application reducible. A
+/// breadth-bound or work-bound leaf is not
+/// read, since k-rust never normalised its state, and neither is a depth-bound one, which is no
+/// end: its path was cut there, and a later step could rewrite the application's arguments into
+/// ones an equation reduces. Which of the
+/// applications, if any, blocked the indeterminate step is not read: a reader names the one it
 /// can attribute (kink-flow names an application of a function whose equations the mutation
-/// edits). `functions` names the function symbols that equations define (a hooked symbol's
-/// halt is `unsupported-hook` instead).
+/// edits). `functions` names the function symbols that equations define (a hooked symbol's halt
+/// is `unsupported-hook` instead).
 #[must_use]
 pub fn open_applications(leaf: &AdaptedLeaf, functions: &BTreeSet<String>) -> Vec<OpenApplication> {
-    if leaf.halt != HaltClass::Indeterminate {
+    let Some((terms, _)) = final_conjuncts(leaf) else {
         return Vec::new();
-    }
-    // The state's term conjuncts, left to right, through its top conjunctions.
-    let mut terms = Vec::new();
-    let mut conjuncts = vec![leaf.branch.state.strip_exists()];
-    while let Some(conjunct) = conjuncts.pop() {
-        match conjunct {
-            Pattern::And { arguments, .. } => conjuncts.extend(arguments.iter().rev()),
-            conjunct if term_head(conjunct) => terms.push(conjunct),
-            _ => {}
-        }
-    }
+    };
     let mut open = Vec::<OpenApplication>::new();
     let mut pending = terms.into_iter().rev().collect::<Vec<_>>();
     while let Some(node) = pending.pop() {
@@ -653,12 +661,68 @@ pub fn open_applications(leaf: &AdaptedLeaf, functions: &BTreeSet<String>) -> Ve
         {
             open.push(OpenApplication {
                 symbol: symbol.name.clone(),
+                application: node.clone(),
+                halt: leaf.halt,
                 depth: leaf.branch.depth,
             });
         }
         pending.extend(walk::children(node).into_iter().rev());
     }
     open
+}
+
+/// The functions applied in a leaf [`open_applications`] reads, among the symbols of
+/// `functions`, in its state's terms or in its path predicates; empty for every other leaf.
+///
+/// k-rust simplifies a leaf's path condition with its state, so an application in a predicate is
+/// one no equation reduces too, and the leaf exists only where the predicate holds: when the
+/// predicate's truth rests on an application whose value the definition leaves open, so does the
+/// leaf's feasibility. An undefined step whose rule's result is undefined exactly where a
+/// function's value is, for example, has that function's definedness in its path condition and
+/// no application of it in its pre-step state. A reader that ties an undecided leaf to the
+/// applications that leave it so reads both; a reader that names what an end holds reads the
+/// state alone ([`open_applications`]).
+#[must_use]
+pub fn open_symbols(leaf: &AdaptedLeaf, functions: &BTreeSet<String>) -> BTreeSet<String> {
+    let Some((terms, predicates)) = final_conjuncts(leaf) else {
+        return BTreeSet::new();
+    };
+    let mut open = BTreeSet::new();
+    let mut pending = terms.into_iter().chain(predicates).collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        if let Pattern::Application { symbol, .. } = node
+            && functions.contains(&symbol.name)
+        {
+            open.insert(symbol.name.clone());
+        }
+        pending.extend(walk::children(node));
+    }
+    open
+}
+
+/// The state's term conjuncts and its predicate conjuncts, each left to right through its top
+/// conjunctions, of a leaf [`open_applications`] reads; `None` for every other leaf.
+fn final_conjuncts(leaf: &AdaptedLeaf) -> Option<(Vec<&Pattern>, Vec<&Pattern>)> {
+    if !matches!(
+        leaf.halt,
+        HaltClass::Stuck
+            | HaltClass::Trivial
+            | HaltClass::Indeterminate
+            | HaltClass::CutPoint
+            | HaltClass::TerminalRule
+    ) {
+        return None;
+    }
+    let (mut terms, mut predicates) = (Vec::new(), Vec::new());
+    let mut conjuncts = vec![leaf.branch.state.strip_exists()];
+    while let Some(conjunct) = conjuncts.pop() {
+        match conjunct {
+            Pattern::And { arguments, .. } => conjuncts.extend(arguments.iter().rev()),
+            conjunct if term_head(conjunct) => terms.push(conjunct),
+            conjunct => predicates.push(conjunct),
+        }
+    }
+    Some((terms, predicates))
 }
 
 /// `state` split at its sort into its term and predicate conjuncts, borrowed from it.
@@ -1943,6 +2007,76 @@ mod tests {
             undefined_rule: None,
             contradicted_total: None,
             proposal: None,
+        }
+    }
+
+    /// A function application is read from every final leaf whose state k-rust normalised: a
+    /// stuck leaf, an undefined step, an indeterminate one and a stop's, each function once with
+    /// its first application in pre-order and the leaf's halt; never from a bound or a branch,
+    /// whose state may hold an application a later step reduces or was never normalised.
+    #[test]
+    fn open_applications_read_every_normalised_end() {
+        let state = r"Lblg{}(Lblf{}(Lbla{}()), Lblf{}(Lblb{}()), Lblh{}())";
+        let functions = BTreeSet::from(["Lblf".to_owned(), "Lblh".to_owned()]);
+        let read = [
+            H::Stuck,
+            H::Trivial,
+            H::Indeterminate,
+            H::CutPoint,
+            H::TerminalRule,
+        ];
+        for halt in HaltClass::ALL {
+            let open = open_applications(&leaf(halt, state, U, 3), &functions);
+            if !read.contains(&halt) {
+                assert_eq!(open, [], "{halt:?}");
+                continue;
+            }
+            let named = open
+                .iter()
+                .map(|open| {
+                    (
+                        open.symbol.as_str(),
+                        open.application.to_string(),
+                        open.halt,
+                        open.depth,
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                named,
+                [
+                    ("Lblf", r"Lblf{}(Lbla{}())".to_owned(), halt, 3),
+                    ("Lblh", r"Lblh{}()".to_owned(), halt, 3),
+                ],
+                "{halt:?}"
+            );
+        }
+    }
+
+    /// The applications a reader ties an undecided leaf to are read from its path predicates as
+    /// well as its state, on the same leaves; the applications named as what the end holds are
+    /// read from the state alone.
+    #[test]
+    fn open_symbols_read_the_path_predicates_too() {
+        let state = r"\and{SortGeneratedTopCell{}}(Lblg{}(Lblh{}()), \ceil{SortVal{}, SortGeneratedTopCell{}}(Lblf{}(Lbla{}())))";
+        let functions = BTreeSet::from(["Lblf".to_owned(), "Lblh".to_owned()]);
+        for halt in HaltClass::ALL {
+            let read = leaf(halt, state, U, 0);
+            let named = open_applications(&read, &functions)
+                .into_iter()
+                .map(|open| open.symbol)
+                .collect::<Vec<_>>();
+            let tied = open_symbols(&read, &functions);
+            if open_applications(&leaf(halt, r"Lblh{}()", U, 0), &functions).is_empty() {
+                assert_eq!((named, tied), (vec![], BTreeSet::new()), "{halt:?}");
+            } else {
+                assert_eq!(named, ["Lblh"], "{halt:?}");
+                assert_eq!(
+                    tied,
+                    BTreeSet::from(["Lblf".to_owned(), "Lblh".to_owned()]),
+                    "{halt:?}"
+                );
+            }
         }
     }
 
