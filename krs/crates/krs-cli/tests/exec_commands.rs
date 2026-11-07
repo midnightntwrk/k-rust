@@ -748,7 +748,23 @@ fn programs_parse_bind_and_report_their_errors() {
         &[program, "--max-solutions", "1"],
     );
     assert_eq!(usage.status.code(), Some(2));
-    assert!(stderr(&usage).contains("--max-solutions does not apply to krs run"));
+    // The message, run's usage lines and where the options are explained, not the whole help.
+    let usage = stderr(&usage);
+    let lines = usage.lines().collect::<Vec<_>>();
+    assert_eq!(
+        lines[0], "krs: --max-solutions does not apply to krs run",
+        "{usage}"
+    );
+    assert!(
+        lines[1].starts_with("usage: krs run    --package P --definition D"),
+        "{usage}"
+    );
+    assert_eq!(
+        lines.last(),
+        Some(&"`krs --help` lists every command's options and what each means"),
+        "{usage}"
+    );
+    assert!(!usage.contains("Commands:"), "{usage}");
 }
 
 /// One `krs run` against a private stage cache, returning its output and `stage.reused`.

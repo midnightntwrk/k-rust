@@ -202,7 +202,10 @@ exit cell exits with that cell's value instead, the program's own status, which 
 numbers: --output json tells them apart. A run with an expectation (--case) exits by its
 verdict instead, 0 met, 1 unmet and 3 inconclusive, and with --output end, a run whose end has
 no end document exits 2, whatever its own status. krs kink exits by the same four (krs kink
---help). Every other command exits 0 on success, 2 on a usage error and 1 otherwise.
+--help). Every other command exits 0 on success, 2 on a usage error and 1 otherwise. A usage
+error prints its message, then the usage lines of the command it names (the list of commands
+when it names none or an unknown one) and the command that lists the options; an option value
+refused for itself prints its message alone.
 ";
 
 /// `krs kink --help`.
@@ -354,6 +357,102 @@ const KINK_VERB_USAGE: [(&str, &str); 7] = [
     ),
 ];
 
+/// What a usage error prints after its message: `usage`, the shape of the command line the
+/// error is corrected against, and `pointer`, where the rest is explained. The whole help would
+/// bury the message; the usage line is what a misspelt option, a missing operand or a bad value
+/// is corrected against.
+fn usage_tail(usage: &str, pointer: &str) -> String {
+    format!("usage: {usage}\n{pointer}")
+}
+
+/// The entries of [`USAGE`]'s `Usage:` block, each a command line's shape with its
+/// continuation lines.
+fn usage_entries() -> Vec<Vec<&'static str>> {
+    let mut entries: Vec<Vec<&str>> = Vec::new();
+    for line in USAGE
+        .lines()
+        .skip_while(|line| *line != "Usage:")
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+    {
+        match entries.last_mut() {
+            Some(entry) if !line.starts_with("  krs ") => entry.push(line),
+            _ => entries.push(vec![line]),
+        }
+    }
+    entries
+}
+
+/// The commands an entry of [`USAGE`]'s `Usage:` block is the shape of: `krs <check|build> ..`
+/// is the shape of each command it lists, `krs run ..` of `run`.
+fn entry_commands(entry: &[&'static str]) -> Vec<&'static str> {
+    let word = entry[0]
+        .trim_start()
+        .strip_prefix("krs ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or_default();
+    match word
+        .strip_prefix('<')
+        .and_then(|word| word.strip_suffix('>'))
+    {
+        Some(commands) => commands.split('|').collect(),
+        None => vec![word],
+    }
+}
+
+/// What a usage error of `krs COMMAND` prints after its message: every shape of COMMAND's
+/// command line that [`USAGE`] lists, aligned as there, and where its options are explained.
+/// A command line that names no command is shown every command this krs runs: `kink` only in a
+/// build with the `kink` feature.
+fn command_usage_tail(command: Option<&str>) -> String {
+    let entries = usage_entries();
+    let shapes = command.map_or_else(Vec::new, |command| {
+        entries
+            .iter()
+            .filter(|entry| entry_commands(entry).contains(&command))
+            .collect::<Vec<_>>()
+    });
+    if shapes.is_empty() {
+        let mut commands = Vec::new();
+        for entry in &entries {
+            for command in entry_commands(entry) {
+                if command == "kink" && !cfg!(feature = "kink") {
+                    continue;
+                }
+                if !commands.contains(&command) {
+                    commands.push(command);
+                }
+            }
+        }
+        return usage_tail(
+            &format!(
+                "krs COMMAND [OPTIONS], COMMAND one of {}",
+                commands.join(", ")
+            ),
+            "`krs --help` lists every command and its options",
+        );
+    }
+    // `usage: ` takes the place of the entries' two-space indent, five columns more.
+    let mut usage = String::new();
+    for (index, entry) in shapes.iter().enumerate() {
+        for (line_index, line) in entry.iter().enumerate() {
+            if line_index == 0 {
+                if index > 0 {
+                    usage.push_str("\n       ");
+                }
+                usage.push_str(&line[2..]);
+            } else {
+                usage.push_str("\n     ");
+                usage.push_str(line);
+            }
+        }
+    }
+    usage_tail(
+        &usage,
+        "`krs --help` lists every command's options and what each means",
+    )
+}
+
 /// The usage line of `krs kink VERB`.
 #[cfg(feature = "kink")]
 fn kink_verb_usage(verb: &str) -> Option<&'static str> {
@@ -363,22 +462,27 @@ fn kink_verb_usage(verb: &str) -> Option<&'static str> {
         .map(|(_, usage)| *usage)
 }
 
-/// What a `krs kink` usage error prints after its message: the usage line of the verb the
-/// command line names (every command line's shape when it names none) and where the rest is.
-/// The whole help would bury the message under the corpus layout and the loop; the verb's usage
-/// line is what a misspelt option, a missing selection or a bad value is corrected against.
+/// What a `krs kink` usage error prints after its message ([`usage_tail`]): the usage line of
+/// the verb the command line names (every command line's shape when it names none) and where
+/// the rest is.
 #[cfg(feature = "kink")]
 fn kink_usage_tail(verb: Option<&str>) -> String {
     match verb.and_then(|verb| kink_verb_usage(verb).map(|usage| (verb, usage))) {
-        Some((verb, usage)) => format!(
-            "usage: {usage}\n`krs kink {verb} --help` lists its options; `krs kink --help` \
-             explains the corpus loop"
+        Some((verb, usage)) => usage_tail(
+            usage,
+            &format!(
+                "`krs kink {verb} --help` lists its options; `krs kink --help` explains the \
+                 corpus loop"
+            ),
         ),
-        None => format!(
-            "usage: krs kink VERB --package P --definition D [--corpus DIR] [OPTIONS], VERB one \
-             of emit, {}\n`krs kink --help` explains the corpus loop; `krs kink VERB --help` \
-             lists a verb's options",
-            kink_verbs()
+        None => usage_tail(
+            &format!(
+                "krs kink VERB --package P --definition D [--corpus DIR] [OPTIONS], VERB one of \
+                 emit, {}",
+                kink_verbs()
+            ),
+            "`krs kink --help` explains the corpus loop; `krs kink VERB --help` lists a verb's \
+             options",
         ),
     }
 }
@@ -539,7 +643,7 @@ fn main() {
             std::process::exit(2);
         }
         Err(error) => {
-            eprintln!("krs: {error}\n\n{USAGE}");
+            eprintln!("krs: {error}\n{}", command_usage_tail(error.command()));
             std::process::exit(2);
         }
     }
@@ -828,6 +932,26 @@ enum UsageError {
     /// A usage error of `krs kink`, shown with the usage of the verb it names, if it names one.
     #[cfg(feature = "kink")]
     Kink(String, Option<String>),
+    /// A usage error of the command named, shown with that command's usage.
+    Command(&'static str, Box<UsageError>),
+}
+
+impl UsageError {
+    /// This error as one of `command`'s, if the usage helps to correct it.
+    fn of(self, command: &'static str) -> Self {
+        match self {
+            Self::Argument(_) | Self::Message(_) => Self::Command(command, Box::new(self)),
+            other => other,
+        }
+    }
+
+    /// The command whose usage error this is, if the command line named one.
+    fn command(&self) -> Option<&'static str> {
+        match self {
+            Self::Command(command, _) => Some(command),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for UsageError {
@@ -837,6 +961,7 @@ impl fmt::Display for UsageError {
             Self::Message(message) | Self::Value(message) => message.fmt(formatter),
             #[cfg(feature = "kink")]
             Self::Kink(message, _) => message.fmt(formatter),
+            Self::Command(_, error) => error.fmt(formatter),
         }
     }
 }
@@ -871,7 +996,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
         None => return Err(usage("missing command")),
     };
     if command == "fmt" {
-        return parse_format(&mut parser);
+        return parse_format(&mut parser).map_err(|error| error.of("fmt"));
     }
     if command == "kink" {
         #[cfg(feature = "kink")]
@@ -894,7 +1019,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
         "compare" => CommandKind::Compare,
         unknown => return Err(usage(format!("unknown command `{unknown}`"))),
     };
-    parse_run(&mut parser, kind)
+    parse_run(&mut parser, kind).map_err(|error| error.of(kind.as_str()))
 }
 
 fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResult, UsageError> {
@@ -1503,7 +1628,9 @@ fn selected_case_name(exec: &mut ExecOptions) -> Result<Option<String>, UsageErr
         ));
     }
     if let (Some(named), Some(name)) = (&exec.case_id_name, &exec.case_name) {
-        return Err(UsageError::Value(format!(
+        // Two options that each name the case: the usage line `--case FILE [--case-name NAME]`
+        // is what this is corrected against, so it is a usage error, not a refused value.
+        return Err(usage(format!(
             "--case names the case `{named}` by its id (FILE#NAME) and --case-name names `{name}`; \
              give the case once"
         )));
@@ -3002,6 +3129,97 @@ mod tests {
         }
     }
 
+    /// A usage error of a krs command prints, after its message, every shape of the command's
+    /// command line that the help lists, aligned as there, and where the options are explained,
+    /// not the whole help; a command line that names no command is shown every command's name.
+    /// A value refused for itself is shown without the usage.
+    #[test]
+    fn a_usage_error_shows_the_commands_usage_lines() {
+        let tail = |args: &[&str]| match parse_args(args) {
+            Err(error) => command_usage_tail(error.command()),
+            Ok(_) => panic!("expected a usage error for {args:?}"),
+        };
+        expect_test::expect![[r"
+            usage: krs compare --package P --definition D LEFT RIGHT [--compare CELL,...]...
+                              [--view CELL=FUNCTION]... [--observer PACKAGE:DEFINITION]
+                              [--output human|json] [--view-budget POLLS]
+                              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+                   krs compare --package P --definition D --expect CASE ACTUAL [--output human|json]
+                              [--view-budget POLLS]
+                              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+                   krs compare --package P --definition D --pairs FILE [--jobs N] [--output human|json]
+                              [--view-budget POLLS]
+                              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+            `krs --help` lists every command's options and what each means"]]
+        .assert_eq(&tail(&["compare", "--trace"]));
+        assert_eq!(
+            tail(&["emit-k", "--bogus"]),
+            "usage: krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]\n\
+             `krs --help` lists every command's options and what each means"
+        );
+        assert!(tail(&["fmt", "--edition"]).starts_with("usage: krs fmt [--check]"));
+        // Every command, and every command name the help lists, has its own usage lines; the
+        // list names `kink` only where this krs can run it.
+        let general = command_usage_tail(None);
+        for command in [
+            "check", "expand", "emit-k", "build", "parse", "run", "search", "prove", "cases",
+            "compare", "kink", "fmt",
+        ] {
+            let listed = general.contains(&format!(" {command},"))
+                || general.contains(&format!(" {command}\n"));
+            assert_eq!(
+                listed,
+                command != "kink" || cfg!(feature = "kink"),
+                "{command}: {general}"
+            );
+            assert_ne!(command_usage_tail(Some(command)), general, "{command}");
+        }
+        assert_eq!(tail(&["frobnicate"]), general);
+        assert_eq!(tail(&[]), general);
+        let kink = if cfg!(feature = "kink") { "kink, " } else { "" };
+        assert_eq!(
+            general,
+            format!(
+                "usage: krs COMMAND [OPTIONS], COMMAND one of check, expand, emit-k, build, parse, \
+                 run, search, cases, compare, prove, {kink}fmt\n`krs --help` lists every command \
+                 and its options"
+            )
+        );
+        #[cfg(not(feature = "kink"))]
+        assert_eq!(tail(&["kink", "emit"]), general);
+        // Two options that each name the case are corrected against run's usage line.
+        assert_eq!(
+            parse_args(&[
+                "run",
+                "--package",
+                "p",
+                "--definition",
+                "d",
+                "--case",
+                "a.toml#x",
+                "--case-name",
+                "y"
+            ])
+            .err()
+            .and_then(|error| error.command()),
+            Some("run")
+        );
+        // A value refused for itself is not a misuse of the command line's shape.
+        assert!(
+            parse_args(&[
+                "run",
+                "--package",
+                "p",
+                "--definition",
+                "d",
+                "--case",
+                "a.yaml"
+            ])
+            .err()
+            .is_some_and(|error| matches!(error, UsageError::Value(_)) && error.command().is_none())
+        );
+    }
+
     #[test]
     fn help_and_missing_values() {
         for args in [vec!["--help"], vec!["check", "--help"], vec!["fmt", "-h"]] {
@@ -3430,8 +3648,9 @@ mod tests {
 
     /// `--case FILE#NAME` names a case by the id `krs cases` prints, in run and search, as
     /// `--case FILE --case-name NAME` does; the name follows the first `#` after a `.toml` or
-    /// `.json` file, so it may hold `#`. A case named both ways, a `#` that no name follows and a
-    /// file of another extension are refused for the value alone, without the usage.
+    /// `.json` file, so it may hold `#`. A `#` that no name follows and a file of another
+    /// extension are refused for the value alone, without the usage; a case named both ways is a
+    /// usage error of the command.
     #[test]
     fn a_case_id_names_a_case() {
         let base = ["--package", "imp", "--definition", "main"];
@@ -3470,8 +3689,11 @@ mod tests {
                 Ok(_) => panic!("expected an error for {args:?}"),
             }
         };
+        let mut both = vec!["run"];
+        both.extend(base);
+        both.extend(["--case", "a.toml#x", "--case-name", "y"]);
         assert_eq!(
-            refused(&["--case", "a.toml#x", "--case-name", "y"]),
+            error(&both),
             "--case names the case `x` by its id (FILE#NAME) and --case-name names `y`; give the \
              case once"
         );
@@ -3719,7 +3941,8 @@ mod tests {
             OsString::from_vec(vec![0xff]),
         ];
         assert!(
-            matches!(parse(args), Err(UsageError::Message(message)) if message.contains("UTF-8"))
+            matches!(parse(args), Err(UsageError::Command("check", error))
+                if matches!(error.as_ref(), UsageError::Message(message) if message.contains("UTF-8")))
         );
     }
 

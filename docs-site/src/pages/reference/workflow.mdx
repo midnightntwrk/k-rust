@@ -229,6 +229,8 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
 
 `krs kink` exits by the same four ([the corpus loop](#the-corpus-loop)).
 Every other command exits 0 on success, 2 on a usage error and 1 otherwise.
+A usage error prints its message, then the usage lines of the command it names (the list of commands when it names none or an unknown one) and the command that lists the options, not the whole help.
+An option value refused for itself, such as a `--case` file that is neither `.toml` nor `.json`, prints its message alone.
 
 ## Inputs by name
 
