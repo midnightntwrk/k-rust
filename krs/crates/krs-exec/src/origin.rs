@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use krs_ir::{
-    LineIndex, NodeOrigin, OriginFrame, PackageCrateName, PackageId, SourceFileId, SourceRange,
+    ItemKind, LineIndex, NodeOrigin, OriginFrame, PackageCrateName, PackageId, SourceFileId,
+    SourceRange, StableItemId,
 };
 use krs_k_rust::{Author, EmittedProvenance, InputSentenceKind};
 
@@ -163,16 +164,7 @@ pub(crate) fn origin_item_path(
     origin: &NodeOrigin,
     crate_names: &[PackageCrateName],
 ) -> Option<ItemPath> {
-    let item = origin
-        .origin()
-        .frames()
-        .iter()
-        .find_map(|frame| match frame {
-            OriginFrame::Ranged { item, .. } | OriginFrame::Transformation { item, .. } => item
-                .as_ref()
-                .filter(|item| !item.item_name().starts_with(krs_ir::ir::RESERVED_MARKER)),
-            OriginFrame::Inserted { .. } => None,
-        })?;
+    let item = origin_item(origin)?;
     // A variant of a constructor family is named in Rust through its enum, which its identity
     // holds as its disambiguator, never in its module path.
     let family = item
@@ -192,6 +184,64 @@ pub(crate) fn origin_item_path(
         krate: krs_ir::crate_name_in(crate_names, package),
         path,
     })
+}
+
+/// The authored item a sentence's origin names, as [`origin_item_path`] reads it.
+fn origin_item(origin: &NodeOrigin) -> Option<&StableItemId> {
+    origin
+        .origin()
+        .frames()
+        .iter()
+        .find_map(|frame| match frame {
+            OriginFrame::Ranged { item, .. } | OriginFrame::Transformation { item, .. } => item
+                .as_ref()
+                .filter(|item| !item.item_name().starts_with(krs_ir::ir::RESERVED_MARKER)),
+            OriginFrame::Inserted { .. } => None,
+        })
+}
+
+/// Where a rewrite rule stands in the order in which a one-path run tries the rules of one
+/// priority: the rules KRS items write in item order (K namespace, Rust module path, item name,
+/// declaration kind, disambiguator: the item's identity without its Cargo package name, version
+/// and source), each item's rules, and then the rules of K's builtin closure, by `UNIQUE_ID`.
+///
+/// A step that follows one path where several rules of one priority apply takes the first of
+/// them, so this order is what the path is a function of. Every part of it is part of the
+/// definition: an item's identity is how the definition names it (its rules' labels and the
+/// paths stops and mutations name are spelled from it), and a rule's `UNIQUE_ID` is a digest
+/// of the rule's text. Naming the Cargo package otherwise, or moving an item within its module's
+/// source, leaves it unchanged.
+pub(crate) fn choice_key<'a>(
+    provenance: Option<&'a EmittedProvenance>,
+    unique_id: &str,
+) -> (bool, Option<ChoiceItem<'a>>, String) {
+    // A rule several equal sentences write stands where the first of their items does.
+    let item = provenance
+        .into_iter()
+        .flat_map(EmittedProvenance::authors)
+        .filter_map(|author| match author {
+            Author::Krs { origin, .. } => origin_item(origin),
+            Author::Builtin { .. } => None,
+        })
+        .map(|item| ChoiceItem {
+            namespace: item.package().k_namespace(),
+            module_path: item.module_path(),
+            item_name: item.item_name(),
+            item_kind: item.item_kind(),
+            disambiguator: item.disambiguator(),
+        })
+        .min();
+    (item.is_none(), item, unique_id.to_owned())
+}
+
+/// The parts of an item's identity a one-path run orders rules by ([`choice_key`]).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ChoiceItem<'a> {
+    namespace: &'a str,
+    module_path: &'a [String],
+    item_name: &'a str,
+    item_kind: ItemKind,
+    disambiguator: &'a str,
 }
 
 /// The names of one package of a definition that a stop's first segment may be.

@@ -1630,9 +1630,9 @@ fn phase_and_ticks(run: &serde_json::Value) -> (i64, i64) {
 fn krs_run_passes_a_stop_rule_step_from_a_state_with_two_successors() {
     let fixture = ChoiceAtStop::new();
 
-    // The fixture's premise: the run takes `advance` from the start, where `leap` applies too.
-    // Which of a `nondet` group's rules a run takes is not part of the semantics; it rests on
-    // the order the compiled definition lists them in, which the package's name moves.
+    // The fixture's premise: the run takes `advance` from the start, where `leap` applies too,
+    // since a run takes the first of the rules that apply in item order, and `advance` comes
+    // before `leap` (`krs_run_takes_the_first_rule_in_item_order_whatever_the_package_name`).
     let (whole, _) = fixture.run(&["--trace"]);
     let labels = whole["trace"]
         .as_array()
@@ -1723,6 +1723,42 @@ fn krs_run_passes_a_stop_rule_step_from_a_state_with_two_successors() {
             "{extra:?}: {status}"
         );
     }
+}
+
+/// The rule labels of `krs run --trace` from phase 0 on `fixture`.
+fn trace_labels(fixture: &ChoiceAtStop) -> Vec<String> {
+    let (whole, _) = fixture.run(&["--trace"]);
+    whole["trace"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{whole}"))
+        .iter()
+        .map(|step| step["label"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Where several rules of one priority apply, `krs run` takes the first of them in item order:
+/// by K namespace, module path and item name, never by the Cargo package's name. [`CHOICE_AT_STOP`]
+/// takes `advance` from the start, under the package name its other tests use and under one
+/// that once made the run take `leap`; with `advance` renamed `vault`, written where it was,
+/// `leap` comes first and the run takes it twice, to phase 4.
+#[test]
+fn krs_run_takes_the_first_rule_in_item_order_whatever_the_package_name() {
+    let advance_first =
+        ["advance", "leap", "advance"].map(|rule| format!("ORG-KRS-EXEC-CHOICE.{rule}"));
+    for package in [CHOICE_AT_STOP_PACKAGE, "krs-exec-choice-at-stop-fixture"] {
+        let fixture = ChoiceAtStop::of(CHOICE_AT_STOP, package);
+        assert_eq!(trace_labels(&fixture), advance_first, "{package}");
+    }
+
+    let renamed = CHOICE_AT_STOP.replace("advance:", "vault:");
+    assert_ne!(renamed, CHOICE_AT_STOP);
+    let fixture = ChoiceAtStop::of(&renamed, "krs-exec-choice-at-stop-fixture");
+    assert_eq!(
+        trace_labels(&fixture),
+        ["leap", "leap"].map(|rule| format!("ORG-KRS-EXEC-CHOICE.{rule}"))
+    );
+    let (report, _) = fixture.run(&[]);
+    assert_eq!(phase_and_ticks(&report), (4, 0), "{report}");
 }
 
 /// A case of [`CHOICE_AT_STOP`] stops where `krs run`'s flags do, at `advance`'s one arrival;

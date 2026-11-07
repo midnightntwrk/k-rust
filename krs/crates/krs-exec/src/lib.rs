@@ -6,7 +6,7 @@
 //! - [`Semantics::parse`] parses program text at a sort, as `kast --sort` does;
 //! - [`Semantics::configure`] builds `initGeneratedTopCell` from the `#[k::init]` parameters' values, as krun does from `$PGM` and the other configuration variables;
 //! - [`Semantics::decode_input`] and [`Semantics::case_inputs`] read a parameter's value, or a case's values, written in the one typed encoding, whose normative statement is the documentation of [`inputs`];
-//! - [`Semantics::run`] follows one path with strategy `any`, as krun does;
+//! - [`Semantics::run`] follows one path with strategy `any`, taking at each state the successor of the first rule that applies in item order (`origin::choice_key`);
 //! - [`Semantics::search`] returns the set of reachable states, as `krun --search` does;
 //! - [`Semantics::prove`] proves the selected claims, as kprove does;
 //! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
@@ -75,7 +75,7 @@ use k_rust::{
         json as kast_json,
         printer::Printer,
     },
-    kore::ast::Pattern,
+    kore::{ast::Pattern, parser::parse_definition},
 };
 use krs_ir::{SourceFileId, measure::Timings};
 use krs_ir_levels::DefinitionIr;
@@ -1296,8 +1296,19 @@ impl Semantics {
             Configuration::new(&frontend_definition, configuration_variables)
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
+        // A step that follows one path where several rules of one priority apply takes the
+        // first of them in the order `origin::choice_key` states, so the path a run takes is a
+        // function of the definition's rules and of how it names them.
         let mut backend = timings.try_span("exec.backend", |_| {
-            Backend::new(&definition_kore, main_module.clone(), solver).map_err(ExecError::from)
+            let syntax = parse_definition(&definition_kore).map_err(|error| {
+                ExecError::Backend(format!("could not parse KORE definition: {error}"))
+            })?;
+            let mut internalized = Backend::internalize_definition(&syntax, &main_module)?;
+            internalized.order_rewrites_by(|rule| {
+                let unique_id = rule.attributes.unique_id.as_str();
+                origin::choice_key(sentence_provenance.get(unique_id), unique_id)
+            });
+            Backend::from_internalized(internalized, solver).map_err(ExecError::from)
         })?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
         let (values, cell_types) = timings.try_span("exec.values", |_| {
@@ -2469,7 +2480,14 @@ impl Semantics {
             })
     }
 
-    /// Follow one path from `state`, with strategy `any`, as krun does.
+    /// Follow one path from `state`, with strategy `any`.
+    ///
+    /// Where several rules of one priority apply to a state, the run takes the successor of the
+    /// first of them in item order: the rules authored items write by K namespace, Rust module
+    /// path and item name, an item's several rules (a strict production's heat rules) by the
+    /// digest of their text. Which successor a one-path run takes is not part of the semantics;
+    /// this order makes it a function of the definition, unchanged by the Cargo package's name
+    /// or by where in its module an item is written.
     ///
     /// From the state a run that stopped before a rule left off at ([`RunReport::resume`]), the
     /// run's first step is that rule's, which its `steps`, trace, depth bound and coverage count

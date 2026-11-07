@@ -86,9 +86,9 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, MALFORMED_OVERLOAD, Predicate,
-        PredicateReading, PredicateTheory, RewriteTheory, RuleKind, RulePatternError, SentenceKey,
-        TermIndex, Theory, algebraic_axiom_roots, classify_axiom, collapse_equal_axioms,
-        insert_rewrite_theory, insert_theory, internalize_axiom,
+        PredicateReading, PredicateTheory, RewriteRule, RewriteTheory, RuleKind, RulePatternError,
+        SentenceKey, TermIndex, Theory, algebraic_axiom_roots, classify_axiom,
+        collapse_equal_axioms, insert_rewrite_theory, insert_theory, internalize_axiom,
         internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
         overload_pair, rule_index,
@@ -2731,17 +2731,29 @@ impl BackendDefinition {
                 missing.into_iter().collect(),
             ));
         }
-        for priority_groups in result.rewrite_theory.values_mut() {
+        result.order_rewrites_by(|rule| {
+            ranks
+                .get(rule.attributes.unique_id.as_str())
+                .copied()
+                .expect("all executable rewrites were checked above")
+        });
+        Ok(result)
+    }
+
+    /// Orders the rewrite rules of each priority by `key`, rules with equal keys keeping their
+    /// order, within each index bucket of the rewrite theory.
+    ///
+    /// Rule selection lists a priority's rules in bucket order, each bucket's in this order, and
+    /// a one-path step (`ExecutionMode::Any`) takes the first of them that gives a defined
+    /// result, so this order selects the successor such a step takes where several rules of one
+    /// priority apply. It is not part of the semantics: every other step, and every result that
+    /// explores all successors, is unchanged.
+    pub fn order_rewrites_by<K: Ord>(&mut self, mut key: impl FnMut(&RewriteRule) -> K) {
+        for priority_groups in self.rewrite_theory.values_mut() {
             for rules in priority_groups.values_mut() {
-                rules.sort_by_key(|stored| {
-                    ranks
-                        .get(stored.rule.attributes.unique_id.as_str())
-                        .copied()
-                        .expect("all executable rewrites were checked above")
-                });
+                rules.sort_by_cached_key(|stored| key(&stored.rule));
             }
         }
-        Ok(result)
     }
 
     #[deny(clippy::wildcard_enum_match_arm)]
