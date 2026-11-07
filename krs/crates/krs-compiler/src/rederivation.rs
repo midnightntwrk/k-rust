@@ -303,8 +303,14 @@ impl<'a> Rederivation<'a> {
 
     /// The baseline's lowering.
     #[must_use]
-    pub const fn lowered(&self) -> &LoweredDefinition {
+    pub const fn lowered(&self) -> &'a LoweredDefinition {
         self.lowered
+    }
+
+    /// The baseline's semantic lowering, with what the re-derivation keeps of it.
+    #[must_use]
+    pub const fn retained(&self) -> &'a RetainedLowering {
+        self.retained
     }
 
     /// The Definition IR nodes lowered from the semantic node `key`.
@@ -442,6 +448,11 @@ pub struct IndexedProduction {
     pub result: SemanticSortRef,
     /// The sort of each nonterminal, in order.
     pub arguments: Vec<SemanticSortRef>,
+    /// The number of instance keys a function evaluated in one instance of a Map collection
+    /// receives after [`Self::arguments`], one for each Map collection on the path of the cells
+    /// its context reads: its K application writes them as further operands, which KRS passes
+    /// and no source writes.
+    pub keys: usize,
     /// Whether it is a function (else a constructor).
     pub function: bool,
     /// Whether it is parametric.
@@ -513,6 +524,7 @@ impl KLabelIndex {
                                 _ => None,
                             })
                             .collect(),
+                        keys: lowering.instance_keys(production.id()),
                         function: production.attributes().iter().any(|attribute| {
                             matches!(attribute, krs_ir::ProductionAttribute::Function { .. })
                         }),

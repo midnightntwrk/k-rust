@@ -1618,6 +1618,12 @@ impl RuleLowering {
         &self.names.productions
     }
 
+    /// The number of instance keys the function `production` receives after its own arguments
+    /// ([`crate::instance_keys`]); zero for a production that receives none.
+    pub(crate) fn instance_keys(&self, production: &StableItemId) -> usize {
+        self.names.instance_keys.function(production).len()
+    }
+
     /// The cell sort symbol of each nested cell's declaration.
     pub(crate) const fn group_cells(&self) -> &BTreeMap<StableItemId, SymbolId> {
         &self.names.group_cells
