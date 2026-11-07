@@ -43,6 +43,11 @@
 //! the condition reads and its atoms evaluated under the instance ([`RunCoverage::conditions`],
 //! [`ConditionRecord`]). The evaluation is isolated from the run (`isolated`).
 //!
+//! An execution that also names axioms (`rewrite::ExecutionOptions::collect_guards`) collects,
+//! besides, the outcomes each node of a named rule's or equation's `requires` took where it was
+//! reached, at every site that notes `matched` for a condition it decides, with the same
+//! isolated evaluation ([`RunCoverage::guards`], [`AxiomGuard`]).
+//!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
 //! would also collect what selecting or loading a module applies, which depends on the requests
@@ -58,13 +63,18 @@ use k_rust_kore::measure::{self, Counter};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 mod conditions;
+mod guards;
 
 pub use conditions::{
     ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, Connective,
     DEFAULT_CONDITION_LIMIT, DEFAULT_MAX_VALUE_SIZE, DEFAULT_RECORD_POLLS, RecordedValue,
     RuleConditions, Truth, Verdict,
 };
-pub(crate) use conditions::{record as record_condition, verdict as condition_verdict};
+pub use guards::{
+    AttemptCause, AxiomGuard, Combination, DEFAULT_COMBINATION_LIMIT, DEFAULT_GUARD_CACHE_KEYS,
+    GuardCollection, GuardNode, GuardOutcome, GuardShape, NodeOutcome, OperandCause, Refutation,
+};
+pub(crate) use guards::{Decided, GuardHandle};
 
 /// The axioms a run used, by `UNIQUE_ID`.
 ///
@@ -198,6 +208,16 @@ pub(crate) use conditions::{record as record_condition, verdict as condition_ver
 /// of `applied`, does not depend on the result modality where the explored paths agree, and is
 /// a deterministic function of the same inputs as the other sets.
 ///
+/// `guards`, present exactly when the collection collected guards (`collect_recording`), holds
+/// for each axiom it names with a non-empty `requires` that some site entered (a rewrite rule's
+/// `requires` phase, an equation's condition evaluation, a definedness decision's one-step
+/// selection: the sites of `matched` that decide a condition), the outcomes of its guard
+/// ([`AxiomGuard`]): per node of the written `requires`, the outcomes it took on the entries
+/// where it was reached; the guard outcomes of the entries; and their valuation combinations,
+/// bounded. Each is a union over the run's distinct entries, so like the sets they depend on
+/// neither the multiplicity nor the order of the entries, and they are a deterministic function
+/// of the same inputs (`guards`).
+///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -208,6 +228,7 @@ pub struct RunCoverage {
     pub conditions: Option<Vec<RuleConditions>>,
     pub applied_counts: Option<BTreeMap<String, u64>>,
     pub committed: Option<BTreeSet<String>>,
+    pub guards: Option<Vec<AxiomGuard>>,
 }
 
 /// The ids reported to the open collection, inserted once each; `applied` also counts its
@@ -257,6 +278,7 @@ impl Sink {
             conditions: None,
             applied_counts,
             committed,
+            guards: None,
         }
     }
 }
@@ -294,20 +316,22 @@ pub(crate) fn collect<T>(action: impl FnOnce() -> T) -> (T, RunCoverage) {
 /// ([`RunCoverage::offered`]). A collection opened inside does not offer unless it asks, and its
 /// offered ids feed this one when it closes.
 pub(crate) fn collect_offering<T>(offering: bool, action: impl FnOnce() -> T) -> (T, RunCoverage) {
-    collect_recording(offering, false, false, None, action)
+    collect_recording(offering, false, false, None, None, action)
 }
 
 /// [`collect_offering`], with the reports to `applied` counted when `counting` holds
 /// ([`RunCoverage::applied_counts`]), the committed successors reported when `committing` holds
 /// ([`RunCoverage::committed`]), and the condition entries of the rules `conditions` names
-/// recorded when it is given ([`RunCoverage::conditions`]). A collection opened inside records no
-/// conditions unless it asks, and its records stay its own; its counts and committed ids are
-/// added to this one's when it closes.
+/// recorded when it is given ([`RunCoverage::conditions`]), and the guard outcomes of the axioms
+/// `guards` names collected when it is given ([`RunCoverage::guards`]). A collection opened
+/// inside records no conditions and collects no guards unless it asks, and its records and
+/// guards stay its own; its counts and committed ids are added to this one's when it closes.
 pub(crate) fn collect_recording<T>(
     offering: bool,
     counting: bool,
     committing: bool,
     conditions: Option<ConditionCollection>,
+    guards: Option<GuardCollection>,
     action: impl FnOnce() -> T,
 ) -> (T, RunCoverage) {
     /// Restores the flags and the outer sinks on every exit, and hands the inner ones back.
@@ -317,16 +341,18 @@ pub(crate) fn collect_recording<T>(
         was_committing: bool,
         outer: Option<Sink>,
         outer_conditions: Option<Option<conditions::Sink>>,
+        outer_guards: Option<Option<guards::Sink>>,
     }
     impl Restore {
-        fn close(mut self) -> (Sink, Option<conditions::Sink>) {
+        fn close(mut self) -> (Sink, Option<conditions::Sink>, Option<guards::Sink>) {
             let outer = self.outer.take().unwrap_or_default();
             let inner = SINK.replace(outer);
             if self.was_open {
                 SINK.with_borrow_mut(|sink| sink.absorb(&inner));
             }
             let inner_conditions = conditions::replace(self.outer_conditions.take().flatten());
-            (inner, inner_conditions)
+            let inner_guards = guards::replace(self.outer_guards.take().flatten());
+            (inner, inner_conditions, inner_guards)
         }
     }
     impl Drop for Restore {
@@ -341,6 +367,9 @@ pub(crate) fn collect_recording<T>(
             if let Some(outer) = self.outer_conditions.take() {
                 conditions::replace(outer);
             }
+            if let Some(outer) = self.outer_guards.take() {
+                guards::replace(outer);
+            }
         }
     }
 
@@ -350,11 +379,13 @@ pub(crate) fn collect_recording<T>(
         was_committing: COMMITTING.replace(committing),
         outer: Some(SINK.take()),
         outer_conditions: Some(conditions::replace(conditions.map(conditions::Sink::new))),
+        outer_guards: Some(guards::replace(guards.map(guards::Sink::new))),
     };
     let result = action();
-    let (inner, inner_conditions) = restore.close();
+    let (inner, inner_conditions, inner_guards) = restore.close();
     let mut coverage = inner.into_coverage(offering, counting, committing);
     coverage.conditions = inner_conditions.map(conditions::Sink::finish);
+    coverage.guards = inner_guards.map(guards::Sink::finish);
     (result, coverage)
 }
 
@@ -370,6 +401,7 @@ pub(crate) fn replay(coverage: &RunCoverage) {
         conditions: _,
         applied_counts: _,
         committed: _,
+        guards: _,
     } = coverage;
     for id in applied {
         note_applied(id);
@@ -430,12 +462,115 @@ pub(crate) fn note_committed(id: &str) {
     }
 }
 
-/// Whether the open collection records condition entries and no [`suspend`] is in effect: P11
-/// of a rule attempt then calls [`record_condition`], and P11 and P12 report the attempt's
-/// verdict ([`condition_verdict`]).
+/// Whether the open collection records condition entries or collects guards and no
+/// [`suspend`] is in effect: P11 of a rule attempt then calls [`enter_rule_condition`], and P11
+/// and P12 report the attempt's verdict ([`rule_condition_verdict`]).
 #[inline]
 pub(crate) fn records_conditions() -> bool {
-    OPEN.get() && conditions::recording()
+    OPEN.get() && (conditions::recording() || guards::recording())
+}
+
+/// Record the entry of `rule`'s `requires` under `substitution`, the match's bindings, with the
+/// path and match conditions `knowledge`: a condition record when the open collection names the
+/// rule for records (`conditions`), and the entry's guard outcomes when it names it for guards
+/// (`guards`), from one evaluation where both ask under the same caps. P11 of a rule attempt
+/// calls it where it notes the rule matched, after [`records_conditions`]; the attempt then
+/// reports its verdict with the returned handle ([`rule_condition_verdict`]).
+#[inline(never)]
+pub(crate) fn enter_rule_condition(
+    definition: &crate::definition::BackendDefinition,
+    rule: &crate::rule::RewriteRule,
+    substitution: &crate::substitution::Substitution,
+    knowledge: &[crate::rule::Predicate],
+    options: crate::simplify::SimplificationOptions,
+) -> Option<GuardHandle> {
+    let shared = if conditions::recording() {
+        conditions::record(definition, rule, substitution, knowledge, options)
+    } else {
+        None
+    };
+    if guards::recording() {
+        guards::enter(
+            definition,
+            &rule.attributes,
+            rule.requires.conjuncts(),
+            substitution,
+            knowledge,
+            options,
+            shared,
+        )
+    } else {
+        None
+    }
+}
+
+/// Report what a rule attempt decided about its `requires` to the condition record of its entry
+/// and to its guard entry `handle`.
+#[inline(never)]
+pub(crate) fn rule_condition_verdict(handle: Option<GuardHandle>, decided: Decided) {
+    if conditions::recording() {
+        conditions::verdict(decided.verdict());
+    }
+    if let Some(handle) = handle {
+        guards::verdict(handle, decided);
+    }
+}
+
+/// Whether the open collection collects guards and no [`suspend`] is in effect: an equation's
+/// condition site then calls [`enter_equation_condition`].
+#[inline]
+pub(crate) fn records_guards() -> bool {
+    OPEN.get() && guards::recording()
+}
+
+/// Fold the entry of an equation's written `requires` under `substitution` with the path
+/// conditions `knowledge` and the conditions its match holds under, `match_conditions` (the
+/// equalities of the subject's variables a set-aside instance matches under), when the open
+/// collection names the equation for guards (`guards`). Out of line, so that the site's frame,
+/// which a recursion through an equation's `requires` passes through once per level, holds only
+/// the returned handle (`simplify`'s `tests::recursion_stack`).
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn enter_equation_condition(
+    definition: &crate::definition::BackendDefinition,
+    attributes: &crate::rule::RuleAttributes,
+    requires: &[crate::rule::Predicate],
+    substitution: &crate::substitution::Substitution,
+    knowledge: &[crate::rule::Predicate],
+    match_conditions: &[crate::rule::Predicate],
+    options: crate::simplify::SimplificationOptions,
+) -> Option<GuardHandle> {
+    if match_conditions.is_empty() {
+        return guards::enter(
+            definition,
+            attributes,
+            requires,
+            substitution,
+            knowledge,
+            options,
+            None,
+        );
+    }
+    let mut known = knowledge.to_vec();
+    known.extend(match_conditions.iter().cloned());
+    guards::enter(
+        definition,
+        attributes,
+        requires,
+        substitution,
+        &known,
+        options,
+        None,
+    )
+}
+
+/// Report what an equation's condition site decided to its guard entry `handle`; nothing
+/// without one.
+#[inline]
+pub(crate) fn guard_verdict(handle: Option<GuardHandle>, decided: Decided) {
+    if let Some(handle) = handle {
+        guards::verdict(handle, decided);
+    }
 }
 
 /// Run `evaluation`, work done only to describe the run to its caller (a condition record), so

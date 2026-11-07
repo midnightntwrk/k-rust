@@ -49,7 +49,7 @@ use crate::{
         Condition, InstantiatedCondition, MatchSolution, Obligation, ResultConditions,
         RhsDefinedness,
     },
-    coverage::Verdict,
+    coverage::{AttemptCause, Decided, GuardHandle},
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Occurrences, Sequenced},
@@ -808,15 +808,20 @@ fn apply_rule_phases(
         &mut match_conditions,
     )?;
     narrowing_sat(context, &match_conditions)?;
-    let (requires, match_knowledge) = requires(
+    let (requires, match_knowledge, guard) = requires(
         context,
         fresh_counter,
         &substitution,
         &match_conditions,
         path_knowledge,
     )?;
-    let (unclear_requires, applicability) =
-        validity_and_applicability(context, requires, &match_knowledge, &match_conditions)?;
+    let (unclear_requires, applicability) = validity_and_applicability(
+        context,
+        requires,
+        &match_knowledge,
+        &match_conditions,
+        guard,
+    )?;
     instantiate(
         context,
         fresh_counter,
@@ -1559,12 +1564,13 @@ fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Ph
     }
 }
 
-/// Report what the attempt decided about its `requires` to the condition record of its entry,
-/// when the run records one (`coverage::condition_verdict`); nothing otherwise.
+/// Report what the attempt decided about its `requires` to the condition record of its entry and
+/// to its guard entry `guard`, when the run records one (`coverage::rule_condition_verdict`);
+/// nothing otherwise.
 #[inline]
-fn condition_verdict(verdict: Verdict) {
+fn condition_verdict(guard: Option<GuardHandle>, decided: Decided) {
     if crate::coverage::records_conditions() {
-        crate::coverage::condition_verdict(verdict);
+        crate::coverage::rule_condition_verdict(guard, decided);
     }
 }
 
@@ -1578,7 +1584,7 @@ fn requires(
     substitution: &Substitution,
     match_conditions: &[Predicate],
     path_knowledge: Vec<Predicate>,
-) -> Phase<(Vec<Predicate>, Vec<Predicate>)> {
+) -> Phase<(Vec<Predicate>, Vec<Predicate>, Option<GuardHandle>)> {
     let rule = context.rule;
     crate::coverage::note_matched(&rule.attributes.unique_id);
     // The equations that discharged the rule's definedness at load stand for the obligations
@@ -1586,17 +1592,19 @@ fn requires(
     crate::coverage::replay(&rule.computed_attributes.discharged_by);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
-    if crate::coverage::records_conditions() {
-        // What this entry saw, for a caller that named the rule (`coverage::record_condition`);
-        // the record's evaluation is isolated from the attempt.
-        crate::coverage::record_condition(
+    let guard = if crate::coverage::records_conditions() {
+        // What this entry saw, for a caller that named the rule
+        // (`coverage::enter_rule_condition`); the evaluation is isolated from the attempt.
+        crate::coverage::enter_rule_condition(
             context.definition,
             rule,
             substitution,
             &match_knowledge,
             context.simplification_options,
-        );
-    }
+        )
+    } else {
+        None
+    };
     // The instance satisfies `requires` only where its terms are defined; state that before the
     // simplifier or a solver can answer for instances where they are not.
     let simplified = simplify_rule_condition(
@@ -1607,17 +1615,17 @@ fn requires(
         context.solver,
     );
     if simplified.is_err() {
-        condition_verdict(Verdict::Stopped);
+        condition_verdict(guard, Decided::Stopped);
     }
     let requires = match simplified? {
         Ok(requires) => requires,
         Err(error) => {
-            condition_verdict(Verdict::Undecided);
+            condition_verdict(guard, Decided::Undecided(AttemptCause::Simplification));
             return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
     if predicates_truth(&requires) == Truth::False {
-        condition_verdict(Verdict::Refuted);
+        condition_verdict(guard, Decided::Refuted);
         if match_conditions.is_empty() && context.last_reached(RefutationSite::Matched) {
             context.reached(RefutationSite::Requires);
         }
@@ -1638,7 +1646,7 @@ fn requires(
             })
             .collect::<Substitution>();
         if !bindings.is_empty() {
-            condition_verdict(Verdict::Reentered);
+            condition_verdict(guard, Decided::Reentered);
             #[expect(
                 clippy::disallowed_methods,
                 reason = "bindings extracted from these conditions; the re-entered attempt states their definedness in phase P9"
@@ -1654,7 +1662,7 @@ fn requires(
             )?));
         }
     }
-    Ok((requires, match_knowledge))
+    Ok((requires, match_knowledge, guard))
 }
 
 /// A rewrite rule's `requires` or `ensures`, instantiated, simplified under `known` with the
@@ -1695,6 +1703,7 @@ fn validity_and_applicability(
     requires: Vec<Predicate>,
     match_knowledge: &[Predicate],
     match_conditions: &[Predicate],
+    guard: Option<GuardHandle>,
 ) -> Phase<(Vec<Predicate>, Applicability)> {
     let rule = context.rule;
     let pattern = context.pattern;
@@ -1708,12 +1717,12 @@ fn validity_and_applicability(
     if !unclear_requires.is_empty() {
         let decided = decide_condition(&unclear_requires, match_knowledge, context.solver);
         if decided.is_err() {
-            condition_verdict(Verdict::Stopped);
+            condition_verdict(guard, Decided::Stopped);
         }
         match decided? {
             Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
             Ok(RuleCondition::Refuted) => {
-                condition_verdict(Verdict::Refuted);
+                condition_verdict(guard, Decided::Refuted);
                 return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
             }
             Ok(RuleCondition::Indeterminate(
@@ -1722,7 +1731,7 @@ fn validity_and_applicability(
                 | ConditionIndeterminacy::UnboundResultVariables(_),
             )) => {}
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
-                condition_verdict(Verdict::Undecided);
+                condition_verdict(guard, Decided::Undecided(AttemptCause::NoSolver));
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Requires {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1731,7 +1740,7 @@ fn validity_and_applicability(
                 )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)) => {
-                condition_verdict(Verdict::Undecided);
+                condition_verdict(guard, Decided::Undecided(AttemptCause::InconsistentPath));
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1740,7 +1749,7 @@ fn validity_and_applicability(
                 )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
-                condition_verdict(Verdict::Undecided);
+                condition_verdict(guard, Decided::Undecided(AttemptCause::SolverUnknown));
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1749,7 +1758,7 @@ fn validity_and_applicability(
                 )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
-                condition_verdict(Verdict::Undecided);
+                condition_verdict(guard, Decided::Undecided(AttemptCause::Untranslatable));
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1758,7 +1767,7 @@ fn validity_and_applicability(
                 )));
             }
             Err(error) => {
-                condition_verdict(Verdict::Undecided);
+                condition_verdict(guard, Decided::Undecided(AttemptCause::SolverError));
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1778,15 +1787,18 @@ fn validity_and_applicability(
             &Predicate::Not(Arc::new(applicability.as_predicate().clone())),
         )
     {
-        condition_verdict(Verdict::Refuted);
+        condition_verdict(guard, Decided::Refuted);
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
     // What is left open, the attempt applies the rule under.
-    condition_verdict(if unclear_requires.is_empty() {
-        Verdict::Held
-    } else {
-        Verdict::Undecided
-    });
+    condition_verdict(
+        guard,
+        if unclear_requires.is_empty() {
+            Decided::Held
+        } else {
+            Decided::Undecided(AttemptCause::Open)
+        },
+    );
     Ok((unclear_requires, applicability))
 }
 

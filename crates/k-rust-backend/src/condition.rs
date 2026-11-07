@@ -89,6 +89,12 @@ impl Condition {
         self.0.len()
     }
 
+    /// The conjuncts as written, as a slice: for the guard outcomes a run collects
+    /// (`coverage::guards`), which evaluate them under an entry's bindings.
+    pub(crate) fn conjuncts(&self) -> &[Predicate] {
+        &self.0
+    }
+
     /// The conjuncts as written, read-only: for display, variable collection, SMT lemmas and the
     /// definedness analysis of the rule itself.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &Predicate> + '_ {

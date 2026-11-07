@@ -239,7 +239,7 @@ impl Connective {
         )
     }
 
-    fn of_hook(hook: &str) -> Option<Self> {
+    pub(super) fn of_hook(hook: &str) -> Option<Self> {
         match hook {
             "BOOL.not" => Some(Self::NotBool),
             "BOOL.and" => Some(Self::AndBool),
@@ -364,9 +364,85 @@ struct Slot {
 /// What a record is a function of: the bindings it reports and the path and match conditions
 /// its atoms are evaluated under.
 #[derive(Clone, Eq, Hash, PartialEq)]
-struct EntryKey {
-    bindings: Vec<(Variable, Term)>,
-    knowledge: Vec<Predicate>,
+pub(super) struct EntryKey {
+    pub(super) bindings: Vec<(Variable, Term)>,
+    pub(super) knowledge: Vec<Predicate>,
+}
+
+impl EntryKey {
+    /// The key of an entry into `requires` under `substitution`, with the path and match
+    /// conditions `knowledge`: the bindings of the variables `requires` reads that the match
+    /// bound, each variable named as written, sorted by variable.
+    pub(super) fn of(
+        requires: &[Predicate],
+        substitution: &Substitution,
+        knowledge: &[Predicate],
+    ) -> Self {
+        let mut read = BTreeSet::new();
+        for predicate in requires {
+            predicate
+                .visit_terms(&mut |term| read.extend(term.attributes().variables.iter().cloned()));
+        }
+        let mut bindings = read
+            .iter()
+            .filter_map(|variable| {
+                substitution
+                    .get(variable)
+                    .map(|value| (written(variable), value.clone()))
+            })
+            .collect::<Vec<_>>();
+        bindings.sort();
+        Self {
+            bindings,
+            knowledge: knowledge.to_vec(),
+        }
+    }
+
+    /// Whether the key holds more than `cap` term nodes, counting every bound value and every
+    /// term of the path and match conditions; it visits at most `cap + 1`.
+    pub(super) fn exceeds(&self, cap: usize) -> bool {
+        let mut nodes = 0usize;
+        for (_, value) in &self.bindings {
+            nodes += nodes_up_to(value, cap - nodes.min(cap));
+            if nodes > cap {
+                return true;
+            }
+        }
+        for predicate in &self.knowledge {
+            predicate.visit_terms(&mut |term| {
+                if nodes <= cap {
+                    nodes += nodes_up_to(term, cap - nodes);
+                }
+            });
+            if nodes > cap {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// The number of nodes of `term`, or `cap + 1` when it has more than `cap`.
+fn nodes_up_to(term: &Term, cap: usize) -> usize {
+    let mut nodes = 0usize;
+    let mut pending = vec![term];
+    while let Some(next) = pending.pop() {
+        nodes += 1;
+        if nodes > cap {
+            return nodes;
+        }
+        pending.extend(crate::deferred::children(next));
+    }
+    nodes
+}
+
+/// A condition evaluated for an entry by [`record`], with the caps it was evaluated under, so
+/// that a guard collection evaluating the same entry under the same caps reads it instead of
+/// evaluating it again (`super::guards`).
+pub(super) struct SharedEvaluation {
+    pub(super) condition: Vec<ConditionNode>,
+    pub(super) max_value_size: usize,
+    pub(super) record_polls: u64,
 }
 
 impl Sink {
@@ -444,13 +520,13 @@ pub(super) fn recording() -> bool {
 /// role = "part"
 /// sites = ["record", "impl Sink", "impl Evaluation", "exceeds"]
 /// ```
-pub(crate) fn record(
+pub(super) fn record(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     substitution: &Substitution,
     knowledge: &[Predicate],
     options: SimplificationOptions,
-) {
+) -> Option<SharedEvaluation> {
     // A verdict reported from here on belongs to this entry, or to none.
     PENDING.take();
     let selected = SINK.with_borrow(|sink| {
@@ -463,27 +539,12 @@ pub(crate) fn record(
         })
     });
     let Some((true, max_value_size, record_polls)) = selected else {
-        return;
+        return None;
     };
-    let mut read = BTreeSet::new();
-    for predicate in rule.requires.iter() {
-        predicate.visit_terms(&mut |term| read.extend(term.attributes().variables.iter().cloned()));
-    }
-    let mut bindings = read
-        .iter()
-        .filter_map(|variable| {
-            substitution
-                .get(variable)
-                .map(|value| (written(variable), value.clone()))
-        })
-        .collect::<Vec<_>>();
-    bindings.sort();
-    let key = EntryKey {
-        bindings,
-        knowledge: knowledge.to_vec(),
-    };
+    let requires = rule.requires.conjuncts();
+    let key = EntryKey::of(requires, substitution, knowledge);
     if !SINK.with_borrow_mut(|sink| sink.as_mut().is_some_and(|sink| sink.admit(rule, &key))) {
-        return;
+        return None;
     }
     let before = crate::path_facts::run_read_chosen_value();
     let evaluation = Evaluation {
@@ -494,19 +555,14 @@ pub(crate) fn record(
         max_value_size,
         bound: &key.bindings,
     };
-    let (condition, read_chosen) = super::isolated(record_polls, || {
-        rule.requires
-            .iter()
-            .map(|predicate| evaluation.predicate(predicate))
-            .collect::<Vec<_>>()
-    });
+    let (condition, read_chosen) = evaluation.condition(requires, record_polls);
     let record = ConditionRecord {
         bindings: key
             .bindings
             .iter()
             .map(|(variable, value)| (variable.clone(), evaluation.value(value.clone())))
             .collect(),
-        condition,
+        condition: condition.clone(),
         verdict: None,
         chosen: before || read_chosen,
     };
@@ -516,12 +572,17 @@ pub(crate) fn record(
     if let Some(position) = position {
         PENDING.set(Some((id, position)));
     }
+    Some(SharedEvaluation {
+        condition,
+        max_value_size,
+        record_polls,
+    })
 }
 
 /// Report the verdict of the attempt whose entry was recorded last ([`record`]); nothing when
 /// that entry was not recorded or already has its verdict. The attempt reports once, where it
 /// decides its condition (`rewrite::apply`, P11 and P12).
-pub(crate) fn verdict(verdict: Verdict) {
+pub(super) fn verdict(verdict: Verdict) {
     let Some((rule, position)) = PENDING.take() else {
         return;
     };
@@ -537,7 +598,7 @@ pub(crate) fn verdict(verdict: Verdict) {
 }
 
 /// `variable`, a variable of a rule inside an attempt, named as the rule is written.
-fn written(variable: &Variable) -> Variable {
+pub(super) fn written(variable: &Variable) -> Variable {
     Variable {
         name: rule_variable_definition_name(&variable.name).into(),
         ..variable.clone()
@@ -545,17 +606,17 @@ fn written(variable: &Variable) -> Variable {
 }
 
 /// The evaluation of one record's condition.
-struct Evaluation<'a> {
-    definition: &'a BackendDefinition,
-    substitution: &'a Substitution,
-    knowledge: &'a [Predicate],
-    options: SimplificationOptions,
-    max_value_size: usize,
+pub(super) struct Evaluation<'a> {
+    pub(super) definition: &'a BackendDefinition,
+    pub(super) substitution: &'a Substitution,
+    pub(super) knowledge: &'a [Predicate],
+    pub(super) options: SimplificationOptions,
+    pub(super) max_value_size: usize,
     /// The record's bindings, by written variable.
-    bound: &'a [(Variable, Term)],
+    pub(super) bound: &'a [(Variable, Term)],
 }
 
-fn is_boolean(term: &Term) -> bool {
+pub(super) fn is_boolean(term: &Term) -> bool {
     term.sort()
         .is_builtin(k_rust_kore::names::BuiltinSort::Bool)
 }
@@ -621,6 +682,22 @@ fn equals_literal(literal: bool, value: Truth) -> Truth {
 }
 
 impl Evaluation<'_> {
+    /// Every conjunct of `requires` evaluated under the instance, isolated from the run
+    /// ([`super::isolated`]) with a budget of `record_polls` polls, and whether the evaluation
+    /// read a value the definition leaves open.
+    pub(super) fn condition(
+        &self,
+        requires: &[Predicate],
+        record_polls: u64,
+    ) -> (Vec<ConditionNode>, bool) {
+        super::isolated(record_polls, || {
+            requires
+                .iter()
+                .map(|predicate| self.predicate(predicate))
+                .collect::<Vec<_>>()
+        })
+    }
+
     /// One conjunct of the condition, or a predicate below one. The recursion follows the
     /// condition as written, whose depth is the rule's. A connective's truth and an
     /// `\equals(b, literal)`'s follow from their operands' by their semantics, with no

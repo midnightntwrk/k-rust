@@ -2264,6 +2264,11 @@ enum EquationCondition {
 /// its left-hand side does not bind (`ComputedRuleAttributes::unbound_variables`). Renaming
 /// apart keeps them out of the subject and the path condition, so those free in the decided
 /// `requires` are exactly the equation's own; a diagnostic names them as such.
+///
+/// `guard` is the equation's written `requires` and the conditions its match holds under, for the
+/// guard outcomes a run collects (`coverage::guards`): the entry is folded before the memo probe,
+/// so that a verdict the memo serves still counts its entry, and the verdict, served or decided,
+/// is reported to it.
 #[allow(clippy::too_many_arguments)]
 fn evaluate_equation_condition(
     definition: &BackendDefinition,
@@ -2272,6 +2277,7 @@ fn evaluate_equation_condition(
     rule_variables: &BTreeSet<Variable>,
     anchor: Option<&Term>,
     instance: EquationInstance,
+    guard: GuardSite<'_>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -2280,6 +2286,19 @@ fn evaluate_equation_condition(
     let rule_id = rule.unique_id.as_str();
     crate::coverage::note_matched(rule_id);
     let (requires, matched) = instance.into_requires();
+    let guard = if crate::coverage::records_guards() {
+        crate::coverage::enter_equation_condition(
+            definition,
+            rule,
+            guard.requires,
+            matched.substitution(),
+            known_predicates,
+            guard.match_conditions,
+            options,
+        )
+    } else {
+        None
+    };
     let scope = ConditionMemo::enter(solver);
     let solver = scope.solver();
     let pending = match condition_memo_probe(
@@ -2294,7 +2313,12 @@ fn evaluate_equation_condition(
         solver,
         scope.nested,
     ) {
-        ControlFlow::Break(outcome) => return Ok(note_undecided_verdict(outcome)),
+        ControlFlow::Break(outcome) => {
+            if guard.is_some() {
+                equation_guard_verdict(guard, Ok(&outcome));
+            }
+            return Ok(note_undecided_verdict(outcome));
+        }
         ControlFlow::Continue(pending) => pending,
     };
     let collected = diagnostic::collecting();
@@ -2319,7 +2343,7 @@ fn evaluate_equation_condition(
     );
     let emissions = buffering.finish();
     let stack_stops = counting.finish();
-    condition_decided(
+    let decided = condition_decided(
         pending,
         verdict,
         emissions,
@@ -2328,7 +2352,58 @@ fn evaluate_equation_condition(
         solver,
         facts_from,
         collected,
-    )
+    );
+    if guard.is_some() {
+        equation_guard_verdict(guard, decided.as_ref());
+    }
+    decided
+}
+
+/// The written `requires` of an equation whose condition [`evaluate_equation_condition`]
+/// decides, and the conditions its match holds under (the equalities of the subject's variables
+/// a set-aside instance matches under), for the run's guard outcomes (`coverage::guards`).
+#[derive(Clone, Copy)]
+struct GuardSite<'a> {
+    requires: &'a [Predicate],
+    match_conditions: &'a [Predicate],
+}
+
+impl<'a> GuardSite<'a> {
+    /// The equation's own `requires`, matched with no further condition.
+    fn written(requires: &'a crate::condition::Condition) -> Self {
+        Self {
+            requires: requires.conjuncts(),
+            match_conditions: &[],
+        }
+    }
+}
+
+/// Report the verdict of [`evaluate_equation_condition`], served or decided, to the guard entry
+/// `guard` (`coverage::guards`). Out of line, as the record of the verdict is.
+#[inline(never)]
+fn equation_guard_verdict(
+    guard: Option<crate::coverage::GuardHandle>,
+    verdict: Result<&EquationCondition, &Unwind<SimplificationError>>,
+) {
+    use crate::coverage::{AttemptCause, Decided};
+    let decided = match verdict {
+        Ok(EquationCondition::Satisfied(_)) => Decided::Held,
+        Ok(EquationCondition::Refuted) => Decided::Refuted,
+        Ok(EquationCondition::Indeterminate(indeterminacy)) => {
+            Decided::Undecided(match indeterminacy {
+                ConditionIndeterminacy::NoSolver => AttemptCause::NoSolver,
+                ConditionIndeterminacy::SmtUnknown(_) => AttemptCause::SolverUnknown,
+                ConditionIndeterminacy::Untranslatable(_) => AttemptCause::Untranslatable,
+                ConditionIndeterminacy::InconsistentPathCondition => AttemptCause::InconsistentPath,
+                ConditionIndeterminacy::ImplicationIndeterminate
+                | ConditionIndeterminacy::NonFunctionalBinding
+                | ConditionIndeterminacy::UnboundResultVariables(_) => AttemptCause::Open,
+            })
+        }
+        Err(Unwind::Stop(_)) => Decided::Stopped,
+        Err(Unwind::Fail(_)) => Decided::Undecided(AttemptCause::Simplification),
+    };
+    crate::coverage::guard_verdict(guard, decided);
 }
 
 /// The probe of [`evaluate_equation_condition`]'s condition in the memo of verdicts, where a
@@ -5144,6 +5219,7 @@ fn apply_ceil_equation_instance(
         &rule.computed_attributes.unbound_variables,
         Some(term),
         instance,
+        GuardSite::written(&rule.requires),
         known_predicates,
         options,
         active_conditions,
@@ -5629,6 +5705,7 @@ fn apply_predicate_equation(
         &rule.variables.unbound,
         first_predicate_term(predicate),
         instance,
+        GuardSite::written(&rule.requires),
         known_predicates,
         options,
         active_conditions,
@@ -8020,6 +8097,7 @@ fn top_equation_instance(
         &rule.computed_attributes.unbound_variables,
         Some(term),
         instance,
+        GuardSite::written(&rule.requires),
         known_predicates,
         options,
         active_conditions,
@@ -11055,6 +11133,10 @@ fn decide_unused_instance<T, N>(
             &rule.computed_attributes.unbound_variables,
             Some(term),
             instance,
+            GuardSite {
+                requires: rule.requires.conjuncts(),
+                match_conditions: &condition.conjuncts()[..condition.len() - rule.requires.len()],
+            },
             known_predicates,
             options,
             active_conditions,
@@ -11348,6 +11430,7 @@ fn apply_prepared_equation_instance(
         &rule.computed_attributes.unbound_variables,
         Some(term),
         instance,
+        GuardSite::written(&rule.requires),
         known_predicates,
         options,
         active_conditions,
@@ -14378,6 +14461,53 @@ mod condition_memo_tests {
             assert_eq!(again.diagnostics, first.diagnostics, "{source}");
             assert_eq!(again.facts, first.facts, "{source}");
         }
+    }
+
+    /// The guard outcomes a run collects (`coverage::guards`) count an equation's entry whose
+    /// verdict the memo serves: the entry is folded before the memo is probed. `g`'s condition,
+    /// decided with no coverage collection open and served inside one, is reported there with
+    /// the served verdict (undecided) and its atom's outcome.
+    #[test]
+    fn a_served_verdict_still_enters_the_collected_guard() {
+        use crate::coverage::{GuardCollection, GuardOutcome, NodeOutcome};
+        let definition = definition();
+        let solver = Scripted {
+            reproducible: true,
+            ..Scripted::new(Validity::Unknown("scripted".into()))
+        };
+        let scope = condition_memo_scope(&solver);
+        let first = simplified(&definition, G, &solver, &scope, true);
+        assert_eq!(first.served, 0, "{first:?}");
+        let (again, coverage) = crate::coverage::collect_recording(
+            false,
+            false,
+            false,
+            None,
+            Some(GuardCollection::new(["g-guarded"])),
+            || simplified(&definition, G, &solver, &scope, true),
+        );
+        assert!(again.served > 0, "{again:?}");
+        let guards = coverage.guards.expect("the collection named guards");
+        let guard = guards
+            .iter()
+            .find(|guard| guard.axiom == "g-guarded")
+            .unwrap_or_else(|| panic!("the served entry is collected: {guards:?}"));
+        assert!(
+            guard
+                .outcomes
+                .iter()
+                .all(|outcome| matches!(outcome, GuardOutcome::Undecided(_)))
+                && !guard.outcomes.is_empty(),
+            "{guard:?}"
+        );
+        assert!(
+            guard.nodes.iter().any(|node| node.shape.is_atom()
+                && node
+                    .reached
+                    .iter()
+                    .any(|outcome| matches!(outcome, NodeOutcome::Undecided(_)))),
+            "{guard:?}"
+        );
     }
 
     /// An undecided answer may be a timeout, which a later check of the same query need not

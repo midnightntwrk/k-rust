@@ -1660,6 +1660,45 @@ fn selected_instance_applies(
     if !rule.ensures.is_empty() || !rule.computed_attributes.unbound_result_variables.is_empty() {
         return Ok(false);
     }
+    let guard = if crate::coverage::records_guards() {
+        crate::coverage::enter_equation_condition(
+            definition,
+            &rule.attributes,
+            rule.requires.conjuncts(),
+            substitution,
+            &[],
+            &[],
+            crate::simplify::SimplificationOptions::default(),
+        )
+    } else {
+        None
+    };
+    let folded = fold_selected_requires(definition, rule, substitution, arguments);
+    if guard.is_some() {
+        use crate::coverage::{AttemptCause, Decided};
+        crate::coverage::guard_verdict(
+            guard,
+            match &folded {
+                Ok(Some(true)) => Decided::Held,
+                Ok(Some(false)) => Decided::Refuted,
+                Ok(None) => Decided::Undecided(AttemptCause::Open),
+                Err(_) => Decided::Stopped,
+            },
+        );
+    }
+    Ok(folded? == Some(true))
+}
+
+/// The selected instance's `requires` folded by hooks ([`selected_instance_applies`]): `true`
+/// when every conjunct folds to `true` (an `owise` equation's competitor antecedent is
+/// discharged by the refutation of the higher groups), `false` at the first that folds to
+/// `false`, and open at the first left open.
+fn fold_selected_requires(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    substitution: &Substitution,
+    arguments: &[Term],
+) -> Stoppable<Option<bool>> {
     let mut requires = rule.requires.iter().peekable();
     if rule.attributes.priority == OWISE_RULE_PRIORITY
         && requires
@@ -1670,11 +1709,12 @@ fn selected_instance_applies(
     }
     for predicate in requires {
         let instantiated = substitute_predicate(predicate, substitution);
-        if fold_predicate(definition, &instantiated, arguments)? != Some(true) {
-            return Ok(false);
+        match fold_predicate(definition, &instantiated, arguments)? {
+            Some(true) => {}
+            other => return Ok(other),
         }
     }
-    Ok(true)
+    Ok(Some(true))
 }
 
 /// The constraints of a state given to an execution, with each `\ceil(t)` read as the deferred

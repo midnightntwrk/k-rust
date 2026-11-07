@@ -690,6 +690,15 @@ pub struct ExecutionOptions {
     /// costs a lookup, and a run that names no rule entered pays nothing. Recording changes
     /// nothing else in the result, also under a step timeout.
     pub collect_conditions: Option<crate::coverage::ConditionCollection>,
+    /// With [`Self::collect_coverage`], also collect the guard outcomes of the rules and equations
+    /// it names ([`crate::coverage::RunCoverage::guards`]): for each node of a named axiom's
+    /// written `requires`, the outcomes it took on the entries where it was reached, the entries'
+    /// guard outcomes and their valuation combinations, within the collection's bounds
+    /// ([`crate::coverage::GuardCollection`]). Off by default (`None`); ignored without
+    /// `collect_coverage`. Each distinct entry the bounded cache does not recognize costs one
+    /// more evaluation of the condition, isolated, without a solver, off the run's clock and
+    /// bounded by its own budget of polls. Collecting changes nothing else in the result.
+    pub collect_guards: Option<crate::coverage::GuardCollection>,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///
     /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
@@ -790,6 +799,7 @@ impl Default for ExecutionOptions {
             collect_offered: false,
             collect_counts: false,
             collect_conditions: None,
+            collect_guards: None,
             max_work: None,
             discard_stopped: false,
             match_states: None,

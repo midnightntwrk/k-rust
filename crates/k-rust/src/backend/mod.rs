@@ -2553,6 +2553,7 @@ impl Backend {
                 collect_offered: request.collect_offered,
                 collect_counts: request.collect_counts,
                 collect_conditions: request.collect_conditions.map(Into::into),
+                collect_guards: None,
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
                 match_states,

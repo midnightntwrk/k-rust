@@ -226,6 +226,7 @@ fn execute_counted(
     let collect_offered = options.collect_offered;
     let collect_counts = options.collect_counts;
     let collect_conditions = options.collect_conditions.clone();
+    let collect_guards = options.collect_guards.clone();
     let collect_committed = options.collect_committed;
     // Whether a bound that counts the whole run's exploration can end it: then every leaf rests
     // on the work of every path, off its own included.
@@ -315,6 +316,7 @@ fn execute_counted(
         collect_counts,
         collect_committed,
         collect_conditions,
+        collect_guards,
         run,
     );
     if let Some(refusal) = refused.into_inner() {
