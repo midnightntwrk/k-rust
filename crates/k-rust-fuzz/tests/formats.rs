@@ -43,10 +43,13 @@ use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 /// version 10 by FZ-ENGINE-R4's fix round, in the same wave: the unjudged reason
 /// `end-names-undeclared-symbol`. Re-pinned within version 10 by KINK-guard-coverage: k-rust's
 /// `RunCoverageOutput` gained `guards`, absent unless a request sets `collectGuards`, which the
-/// fuzzer never does, so no report it writes changes.
+/// fuzzer never does, so no report it writes changes. Re-pinned within version 10 by
+/// KINK-observation-traces T1: k-rust's `HaltReasonOutput` gained `probe-difference` and
+/// `probe-done`, which only an in-process request with a probe has, which the fuzzer never
+/// sends, so no report it writes changes.
 const REPORT_SHAPE: (u32, &str) = (
     10,
-    "96e5d750af074ec240a61b850aa18d54e317935cab6c0f886d2fc463860e05a6",
+    "9932c14af0a770e772f07bd6ab04428bea4229f9fc25185400fea2d1116194bd",
 );
 
 /// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds.
