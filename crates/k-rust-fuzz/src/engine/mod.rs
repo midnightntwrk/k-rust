@@ -33,9 +33,9 @@ use self::{
     schedule::Schedule,
 };
 use crate::{
-    exec::{OutcomeClass, UnjudgedReason},
     assemble::build_backend,
     error::CampaignError,
+    exec::{OutcomeClass, UnjudgedReason},
     graph::RuleGraph,
     holes::ResolvedHole,
     proposers::{

@@ -3986,7 +3986,10 @@ fn a_narrowed_equation_of_the_story_is_unkillable() {
         assert_status(&output, 2);
         let document = json(&output);
         assert_eq!(document["stopped"], "refused", "{document:#}");
-        assert_eq!(document["job"]["refusal"]["stage"], "mutation", "{document:#}");
+        assert_eq!(
+            document["job"]["refusal"]["stage"], "mutation",
+            "{document:#}"
+        );
         assert_eq!(document["job"]["refusal"]["reason"], status, "{document:#}");
         assert_eq!(document["job"]["status"], status, "{document:#}");
         assert!(

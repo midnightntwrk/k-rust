@@ -1215,9 +1215,16 @@ note = "narrows the pattern to a nonzero second argument"
                 assert_eq!(row["reason"], reason, "{row:#}");
             }
         }
-        assert_eq!(verified["mismatches"], serde_json::json!([]), "{verified:#}");
+        assert_eq!(
+            verified["mismatches"],
+            serde_json::json!([]),
+            "{verified:#}"
+        );
         let isnat = row(&run, "isnat");
-        assert_eq!(isnat["weakening"][0]["kind"], "valid-condition", "{isnat:#}");
+        assert_eq!(
+            isnat["weakening"][0]["kind"], "valid-condition",
+            "{isnat:#}"
+        );
         assert!(
             isnat["action"]
                 .as_str()
@@ -1276,7 +1283,10 @@ note = "narrows the pattern to a nonzero second argument"
             },
         );
         assert!(ok, "{document:#}");
-        assert!(warning_kinds(&document).contains(&"stack-stop"), "{document:#}");
+        assert!(
+            warning_kinds(&document).contains(&"stack-stop"),
+            "{document:#}"
+        );
         assert_eq!(document["stopped"], "stack-stops", "{document:#}");
         assert_eq!(
             kink_flow::cli::fuzz_status(&document),

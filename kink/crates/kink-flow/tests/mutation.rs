@@ -1461,11 +1461,7 @@ fn a_conjunction_label_heading_a_user_rule_is_no_conjunction() {
                         Some("s".to_owned()),
                     )
                 };
-                assert_eq!(
-                    found,
-                    [kept("s-big"), kept("s-small")],
-                    "{test} {label}"
-                );
+                assert_eq!(found, [kept("s-big"), kept("s-small")], "{test} {label}");
             } else {
                 assert_eq!(weakening, None, "{test}: {label} is no conjunction");
             }
@@ -2100,9 +2096,18 @@ fn a_requires_that_holds_everywhere_keeps_the_axiom() {
     };
     let delete_zero = "[[mutation.edit]]\nrule = \"plus_zero\"\ndelete = true\n";
     let cases = [
-        (requiring("isNat ( N:Nat )"), vec![WeakeningKind::ValidCondition]),
-        (requiring("isNat ( N )"), vec![WeakeningKind::ValidCondition]),
-        (requiring("isNat ( M:Nat )"), vec![WeakeningKind::ValidCondition]),
+        (
+            requiring("isNat ( N:Nat )"),
+            vec![WeakeningKind::ValidCondition],
+        ),
+        (
+            requiring("isNat ( N )"),
+            vec![WeakeningKind::ValidCondition],
+        ),
+        (
+            requiring("isNat ( M:Nat )"),
+            vec![WeakeningKind::ValidCondition],
+        ),
         (
             "[[mutation.edit]]\nrule = \"plus_succ\"\n\
              find = \"plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )\"\n\
@@ -2115,7 +2120,10 @@ fn a_requires_that_holds_everywhere_keeps_the_axiom() {
             vec![WeakeningKind::ValidCondition, WeakeningKind::Deleted],
         ),
         (requiring("false"), vec![WeakeningKind::Narrowed]),
-        (requiring("isKResult ( N:Nat )"), vec![WeakeningKind::Narrowed]),
+        (
+            requiring("isKResult ( N:Nat )"),
+            vec![WeakeningKind::Narrowed],
+        ),
     ];
     for (edits, kinds) in cases {
         let resolved = spec
@@ -2132,7 +2140,9 @@ fn a_requires_that_holds_everywhere_keeps_the_axiom() {
         assert_eq!(found, kinds, "{edits}");
         assert_eq!(
             weakening.keeps_every_axiom(),
-            kinds.iter().all(|kind| *kind == WeakeningKind::ValidCondition),
+            kinds
+                .iter()
+                .all(|kind| *kind == WeakeningKind::ValidCondition),
             "{edits}"
         );
     }

@@ -2259,17 +2259,15 @@ pub fn fuzz_front(
     // A case whose run stopped for lack of native stack judges nothing, and no budget bounds the
     // stack: `--stack-stops` of them in a row end the search ([`DEFAULT_STACK_STOPS`]).
     let mut stack_stops = StackStops::new(options.stack_stops);
-    let (report, fired) = under_watchdog(
-        options.time_limit_ms.map(Duration::from_millis),
-        |token| {
+    let (report, fired) =
+        under_watchdog(options.time_limit_ms.map(Duration::from_millis), |token| {
             let filter = filter
                 .as_mut()
                 .map(|filter| filter as &mut dyn k_rust_fuzz::WitnessFilter);
             campaign.run_observed(options.budget, token, filter, &mut |note| {
                 stack_stops.observe(note)
             })
-        },
-    );
+        });
     drop(filter);
     document["job"]["outcome"] = json!("fuzzed");
     document["job"]["filter"] = json!({"on": options.filter, "id": report.identity.filter});
