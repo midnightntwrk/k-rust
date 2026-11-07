@@ -177,6 +177,15 @@ Two packages of a definition whose libraries have one crate name (`foo-bar` and 
 A label is exact or a unique suffix.
 `--stop-count N` ends the run at its Nth arrival at a stop instead of its first (it needs a stop to count): the backend counts the arrivals along the path and takes each earlier one as any other step, so nothing in the definition counts, the run is one request whatever N is, and its steps, trace and coverage are those of the uncut run up to where it ends ([stop count](/k-rust/compatibility#stop-count)).
 The status line names the stop it ended at by a name the flags accept (``stopped after 11 steps, after `crate::boundary` (stop 3 of 3)``); a run that ends on its own before the Nth arrival reports that end, and the status line (`2 of 3 stops reached`) and `--output json` (`stops`) say how many arrivals it counted; `--depth` stays a bound, so a run that reaches it first is `depth-bound`, never `stopped`.
+
+`--stop-when CELL,...=FUNCTION` makes a stop of only the arrivals at which a fact about the state holds: FUNCTION, a function of result sort `Bool` whose parameters are the CELLs in order, each a leaf cell by Rust field path, holds of the arrival's *stop state*, the state the run would end at there (the state before a `--stop-before` rule's step, the successor of a `--stop-after` rule's).
+The run ends at its Nth such arrival (`--stop-count`, 1 by default) and takes every other arrival as any other step, so a condition that always holds changes nothing, and the run is still one request: the backend asks the condition at each arrival, and nowhere else ([stop condition](/k-rust/compatibility#stop-condition-in-process)).
+Only an arrival is asked, since an arrival at a rule the author wrote is a fact of the definition, while the states between arrivals include the compiled definition's own steps (strictness, contexts); a step by a stop rule that has another successor beside it is no arrival and is not asked.
+The condition is evaluated in one fixed definition, the observer `--observer PACKAGE:DEFINITION` names (a package that depends on the definition's and that no semantics imports, as a view's observer is), or else the run's own definition; never in the running definition itself, so the question asked of every state is the same whatever the definition being run.
+A read cell must be observable and below no repeated or optional cell, and its value is carried to the observer by its constructors, as a view's is.
+A condition with no value at a stop state (a partial function outside its domain, a cell holding an unevaluated application) refuses the run with exit 2, naming the rule, the steps and the reason; an evaluation that spends `--view-budget`'s polls, or that the solver leaves undecided, ends the run `stop-undecided`, which is inconclusive (exit 3).
+The status line names the condition and every arrival the run passed (``stopped after 5 steps, before `crate::tick` (stop 1 of 1, where `Apart` holds; 6 arrivals)``), and `--output json` reports them as `stops` and `arrivals` (`krs-exec/5`).
+A run that ends `stop-undecided` names the rule, the condition and why its evaluation has no answer (``before `crate::tick`, undecided whether `Climb` holds (0 of 1 stops reached; 1 arrival): its evaluation stopped before it ended (it spent its budget of 100 polls), so whether it has a value is not known``), and `--output json` reports them as `undecided` (`at`, `rule`, `reason`): a spent budget is decided by a larger `--view-budget`, an `Unknown` answer of the solver is not.
 Each Z3 query of `run`, `search` and `prove` is bounded by Z3's own resource units, 370,000 for the first attempt and twice the previous for each of 3 retries, and by no clock, so whether a condition is decided does not depend on the host's speed or load; `--smt-resource-limit UNITS` and `--smt-retries N` change the bound, and `--smt-clock-ms MS` bounds each attempt by the clock instead.
 `prove --claim-timeout SECONDS` cancels a claim's proof still running after SECONDS of wall-clock time, with the verdict `timeout` ([proving a batch of claims](/verification/reachability-claims#proving-a-batch-of-claims)).
 A proof ends a path `indeterminate` at the first state whose term matches the claim's right-hand side but whose condition is not decided there, and reports that state; it does not step past it, so a claim whose right-hand side is decided only where it recurs later in the run is not proven ([proof verdicts](/k-rust/compatibility#proof-verdicts)).
@@ -280,7 +289,7 @@ pc = 0x2000
 ```
 
 A case may also say how it is run and what end it expects.
-Its `run` table gives the depth bound, the stop rules and the stop count (`depth`, `stop_before`, `stop_after`, `stop_count`), each rule named as `--stop-before` names one, by KRS item (`crate::machine::boundary`) or K label; `--depth` with a case's `run.depth` is refused, since only one may bound the run, and so are the stop flags with a case's stops, since only one may say where it ends.
+Its `run` table gives the depth bound, the stop rules, the stop count and the stop condition (`depth`, `stop_before`, `stop_after`, `stop_count`, `stop_when`), each rule named as `--stop-before` names one, by KRS item (`crate::machine::boundary`) or K label; `--depth` with a case's `run.depth` is refused, since only one may bound the run, and so are the stop flags with a case's stops, since only one may say where it ends.
 The count is the case's, beside its rules, since where a run is observed depends on the program it runs.
 Its `expect` table states the end: the halt, the stop rule for `stopped`, named as `run` names it, and the cells by Rust field path, each value in the encoding below at the cell's declared type.
 It must state every cell it is compared on: by default every cell that is not unobservable, which `compare` may narrow to the cells it names.
@@ -294,6 +303,30 @@ expect = { halt = "stopped", rule = "crate::machine::boundary", compare = ["pc"]
 `rule` names the one item the run stopped at, as the status line of `krs run --case` names it (``stopped after S steps, before `crate::machine::boundary` (stop 3 of 3)``), whichever of several stop items it is.
 `depth` may stay in `run` beside the stop as a backstop: a run that never reaches the stop then ends `depth-bound`, and its expectation is inconclusive.
 To find N, run the case without its `expect` table and with a count larger than the run reaches, beside a `run` table that holds only `depth` (`krs run --case FILE#NAME --stop-before ITEM --stop-count 1000000`); the status line says how many arrivals it reached (`depth-bound after S steps, A of 1000000 stops reached`).
+Where the point of the run is a fact about the state rather than a count, `run.stop_when` states it, as `--stop-when` does, with the observer beside it: `{ function, cells, observer }`, `observer` optional.
+A test ROM that signals its end by fetching a breakpoint instruction stops at the first boundary whose fetched byte is that instruction, read from the cells that hold the program counter and the cartridge:
+
+```toml
+[run]
+stop_before = ["crate::interrupt::boundary_fetch"]
+stop_when = { function = "MooneyeBreakpoint", cells = ["pc", "rom_end", "rom"], observer = "sm83-views:views" }
+depth = 10000000            # a budget only: run out first, and the case is inconclusive
+
+[[case]]
+name = "ei_sequence"
+[case.inputs]
+cartridge = { "$file" = "ei_sequence.gb" }
+[case.expect]
+halt = "stopped"
+rule = "crate::interrupt::boundary_fetch"
+compare = ["regs"]
+views = { regs = "MooneyeResult" }
+observer = "sm83-views:views"
+cells = { regs = { A = 0, B = 3, C = 5, D = 8, E = 13, H = 21, L = 34 } }
+```
+
+The function is written so that it has a value at every stop state: `if InRom(rom_end, pc) { bytes::get(rom, pc) == 0x40 } else { false }`, since `bytes::get` outside the ROM has none, which would refuse the run there.
+The count, when the case gives one, counts the arrivals where the condition holds, and `--output json`'s `arrivals` says how many boundaries the run passed.
 
 The expectation is met when every end of the definition from the case's inputs agrees with it.
 A run that reaches its `run.depth` is inconclusive against the expectation, never met or unmet, whether or not the state at the bound has a successor: the run takes no step from that state, so it is not known to be an end.
@@ -600,8 +633,17 @@ A *case* is a table of four keys, each of which may be absent:
   unique suffix after a `.`;
   and `stop_count`, a positive integer, the arrival at a stop the run ends at
   (`StopCriterion::Rules`), the first by default,
-  which needs a stop rule to count arrivals at.
-  The count belongs to the case, beside its rules,
+  which needs a stop rule to count arrivals at;
+  and `stop_when`, a stop condition (`StopWhen`),
+  a table `{ function, cells, observer }`:
+  `function` names a function of result sort `Bool` as a view names one,
+  `cells` the leaf cells it reads by Rust field path, in the order of its parameters,
+  and `observer`, optional, the definition it is evaluated in, `PACKAGE:DEFINITION`
+  as an expectation names its observer, the run's own definition by default;
+  an arrival is then a stop only where the condition holds of the state the run would end at,
+  and `stop_count` counts those.
+  The condition needs a stop rule, at whose arrivals it is asked.
+  The count and the condition belong to the case, beside its rules,
   since where a run is observed depends on the program it runs.
 - `instances`: the instances the run starts with, of the optional and repeated cells it names
   ("Instances", below).
@@ -780,12 +822,13 @@ A case's record is printed as soon as the cases before it are, so a slow case ho
 By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation (`ran:` and the reason when its run reaches several states under conditions it cannot decide, so has no end), or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
 A case refused because its expectation is a `depth-bound` end gets a one-line record, and the reason and what to state instead are printed once, before the count, naming every case refused for it: the text is the same for each such case, and a corpus migrated from depth bounds has many.
 A last line counts the verdicts.
-`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/2"`:
+`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/3"`:
 
 - a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/3`); `reason`, for `inconclusive` and `refused`, and for `ran` with no end; and `views` and `observer`, when the expectation names them, whatever the verdict;
-- then the summary, `{"schema": "krs-cases/2", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
+- then the summary, `{"schema": "krs-cases/3", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
 
 Version 2 of the format reads differently from version 1 in two places, so it takes the next version: a case that states no expectation and whose run has no one path is `ran`, with its `reason` and no `halt`, where version 1 recorded it `refused`; and the summary's `status` is the exit status of the four actions ([exit status](#exit-status)), under which a refused case gives 2, where version 1 gave 1.
+Version 3 records a halt version 2 does not know, so it takes the next version: a case whose run's stop condition is left undecided at an arrival (`run.stop_when`) records the halt `stop-undecided`, and is `inconclusive`.
 
 `krs cases` exits as a batch of its cases ([exit status](#exit-status)).
 
