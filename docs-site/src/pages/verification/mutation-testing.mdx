@@ -300,8 +300,8 @@ A run over `refused.toml` judges nothing and exits 2:
 - **A mutant that only narrows an equation.**
   A mutation that replaces an equation by an instance of itself, a narrower pattern or `requires` with the same result on every input it still covers, only weakens the specification, as deleting an equation does: every result the mutant computes is the specification's, and an application outside the narrowed pattern stays unevaluated.
   kink classifies such a mutation as `unkillable` and runs nothing, as it does a deletion: on the story, `replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )"` for `plus_succ` is one.
-  It reads the sort of each variable the narrower pattern instantiates from the K text, `N:Nat` here, as krs writes every variable of the K it emits.
-  A narrowing it cannot read runs: a guard rewritten into a narrower one, a variable written without its sort, or a wildcard given another sort.
+  It reads the sort of each variable the narrower pattern instantiates from the rule as K loads it, the sort written for it (`N:Nat` here) or the one K infers, so the same replacement written without sorts, `plus ( s ( M ) , s ( N ) ) => s ( plus ( M , s ( N ) ) )`, loads to the same mutant and is `unkillable` too.
+  A narrowing it cannot read runs: a guard rewritten into a narrower one, or a wildcard given another sort.
   A case that reaches an application outside the narrowed pattern then ends with an unevaluated call on the mutant, which kink cannot compare, so it is `unknown`, and no case kills the mutation: write the misunderstanding as a replacement, an equation whose result differs, or drop the mutation.
   A narrower `requires` may use only the operations the emitted K imports: the story's `definition.k` imports no Bool operations, so `notBool` or `andBool` in its `requires` is refused as `edited-load-failed`.
 - **Machines that do not halt.** A run of a machine that never halts ends where `[stop]` and `stop_count` say ([the corpus loop](/reference/workflow#the-corpus-loop)), and a kill is then relative to that stop.
