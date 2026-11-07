@@ -41,12 +41,16 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// `stopped` value `refused` and its key `action` were already in the document. Version 8 adds
 /// `template.last_run.mutation.witnesses_global` and the warning `global-witnesses`; the digest
 /// moved by the key `witnesses_global` alone, since a warning kind passed to `warning(..)` is not
-/// a value the reader takes.
+/// a value the reader takes. Version 9 refuses a kill job of a mutation kink decides from its edit
+/// (stage `mutation`, with `job.weakening`), drops the warning `unkillable`, and adds the
+/// `stopped` value `stack-stops` and the warnings `stack-stop` and `not-ceil-free`; the digest
+/// moved by the key `weakening` and the value `stack-stops`, since the refusal's reason is an
+/// argument of `Refusal::new` and a warning kind one of `warning(..)`.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    8,
+    9,
     10,
     2,
-    "0b13a5a1ef6b1ea5074504e1e4dbab3a1ed8b4492d3f465a1a038e50a1f39418",
+    "e635a597a0bb9c4e1c39d4e476971d4f0b0be05e0288865441341b30bf4ee7df",
 );
 
 /// `source` without `//` comments, string literals kept whole.
