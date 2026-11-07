@@ -104,11 +104,6 @@ owner = "S5"
 kind = "bug"
 what = "a `cells!` subject's map holding only a rest, `Cell(k::map![..])`, is a parse error (\"expected identifier\"): R9 admits it with the `no-effect-entry` lint (it constrains and binds nothing, P0, Q1), as `Cell(k::map![y -> x, ..])` is admitted: S5.3's (S5.0g item 3b)"
 
-["S5-Q1"]
-owner = "S5"
-kind = "bug"
-what = "decision Q1: a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal. Since TRI-A an item-less `[..]` is read by the cell's kind: a collection's keeps every instance, a `Cell` leaf's is its `_` (TRI-A4, with its lint, and `[..] => [..]` too), the computation cell's is the cell left out, `Some([..])` is `Some(_)`, and `Some([..]) => Some([..])` keeps the present cell. The rows left: below a marked ancestor, `Some([..])` on an optional list is refused otherwise than the table's `collection-without-instances` at the entry"
-
 ["S5-Q2"]
 owner = "S5"
 kind = "feature"

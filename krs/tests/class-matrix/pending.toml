@@ -385,12 +385,6 @@ match = 'readable/result/{env,frame,pc}/{[..\, Job \{ payload: 0\, .. \}],[..],[
 finding = "S0-9"
 kind = "diagnostic"
 
-# readable: 1
-[[family]]
-match = 'readable/subject/k/[..]'
-finding = "S0-9"
-kind = "diagnostic"
-
 # runs: 10
 [[family]]
 match = 'readable-run/result/counter/{0,Frame \{ ret: x \},[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[],[x\, ..],x,\{ .. \},\{ y -> x\, .. \}}'
@@ -412,12 +406,6 @@ kind = "diagnostic"
 # runs: 12
 [[family]]
 match = 'readable-run/result/{env,frame,pc}/{[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[x\, ..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# runs: 1
-[[family]]
-match = 'readable-run/subject/k/[..]'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -562,12 +550,6 @@ kind = "diagnostic"
 # sweep: 20
 [[family]]
 match = 'sweep/*/result/{seq,stack}/{G \{ a: x\, .. \},Some(G \{ .. \}),Some([..]),Some(x),\{ G \{ a: x\, b: y \} \}}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 24
-[[family]]
-match = 'sweep/*/subject/{acct,bag,counter,env,frame,job,ogroup,omap,pc,prog,seq,set}/Some([..])'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -973,12 +955,6 @@ match = 'sweep-paths/*/subject/*/\{ x\, .. \}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep-paths: 52
-[[family]]
-match = 'sweep-paths/*/subject/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qomap,qpc,qprog,qseq,qset,qstack}/Some([..])'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep-paths: 168
 [[family]]
 match = 'sweep-paths/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
@@ -1374,12 +1350,6 @@ finding = "S5-K1"
 kind = "diagnostic"
 
 # S5-Q1, diagnostic: 4 reds
-
-# sweep-paths: 4
-[[family]]
-match = 'sweep-paths/*/subject/{lolist,qolist}/Some([..])'
-finding = "S5-Q1"
-kind = "diagnostic"
 
 # S5-Q2, diagnostic: 2 reds
 

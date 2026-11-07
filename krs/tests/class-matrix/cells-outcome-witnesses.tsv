@@ -1177,7 +1177,6 @@ readable	subject	* List of G	[.., x]	excepted: C-lim: a List collection's back i
 readable	subject	* List of G	[x, ..]	red: S5-Q2 (readable-run/subject/job/[x, ..])
 readable	subject	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/readable/subject/job/[x, r @ ..])
 readable	subject	* List of G	[x]	red: S5-Q2 (sweep/readable/subject/job/[x])
-readable	subject	computation	[..]	red: S0-9 (readable-run/subject/k/[..])
 readable	subject	computation	[x]	red: S5-C2 (sweep/readable/subject/prog/[x])
 readable	subject, written	* List of G	None	red: S0-9 (sweep/readable/written/job/None)
 readable	subject, written	* List of G	Some(x)	red: S0-9 (sweep/readable/written/job/Some(x))
