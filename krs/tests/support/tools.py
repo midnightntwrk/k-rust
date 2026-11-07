@@ -124,9 +124,12 @@ def z3_cargo_arguments(*features: str) -> list[str]:
 
 # `Z3_get_full_version` returns the C string literal `Z3_FULL_VERSION`, so a
 # library or an executable that links Z3 statically holds it, NUL-terminated.
-# Releases before 4.13 spell it without the `Z3 ` prefix, which this pattern does
-# not recognize; such a release is reported as unrecognized, not as a match.
-Z3_FULL_VERSION = re.compile(rb"Z3 (\d+\.\d+\.\d+)\.\d+\x00")
+# Z3's Python build writes it `Z3 4.16.0.0`; its CMake build, which makes the
+# published 5.x assets, writes the bare four-part version, followed by the commit
+# hash and the `git describe` text when it knows them (`5.3.3.0 430d19e6…
+# 430d19e`). A bare version is recognized only as a whole C string (after a NUL),
+# since four dotted numbers alone are no evidence of Z3.
+Z3_FULL_VERSION = re.compile(rb"(?:Z3 |(?<=\x00))(\d+\.\d+\.\d+)\.\d+(?: [A-Za-z0-9._-]+){0,2}\x00")
 
 
 def embedded_z3_releases(path: Path) -> set[str]:

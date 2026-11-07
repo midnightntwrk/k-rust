@@ -30,25 +30,43 @@
 //! `z3_build` uses the record only when the running process finds Z3's code inside its own image,
 //! so a link that turned out dynamic is named by its shared library instead, and only when the
 //! release the record names is the release the linked Z3 reports.
+//!
+//! On the environment route `z3-sys` takes `Z3_SYS_Z3_VERSION`, when it is set, in place of the
+//! version it detects, and describes the library to the `z3` crate by it: the version-gated
+//! functions the crate offers and the numbering of the enumerations `z3-sys` binds follow it.
+//! A value that is not the linked release makes the build describe another Z3 than it links, so
+//! when this script finds the archive and the release it holds, a different `Z3_SYS_Z3_VERSION`
+//! fails the build. A dynamic link, or an archive this script does not see, is not checked here.
 
 use std::path::{Path, PathBuf};
 
 /// The `libz3.a` of each published release asset `z3-sys`'s `gh-release` downloads: the release,
 /// the target's architecture and OS as Cargo names them, the asset, and the archive's SHA-256.
-const PUBLISHED: &[(&str, &str, &str, &str, &str)] = &[(
-    "4.16.0",
-    "x86_64",
-    "linux",
-    // The asset `.github/actions/krs-z3` downloads and checks by the digest of its zip.
-    "z3-4.16.0-x64-glibc-2.39",
-    "be85aeff225c953bee73df3b3eec46adcadf68d03b0b47a50cbb2e4bf1fe52cb",
-)];
+const PUBLISHED: &[(&str, &str, &str, &str, &str)] = &[
+    (
+        "4.16.0",
+        "x86_64",
+        "linux",
+        "z3-4.16.0-x64-glibc-2.39",
+        "be85aeff225c953bee73df3b3eec46adcadf68d03b0b47a50cbb2e4bf1fe52cb",
+    ),
+    (
+        "5.3.3",
+        "x86_64",
+        "linux",
+        // The asset `.github/actions/krs-z3` downloads and checks by the digest of its zip.
+        "z3-5.3.3-x64-glibc-2.39",
+        "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31",
+    ),
+];
 
-/// The release `z3-sys`'s `gh-release` downloads when `Z3_SYS_Z3_VERSION` is unset.
-const GH_RELEASE_DEFAULT: &str = "4.16.0";
+/// The release `z3-sys`'s `gh-release` downloads when `Z3_SYS_Z3_VERSION` is unset. The
+/// repository's `.cargo/config.toml` sets it to the release krs links (`Krs.lock` `[solver]
+/// linked`), which this `z3-sys` does not download by default.
+const GH_RELEASE_DEFAULT: &str = "5.3.2";
 
 /// The archive this build links Z3 from: its SHA-256, as lowercase hexadecimal, and the Z3
-/// release it holds (`4.16.0`); `None` when the build links no Z3, links it dynamically, or takes
+/// release it holds (`5.3.3`); `None` when the build links no Z3, links it dynamically, or takes
 /// an archive it cannot name. Prints the rerun triggers of what it reads.
 pub fn z3_archive() -> Option<(String, String)> {
     for variable in [
@@ -97,7 +115,21 @@ pub fn z3_archive() -> Option<(String, String)> {
             continue;
         }
         if has_archive && (static_link || !has_shared) {
-            return archive_identity(&archive);
+            let identity = archive_identity(&archive);
+            if let (Some((_, release)), Ok(declared)) =
+                (&identity, std::env::var("Z3_SYS_Z3_VERSION"))
+            {
+                assert!(
+                    declared.is_empty() || declared == *release,
+                    "Z3_SYS_Z3_VERSION is {declared}, but {} holds Z3 {release}: z3-sys would \
+                     describe the library it links as Z3 {declared}. Link Z3 {declared}, or set \
+                     Z3_SYS_Z3_VERSION={release} in the environment (the repository's \
+                     .cargo/config.toml sets it to the release krs links, Krs.lock [solver] \
+                     linked, and a value in the environment takes precedence).",
+                    archive.display()
+                );
+            }
+            return identity;
         }
         return None;
     }
@@ -105,8 +137,8 @@ pub fn z3_archive() -> Option<(String, String)> {
 }
 
 /// The SHA-256 of the archive at `path`, as lowercase hexadecimal, and the one Z3 release whose
-/// full-version literal (`Z3 4.16.0.0`, the string `Z3_get_full_version` returns) it holds;
-/// `None` when it cannot be read or holds no such literal or several.
+/// full-version literal (the string `Z3_get_full_version` returns) it holds; `None` when it cannot
+/// be read or holds no such literal or several.
 fn archive_identity(path: &Path) -> Option<(String, String)> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(path).ok()?;
@@ -117,27 +149,34 @@ fn archive_identity(path: &Path) -> Option<(String, String)> {
             let _ = write!(hex, "{byte:02x}");
             hex
         });
-    let mut releases = std::collections::BTreeSet::new();
-    for (start, _) in bytes.windows(3).enumerate().filter(|(_, w)| *w == b"Z3 ") {
-        let literal = &bytes[start + 3..];
-        let Some(end) = literal.iter().position(|byte| *byte == 0) else {
-            continue;
-        };
-        let Ok(version) = std::str::from_utf8(&literal[..end]) else {
-            continue;
-        };
-        let parts: Vec<&str> = version.split('.').collect();
-        if parts.len() == 4
-            && parts
-                .iter()
-                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-        {
-            releases.insert(parts[..3].join("."));
-        }
-    }
+    let releases = bytes
+        .split(|byte| *byte == 0)
+        .filter_map(full_version_release)
+        .collect::<std::collections::BTreeSet<_>>();
     let mut releases = releases.into_iter();
     match (releases.next(), releases.next()) {
         (Some(release), None) => Some((digest, release)),
         _ => None,
     }
+}
+
+/// The release a whole C string of an archive names when it is a Z3 full-version literal: the
+/// four-part version, written `Z3 4.16.0.0` by Z3's Python build and `5.3.3.0` by its `CMake`
+/// build, which may add the commit hash and the `git describe` text after it, each as one further
+/// word (`5.3.3.0 430d19e6… 430d19e`).
+fn full_version_release(string: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(string).ok()?;
+    let text = text.strip_prefix("Z3 ").unwrap_or(text);
+    let mut words = text.split(' ');
+    let parts: Vec<&str> = words.next()?.split('.').collect();
+    let numeric = |part: &&str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    let suffix: Vec<&str> = words.collect();
+    let word = |word: &&str| {
+        !word.is_empty()
+            && word
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
+    };
+    (parts.len() == 4 && parts.iter().all(numeric) && suffix.len() <= 2 && suffix.iter().all(word))
+        .then(|| parts[..3].join("."))
 }

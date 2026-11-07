@@ -651,7 +651,9 @@ def without_z3_build(prove_json: bytes) -> tuple[bytes, str]:
     dynamic link maps. The build is the route's (`KRUST_GATE_Z3`) and the host's, not the
     definition's, so the pinned artifact leaves it out and the gate checks it here instead: the
     version is of the release krs links (`Krs.lock [solver] linked`), and the digest is a
-    SHA-256, or null when the build could not name its library. The rest of the document,
+    SHA-256, or null when the build could not name its library. Z3's `CMake` build, which makes
+    the published 5.x assets, follows the four-part version with the commit hash and the
+    `git describe` text (`5.3.3.0 430d19e6… 430d19e`). The rest of the document,
     `solver`'s mode, units and retries included, is the pinned artifact, written as krs writes it
     (compact, members in krs's order, one line).
     """
@@ -662,7 +664,7 @@ def without_z3_build(prove_json: bytes) -> tuple[bytes, str]:
     if not isinstance(build, dict) or set(build) != {"library_sha256", "version"}:
         raise GateError(f"krs prove's solver.z3 is not {{library_sha256, version}}: {build}")
     version, digest = build["version"], build["library_sha256"]
-    if not isinstance(version, str) or not re.fullmatch(r"(Z3 )?" + re.escape(release) + r"\.\d+", version):
+    if not isinstance(version, str) or not re.fullmatch(r"(Z3 )?" + re.escape(release) + r"\.\d+( [A-Za-z0-9._-]+){0,2}", version):
         raise GateError(f"krs prove's solver.z3.version {version!r} is not of Z3 {release} (Krs.lock [solver] linked)")
     if digest is not None and not (isinstance(digest, str) and Z3_LIBRARY_SHA256.fullmatch(digest)):
         raise GateError(f"krs prove's solver.z3.library_sha256 {digest!r} is not a SHA-256")

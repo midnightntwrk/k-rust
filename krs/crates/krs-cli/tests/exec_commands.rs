@@ -1248,7 +1248,7 @@ fn prove_claim_timeout_cancels_a_proof_that_does_not_end_and_names_the_solver() 
     assert_eq!(reports[0]["leaves"], serde_json::json!([]));
     assert_eq!(
         without_z3_build(&document["solver"]),
-        serde_json::json!({"mode": "resource", "retries": 3, "units": 310_000})
+        serde_json::json!({"mode": "resource", "retries": 3, "units": 370_000})
     );
     assert!(
         stderr(&timed).ends_with("krs prove: 0 of 1 claim proven, 1 timed out\n"),

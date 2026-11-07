@@ -264,9 +264,10 @@ fn query(rule: &str, case: Vec<Value>, symbolic: Vec<usize>) -> Query {
 /// [`SOLVE_MODEL_RESOURCE_UNITS`] and their retries were measured on `c7` with it (the module
 /// documentation of the solve proposer).
 ///
-/// Builds spell `Z3_get_full_version` differently (`Z3 4.16.0.0`, `4.12.5.0`), so the version is
-/// compared without the `Z3 ` prefix and with any further component after its patch number.
-const MEASURED_Z3: &str = "4.16.0";
+/// Builds spell `Z3_get_full_version` differently (`Z3 4.16.0.0`, `4.12.5.0`, `5.3.3.0` and the
+/// commit), so the version is compared without the `Z3 ` prefix and with anything after its
+/// patch number's `.`.
+const MEASURED_Z3: &str = "5.3.3";
 
 /// Fail, saying why, when this build links another Z3 than [`MEASURED_Z3`].
 ///
@@ -282,14 +283,15 @@ fn assert_measured_z3() {
     assert!(
         version == MEASURED_Z3 || version.starts_with(&format!("{MEASURED_Z3}.")),
         "this test expects c7 decided within the solve budgets, which were measured with Z3 \
-         {MEASURED_Z3}; this build links Z3 {version}: build with that Z3 (`--features \
-         z3-gh-release` downloads it), or re-measure the budgets with Z3 {version} and update \
-         this expectation"
+         {MEASURED_Z3}; this build links Z3 {version}: build with Z3 {MEASURED_Z3} (`--features \
+         z3-gh-release` downloads the release `Z3_SYS_Z3_VERSION` names, which the \
+         repository's `.cargo/config.toml` sets), or re-measure the budgets with Z3 {version} \
+         and update this expectation"
     );
 }
 
-/// The nonlinear `c7` (`H * I == 2021027`, `1 < H < I`; 2021027 is 1009 times 2003, both
-/// prime): the model is the factorization, and the hole the guard does not read keeps its value.
+/// The nonlinear `c7` (`H * I == 2118521`, `I == H + 1000`, `1 < H < I`; 2118521 is 1039 times
+/// 2039, both prime): the model is the factorization, and the hole the guard does not read keeps its value.
 #[test]
 fn a_query_solves_the_nonlinear_guard_of_c7() {
     assert_measured_z3();
@@ -297,7 +299,7 @@ fn a_query_solves_the_nonlinear_guard_of_c7() {
     let candidate = solve
         .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
         .unwrap_or_else(|| panic!("a candidate: {:?}", solve.totals));
-    assert_eq!(candidate, values((1, 7, 1050), 1009, 2003));
+    assert_eq!(candidate, values((1, 7, 1050), 1039, 2039));
     assert_eq!(solve.totals.candidates, 1);
     // The run's work and one model query are charged.
     let work = solve.take_extra_work();
@@ -409,7 +411,7 @@ fn a_source_helper_word_candidate_replays_on_a_fresh_backend() {
 }
 
 /// A declared range is conjoined: with `H <= 1000` no factorization is left, with `H` in
-/// `1009 ..= 1009` the model keeps it.
+/// `1039 ..= 1039` the model keeps it.
 #[test]
 fn a_query_conjoins_the_holes_declared_constraints() {
     let range = |min: i64, max: i64| Constraints {
@@ -432,10 +434,10 @@ fn a_query_conjoins_the_holes_declared_constraints() {
         "{:?}",
         solve.totals
     );
-    let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(1009, 1009));
+    let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(1039, 1039));
     assert_eq!(
-        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 1009, 9), vec![3, 4])),
-        Some(values((1, 7, 1050), 1009, 2003))
+        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 1039, 9), vec![3, 4])),
+        Some(values((1, 7, 1050), 1039, 2039))
     );
 }
 
@@ -514,7 +516,7 @@ fn the_proposer_asks_after_a_stall_never_twice_and_moves_on() {
         .propose(&mut ProposalContext { rng: &mut rng })
         .expect("a candidate");
     assert_eq!(candidate.origin, Origin::Scheduled(ProposerKind::Solve));
-    assert_eq!(candidate.values, values((1, 7, 1050), 1009, 2003));
+    assert_eq!(candidate.values, values((1, 7, 1050), 1039, 2039));
     // The same blocked case asks the same question: not again.
     solve.observe_all(&proposal, &unscored);
     assert!(!solve.ready());

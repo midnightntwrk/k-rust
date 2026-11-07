@@ -114,6 +114,13 @@ check_default_mode
 # the whole check for nothing it asserts.
 unoptimized=(--config profile.dev.opt-level=0 --config 'profile.dev.package."*".opt-level=0')
 
+# The repository's .cargo/config.toml sets Z3_SYS_Z3_VERSION to the release krs links, and z3-sys
+# takes it in place of the version it detects. These steps link the system's Z3, whatever its
+# release, so they state that release instead.
+system_z3=$(pkg-config --modversion z3) || fail "pkg-config finds no system Z3"
+export Z3_SYS_Z3_VERSION=$system_z3
+echo "[runtime] the system Z3 is $system_z3"
+
 echo "[runtime] exercising Z3 inference against the system library"
 # libtest exits 0 when its filter selects nothing, so a renamed test would pass this step without
 # running. Select the test by its exact name and require the run to report that one test passing.

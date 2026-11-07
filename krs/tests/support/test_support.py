@@ -369,6 +369,15 @@ class ToolTests(unittest.TestCase):
             binary.write_bytes(b"code Z3 9.9.8.0\x00 more code")
             with self.assertRaisesRegex(GateError, "links Z3 9.9.8, but krs links Z3 9.9.9"):
                 tools.require_linked_z3(binary)
+            # The CMake build's spelling, as the published 5.x assets carry it.
+            binary.write_bytes(b"code\x009.9.9.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e\x00 more")
+            tools.require_linked_z3(binary)
+            binary.write_bytes(b"code\x009.9.8.0\x00 more")
+            with self.assertRaisesRegex(GateError, "links Z3 9.9.8, but krs links Z3 9.9.9"):
+                tools.require_linked_z3(binary)
+            # Four dotted numbers inside another string are no Z3 literal.
+            binary.write_bytes(b"code v9.9.8.0\x00 dynamically linked")
+            self.assertEqual(tools.embedded_z3_releases(binary), set())
 
             binary.write_bytes(b"dynamically linked")
             library = Path(temporary, "libz3.so")

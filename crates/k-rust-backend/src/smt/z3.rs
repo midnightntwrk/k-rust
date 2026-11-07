@@ -76,6 +76,8 @@
 mod alias_tests;
 #[cfg(test)]
 mod fault_tests;
+#[cfg(test)]
+mod finite_field_tests;
 pub mod trace;
 mod typed_cache;
 
@@ -227,17 +229,17 @@ enum Unanswered {
 
 /// Whether `reason`, Z3's reason for an unknown answer, is an internal error of Z3.
 ///
-/// Z3 4.16.0 raises an internal error (an `UNREACHABLE`, `VERIFY` or `NOT_IMPLEMENTED_YET` it
-/// reached, or a fatal error) as an exception on a context made through its API
-/// (`invoke_exit_action`); the check catches it and answers unknown, with the exception's text,
-/// `unreachable`, `internal fatal` or `not implemented yet`, as its reason. Z3 4.12.5 ends the
-/// process instead (`UNREACHABLE` with exit status 114), which nothing in the process observes.
-/// Both versions raise `formula has not been simplified` (4.16.0 followed by ` : ` and the
-/// formula) where the search's internalizer meets a core operator its callers must have
-/// rewritten, the same broken precondition as the bit-vector theory's `UNREACHABLE` on a
+/// Z3 4.16.0 and 5.3.3 raise an internal error (an `UNREACHABLE`, `VERIFY` or
+/// `NOT_IMPLEMENTED_YET` it reached, or a fatal error) as an exception on a context made through
+/// its API (`invoke_exit_action`); the check catches it and answers unknown, with the exception's
+/// text, `unreachable`, `internal fatal` or `not implemented yet`, as its reason. Z3 4.12.5 ends
+/// the process instead (`UNREACHABLE` with exit status 114), which nothing in the process
+/// observes. Every version raises `formula has not been simplified` (from 4.16.0 on followed by
+/// ` : ` and the formula) where the search's internalizer meets a core operator its callers must
+/// have rewritten, the same broken precondition as the bit-vector theory's `UNREACHABLE` on a
 /// `bvult` (`word::internalized_operators`). The operators differ by version: `=>` only on
-/// 4.12.5 (4.16.0 internalizes it), `distinct` on both, and `=` over Bool or `xor` with more
-/// than two operands on both.
+/// 4.12.5 (4.16.0 and 5.3.3 internalize it), and on every version `distinct`, and `=` over Bool
+/// or `xor` with more than two operands.
 ///
 /// Such an answer is no undecided query: an unknown says the solver ran within its bounds, and
 /// the retries exist to spend more of them on it; this is a defect of the solver met on the
@@ -315,9 +317,10 @@ fn load(solver: &Solver, script: &str) -> Result<(), RejectedScript> {
 /// left, which sets it on another path than theirs. A larger budget alone does not end a path
 /// that never decides the query: of 200 traced queries of a Game Boy CPU specification's proofs,
 /// Z3 4.16.0 decided 177 within 310,000 units and 3 retries, 52 of them at an attempt whose limit
-/// one attempt from a fresh context does not decide them within. The answer is then a function of
-/// the script, the attempts' parameters and the Z3 library only, as it is for the first query a
-/// process asks on a thread.
+/// one attempt from a fresh context does not decide them within, and Z3 5.3.3 decided 144 within
+/// 370,000 units and 3 retries, 60 of them so. The answer is then a function of the script, the
+/// attempts' parameters and the Z3 library only, as it is for the first query a process asks on
+/// a thread.
 ///
 /// Every Z3 object the query makes belongs to that context (the `z3` crate creates objects on
 /// the thread's current context, which `with_z3_config` replaces for the call), and none can
@@ -4844,10 +4847,9 @@ mod tests {
     /// rule, as the backend wrote it for Z3 before GAP K32 read a power with a symbolic exponent
     /// without Z3's own power (its prelude declares the Real-valued function outside the
     /// integers, and not `KRUST-POWER` or `KRUST-POWER-VALUE`). It is satisfiable
-    /// (`2021027 = 1009 * 2003`), and the path Z3 takes on it from a fresh context does not
-    /// decide it. The text is kept: with the current prelude's power declarations, which the
-    /// check does not use, Z3 4.16.0 takes another path and one attempt of 1,000,000 units
-    /// decides it, so the script would no longer show a retry's path.
+    /// (`2021027 = 1009 * 2003`), and Z3 5.3.3 does not decide it within any limit a test can
+    /// afford (one attempt of 2,000,000,000 units leaves it undecided), so a check of it is
+    /// answered at its limit.
     pub(super) const FACTORING_QUERY: &str = r#"(declare-sort |SortACell| 0)
 (declare-sort |SortACellOpt| 0)
 (declare-sort |SortBCell| 0)
@@ -4895,12 +4897,20 @@ mod tests {
 (declare-const SMT-2 Int)
 (assert (and (= (* SMT-1 SMT-2) 2021027) (< 1 SMT-1) (< SMT-1 SMT-2)))"#;
 
+    /// [`FACTORING_QUERY`] with `40913 = 163 * 251` in place of `2021027`, which Z3 5.3.3
+    /// decides: one attempt from a fresh context needs 439,549 units, and an attempt after two
+    /// earlier attempts of the same query, on the context they left, needs 439,601.
+    fn retry_query() -> String {
+        FACTORING_QUERY.replace("2021027", "40913")
+    }
+
     /// A query's retries run on the context its earlier attempts left, so a retry takes another
-    /// path than theirs. The answer is still the query's own: equal on a fresh thread and after
-    /// unrelated Z3 work, on every Z3 version. Which answers those are depends on the version:
-    /// with Z3 4.16.0 the factoring check is undecided by one attempt of 1,000,000 units on a
-    /// fresh context, and by three attempts of 250,000, 500,000 and 1,000,000 (when each attempt
-    /// read the script again, the third decided it; 4.12.5 decides it within neither).
+    /// path than a first attempt with its limit would. The answer is still the query's own:
+    /// equal on a fresh thread and after unrelated Z3 work, on every Z3 version. Which answers
+    /// those are depends on the version: with Z3 5.3.3, [`retry_query`] is decided by one attempt
+    /// of 439,576 units and not by three of 109,894, 219,788 and 439,576, whose third needs 439,601
+    /// on the state the first two left. Were each attempt on a fresh context, the third would be
+    /// the single attempt and decide it.
     #[test]
     fn a_retry_starts_from_the_querys_earlier_attempts() {
         let options = |resource_limit: u32, retry_limit: u32| Z3Options {
@@ -4914,17 +4924,17 @@ mod tests {
                     assert_eq!(thread_context_answers(NONLINEAR_QUERY, 1), "?");
                 }
                 let solver = Z3Solver::with_options(&definition(), options).unwrap();
-                answers(&solver, FACTORING_QUERY, 1)
+                answers(&solver, &retry_query(), 1)
             })
             .join()
             .unwrap()
         };
-        let single = run(options(1_000_000, 0), false);
-        let retried = run(options(250_000, 2), false);
-        assert_eq!(run(options(1_000_000, 0), true), single);
-        assert_eq!(run(options(250_000, 2), true), retried);
-        if z3_version().starts_with("Z3 4.16.0") {
-            assert_eq!((single.as_str(), retried.as_str()), ("?", "?"));
+        let single = run(options(439_576, 0), false);
+        let retried = run(options(109_894, 2), false);
+        assert_eq!(run(options(439_576, 0), true), single);
+        assert_eq!(run(options(109_894, 2), true), retried);
+        if z3_version().starts_with("5.3.3.") {
+            assert_eq!((single.as_str(), retried.as_str()), ("S", "?"));
         }
     }
 

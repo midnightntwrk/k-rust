@@ -6,7 +6,7 @@
 //! and the check's resource limit cancels the rewrite of the unfolded body, a `bvult` of the body
 //! reaches internalization as written, an internal error (`UNREACHABLE` in
 //! `theory_bv::internalize_atom`): Z3 4.12.5 ends the process with exit status 114, Z3 4.16.0
-//! answers unknown with the reason `unreachable`. Under a resource limit the error is a
+//! and 5.3.3 answer unknown with the reason `unreachable`. Under a resource limit the error is a
 //! deterministic function of the script and the limit. The backend writes every reading's body
 //! in operators the search internalizes as written (`word::internalized_operators`), so that
 //! neither kind of definition it uses for readings, `define-fun` and `define-fun-rec`, can carry
@@ -18,7 +18,13 @@
 //! ended the process, and `syn1.smt2`, a script of 18 lines built by hand to the same pattern
 //! (one word reading with a `bvult`, applied under `bvsle` beside a nonlinear sum). [`INFLIGHT`]
 //! and [`SYN1`] list the resource limits at which each meets the error, measured on each Z3
-//! version by checking each script once at each of 3,000 and 1,200 random limits.
+//! version by checking each script once at each of 3,000 and 1,200 random limits (the same
+//! limits on every version). On Z3 5.3.3 `inflight.smt2` met it at none of its 3,000: that
+//! version decides the script, `sat`, after 235,989 units (4.16.0 needs about 10.4 million), so
+//! every limit above that answers and every one below is a cancellation before the search
+//! unfolds the reading; `syn1.smt2` still meets it, at 3 of its 1,200. Where a script met the
+//! error at no limit on the linked version, its emitted forms are checked at the limits measured
+//! on the others, so that every version checks them through the search.
 //!
 //! A test that may meet the error runs its checks in a child process (this test binary, running
 //! [`replay_child`] alone), so that the exit of Z3 4.12.5 ends the child and is read as its exit
@@ -57,13 +63,15 @@ const INFLIGHT_SCRIPT: &str =
     include_str!("../../../tests/fixtures/z3-internal-error/inflight.smt2");
 const SYN1_SCRIPT: &str = include_str!("../../../tests/fixtures/z3-internal-error/syn1.smt2");
 
-/// The resource limits at which `inflight.smt2` meets the internal error, per Z3 version.
+/// The resource limits at which `inflight.smt2` meets the internal error, per Z3 version (none
+/// were found on 5.3.3).
 const INFLIGHT: Limits = Limits {
     z3_4_12_5: &[425_466, 664_662, 935_437, 1_112_408, 1_365_786],
     z3_4_16_0: &[
         168_047, 241_274, 251_298, 370_079, 434_992, 748_270, 1_269_370, 1_452_641, 1_691_177,
         2_113_222, 2_216_665,
     ],
+    z3_5_3_3: &[],
 };
 
 /// The resource limits at which `syn1.smt2` meets the internal error, per Z3 version (none were
@@ -73,26 +81,36 @@ const SYN1: Limits = Limits {
     z3_4_16_0: &[
         65_775, 68_506, 192_615, 445_412, 955_396, 979_468, 1_086_063, 1_092_157,
     ],
+    z3_5_3_3: &[139_827, 533_135, 807_869],
 };
 
 struct Limits {
     z3_4_12_5: &'static [u32],
     z3_4_16_0: &'static [u32],
+    z3_5_3_3: &'static [u32],
 }
 
 impl Limits {
-    /// The limits measured on the linked Z3, or, on a version none was measured on, all of
-    /// them.
-    fn linked(&self) -> Vec<u32> {
+    /// The limits measured on the linked Z3: none on a version none was measured on.
+    fn linked(&self) -> &'static [u32] {
         match linked_version() {
-            Some(Measured::Z3_4_12_5) => self.z3_4_12_5.to_vec(),
-            Some(Measured::Z3_4_16_0) => self.z3_4_16_0.to_vec(),
-            None => {
-                let mut all = [self.z3_4_12_5, self.z3_4_16_0].concat();
-                all.sort_unstable();
-                all
-            }
+            Some(Measured::Z3_4_12_5) => self.z3_4_12_5,
+            Some(Measured::Z3_4_16_0) => self.z3_4_16_0,
+            Some(Measured::Z3_5_3_3) => self.z3_5_3_3,
+            None => &[],
         }
+    }
+
+    /// The limits a form of the script is checked at: those measured on the linked Z3, or,
+    /// where the script met the error at none on it, every limit measured on another version.
+    fn checked(&self) -> Vec<u32> {
+        if !self.linked().is_empty() {
+            return self.linked().to_vec();
+        }
+        let mut all = [self.z3_4_12_5, self.z3_4_16_0, self.z3_5_3_3].concat();
+        all.sort_unstable();
+        all.dedup();
+        all
     }
 }
 
@@ -100,10 +118,11 @@ impl Limits {
 enum Measured {
     Z3_4_12_5,
     Z3_4_16_0,
+    Z3_5_3_3,
 }
 
 /// The measured version this build links, from Z3's full version (`Z3 4.16.0.0` from 4.16.0,
-/// `4.12.5.0` from 4.12.5).
+/// `4.12.5.0` from 4.12.5, `5.3.3.0` and the commit from 5.3.3).
 fn linked_version() -> Option<Measured> {
     let version = z3_version();
     let version = version.strip_prefix("Z3 ").unwrap_or(version);
@@ -111,6 +130,8 @@ fn linked_version() -> Option<Measured> {
         Some(Measured::Z3_4_12_5)
     } else if version.starts_with("4.16.0") {
         Some(Measured::Z3_4_16_0)
+    } else if version.starts_with("5.3.3") {
+        Some(Measured::Z3_5_3_3)
     } else {
         None
     }
@@ -378,13 +399,10 @@ fn in_child(script: &str, limits: &[u32], retries: u32) -> Child {
 }
 
 /// The emitted form of each script answers at every limit at which the script as first written
-/// met the internal error: an answer or an ordinary unknown, never the error, and the process
-/// does not end.
+/// met the internal error ([`Limits::checked`]): an answer or an ordinary unknown, never the
+/// error, and the process does not end.
 fn assert_answers_at_every_limit(script: &str, limits: &Limits) {
-    let limits = limits.linked();
-    if limits.is_empty() {
-        return;
-    }
+    let limits = limits.checked();
     let child = in_child(script, &limits, 0);
     assert_eq!(child.code, Some(0), "{child:?}");
     assert_eq!(
@@ -425,9 +443,10 @@ fn the_recursive_form_of_the_minimized_script_with_internalized_comparisons_answ
 }
 
 /// The scripts as first written meet the error at their first measured limit on the version it
-/// was measured on: Z3 4.12.5 ends the process with status 114; on Z3 4.16.0 the query ends at
-/// that attempt with the error, although three retries were allowed, and is no unknown. This
-/// shows the limits still reach the error, so that the tests above show its absence.
+/// was measured on: Z3 4.12.5 ends the process with status 114; on Z3 4.16.0 and 5.3.3 the query
+/// ends at that attempt with the error, although three retries were allowed, and is no unknown.
+/// This shows the limits still reach the error, so that the tests above show its absence. A
+/// script with no limit measured on the linked version (`inflight.smt2` on 5.3.3) is skipped.
 #[test]
 fn the_scripts_as_first_written_meet_the_internal_error_at_their_first_limit() {
     let Some(version) = linked_version() else {
@@ -445,7 +464,7 @@ fn the_scripts_as_first_written_meet_the_internal_error_at_their_first_limit() {
                 assert!(child.outcomes.is_empty(), "{child:?}");
                 assert!(child.stderr.contains("theory_bv.cpp"), "{child:?}");
             }
-            Measured::Z3_4_16_0 => {
+            Measured::Z3_4_16_0 | Measured::Z3_5_3_3 => {
                 assert_eq!(child.code, Some(0), "{child:?}");
                 assert_eq!(
                     child.outcomes,

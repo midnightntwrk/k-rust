@@ -19,8 +19,9 @@ fn pinned() -> String {
 
 /// Whether `reported`, a `Z3_get_full_version` text, names the release `version`.
 ///
-/// Builds spell the full version differently (`Z3 4.16.0.0`, `4.12.5.0`), so the text is compared
-/// without the `Z3 ` prefix and with any component after the patch number.
+/// Builds spell the full version differently (`Z3 4.16.0.0`, `4.12.5.0`, and `5.3.3.0` followed by
+/// the commit from the `CMake` build of Z3), so the text is compared without the `Z3 ` prefix and with
+/// anything after the patch number's `.`.
 fn names_release(reported: &str, version: &str) -> bool {
     let reported = reported.strip_prefix("Z3 ").unwrap_or(reported);
     reported == version || reported.starts_with(&format!("{version}."))
@@ -50,4 +51,9 @@ fn a_release_is_named_with_or_without_its_prefix_and_tweak() {
     assert!(names_release("4.16.0", "4.16.0"));
     assert!(!names_release("Z3 4.12.5.0", "4.16.0"));
     assert!(!names_release("Z3 4.16.01.0", "4.16.0"));
+    assert!(names_release(
+        "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e",
+        "5.3.3"
+    ));
+    assert!(!names_release("5.3.30.0 430d19e", "5.3.3"));
 }

@@ -164,7 +164,7 @@ Options:
                              (decimal) of wall-clock time; its verdict is then timeout
   --smt-resource-limit UNITS With run, search, prove, cases and compare, bound each Z3 attempt
                              by Z3 resource units, UNITS for the first and twice the previous
-                             for each retry, and by no clock (the default: 310000 units)
+                             for each retry, and by no clock (the default: 370000 units)
   --smt-clock-ms MS          Bound each Z3 attempt by the clock instead, MS milliseconds for the
                              first and twice the previous for each retry; whether a query is
                              decided then depends on the machine's speed and load
@@ -3349,7 +3349,7 @@ mod tests {
         );
         assert_eq!(
             failure("prove", &["--smt-retries", "14"]),
-            "14 retries double the first Z3 attempt's 310000 units past 4294967295, the largest \
+            "14 retries double the first Z3 attempt's 370000 units past 4294967295, the largest \
              bound of one attempt; give fewer --smt-retries or a smaller --smt-resource-limit"
         );
         assert_eq!(

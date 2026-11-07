@@ -21,7 +21,7 @@ reference_job_guard_kind=
 # downloads the Z3 release archive. `system` builds `--no-default-features --features cli`:
 # `cli` already enables `z3-inference`, so the code and the features are the same, and only
 # the download is left out; z3-sys then links the Z3 the build environment provides
-# (pkg-config, or its Z3_* variables, as `with-z3-static-4.16.0` sets them).
+# (pkg-config, or its Z3_* variables, as `with-z3-static-5.3.3` sets them).
 krust_gate_target_dir=${KRUST_GATE_TARGET_DIR:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/target/gates"}
 if [[ "$krust_gate_target_dir" != /* ]]; then
   krust_gate_target_dir=$PWD/$krust_gate_target_dir

@@ -20,14 +20,14 @@ sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "String", "List", "Se
 # `linked` is the Z3 release krs links. An answer bounded by Z3's resources is a function of the
 # query, the budget and the Z3 build, so krs links the release KRS's and k-rust's evidence was
 # produced on, and that evidence comes from the release's published x86-64 Linux build
-# (`z3-4.16.0-x64-glibc-2.39`), the archive the default features of KRS's Z3-linking crates
+# (`z3-5.3.3-x64-glibc-2.39`), the archive the default features of KRS's Z3-linking crates
 # download. The pin names the release: the krs-cli test `z3_version` and the gates compare it with
 # what the linked Z3 reports, which does not tell two builds of one release apart, so another build
 # of it passes them without the guarantee that it decides each resource-bounded query alike.
 # `reference` is the release of the `z3` beside the pinned K tools, which the reference oracle
 # runs; krs does not link it.
 [solver]
-linked = "4.16.0"
+linked = "5.3.3"
 reference = "4.12.5"
 
 [backend_policy]

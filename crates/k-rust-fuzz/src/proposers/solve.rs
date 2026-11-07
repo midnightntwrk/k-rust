@@ -5,10 +5,12 @@
 //! # Why
 //!
 //! The climb (`super::climb`) walks a hole towards a guard by its branch distance, which needs a
-//! slope. A guard such as `H *Int I ==Int 2021027 andBool 1 <Int H andBool H <Int I` has none:
-//! with one hole fixed the distance is least where the other is `2021027 / I`, and zero only
-//! when `I` divides `2021027`. A solver answers it directly: the guard is a formula over the
-//! holes, and a model of it is an assignment that passes it.
+//! slope. A guard such as `H *Int I ==Int 2118521 andBool 1 <Int H andBool H <Int I` has none:
+//! with one hole fixed the distance is least where the other is `2118521 / I`, and zero only
+//! when `I` divides `2118521`. The maze's `c7` adds `I ==Int H +Int 1000`, which leaves the climb
+//! no slope either (a step that moves one hole leaves the product or the difference off) and
+//! makes the guard a quadratic in one hole for a solver. A solver answers it directly: the
+//! guard is a formula over the holes, and a model of it is an assignment that passes it.
 //!
 //! # When it runs
 //!
@@ -79,13 +81,16 @@
 //! [`SOLVE_RUN_RETRIES`] retries at doubled units, and an undecided one is handled as the backend
 //! handles any undecided answer (an indeterminate step, or both sides kept); each model query
 //! gets [`SOLVE_MODEL_RESOURCE_UNITS`] with [`SOLVE_MODEL_RETRIES`] retries, and an undecided one
-//! gives no candidate. The budgets were measured on the maze's `c7`: with this Z3 both its rule
-//! condition and its model are decided only at a third attempt on the thread, whatever the
-//! units of the first two (a single attempt of 100,000,000 units leaves them undecided; three
-//! of 100,000, 200,000 and 400,000 decide the condition), so two retries at small units cost
-//! least; a decision that stays undecided costs 1,750,000 units in the run, about 0.1 s.
-//! Z3 counts the units in its own search, so these answers do not depend on the machine's speed
-//! or load (the budgets and the Z3 version are in `identity.solve`).
+//! gives no candidate. With Z3 5.3.3 every decision of the solve tests' runs on the maze is
+//! made at its first attempt within 1,035 units and every model query within 937, `c7`'s
+//! included, so these budgets leave room for guards far harder than the maze's; a decision that
+//! stays undecided costs 1,750,000 units in the run (about 0.15 s on 5.3.3), a model query
+//! 14,000,000 (about 1.2 s). Z3 counts the units in its own search, so these answers do not
+//! depend on the machine's speed or load (the budgets and the Z3 version are in
+//! `identity.solve`); which guards a budget decides depends on the release: 5.3.3 decides
+//! `c7`'s product with `I = H + 1000` within 974 units, and a bare factorization of a product
+//! of two primes near 1000, `2021027 = 1009 * 2003`, within none up to 2,000,000,000 units,
+//! where 4.16.0 needed 112,936.
 //!
 //! # Candidates
 //!

@@ -2,7 +2,7 @@
 //! ARCHITECTURE 11).
 //!
 //! The gate (`measure_solve_gate`): which blocked cells blind sampling, the dictionary and the
-//! climb still fail on. The claim: the nonlinear cell `c7` (`H * I == 2021027`, `1 < H < I`),
+//! climb still fail on. The claim: the nonlinear cell `c7` (`H * I == 2118521`, `I == H + 1000`),
 //! which no configuration without the solver reaches within 5000 cases, is reached with it, and
 //! the negative controls `u1`-`u4` stay unreached. Seeds 1-10 tuned the proposer's parameters;
 //! seeds 11-20 are held out (FZ-15 report). Two modes, as in `tests/stall_maze.rs`: the CI mode

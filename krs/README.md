@@ -27,7 +27,7 @@ Pass `--message-format=json` for machine consumption: every diagnostic is a sche
 - **Language-scale ports.** Incremental KWasm, KEVM, and KMIR ports live in `semantics/`.
   None is complete; `semantics/coverage.toml` records what each covers, what is deferred, and every adapter boundary.
   Their gates execute 32 (KWasm), 240 (KEVM), and 184 (KMIR) pinned cases natively through `k-rust`.
-- **Toolchain pins.** `Krs.lock` pins K 7.1.337, the Z3 release krs links (4.16.0) and the one beside the reference K tools (4.12.5), and the IR schema versions; every gate reads them from there.
+- **Toolchain pins.** `Krs.lock` pins K 7.1.337, the Z3 release krs links (5.3.3) and the one beside the reference K tools (4.12.5), and the IR schema versions; every gate reads them from there.
   KRS builds against the `k-rust` crates of the same commit, so there is no `k-rust` pin to move: a `k-rust` change that affects KRS updates KRS in the same commit.
   The MSRV is Rust 1.99.0, the `rust-version` every `k-rust` crate declares; the gates also qualify native-frontend helpers on any stable Rust at or above it.
 - **Documentation.** The repository's Vocs site, `../docs-site/`, publishes the language tour and documents k-rust as well; its curriculum ledger is `../docs-site/plan/tour.toml`.
@@ -60,17 +60,17 @@ Pass `--message-format=json` for machine consumption: every diagnostic is a sche
 
 - Rust 1.99.0 and a current stable toolchain with Clippy and rustfmt.
   KRS has no `rust-toolchain.toml`, so pass `+stable` or `+1.99.0` explicitly.
-- Z3 4.16.0, the release `Krs.lock` `[solver] linked` names, in its published build.
+- Z3 5.3.3, the release `Krs.lock` `[solver] linked` names, in its published build.
   Whether a query bounded by Z3's resources is decided depends on the Z3 build, so KRS's and `k-rust`'s tests and the solve budgets measured with them hold for that build; `cargo test -p krs-cli --test z3_version` fails a build that links another release, though it cannot tell two builds of one release apart.
   The default features of `krs-cli`, `krs-exec`, `krs-k-rust` and `krs-gate` (`z3-inference-gh-release`) download that build from Z3's GitHub releases at build time and link it statically, so a default build needs nothing more, whether it builds KRS's crates alone or the whole workspace.
   The download is `z3-sys`'s build script, which runs again for each new build-script output directory (a new target directory, profile or feature set) and which `--offline` does not stop, so an offline build takes the environment route.
-  To link a Z3 4.16.0 the build environment provides instead (the environment route), build with `--no-default-features --features z3-inference` (`z3-inference,kink` for `krs-cli`), which `z3-sys` finds through a `pkg-config` file for it (`PKG_CONFIG_PATH`, with `Z3_STATIC=1` for a static archive), through `Z3_LIBRARY_PATH_OVERRIDE`, or on the link path.
+  To link a Z3 5.3.3 the build environment provides instead (the environment route), build with `--no-default-features --features z3-inference` (`z3-inference,kink` for `krs-cli`), which `z3-sys` finds through a `pkg-config` file for it (`PKG_CONFIG_PATH`, with `Z3_STATIC=1` for a static archive), through `Z3_LIBRARY_PATH_OVERRIDE`, or on the link path.
   The Python gates, `scripts/krs-class.sh`, the browser parity scripts and the krs benchmark take the route from `KRUST_GATE_Z3`, as the repository's other gates do.
   Unset or `gh-release` is the default build, which needs no Z3 on the machine.
-  `system` builds with `z3-inference`, linked to the directory `KRS_Z3_LIB` names, which may hold `libz3.so` or `libz3.a` (the linker takes the archive when no shared library is beside it); with `KRS_Z3_LIB` unset, the Python gates and `scripts/krs-class.sh` look for a `*-z3-static-4.16.0/lib` and then a `*-z3-4.16.0-lib/lib` directory under `KRS_NIX_STORE` (default `/nix/store`) and put the one they find first on the link and load paths.
+  `system` builds with `z3-inference`, linked to the directory `KRS_Z3_LIB` names, which may hold `libz3.so` or `libz3.a` (the linker takes the archive when no shared library is beside it); with `KRS_Z3_LIB` unset, the Python gates and `scripts/krs-class.sh` look for a `*-z3-static-5.3.3/lib` and then a `*-z3-5.3.3-lib/lib` directory under `KRS_NIX_STORE` (default `/nix/store`) and put the one they find first on the link and load paths.
   The Python gates require that library to report the linked release before they build, and each `krs` and `krs-gate` they build to link it afterwards, and `scripts/krs-class.sh` runs the `z3_version` test of the build it judges with, so another release fails on either route.
   The IMP gate's artifact probe takes `z3-inference` alone, so it needs that library on both routes.
-  On a machine that holds the published build as a static archive, such as a Nix store's `z3-static-4.16.0`, `KRUST_GATE_Z3=system` with `KRS_Z3_LIB` unset, or naming that archive's directory, builds every gate's `krs` without a download.
+  On a machine that holds the published build as a static archive, such as a Nix store's `z3-static-5.3.3`, `KRUST_GATE_Z3=system` with `KRS_Z3_LIB` unset, or naming that archive's directory, builds every gate's `krs` without a download.
   A Cargo command on the environment route outside the gates needs the paths exported:
 
   ```sh

@@ -535,8 +535,8 @@ Every commit to a kink crate must pass the gate tier in both solver profiles. Fr
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-KRUST_GATE_Z3=system with-z3-static-4.16.0 kink/scripts/kink-tier.py lint
-KRUST_GATE_Z3=system with-z3-static-4.16.0 kink/scripts/kink-tier.py run gate
+KRUST_GATE_Z3=system with-z3-static-5.3.3 kink/scripts/kink-tier.py lint
+KRUST_GATE_Z3=system with-z3-static-5.3.3 kink/scripts/kink-tier.py run gate
 cargo clippy -p kink-native -p kink-campaign -p kink-corpus -p kink-patch -p kink-pattern -p kink-flow --all-targets --no-default-features -- -D warnings
 kink/scripts/kink-tier.py lint --portable
 kink/scripts/kink-tier.py run gate --portable
@@ -544,8 +544,8 @@ kink/scripts/kink-tier.py run gate --portable
 
 The heavy gate adds `kink/scripts/kink-tier.py run heavy` in both profiles.
 `scripts/run-gates.sh kink` and `scripts/run-gates.sh kink-heavy` run the two tier pairs (`scripts/gates.toml`).
-The tier script acquires Z3 as k-rust's gates do (k-rust `docs/testing.md`): by default its Z3 runs add k-rust's `z3-inference-gh-release`, which downloads the Z3 4.16.0 release at build time,
-and `KRUST_GATE_Z3=system` links the Z3 the build environment provides instead, here the machine wrapper `with-z3-static-4.16.0`, which points the `z3-sys` build at a static Z3 4.16.0 library.
+The tier script acquires Z3 as k-rust's gates do (k-rust `docs/testing.md`): by default its Z3 runs add k-rust's `z3-inference-gh-release`, which downloads the Z3 5.3.3 release at build time,
+and `KRUST_GATE_Z3=system` links the Z3 the build environment provides instead, here the machine wrapper `with-z3-static-5.3.3`, which points the `z3-sys` build at a static Z3 5.3.3 library.
 `--and EXPR` narrows a tier to the tests matching a nextest filterset, for example `--and 'package(kink-flow)'`, without judging the budget.
 The Z3 profile runs every test of every kink package (`[z3]` of `kink/.config/kink-tiers.toml` says why no binary is skipped).
 kink-flow's tests are profile-aware (merge packet M-1): its `z3` feature (default, forwarding to kink-native's) selects the Z3 column; a `no` that a complete exploration gives in the portable build is `unknown` under Z3. The tests of the outcome cache, the warm-path memos and the pattern cache run in both profiles, since the caches are on in both, and the Z3-only light test `kink-flow::outcomes both_caches_are_on_under_the_z3_profile` keeps the Z3 side of them in the light tier.
@@ -562,8 +562,8 @@ the three and `kink-flow` (which forwards it too) enable it by default, and `--n
 kink-native fails to compile when its `z3` feature and k-rust's `z3-inference` disagree (`src/execution.rs`), which a build reaches only by turning k-rust's Z3 on beside kink packages built without their `z3` feature (for example `--no-default-features --features k-rust/z3-inference`); every kink package that depends on kink-native enables `z3` by default.
 `kink-campaign` requires its execution adapter's solver profile to match the build.
 Their tests carry profile columns for outcomes that differ between no-Z3 and Z3.
-A build that selects only kink packages with their default features takes k-rust's `z3-inference` alone, which links the Z3 the build environment provides (without `with-z3-static-4.16.0` or another provider it fails to link, `-lz3` missing);
-a build that also selects k-rust with its default features (`cargo clippy --workspace`, `cargo nextest run --workspace`) takes k-rust's `z3-inference-gh-release`, which downloads the Z3 4.16.0 release into the build script's output directory once per target directory.
+A build that selects only kink packages with their default features takes k-rust's `z3-inference` alone, which links the Z3 the build environment provides (without `with-z3-static-5.3.3` or another provider it fails to link, `-lz3` missing);
+a build that also selects k-rust with its default features (`cargo clippy --workspace`, `cargo nextest run --workspace`) takes k-rust's `z3-inference-gh-release`, which downloads the Z3 5.3.3 release into the build script's output directory once per target directory.
 
 The dev and test profiles are k-rust's (the root `Cargo.toml`): the workspace at `opt-level = 1` with line tables only, dependencies at `opt-level = 3`;
 debug assertions and overflow checks stay on for every package.

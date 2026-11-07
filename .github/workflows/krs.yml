@@ -20,6 +20,7 @@ on:
     paths:
       - ".github/actions/krs-z3/**"
       - ".github/workflows/krs.yml"
+      - ".cargo/**"
       - "Cargo.lock"
       - "Cargo.toml"
       - "crates/**"

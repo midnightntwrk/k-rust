@@ -18,7 +18,7 @@ serde_json.workspace = true
 # default features select Z3, and the compile-time assertion in src/execution.rs requires this
 # feature to agree. `--no-default-features` on the kink packages is the portable (no-Z3) profile.
 # The feature links the Z3 the build environment provides (k-rust `z3-inference`, for example
-# under `with-z3-static-4.16.0`); k-rust's default features add the gh-release download.
+# under `with-z3-static-5.3.3`); k-rust's default features add the gh-release download.
 default = ["z3"]
 z3 = ["k-rust/z3-inference"]
 

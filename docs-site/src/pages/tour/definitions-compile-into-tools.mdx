@@ -31,7 +31,7 @@ After installing `krs`, run every command from that directory.
 
 `krs` is not published on crates.io; you build it from a checkout of the k-rust repository.
 You need Rust 1.99 or newer.
-`krs` links the Z3 solver 4.16.0 statically: the build downloads that release from Z3's GitHub releases, and `cargo install` builds in a new temporary directory each time, so every install needs network access, the reinstall after an update of the checkout included.
+`krs` links the Z3 solver 5.3.3 statically: the build downloads that release from Z3's GitHub releases, and `cargo install` builds in a new temporary directory each time, so every install needs network access, the reinstall after an update of the checkout included.
 From the root of the checkout:
 
 ```sh
@@ -39,7 +39,7 @@ cargo install --locked --path krs/crates/krs-cli
 krs --help
 ```
 
-To link a Z3 4.16.0 you already have instead, add `--no-default-features --features z3-inference,kink` and put its library directory on `LIBRARY_PATH` (and on `LD_LIBRARY_PATH` too when it is a shared library).
+To link a Z3 5.3.3 you already have instead, add `--no-default-features --features z3-inference,kink` and put its library directory on `LIBRARY_PATH` (and on `LD_LIBRARY_PATH` too when it is a shared library).
 `krs` supports only that release, since whether the solver decides a query within its budget depends on its build.
 The installed `krs` runs Cargo to build each definition against the checkout's KRS crates, so keep the checkout where it is and Cargo on your `PATH`, and install again after you update the checkout.
 

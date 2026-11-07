@@ -1,0 +1,13 @@
+[env]
+# The Z3 release krs and k-rust link, `krs/Krs.lock` `[solver] linked`. `z3-sys` reads it in its
+# build script. On the `gh-release` route (the default features) it selects the release asset
+# downloaded, which would otherwise be the release this `z3-sys` names by default (5.3.2). On the
+# environment route it replaces the version `z3-sys` would detect: `z3-sys` and the `z3` crate
+# describe the linked library by it (the version-gated functions and the enumeration numbering),
+# whatever library that is. k-rust's build script refuses a value that differs from the release
+# of a Z3 archive it links (`crates/k-rust/build/z3_archive.rs`); a dynamically linked library is
+# checked only by krs's `z3_version` test and the gates, so a build against another Z3 sets
+# `Z3_SYS_Z3_VERSION` to that release. Every Cargo command run inside this checkout reads it, and
+# so does `cargo install --path` of one of its packages; a value already in the environment takes
+# precedence.
+Z3_SYS_Z3_VERSION = "5.3.3"

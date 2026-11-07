@@ -99,11 +99,11 @@ Options:
 Environment:
   KRUST_BIN         krust built with the profiling profile and the measure feature
                     (default: target/profiling/krust):
-                      with-z3-static-4.16.0 cargo build --profile profiling -p k-rust \
+                      with-z3-static-5.3.3 cargo build --profile profiling -p k-rust \
                         --no-default-features --features cli,measure --bin krust --locked
   KRUST_OBSERVED_BIN  Observed backend example for observed-execute workloads
                       (default: target/profiling/examples/observed-execute):
-                      with-z3-static-4.16.0 cargo build --profile profiling -p k-rust \
+                      with-z3-static-5.3.3 cargo build --profile profiling -p k-rust \
                         --no-default-features --features cli,measure --example observed-execute --locked
   KRUST_FEATURES    The features KRUST_BIN was built with, recorded in the metadata
                     (default: cli,measure)

@@ -73,9 +73,11 @@ module MAZE
     requires G <=Int 5000 andBool F ==Int G +Int 12345
   rule [r5-out]: <k> r5 => .K ... </k> [owise]
 
-  // Room r6 (3F = G + 1000001, G > 5000).
+  // Room r6 (3F = G + 1000001, G > 5000). The product alone asks for a factorization, which a
+  // solver release may not find at any budget; with `I = H + 1000` the guard is a quadratic in
+  // one hole, and a step that moves one hole still leaves the product or the difference off.
   rule [c7]: <k> r6 => .K ... </k> <h> H </h> <i> I </i>
-    requires H *Int I ==Int 2021027 andBool 1 <Int H andBool H <Int I
+    requires H *Int I ==Int 2118521 andBool I ==Int H +Int 1000 andBool 1 <Int H andBool H <Int I
   rule [r6-out]: <k> r6 => .K ... </k> [owise]
 
   // Room rz, which no rule produces.

@@ -372,20 +372,21 @@ pub(super) fn reading_definition(
 /// a `define-fun-rec` application when it unfolds it (`theory_recfun::apply_args`), and the check's
 /// cancellation (its resource limit or timeout) can cut that rewrite short and leave the rest of
 /// the body as written. An operator left so is an internal error of Z3: a bit-vector one reaches
-/// the `UNREACHABLE` of its theory (Z3 4.12.5 ends the process with exit status 114, 4.16.0 answers
-/// unknown with the reason `unreachable`), and a core one reaches the core's
+/// the `UNREACHABLE` of its theory (Z3 4.12.5 ends the process with exit status 114, 4.16.0 and
+/// 5.3.3 answer unknown with the reason `unreachable`), and a core one reaches the core's
 /// `formula has not been simplified` exception. Which core operators that is depends on the
-/// version: Z3 4.12.5 refuses `=>` and `distinct`, while 4.16.0 refuses `distinct` but internalizes
-/// `=>` (`context::mk_implies_cnstr`); both refuse `=` over Bool and `xor` with more than two
-/// operands (`context::mk_iff_cnstr`). A Game Boy CPU specification met the bit-vector case through
-/// a `bvult`.
+/// version: Z3 4.12.5 refuses `=>` and `distinct`, while 4.16.0 and 5.3.3 refuse `distinct` but
+/// internalize `=>` (`context::mk_implies_cnstr`); all three refuse `=` over Bool and `xor` with
+/// more than two operands (`context::mk_iff_cnstr`). A Game Boy CPU specification met the
+/// bit-vector case through a `bvult`.
 ///
 /// The word planner writes only internalized operators, `=` and `xor` with two operands. This
 /// rewrites the rest of the text a reading copies, from the ordinary translation of its inputs and
 /// from the definition's `smt-hook`s (`distinct` for `INT.ne`, say), exactly: `(=> a ... b)` is
-/// `(or (not a) ... b)` (a rewrite 4.16.0 does not need and 4.12.5 does), `(distinct a b ...)` is
-/// the conjunction of `(not (= a b))` over its pairs, and over the total orders of bit-vectors
-/// `a < b` is `(not (b <= a))`, `a > b` is `(not (a <= b))` and `a >= b` is `(b <= a)`. Arithmetic
+/// `(or (not a) ... b)` (a rewrite 4.16.0 and 5.3.3 do not need and 4.12.5 does),
+/// `(distinct a b ...)` is the conjunction of `(not (= a b))` over its pairs, and over the total
+/// orders of bit-vectors `a < b` is `(not (b <= a))`, `a > b` is `(not (a <= b))` and `a >= b` is
+/// `(b <= a)`. Arithmetic
 /// needs no rewrite: Z3's arithmetic theory reads an atom or a term it does not internalize as
 /// unsupported, which makes the check's answer unknown (`theory_lra::internalize_atom`), never an
 /// internal error. An operator outside all of these can reach a reading only through an `smt-hook`

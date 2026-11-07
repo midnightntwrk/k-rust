@@ -13,8 +13,8 @@ runs:
       env:
         # The published archive and its digest. A change of Krs.lock [solver] linked must change
         # both, which the step checks.
-        ASSET: z3-4.16.0-x64-glibc-2.39
-        ASSET_SHA256: 7288c49a5bd6dbafd7b0b0d1f65956b91672da24b08f09242919af159be3418e
+        ASSET: z3-5.3.3-x64-glibc-2.39
+        ASSET_SHA256: d56f60b06f432f33de5810f7f1a384a339131f361e2d54d08ea83eea14326880
       run: |
         version=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["solver"]["linked"])' \
           "$GITHUB_WORKSPACE/krs/Krs.lock")

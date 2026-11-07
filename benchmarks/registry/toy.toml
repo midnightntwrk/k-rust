@@ -82,7 +82,7 @@ engine = "command"
 creates = "${workspace}/target/profiling/examples/observed-execute"
 timeout_seconds = 3600
 argv = [
-  "with-z3-static-4.16.0", "cargo", "build",
+  "with-z3-static-5.3.3", "cargo", "build",
   "--manifest-path", "${workspace}/Cargo.toml",
   "--profile", "profiling",
   "-p", "k-rust",

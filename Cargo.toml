@@ -71,10 +71,10 @@ tracing-chrome = "0.7.2"
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["registry"] }
 web-time = "1.1.0"
 wasm-bindgen = "0.2.127"
-z3 = { version = "0.20.2", default-features = false }
+z3 = { version = "0.22.0", default-features = false }
 # The Z3 C API the `z3` crate builds on, at the version it uses; the backend reads the error
 # state Z3 leaves after loading a script, which the `z3` crate does not expose.
-z3-sys = { version = "0.11.0", default-features = false }
+z3-sys = { version = "0.14.1", default-features = false }
 
 
 # KRS's crates opt in with `[lints] workspace = true`; k-rust's crates set no lint table.

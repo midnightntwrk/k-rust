@@ -13,7 +13,7 @@ root of k-rust's workspace. The default is the Z3 profile, the kink packages' de
 (less the binaries of `[z3] skip_binaries` in kink/.config/kink-tiers.toml). Z3 is acquired as
 k-rust's gates acquire it (docs/testing.md): by default k-rust's `z3-inference-gh-release`
 downloads the Z3 release at build time; with `KRUST_GATE_Z3=system` the build links the Z3 the
-build environment provides, for example under `with-z3-static-4.16.0`.
+build environment provides, for example under `with-z3-static-5.3.3`.
 `--portable` runs the portable (no-Z3) profile, the kink packages with `--no-default-features`.
 The JUnit report is read from nextest's store directory (`target/nextest` under the workspace root,
 which nextest keeps there even when `CARGO_TARGET_DIR` moves cargo's build output).

@@ -16,7 +16,7 @@ The report compares krust with reference K (K 7.1.337 and its Haskell and LLVM b
 Build the binary outside the timed region, then run a tier:
 
 ```sh
-with-z3-static-4.16.0 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust
+with-z3-static-5.3.3 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust
 cargo run --release -p k-rust-bench -- run --tier standard
 ```
 
@@ -83,8 +83,8 @@ Build both binaries outside the timed region and copy them to fixed paths first,
 
 ```sh
 git worktree add ~/worktrees/k-rust-base main      # the base; the candidate is your branch's checkout
-(cd ~/worktrees/k-rust-base && with-z3-static-4.16.0 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust)
-with-z3-static-4.16.0 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust
+(cd ~/worktrees/k-rust-base && with-z3-static-5.3.3 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust)
+with-z3-static-5.3.3 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust
 mkdir -p /var/tmp/cmp && cp ~/worktrees/k-rust-base/target/release/krust /var/tmp/cmp/base && cp target/release/krust /var/tmp/cmp/candidate
 cargo run --release -p k-rust-bench -- compare --base /var/tmp/cmp/base --candidate /var/tmp/cmp/candidate --set slowness-search
 ```

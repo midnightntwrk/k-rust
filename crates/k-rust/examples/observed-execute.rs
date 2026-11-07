@@ -1,6 +1,6 @@
 //! Cargo example that measures the public observed backend API.
 //!
-//! Build with `with-z3-static-4.16.0 cargo build --profile profiling -p k-rust
+//! Build with `with-z3-static-5.3.3 cargo build --profile profiling -p k-rust
 //! --no-default-features --features cli,measure --example observed-execute --locked`.
 
 use std::{

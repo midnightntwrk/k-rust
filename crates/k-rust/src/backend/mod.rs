@@ -261,25 +261,34 @@ impl Default for BackendOptions {
 }
 
 /// The Z3 resource units of the first attempt of [`BackendOptions::RESOURCE_BOUNDED`]: about the
-/// work Z3 4.16.0 does in the 125 ms first attempt of the default, clock-bounded options.
+/// work Z3 5.3.3 does in the 125 ms first attempt of the default, clock-bounded options.
 ///
 /// Derivation. Z3 counts resource units in its own search, at a rate per millisecond that
 /// depends on the query and the Z3 build. 200 queries whose first 125 ms attempt the clock
-/// stopped, replayed on Z3 4.16.0 (x86_64, at the host's ordinary load), counted a median of
-/// about 2,500 units per millisecond (p10 1,900, p90 3,200), so 125 ms is about
-/// 125 x 2,500 = 310,000 units (p10-p90: 240,000-400,000). With the default 3 retries at doubled
-/// units the attempts are L, 2L, 4L and 8L, 15 L (about 4.7M units) in all: the image of the
-/// default's 125, 250, 500 and 1000 ms.
+/// stopped, replayed on Z3 4.16.0 at the host's ordinary load (x86_64), counted a median of
+/// about 2,500 units per millisecond, so 125 ms was about 310,000 units on that build. The same
+/// 200 queries replayed for 125 ms on Z3 5.3.3 and 4.16.0 side by side, one after the other per
+/// query, in three rounds at a load of 57 to 70 on 32 CPUs, counted a median of 1.2 times as many
+/// units per millisecond on 5.3.3 (per query p10 0.8, p90 1.9; the round medians 1.18, 1.20 and
+/// 1.23), so 125 ms is about 1.2 x 310,000 = 370,000 units on 5.3.3. Read directly, the loaded
+/// host's 5.3.3 median of 2,230 to 2,330 units per millisecond, scaled by the 4.16.0 slowdown the
+/// same rounds show (1,820 to 1,960 against 2,500), gives 375,000 to 390,000. With the default 3
+/// retries at doubled units the attempts are L, 2L, 4L and 8L, 15 L (about 5.6M units) in all: the
+/// image of the default's 125, 250, 500 and 1000 ms.
 ///
-/// The calibration holds for the build it was measured on, not for a version number: in the same
-/// 125 ms Z3 4.12.5 counted a median of 3.3 times the units of 4.16.0 per query (0.7 to 20.6
-/// times over the sample), so a 4.12.5 build reaches this budget after about a third of the
-/// clock time 4.16.0 does. That is a rate per millisecond; how many units each build needs to
-/// decide one query was not measured, so what this budget decides on another build is known
-/// only from runs on that build. An answer under it is a function of the query, the budget and
-/// the build ([`z3_build`]).
+/// The calibration holds for the build it was measured on, not for a version number, and a rate
+/// is not a power to decide. One attempt from a fresh context decides each of those 200 queries
+/// on both builds within 40M units, and 5.3.3 needs a median of 1.6 times the units 4.16.0 needs
+/// (per query p10 0.74, p90 5.2; medians 1.9M and 1.0M), so in the same time it decides fewer of
+/// them: with these options it decides 144 of the 200, where 4.16.0 with 310,000 units decided
+/// 177 to 180. Over all 183 claims of that specification's proofs the two builds, each under its
+/// own calibration, reach the same verdicts (182 proven, 1 failed on a stuck leaf), with 184 of
+/// the 16,001 queries 5.3.3 is asked left undecided against 73 of 15,879 on 4.16.0. In the same
+/// 125 ms Z3 4.12.5 counted a median of 3.3 times the units of 4.16.0. An answer under this
+/// budget is a function of the query, the budget and the build ([`z3_build`]), and what it
+/// decides on another build is known only from runs on that build.
 pub const DEFAULT_SMT_RESOURCE_LIMIT: std::num::NonZeroU32 =
-    std::num::NonZeroU32::new(310_000).expect("the budget is not zero");
+    std::num::NonZeroU32::new(370_000).expect("the budget is not zero");
 
 impl BackendOptions {
     /// The clock-free options: the default's 3 retries, each attempt bounded by Z3 resource
@@ -394,7 +403,7 @@ pub struct Z3Build {
 /// The SHA-256 of the archive k-rust's build script found a static link takes Z3 from, empty
 /// when it found none.
 const Z3_ARCHIVE_SHA256: &str = env!("K_RUST_Z3_ARCHIVE_SHA256");
-/// The Z3 release that archive holds (`4.16.0`), empty when it found none.
+/// The Z3 release that archive holds (`5.3.3`), empty when it found none.
 const Z3_ARCHIVE_RELEASE: &str = env!("K_RUST_Z3_ARCHIVE_RELEASE");
 
 /// The Z3 build this process links ([`Z3Build`]), computed once per process; `None` in a build
@@ -435,9 +444,10 @@ pub fn z3_build() -> Option<&'static Z3Build> {
         .as_ref()
 }
 
-/// Whether `version`, a `Z3_get_full_version` text, is of the release `release` (`4.16.0`):
-/// builds spell it with or without a `Z3 ` prefix, and with a component after the patch number
-/// (`Z3 4.16.0.0`, `4.12.5.0`).
+/// Whether `version`, a `Z3_get_full_version` text, is of the release `release` (`5.3.3`):
+/// builds spell it with or without a `Z3 ` prefix, and with a component after the patch number,
+/// which Z3's `CMake` build follows with the commit (`Z3 4.16.0.0`, `4.12.5.0`,
+/// `5.3.3.0 430d19e6… 430d19e`).
 fn names_release(version: &str, release: &str) -> bool {
     !release.is_empty()
         && version
@@ -3824,6 +3834,10 @@ mod tests {
         assert!(std::ptr::eq(build, z3_build().unwrap()));
         assert!(names_release("Z3 4.16.0.0", "4.16.0") && names_release("4.12.5.0", "4.12.5"));
         assert!(!names_release("Z3 4.16.10.0", "4.16.1") && !names_release("Z3 4.16.0.0", ""));
+        assert!(names_release(
+            "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e",
+            "5.3.3"
+        ));
     }
 
     /// The wire spellings of `all`, each read back as its value, as a set of distinct names.
