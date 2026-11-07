@@ -90,6 +90,10 @@ pub(crate) struct KeyBinding<'a> {
     /// `false` where the variable is a head argument (an equation's) or the term is bound by
     /// the sentence's own pattern.
     pub(crate) bind: bool,
+    /// The wildcard the sentence writes as that key cell, where it binds the variable there:
+    /// the variable names the value the wildcard matches, so it takes the wildcard's place and
+    /// the wildcard is no longer a variable of the sentence.
+    pub(crate) replaces: Option<SemanticId>,
 }
 
 /// Why a sentence's keys cannot be passed.
@@ -452,6 +456,11 @@ impl InstanceKeys {
             return Err(KeyRefusal::GroupKey);
         }
         let fresh = |holder: &SemanticId, bind: bool| self.fresh(holder, bind);
+        // A key cell the sentence writes with a wildcard, or not at all, binds the variable.
+        let bind_fresh = |holder: &SemanticId, pattern: Option<&SemanticTerm>| KeyBinding {
+            replaces: pattern.and_then(wildcard),
+            ..self.fresh(holder, true)
+        };
         match rule.relational_body() {
             RuleBodyRef::Configuration { body, .. } => {
                 let chain = self.configuration_chain(body.clauses());
@@ -468,7 +477,7 @@ impl InstanceKeys {
                             .find(|clause| clause.cell() == key)
                             .map(krs_ir::FixedCellClause::before);
                         Self::bound(holder, pattern, chain.contains(holder))
-                            .map(|bound| bound.unwrap_or_else(|| fresh(holder, true)))
+                            .map(|bound| bound.unwrap_or_else(|| bind_fresh(holder, pattern)))
                     })
                     .collect()
             }
@@ -491,7 +500,7 @@ impl InstanceKeys {
                             .find(|cell| cell.cell() == key)
                             .map(krs_ir::FixedCellPattern::pattern);
                         Self::bound(holder, pattern, true)
-                            .map(|bound| bound.unwrap_or_else(|| fresh(holder, true)))
+                            .map(|bound| bound.unwrap_or_else(|| bind_fresh(holder, pattern)))
                     })
                     .collect()
             }
@@ -580,6 +589,7 @@ impl InstanceKeys {
             holder: holder.clone(),
             term: KeyTerm::Variable(self.holders[holder].variable()),
             bind,
+            replaces: None,
         }
     }
 
@@ -624,6 +634,7 @@ impl InstanceKeys {
             holder: holder.clone(),
             term,
             bind: false,
+            replaces: None,
         }))
     }
 }
@@ -748,6 +759,18 @@ fn key_term(pattern: &SemanticTerm) -> KeyPattern<'_> {
             KeyPattern::Wildcard | KeyPattern::Other => KeyPattern::Other,
         },
         _ => KeyPattern::Other,
+    }
+}
+
+/// The wildcard `pattern` is, if it is one.
+fn wildcard(pattern: &SemanticTerm) -> Option<SemanticId> {
+    match pattern.kind() {
+        SemanticTermKind::Variable { variable }
+            if variable.kind() == krs_ir::SemanticIdKind::Wildcard =>
+        {
+            Some(variable.clone())
+        }
+        _ => None,
     }
 }
 

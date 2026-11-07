@@ -1505,13 +1505,13 @@ fn lower_rule_sentence(
         RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
         RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
     };
+    let (keys, key_variables, bound, replaced) = sentence_keys(rule, names)?;
     let kept = rule
         .variables()
         .iter()
-        .filter(|variable| !dropped.contains(variable.id()))
+        .filter(|variable| !dropped.contains(variable.id()) && !replaced.contains(variable.id()))
         .cloned()
         .collect::<Vec<_>>();
-    let (keys, key_variables, bound) = sentence_keys(rule, names)?;
     let mut variables = lower_variables(&kept, names)?;
     variables.extend(key_variables);
     let outer = std::mem::replace(&mut origins.keys, keys);
@@ -2874,11 +2874,12 @@ fn key_arguments(
 }
 
 /// The sentence's bindings of the keys it passes ([`crate::instance_keys::KeyBinding`]): the
-/// term passed for each Map collection, the variables to declare, and each key cell to bind to
-/// the holder's variable, with that variable and its sort.
+/// term passed for each Map collection, the variables to declare, each key cell to bind to the
+/// holder's variable, with that variable and its sort, and the wildcards those variables replace
+/// ([`crate::instance_keys::KeyBinding::replaces`]), which the sentence no longer declares.
 #[expect(
     clippy::type_complexity,
-    reason = "The three results are consumed once, each at its own place in lowering."
+    reason = "The four results are consumed once, each at its own place in lowering."
 )]
 fn sentence_keys(
     rule: &krs_ir_levels::SemanticRule,
@@ -2888,6 +2889,7 @@ fn sentence_keys(
         BTreeMap<krs_ir::SemanticId, KeyArgument>,
         Vec<krs_ir_levels::DefinitionVariable>,
         Vec<(krs_ir::SemanticId, krs_ir::SemanticId, DefinitionSortRef)>,
+        BTreeSet<krs_ir::SemanticId>,
     ),
     LoweringError,
 > {
@@ -2904,7 +2906,9 @@ fn sentence_keys(
     let mut keys = BTreeMap::new();
     let mut variables = Vec::new();
     let mut bound = Vec::new();
+    let mut replaced = BTreeSet::new();
     for binding in bindings {
+        replaced.extend(binding.replaces);
         let holder = names.instance_keys.holder(&binding.holder).ok_or_else(|| {
             LoweringError::unsupported_shape(
                 "instance key",
@@ -2947,7 +2951,7 @@ fn sentence_keys(
         };
         keys.insert(binding.holder, KeyArgument { sort, kind });
     }
-    Ok((keys, variables, bound))
+    Ok((keys, variables, bound, replaced))
 }
 
 /// `entry`, an entry that steps one instance, with that instance's key cell `key` matched by

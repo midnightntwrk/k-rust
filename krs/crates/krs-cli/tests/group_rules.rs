@@ -4715,7 +4715,10 @@ const HOLDER_ENTRY_CASES: [(&str, &str, &str); 3] = [
 /// readable clause's K: the same cells, with the thread's `<tid>` bound inside
 /// the entry's `<thread>` and the core's `<cid>` beside it, in another order
 /// in `<core>`, whose cells K matches by name. It runs to the same
-/// `done ( 12 )`. An entry about the threads whole (two
+/// `done ( 12 )`. Writing the thread's key cell, or the core's, with a
+/// wildcard says any key: the key variable names the value it matches, in
+/// its place, and the rule is the same up to that cell's place, with the same
+/// run. An entry about the threads whole (two
 /// threads, a thread added, every thread) still determines no thread, and
 /// `tvPlus` is refused from it.
 #[test]
@@ -4745,13 +4748,18 @@ fn an_entry_that_steps_one_instance_is_inside_it() {
                 ),
         )
     }));
-    // The entry's instance names its key cell with a wildcard, which the key
-    // should bind in place. KNOWN DEFECT (IC step 2): lowering leaves the
-    // wildcard's declared variable without a use, an internal error; pinned
-    // until it is fixed.
+    // The thread's key cell, then the core's, written with a wildcard, which
+    // matches any key: the key variable takes its place.
     cases.push((
         "wildcard-key",
         THREAD_ENTRY_CELLS.replace("Thread { tenv:", "Thread { tid: _, tenv:"),
+    ));
+    cases.push((
+        "wildcard-core-key",
+        THREAD_ENTRY_CELLS.replace(
+            "        k: k::configuration::KCell(crate::Step::Go(), ..),",
+            "        cid: k::configuration::Cell(_),\n        k: k::configuration::KCell(crate::Step::Go(), ..),",
+        ),
     ));
     let mut emitted_go = Vec::new();
     let outcomes = cases
@@ -4787,16 +4795,24 @@ fn an_entry_that_steps_one_instance_is_inside_it() {
             report
         })
         .collect::<Vec<_>>();
-    // The same cells, the core's key cell at another place among the `<core>` items.
-    let core_key = "<cid> Krs_KeyCore:Int </cid> ";
-    assert_eq!(emitted_go.len(), 2, "{outcomes:#?}");
+    // The same cells, each key cell bound once, to the key passed, at another
+    // place among the items of its instance.
+    let key_cells = [
+        "<cid> Krs_KeyCore:Int </cid> ",
+        "<tid> Krs_KeyThread:Int </tid> ",
+    ];
+    let without_keys = |rule: &str| {
+        key_cells
+            .iter()
+            .fold(rule.to_owned(), |rule, key| rule.replace(key, ""))
+    };
+    assert_eq!(emitted_go.len(), 4, "{outcomes:#?}");
     for rule in &emitted_go {
-        assert_eq!(rule.matches(core_key).count(), 1, "{rule}");
+        for key in key_cells {
+            assert_eq!(rule.matches(key).count(), 1, "{rule}");
+        }
+        assert_eq!(without_keys(rule), without_keys(&emitted_go[0]));
     }
-    assert_eq!(
-        emitted_go[0].replace(core_key, ""),
-        emitted_go[1].replace(core_key, "")
-    );
     expect_test::expect![[r#"
         [
             [
@@ -4826,8 +4842,13 @@ fn an_entry_that_steps_one_instance_is_inside_it() {
             ],
             [
                 "wildcard-key",
-                "error[krs::analysis::invalid-definition]: internal error (a KRS bug): invalid lowered Definition IR: declared variables must exactly match sentence uses",
-                "= help: this is a bug in KRS, not in the program: please report it with the source that reached it",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <thread> <tid> Krs_KeyThread:Int </tid> <tenv> 0 |-> V:Int ... </tenv> ... </thread> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "wildcard-core-key",
+                "rule [go]: <core> <cid> Krs_KeyCore:Int </cid> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
