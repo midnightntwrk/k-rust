@@ -895,9 +895,9 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                         descriptor,
                         codes::analysis::MAP_COLLECTION_KEY,
                         &field.key,
-                        format!(
-                            "an update must not change `{}`, the key of the Map collection `{}`",
-                            key.rust_field, self.collection.cell.field
+                        krs_ir::subject::key_update_reason(
+                            &self.collection.cell.field,
+                            &key.rust_field,
                         ),
                     ));
                 }
