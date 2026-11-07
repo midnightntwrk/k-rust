@@ -1046,13 +1046,10 @@ fn ground_text(
                 }
             };
             let (keys, texts) = list(&mut arguments.iter())?;
-            let text = if arguments.is_empty() && matches!(application, ApplicationRef::Declared(_))
-            {
-                text
-            } else {
-                format!("{text}({texts})")
-            };
-            Some((format!("{key}({keys})"), text))
+            // An application is written as a call, fieldless constructors included
+            // (`NatSyntax::Zero()`): the one spelling that is a term for every constructor in
+            // every position, as `krs expand` prints it, so the text is one the author can paste.
+            Some((format!("{key}({keys})"), format!("{text}({texts})")))
         }
         SemanticTermKind::KSequence { items, .. } => {
             let mut keys = Vec::new();

@@ -213,7 +213,7 @@ fn an_enum_is_covered_by_all_its_variants_and_names_the_missing_one() {
     assert!(gaps(&signature, &all, std::slice::from_ref(&register)).is_empty());
     assert_eq!(
         gaps(&signature, &all[..2], std::slice::from_ref(&register)),
-        ["(Register::C)"]
+        ["(Register::C())"]
     );
     // A binder covers the rest; its sort decides what it covers.
     let rest = [
@@ -254,9 +254,9 @@ fn a_constructor_is_decomposed_into_its_arguments() {
     assert_eq!(
         found,
         [
-            "(Value::Pair(Bit::One, Bit::One), false)",
-            "(Value::Pair(Bit::One, Bit::One), true)",
-            "(Value::Pair(Bit::Zero, Bit::Zero), false)",
+            "(Value::Pair(Bit::One(), Bit::One()), false)",
+            "(Value::Pair(Bit::One(), Bit::One()), true)",
+            "(Value::Pair(Bit::Zero(), Bit::Zero()), false)",
         ]
     );
 }

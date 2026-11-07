@@ -873,7 +873,7 @@ A function is checked once, before the functions whose guards apply it; one stil
 
 A `k::matches!(t, Pattern)` test, which a [branching body](#branching-bodies) writes for a term scrutinee and for a nested catch-all, is read as pattern matching when `Pattern` binds each name once and the check decomposes it: the equation becomes one case where each test holds, its pattern for `t` narrowed by `Pattern`, and one where it fails, narrowed to the other values of `t`'s sort, the test replaced by `true` or `false` in the rest of the guard.
 For `t` a parameter, that refines the parameter's pattern, so a nested catch-all `_` guarded by `k::matches!(shape, Shapes::Circle { .. }).not::<Bool>()` covers `Shapes::Pair(..)` and the other values of `Shape`, injected Ints and `KItem`s included.
-For another term of a declared sort, such as `Classify(value)`, it is one more column of values of `t`, one unknown shared by every equation that tests `t`, and a witness names its value: `match Classify(value)` with arms for `Kinds::A()` and `Kinds::B()` only has no equation for ``PartialScore(value)` when `Classify(value)` is `Kinds::C` ``.
+For another term of a declared sort, such as `Classify(value)`, it is one more column of values of `t`, one unknown shared by every equation that tests `t`, and a witness names its value: `match Classify(value)` with arms for `Kinds::A()` and `Kinds::B()` only has no equation for ``PartialScore(value)` when `Classify(value)` is `Kinds::C()` ``.
 A test whose pattern repeats a name or is not decomposed, or whose term is an Int, Bool, or other builtin, is an opaque Bool atom.
 A comparison `x.bit_range::<Int>(o, l) == v` or `(x & m) == v` with constant `o`, `l` and `m` also fixes bits of `x`, and the check skips valuations no integer `x` has, so a bit template's equation covers the values it matches.
 A guard holds only where it is defined, and the check reads a partial operation together with the domain the catalog states for it ([partial constructs in a condition](#partial-constructs-in-a-condition)) when each of its facts bounds an operand by a constant: a division or remainder holds only where its divisor is not zero, a shift or exponent where its amount is not negative, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, where `o` and `l` are not negative.
@@ -1123,13 +1123,13 @@ Two equations that both apply to one argument, with results that differ once the
 `decode_ld_r_r` above with a typo in its guard, `op.ne::<Int>(117)`, is (without any `requires`, the table check above reports the two rows first)
 
 ```text
-error[krs::analysis::overlapping-equations]: equations `decode_halt` and `decode_ld_r_r` of `Decode` both apply to `Decode(118)` at the same priority and give it different results, `Instruction::Halt` and `Instruction::Ld(R8(6), R8(6))`; ..
+error[krs::analysis::overlapping-equations]: equations `decode_halt` and `decode_ld_r_r` of `Decode` both apply to `Decode(118)` at the same priority and give it different results, `Instruction::Halt()` and `Instruction::Ld(R8(6), R8(6))`; ..
 ```
 
 The pair check finds the overlap of a binder at a field's wider sort, as in this lookup, where `lookup_known` binds `ty` at `MaybeTy`:
 
 ```text
-error[krs::analysis::overlapping-equations]: equations `lookup_known` and `lookup_unknown` of `Lookup` both apply to `Lookup(_, Maybe::TyUnknown)` at the same priority and give it different results, `map::get(_, Maybe::TyUnknown)` and `TypeInfo::Void`; ..
+error[krs::analysis::overlapping-equations]: equations `lookup_known` and `lookup_unknown` of `Lookup` both apply to `Lookup(_, Maybe::TyUnknown())` at the same priority and give it different results, `map::get(_, Maybe::TyUnknown())` and `TypeInfo::Void()`; ..
 ```
 
 Two arms of one [branching body](#branching-bodies) that overlap are `krs::analysis::overlapping-match-arms` instead, at the later arm.

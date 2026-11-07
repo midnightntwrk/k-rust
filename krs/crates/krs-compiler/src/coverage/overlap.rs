@@ -312,12 +312,10 @@ fn pattern_text(
                 keys.push(key);
                 texts.push(text);
             }
-            let name = display_name(id);
-            let text = if arguments.is_empty() {
-                name
-            } else {
-                format!("{name}({})", texts.join(", "))
-            };
+            // Written as a call, a fieldless constructor's included (`NatSyntax::Zero()`): the one
+            // spelling that is a term for every constructor in every position, as `krs expand`
+            // prints it.
+            let text = format!("{}({})", display_name(id), texts.join(", "));
             (format!("{id:?}{instance:?}({})", keys.join(", ")), text)
         }
     }
@@ -376,13 +374,11 @@ fn substitute(
                 }
             };
             let (keys, texts) = list(&mut arguments.iter())?;
-            let text = if arguments.is_empty() && matches!(application, ApplicationRef::Declared(_))
-            {
-                head_text
-            } else {
-                format!("{head_text}({texts})")
-            };
-            Some((format!("{head_key}({keys})"), text))
+            // A call, a fieldless constructor's included, as [`pattern_text`] writes it.
+            Some((
+                format!("{head_key}({keys})"),
+                format!("{head_text}({texts})"),
+            ))
         }
         SemanticTermKind::KSequence { items, .. } => {
             let (keys, texts) = list(&mut items.iter())?;

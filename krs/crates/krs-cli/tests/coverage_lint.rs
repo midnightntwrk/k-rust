@@ -915,7 +915,7 @@ fn guards_that_apply_functions_and_match_patterns_are_read() {
             "warning[krs::analysis::uncovered-total-function]: total function `Decoded` has no equation for `Decoded(6)`",
             "= note: also uncovered: `Decoded(7)`; `Decoded(8)`",
             "warning[krs::analysis::uncovered-total-function]: total function `LooseSign` has no equation for `LooseSign(0)`",
-            "warning[krs::analysis::uncovered-total-function]: total function `PartialScore` has no equation for `PartialScore(value)` when `Classify(value)` is `Kinds::C`",
+            "warning[krs::analysis::uncovered-total-function]: total function `PartialScore` has no equation for `PartialScore(value)` when `Classify(value)` is `Kinds::C()`",
             "warning[krs::analysis::uncovered-total-function]: total function `SignedLess` has no equation for `SignedLess(0, right)` when `Sign(right)` is 0",
             "warning[krs::analysis::stale-underspecified]: `StatedLess` states `underspecified`, but its equations define every argument; remove `underspecified`",
             "warning[krs::analysis::stale-underspecified]: `StatedSign` states `underspecified`, but its equations define every argument; remove `underspecified`",
@@ -1018,7 +1018,7 @@ fn a_constructor_another_package_adds_uncovers_a_total_function() {
     assert!(success, "{lines:#?}");
     expect_test::expect![[r#"
         [
-            "warning[krs::analysis::uncovered-total-function]: total function `Holds` has no equation for `Holds(Sometimes)`",
+            "warning[krs::analysis::uncovered-total-function]: total function `Holds` has no equation for `Holds(Sometimes())`",
         ]
     "#]]
     .assert_debug_eq(&lines);

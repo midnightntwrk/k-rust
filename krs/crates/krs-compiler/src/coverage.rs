@@ -791,11 +791,10 @@ fn matches_pattern(
                 keys.push(key);
                 texts.push(text);
             }
-            let text = if arguments.is_empty() {
-                display_name(id)
-            } else {
-                format!("{}({})", display_name(id), texts.join(", "))
-            };
+            // Written as a call, a fieldless constructor's included (`Kinds::C()`): the one
+            // spelling that is a term for every constructor in every position, as `krs expand`
+            // prints it.
+            let text = format!("{}({})", display_name(id), texts.join(", "));
             Some((format!("{id:?}{instance:?}({})", keys.join(", ")), text))
         }
         SemanticTermKind::As { alias, pattern } => {
@@ -3813,7 +3812,9 @@ fn render(witness: &Witness) -> String {
     match witness {
         Witness::Any => "_".to_owned(),
         Witness::Literal(value) => value.clone(),
-        Witness::Constructor(name, arguments) if arguments.is_empty() => name.clone(),
+        // A call, a fieldless constructor's included (`Kinds::C()`): the one spelling that is a
+        // term for every constructor in every position, as `krs expand` prints it, so the
+        // witness is one the author can paste.
         Witness::Constructor(name, arguments) => format!(
             "{name}({})",
             arguments.iter().map(render).collect::<Vec<_>>().join(", ")

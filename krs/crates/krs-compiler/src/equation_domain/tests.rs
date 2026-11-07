@@ -221,7 +221,7 @@ fn halt_overlaps_ld_unless_its_guard_excludes_it() {
     let (point, left, right) = overlap(&[INT], &ld_and_halt(false)).expect("an overlap");
     assert_eq!(point, [118]);
     assert_eq!(left, "Ld(R8(6), R8(6))");
-    assert_eq!(right, "Halt");
+    assert_eq!(right, "Halt()");
     assert_eq!(overlap(&[INT], &ld_and_halt(true)), None);
 }
 
