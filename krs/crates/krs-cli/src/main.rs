@@ -212,7 +212,8 @@ krs kink: the corpus loop over a KRS package, with kink as its engine
 
 Usage:
   krs kink emit    --package P --definition D [--corpus DIR] [--check]
-  krs kink check   --package P --definition D [--corpus DIR] [--mutations PATH] [--locked]
+  krs kink check   --package P --definition D [--corpus DIR] [--mutations PATH] [--cache DIR]
+                   [--locked]
   krs kink results --package P --definition D [--corpus DIR] [--verify] [--mutations PATH]
                    [--cache DIR] [--output json|verdicts] [--locked]
   krs kink run     --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]...
@@ -303,11 +304,165 @@ Under the Z3 solver profile, which krs builds kink with by default, query answer
 unconfirmed, not refuted, so query exits 0 only when every pair asked hits.
 
 The selection options (--manifest-path, --package, --package-id, --definition,
---dependency, --cfg, --profile, --message-format, --timings, --counters), --corpus and
---locked are krs's, before or after the verb; every other option is the kink-flow verb's
-own. Every command that builds the package builds it in process, so krs kink takes no
---no-reuse.
+--dependency, --cfg, --profile, --message-format, --timings, --counters, and --registration,
+build tooling krs --help does not list), --corpus and --locked are krs's, before or after
+the verb, and so are the list flags of the Usage lines that name a kink-flow operand (run
+--mutations, query --patterns, fuzz --templates); every other option is the kink-flow
+verb's own. krs kink VERB --help lists the verb's options, kink-flow's included. A usage
+error prints its message, the verb's usage line and where its options are listed. Every
+command that builds the package builds it in process, so krs kink takes no --no-reuse.
 ";
+
+/// Each verb of `krs kink` with its usage line, as [`KINK_USAGE`] lists it.
+#[cfg(feature = "kink")]
+const KINK_VERB_USAGE: [(&str, &str); 7] = [
+    (
+        "emit",
+        "krs kink emit --package P --definition D [--corpus DIR] [--check]",
+    ),
+    (
+        "check",
+        "krs kink check --package P --definition D [--corpus DIR] [--mutations PATH] [--cache \
+         DIR] [--locked]",
+    ),
+    (
+        "results",
+        "krs kink results --package P --definition D [--corpus DIR] [--verify] [--mutations PATH] \
+         [--cache DIR] [--output json|verdicts] [--locked]",
+    ),
+    (
+        "run",
+        "krs kink run --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]... \
+         [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo] \
+         [--progress] [--cache DIR] [--output json|verdicts] [--locked]",
+    ),
+    (
+        "report",
+        "krs kink report --package P --definition D [--corpus DIR] [--cache DIR] [--output \
+         json|verdicts]",
+    ),
+    (
+        "query",
+        "krs kink query --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]... \
+         [--verify] [--cache DIR] [--locked]",
+    ),
+    (
+        "fuzz",
+        "krs kink fuzz --package P --definition D [--corpus DIR] [--templates PATH] --template ID \
+         (--kill MUTATION | --matched RULE | --fired RULE | --pattern ID) [kink-flow's fuzz \
+         options] [--locked]",
+    ),
+];
+
+/// The usage line of `krs kink VERB`.
+#[cfg(feature = "kink")]
+fn kink_verb_usage(verb: &str) -> Option<&'static str> {
+    KINK_VERB_USAGE
+        .iter()
+        .find(|(name, _)| *name == verb)
+        .map(|(_, usage)| *usage)
+}
+
+/// What a `krs kink` usage error prints after its message: the usage line of the verb the
+/// command line names (every command line's shape when it names none) and where the rest is.
+/// The whole help would bury the message under the corpus layout and the loop; the verb's usage
+/// line is what a misspelt option, a missing selection or a bad value is corrected against.
+#[cfg(feature = "kink")]
+fn kink_usage_tail(verb: Option<&str>) -> String {
+    match verb.and_then(|verb| kink_verb_usage(verb).map(|usage| (verb, usage))) {
+        Some((verb, usage)) => format!(
+            "usage: {usage}\n`krs kink {verb} --help` lists its options; `krs kink --help` \
+             explains the corpus loop"
+        ),
+        None => format!(
+            "usage: krs kink VERB --package P --definition D [--corpus DIR] [OPTIONS], VERB one \
+             of emit, {}\n`krs kink --help` explains the corpus loop; `krs kink VERB --help` \
+             lists a verb's options",
+            kink_verbs()
+        ),
+    }
+}
+
+/// `krs kink VERB --help`: what the verb does, its usage line, krs's options and, for a
+/// kink-flow verb, kink-flow's options of the verb, which `krs kink` passes on.
+#[cfg(feature = "kink")]
+fn kink_verb_help(verb: &str) -> String {
+    use std::fmt::Write as _;
+    let Some(usage) = kink_verb_usage(verb) else {
+        return KINK_USAGE.to_owned();
+    };
+    let flow = kink_flow::Verb::parse(verb);
+    let summary = flow.map_or(
+        "Write kink/definition.k, the package's emitted K, which kink judges, when it is not the \
+         package's current emission; with --check, write nothing and say whether it is.",
+        kink_flow::Verb::summary,
+    );
+    let option = |spelling, meaning| kink_flow::cli::VerbOption { spelling, meaning };
+    let mut own = vec![option(
+        "--corpus DIR",
+        "the corpus directory (default: kink/ beside the package's Cargo.toml)",
+    )];
+    let layout_mutations = "the mutation list (default: the corpus's mutations/, else its \
+                            MUTATIONS.toml)";
+    match verb {
+        "emit" => own.push(option(
+            "--check",
+            "write nothing, and exit 2 when definition.k is not the package's current emission",
+        )),
+        "report" => {}
+        _ => own.push(option(
+            "--locked",
+            "refuse a stale kink/definition.k instead of writing it",
+        )),
+    }
+    match flow {
+        Some(kink_flow::Verb::Run) => own.push(option("--mutations PATH", layout_mutations)),
+        Some(kink_flow::Verb::Query) => own.push(option(
+            "--patterns PATH",
+            "the pattern list (default: the corpus's PATTERNS.toml)",
+        )),
+        Some(kink_flow::Verb::Fuzz) => own.push(option(
+            "--templates PATH",
+            "the template list (default: the corpus's TEMPLATES.toml)",
+        )),
+        _ => {}
+    }
+    let mut text = format!(
+        "krs kink {verb}: {summary}\n\nusage: {usage}\n\nkrs's options, before or after the verb: \
+         the selection options (--manifest-path, --package, --package-id, --definition, \
+         --dependency, --cfg, --profile, --message-format, --timings, --counters, and the build \
+         tooling's --registration), and\n{}",
+        kink_flow::cli::options_text(&own)
+    );
+    if let Some(flow) = flow {
+        let _ = write!(
+            text,
+            "\nkink-flow's {} options, which krs kink passes on:\n{}",
+            flow.as_str(),
+            kink_flow::cli::options_text(flow.options())
+        );
+        if matches!(
+            flow,
+            kink_flow::Verb::Check | kink_flow::Verb::Results | kink_flow::Verb::Fuzz
+        ) {
+            let _ = writeln!(
+                text,
+                "  (--mutations defaults to the corpus's mutations/, else its MUTATIONS.toml, \
+                 when it exists)"
+            );
+        }
+        if flow == kink_flow::Verb::Fuzz {
+            let _ = writeln!(
+                text,
+                "  (--patterns defaults to the corpus's PATTERNS.toml, when it exists)"
+            );
+        }
+    }
+    text.push_str(
+        "\n`krs kink --help` explains the corpus layout, the loop and the exit statuses.\n",
+    );
+    text
+}
 
 fn main() {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -322,7 +477,9 @@ fn main() {
             }
         },
         #[cfg(feature = "kink")]
-        Ok(ParseResult::KinkHelp) => print!("{KINK_USAGE}"),
+        Ok(ParseResult::KinkHelp(None)) => print!("{KINK_USAGE}"),
+        #[cfg(feature = "kink")]
+        Ok(ParseResult::KinkHelp(Some(verb))) => print!("{}", kink_verb_help(&verb)),
         #[cfg(feature = "kink")]
         Ok(ParseResult::Kink(request, measure)) => {
             let status = execute_kink(&request, &measure);
@@ -373,8 +530,8 @@ fn main() {
             }
         }
         #[cfg(feature = "kink")]
-        Err(UsageError::Kink(message)) => {
-            eprintln!("krs kink: {message}\n\n{KINK_USAGE}");
+        Err(UsageError::Kink(message, verb)) => {
+            eprintln!("krs kink: {message}\n{}", kink_usage_tail(verb.as_deref()));
             std::process::exit(2);
         }
         Err(UsageError::Value(message)) => {
@@ -428,7 +585,11 @@ fn execute_kink(request: &krs_cli::KinkRequest, measure: &MeasureOptions) -> i32
         eprintln!("{note}");
     }
     if outcome.usage {
-        eprintln!("\n{KINK_USAGE}");
+        let verb = match &request.verb {
+            krs_cli::KinkVerb::Emit { .. } => "emit",
+            krs_cli::KinkVerb::Flow { verb, .. } => verb.as_str(),
+        };
+        eprintln!("{}", kink_usage_tail(Some(verb)));
     }
     let status = i32::from(outcome.status);
     // An unwritten measurement is an error beside the command's answer.
@@ -559,8 +720,9 @@ enum ParseResult {
     Help,
     Format(FormatRequest),
     Run(Box<CommandRequest>, MeasureOptions),
+    /// `krs kink --help`, or `krs kink VERB --help` (the verb's help).
     #[cfg(feature = "kink")]
-    KinkHelp,
+    KinkHelp(Option<String>),
     #[cfg(feature = "kink")]
     Kink(Box<krs_cli::KinkRequest>, MeasureOptions),
 }
@@ -663,9 +825,9 @@ enum UsageError {
     /// A value that is refused for itself (a `--case` that names no case file), which the usage
     /// would not help to correct: printed without it.
     Value(String),
-    /// A usage error of `krs kink`, shown with its own usage.
+    /// A usage error of `krs kink`, shown with the usage of the verb it names, if it names one.
     #[cfg(feature = "kink")]
-    Kink(String),
+    Kink(String, Option<String>),
 }
 
 impl fmt::Display for UsageError {
@@ -674,7 +836,7 @@ impl fmt::Display for UsageError {
             Self::Argument(error) => error.fmt(formatter),
             Self::Message(message) | Self::Value(message) => message.fmt(formatter),
             #[cfg(feature = "kink")]
-            Self::Kink(message) => message.fmt(formatter),
+            Self::Kink(message, _) => message.fmt(formatter),
         }
     }
 }
@@ -1840,7 +2002,18 @@ const KINK_VALUE_OPTIONS: [&str; 12] = [
 /// may appear, so the verb is the first argument that is neither one of them nor a value of one.
 #[cfg(feature = "kink")]
 fn parse_kink(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
-    let kink = |message: String| UsageError::Kink(message);
+    let mut verb = None;
+    parse_kink_verb(arguments, &mut verb).map_err(|message| UsageError::Kink(message, verb))
+}
+
+/// [`parse_kink`], recording in `verb` the verb as soon as it is read, so that a usage error
+/// after it is shown with the verb's usage.
+#[cfg(feature = "kink")]
+fn parse_kink_verb(
+    arguments: Vec<OsString>,
+    verb: &mut Option<String>,
+) -> Result<ParseResult, String> {
+    let kink = |message: String| message;
     let arguments = arguments
         .into_iter()
         .map(|argument| {
@@ -1853,12 +2026,12 @@ fn parse_kink(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
     let mut corpus = None;
     let mut locked = false;
     let mut check = false;
-    let mut verb: Option<String> = None;
     let mut rest = Vec::new();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
+        // Help after a verb is the verb's: its usage and its options, kink-flow's included.
         if matches!(argument.as_str(), "-h" | "--help") {
-            return Ok(ParseResult::KinkHelp);
+            return Ok(ParseResult::KinkHelp(verb.clone()));
         }
         let (name, inline) = match argument.split_once('=') {
             Some((name, value)) if name.starts_with("--") => {
@@ -1900,12 +2073,14 @@ fn parse_kink(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
                         kink_verbs()
                     )));
                 }
-                verb = Some(argument);
+                *verb = Some(argument);
             }
             _ => rest.push(argument),
         }
     }
-    let verb = verb.ok_or_else(|| kink(format!("missing verb: emit, {}", kink_verbs())))?;
+    let verb = verb
+        .clone()
+        .ok_or_else(|| kink(format!("missing verb: emit, {}", kink_verbs())))?;
     kink_request(options, corpus, locked, check, &verb, rest)
 }
 
@@ -1919,8 +2094,8 @@ fn kink_request(
     check: bool,
     verb: &str,
     rest: Vec<String>,
-) -> Result<ParseResult, UsageError> {
-    let kink = |message: String| UsageError::Kink(message);
+) -> Result<ParseResult, String> {
+    let kink = |message: String| message;
     let verb = if verb == "emit" {
         if let Some(argument) = rest.first() {
             return Err(kink(format!("krs kink emit takes no {argument}")));
@@ -2415,8 +2590,68 @@ mod tests {
         }
         assert!(matches!(
             parse_args(&["kink", "--help"]),
-            Ok(ParseResult::KinkHelp)
+            Ok(ParseResult::KinkHelp(None))
         ));
+        // After a verb it is the verb's help.
+        assert!(matches!(
+            parse_args(&["kink", "--package", "p", "fuzz", "--template", "t", "-h"]),
+            Ok(ParseResult::KinkHelp(Some(verb))) if verb == "fuzz"
+        ));
+        // A usage error names the verb, once read, whose usage it shows.
+        assert!(matches!(
+            parse_args(&["kink", "emit", "--full"]),
+            Err(UsageError::Kink(_, Some(verb))) if verb == "emit"
+        ));
+        assert!(matches!(
+            parse_args(&["kink", "--full", "run"]),
+            Err(UsageError::Kink(_, None))
+        ));
+    }
+
+    /// `krs kink VERB --help` lists the verb's usage line, krs's options and every option of
+    /// kink-flow's verb, which no other help krs prints lists; each verb's usage line is the one
+    /// `krs kink --help` lists; a usage error shows the verb's usage line and where its options
+    /// are, not the whole help.
+    #[cfg(feature = "kink")]
+    #[test]
+    fn kink_verb_help_lists_the_verbs_options() {
+        let words = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+        for (verb, usage) in KINK_VERB_USAGE {
+            assert!(words(KINK_USAGE).contains(usage), "{verb}: {usage}");
+            let help = kink_verb_help(verb);
+            assert!(help.starts_with(&format!("krs kink {verb}: ")), "{help}");
+            assert!(help.contains(&format!("\nusage: {usage}\n")), "{help}");
+            if let Some(flow) = kink_flow::Verb::parse(verb) {
+                assert!(
+                    help.contains(&kink_flow::cli::options_text(flow.options())),
+                    "{help}"
+                );
+                // A usage line that spells kink-flow's options out spells every one; fuzz's
+                // names them as a group.
+                if flow != kink_flow::Verb::Fuzz {
+                    for option in flow.options() {
+                        assert!(
+                            usage.contains(&format!("[{}", option.flag())),
+                            "{verb}: {usage} lacks {}",
+                            option.flag()
+                        );
+                    }
+                }
+            }
+            let tail = kink_usage_tail(Some(verb));
+            assert_eq!(tail.lines().count(), 2, "{tail}");
+            assert!(tail.starts_with(&format!("usage: {usage}\n")), "{tail}");
+        }
+        let fuzz = kink_verb_help("fuzz");
+        for option in ["--cases N", "--work W", "--templates PATH", "--locked"] {
+            assert!(fuzz.contains(&format!("  {option} ")), "{fuzz}");
+        }
+        assert!(
+            fuzz.contains("--patterns defaults to the corpus's PATTERNS.toml"),
+            "{fuzz}"
+        );
+        assert!(!kink_verb_help("emit").contains("--locked"));
+        assert!(kink_usage_tail(None).contains("VERB one of emit, check, results"));
     }
 
     fn run(args: &[&str]) -> (CommandRequest, MeasureOptions) {

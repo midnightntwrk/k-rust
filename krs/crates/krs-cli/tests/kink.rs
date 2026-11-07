@@ -1367,13 +1367,20 @@ fn a_stale_definition_is_written_or_refused() {
         "{document:#}"
     );
     assert!(!project.path().join("kink/definition.k").exists());
-    // A usage error kink-flow's parser finds carries the front end's prefix, as its own do.
+    // A usage error kink-flow's parser finds carries the front end's prefix, as its own do,
+    // then the verb's usage line and where its options are: not the whole help.
     let bogus = project.kink("check", &["--bogus"]);
     assert_status(&bogus, 2);
+    let lines = stderr(&bogus)
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3, "{lines:#?}");
+    assert!(lines[0].starts_with("krs kink: "), "{lines:#?}");
+    assert!(lines[1].starts_with("usage: krs kink check "), "{lines:#?}");
     assert!(
-        stderr(&bogus).starts_with("krs kink: "),
-        "{}",
-        stderr(&bogus)
+        lines[2].starts_with("`krs kink check --help` lists its options"),
+        "{lines:#?}"
     );
 
     let emit = project.kink("emit", &[]);

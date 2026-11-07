@@ -263,7 +263,8 @@ Every command exits with what its caller does next, one of four statuses, as krs
 | 3 | no answer | retry with more budget or another approach |
 
 A command that answers for several parts (programs, mutations, pairs of a pattern and a program) exits 2 when one part could not be asked, since the answer is then incomplete; else 1 when one is a finding; else 3 when one has no answer; else 0.
-A usage error exits 2 with its message on stderr, and so does every refusal, which the document names with its stage and reason: a manifest that does not decode, a refused specification, program, mutation list, mutation, pattern list or template, a failed run, and a cache file that cannot be written.
+A usage error exits 2 with its message on stderr, then the usage line of the verb the command line names (every command line's shape when it names none) and the command that lists the verb's options: the whole help would bury the message, and the verb's usage line is what a misspelt option, a missing operand or a bad value is corrected against.
+Every refusal exits 2 too, and the document names it with its stage and reason: a manifest that does not decode, a refused specification, program, mutation list, mutation, pattern list or template, a failed run, and a cache file that cannot be written.
 A `--verify` mismatch (a stored record that differs from the live value) is a finding, 1, in every command that takes `--verify`.
 
 What else is a finding, or no answer, follows from what each command asks:
@@ -418,7 +419,8 @@ Warnings refuse nothing:
 | `no-coverage-signal` | k-rust's coverage cannot record the rule (a macro, alias, `smt-lemma` or non-executable rule, as in `results`), so no program can be shown to match it. |
 
 `kink-flow --version` prints `kink-flow VERSION (k-rust REVISION)`, where `REVISION` is k-rust's build identity (`k_rust::build_identity`: its version and a digest of its sources, such as `0.8.0+src.<hex>`), the value every document's `k_rust_revision` names (GUIDE-USABILITY 5, KINK-R4: within each document's version, since the field's shape did not change; before, every document but `fuzz`'s named the version alone), and exits 0.
-`kink-flow --help` (or `-h`, alone or anywhere after a verb, as in `kink-flow run --help`) prints the usage line, the loop, the mutation format and the exit statuses on stdout, and exits 0.
+`kink-flow --help` (or `-h`) prints the usage line, the loop, the mutation format and the exit statuses on stdout, and exits 0;
+after a verb, anywhere among its operands and options (`kink-flow run --help`), it prints the verb's help instead: its usage line, what it asks, and each of its options with what it does (`kink_flow::cli::verb_help`, which a front end such as `krs kink` prints for its own verbs).
 
 ## Coverage predicates
 

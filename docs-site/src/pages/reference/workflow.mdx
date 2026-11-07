@@ -919,7 +919,8 @@ A case's typed inputs are read by the encoding `run --case` reads, except `$text
 A case's program file binds the main parameter as `run FILE` binds it, whatever the parameter's K name, so `[[program]] files = "roms/*.gb"` with the other parameters under `inputs` is one case per ROM; inline `text` under a `Bytes` main parameter is refused, since a `Bytes` value has no text reading (`$hex` under `inputs` gives bytes inline).
 A case's digest holds the SHA-256 of its program's bytes, whichever way they bind.
 
-The selection options are those of the other commands and may come before or after the verb; every other option is the kink-flow verb's own.
+The selection options, those of the other commands and `--registration` (build tooling `krs --help` does not list), `--corpus` and `--locked` are krs's and may come before or after the verb, and so are the list flags that name a kink-flow operand (`run --mutations`, `query --patterns`, `fuzz --templates`); every other option is the kink-flow verb's own.
+A usage error prints its message, the verb's usage line and the command that lists its options, not the whole help.
 Every command that builds the package builds it in process, so `krs kink` takes no `--no-reuse`.
 `krs kink` exits by the four actions of the other executing commands ([exit status](#exit-status)), as kink-flow does:
 0 when the verb answered its question: every case is comparable and meets its expectation (`results`), every mutation has a verdict, killed, survived, equivalent or unkillable (`run`, and `report` as that run), every pattern has an answer (`query`), the fuzz found a witness or proved the mutant equivalent, every verdict is possible (`check`), `definition.k` is fresh (`emit`);
@@ -932,7 +933,7 @@ A package `krs` refuses, from an unknown package or facet to a failed emission, 
 `krs kink emit` prints `{schema, version, check, definition: {path, status}, refusal}`: `schema` `krs-kink-emit` and `version` 1, a bare schema name and an integer version as the kink-flow documents beside it have, unlike krs's own documents (`krs-compare/1`); `check` whether it was `--check`; `definition.path` the file as the package's directory shows it; and `definition.status`:
 `unchanged` (the file is the emission; exit 0), `written` (it was not, and `emit` wrote it; exit 0), `stale` (it is not, and `--check` wrote nothing; exit 2, with `refusal` naming the command that writes it), or `null` (krs refused the package, or the file could not be read or written; exit 2, with `refusal` saying why).
 `refusal` is non-null exactly when the command exits 2, so a caller tells a refused package from a stale file by `definition.status`.
-`krs kink --help` lists the verbs, their options, the corpus layout, the loop and the mutation format.
+`krs kink --help` lists the verbs, their usage lines, the corpus layout, the loop and the mutation format; `krs kink VERB --help` lists the verb's options, krs's and kink-flow's, each with what it does.
 
 ## Read failures by stage
 

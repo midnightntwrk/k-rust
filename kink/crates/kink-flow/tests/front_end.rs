@@ -130,9 +130,35 @@ fn kink_flow_options_parse_with_the_front_end_files() {
         panic!("{parsed:?}");
     };
     assert_eq!(options.only, ["no-mul"]);
-    assert_eq!(
-        FlowCommand::parse("run", mutations(&dir), &strings(&["--only", "nope"])).unwrap_err(),
-        "--only nope: no mutation has this id"
+    // An id no mutation has is refused naming the list read and the ids it has.
+    let refused =
+        FlowCommand::parse("run", mutations(&dir), &strings(&["--only", "nope"])).unwrap_err();
+    assert!(
+        refused.starts_with(&format!(
+            "--only nope: no mutation of {} has this id (it has ",
+            dir.join("MUTATIONS.toml").display()
+        )) && refused.contains("no-mul"),
+        "{refused}"
+    );
+    // A kill job's list may be a front end's default rather than the list the last run judged,
+    // so its refusal also names the option that names another.
+    let imp = flow("fuzz/imp");
+    let refused = FlowCommand::parse(
+        "fuzz",
+        CommandFiles {
+            mutations: Some(imp.join("MUTATIONS.toml")),
+            templates: Some(imp.join("TEMPLATES.toml")),
+            ..CommandFiles::default()
+        },
+        &strings(&["--template", "straight-holes", "--kill", "nope"]),
+    )
+    .unwrap_err();
+    assert!(
+        refused.starts_with(&format!(
+            "--kill nope: no mutation of {} has this id (it has ",
+            imp.join("MUTATIONS.toml").display()
+        )) && refused.ends_with("); --mutations names the list to read"),
+        "{refused}"
     );
     assert!(FlowCommand::parse("run", CommandFiles::default(), &[]).is_err());
     assert_eq!(

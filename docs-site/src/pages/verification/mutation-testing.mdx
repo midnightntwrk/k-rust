@@ -326,6 +326,9 @@ On the introduction's corpus, the default `kink/` with its four cases, the witne
 // [!include ~/snippets/mutation-testing/TEMPLATES.toml]
 ```
 
+The guide's templates and mutations sit in `guide/`, outside `kink/`, so the command names both: `krs kink fuzz --templates guide/TEMPLATES.toml --template t4-second --kill survivors/one --mutations guide/mutations`.
+In your own package `kink/TEMPLATES.toml` and `kink/mutations/` are the defaults, and `krs kink fuzz --help` lists the other options.
+
 A hole of `Nat`, the sort the cases are written in, is refused unless it says `allow-refused-sort = true`, since a value of a program sort can be program text; with it, the hole's values are built from `Nat`'s constructors, `zero` and `s`.
 `fuzz` reads the survivor's row of the last run, whose `witnesses` are `t3` and `t4`, finds the case that kills `survivors/one`, and prints the `[[program]]` that adds it to `FLOW.toml`:
 

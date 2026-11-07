@@ -3,7 +3,9 @@
 use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
-    cli::{CheckOptions, EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, check, check_with},
+    cli::{
+        CheckOptions, EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, Verb, check, check_with,
+    },
     mutation::InvalidReason,
 };
 use kink_patch::sha256;
@@ -575,11 +577,22 @@ fn the_version_flag_names_the_builds() {
             k_rust::build_identity()
         )
     );
+    // With anything after it, the flag is a usage error that says so, not an unknown verb.
+    let (code, stdout, stderr) = binary(&["--version".as_ref(), "extra".as_ref()]);
+    assert_eq!(code, Some(EXIT_UNASKED.into()), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(
+        stderr.starts_with(
+            "kink-flow: --version takes no operand or option\nusage: kink-flow --version"
+        ),
+        "{stderr}"
+    );
 }
 
-/// Asking for help is a question the tool answers: `--help` and `-h`, alone or anywhere after a
-/// verb, print the usage line, the loop, the mutation format and the exit statuses on stdout, and
-/// exit 0.
+/// Asking for help is a question the tool answers: `--help` and `-h` alone print the usage line,
+/// the loop, the mutation format and the exit statuses on stdout, and exit 0; after a verb,
+/// anywhere among its operands and options, they print the verb's usage line and every option
+/// of the verb's, which the general help does not explain.
 #[test]
 fn the_help_flag_answers_on_stdout() {
     for flag in ["--help", "-h"] {
@@ -588,17 +601,39 @@ fn the_help_flag_answers_on_stdout() {
         assert!(stderr.is_empty(), "{flag}: {stderr}");
         assert!(stdout.starts_with("usage: kink-flow --version"), "{stdout}");
         assert!(stdout.contains("[[mutation.edit]]"), "{stdout}");
+        assert!(stdout.contains("`kink-flow VERB --help`"), "{stdout}");
     }
-    // After a verb, and among a verb's operands, it is the same question.
     let manifest = flow("calc/FLOW.toml");
-    for args in [
-        vec!["run".as_ref(), "--help".as_ref()],
-        vec!["check".as_ref(), manifest.as_os_str(), "-h".as_ref()],
+    for (args, verb) in [
+        (vec!["run".as_ref(), "--help".as_ref()], Verb::Run),
+        (
+            vec!["check".as_ref(), manifest.as_os_str(), "-h".as_ref()],
+            Verb::Check,
+        ),
+        (vec!["fuzz".as_ref(), "--help".as_ref()], Verb::Fuzz),
     ] {
         let (code, stdout, stderr) = binary(&args);
         assert_eq!(code, Some(EXIT_YES.into()), "{args:?}: {stderr}");
         assert!(stderr.is_empty(), "{args:?}: {stderr}");
-        assert!(stdout.starts_with("usage: kink-flow --version"), "{stdout}");
+        assert_eq!(stdout, kink_flow::cli::verb_help(verb));
+        assert!(
+            stdout.starts_with(&format!("usage: kink-flow {}\n", verb.synopsis())),
+            "{stdout}"
+        );
+        for option in verb.options() {
+            assert!(stdout.contains(option.spelling), "{stdout}");
+        }
+    }
+    let (_, fuzz, _) = binary(&["fuzz".as_ref(), "--help".as_ref()]);
+    for option in ["--cases N", "--work W", "--seed S", "--no-confirm"] {
+        assert!(fuzz.contains(&format!("  {option} ")), "{fuzz}");
+    }
+    // Each verb's usage line is the one the general usage line lists.
+    for verb in Verb::ALL {
+        assert!(
+            kink_flow::cli::USAGE.contains(&format!("kink-flow {}", verb.synopsis())),
+            "{verb:?}"
+        );
     }
 }
 
@@ -2252,10 +2287,27 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             let (code, stdout, stderr) = binary(&args);
             assert_eq!(code, Some(EXIT_UNASKED.into()), "{args:?}");
             assert!(stdout.is_empty(), "{args:?}");
-            assert!(
-                stderr.contains("usage: kink-flow --version | kink-flow check FLOW.toml"),
-                "{stderr}"
-            );
+            // The message, then the usage line of the verb named (every command line's shape
+            // when none is) and where the rest is: never the whole help.
+            let lines = stderr.lines().collect::<Vec<_>>();
+            assert_eq!(lines.len(), 3, "{stderr}");
+            assert!(lines[0].starts_with("kink-flow: "), "{stderr}");
+            match args
+                .first()
+                .and_then(|verb| Verb::parse(verb.to_str().unwrap()))
+            {
+                Some(verb) => {
+                    assert_eq!(lines[1], format!("usage: kink-flow {}", verb.synopsis()));
+                    assert_eq!(
+                        lines[2],
+                        format!("`kink-flow {} --help` lists its options", verb.as_str())
+                    );
+                }
+                None => assert!(
+                    lines[1].starts_with("usage: kink-flow --version | kink-flow VERB"),
+                    "{stderr}"
+                ),
+            }
         }
     }
 }

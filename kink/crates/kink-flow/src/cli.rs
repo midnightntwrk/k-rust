@@ -80,12 +80,14 @@ macro_rules! usage_line {
     };
 }
 
-/// The usage line a usage error prints on stderr.
+/// The usage line of every command, the first line `kink-flow --help` prints; a usage error
+/// prints its verb's ([`Verb::synopsis`]).
 pub const USAGE: &str = usage_line!();
 
-/// What `kink-flow --help` (or `-h`, anywhere on the command line, as after a verb) prints on
-/// stdout: the usage line, then the loop, the mutation format and the exit statuses in one
-/// screen, for a caller starting cold.
+/// What `kink-flow --help` (or `-h`) prints on stdout when the command line names no verb: the
+/// usage line, then the loop, the mutation format and the exit statuses in one screen, for a
+/// caller starting cold. After a verb, anywhere on the command line, it prints the verb's help
+/// ([`verb_help`]).
 pub const HELP: &str = concat!(
     usage_line!(),
     "
@@ -117,9 +119,16 @@ Exit status:
   2  the question could not be asked: fix the input or the command
   3  the command ran and has no answer: retry with more budget or another approach
 
+`kink-flow VERB --help` lists the verb's options.
 Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-flow\"
 "
 );
+
+/// What a usage error prints on stderr after its message when the command line names no verb:
+/// the shape of every command line, and where the rest is.
+const GENERAL_USAGE: &str = "usage: kink-flow --version | kink-flow VERB FLOW.toml [OPERAND] \
+     [OPTIONS], VERB one of check, results, run, report, query, fuzz\n`kink-flow --help` \
+     explains the loop; `kink-flow VERB --help` lists a verb's options";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -128,7 +137,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
         .map(|arg| arg.into_string())
         .collect::<Result<Vec<_>, _>>()
     else {
-        return usage(USAGE);
+        return usage("an argument is not valid UTF-8", None);
     };
     // The builds a document's identity names, as `krust-fuzz --version` prints its own.
     if let [flag] = args.as_slice()
@@ -143,20 +152,42 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     }
     // Asking for help is a question the tool answers wherever it is asked, as after a verb
     // (`kink-flow run --help`): no operand or option value of kink-flow begins with `-h` or is
-    // `--help`.
+    // `--help`. After a verb it is the verb's help, which lists its options.
+    let named = args.first().and_then(|first| Verb::parse(first));
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        print!("{HELP}");
+        match named {
+            Some(verb) => print!("{}", verb_help(verb)),
+            None => print!("{HELP}"),
+        }
         return EXIT_YES;
     }
+    let Some(verb) = named else {
+        return usage(
+            &args.first().map_or_else(
+                || "missing verb".to_owned(),
+                |first| {
+                    if first == "--version" {
+                        "--version takes no operand or option".to_owned()
+                    } else {
+                        format!("unknown verb {first:?}")
+                    }
+                },
+            ),
+            None,
+        );
+    };
     let Some((verb, manifest, files, options)) = operands(&args) else {
-        return usage(USAGE);
+        return usage(
+            &format!("{} needs {}", verb.as_str(), verb.operands()),
+            Some(verb),
+        );
     };
     if !manifest.is_file() {
-        return usage(&format!("{} is not a file", manifest.display()));
+        return usage(&format!("{} is not a file", manifest.display()), Some(verb));
     }
     let command = match FlowCommand::parse(verb.as_str(), files, options) {
         Ok(command) => command,
-        Err(message) => return usage(&message),
+        Err(message) => return usage(&message, Some(verb)),
     };
     let output = command.output();
     let progress = |line: &str| eprintln!("kink-flow: {line}");
@@ -223,12 +254,228 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
     Some((verb, PathBuf::from(manifest), files, rest))
 }
 
-fn usage(message: &str) -> u8 {
+/// A usage error: its message, then the usage line of the verb the command line names (every
+/// command line's shape when it names none) and where the rest is, on stderr. The whole help
+/// would bury the message under the loop and the mutation format; the verb's usage line shows the
+/// shape of the command the caller attempted, which is what a misspelt option, a missing operand
+/// or a bad value is corrected against.
+fn usage(message: &str, verb: Option<Verb>) -> u8 {
     eprintln!("kink-flow: {message}");
-    if message != USAGE {
-        eprintln!("{USAGE}");
+    match verb {
+        Some(verb) => eprintln!(
+            "usage: kink-flow {}\n`kink-flow {} --help` lists its options",
+            verb.synopsis(),
+            verb.as_str()
+        ),
+        None => eprintln!("{GENERAL_USAGE}"),
     }
     EXIT_UNASKED
+}
+
+/// One option of a verb, as its help lists it ([`Verb::options`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerbOption {
+    /// The option as a command line writes it, with its value's name (`--cache DIR`).
+    pub spelling: &'static str,
+    /// What it does, in one line.
+    pub meaning: &'static str,
+}
+
+impl VerbOption {
+    /// The flag the option is given by (`--cache`), its spelling without the value's name.
+    #[must_use]
+    pub fn flag(&self) -> &'static str {
+        self.spelling
+            .split_once(' ')
+            .map_or(self.spelling, |(flag, _)| flag)
+    }
+}
+
+/// Refuse `arg`, read where an option begins, unless it is the flag of one of `verb`'s options
+/// ([`Verb::options`]). Each option parser calls it first, so a flag its table does not list is
+/// refused before any arm that would accept it: the verb's help, which prints the table, lists
+/// every option the verb accepts.
+fn listed(verb: Verb, arg: &str) -> Result<(), String> {
+    if verb.options().iter().any(|option| option.flag() == arg) {
+        Ok(())
+    } else {
+        Err(format!("unexpected argument {arg:?}"))
+    }
+}
+
+const fn option(spelling: &'static str, meaning: &'static str) -> VerbOption {
+    VerbOption { spelling, meaning }
+}
+
+const CACHE: VerbOption = option(
+    "--cache DIR",
+    "the cache directory (default: .kink-flow beside FLOW.toml)",
+);
+const OUTPUT: VerbOption = option(
+    "--output json|verdicts",
+    "print the JSON document (default) or its deterministic verdicts rendering",
+);
+const VERIFY: VerbOption = option(
+    "--verify",
+    "recompute every stored record and report each that differs (a finding, exit 1)",
+);
+
+const CHECK_OPTIONS: &[VerbOption] = &[
+    option(
+        "--mutations MUTATIONS",
+        "resolve this mutation list against the specification, compiling and running nothing",
+    ),
+    option(
+        "--cache DIR",
+        "the cache whose result records decide unmatched-rule and unapplied-rule (default: \
+         .kink-flow beside FLOW.toml); nothing is written to it",
+    ),
+];
+
+const RESULTS_OPTIONS: &[VerbOption] = &[
+    VERIFY,
+    option(
+        "--mutations MUTATIONS",
+        "also list the rules no mutation of this list targets (untargeted_rules)",
+    ),
+    CACHE,
+    OUTPUT,
+];
+
+const RUN_OPTIONS: &[VerbOption] = &[
+    option(
+        "--only ID",
+        "judge only this mutation of the list (repeatable)",
+    ),
+    VERIFY,
+    option(
+        "--order cost|corpus",
+        "the order the first-kill search tries programs in (default: cost); not with --full",
+    ),
+    option(
+        "--full",
+        "run every comparable program on every mutation, and list every killer (killed_by)",
+    ),
+    option(
+        "--compile-workers N",
+        "compile mutants ahead of their turn on up to N threads (default: 4)",
+    ),
+    option("--no-memo", "read and write none of the warm path's memos"),
+    option(
+        "--progress",
+        "print a line on stderr as each phase starts and as each row is decided (also without \
+         the flag when stderr is a terminal)",
+    ),
+    CACHE,
+    OUTPUT,
+];
+
+const REPORT_OPTIONS: &[VerbOption] = &[CACHE, OUTPUT];
+
+const QUERY_OPTIONS: &[VerbOption] = &[
+    option(
+        "--only ID",
+        "answer only this pattern of the list (repeatable)",
+    ),
+    VERIFY,
+    CACHE,
+];
+
+const FUZZ_OPTIONS: &[VerbOption] = &[
+    option(
+        "--template ID",
+        "the template whose holes are searched (required)",
+    ),
+    option(
+        "--kill MUTATION",
+        "the job: hole values whose program kills this mutation of --mutations",
+    ),
+    option(
+        "--mutations MUTATIONS",
+        "the mutation list --kill names a mutation of",
+    ),
+    option(
+        "--matched RULE",
+        "the job: hole values whose program matches RULE (FILE:LINE, a label or an id)",
+    ),
+    option(
+        "--fired RULE",
+        "the job: hole values whose program fires RULE",
+    ),
+    option(
+        "--pattern ID",
+        "the job: hole values whose program hits this pattern of --patterns",
+    ),
+    option(
+        "--patterns PATTERNS.toml",
+        "the pattern list --pattern names a pattern of",
+    ),
+    option("--cases N", "try N cases (default: 1000)"),
+    option(
+        "--work W",
+        "bound the search by the work W in place of a number of cases",
+    ),
+    option("--seed S", "the proposer's seed (default: 0)"),
+    option(
+        "--max-work N",
+        "the work bound of each case (default: 100000)",
+    ),
+    option(
+        "--time-limit-ms T",
+        "cancel the campaign's run after T ms (not the admission and compiles before it)",
+    ),
+    option(
+        "--assume-joined NAME",
+        "read this critical-pair finding as joined, for this command (repeatable)",
+    ),
+    option(
+        "--one-path",
+        "a case is a hit when one path tells the sides apart, not all paths",
+    ),
+    option(
+        "--cache DIR",
+        "the cache whose last run document is read (default: .kink-flow beside FLOW.toml)",
+    ),
+    option(
+        "--no-confirm",
+        "skip kink's own confirmation of the witness",
+    ),
+    option(
+        "--no-filter",
+        "do not judge candidates by kink's rules inside the campaign",
+    ),
+];
+
+/// `kink-flow VERB --help`: the verb's usage line, what it asks, and its options.
+#[must_use]
+pub fn verb_help(verb: Verb) -> String {
+    format!(
+        "usage: kink-flow {}\n\n{}\n\nOptions:\n{}\nExit status: 0 yes, 1 a finding, 2 the \
+         question could not be asked, 3 no answer (`kink-flow --help`).\nReference: \
+         kink/crates/kink-flow/README.md, \"{}\"\n",
+        verb.synopsis(),
+        verb.summary(),
+        options_text(verb.options()),
+        verb.reference(),
+    )
+}
+
+/// `options`, one per line, each meaning aligned after the longest spelling.
+#[must_use]
+pub fn options_text(options: &[VerbOption]) -> String {
+    let width = options
+        .iter()
+        .map(|option| option.spelling.len())
+        .max()
+        .unwrap_or(0);
+    let mut text = String::new();
+    for option in options {
+        text.push_str(&format!(
+            "  {:width$}  {}\n",
+            option.spelling, option.meaning
+        ));
+    }
+    text
 }
 
 /// Run `body` on a thread with kink-corpus's definition stack allowance, and wait for it; `None`
@@ -281,6 +528,87 @@ impl Verb {
     /// The verb spelled `name`.
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|verb| verb.as_str() == name)
+    }
+
+    /// `kink-flow <verb>`'s usage line after `kink-flow`: the verb, its operands and its
+    /// options, as [`USAGE`] lists it.
+    #[must_use]
+    pub const fn synopsis(self) -> &'static str {
+        match self {
+            Self::Check => "check FLOW.toml [--mutations MUTATIONS] [--cache DIR]",
+            Self::Results => {
+                "results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] [--output \
+                 json|verdicts]"
+            }
+            Self::Run => {
+                "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--full] \
+                 [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
+                 json|verdicts]"
+            }
+            Self::Report => "report FLOW.toml [--cache DIR] [--output json|verdicts]",
+            Self::Query => "query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]",
+            Self::Fuzz => {
+                "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
+                 MUTATIONS | --matched RULE | --fired RULE | --pattern ID --patterns \
+                 PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] \
+                 [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] \
+                 [--no-confirm] [--no-filter]"
+            }
+        }
+    }
+
+    /// What the verb asks, in one line, as its help states it.
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::Check => {
+                "Whether every verdict the corpus promises is possible, before any mutant runs; \
+                 with --mutations, also each mutation's resolution, shown before and after."
+            }
+            Self::Results => {
+                "What each program's baseline run computes: its class, the rules it matches and \
+                 fires, and whether it meets its expectation."
+            }
+            Self::Run => {
+                "Each mutation's verdict: is there a program of the corpus whose result the \
+                 mutation changes?"
+            }
+            Self::Report => {
+                "The last run's stored document (or its verdicts), as that run printed it."
+            }
+            Self::Query => {
+                "Whether each program reaches a state that matches each pattern of the list."
+            }
+            Self::Fuzz => {
+                "Hole values of a template whose program is a witness of the job: it kills a \
+                 mutation, matches or fires a rule, or hits a pattern; kink confirms it."
+            }
+        }
+    }
+
+    /// The verb's own options, which its help lists; its operands are not among them.
+    #[must_use]
+    pub const fn options(self) -> &'static [VerbOption] {
+        match self {
+            Self::Check => CHECK_OPTIONS,
+            Self::Results => RESULTS_OPTIONS,
+            Self::Run => RUN_OPTIONS,
+            Self::Report => REPORT_OPTIONS,
+            Self::Query => QUERY_OPTIONS,
+            Self::Fuzz => FUZZ_OPTIONS,
+        }
+    }
+
+    /// The section of kink-flow's README that states the verb.
+    const fn reference(self) -> &'static str {
+        match self {
+            Self::Check => "kink-flow check",
+            Self::Results => "kink-flow results",
+            Self::Run => "kink-flow run",
+            Self::Report => "kink-flow report",
+            Self::Query => "Checking a pattern",
+            Self::Fuzz => "Killing a survivor with fuzz",
+        }
     }
 
     /// The operands `kink-flow <verb>` takes before its options.
@@ -380,6 +708,21 @@ pub struct CommandFiles {
     pub templates: Option<PathBuf>,
 }
 
+/// The ids a list holds, as a usage error names them: the first few, and how many more.
+fn ids<'a>(ids: impl Iterator<Item = &'a str>) -> String {
+    const SHOWN: usize = 6;
+    let ids = ids.collect::<Vec<_>>();
+    match ids.len() {
+        0 => "it has none".to_owned(),
+        count if count <= SHOWN => format!("it has {}", ids.join(", ")),
+        count => format!(
+            "it has {}, and {} more",
+            ids[..SHOWN].join(", "),
+            count - SHOWN
+        ),
+    }
+}
+
 /// One parsed command ([`FlowCommand::parse`]).
 #[derive(Clone, Debug)]
 pub enum FlowCommand {
@@ -450,7 +793,11 @@ impl FlowCommand {
                         .iter()
                         .find(|id| !list.mutations.iter().any(|m| &m.id == *id))
                 {
-                    return Err(format!("--only {id}: no mutation has this id"));
+                    return Err(format!(
+                        "--only {id}: no mutation of {} has this id ({})",
+                        mutations.display(),
+                        ids(list.mutations.iter().map(|m| m.id.as_str()))
+                    ));
                 }
                 Ok(Self::Run {
                     mutations,
@@ -476,7 +823,11 @@ impl FlowCommand {
                         .iter()
                         .find(|id| !list.patterns.iter().any(|p| &p.id == *id))
                 {
-                    return Err(format!("--only {id}: no pattern has this id"));
+                    return Err(format!(
+                        "--only {id}: no pattern of {} has this id ({})",
+                        patterns.display(),
+                        ids(list.patterns.iter().map(|p| p.id.as_str()))
+                    ));
                 }
                 Ok(Self::Query { patterns, options })
             }
@@ -502,8 +853,10 @@ impl FlowCommand {
                     && list.get(&request.template).is_none()
                 {
                     return Err(format!(
-                        "--template {}: no template has this id",
-                        request.template
+                        "--template {}: no template of {} has this id ({})",
+                        request.template,
+                        templates.display(),
+                        ids(list.templates.iter().map(|t| t.id.as_str()))
                     ));
                 }
                 if let FuzzJobRequest::Kill {
@@ -513,13 +866,24 @@ impl FlowCommand {
                     && let Ok(list) = MutationList::read(mutations)
                     && !list.mutations.iter().any(|m| &m.id == mutation)
                 {
-                    return Err(format!("--kill {mutation}: no mutation has this id"));
+                    // The list may be a front end's default, not the one the last run judged:
+                    // the message names it, and the option that names another.
+                    return Err(format!(
+                        "--kill {mutation}: no mutation of {} has this id ({}); --mutations \
+                         names the list to read",
+                        mutations.display(),
+                        ids(list.mutations.iter().map(|m| m.id.as_str()))
+                    ));
                 }
                 if let FuzzJobRequest::Pattern { id, patterns } = &request.job
                     && let Ok(list) = PatternList::read(patterns)
                     && !list.patterns.iter().any(|p| &p.id == id)
                 {
-                    return Err(format!("--pattern {id}: no pattern has this id"));
+                    return Err(format!(
+                        "--pattern {id}: no pattern of {} has this id ({})",
+                        patterns.display(),
+                        ids(list.patterns.iter().map(|p| p.id.as_str()))
+                    ));
                 }
                 Ok(Self::Fuzz { templates, request })
             }
@@ -1123,6 +1487,7 @@ fn check_options(args: &[String]) -> Result<CheckOptions, String> {
     let mut options = CheckOptions::default();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
+        listed(Verb::Check, arg)?;
         match arg.as_str() {
             "--mutations" if options.mutations.is_none() => {
                 let list = args.next().ok_or("--mutations needs a file or directory")?;
@@ -1152,6 +1517,7 @@ fn results_options(args: &[String]) -> Result<(ResultsOptions, OutputFormat), St
     let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
+        listed(Verb::Results, arg)?;
         match arg.as_str() {
             "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--verify" if !options.verify => options.verify = true,
@@ -1177,6 +1543,7 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
     let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
+        listed(Verb::Run, arg)?;
         match arg.as_str() {
             "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--verify" if mode == RunMode::Search => mode = RunMode::Verify,
@@ -1235,6 +1602,7 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
     let mut options = QueryOptions::default();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
+        listed(Verb::Query, arg)?;
         match arg.as_str() {
             "--verify" if !options.verify => options.verify = true,
             "--only" => {
@@ -1295,6 +1663,10 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     let (mut one_path, mut no_confirm, mut no_filter) = (false, false, false);
     let mut args = args.iter();
     while let Some(arg) = args.next() {
+        // A retired flag is refused with what replaced it, though no table lists it.
+        if !matches!(arg.as_str(), "--reach" | "--attempts") {
+            listed(Verb::Fuzz, arg)?;
+        }
         match arg.as_str() {
             "--template" if template.is_none() => {
                 template = Some(args.next().ok_or("--template needs a template id")?.clone());
@@ -1454,6 +1826,7 @@ fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), Stri
     let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
+        listed(Verb::Report, arg)?;
         match arg.as_str() {
             "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--cache" if options.cache.is_none() => {
@@ -1995,5 +2368,61 @@ pub fn finding_next(finding: &kink_native::data::NamedFinding) -> String {
              precondition is met), name `{name}` in [spec] assume_joined; otherwise fix the \
              definition"
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A value the option parsers accept for the value name `name` of a listed option.
+    fn value(name: &str) -> &'static str {
+        match name {
+            "cost|corpus" => "cost",
+            "json|verdicts" => "json",
+            "N" | "W" | "S" | "T" => "1",
+            _ => "value",
+        }
+    }
+
+    /// Every option a verb's table lists is one its parser accepts: given alone with a value of
+    /// its kind, no option is an unexpected argument (the parser may still ask for the rest of
+    /// the command line). With [`listed`], which refuses every flag the table does not list, the
+    /// table and the parser accept the same flags.
+    #[test]
+    fn every_listed_option_is_one_the_parser_accepts() {
+        for verb in Verb::ALL {
+            for option in verb.options() {
+                let mut args = vec![option.flag().to_owned()];
+                if let Some((_, name)) = option.spelling.split_once(' ') {
+                    args.push(value(name).to_owned());
+                }
+                let error = match verb {
+                    Verb::Check => check_options(&args).err(),
+                    Verb::Results => results_options(&args).err(),
+                    Verb::Run => run_options(&args).err(),
+                    Verb::Report => report_options(&args).err(),
+                    Verb::Query => query_options(&args).err(),
+                    Verb::Fuzz => fuzz_options(&args, &CommandFiles::default()).err(),
+                };
+                assert!(
+                    !error
+                        .as_deref()
+                        .is_some_and(|error| error.starts_with("unexpected argument")),
+                    "{} {args:?}: {error:?}",
+                    verb.as_str()
+                );
+            }
+            let unlisted = ["--unlisted".to_owned()];
+            let error = match verb {
+                Verb::Check => check_options(&unlisted).err(),
+                Verb::Results => results_options(&unlisted).err(),
+                Verb::Run => run_options(&unlisted).err(),
+                Verb::Report => report_options(&unlisted).err(),
+                Verb::Query => query_options(&unlisted).err(),
+                Verb::Fuzz => fuzz_options(&unlisted, &CommandFiles::default()).err(),
+            };
+            assert_eq!(error.as_deref(), Some("unexpected argument \"--unlisted\""));
+        }
     }
 }
