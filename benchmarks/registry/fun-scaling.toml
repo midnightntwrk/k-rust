@@ -1,5 +1,6 @@
-# FUN scaling workloads rescued from the CB-20 evidence (draft/conformance-backlog/workers/CB-20-evidence/)
-# and the CB-12 conformance throughput programs. Notes: benchmarks/programs/fun/scaling/README.md.
+# FUN scaling workloads from the measurement of FUN's tail-recursion slowdown (at bac3841; fixed at af43672,
+# which keeps terms across path replacement) and the slowest FUN tutorial program. Notes:
+# benchmarks/programs/fun/scaling/README.md.
 version = 1
 
 [[workload]]
@@ -7,8 +8,8 @@ id = "fun/krun-tail-recursion"
 semantics = "fun"
 operation = "execute"
 title = "Run the tutorial's tail-recursion.fun (1,000 iterations without the tail-call rule)"
-stresses = "Each iteration leaves one `setEnv` item behind the head of `<k>`, so the cost per step must not grow with the length of `<k>` (123.7 s before CB-20-B, 1.1 s on 2026-10-16)."
-origin = "CB-20 cohort B (draft/conformance-backlog/workers/CB-20.md; fix CB-20-B at af43672)"
+stresses = "Each iteration leaves one `setEnv` item behind the head of `<k>`, so the cost per step must not grow with the length of `<k>` (123.7 s before af43672, 1.1 s on 2026-10-16)."
+origin = "the FUN tail-recursion slowdown: the tutorial program, whose tail-call rule FUN comments out (measured at bac3841, fixed at af43672)"
 tier = "quick"
 pins = ["k"]
 [workload.krust]
@@ -39,8 +40,8 @@ id = "fun/krun-tail-recursion-ladder"
 semantics = "fun"
 operation = "execute"
 title = "Run tail-recursion.fun with n iterations"
-stresses = "The `<k>` cell grows by one `setEnv` item per iteration; the cost per iteration must stay flat in n (it grew linearly, so the total quadratically, before CB-20-B)."
-origin = "draft/conformance-backlog/workers/CB-20-evidence/runs/e-tr-n*.fun (CB-20 cohort B scaling, bac3841)"
+stresses = "The `<k>` cell grows by one `setEnv` item per iteration; the cost per iteration must stay flat in n (it grew linearly, so the total quadratically, before af43672)."
+origin = "tail-recursion.fun on one line with ref n, the scaling ladder of the FUN tail-recursion slowdown (measured at bac3841)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -67,7 +68,7 @@ semantics = "fun"
 operation = "execute"
 title = "Run a callcc loop of n iterations (constant-state control)"
 stresses = "The control of the tail-recursion ladder: the continuation restores `<k>` on every jump, so the configuration stays the same size and the cost is linear in n."
-origin = "draft/conformance-backlog/workers/CB-20-evidence/runs/e-loop-n*.fun (CB-20, the constant-state control)"
+origin = "a callcc loop of n iterations, the constant-state control of the FUN tail-recursion ladder (measured at bac3841)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -96,7 +97,7 @@ semantics = "fun"
 operation = "execute"
 title = "Run the tutorial's constructor-bst-sorting.fun (tree sort of 22 numbers)"
 stresses = "Constructor pattern matching and closures over a growing store; the slowest FUN tutorial program (50-99 s of CPU at 927b9ce6, 1.1 s on 2026-10-16)."
-origin = "CB-20 / CB-12 conformance case pl-tutorial/2_languages/3_fun/1_untyped/1_environment (scripts/conformance/expectations.toml; draft/open-issues-2026-10/units/apart-perf.md)"
+origin = "a program of the conformance case pl-tutorial/2_languages/3_fun/1_untyped/1_environment (scripts/conformance/expectations.toml)"
 tier = "quick"
 pins = ["k"]
 [workload.krust]
