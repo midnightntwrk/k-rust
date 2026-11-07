@@ -31,7 +31,7 @@ use krs_ir_levels::{SemanticModule, SemanticRule, SemanticTerm};
 use crate::instance_keys::{defined_function, evaluated_applications, term_applications};
 
 use super::error::DescriptorLoweringError;
-use super::origin::key_range;
+use super::origin::{key_range, semantic_cell_id};
 use super::references::{declared_multiplicity, require_cell_field};
 
 /// The definition's configuration read as a preorder tree, each cell beside the declaration
@@ -726,11 +726,12 @@ fn check_main_cell_holders(
 }
 
 /// The holders whose one instance the semantic rule `rule` is a step of, where it is evaluated
-/// ([`subject_path`]): its subject's for a sentence typed by a group; the instances of the cells
-/// it matches for a rule typed by the configuration ([`crate::instance_keys::rule_instances`],
-/// the one definition lowering binds keys by); its own context's for an equation with a function
-/// context; none for a claim, which is about the whole transition system; and the main cell's for
-/// every other sentence, which runs at the main cell.
+/// ([`subject_path`]): its subject's for a sentence typed by a group, extended into the instance
+/// an entry of its steps; the instances of the cells it matches for a rule typed by the
+/// configuration, and of the instances its entries step
+/// ([`crate::instance_keys::entry_instances`], the one definition lowering binds keys by); its own
+/// context's for an equation with a function context; none for a claim, which is about the whole
+/// transition system; and the main cell's for every other sentence, which runs at the main cell.
 fn rule_path(
     rule: &SemanticRule,
     declarations: &DescriptorIndex<'_>,
@@ -746,18 +747,31 @@ fn rule_path(
     };
     match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(sentence) => {
-            if let Some(subject) = &sentence.subject_configuration.subject {
-                subject_path(tree, Some(subject))
-            } else {
-                // A rule typed by the configuration runs where the cells it matches are; one
-                // whose cells lie off one chain was refused first ([`check_rule_instances`]).
-                crate::instance_keys::rule_instances(
-                    matched_paths(sentence, tree)
-                        .into_iter()
-                        .map(|(_, path)| path),
-                )
-                .unwrap_or_default()
-            }
+            let stepped = stepped_entries(rule);
+            let subject = sentence
+                .subject_configuration
+                .subject
+                .as_ref()
+                .map(|subject| subject_path(tree, Some(subject)));
+            // A rule typed by a group runs in the group's instance, and a rule typed by the
+            // configuration where the cells it matches are, one whose cells lie off one chain
+            // having been refused first ([`check_rule_instances`]); either is a step of the
+            // instance an entry of its steps. A group's own cells lie in its instance.
+            let matched = matched_paths(sentence, tree)
+                .into_iter()
+                .map(|(cell, path, holder)| {
+                    let steps = holder.is_some()
+                        && semantic_cell_id(&cell.field.cell)
+                            .is_ok_and(|cell| stepped.contains(&cell));
+                    (path, holder.filter(|_| steps))
+                })
+                .filter(|(_, stepped)| {
+                    sentence.subject_configuration.subject.is_none() || stepped.is_some()
+                });
+            crate::instance_keys::entry_instances(
+                subject.map(|path| (path, None)).into_iter().chain(matched),
+            )
+            .unwrap_or_default()
         }
         DescriptorPayload::ContextAlias(alias) => {
             subject_path(tree, alias.configuration.subject.as_ref())
@@ -772,11 +786,30 @@ fn rule_path(
 
 /// A cell the subject of a configuration rule matches, with its instance path: the `?` and `*`
 /// cells strictly above it, outermost first. A holder's own entry (an instance list, an optional
-/// cell's state) matches the holder whole, in none of its instances, so its path stops above it.
+/// cell's state) matches the holder whole, in none of its instances, so its path stops above it,
+/// and the holder is given beside it: an instance list that steps one instance
+/// ([`stepped_entries`]) extends the path into it.
 type MatchedPath<'s> = (
     &'s krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, krs_ir::DescriptorTerm>,
     Vec<usize>,
+    Option<usize>,
 );
+
+/// The collection cells whose entry in the configuration rule `rule` steps one instance
+/// ([`krs_ir::InstancesClause::stepped_instance`]).
+fn stepped_entries(rule: &SemanticRule) -> BTreeSet<krs_ir::SemanticId> {
+    let krs_ir_levels::RuleBodyRef::Configuration { body, .. } = rule.relational_body() else {
+        return BTreeSet::new();
+    };
+    body.clauses()
+        .iter()
+        .filter(|clause| {
+            matches!(clause, krs_ir::ConfigurationClause::Instances(entry)
+                if entry.stepped_instance().is_some())
+        })
+        .map(|clause| clause.cell().clone())
+        .collect()
+}
 
 /// The cells the subject of `sentence` matches, in order, each with its instance path
 /// ([`MatchedPath`]).
@@ -796,10 +829,8 @@ fn matched_paths<'s>(
         .filter_map(|cell| {
             let index = cell_index(tree, &cell.field.cell)?;
             let mut path = instance_path(tree, index);
-            if path.last() == Some(&index) {
-                path.pop();
-            }
-            Some((cell, path))
+            let holder = (path.last() == Some(&index)).then(|| path.pop()).flatten();
+            Some((cell, path, holder))
         })
         .collect()
 }
@@ -856,15 +887,16 @@ fn check_rule_instances(
         let paths = matched_paths(sentence, tree);
         // The first of the deepest cells, so that a later cell is the one refused where two
         // are as deep: the computation cell a clause runs at comes before its `have`.
-        let Some((deep, deepest)) = paths.iter().rev().max_by_key(|(_, path)| path.len()) else {
+        let Some((deep, deepest, _)) = paths.iter().rev().max_by_key(|(_, path, _)| path.len())
+        else {
             continue;
         };
         if deepest.is_empty() {
             continue;
         }
-        let Some((cell, path)) = paths
+        let Some((cell, path, _)) = paths
             .iter()
-            .find(|(_, path)| path.is_empty() || !deepest.starts_with(path))
+            .find(|(_, path, _)| path.is_empty() || !deepest.starts_with(path))
         else {
             continue;
         };

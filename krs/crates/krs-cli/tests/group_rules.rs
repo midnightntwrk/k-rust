@@ -4442,8 +4442,8 @@ fn cid_plus(
 /// The cases of [`a_rule_is_inside_the_deepest_instance_its_cells_lie_in`]:
 /// a table clause at the main cell, inside a core, whose `have` names one or
 /// two cells of a thread, with a thread-context call or none; a rule for the
-/// configuration that matches a core through the cores' instance list,
-/// readable and `cells!`.
+/// configuration whose entry of the cores steps one core, readable and
+/// `cells!`.
 const DEEPEST_CASES: [(&str, &str); 5] = [
     (
         "thread-cell",
@@ -4521,10 +4521,11 @@ pub fn go(
 /// Without the call the clause is still inside the thread, which then passes
 /// no key: it matches the `tenv` of one thread of the core and ends at
 /// `done ( 7 )`. A rule for the
-/// configuration that matches a core through the cores' instance list is
-/// about the collection whole, so it is inside no core and cannot apply
-/// `cidPlus`, in either spelling: no `cells!` rule matches a computation cell
-/// inside an instance otherwise.
+/// configuration whose entry of the cores matches one core, keeps it and
+/// carries the others unchanged is a step of that core, in either spelling:
+/// it applies `cidPlus`, passing the core's key, which the entry's `<core>`
+/// binds, and ends at `done ( 1 )`
+/// ([`an_entry_that_steps_one_instance_is_inside_it`]).
 #[test]
 fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
     let target = shared_fixture_target();
@@ -4580,13 +4581,13 @@ fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
             ],
             [
                 "instance-list",
-                "error[krs::analysis::instance-context-caller]: `CidPlus` reads the cell group `Core` through its function context in one instance of the Map collection cell `core`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
-                "--> smt/src/lib.rs: `crate::CidPlus(1`",
+                "rule [go]: <core> <k> go ~> Tail0:K => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ~> Tail0:K </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 1 ) ~> .K",
             ],
             [
                 "instance-list-cells",
-                "error[krs::analysis::instance-context-caller]: `CidPlus` reads the cell group `Core` through its function context in one instance of the Map collection cell `core`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
-                "--> smt/src/lib.rs: `crate::CidPlus(1`",
+                "rule [go]: <core> <k> go ~> Tail:K => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ~> Tail:K </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 1 ) ~> .K",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
@@ -4654,6 +4655,179 @@ fn a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet() {
                 "top-level, no contexts",
                 "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
                 "--> smt/src/lib.rs: `mem[0 -> let v];`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// The `cells!` form of [`DEEPEST_CASES`]' `thread-cell` clause, written by
+/// hand: a rule for `Core` whose entry of the threads matches one thread,
+/// keeps it and carries the others unchanged.
+const THREAD_ENTRY_CELLS: &str = r#"
+#[k::rule(label = "go")]
+pub fn go(
+    v: k::Term<k::builtin::Int>,
+    k::cells! {
+        k: k::configuration::KCell(crate::Step::Go(), ..),
+        Threads::thread: {
+            me @ k::fragment![crate::Thread { tenv: k::map![0 -> v, ..], .. }],
+            others @ ..
+        },
+        state @ ..
+    }: crate::Core,
+) -> crate::Core {
+    k::cells! {
+        k: k::configuration::KCell(crate::Step::Done(crate::TvPlus(v)), ..),
+        Threads::thread: { k::fragment![crate::Thread { ..me }], ..others },
+        ..state
+    }
+}
+"#;
+
+/// The entries of [`an_entry_that_steps_one_instance_is_inside_it`] that are
+/// about the holder whole, each with a thread-context call: one that matches
+/// two threads, one that adds a thread beside the one it keeps, and one
+/// without `..`, which names every thread.
+const HOLDER_ENTRY_CASES: [(&str, &str, &str); 3] = [
+    (
+        "two-threads",
+        "me @ k::fragment![crate::Thread { tenv: k::map![0 -> v, ..], .. }], other @ k::fragment![crate::Thread { .. }], others @ ..",
+        "k::fragment![crate::Thread { ..me }], k::fragment![crate::Thread { ..other }], ..others",
+    ),
+    (
+        "added-thread",
+        "me @ k::fragment![crate::Thread { tenv: k::map![0 -> v, ..], .. }], others @ ..",
+        "k::fragment![crate::Thread { ..me }], k::fragment![crate::Thread { tid: 1, .. }], ..others",
+    ),
+    (
+        "every-thread",
+        "me @ k::fragment![crate::Thread { tenv: k::map![0 -> v, ..], .. }]",
+        "k::fragment![crate::Thread { ..me }]",
+    ),
+];
+
+/// An entry of a collection that matches one instance, keeps it and carries
+/// the other instances unchanged is a step of that instance: the instance's
+/// key cell is matched, so the key is determined, and the rule is inside the
+/// instance as the readable clause it prints for is. So the `cells!` form of
+/// the `thread-cell` clause, a rule for `Core` whose entry steps one thread,
+/// applies `tvPlus`, passing the core's and the thread's keys, and emits the
+/// readable clause's K: the same cells, with the thread's `<tid>` bound inside
+/// the entry's `<thread>` and the core's `<cid>` beside it, in another order
+/// in `<core>`, whose cells K matches by name. It runs to the same
+/// `done ( 12 )`. An entry about the threads whole (two
+/// threads, a thread added, every thread) still determines no thread, and
+/// `tvPlus` is refused from it.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The cases, their runs and the comparison of the two accepted forms read as one table."
+)]
+fn an_entry_that_steps_one_instance_is_inside_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut cases = vec![
+        ("readable", DEEPEST_CASES[0].1.to_owned()),
+        ("cells", THREAD_ENTRY_CELLS.to_owned()),
+    ];
+    cases.extend(HOLDER_ENTRY_CASES.iter().map(|(name, subject, result)| {
+        (
+            *name,
+            THREAD_ENTRY_CELLS
+                .replace(
+                    "me @ k::fragment![crate::Thread { tenv: k::map![0 -> v, ..], .. }],\n            others @ ..",
+                    subject,
+                )
+                .replace(
+                    "k::fragment![crate::Thread { ..me }], ..others",
+                    result,
+                ),
+        )
+    }));
+    // The entry's instance names its key cell with a wildcard, which the key
+    // should bind in place. KNOWN DEFECT (IC step 2): lowering leaves the
+    // wildcard's declared variable without a use, an internal error; pinned
+    // until it is fixed.
+    cases.push((
+        "wildcard-key",
+        THREAD_ENTRY_CELLS.replace("Thread { tenv:", "Thread { tid: _, tenv:"),
+    ));
+    let mut emitted_go = Vec::new();
+    let outcomes = cases
+        .iter()
+        .map(|(name, rules)| {
+            let manifest = instance_definitions(
+                &temporary.path().join(name),
+                "",
+                &[("smt", &format!("{SMT}{TV_PLUS}{rules}"))],
+            )
+            .remove(0);
+            let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
+            let mut report = vec![(*name).to_owned()];
+            if !success {
+                report.extend(check_report(target.path(), &manifest, "smt"));
+                return report;
+            }
+            let flat = emitted(target.path(), &manifest, "smt");
+            let rule = sentence(&flat, "rule [go]:").to_owned();
+            report.push(rule.clone());
+            emitted_go.push(rule);
+            let path = manifest.with_file_name("program.txt");
+            fs::write(&path, "go").unwrap();
+            let (success, stdout, stderr) = krs_on(
+                target.path(),
+                &manifest,
+                "smt",
+                "run",
+                &[path.to_str().unwrap()],
+            );
+            assert!(success, "{name}:\n{stdout}\n{stderr}");
+            report.push(cell(&whitespace(&stdout), "k"));
+            report
+        })
+        .collect::<Vec<_>>();
+    // The same cells, the core's key cell at another place among the `<core>` items.
+    let core_key = "<cid> Krs_KeyCore:Int </cid> ";
+    assert_eq!(emitted_go.len(), 2, "{outcomes:#?}");
+    for rule in &emitted_go {
+        assert_eq!(rule.matches(core_key).count(), 1, "{rule}");
+    }
+    assert_eq!(
+        emitted_go[0].replace(core_key, ""),
+        emitted_go[1].replace(core_key, "")
+    );
+    expect_test::expect![[r#"
+        [
+            [
+                "readable",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "cells",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "two-threads",
+                "error[krs::analysis::instance-context-caller]: `TvPlus` reads the cell group `Thread` through its function context in one instance of the Map collection cell `thread`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smt/src/lib.rs: `crate::TvPlus(v)`",
+            ],
+            [
+                "added-thread",
+                "error[krs::analysis::instance-context-caller]: `TvPlus` reads the cell group `Thread` through its function context in one instance of the Map collection cell `thread`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smt/src/lib.rs: `crate::TvPlus(v)`",
+            ],
+            [
+                "every-thread",
+                "error[krs::analysis::instance-context-caller]: `TvPlus` reads the cell group `Thread` through its function context in one instance of the Map collection cell `thread`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smt/src/lib.rs: `crate::TvPlus(v)`",
+            ],
+            [
+                "wildcard-key",
+                "error[krs::analysis::invalid-definition]: internal error (a KRS bug): invalid lowered Definition IR: declared variables must exactly match sentence uses",
+                "= help: this is a bug in KRS, not in the program: please report it with the source that reached it",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);

@@ -324,6 +324,26 @@ impl InstanceKeys {
         .unwrap_or_default()
     }
 
+    /// The instances a configuration rule with `clauses` is about, outermost first
+    /// ([`entry_instances`] over each clause's instance path, and the holder whose one instance
+    /// an entry steps).
+    fn configuration_chain(
+        &self,
+        clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
+    ) -> Vec<SemanticId> {
+        entry_instances(clauses.iter().filter_map(|clause| {
+            let path = self.chains.get(clause.cell())?.clone();
+            let stepped = match clause {
+                ConfigurationClause::Instances(entry) if entry.stepped_instance().is_some() => {
+                    Some(entry.cell().clone())
+                }
+                _ => None,
+            };
+            Some((path, stepped))
+        }))
+        .unwrap_or_default()
+    }
+
     /// The Map collection cells of `chain`.
     fn map_holders(&self, chain: &[SemanticId]) -> Vec<SemanticId> {
         chain
@@ -344,6 +364,14 @@ impl InstanceKeys {
     /// The Map collection cell `cell`.
     pub(crate) fn holder(&self, cell: &SemanticId) -> Option<&Holder> {
         self.holders.get(cell)
+    }
+
+    /// The Map collection cell whose instances `key` is the key cell of.
+    pub(crate) fn key_holder(&self, key: &SemanticId) -> Option<&SemanticId> {
+        self.holders
+            .iter()
+            .find(|(_, holder)| holder.key == *key)
+            .map(|(cell, _)| cell)
     }
 
     /// The holders whose keys `function` receives after its own arguments, outermost first;
@@ -426,13 +454,17 @@ impl InstanceKeys {
         let fresh = |holder: &SemanticId, bind: bool| self.fresh(holder, bind);
         match rule.relational_body() {
             RuleBodyRef::Configuration { body, .. } => {
-                let chain = self.chain(body.clauses().iter().map(ConfigurationClause::cell));
+                let chain = self.configuration_chain(body.clauses());
                 holders
                     .iter()
                     .map(|holder| {
                         let key = &self.holders[holder].key;
+                        // The key cell lies in the holder's instance: a clause of its own where
+                        // the rule names that instance's cells, or a child of the instance an
+                        // entry of the holder steps.
                         let pattern = body
                             .fixed_clauses()
+                            .chain(stepped_children(body.clauses(), holder))
                             .find(|clause| clause.cell() == key)
                             .map(krs_ir::FixedCellClause::before);
                         Self::bound(holder, pattern, chain.contains(holder))
@@ -601,7 +633,8 @@ impl InstanceKeys {
 /// prefix; `None` where two paths are not on one chain of nested instances. A path is the
 /// optional (`?`) and collection (`*`) cells strictly above a cell, outermost first; a holder's
 /// own entry (an instance list, an optional cell's state) matches the holder whole, in none of
-/// its instances, so its path stops above it.
+/// its instances, so its path stops above it, except an instance list that steps one instance
+/// ([`entry_instances`]).
 ///
 /// A matched cell is in one instance of each holder on its path, and the rule's cells are
 /// matched together: the emitted rule writes each clause inside the cells of the instances it
@@ -615,8 +648,8 @@ impl InstanceKeys {
 /// the hart alone, and refuse the thread's function although the rule determines the thread.
 ///
 /// Several instances of one holder are matched only through the holder's instance list, whose
-/// entry stops above the holder, so they never make the path ambiguous: such a rule is about the
-/// holder whole, and a function evaluated in one of its instances is refused from it.
+/// entry then stops above the holder, so they never make the path ambiguous: such a rule is
+/// about the holder whole, and a function evaluated in one of its instances is refused from it.
 ///
 /// Two paths off one chain (a hart's cell and a cell of a device beside the harts) name
 /// instances of holders neither of which holds the other, so no one instance of each holder on
@@ -635,6 +668,55 @@ pub(crate) fn rule_instances<T: PartialEq + Clone>(
         .iter()
         .all(|path| deepest.starts_with(path))
         .then_some(deepest)
+}
+
+/// The instances a rule is a local step of ([`rule_instances`]), where an entry of a holder
+/// that matches one instance and carries the rest unchanged
+/// ([`krs_ir::InstancesClause::stepped_instance`]) is a step of that instance. Each matched cell
+/// is given as its instance path and, for such an entry, the holder whose instance it steps,
+/// which extends the path by one.
+///
+/// The entry matches the holder's collection only through that one instance: the other
+/// instances are framed and carried unchanged, so what the step reads and writes are that
+/// instance's cells, and its key cell is matched, so the key is determined. An entry that
+/// matches several instances, creates or removes one, or names every instance is about the
+/// holder whole, and its path stops above the holder.
+///
+/// Where the instances the entries step and the cells lie in are on no one chain (one thread and
+/// one job of a core, each through its entry), the rule is a step of the instances its cells
+/// lie in and its entries stop above their holders, as for an entry about the holder whole:
+/// stepping both instances would leave it about no one instance, although the core is
+/// determined.
+pub(crate) fn entry_instances<T: PartialEq + Clone>(
+    paths: impl IntoIterator<Item = (Vec<T>, Option<T>)>,
+) -> Option<Vec<T>> {
+    let paths = paths.into_iter().collect::<Vec<_>>();
+    rule_instances(paths.iter().map(|(path, stepped)| {
+        let mut path = path.clone();
+        path.extend(stepped.iter().cloned());
+        path
+    }))
+    .or_else(|| rule_instances(paths.into_iter().map(|(path, _)| path)))
+}
+
+/// The children of the instance the entry of `holder` among `clauses` steps
+/// ([`krs_ir::InstancesClause::stepped_instance`]); none where no entry of `holder` steps one.
+pub(crate) fn stepped_children<'c, C: PartialEq, T>(
+    clauses: &'c [ConfigurationClause<C, T>],
+    holder: &C,
+) -> impl Iterator<Item = &'c krs_ir::FixedCellClause<C, T>> {
+    clauses
+        .iter()
+        .filter_map(move |clause| match clause {
+            ConfigurationClause::Instances(entry) if entry.cell() == holder => {
+                match entry.stepped_instance()? {
+                    krs_ir::InstanceClause::Kept { children, .. } => Some(children.iter()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .flatten()
 }
 
 /// What a key cell's pattern binds the key to.

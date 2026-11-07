@@ -1458,6 +1458,23 @@ impl<C, T> InstancesClause<C, T> {
     pub const fn is_open(&self) -> bool {
         self.open
     }
+
+    /// The one instance this entry is a step of, where it is one: it matches exactly one
+    /// instance and keeps it, read or rewritten in place, and frames every other instance, which
+    /// the rewrite therefore carries unchanged. Its children are then cells of that instance,
+    /// and the rest of the collection is no part of the step.
+    ///
+    /// `None` for an entry about the collection whole: one that matches several instances,
+    /// creates or removes one, or names every instance (no `..`), which also states that the
+    /// collection holds no other.
+    #[must_use]
+    pub fn stepped_instance(&self) -> Option<&InstanceClause<C, T>> {
+        match (self.open, &self.front[..], &self.back[..]) {
+            (true, [instance @ InstanceClause::Kept { .. }], [])
+            | (true, [], [instance @ InstanceClause::Kept { .. }]) => Some(instance),
+            _ => None,
+        }
+    }
 }
 
 /// One clause of a simultaneous configuration rewrite.

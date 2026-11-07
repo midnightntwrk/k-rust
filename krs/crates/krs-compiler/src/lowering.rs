@@ -2950,9 +2950,61 @@ fn sentence_keys(
     Ok((keys, variables, bound))
 }
 
+/// `entry`, an entry that steps one instance, with that instance's key cell `key` matched by
+/// `binder`: its child for the cell, which matches it with a wildcard, takes `binder`, and
+/// otherwise `added`, given exactly then, reads the cell beside the instance's other children.
+fn bind_stepped_key(
+    entry: &krs_ir::InstancesClause<SymbolId, DefinitionTerm>,
+    key: &SymbolId,
+    binder: &DefinitionTerm,
+    added: Option<&FixedCellClause<SymbolId, DefinitionTerm>>,
+) -> krs_ir::InstancesClause<SymbolId, DefinitionTerm> {
+    let bind = |instance: &krs_ir::InstanceClause<SymbolId, DefinitionTerm>| match instance {
+        krs_ir::InstanceClause::Kept {
+            origin,
+            label,
+            children,
+            open,
+        } => {
+            let mut children = children.clone();
+            match children.iter_mut().find(|child| child.cell() == key) {
+                Some(child) => {
+                    *child = FixedCellClause::new(
+                        child.origin().clone(),
+                        key.clone(),
+                        binder.clone(),
+                        child.after().clone(),
+                        child.frame().clone(),
+                    )
+                    .with_kind(child.kind());
+                }
+                None => children.extend(added.cloned()),
+            }
+            krs_ir::InstanceClause::Kept {
+                origin: origin.clone(),
+                label: label.clone(),
+                children,
+                open: *open,
+            }
+        }
+        other => other.clone(),
+    };
+    krs_ir::InstancesClause::new(
+        entry.origin().clone(),
+        entry.cell().clone(),
+        entry.ordering(),
+        entry.front().iter().map(bind).collect(),
+        entry.back().iter().map(bind).collect(),
+        entry.is_open(),
+    )
+}
+
 /// `body` with each key cell of `bound` matched by its holder's variable: where the rule matches
 /// the cell with a wildcard, the variable replaces it, and otherwise a clause KRS adds reads the
-/// cell. `semantic` is the rule body's origin, which the added nodes lower from.
+/// cell. The key cell lies in the instance of its holder the rule is about: where an entry of the
+/// holder steps that instance ([`krs_ir::InstancesClause::stepped_instance`]), the cell is a
+/// child of the entry's instance, and otherwise a clause of the rule. `semantic` is the rule
+/// body's origin, which the added nodes lower from.
 fn bind_key_clauses(
     body: FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     bound: &[(krs_ir::SemanticId, krs_ir::SemanticId, DefinitionSortRef)],
@@ -2974,6 +3026,38 @@ fn bind_key_clauses(
             variable.clone(),
         );
         omitted.retain(|omitted| *omitted != symbol);
+        let holder = names
+            .instance_keys
+            .key_holder(cell)
+            .map(|holder| lower_cell_id(holder, names))
+            .transpose()?;
+        if let Some(entry) = clauses.iter_mut().find_map(|clause| match clause {
+            ConfigurationClause::Instances(entry)
+                if Some(entry.cell()) == holder.as_ref() && entry.stepped_instance().is_some() =>
+            {
+                Some(entry)
+            }
+            _ => None,
+        }) {
+            let written = matches!(
+                entry.stepped_instance(),
+                Some(krs_ir::InstanceClause::Kept { children, .. })
+                    if children.iter().any(|child| *child.cell() == symbol)
+            );
+            let added = if written {
+                None
+            } else {
+                Some(FixedCellClause::new(
+                    key_origin(origins, semantic, "instance-key-cell", item, cell)?,
+                    symbol.clone(),
+                    binder.clone(),
+                    CellPost::Preserve,
+                    CellContentFrame::Exact,
+                ))
+            };
+            *entry = bind_stepped_key(entry, &symbol, &binder, added.as_ref());
+            continue;
+        }
         match clauses.iter_mut().find(|clause| *clause.cell() == symbol) {
             Some(ConfigurationClause::Fixed(clause)) => {
                 *clause = FixedCellClause::new(
