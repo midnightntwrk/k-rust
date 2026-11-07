@@ -6,7 +6,7 @@
 
 import { type ReactNode } from 'react'
 
-import { type ConeDecl, config, groundText, kItem, lean, lineOf, source, span, textSource } from './data'
+import { type ConeDecl, config, fmt, groundText, kItem, lean, lineOf, source, span, textSource } from './data'
 import { coneNumbers, initCount, once, perProject, user } from './numbers'
 import { type Pane, LessonScene, type Step } from './LessonScene'
 import styles from './Lesson.module.css'
@@ -33,9 +33,9 @@ export function TrustScene() {
       title: 'Checked by the kernel',
       items: [
         { key: 'proofs', text: 'every proof' },
-        { key: 'tactics', text: <>the tactics, such as <code>step_cases</code>: they only produce proofs</> },
+        { key: 'tactics', text: <>tactics and generic lemmas, such as <code>deterministic_of</code>: they only produce proofs</> },
         { key: 'exec', text: <>the executable step, tied to <code>Step</code> by <code>step_iff</code></> },
-        { key: 'decisions', text: <>decisions on the data: <code>rulesApart</code>, <code>evalReady</code></> },
+        { key: 'decisions', text: <>decisions on the data, such as peano's <code>checks</code> and <code>evalReady</code></> },
       ],
     },
     {
@@ -81,7 +81,7 @@ export function TrustScene() {
         </div>
       )}
       questions={[
-        { q: <>Why can a bug in the tactic <code>step_cases</code> not make a wrong statement true?</>,
+        { q: <>Why can a bug in a tactic or a generic lemma not make a wrong statement true?</>,
           a: <>A tactic only builds a proof term, which the kernel then checks against the statement. A wrong tactic fails to produce a proof that checks; it cannot change what the statement says.</> },
         { q: 'Which row of the trusted list does the reference differential below bear on?',
           a: <>kompile's. The differential is evidence about krust's output, not a reason anything is correct; the row stays trusted.</> },
@@ -329,5 +329,76 @@ export function SourceBlock({ k }: { k: string }) {
         ))}
       </div>
     </figure>
+  )
+}
+
+// ---- 5. The execution differential ------------------------------------------------------------------
+
+const subjectNames: Record<string, string> = {
+  pe: 'peano', rw: 'rewrite.k', bs: 'bounded search', br: 'branching', ow: 'owise competitors', sub: 'subsorts',
+}
+
+export function ExecutionDiffScene() {
+  const rows = lean.diff21
+  const sum = (k: 'compared' | 'transitions' | 'branching' | 'differences' | 'errors' | 'refSampled' | 'refAgree') => rows.reduce((t, r) => t + r[k], 0)
+  const steps: Step[] = [
+    { say: <>The package's executable step, which lesson 4 proves equal to <code>Step</code>, was compared with krust's own execution of the same KORE, one step at a time.</> },
+    { say: <>Each row is a definition in the fragment: corpus examples and a synthetic family with {rows.filter((r) => r.subject.startsWith('syn')).map((r) => r.subject.replace('syn', '')).join(', ')} rules. The configurations are every one reachable from many small programs, and generated ones no program reaches.</> },
+    { say: <>Some configurations have more than one successor ({fmt(sum('branching'))} of them); the comparison is of the whole set of successors.</> },
+    { say: <>Differences between the two sets, on {fmt(sum('compared'))} configurations: {sum('differences')}. Errors from either side: {sum('errors')}.</> },
+    { say: <>A sample was also run through the reference K backend: {fmt(sum('refAgree'))} of {fmt(sum('refSampled'))} agree.</> },
+    { say: <>This is evidence about the step definition, from two implementations written independently of it. It is not a proof: the proof that the step is K's meaning is Theorem A, lesson 8.</> },
+  ]
+  return (
+    <LessonScene
+      title="The step against two K backends"
+      panes={[]}
+      steps={steps}
+      delay={4200}
+      visual={(at) => (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">definition</th>
+                <th scope="col" className={styles.num}>configurations</th>
+                <th scope="col" className={styles.num}>steps</th>
+                <th scope="col" className={styles.num}>branching</th>
+                <th scope="col" className={styles.num}>differences (krust)</th>
+                <th scope="col" className={styles.num}>reference: agree / sampled</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.subject} className={at === 2 ? (r.branching > 0 ? styles.on : styles.off) : ''}>
+                  <td>{subjectNames[r.subject] ?? `synthetic, ${r.subject.replace('syn', '')} rules`}</td>
+                  <td className={styles.num}>{fmt(r.compared)}</td>
+                  <td className={styles.num}>{fmt(r.transitions)}</td>
+                  <td className={styles.num}>{fmt(r.branching)}</td>
+                  <td className={styles.num}>{r.differences + r.errors}</td>
+                  <td className={styles.num}>{r.refAgree} / {r.refSampled}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>total</td>
+                <td className={styles.num}>{fmt(sum('compared'))}</td>
+                <td className={styles.num}>{fmt(sum('transitions'))}</td>
+                <td className={styles.num}>{fmt(sum('branching'))}</td>
+                <td className={styles.num}>{sum('differences') + sum('errors')}</td>
+                <td className={styles.num}>{fmt(sum('refAgree'))} / {fmt(sum('refSampled'))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      questions={[
+        { q: 'What could make both backends and the package agree and all be wrong?',
+          a: <>A misreading of K shared by all three, or a difference outside what was tested: terms deeper than the enumeration, or k cells with more than two items.</> },
+        { q: 'Why compare with krust at all, if krust is not trusted?',
+          a: <>Agreement between independently written implementations makes a shared mistake less likely; a disagreement would point at a configuration to reason about. Neither is a reason for correctness.</> },
+      ]}
+    />
   )
 }

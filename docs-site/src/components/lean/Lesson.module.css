@@ -607,3 +607,56 @@
     transition: none;
   }
 }
+
+/* Lesson 2: a pattern's set in a small model */
+.setView {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.setHead {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+}
+
+.dots {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.dot {
+  align-items: center;
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 0.45rem;
+  display: grid;
+  gap: 0.1rem;
+  justify-items: center;
+  min-width: 0;
+  padding: 0.4rem 0.2rem;
+}
+
+.dotIn {
+  background: var(--tint-focus);
+  border-color: var(--vocs-color-blue);
+}
+
+.dotMark {
+  font-family: var(--vocs-font-mono);
+  font-size: 0.95rem;
+}
+
+/* Lesson 7: one bar per loop iteration, on a log scale */
+.logBar {
+  background: var(--vocs-color-blue);
+  border-radius: 2px;
+  height: 0.55rem;
+  min-width: 2px;
+}
+
+.logBar.rejected {
+  background: var(--vocs-color-red);
+  opacity: 0.7;
+}

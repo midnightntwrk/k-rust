@@ -5,7 +5,7 @@ description: What is trusted, what the kernel checks instead, the lines peano's 
 
 import { Provenance } from '../../components/lean/Provenance'
 import { numbers } from '../../components/lean/numbers'
-import { ConeScene, DifferentialScene, ReadScene, SourceBlock, TrustScene } from '../../components/lean/ReviewScenes'
+import { ConeScene, DifferentialScene, ExecutionDiffScene, ReadScene, SourceBlock, TrustScene } from '../../components/lean/ReviewScenes'
 
 # What you have to read
 
@@ -61,7 +61,7 @@ The names are abbreviations: check that each label is the one in the data and th
 For the data there are two routes; either suffices.
 
 - **Read it** against `peano.k`, as lesson 4 did. This needs a reader who knows how kompile compiles K: the as-patterns are kompile's sharing of a matched subterm, the counter-cell variable and the injections are kompile's.
-- **Rely on the kernel.** The package proves, by kernel evaluation, that the definition is well formed, that the KORE generated from the data and its presentation is exactly the syntax tree of kompile's output for `peano.k` (no renaming, no normalization), and that this KORE is in the supported fragment. Every sentence of that KORE is either fixed text, the same for every definition, or generated from a field of the data, so its rules and equations are the data's rules and clauses written in KORE. The cost moves to reviewing the generator once: its cone is {numbers.emit} lines. The kernel check is heavy: its last run took {numbers.f0Seconds} seconds and {numbers.f0Gb} GiB of memory.
+- **Rely on the kernel.** The package proves, by kernel evaluation, that the definition is well formed, that the KORE generated from the data and its presentation is exactly the syntax tree of kompile's output for `peano.k` (no renaming, no normalization), and that this KORE is in the supported fragment, which compares up to the order of each module's sentences ([lesson 3](/lean/the-definition-as-a-value)). Every sentence of that KORE is either fixed text, the same for every definition, or generated from a field of the data, so its rules and equations are the data's rules and clauses written in KORE. The cost moves to reviewing the generator once: its cone is {numbers.emit} lines. The kernel check is heavy: its last run took {numbers.f0Seconds} seconds and {numbers.f0Gb} GiB of memory.
 
 ## The differential against the reference kompile
 
@@ -74,6 +74,13 @@ This is evidence about krust's output, not a reason anything here is correct: ko
 The extra constructor matters to statements in one way: since the fixed signature has `#KConfigValue`, "for all configurations" includes configurations whose k cell holds one.
 A statement about every configuration therefore has to hold for those too; for peano they are stuck, so every statement on [lesson 5](/lean/proving-a-property) holds for them trivially.
 
+## The step against two K backends
+
+The differential above is about kompile's output.
+A second one is about the step: it runs the package's executable step and krust's execution on the same KORE and compares the successors.
+
+<ExecutionDiffScene />
+
 ## Not per project: Theorem A
 
 The statements of the matching-logic track, which say that the reference step is sound and complete for the theory of the KORE text, are reviewed once and separately.
@@ -83,13 +90,14 @@ Theorem A itself is stated and not proved:
 <SourceBlock k="theoremA" />
 
 No per-project statement depends on it.
-The planned lesson 8 covers it.
+[Lesson 8](/lean/theorem-a) covers it.
 
 ## What is machine-checked here
 
 - The cone listings are the output of `#review_cone` at the recorded commit; the scene shows the file as written.
 - That the Lean data is peano's KORE: kernel-checked (the second route above), in a long run.
 - The differential: `parse` accepting the reference KORE, its core being peano's up to declaration order, the same step relation, and the reference KORE being outside the fragment are kernel decisions. That the extra configurations are stuck and unreachable for peano was checked by reading the two rules; the scene also shows Lean computing that one of them has no successor.
+- The execution differential: run outside Lean, by a harness that evaluates the package's step and calls krust and the reference backend; its numbers are the harness's summary. Evidence, not proof.
 - Trusted: the items in the first scene.
 
 ## Reproduce
@@ -107,4 +115,4 @@ To review another definition, list its statement definitions as the roots of a n
 
 <Provenance />
 
-Back to the [series overview](/lean).
+Next: [Making proofs cheap](/lean/making-proofs-cheap).

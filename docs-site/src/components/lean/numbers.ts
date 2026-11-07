@@ -35,9 +35,13 @@ if (coneNumbers.once + coneNumbers.perProject !== coneNumbers.total) {
 /** Numbers the lesson prose quotes, from the same data as the scenes. */
 export const numbers = {
   ...coneNumbers,
-  f0Seconds: Math.round(lean.f0check.wallSeconds),
-  f0Minutes: Math.round(lean.f0check.wallSeconds / 60),
-  f0Gb: (lean.f0check.maxRssKb / 1024 / 1024).toFixed(1),
+  f0Seconds: lean.f0check.seconds,
+  f0Minutes: Math.round(lean.f0check.seconds / 60),
+  f0Gb: (lean.f0check.peakRssKb / 1024 / 1024).toFixed(1),
+  f0Rejections: lean.f0check.rejections,
+  f0Controls: lean.f0check.controls,
+  peanoF0Seconds: lean.f0check.decisions.peano_F0.seconds,
+  emitSeconds: lean.f0check.decisions.emit_peano.seconds,
   rootText: fmt(coneNumbers.root),
   module: (name: string) => {
     const found = user.totals[`KcoreSpec.${name}`]
@@ -45,3 +49,40 @@ export const numbers = {
     return found.coneLines
   },
 }
+
+const diff = lean.diff21
+/** The execution differential: the package's step against krust's and the reference backend's. */
+export const diffNumbers = {
+  subjects: diff.length,
+  configs: fmt(diff.reduce((sum, r) => sum + r.compared, 0)),
+  transitions: fmt(diff.reduce((sum, r) => sum + r.transitions, 0)),
+  differences: diff.reduce((sum, r) => sum + r.differences + r.errors, 0),
+  refSampled: fmt(diff.reduce((sum, r) => sum + r.refSampled, 0)),
+  refAgree: fmt(diff.reduce((sum, r) => sum + r.refAgree, 0)),
+  refDifferences: diff.reduce((sum, r) => sum + r.refDifferences, 0),
+}
+
+/** Lines of peano.k. */
+export const peanoLines = lean.peanoK.split('\n').length
+
+const loopLog = lean.loop.log
+const loopLast = loopLog.filter((it) => it.verdict === 'retained').at(-1)!
+/** The unattended loop run: its start and end, and the targets it was given. */
+export const loopNumbers = {
+  targets: lean.loop.targets,
+  iterations: loopLog.length - 1,
+  rejected: loopLog.filter((it) => it.verdict === 'rejected').length,
+  start: fmt(loopLog[0].total_kHb),
+  end: fmt(loopLast.total_kHb),
+  ratio: Math.round(loopLog[0].total_kHb / loopLast.total_kHb),
+  negative: lean.loop.negative.length,
+  peanoFile: fmt(Math.round(Object.values(lean.heartbeats).reduce((sum, h) => sum + h, 0) / 1000)),
+}
+
+const draft = lean.m2Cone.totals
+/** The next fragment's draft: its review cone (i) for peano, against the current one. */
+export const draftNumbers = {
+  total: draft.total.coneLines,
+  nowTotal: coneNumbers.total,
+}
+

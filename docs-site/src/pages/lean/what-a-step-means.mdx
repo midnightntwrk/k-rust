@@ -14,8 +14,9 @@ Lesson 4 of [A K definition in Lean](/lean).
 Anyone who wants to rely on that, or on a statement about every step, needs to know what "steps to" means precisely enough for a proof checker: which terms are configurations, when a rule applies, what its right-hand side evaluates to, and what happens when a function has no value.
 This lesson reads that meaning from the Lean definitions and runs it on peano.
 
-The planned lessons 1 to 3 introduce K steps, matching logic and the definition as a Lean value from scratch.
-Here it is enough to know what a K rewrite rule is: a left-hand side that matches part of the configuration and a right-hand side that replaces it.
+[Lesson 1](/lean/a-definition-and-its-steps) introduced the question, [lesson 2](/lean/matching-logic) K's official answer in matching logic, and [lesson 3](/lean/the-definition-as-a-value) peano as a Lean value.
+This lesson gives the answer the proofs use: a step as a Lean relation.
+Read on its own, it needs only what a K rewrite rule is: a left-hand side that matches part of the configuration and a right-hand side that replaces it.
 
 ## Five files, read once
 
@@ -36,7 +37,7 @@ Because an injection never sits directly on another, each element has one repres
 <DefinitionScene />
 
 The Lean value is checked against kompile's output: Lean generates KORE from it (with a separate presentation for names and source locations), and the kernel checks that this KORE equals the KORE kompile produced for `peano.k`, sentence for sentence.
-Lesson 6 explains what that check covers.
+[Lesson 3](/lean/the-definition-as-a-value) explains that check.
 
 ## Matching
 
@@ -63,7 +64,7 @@ The executable evaluator, with its fuel, is in the checked layer, and a theorem 
 <FuelScene />
 
 So there are two descriptions of a step.
-`Step` is what statements are about; `successors` is what the kernel can compute on closed terms, and lesson 5 uses it to prove facts about particular configurations.
+`Step` is what statements are about; `successors` is what the kernel can compute on closed terms, and lesson 5 uses its one-rule form, `stepAt`, to prove facts about particular configurations.
 `step_iff` makes either usable in a proof about the other.
 
 ## What is machine-checked here

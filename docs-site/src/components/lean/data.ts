@@ -40,6 +40,34 @@ export type ConfigFact = {
 
 export type Source = { file: string; start: number; end: number; text: string }
 
+export type GammaItem = { line: number; label: string; text: string }
+
+export type Diff21Row = {
+  subject: string
+  module: string
+  initial: number
+  compared: number
+  transitions: number
+  stuck: number
+  branching: number
+  differences: number
+  errors: number
+  unexplored: number
+  refSampled: number
+  refAgree: number
+  refDifferences: number
+}
+
+export type EmitStats = {
+  modules: { name: string; sentences: number }[]
+  userKinds: Record<string, number>
+  fixedInUser: number
+  emptySlices: string[]
+  equalsKore: boolean
+  wf: boolean
+  report: { condition: string; holds: boolean }[]
+}
+
 export type GoalStep = {
   kind: string
   canonical: boolean
@@ -84,12 +112,43 @@ type Data = {
     noDiamonds: boolean
     subsorts: [string, string][]
     ctorSigs: { name: string; args: string[]; result: string }[]
+    emit: EmitStats
   }
   goals: Record<string, GoalStep[]>
   heartbeats: Record<string, number>
   oneTime: Record<string, number>
   cones: { user: Cone; emit: Cone; root: Cone; rootOpaque: Cone }
-  f0check: { wallSeconds: number; maxRssKb: number }
+  f0check: {
+    totalKHb: number
+    peakRssKb: number
+    seconds: number
+    decisions: Record<'wf_peano' | 'emit_peano' | 'peano_F0', { kHb: number; seconds: number }>
+    rejections: number
+    controls: number
+    rejectionKHb: number
+  }
+  krun: { command: string; versions: string; steps: { depth: number; text: string }[] }
+  gammaD: {
+    signature: number
+    axioms: number
+    nodes: number
+    file: string
+    definedness: GammaItem
+    arityPred: GammaItem
+    nextArity: GammaItem
+    predEqs: GammaItem[]
+    rules: GammaItem[]
+  }
+  diff21: Diff21Row[]
+  loop: {
+    log: { run: string; change: string; total_kHb: number; verdict: string; groups: Record<string, number> | null }[]
+    recheck: { kHb: Record<string, number>; total_kHb: number }
+    negative: { case: string; via: string; result: string }[]
+    growth: { n: number; before: number | null; after: number }[]
+    judgeHeader: Source
+    targets: number
+  }
+  m2Cone: { title: string; roots: string[]; modules: { module: string; decls: number; lines: number }[]; totals: Record<string, { coneLines: number; decls: number; fileLines: number }> }
   refKompile: { rows: { difference: string; sentences: string; readByStep: string }[]; krustSentences: number; refSentences: number }
 }
 
@@ -118,6 +177,15 @@ export function span(src: Source, from: string, to?: string, after = 0): number[
   const first = lineOf(src, from, after)
   const last = to === undefined ? first : lineOf(src, to, first - 1)
   return Array.from({ length: last - first + 1 }, (_, i) => first + i)
+}
+
+/** A pane over consecutive Γ_D items: each item's label and pattern, at their lines in GAMMA_D.txt. */
+export function gammaSource(...items: GammaItem[]): Source {
+  items.forEach((it, i) => {
+    if (i > 0 && it.line !== items[i - 1].line + 2) throw new Error(`lean lessons: Γ_D items at ${items[i - 1].line} and ${it.line} are not consecutive`)
+  })
+  const text = items.flatMap((it) => [it.label, it.text]).join('\n')
+  return { file: lean.gammaD.file, start: items[0].line, end: items[0].line + 2 * items.length - 1, text }
 }
 
 /** A pane over a text that is not a file: lines numbered from 1. */
