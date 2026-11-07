@@ -25,9 +25,9 @@
 //! An edit's `find` is the smallest emitted node that holds every edited occurrence of its
 //! sentence and occurs once in the sentence's text, so that it addresses one place; the whole
 //! sentence is the last resort. A flip the spelling cannot write (an occurrence the emission does
-//! not render, a constant that is not one) is refused with the reason `not-judged`, as a judge's
-//! refusal is: either is a disagreement between the generator and KRS's admission, which a
-//! definition's tests pin to zero.
+//! not render, a constant that is not one) is refused with the reason `not-judged` and its next
+//! step, as a judge's refusal is: either is a disagreement between the generator and KRS's
+//! admission, which a definition's tests pin to zero.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -37,11 +37,11 @@ use kink_flow::{EditAction, EditSpec, FlowManifest, InvalidMutation, Mutation};
 use krs_compiler::{
     AtomKind, FamilySentence, FlipOperator, GuardAtom, GuardFamily, guard_families,
 };
-use krs_ir::SourceMapKey;
+use krs_ir::{ApplicationRef, BuiltinOperation, SourceMapKey};
 use krs_ir_levels::{SemanticModule, SemanticRule, SemanticTerm, SemanticTermKind};
 use serde_json::{Value, json};
 
-use super::checks::{Baseline, KrsChecks, NOT_JUDGED};
+use super::checks::{Baseline, KrsChecks, NEXT_NOT_JUDGED, NOT_JUDGED};
 use crate::EmittedRule;
 
 /// The condition flips of a definition: every flip obligation of its guard families, each
@@ -304,7 +304,7 @@ pub(crate) fn derive(
             flipped.status = match outcome {
                 Err(detail) => FlipStatus::Refused {
                     reason: NOT_JUDGED.to_owned(),
-                    next: None,
+                    next: Some(NEXT_NOT_JUDGED.to_owned()),
                     detail,
                 },
                 Ok(()) => judge(&flipped.mutation(), checks, manifest, loaded),
@@ -560,7 +560,10 @@ impl<'a> Speller<'a> {
             })
             .map(|(_, text)| text.as_str())
             .ok_or_else(|| format!("kink-flow reads no rule labelled `{}`", rule.label))?;
-        let unique = |range: &Range<usize>| text.matches(self.text(range)).count() == 1;
+        // Counted as kink-flow counts a `find` when it applies the patch, overlaps included.
+        let unique = |range: &Range<usize>| {
+            kink_flow::mutation::occurrences(text, self.text(range)).len() == 1
+        };
         let find = self
             .checks
             .enclosing(sentence, &(start..end))
@@ -634,8 +637,8 @@ fn int_value(term: &SemanticTerm) -> Option<i128> {
 }
 
 /// The token of the constant a bit flip of `bit` toggles in `term`, and its toggled value: the
-/// literal itself; the `c` of a fixed run `bitRange(x, i, n) == c`, toggled at `bit − i`; the
-/// literal of a hole `x =/= v`.
+/// literal itself; the `c` of a fixed run `bitRangeInt(x, i, n) ==Int c`, toggled at `bit − i`;
+/// the literal of a hole `x =/=Int v`.
 fn toggled(term: &SemanticTerm, bit: u32) -> Option<(&SemanticTerm, i128)> {
     let flip = |value: i128, at: u32| Some(value ^ 1_i128.checked_shl(at)?);
     if let Some(value) = int_value(term) {
@@ -653,7 +656,11 @@ fn toggled(term: &SemanticTerm, bit: u32) -> Option<(&SemanticTerm, i128)> {
     };
     let value = int_value(token)?;
     let run = arguments.iter().find_map(|argument| match argument.kind() {
-        SemanticTermKind::Application { arguments, .. } => match arguments.as_slice() {
+        SemanticTermKind::Application {
+            application: ApplicationRef::Builtin(BuiltinOperation::IntBitRange),
+            arguments,
+            ..
+        } => match arguments.as_slice() {
             [_, offset, length] => Some((int_value(offset)?, int_value(length)?)),
             _ => None,
         },

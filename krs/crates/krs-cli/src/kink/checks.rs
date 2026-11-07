@@ -82,8 +82,8 @@ const NEXT_DERIVED_MISMATCH: &str = "write the derived text KRS gives (the detai
      the mutant's, in the same mutation, or delete it when KRS derives nothing there";
 const NEXT_NO_CHANGE: &str = "change what the rule says: the edited rule is the \
      specification's rule up to names and brackets";
-const NEXT_NOT_JUDGED: &str = "mutate another part of the rule: KRS cannot yet tell whether a \
-     Rust source writes this edit";
+pub(crate) const NEXT_NOT_JUDGED: &str = "mutate another part of the rule: KRS cannot yet tell \
+     whether a Rust source writes this edit";
 const NEXT_CLAIM_HELPER: &str = "mutate a sentence programs reach; a misunderstanding of a \
      claim helper is found by `krs prove`, not by the corpus";
 const NEXT_PARTIAL_RENDERING: &str = "this mutant is the source in which the author wrote this \

@@ -1091,8 +1091,10 @@ fn indexes_view(sentence: &Sentence, view: &View, name: &str) -> Result<(), Stri
     }
 }
 
-/// Every start offset of `needle` in `haystack`, overlapping occurrences included.
-fn occurrences(haystack: &str, needle: &str) -> Vec<usize> {
+/// Every start offset of `needle` in `haystack`, overlapping occurrences included: a `find` applies
+/// when it occurs once in the text it is resolved against by this count.
+#[must_use]
+pub fn occurrences(haystack: &str, needle: &str) -> Vec<usize> {
     haystack
         .char_indices()
         .map(|(i, _)| i)
