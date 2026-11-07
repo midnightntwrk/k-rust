@@ -195,6 +195,10 @@ pub struct AppliedRule {
     pub(crate) io: Option<ExecutionIoState>,
     /// The normalization of `pattern` its step already did, which the successor state reuses.
     pub(crate) normalized: NormalizedSuccessor,
+    /// What the instance bound that the run's binding collection records, read from
+    /// `substitution` when the step built the candidate and recorded where the run commits to its
+    /// successor (`crate::coverage::read_bindings`); equality ignores it.
+    pub(crate) bindings: crate::coverage::CarriedBindings,
     /// The backend diagnostics of the work this candidate's path went through in the step that
     /// produced it: its own construction and simplification, the step work on the part of the
     /// subject it was derived from (a lower-priority candidate inherits its remainder's), and
@@ -699,6 +703,14 @@ pub struct ExecutionOptions {
     /// more evaluation of the condition, isolated, without a solver, off the run's clock and
     /// bounded by its own budget of polls. Collecting changes nothing else in the result.
     pub collect_guards: Option<crate::coverage::GuardCollection>,
+    /// With [`Self::collect_coverage`], also collect the bindings of fired instances
+    /// ([`crate::coverage::RunCoverage::bindings`]): per axiom, the symbols the collection names
+    /// that were the head of an operand of a committed rewrite step or of a term equation's
+    /// instance that gave a result, and the values of the template binders it selects, capped
+    /// ([`crate::coverage::BindingCollection`]). Off by default (`None`); ignored without
+    /// `collect_coverage`. It evaluates nothing: each fired instance costs one pass over the
+    /// substitution its match produced. Collecting changes nothing else in the result.
+    pub collect_bindings: Option<crate::coverage::BindingCollection>,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///
     /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
@@ -800,6 +812,7 @@ impl Default for ExecutionOptions {
             collect_counts: false,
             collect_conditions: None,
             collect_guards: None,
+            collect_bindings: None,
             max_work: None,
             discard_stopped: false,
             match_states: None,

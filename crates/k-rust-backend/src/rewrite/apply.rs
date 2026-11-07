@@ -2423,6 +2423,11 @@ fn apply_rhs_alternative(
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
     crate::coverage::note_applied(&rule.attributes.unique_id);
+    // What the instance bound, read from the match's substitution and recorded only where the
+    // run commits to the successor (`coverage::read_bindings`); nothing is evaluated.
+    let bindings = crate::coverage::CarriedBindings(
+        crate::coverage::read_bindings(definition, rule, substitution).map(Arc::from),
+    );
     Ok(RhsAlternativeAttempt::Applied(RuleApplication {
         applied: AppliedRule {
             before: pattern.clone(),
@@ -2449,6 +2454,7 @@ fn apply_rhs_alternative(
             remainder_simplifications: Vec::new(),
             io: io_evaluation.map(|execution| execution.commit()),
             normalized: NormalizedSuccessor::default(),
+            bindings,
             diagnostics: Vec::new(),
             observations: Vec::new(),
         },

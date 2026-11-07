@@ -853,6 +853,7 @@ impl AlphaComparable for AppliedRule {
             remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
             io: self.io.clone(),
             normalized: Default::default(),
+            bindings: Default::default(),
             diagnostics: self.diagnostics.rename_alpha(context)?,
             observations: self.observations.rename_alpha(context)?,
         })

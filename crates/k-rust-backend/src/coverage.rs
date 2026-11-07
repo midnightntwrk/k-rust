@@ -48,6 +48,12 @@
 //! reached, at every site that notes `matched` for a condition it decides, with the same
 //! isolated evaluation ([`RunCoverage::guards`], [`AxiomGuard`]).
 //!
+//! An execution that also asks for bindings (`rewrite::ExecutionOptions::collect_bindings`)
+//! records, besides, per axiom the named symbols that were the head of an operand of a fired
+//! instance (a committed rewrite step, a term equation's instance that gave a result) and the
+//! values selected template binders were bound to, read from the substitution the instance's
+//! match already made, with no evaluation ([`RunCoverage::bindings`], [`RunBindings`]).
+//!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
 //! would also collect what selecting or loading a module applies, which depends on the requests
@@ -62,8 +68,12 @@ use std::{
 use k_rust_kore::measure::{self, Counter};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+mod bindings;
 mod conditions;
 mod guards;
+
+pub use bindings::{AxiomOperands, BinderKey, BinderValues, BindingCollection, RunBindings};
+pub(crate) use bindings::{CarriedBindings, Fired};
 
 pub use conditions::{
     ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, Connective,
@@ -218,6 +228,17 @@ pub(crate) use guards::{Decided, GuardHandle};
 /// neither the multiplicity nor the order of the entries, and they are a deterministic function
 /// of the same inputs (`guards`).
 ///
+/// `bindings`, present exactly when the collection collected bindings (`collect_all`), holds
+/// per axiom the symbols the collection names that were the head, through injections, of a value
+/// a fired instance bound to a left-hand-side variable, and the values selected template
+/// binders were bound to at fired instances, capped to the least ones ([`RunBindings`]). A
+/// rewrite rule's instance is fired where the run committed to its successor (as for
+/// `committed`, whether or not the collection reports `committed`), a term equation's where it
+/// gave a result (a site of `applied` that has its substitution). Each is a union over the
+/// fired instances of a function of the instance, so like the sets it depends on neither the
+/// multiplicity nor the order of the instances, and it is a deterministic function of the same
+/// inputs (`bindings`).
+///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -229,6 +250,7 @@ pub struct RunCoverage {
     pub applied_counts: Option<BTreeMap<String, u64>>,
     pub committed: Option<BTreeSet<String>>,
     pub guards: Option<Vec<AxiomGuard>>,
+    pub bindings: Option<RunBindings>,
 }
 
 /// The ids reported to the open collection, inserted once each; `applied` also counts its
@@ -279,6 +301,7 @@ impl Sink {
             applied_counts,
             committed,
             guards: None,
+            bindings: None,
         }
     }
 }
@@ -334,6 +357,30 @@ pub(crate) fn collect_recording<T>(
     guards: Option<GuardCollection>,
     action: impl FnOnce() -> T,
 ) -> (T, RunCoverage) {
+    collect_all(
+        offering, counting, committing, conditions, guards, None, action,
+    )
+}
+
+/// [`collect_recording`], with the bindings of fired instances collected when `bindings` is
+/// given ([`RunCoverage::bindings`]). A collection opened inside collects no bindings unless it
+/// asks, and its bindings stay its own.
+pub(crate) fn collect_all<T>(
+    offering: bool,
+    counting: bool,
+    committing: bool,
+    conditions: Option<ConditionCollection>,
+    guards: Option<GuardCollection>,
+    bindings: Option<BindingCollection>,
+    action: impl FnOnce() -> T,
+) -> (T, RunCoverage) {
+    /// The inner sinks a closed collection hands back.
+    type Inner = (
+        Sink,
+        Option<conditions::Sink>,
+        Option<guards::Sink>,
+        Option<bindings::Sink>,
+    );
     /// Restores the flags and the outer sinks on every exit, and hands the inner ones back.
     struct Restore {
         was_open: bool,
@@ -342,9 +389,10 @@ pub(crate) fn collect_recording<T>(
         outer: Option<Sink>,
         outer_conditions: Option<Option<conditions::Sink>>,
         outer_guards: Option<Option<guards::Sink>>,
+        outer_bindings: Option<Option<bindings::Sink>>,
     }
     impl Restore {
-        fn close(mut self) -> (Sink, Option<conditions::Sink>, Option<guards::Sink>) {
+        fn close(mut self) -> Inner {
             let outer = self.outer.take().unwrap_or_default();
             let inner = SINK.replace(outer);
             if self.was_open {
@@ -352,7 +400,8 @@ pub(crate) fn collect_recording<T>(
             }
             let inner_conditions = conditions::replace(self.outer_conditions.take().flatten());
             let inner_guards = guards::replace(self.outer_guards.take().flatten());
-            (inner, inner_conditions, inner_guards)
+            let inner_bindings = bindings::replace(self.outer_bindings.take().flatten());
+            (inner, inner_conditions, inner_guards, inner_bindings)
         }
     }
     impl Drop for Restore {
@@ -370,6 +419,9 @@ pub(crate) fn collect_recording<T>(
             if let Some(outer) = self.outer_guards.take() {
                 guards::replace(outer);
             }
+            if let Some(outer) = self.outer_bindings.take() {
+                bindings::replace(outer);
+            }
         }
     }
 
@@ -380,12 +432,14 @@ pub(crate) fn collect_recording<T>(
         outer: Some(SINK.take()),
         outer_conditions: Some(conditions::replace(conditions.map(conditions::Sink::new))),
         outer_guards: Some(guards::replace(guards.map(guards::Sink::new))),
+        outer_bindings: Some(bindings::replace(bindings.map(bindings::Sink::new))),
     };
     let result = action();
-    let (inner, inner_conditions, inner_guards) = restore.close();
+    let (inner, inner_conditions, inner_guards, inner_bindings) = restore.close();
     let mut coverage = inner.into_coverage(offering, counting, committing);
     coverage.conditions = inner_conditions.map(conditions::Sink::finish);
     coverage.guards = inner_guards.map(guards::Sink::finish);
+    coverage.bindings = inner_bindings.map(bindings::Sink::finish);
     (result, coverage)
 }
 
@@ -402,6 +456,7 @@ pub(crate) fn replay(coverage: &RunCoverage) {
         applied_counts: _,
         committed: _,
         guards: _,
+        bindings: _,
     } = coverage;
     for id in applied {
         note_applied(id);
@@ -459,6 +514,63 @@ pub(crate) fn committing() -> bool {
 pub(crate) fn note_committed(id: &str) {
     if committing() {
         SINK.with_borrow_mut(|sink| insert(&mut sink.committed, id));
+    }
+}
+
+/// Whether the open collection collects bindings and no [`suspend`] is in effect: only then
+/// does a fired instance's site read its substitution ([`read_bindings`], [`note_fired`]), so a
+/// run that does not ask pays one flag read per fired instance.
+#[inline]
+pub(crate) fn records_bindings() -> bool {
+    OPEN.get() && bindings::recording()
+}
+
+/// What an instance of `rule` bound under `substitution`, the bindings its match produced, that
+/// the open collection records (`bindings`): the named heads of its operands and the values of
+/// its selected binders; `None` when it records none, or when the collection collects no
+/// bindings. A rewrite step reads it where it builds a successor and records it where the run
+/// commits to it ([`note_bindings`]). Out of line, so that the site's frame holds only the
+/// returned reading, boxed (`simplify`'s `tests::recursion_stack`).
+#[inline(never)]
+pub(crate) fn read_bindings(
+    definition: &crate::definition::BackendDefinition,
+    rule: &crate::rule::RewriteRule,
+    substitution: &crate::substitution::Substitution,
+) -> Option<Box<Fired>> {
+    if !records_bindings() {
+        return None;
+    }
+    bindings::read(
+        definition,
+        &rule.attributes,
+        &rule.computed_attributes.variables,
+        &rule.computed_attributes.unbound_variables,
+        substitution,
+    )
+    .map(Box::new)
+}
+
+/// Record `fired`, read from an instance of the axiom `axiom` ([`read_bindings`]), which fired
+/// now; nothing unless [`records_bindings`].
+#[inline]
+pub(crate) fn note_bindings(axiom: &str, fired: &Fired) {
+    if records_bindings() {
+        bindings::note(axiom, fired);
+    }
+}
+
+/// Record what an instance of `rule` bound under `substitution`, an instance that gave a result
+/// now ([`read_bindings`], [`note_bindings`]); one flag read unless [`records_bindings`].
+#[inline]
+pub(crate) fn note_fired(
+    definition: &crate::definition::BackendDefinition,
+    rule: &crate::rule::RewriteRule,
+    substitution: &crate::substitution::Substitution,
+) {
+    if records_bindings()
+        && let Some(fired) = read_bindings(definition, rule, substitution)
+    {
+        bindings::note(&rule.attributes.unique_id, &fired);
     }
 }
 

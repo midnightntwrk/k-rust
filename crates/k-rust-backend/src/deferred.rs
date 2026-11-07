@@ -1113,8 +1113,10 @@ fn step_value(definition: &BackendDefinition, application: &Term) -> Stoppable<O
     Ok(
         match fold_hooks(definition, &substitute(rhs, &substitution))? {
             Folded::Term(value) if matches!(value.kind(), TermKind::DomainValue { .. }) => {
-                // The step's value replaces the application: the equation is used.
+                // The step's value replaces the application: the equation is used, and its
+                // instance fired (`coverage::note_fired`).
                 crate::coverage::note_applied(&rule.attributes.unique_id);
+                crate::coverage::note_fired(definition, &rule, &substitution);
                 Some(value)
             }
             Folded::Term(_) | Folded::Bottom(_) => None,
@@ -1554,9 +1556,11 @@ fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<
         }
         _ => None,
     };
-    // A decision comes from the step's instance: the equation is used.
+    // A decision comes from the step's instance: the equation is used, and its instance fired
+    // (`coverage::note_fired`).
     if decision.is_some() {
         crate::coverage::note_applied(&rule.attributes.unique_id);
+        crate::coverage::note_fired(definition, &rule, &substitution);
     }
     Ok(decision)
 }

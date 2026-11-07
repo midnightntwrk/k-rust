@@ -11476,6 +11476,9 @@ fn equation_instance_result(
     // injections, collections, and `\and`, all strict, so the subject is empty whichever
     // equation is tried; the result reports it as `\bottom`. Only the equation's own `requires`,
     // decided above, says nothing about the subject when refuted.
+    // What the instance bound, read from its match and recorded where it gives a result
+    // (`coverage::read_bindings`); nothing is evaluated.
+    let bindings = crate::coverage::read_bindings(definition, rule, matched.substitution());
     let defined = match decide_equation_bindings(
         definition,
         &rule.attributes,
@@ -11488,6 +11491,7 @@ fn equation_instance_result(
     )? {
         DecidedEquation::Defined(defined) => defined,
         DecidedEquation::Refuted(_) => {
+            note_equation_bindings(rule, bindings.as_deref());
             return Ok(EquationAttempt::Applied(Box::new(
                 Simplification::bottom_subject(rule, term, claims_checked_in(definition)),
             )));
@@ -11560,10 +11564,14 @@ fn equation_instance_result(
         }
     }
     match live.len() {
-        0 => Ok(EquationAttempt::Applied(Box::new(
-            Simplification::bottom_result(rule, term),
-        ))),
+        0 => {
+            note_equation_bindings(rule, bindings.as_deref());
+            Ok(EquationAttempt::Applied(Box::new(
+                Simplification::bottom_result(rule, term),
+            )))
+        }
         1 => {
+            note_equation_bindings(rule, bindings.as_deref());
             let (term, ensures) = live.pop().expect("one live alternative");
             // The open `ensures` is what the equation asserts of its result; a `\bottom` here
             // is a refuted `ensures` or a bottom right-hand side, the subject's own emptiness.
@@ -11576,6 +11584,16 @@ fn equation_instance_result(
             alternatives,
         }
         .into()),
+    }
+}
+
+/// Record what an instance of the equation `rule` bound, read before its binding obligations
+/// were decided, now that it gives a result (`coverage::note_bindings`); nothing without a
+/// reading.
+#[inline]
+fn note_equation_bindings(rule: &RewriteRule, bindings: Option<&crate::coverage::Fired>) {
+    if let Some(fired) = bindings {
+        crate::coverage::note_bindings(&rule.attributes.unique_id, fired);
     }
 }
 
@@ -14255,7 +14273,9 @@ mod condition_memo_tests {
     /// `f(X) = X` only under `X >Int 0`, a condition the solver decides; `g(X) = X` only under
     /// `missing(X)`, a partial hook without an evaluator, which a simplification leaves
     /// unevaluated as an unsupported hook; `k(X) = X` only under `X >Int 0 andThenBool p(X)`,
-    /// whose discarded operand `p(X)` (a partial function without equations) stays undecided.
+    /// whose discarded operand `p(X)` (a partial function without equations) stays undecided;
+    /// `w(X) = X` with no condition, and `m(X) = X` only under `w(X) >Int 0`, whose decision
+    /// applies `w`.
     fn definition() -> BackendDefinition {
         let equation = |symbol: &str, requires: &str| {
             format!(
@@ -14284,8 +14304,12 @@ mod condition_memo_tests {
                     [function{{}}(), hook{{}}("TEST.missing")]
                 symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
                 symbol p{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+                symbol w{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                symbol m{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
                 hooked-symbol andThenBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
                     [function{{}}(), total{{}}(), hook{{}}("BOOL.andThen")]
+                {}
+                {}
                 {}
                 {}
                 {}
@@ -14296,6 +14320,8 @@ mod condition_memo_tests {
                 "k",
                 r#"andThenBool{}(gtInt{}(X0:SortInt{}, \dv{SortInt{}}("0")), p{}(X0:SortInt{}))"#,
             ),
+            equation("w", r#"\dv{SortBool{}}("true")"#).replace("w-guarded", "w-any"),
+            equation("m", r#"gtInt{}(w{}(X0:SortInt{}), \dv{SortInt{}}("0"))"#),
         );
         let syntax = parse_definition(&source).expect("the definition parses");
         BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
@@ -14434,6 +14460,7 @@ mod condition_memo_tests {
 
     const F: &str = "f{}(X:SortInt{})";
     const G: &str = r#"g{}(\dv{SortInt{}}("3"))"#;
+    const M: &str = "m{}(X:SortInt{})";
 
     /// A verdict met again under the same inputs is served, with no solver check, and the
     /// serving simplification receives the same term, diagnostics and path facts as the first,
@@ -14508,6 +14535,52 @@ mod condition_memo_tests {
                     .any(|outcome| matches!(outcome, NodeOutcome::Undecided(_)))),
             "{guard:?}"
         );
+    }
+
+    /// The equations a served condition verdict's decision applied record their bindings as
+    /// they record `applied` (`coverage::bindings`): when the verdict was decided. `m`'s
+    /// condition `w(X) > 0` applies `w`, whose instance binds `Z` to `X`, and is left undecided by
+    /// a clock-free solver, so its verdict is kept. Decided and served inside one collection, it
+    /// records what one decision records; served alone inside another, it records neither `w`'s
+    /// use nor its binder.
+    #[test]
+    fn a_served_verdict_records_bindings_as_applied_does() {
+        use crate::coverage::{BindingCollection, collect_all};
+        let definition = definition();
+        let solver = Scripted {
+            reproducible: true,
+            ..Scripted::new(Validity::Unknown("scripted".into()))
+        };
+        let scope = condition_memo_scope(&solver);
+        let collected = |runs: usize| {
+            let bindings = BindingCollection::default().with_binder("w-any", "Z", 4);
+            collect_all(false, false, false, None, None, Some(bindings), || {
+                (0..runs)
+                    .map(|_| simplified(&definition, M, &solver, &scope, true))
+                    .collect::<Vec<_>>()
+            })
+        };
+        let binders = |coverage: &crate::coverage::RunCoverage| {
+            coverage
+                .bindings
+                .as_ref()
+                .expect("the collection asked for bindings")
+                .binders
+                .clone()
+        };
+        let (decided, once) = collected(2);
+        assert_eq!(decided[0].served, 0, "{decided:?}");
+        assert!(decided[1].served > 0, "{decided:?}");
+        assert!(once.applied.contains("w-any"), "{once:?}");
+        let recorded = binders(&once);
+        assert!(
+            recorded.len() == 1 && recorded[0].nonliteral && recorded[0].values.is_empty(),
+            "{recorded:?}"
+        );
+        let (served, alone) = collected(1);
+        assert!(served[0].served > 0, "{served:?}");
+        assert!(!alone.applied.contains("w-any"), "{alone:?}");
+        assert_eq!(binders(&alone), Vec::new());
     }
 
     /// An undecided answer may be a timeout, which a later check of the same query need not

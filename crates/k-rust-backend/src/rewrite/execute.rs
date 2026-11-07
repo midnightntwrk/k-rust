@@ -227,6 +227,7 @@ fn execute_counted(
     let collect_counts = options.collect_counts;
     let collect_conditions = options.collect_conditions.clone();
     let collect_guards = options.collect_guards.clone();
+    let collect_bindings = options.collect_bindings.clone();
     let collect_committed = options.collect_committed;
     // Whether a bound that counts the whole run's exploration can end it: then every leaf rests
     // on the work of every path, off its own included.
@@ -311,12 +312,13 @@ fn execute_counted(
     }
     // The definition is selected and internalized before this call, so the collection holds
     // what the run applied and nothing a module's construction did (`crate::coverage`).
-    let ((mut result, status), coverage) = crate::coverage::collect_recording(
+    let ((mut result, status), coverage) = crate::coverage::collect_all(
         collect_offered,
         collect_counts,
         collect_committed,
         collect_conditions,
         collect_guards,
+        collect_bindings,
         run,
     );
     if let Some(refusal) = refused.into_inner() {
@@ -710,11 +712,13 @@ impl<'a> Execution<'a> {
     }
 
     /// Report a successor whose own normalization showed it defined: the rule of its step is
-    /// committed ([`crate::coverage::note_committed`]). The rule is the path's last rewrite
-    /// entry, the one at the state's depth, which every trace keeps (`commit_applied`); an
-    /// initial state and a remainder were built by no rule of this depth.
+    /// committed ([`crate::coverage::note_committed`]), and what its instance bound is recorded
+    /// ([`crate::coverage::note_bindings`], read by the step into its producer). The rule is the
+    /// path's last rewrite entry, the one at the state's depth, which every trace keeps
+    /// (`commit_applied`); an initial state and a remainder were built by no rule of this depth.
     fn note_committed(state: &ExecutionState) {
-        if !crate::coverage::committing()
+        let binding = crate::coverage::records_bindings();
+        if !(crate::coverage::committing() || binding)
             || state.is_initial_input
             || !matches!(state.kind, ExecutionStateKind::Rewritable)
         {
@@ -724,6 +728,15 @@ impl<'a> Execution<'a> {
             && entry.depth == state.depth
         {
             crate::coverage::note_committed(&entry.unique_id);
+            if binding
+                && let Some(fired) = state
+                    .producer
+                    .as_ref()
+                    .and_then(|producer| producer.bindings.0.as_deref())
+            {
+                debug_assert_eq!(producer_rule_id(state), Some(entry.unique_id.as_str()));
+                crate::coverage::note_bindings(&entry.unique_id, fired);
+            }
         }
     }
 
@@ -4526,6 +4539,17 @@ struct Producer {
     /// The normalization of `successor` the step already did, which the successor's own
     /// normalization takes instead of repeating it.
     normalization: Option<std::sync::Arc<SuccessorNormalization>>,
+    /// What the step's instance bound that the run's binding collection records, recorded when
+    /// the successor is committed (`Execution::note_committed`).
+    bindings: crate::coverage::CarriedBindings,
+}
+
+/// The id of the rule whose step built `state`, by its producer.
+fn producer_rule_id(state: &ExecutionState) -> Option<&str> {
+    state
+        .producer
+        .as_ref()
+        .map(|producer| producer.rule.unique_id.as_str())
 }
 
 /// Another applied candidate of a successor's step ([`Producer::siblings`]).
@@ -4606,6 +4630,7 @@ impl Producer {
                 .0
                 .clone()
                 .filter(|normalization| normalization.built == applied.pattern),
+            bindings: applied.bindings.clone(),
         }
     }
 }
