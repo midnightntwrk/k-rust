@@ -103,7 +103,7 @@ pub use inputs::{
 pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT,
 };
-use k_rust::backend::{BackendErrorKind, StopSide};
+use k_rust::backend::{BackendErrorKind, InProcess, StopCondition, StopSide};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
@@ -1484,17 +1484,30 @@ impl Semantics {
     /// Send `request` to the backend, counted ([`Self::execute_requests`]), with the stop
     /// condition `oracle` asks when there is one; `offset` is the steps the run took before the
     /// request's start, which a refusal's step count includes.
+    ///
+    /// The backend reads the candidates of a stop rule's step as a run reads its leaves
+    /// ([`valueless::Successors`]): a candidate whose condition reads a term with no value is no
+    /// successor, so whether the step is its state's one successor, an arrival, is decided as
+    /// the run reads the path.
     fn execute(
         &mut self,
         request: ExecuteRequest,
-        oracle: Option<&mut ConditionOracle<'_>>,
+        mut oracle: Option<&mut ConditionOracle<'_>>,
         offset: u64,
     ) -> Result<KoreExecutionResult, ExecError> {
         self.execute_requests = self.execute_requests.saturating_add(1);
-        let Some(oracle) = oracle else {
-            return Ok(self.backend.execute_kore(request)?);
+        let reading = valueless::Successors(self.values.as_ref());
+        let in_process = InProcess {
+            condition: oracle
+                .as_deref_mut()
+                .map(|oracle| -> &mut dyn StopCondition { oracle }),
+            reading: Some(&reading),
         };
-        match self.backend.execute_kore_with_condition(request, oracle) {
+        let result = self.backend.execute_kore_in_process(request, in_process);
+        let Some(oracle) = oracle else {
+            return Ok(result?);
+        };
+        match result {
             Ok(result) => Ok(result),
             Err(error) if error.kind() == Some(BackendErrorKind::StopConditionRefused) => {
                 Err(match oracle.refusal.take() {

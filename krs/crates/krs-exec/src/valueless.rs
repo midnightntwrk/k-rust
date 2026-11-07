@@ -18,6 +18,7 @@
 //! witness is not decided here: such a split is the definition's, and a run reports it rather
 //! than choosing an outcome.
 
+use k_rust::backend::{SuccessorCandidate, SuccessorReading};
 use k_rust::kore::{
     ast::{Pattern, Variable, VariableKind},
     walk,
@@ -30,6 +31,24 @@ pub(crate) trait Heads {
     /// Whether `symbol` builds a value from values: a free constructor, a sort injection, or a
     /// builtin collection's unit, element or concatenation.
     fn is_data(&self, symbol: &str) -> bool;
+}
+
+/// A run's reading of the candidates of a stop rule's step, for the backend
+/// ([`SuccessorReading`]): a candidate whose path condition does not hold, read with the
+/// witnesses as having no value ([`read`]), denotes no state, as a leaf whose condition does not
+/// hold is no state of the run (`one_path`). Where the run so far left a hook unevaluated,
+/// nothing is decided to have no value ([`Undecided`]), as the run's leaves are then read, and
+/// every candidate stays a successor.
+pub(crate) struct Successors<'a>(pub(crate) &'a dyn Heads);
+
+impl SuccessorReading for Successors<'_> {
+    fn denotes_no_state(&self, candidate: &SuccessorCandidate<'_>) -> bool {
+        if candidate.hooks_unevaluated() {
+            return false;
+        }
+        let predicates = candidate.path_condition().iter().collect::<Vec<_>>();
+        read(&predicates, self.0, &mut Vec::new()) == Reading::Fails
+    }
 }
 
 /// Heads of which no application is decided to have no value: a run that met a hook the backend
