@@ -618,9 +618,9 @@ impl SemanticTheory {
                 in_item(Some(&rule.id), || {
                     validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)
                 })?;
-                if let Some(sorts) = &definedness_sorts {
-                    in_item(Some(&rule.id), || validate_definedness(rule, sorts))?;
-                }
+                in_item(Some(&rule.id), || {
+                    validate_definedness(rule, &definedness_sorts)
+                })?;
             }
             for alias in &module.context_aliases {
                 in_item(Some(&alias.id), || {

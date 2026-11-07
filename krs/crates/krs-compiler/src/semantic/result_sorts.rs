@@ -23,9 +23,7 @@ use super::overload::sort_name;
 pub(super) fn check_result_sorts(
     modules: &[SemanticModule],
 ) -> Result<(), DescriptorLoweringError> {
-    let Some(sorts) = Sorts::of_modules(modules) else {
-        return Ok(());
-    };
+    let sorts = Sorts::of_modules(modules);
     for rule in modules.iter().flat_map(SemanticModule::rules) {
         let what = match rule.kind() {
             SentenceKind::Equation => "equation",

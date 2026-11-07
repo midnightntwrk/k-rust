@@ -62,7 +62,7 @@ use krs_ir::{
 
 use crate::{
     IrTermKind, ListOperands, MapOperands, RuleBodyRef, SemanticCondition, SemanticModule,
-    SemanticRule, SemanticSortRef, SemanticTerm, SetOperands,
+    SemanticRule, SemanticSortRef, SemanticTerm, SetOperands, SortParameterId,
 };
 
 /// The sorts a test reads: the framework's `KItem`, the sort a projected read has when nothing
@@ -97,11 +97,20 @@ impl Sorts {
         }
     }
 
-    /// The sorts of a theory's modules, or `None` when they declare no framework `KItem`: the
-    /// one judge the guarding pass and the theory's validation read.
+    /// The sorts of a theory's modules: the one judge the guarding pass and the theory's
+    /// validation read.
+    ///
+    /// A theory that declares no framework `KItem` has no term of that sort, so a sort
+    /// parameter, which no term has either, stands in its place: every requirement and test
+    /// that compares a term's sort with `KItem` then reads it as a theory with `KItem` reads a
+    /// term of another sort, and whether a partial construct has a value does not depend on
+    /// which sorts the theory declares. The one test that gives a term the sort `KItem`, a
+    /// projected read's ([`Requirement::test`]), does not arise there: such a read is K's read
+    /// of a `KItem`, so a theory that holds one keeps the framework module and its `KItem`.
     #[must_use]
-    pub fn of_modules(modules: &[SemanticModule]) -> Option<Self> {
-        let k_item = framework_k_item(modules)?;
+    pub fn of_modules(modules: &[SemanticModule]) -> Self {
+        let k_item = framework_k_item(modules)
+            .unwrap_or_else(|| SemanticSortRef::Parameter(SortParameterId::new("KItem")));
         let mut sorts = Self::new(
             k_item,
             modules
@@ -153,7 +162,7 @@ impl Sorts {
                 }
             }
         }
-        Some(sorts)
+        sorts
     }
 
     /// The framework's `KItem`.

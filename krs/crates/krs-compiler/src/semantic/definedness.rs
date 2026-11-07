@@ -52,9 +52,7 @@ use super::origin::inserted_copy;
 pub(super) fn guard_conditions(
     modules: Vec<SemanticModule>,
 ) -> Result<Vec<SemanticModule>, DescriptorLoweringError> {
-    let Some(sorts) = Sorts::of_modules(&modules) else {
-        return Ok(modules);
-    };
+    let sorts = Sorts::of_modules(&modules);
     modules
         .into_iter()
         .map(|module| {
@@ -76,9 +74,7 @@ pub(super) fn guard_conditions(
 /// evaluates it ([`definedness::dead_tests`]).
 #[must_use]
 pub fn guard_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
-    let Some(sorts) = Sorts::of_modules(modules) else {
-        return Vec::new();
-    };
+    let sorts = Sorts::of_modules(modules);
     let mut warnings = Vec::new();
     for rule in modules.iter().flat_map(SemanticModule::rules) {
         for dead in definedness::dead_tests(rule, &sorts) {

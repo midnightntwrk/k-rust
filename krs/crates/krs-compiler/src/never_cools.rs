@@ -33,9 +33,7 @@ use krs_ir::{
     StableItemId,
 };
 use krs_ir_levels::definedness::{Sorts, builds_values, is_framework_sort};
-use krs_ir_levels::{
-    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticSortRef, SortParameterId,
-};
+use krs_ir_levels::{SemanticContextAlias, SemanticModule, SemanticProduction, SemanticSortRef};
 
 use crate::coverage::display_name;
 
@@ -150,19 +148,11 @@ impl<'m> Judge<'m> {
     ///
     /// A theory that names no framework sort has no framework module, and
     /// then no context without `result = S` either (its conditions name
-    /// `KResult`); a strict production's result sort is still judged.
+    /// `KResult`); a strict production's result sort is still judged, with
+    /// the sorts' stand-in for `KItem`, which no hole has
+    /// ([`Sorts::of_modules`]).
     fn of(modules: &'m [SemanticModule]) -> Self {
-        let sorts = Sorts::of_modules(modules).unwrap_or_else(|| {
-            // Without a framework `KItem` no hole has that sort, so a sort
-            // parameter, which no hole has either, stands in its place.
-            Sorts::new(
-                SemanticSortRef::Parameter(SortParameterId::new("KItem")),
-                modules
-                    .iter()
-                    .flat_map(SemanticModule::subsorts)
-                    .map(|edge| (edge.subsort().clone(), edge.supersort().clone())),
-            )
-        });
+        let sorts = Sorts::of_modules(modules);
         let k_result = modules
             .iter()
             .flat_map(SemanticModule::sorts)

@@ -352,3 +352,171 @@ fn a_partial_construct_is_tested_before_the_sentence_evaluates_it() {
         );
     }
 }
+
+/// A package whose rules divide by a name and read a typed `Map` and `List` at it, with
+/// `sorts` as its sort declarations and `reads` whether it has the reading rules.
+fn plain_library(sorts: &str, reads: bool) -> String {
+    let reading_rules = if reads {
+        "#[k::requires(m[a] > 0)]
+    look: { k: [Look(a), ..], env: m, acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(l[a] > 0)]
+    index: { k: [Index(a), ..], items: l, acc: _ } => { k: [..], acc: 1 };"
+    } else {
+        ""
+    };
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence, List, Map}};
+
+k::sorts! {{
+    {sorts}
+}}
+
+#[k::constructors(sort = Stmt, reference)]
+pub enum StmtSyntax {{
+    #[k::syntax("div {{a}}", format = "div {{a}}")]
+    Div {{ a: k::Term<Int> }},
+    #[k::syntax("look {{a}}", format = "look {{a}}")]
+    Look {{ a: k::Term<Int> }},
+    #[k::syntax("index {{a}}", format = "index {{a}}")]
+    Index {{ a: k::Term<Int> }},
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map<Int, Int>,
+    #[k::cell]
+    pub items: List<Int>,
+    #[k::cell]
+    pub acc: Int,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {{
+        Self {{
+            k: k::k![pgm],
+            env: k::builtin::map![1 -> 5],
+            items: k::builtin::list::item(7),
+            acc: 0,
+        }}
+    }}
+}}
+
+k::rules! {{
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::requires(100 / a > 1)]
+    div: {{ k: [Div(a), ..], acc: _ }} => {{ k: [..], acc: 1 }};
+    {reading_rules}
+}}
+"#
+    )
+}
+
+/// Whether a construct has a value is a fact about the construct, not about the sorts a package
+/// declares: a division and a typed `Map` and `List` read are tested in a package that never
+/// names `KItem` or `KResult` as in one that does, and each rule applies where its construct has
+/// a value and does not where it has none. A read KRS projects is K's read of a `KItem`, so a
+/// package that reads keeps the framework module even when it names neither sort.
+#[test]
+fn a_partial_construct_is_tested_whether_or_not_the_package_names_k_item() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let packages = [
+        ("divides", plain_library("Stmt;", false)),
+        ("reads", plain_library("Stmt;", true)),
+        (
+            "names-k-item",
+            plain_library(
+                "Stmt;\n    Value: k::KResult;\n    impl Value for Int;",
+                true,
+            ),
+        ),
+    ];
+    let mut conditions = Vec::new();
+    for (name, library) in &packages {
+        let manifest = package(temporary.path(), name, library);
+        let output = temporary.path().join(format!("{name}-emitted"));
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{name}: {stderr}");
+        let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+        conditions.push((
+            *name,
+            definition.contains("module KRS-FRAMEWORK"),
+            definition
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("requires"))
+                .map(|line| line.split(" [label(").next().unwrap_or(line).to_owned())
+                .collect::<Vec<_>>(),
+        ));
+        let programs: &[(&str, Option<&str>)] = if name == &"divides" {
+            &[("div 50", Some("1")), ("div 0", None)]
+        } else {
+            &[
+                ("div 50", Some("1")),
+                ("div 0", None),
+                ("look 1", Some("1")),
+                ("look 2", None),
+                ("index 0", Some("1")),
+                ("index -1", Some("1")),
+                ("index 1", None),
+            ]
+        };
+        for (program, acc) in programs {
+            let path = temporary.path().join("program.pgm");
+            fs::write(&path, program).unwrap();
+            let (success, stdout, stderr) = krs(
+                target.path(),
+                &manifest,
+                "run",
+                &[path.to_str().unwrap(), "--output", "kast"],
+            );
+            let (ended, done) = ended(&stdout);
+            assert!(
+                success && done == acc.is_some() && ended == Some(acc.unwrap_or("0")),
+                "{name}: krs run {program}:\n{stdout}\n{stderr}"
+            );
+        }
+    }
+    expect_test::expect![[r#"
+        [
+            (
+                "divides",
+                false,
+                [
+                    "requires (A:Int =/=Int 0) andThenBool ((100 /Int A:Int) >Int 1)",
+                ],
+            ),
+            (
+                "reads",
+                true,
+                [
+                    "requires (A:Int =/=Int 0) andThenBool ((100 /Int A:Int) >Int 1)",
+                    "requires (A:Int <Int size(L:List)) andThenBool (((0 -Int size(L:List)) <=Int A:Int) andThenBool (isInt(L:List [ A:Int ]) andThenBool ({L:List [ A:Int ]}:>Int >Int 0)))",
+                    "requires A:Int in_keys(M:Map) andThenBool (isInt(M:Map [ A:Int ]) andThenBool ({M:Map [ A:Int ]}:>Int >Int 0))",
+                ],
+            ),
+            (
+                "names-k-item",
+                true,
+                [
+                    "requires (A:Int =/=Int 0) andThenBool ((100 /Int A:Int) >Int 1)",
+                    "requires (A:Int <Int size(L:List)) andThenBool (((0 -Int size(L:List)) <=Int A:Int) andThenBool (isInt(L:List [ A:Int ]) andThenBool ({L:List [ A:Int ]}:>Int >Int 0)))",
+                    "requires A:Int in_keys(M:Map) andThenBool (isInt(M:Map [ A:Int ]) andThenBool ({M:Map [ A:Int ]}:>Int >Int 0))",
+                ],
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&conditions);
+}

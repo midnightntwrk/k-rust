@@ -716,9 +716,8 @@ pub(crate) struct DerivedRule {
 
 /// The sentence `rule` of the pre-derivation module `module`, derived as
 /// [`lower_descriptor_bundle`] derives every sentence: `lift_local_functions`, which lifts each
-/// sentence alone, then the definedness tests over `sorts` (`None` when the definition has no
-/// framework `KItem`, where no test is stated) of the sentence and of each lifted function's
-/// equations.
+/// sentence alone, then the definedness tests over `sorts` of the sentence and of each lifted
+/// function's equations.
 ///
 /// # Errors
 ///
@@ -726,13 +725,10 @@ pub(crate) struct DerivedRule {
 pub(crate) fn derive_rule(
     module: &SemanticModule,
     rule: &krs_ir_levels::SemanticRule,
-    sorts: Option<&krs_ir_levels::definedness::Sorts>,
+    sorts: &krs_ir_levels::definedness::Sorts,
 ) -> Result<DerivedRule, DescriptorLoweringError> {
     let lifted = local_functions::lift_in_rule(module, rule)?;
-    let guard = |rule: krs_ir_levels::SemanticRule| match sorts {
-        Some(sorts) => definedness::guard_rule(&rule, sorts),
-        None => Ok(rule),
-    };
+    let guard = |rule: krs_ir_levels::SemanticRule| definedness::guard_rule(&rule, sorts);
     Ok(DerivedRule {
         rule: guard(lifted.rule)?,
         productions: lifted.productions,
@@ -749,9 +745,13 @@ pub(crate) fn derive_rule(
 /// framework module: some module imports it, which a module does exactly when
 /// one of its declarations or rule sentences names `KItem` or `KResult` (as
 /// with any package; a rule variable at `KItem` names it, whether its sort was
-/// written or inferred), or some sentence still refers to one of them without
-/// an import recording it. Every definition has the framework sorts; only what
-/// it uses is emitted.
+/// written or inferred), some sentence still refers to one of them without
+/// an import recording it, or some sentence reads a collection KRS projects
+/// (`m[k]`, `l[i]` at a sort `S`). Such a read is K's read, whose value is a
+/// `KItem`, projected to `S`: the sentence uses `KItem` whether or not its
+/// author named it, and the test that the read has a value reads it at
+/// `KItem` (`definedness::guard_conditions`). Every definition has the
+/// framework sorts; only what it uses is emitted.
 fn uses_framework(modules: &[SemanticModule]) -> bool {
     modules
         .iter()
@@ -761,8 +761,30 @@ fn uses_framework(modules: &[SemanticModule]) -> bool {
                 .imports()
                 .iter()
                 .any(crate::partition::is_framework_module)
+                || module.rules().iter().any(reads_projected_collection)
                 || serde_json::to_value(module).is_ok_and(|module| names_framework_item(&module))
         })
+}
+
+/// Whether some term of `rule` reads a collection KRS projects to the sort its use expects.
+fn reads_projected_collection(rule: &krs_ir_levels::SemanticRule) -> bool {
+    fn holds_read(term: &krs_ir_levels::SemanticTerm) -> bool {
+        let projected = match term.kind() {
+            krs_ir_levels::IrTermKind::Map(operands) => operands.operation().spec().is_projected(),
+            krs_ir_levels::IrTermKind::List(operands) => operands.operation().spec().is_projected(),
+            krs_ir_levels::IrTermKind::Set(operands) => operands.operation().spec().is_projected(),
+            _ => false,
+        };
+        projected || term.children().into_iter().any(holds_read)
+    }
+    rule.try_map_terms(&mut |term| {
+        if holds_read(term) {
+            Err(())
+        } else {
+            Ok(term.clone())
+        }
+    })
+    .is_err()
 }
 
 /// Whether a serialized IR value names an item of the framework package

@@ -43,7 +43,7 @@ pub struct Rederivation<'a> {
     lowered: &'a LoweredDefinition,
     lowering: RuleLowering,
     renderer: SentenceRenderer<'a>,
-    sorts: Option<Sorts>,
+    sorts: Sorts,
     index: KLabelIndex,
     /// Each Definition IR sentence key of a rule, with its module and place.
     sentences: BTreeMap<SourceMapKey, (usize, usize)>,
@@ -387,14 +387,13 @@ impl<'a> Rederivation<'a> {
             .iter()
             .find(|module| module.id() == site.module)
             .ok_or(RederiveFailure::LocalFunction)?;
-        let derivation = crate::semantic::derive_rule(module, &pre_derivation, self.sorts.as_ref())
+        let derivation = crate::semantic::derive_rule(module, &pre_derivation, &self.sorts)
             .map_err(RederiveFailure::Refused)?;
         // A function lifted out of the sentence is declared, and its equations stated, beside
         // it: the sentence derives here only when they are the baseline sentence's, so that no
         // other sentence of the emission changes.
-        let baseline =
-            crate::semantic::derive_rule(module, site.pre_derivation, self.sorts.as_ref())
-                .map_err(RederiveFailure::Refused)?;
+        let baseline = crate::semantic::derive_rule(module, site.pre_derivation, &self.sorts)
+            .map_err(RederiveFailure::Refused)?;
         if derivation.productions != baseline.productions
             || derivation.equations != baseline.equations
         {
