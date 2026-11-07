@@ -2548,9 +2548,41 @@ endmodule
                 .starts_with("[[template]]\n")
         );
         assert_eq!(warning_kinds(&document), ["template-not-a-witness"]);
-        // primes reaches the rule; read as a timeout, its template is warned as unusable.
         let path = cache.join("report.json");
         let mut stored: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        // A run of other programs than the corpus's says nothing about the mutation, whose
+        // status and witnesses are facts about the programs judged: the corpus has gained a
+        // program since (its row removed here) or changed one (its digest doctored), and the
+        // document is stale, as one of another specification is.
+        let programs = stored["programs"].as_array().unwrap();
+        let (gained, changed) = (
+            programs[0]["id"].as_str().unwrap().to_owned(),
+            programs[1]["id"].as_str().unwrap().to_owned(),
+        );
+        let mut other = stored.clone();
+        other["programs"].as_array_mut().unwrap().remove(0);
+        other["programs"][0]["digest"] = "0".repeat(64).into();
+        fs::write(&path, serde_json::to_string(&other).unwrap()).unwrap();
+        let (document, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            None,
+            "straight-holes",
+            "div-becomes-mul",
+            options(1),
+        );
+        assert_eq!(
+            document["template"]["last_run"],
+            serde_json::json!({"found": true, "current": false}),
+            "{document:#}"
+        );
+        assert_eq!(warning_kinds(&document), ["stale-run-document"]);
+        let detail = document["warnings"][0]["detail"].as_str().unwrap();
+        assert!(
+            detail.contains(&format!("added {gained}; changed {changed}")),
+            "{detail}"
+        );
+        // primes reaches the rule; read as a timeout, its template is warned as unusable.
         for program in stored["programs"].as_array_mut().unwrap() {
             if program["id"] == "primes" {
                 program["class"] = "timeout".into();

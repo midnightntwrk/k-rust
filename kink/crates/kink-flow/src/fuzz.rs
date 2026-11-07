@@ -1197,14 +1197,20 @@ fn push_warning(document: &mut Value, warning: Value) {
 }
 
 /// What the last `run` document (`report.json` in the cache directory, read as `report` reads
-/// it: this build's, this kink identity's, and of the current specification) says about the
-/// template and the mutation: the template program's class (found by its program digest), the
-/// mutation's status and its `witnesses`, each suggested as a template; and the
-/// warnings these facts give. Nothing is run or written.
+/// it: this build's, this kink identity's, of the current specification and of the corpus's
+/// current programs) says about the template and the mutation: the template program's class
+/// (found by its program digest), the mutation's status and its `witnesses`, each suggested as a
+/// template; and the warnings these facts give. Nothing is run or written.
+///
+/// A row's status and `witnesses` are facts about the programs that run judged: a killer is one
+/// of them, and a survivor survived exactly them. So the document is current only when its
+/// programs are the corpus's, each id with its program digest; otherwise it is stale, as a
+/// document of another specification is, and says nothing about the mutation.
 #[allow(clippy::too_many_arguments)]
 fn last_run(
     manifest: &FlowManifest,
     spec: &AdmittedSpec,
+    inputs: &InputSession<'_>,
     options: &FuzzOptions,
     template: &Template,
     instance: &Instance,
@@ -1232,6 +1238,58 @@ fn last_run(
             format!(
                 "the last run document is of another specification (its digest differs): run \
                  `{}` again for the template's class and the mutation's witnesses",
+                spelling.verb(Verb::Run)
+            ),
+        ));
+        return json!({"found": true, "current": false});
+    }
+    // The corpus's programs as `run` keys them: each id with its program digest, null for a
+    // program whose inputs are refused (as its row's).
+    let corpus = manifest
+        .programs
+        .iter()
+        .map(|program| {
+            let digest = inputs
+                .read(program)
+                .ok()
+                .map(|case| program_digest(program, &case).to_string());
+            (program.id.clone(), digest)
+        })
+        .collect::<BTreeSet<_>>();
+    let judged = document["programs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap_or_default().to_owned(),
+                row["digest"].as_str().map(str::to_owned),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    if corpus != judged {
+        type Keyed = BTreeSet<(String, Option<String>)>;
+        let names = |set: &Keyed, other: &Keyed| {
+            set.difference(other)
+                .map(|(id, _)| id.clone())
+                .collect::<BTreeSet<_>>()
+        };
+        let (now, then) = (names(&corpus, &judged), names(&judged, &corpus));
+        let mut changes = Vec::new();
+        let changed = now.intersection(&then).cloned().collect::<Vec<_>>();
+        let added = now.difference(&then).cloned().collect::<Vec<_>>();
+        let removed = then.difference(&now).cloned().collect::<Vec<_>>();
+        for (what, ids) in [("added", added), ("removed", removed), ("changed", changed)] {
+            if !ids.is_empty() {
+                changes.push(format!("{what} {}", ids.join(", ")));
+            }
+        }
+        warnings.push(warning(
+            "stale-run-document",
+            format!(
+                "the last run document is of other programs than the corpus's ({} since): run \
+                 `{}` again for the template's class and the mutation's status and witnesses",
+                changes.join("; "),
                 spelling.verb(Verb::Run)
             ),
         ));
@@ -1568,6 +1626,7 @@ pub fn fuzz_front(
         document["template"]["last_run"] = last_run(
             manifest,
             &spec,
+            &inputs,
             options,
             template,
             &instance,
