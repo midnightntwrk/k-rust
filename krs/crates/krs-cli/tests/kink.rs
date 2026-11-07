@@ -2682,18 +2682,20 @@ fn a_mutation_of_a_group_rule_is_judged_in_every_definition_that_holds_the_group
 }
 
 /// The configuration-cells gate's harts: `group-harts/hart` declares the group `Hart` and its rules,
-/// and `group-harts/smp` holds harts as the instances of a Map collection keyed by `id`.
+/// `group-harts/smp` holds harts as the instances of a Map collection keyed by `id`, and
+/// `group-harts/nested` holds them as the instances of a Map collection inside each instance of
+/// a Map collection of clusters keyed by `cid`.
 const GROUP_HARTS_HART: &str =
     include_str!("../../../tests/configuration-cells/packages/group-harts/hart/src/lib.rs");
 const GROUP_HARTS_SMP: &str =
     include_str!("../../../tests/configuration-cells/packages/group-harts/smp/src/lib.rs");
+const GROUP_HARTS_NESTED: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-harts/nested/src/lib.rs");
 
 /// The harts' library package, which `smp` composes.
 const GROUP_HARTS_HART_PACKAGE: &str = "krs-configuration-cells-group-harts-hart";
 
-/// One edit of `smp`'s `write`, which answers a hart's bus write in the shared memory. (krs's edit
-/// judge does not yet judge an edit of a rule that mentions a hart's own cells, or of a rule for
-/// `Hart`.)
+/// One edit of `smp`'s `write`, which answers a hart's bus write in the shared memory.
 const GROUP_HARTS_MUTATIONS: &str = r#"[[mutation]]
 id = "write-off"
 misunderstanding = "a write stores one more than the value written"
@@ -2704,9 +2706,19 @@ misunderstanding = "a write stores one more than the value written"
   replace = "Addr:Int <- Value:Int +Int 1"
 "#;
 
-/// Writes into `workspace` the gate's harts packages, `smp` with its corpus `kink`, narrowed to
-/// `pc`, and its corpus `corpora/all`, which compares every cell.
-fn harts_workspace(workspace: &Path) {
+/// Writes into `workspace` the harts packages, `hart` holding `hart`, and the package `holder`
+/// (its name and its source) that composes it, with its corpus `kink`, narrowed to `pc`, and its
+/// corpus `corpora/all`, which compares every cell; each corpus runs `program` (its id and its
+/// text) and lists `mutations`.
+fn harts_workspace(
+    workspace: &Path,
+    hart: &str,
+    holder: (&str, &str),
+    program: (&str, &str),
+    mutations: &str,
+) {
+    let (holder, holder_source) = holder;
+    let (id, text) = program;
     let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../krs")
         .canonicalize()
@@ -2718,10 +2730,10 @@ fn harts_workspace(workspace: &Path) {
         fs::write(path, contents).unwrap();
     };
     for (name, source, dependency) in [
-        ("hart", GROUP_HARTS_HART, String::new()),
+        ("hart", hart, String::new()),
         (
-            "smp",
-            GROUP_HARTS_SMP,
+            holder,
+            holder_source,
             format!("hart = {{ package = \"{GROUP_HARTS_HART_PACKAGE}\", path = \"../hart\" }}\n"),
         ),
     ] {
@@ -2730,7 +2742,11 @@ fn harts_workspace(workspace: &Path) {
             &format!("{name}/Cargo.toml"),
             &format!(
                 "[package]\nname = \"krs-configuration-cells-group-harts-{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependency}\n[package.metadata.krs]\nk-namespace = \"KRS-GROUP-{}\"\n\n[package.metadata.krs.definitions.main]\n",
-                if name == "hart" { "HART" } else { "HARTS-SMP" }
+                if name == "hart" {
+                    "HART".to_owned()
+                } else {
+                    format!("HARTS-{}", name.to_uppercase())
+                }
             ),
         );
     }
@@ -2740,23 +2756,20 @@ fn harts_workspace(workspace: &Path) {
     ];
     for (corpus, result) in corpora {
         write(
-            &format!("smp/{corpus}/FLOW.toml"),
+            &format!("{holder}/{corpus}/FLOW.toml"),
             &format!(
-                "[spec]\nkrs = {{ definition = \"main\" }}\n\n{result}[[program]]\nid = \"store-load\"\nfile = \"cases/store-load.prog\"\n"
+                "[spec]\nkrs = {{ definition = \"main\" }}\n\n{result}[[program]]\nid = \"{id}\"\nfile = \"cases/{id}.prog\"\n"
             ),
         );
+        write(&format!("{holder}/{corpus}/cases/{id}.prog"), text);
         write(
-            &format!("smp/{corpus}/cases/store-load.prog"),
-            "store ( 0 ) ; load ( 0 )\n",
-        );
-        write(
-            &format!("smp/{corpus}/mutations/harts.toml"),
-            GROUP_HARTS_MUTATIONS,
+            &format!("{holder}/{corpus}/mutations/harts.toml"),
+            mutations,
         );
     }
     write(
         "Cargo.toml",
-        "[workspace]\nmembers = [\"hart\", \"smp\"]\nresolver = \"3\"\n",
+        &format!("[workspace]\nmembers = [\"hart\", \"{holder}\"]\nresolver = \"3\"\n"),
     );
 }
 
@@ -2770,25 +2783,14 @@ fn a_corpus_narrowed_to_cells_of_a_maps_instances_compares_them_by_key() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let workspace = temporary.path();
-    harts_workspace(workspace);
-    let run = |corpus: &str| {
-        let mut process = krs_command!();
-        fixture_build_env(&mut process, target.path());
-        process
-            .current_dir(workspace.join("smp"))
-            .args(["kink", "run", "--full", "--corpus", corpus])
-            .args([
-                "--package",
-                "krs-configuration-cells-group-harts-smp",
-                "--definition",
-                "main",
-                "--dependency",
-                &format!("{GROUP_HARTS_HART_PACKAGE}:main"),
-            ]);
-        let output = process.output().unwrap();
-        assert_status(&output, 0);
-        json(&output)
-    };
+    harts_workspace(
+        workspace,
+        GROUP_HARTS_HART,
+        ("smp", GROUP_HARTS_SMP),
+        ("store-load", "store ( 0 ) ; load ( 0 )\n"),
+        GROUP_HARTS_MUTATIONS,
+    );
+    let run = |corpus: &str| harts_kink_run(target.path(), workspace, "smp", corpus, 0);
     let verdicts = |run: &Value| {
         run["mutations"]
             .as_array()
@@ -2858,6 +2860,226 @@ fn a_corpus_narrowed_to_cells_of_a_maps_instances_compares_them_by_key() {
     assert_eq!(
         difference["also_differ"],
         serde_json::json!(["mem"]),
+        "{difference:#}"
+    );
+}
+
+/// `inc` of [`GROUP_HARTS_HART`] as a `#[k::rule]` fn over `k::cells! { .. }: Hart`, which
+/// `krs expand` prints for the readable rule.
+const HART_CELLS_INC: &str = r#"
+#[k::rule(label = "inc")]
+pub fn inc(
+    pc: Int,
+    k::cells! {
+        k: k::configuration::KCell(Op::Inc(), tail @ ..),
+        pc: k::configuration::Cell(pc),
+        state @ ..
+    }: Hart,
+) -> Hart {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        pc: k::configuration::Cell(int::add(pc, 1)),
+        ..state
+    }
+}
+"#;
+
+/// Edits of `hart`'s rules for `Hart`, which `smp` holds as the instances of a Map collection:
+/// one of `inc`'s result, one that adds a cell outside the hart to `inc`, and one that writes
+/// the key `tick` matches.
+const GROUP_HARTS_RULE_MUTATIONS: &str = r#"[[mutation]]
+id = "inc-two"
+misunderstanding = "an instruction counts two"
+
+  [[mutation.edit]]
+  rule = "KRS-GROUP-HART.inc"
+  find = "Pc:Int +Int 1"
+  replace = "Pc:Int +Int 2"
+
+[[mutation]]
+id = "inc-next-id"
+misunderstanding = "counting an instruction also takes the next hart id"
+
+  [[mutation.edit]]
+  rule = "KRS-GROUP-HART.inc"
+  find = "</hart>"
+  replace = "</hart>\n    <nextId> N:Int => N:Int +Int 1 </nextId>"
+
+[[mutation]]
+id = "tick-rekeys"
+misunderstanding = "a tick moves hart 0 to the key 1"
+
+  [[mutation.edit]]
+  rule = "KRS-GROUP-HART.tick"
+  find = "<id> 0 </id>"
+  replace = "<id> 0 => 1 </id>"
+"#;
+
+/// Runs `krs kink run --full` on the corpus `corpus` of the package `holder` in the harts
+/// workspace `workspace`, which exits with `status`.
+fn harts_kink_run(
+    target: &Path,
+    workspace: &Path,
+    holder: &str,
+    corpus: &str,
+    status: i32,
+) -> Value {
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
+    process
+        .current_dir(workspace.join(holder))
+        .args(["kink", "run", "--full", "--corpus", corpus])
+        .args([
+            "--package",
+            &format!("krs-configuration-cells-group-harts-{holder}"),
+            "--definition",
+            "main",
+            "--dependency",
+            &format!("{GROUP_HARTS_HART_PACKAGE}:main"),
+        ]);
+    let output = process.output().unwrap();
+    assert_status(&output, status);
+    json(&output)
+}
+
+/// An edit of a rule for `Hart`, whose cells lie in an instance of `smp`'s Map collection, is
+/// judged: the rule mentions the hart's own cells inside the instance's cell, which is its
+/// footprint, not a change of it. So `inc-two` runs, and the corpus narrowed to `pc` kills it
+/// through hart 0's `pc`, its difference naming the cell by key with the other cells of the
+/// hart unstated. An edit that changes the footprint stays refused: `inc-next-id` adds a cell
+/// outside the hart, and `tick-rekeys` writes the key of the instance `tick` matched, which is
+/// another instance's identity, as KRS refuses the Rust source that writes it. The readable rule
+/// and its `cells!` print, whose K binds the computation's tail, judge alike.
+#[test]
+fn an_edit_of_a_rule_for_a_maps_instance_is_judged_by_its_footprint() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable_inc = "    /// Count one instruction.\n    inc: {\n        k: [Inc(), ..],\n        pc,\n    } => {\n        k: [..],\n        pc: int::add(pc, 1),\n    };\n\n";
+    assert!(GROUP_HARTS_HART.contains(readable_inc));
+    let cells = format!(
+        "{}{HART_CELLS_INC}",
+        GROUP_HARTS_HART.replace(readable_inc, "")
+    );
+    let mut spellings = Vec::new();
+    for (spelling, hart) in [("readable", GROUP_HARTS_HART), ("cells", cells.as_str())] {
+        let workspace = temporary.path().join(spelling);
+        harts_workspace(
+            &workspace,
+            hart,
+            ("smp", GROUP_HARTS_SMP),
+            ("count", "inc ; inc\n"),
+            GROUP_HARTS_RULE_MUTATIONS,
+        );
+        // The refused mutations are invalid, which the run's status reports.
+        let run = harts_kink_run(target.path(), &workspace, "smp", "kink", 2);
+        let rows = run["mutations"].as_array().unwrap();
+        let verdicts = rows
+            .iter()
+            .map(|row| {
+                (
+                    row["id"].as_str().unwrap(),
+                    row["status"].as_str().unwrap(),
+                    row["reason"].as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            verdicts,
+            [
+                ("harts/inc-two", "killed", None),
+                ("harts/inc-next-id", "invalid-mutation", Some("not-judged")),
+                (
+                    "harts/tick-rekeys",
+                    "invalid-mutation",
+                    Some("krs::analysis::map-collection-key")
+                ),
+            ],
+            "{spelling}: {run:#}"
+        );
+        let difference = &rows[0]["executed"][0]["difference"];
+        assert_eq!(
+            difference["format"], "krs-difference/3",
+            "{spelling}: {difference:#}"
+        );
+        assert_eq!(
+            difference["cell"], "harts.hart[0].pc",
+            "{spelling}: {difference:#}"
+        );
+        assert_eq!(
+            difference["left"]["value"]["document"], 2,
+            "{spelling}: {difference:#}"
+        );
+        assert_eq!(
+            difference["right"]["value"]["document"], 4,
+            "{spelling}: {difference:#}"
+        );
+        assert_eq!(
+            difference["also_differ"],
+            serde_json::json!([]),
+            "{spelling}: {difference:#}"
+        );
+        let detail = rows[1]["detail"].as_str().unwrap();
+        assert!(
+            detail.ends_with("the edit changes the cells the rule mentions; it is not judged"),
+            "{spelling}: {detail}"
+        );
+        let definition = fs::read_to_string(workspace.join("smp/kink/definition.k")).unwrap();
+        let start = definition.find("rule [inc]:").unwrap();
+        let end = start + definition[start..].find("</hart>").unwrap() + "</hart>".len();
+        spellings.push(definition[start..end].to_owned());
+    }
+    expect_test::expect![[r#"
+        [
+            "rule [inc]:\n    <hart>\n        <k> inc => .K ... </k>\n        <pc> Pc:Int => Pc:Int +Int 1 </pc>\n        ...\n    </hart>",
+            "rule [inc]:\n    <hart>\n        <k> inc ~> Tail:K => .K ~> Tail:K </k>\n        <pc> Pc:Int => Pc:Int +Int 1 </pc>\n        ...\n    </hart>",
+        ]
+    "#]]
+    .assert_debug_eq(&spellings);
+}
+
+/// An edit of `nested`'s `leap`, a rule for `Hart` whose harts lie in the instances of a Map
+/// collection inside each cluster, and which passes `pcPlus` the keys of its hart and cluster.
+const GROUP_HARTS_NESTED_MUTATIONS: &str = r#"[[mutation]]
+id = "leap-long"
+misunderstanding = "a leap goes one past its distance"
+
+  [[mutation.edit]]
+  rule = "KRS-GROUP-HARTS-NESTED.leap"
+  find = "pcPlus ( N:Int )"
+  replace = "pcPlus ( N:Int +Int 1 )"
+"#;
+
+/// An edit of a rule about one hart of one cluster is judged beside the key cells KRS adds to it
+/// and the key arguments it passes: `leap` names the cluster's key `<cid>` around the hart's cell
+/// and the hart's key `<id>` in it, and passes both to `pcPlus`, which KRS writes so that the
+/// function reads the program counter of the hart the rule is about. KRS derives them again for
+/// the edited rule, so `leap-long` runs, and the corpus narrowed to `pc` kills it through that
+/// hart's `pc`, named by both keys.
+#[test]
+fn an_edit_of_a_rule_for_a_nested_instance_is_judged_beside_the_keys_krs_adds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let workspace = temporary.path();
+    harts_workspace(
+        workspace,
+        GROUP_HARTS_HART,
+        ("nested", GROUP_HARTS_NESTED),
+        ("leap", "leap ( 3 )\n"),
+        GROUP_HARTS_NESTED_MUTATIONS,
+    );
+    let run = harts_kink_run(target.path(), workspace, "nested", "kink", 0);
+    let row = &run["mutations"][0];
+    assert_eq!(row["id"], "harts/leap-long", "{run:#}");
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["format"], "krs-difference/3", "{difference:#}");
+    assert_eq!(
+        difference["cell"], "clusters.cluster[0].harts.hart[0].pc",
+        "{difference:#}"
+    );
+    assert_eq!(difference["left"]["value"]["document"], 3, "{difference:#}");
+    assert_eq!(
+        difference["right"]["value"]["document"], 4,
         "{difference:#}"
     );
 }

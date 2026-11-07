@@ -714,6 +714,210 @@ fn every_sentence_is_its_own_rederivation() {
     }
 }
 
+/// The configuration-cells gate's harts library, `hart`'s group and rules.
+const GROUP_HARTS_HART: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-harts/hart/src/lib.rs");
+
+/// The configuration-cells gate's `group-harts` package `holder`, whose source is `source` and
+/// which composes the harts library, as one package with the library: `holder`'s source without
+/// its crate documentation and with the library's items in scope.
+fn harts_package(source: &str, imports: &str, own: &str) -> &'static str {
+    assert!(source.contains(imports));
+    let holder = source
+        .replace(imports, own)
+        .lines()
+        .filter(|line| !line.starts_with("//!"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Box::leak(format!("{GROUP_HARTS_HART}\n{holder}\n").into_boxed_str())
+}
+
+/// `smp`'s collection of harts with the harts library ([`harts_package`]).
+fn smp_package() -> &'static str {
+    harts_package(
+        include_str!("../../../tests/configuration-cells/packages/group-harts/smp/src/lib.rs"),
+        "use hart::{BusOp, Hart, Job, Jobs, Op, Prog, Regs};\nuse k::builtin::{Int, Map, int, map};\n",
+        "use k::builtin::{Map, map};\n",
+    )
+}
+
+/// `nested`'s clusters of harts with the harts library ([`harts_package`]).
+fn nested_package() -> &'static str {
+    harts_package(
+        include_str!("../../../tests/configuration-cells/packages/group-harts/nested/src/lib.rs"),
+        "use hart::{BusOp, Hart, Instr, Job, Jobs, Op, Prog, Regs};\nuse k::Term;\nuse k::builtin::{Int, Map, int, map};\n",
+        "use k::Term;\nuse k::builtin::{Map, map};\n",
+    )
+}
+
+/// Each rule sentence of `baseline` with its fixed point's outcome: judged (and its own
+/// re-derivation), or why it is not judged.
+fn fixed_points(baseline: &Baseline) -> Vec<String> {
+    let checker = baseline.checker();
+    let mut outcomes = Vec::new();
+    for key in checker.rule_sentences() {
+        let head = baseline.head(&key);
+        match checker.fixed_point(&key) {
+            Ok(accepted) => {
+                assert!(accepted.unchanged, "{head}");
+                outcomes.push(format!("{head} judged"));
+            }
+            Err(Refusal::NotJudged(reason)) => outcomes.push(format!("{head} {reason}")),
+            Err(refusal) => panic!("{head}: {refusal}"),
+        }
+    }
+    outcomes
+}
+
+/// The fixed point of the rules of a definition whose rules for `Hart` lie in the instances of a
+/// Map collection: each rule that names the hart's cells inside the instance's cell is its own
+/// re-derivation. The sentences left are the `#[k::context]`s, which the check does not read, and
+/// those that hold an optional cell or an instance record (`smp`'s rules over its collection, or
+/// a hart's jobs), which the lift does not read.
+#[test]
+fn every_rule_about_one_instance_is_its_own_rederivation() {
+    let baseline = baseline("group-harts", "KRS-HARTS", smp_package());
+    expect_test::expect![[r#"
+        [
+            "rule [guard]: judged",
+            "context [guard-operand]: this sentence is not judged",
+            "rule [here]: judged",
+            "rule [hop]: judged",
+            "context [hop-operand]: this sentence is not judged",
+            "rule [inc]: judged",
+            "rule [join]: an optional or collection cell is not judged",
+            "rule [load]: judged",
+            "rule [next]: judged",
+            "rule [post]: an optional or collection cell is not judged",
+            "rule [read]: an optional or collection cell is not judged",
+            "rule [release]: an optional or collection cell is not judged",
+            "rule [report]: an optional or collection cell is not judged",
+            "rule [reserve]: an optional or collection cell is not judged",
+            "rule [spawn]: an optional or collection cell is not judged",
+            "rule [store]: judged",
+            "rule [swap]: judged",
+            "rule [tick]: judged",
+            "rule [wait]: judged",
+            "rule [work]: an optional or collection cell is not judged",
+            "rule [write]: an optional or collection cell is not judged",
+        ]
+    "#]]
+    .assert_debug_eq(&fixed_points(&baseline));
+}
+
+/// The same fixed point where the harts lie in the instances of a Map collection inside each
+/// instance of another, `nested`'s clusters: a rule for `Hart` is a local step of one hart of one
+/// cluster. `leap` passes `pcPlus` the keys of its hart and its cluster, so KRS adds the key cell
+/// of each, `<cid>` in the cluster's cell and `<id>` in the hart's; those cells are KRS's
+/// placement of the rule, not a change of its footprint, and the rule is its own
+/// re-derivation.
+#[test]
+fn every_rule_about_one_nested_instance_is_its_own_rederivation() {
+    let baseline = baseline("group-harts-nested", "KRS-HARTS-NESTED", nested_package());
+    expect_test::expect![[r#"
+        [
+            "rule [guard]: judged",
+            "context [guard-operand]: this sentence is not judged",
+            "rule [here]: judged",
+            "rule [hop]: judged",
+            "context [hop-operand]: this sentence is not judged",
+            "rule [inc]: judged",
+            "rule [join]: an optional or collection cell is not judged",
+            "rule [[ pcPlus ( N:Int ) #instance ( Krs_KeyCluster:Int , Krs_KeyHart:Int ) => P:Int +Int N:Int ]] a function context is not judged",
+            "rule [leap]: judged",
+            "rule [load]: judged",
+            "rule [next]: judged",
+            "rule [post]: an optional or collection cell is not judged",
+            "rule [read]: an optional or collection cell is not judged",
+            "rule [release]: an optional or collection cell is not judged",
+            "rule [report]: an optional or collection cell is not judged",
+            "rule [reserve]: an optional or collection cell is not judged",
+            "rule [spawn]: an optional or collection cell is not judged",
+            "rule [store]: judged",
+            "rule [swap]: judged",
+            "rule [tick]: judged",
+            "rule [wait]: judged",
+            "rule [work]: an optional or collection cell is not judged",
+            "rule [write]: an optional or collection cell is not judged",
+        ]
+    "#]].assert_debug_eq(&fixed_points(&baseline));
+}
+
+/// What an edit of a rule about one instance of a Map collection changes decides whether it is
+/// judged. The rule's footprint is the cells and instances it reads or writes, where the emitter
+/// places them: a cell added inside the instance or outside it, a cell moved out of the
+/// instance, and the instance's cell dropped each change it, and are refused. A closed frame of
+/// the instance's cell keeps the cells but states that the instance has no other cells, which
+/// no rule for `Hart` emits, and is refused. Writing the key other than as the subject matched it is a write of
+/// the instance's identity, which KRS refuses in the Rust source with the same reason; matching
+/// another literal key is no write but a change of the pattern (`id: 1` in Rust), judged as any
+/// other. In `nested`, an edit of the argument `leap` gives `pcPlus` is judged beside the key
+/// cells and the key arguments KRS adds, and an edit of a key argument is refused: KRS derives
+/// the keys the rule passes, and the mutant's are not those.
+#[test]
+fn an_edit_of_a_rule_about_one_instance_is_judged_by_its_footprint() {
+    let smp = baseline("group-harts", "KRS-HARTS", smp_package());
+    let footprint = |check: &MutationCheck| {
+        assert!(
+            matches!(
+                outcome(check),
+                Err(Refusal::NotJudged(NotJudged::Skeleton(what))) if what == "the cells the rule mentions"
+            ),
+            "{check:#?}"
+        );
+    };
+    let inc = "rule [inc]";
+    let pc = "<pc> Pc:Int => Pc:Int +Int 1 </pc>";
+    // A cell added inside the hart.
+    footprint(&smp.check(
+        inc,
+        &[(
+            pc,
+            "<pc> Pc:Int => Pc:Int +Int 1 </pc>\n        <id> 0 </id>",
+        )],
+    ));
+    // A cell added outside the hart.
+    footprint(&smp.check(
+        inc,
+        &[(
+            "</hart>",
+            "</hart>\n    <nextId> N:Int => N:Int +Int 1 </nextId>",
+        )],
+    ));
+    // The program counter moved out of the hart.
+    footprint(&smp.check(inc, &[(pc, ""), ("</hart>", &format!("</hart>\n    {pc}"))]));
+    // The hart's cell dropped.
+    footprint(&smp.check(inc, &[("<hart>", ""), ("...\n    </hart>", "")]));
+    // The hart's cell closed.
+    let closed = smp.check(inc, &[("...\n    </hart>", "</hart>")]);
+    assert!(!closed.accepted(), "{closed:#?}");
+    // The key written as another than the subject matched.
+    let rekeyed = smp.check("rule [tick]", &[("<id> 0 </id>", "<id> 0 => 1 </id>")]);
+    match outcome(&rekeyed) {
+        Err(Refusal::Krs(error)) => match error.as_ref() {
+            krs_compiler::DescriptorLoweringError::GroupInstance { code, reason, .. } => {
+                assert_eq!(*code, krs_diagnostic::codes::analysis::MAP_COLLECTION_KEY);
+                assert_eq!(
+                    *reason,
+                    krs_ir::subject::key_write_reason("Hart", "hart", "id", "id")
+                );
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+    // Another literal key matched.
+    accepted(&smp.check("rule [tick]", &[("<id> 0 </id>", "<id> 1 </id>")]));
+
+    let nested = baseline("group-harts-nested", "KRS-HARTS-NESTED", nested_package());
+    let leap = "rule [leap]";
+    let check = nested.check(leap, &[("pcPlus ( N:Int )", "pcPlus ( N:Int +Int 1 )")]);
+    let lifted = accepted(&check).pre_derivation.as_ref().unwrap();
+    assert_eq!(lifted.id().item_name(), "leap");
+    let check = nested.check(leap, &[("Krs_KeyHart:Int )", "Krs_KeyHart:Int +Int 1 )")]);
+    assert!(!check.accepted(), "{check:#?}");
+}
+
 /// The cases of a derived node that must follow the edit, on the census fixture's `div`
 /// (`requires (A:Int =/=Int 0) andThenBool ((10 /Int A:Int) >Int 1)`).
 #[test]

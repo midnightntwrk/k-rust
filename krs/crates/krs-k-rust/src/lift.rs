@@ -41,9 +41,20 @@
 //! concatenation, `:=K` or `#let` in a pattern; `_`, `#Or`, `#as` or a rewrite outside one; a
 //! name a condition or result reads that the sentence does not bind; a name written at another
 //! sort than the sentence binds it at; a name KRS made where KRS does not write it; an alias
-//! inside its own subpattern. A new application of a parametric production, a new `:=K` or
+//! inside its own subpattern; a write of a Map instance's key other than as the sentence matched
+//! it (KRS's `map-collection-key`). A new application of a parametric production, a new `:=K` or
 //! `#let`, a new cell term and a new Bytes token are not read (refused): their instance, local
 //! binders or spelling are not in the K text alone.
+//!
+//! A configuration rule's cells are read where the emitter places them
+//! ([`DefinitionIndex::clause_layout`]): a rule about one instance of a `?` or `*` cell names that
+//! instance's cells inside the instance's cell, beside the key cells KRS adds so that the rule
+//! passes its instance's keys to a function evaluated in it. That placement is the rule's
+//! footprint, the cells and instances it reads or writes; an edit that changes it (a cell added,
+//! dropped or moved to another instance or out of one) is refused. A function evaluated in one
+//! instance receives the keys KRS passes after its own arguments, which are not lifted: KRS
+//! derives them, and the key cells, for the lifted sentence again, and the comparison with the
+//! mutant's sentence checks them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -59,15 +70,17 @@ use krs_compiler::{
     SourceMap, SourceMapNodeKind, judge_edits,
 };
 use krs_ir::{
-    ApplicationRef, AtLeastTwo, BuiltinOperation, CellClauseKind, CellContentFrame, CellPost,
-    CollectionResultSort, ConfigurationClause, FixedCellClause, FixedConfigurationRewrite,
+    ApplicationRef, AtLeastTwo, BuiltinOperation, CellAttribute, CellClauseKind,
+    CellCollectionType, CellContentFrame, CellMultiplicity, CellPost, CollectionResultSort,
+    ConfigurationClause, FixedCell, FixedCellClause, FixedCellContent, FixedConfigurationRewrite,
     GeneratedOperation, InsertedNode, ListOperation, MapOperation, NodeOrigin, OperationSort,
     SemanticId, SemanticIdKind, SetOperation, SourceMapKey, StableItemId,
 };
 use krs_ir_levels::{
     IrCondition, IrRewrite, IrTermKind, ListOperands, MapEntry, MapOperands, RuleBodyRef,
-    SemanticCondition, SemanticRule, SemanticRuleCondition, SemanticSortRef, SemanticTerm,
-    SemanticVariable, SetOperands,
+    SemanticCondition, SemanticModule, SemanticRule, SemanticRuleCondition, SemanticSortRef,
+    SemanticTerm, SemanticVariable, SetOperands, SymbolId,
+    k_surface::{DefinitionIndex, written_items},
 };
 
 /// The re-derivation check over one baseline: its in-process lowering, its `definition.k` and
@@ -79,6 +92,10 @@ pub struct MutantChecker<'a> {
     loaded: LoadedDefinition,
     nodes: Vec<Node>,
     by_key: BTreeMap<SourceMapKey, usize>,
+    /// The baseline's Definition IR, indexed.
+    definition: DefinitionIndex<'a>,
+    /// The cells at or inside the keys of Map collections' instances.
+    keys: BTreeMap<&'a SemanticId, KeyCell<'a>>,
 }
 
 /// One node of the baseline's `definition.k`.
@@ -613,6 +630,8 @@ impl<'a> MutantChecker<'a> {
             .enumerate()
             .map(|(index, node)| (node.key.clone(), index))
             .collect();
+        let definition = DefinitionIndex::new(rederivation.lowered().definition());
+        let keys = map_keys(rederivation.retained().theory().modules());
         Ok(Self {
             rederivation,
             source,
@@ -620,6 +639,8 @@ impl<'a> MutantChecker<'a> {
             loaded,
             nodes,
             by_key,
+            definition,
+            keys,
         })
     }
 
@@ -851,6 +872,51 @@ impl<'a> MutantChecker<'a> {
         }
     }
 
+    /// The clause of `clauses` (a configuration rule's pre-derivation clauses) each of `emitted`
+    /// (its Definition IR clauses) is lowered from, by provenance, in emitted order; `None` for a
+    /// key cell KRS adds, so that the rule passes its instance's key to a function evaluated in
+    /// it. Each clause is lowered to exactly one emitted clause of its own cell.
+    fn clause_owners<T, U>(
+        &self,
+        clauses: &[ConfigurationClause<SemanticId, T>],
+        emitted: &[ConfigurationClause<SymbolId, U>],
+    ) -> Result<Vec<Option<usize>>, Refusal> {
+        let unpaired = || {
+            Refusal::NotJudged(NotJudged::Sentence(
+                "its Definition IR clauses are neither its own clauses nor key cells KRS adds"
+                    .into(),
+            ))
+        };
+        let mut paired = vec![false; clauses.len()];
+        let mut owners = Vec::with_capacity(emitted.len());
+        for emitted in emitted {
+            let cell = self
+                .definition
+                .cell_name(emitted.cell())
+                .and_then(|name| self.rederivation.index().cell(name))
+                .ok_or_else(unpaired)?;
+            let owner = clauses.iter().position(|clause| {
+                self.rederivation
+                    .definition_keys(clause.origin_key())
+                    .contains(emitted.origin_key())
+            });
+            match owner {
+                Some(index) if !paired[index] && clauses[index].cell() == cell => {
+                    paired[index] = true;
+                }
+                None if matches!(emitted, ConfigurationClause::Fixed(_))
+                    && emitted.origin().origin().inserted().is_some()
+                    && self.keys.get(cell).is_some_and(KeyCell::is_key) => {}
+                _ => return Err(unpaired()),
+            }
+            owners.push(owner);
+        }
+        if paired.contains(&false) {
+            return Err(unpaired());
+        }
+        Ok(owners)
+    }
+
     /// The range of the Definition IR node lowered from the semantic node `key`, the outermost
     /// when several are.
     fn range_of(&self, key: &SourceMapKey) -> Option<Range<usize>> {
@@ -924,7 +990,6 @@ impl<'a> MutantChecker<'a> {
                 }
             }
             RuleBodyRef::Configuration { body, .. } => {
-                let items = cell_items(&parsed.body);
                 let RuleBodyRef::Configuration {
                     body: emitted_body, ..
                 } = site.definition.relational_body()
@@ -933,18 +998,17 @@ impl<'a> MutantChecker<'a> {
                         "its Definition IR body".into(),
                     )));
                 };
-                if items.len() != body.clauses().len()
-                    || emitted_body.clauses().len() != body.clauses().len()
-                {
-                    return Err(Refusal::NotJudged(NotJudged::Skeleton(
-                        "the cells the rule mentions".into(),
-                    )));
-                }
-                let mut clauses = Vec::with_capacity(items.len());
+                let emitted = emitted_body.clauses();
+                let owners = self.clause_owners(body.clauses(), emitted)?;
+                let items = clause_items(&parsed.body, emitted, &self.definition)?;
+                let mut lifted_clauses = vec![None; body.clauses().len()];
                 let mut changed = false;
-                for ((clause, item), emitted) in
-                    body.clauses().iter().zip(items).zip(emitted_body.clauses())
-                {
+                for ((emitted, items), owner) in emitted.iter().zip(items).zip(owners) {
+                    // A key cell KRS adds is derived again for the lifted sentence.
+                    let Some(index) = owner else {
+                        continue;
+                    };
+                    let clause = &body.clauses()[index];
                     let range = self.range_of(clause.origin_key());
                     let emitted_range = self
                         .by_key
@@ -952,7 +1016,7 @@ impl<'a> MutantChecker<'a> {
                         .map(|&index| self.nodes[index].range.clone());
                     let range = range.or(emitted_range);
                     if !touches(range.clone()) {
-                        clauses.push(clause.clone());
+                        lifted_clauses[index] = Some(clause.clone());
                         continue;
                     }
                     if range.as_ref().is_some_and(holds_family) {
@@ -968,9 +1032,30 @@ impl<'a> MutantChecker<'a> {
                     {
                         return Err(Refusal::NotJudged(NotJudged::Form("a stream cell".into())));
                     }
-                    clauses.push(ConfigurationClause::Fixed(lift.clause(fixed, item)?));
+                    let [item] = items.as_slice() else {
+                        return Err(Refusal::NotJudged(NotJudged::Skeleton(
+                            "the cells the rule mentions".into(),
+                        )));
+                    };
+                    let lifted = lift.clause(fixed, item)?;
+                    if let Some(key) = self.keys.get(fixed.cell()) {
+                        match key_kept(&lifted) {
+                            Some(true) => {}
+                            Some(false) => return Err(key.refusal()),
+                            None => {
+                                return Err(Refusal::NotJudged(NotJudged::Form(
+                                    "an in-place rewrite at or inside a Map instance's key".into(),
+                                )));
+                            }
+                        }
+                    }
+                    lifted_clauses[index] = Some(ConfigurationClause::Fixed(lifted));
                     changed = true;
                 }
+                let clauses = lifted_clauses
+                    .into_iter()
+                    .collect::<Option<Vec<_>>>()
+                    .expect("every clause has its emitted clause");
                 if changed {
                     let rewritten = FixedConfigurationRewrite::new(
                         body.origin().clone(),
@@ -1217,6 +1302,231 @@ fn cell_items(body: &Term) -> Vec<&Term> {
         }
     }
     items
+}
+
+/// The items of a configuration rule's body that each of `clauses` (the sentence's Definition IR
+/// clauses) is written as, one list per clause, in clause order.
+///
+/// The cells a rule mentions are its footprint, and the emitter writes them where
+/// [`DefinitionIndex::clause_layout`] places them: a rule whose cells lie in an instance, below a
+/// `?` or `*` cell, is about one instance, so its clauses are written inside that instance's
+/// cell, open on the right, nested in the cells of the enclosing instances it names, each
+/// instance's cell holding the clauses that lie in it directly and then the cell of the next
+/// instance; the clauses of a rule whose cells lie in no instance are written at the top; each
+/// clause as the items [`written_items`] counts. Mentioning an instance's cells this way is the
+/// footprint, not a change of it. The body must hold exactly that placement: an instance cell
+/// missing, added, or holding another instance's cell, or a cell added or dropped at some level,
+/// changes the cells (or instances) the rule reads or writes, and is refused. What this reads of
+/// the instance cells' frames, and the frames themselves, the comparison of the derived sentence
+/// with the mutant's checks again.
+fn clause_items<'t, T>(
+    body: &'t Term,
+    clauses: &[ConfigurationClause<SymbolId, T>],
+    definition: &DefinitionIndex<'_>,
+) -> Result<Vec<Vec<&'t Term>>, Refusal> {
+    fn footprint() -> Refusal {
+        Refusal::NotJudged(NotJudged::Skeleton("the cells the rule mentions".into()))
+    }
+    // The items of one level, given to its clauses in order; none may be left.
+    fn assign<'t, T>(
+        level: &[usize],
+        items: Vec<&'t Term>,
+        clauses: &[ConfigurationClause<SymbolId, T>],
+        groups: &mut [Vec<&'t Term>],
+    ) -> Result<(), Refusal> {
+        let mut items = items.into_iter();
+        for &index in level {
+            for _ in 0..written_items(&clauses[index]) {
+                groups[index].push(items.next().ok_or_else(footprint)?);
+            }
+        }
+        if items.next().is_some() {
+            return Err(footprint());
+        }
+        Ok(())
+    }
+    let layout = definition
+        .clause_layout(clauses.iter().map(ConfigurationClause::cell))
+        .map_err(|error| Refusal::NotJudged(NotJudged::Sentence(error.to_string())))?;
+    let mut groups = vec![Vec::new(); clauses.len()];
+    let items = cell_items(body);
+    if layout.chain.is_empty() {
+        let top = layout.levels.first().map_or(&[][..], Vec::as_slice);
+        assign(top, items, clauses, &mut groups)?;
+        return Ok(groups);
+    }
+    // The top holds the outermost instance's cell alone.
+    let &[mut cell] = items.as_slice() else {
+        return Err(footprint());
+    };
+    for (position, (instance, level)) in layout.chain.iter().zip(&layout.levels).enumerate() {
+        let name = definition.cell_name(instance).ok_or_else(|| {
+            Refusal::NotJudged(NotJudged::Sentence(format!("instance cell {instance}")))
+        })?;
+        let Term::Apply { label, arguments } = cell.unannotated() else {
+            return Err(footprint());
+        };
+        let [_, content, _] = arguments.as_slice() else {
+            return Err(footprint());
+        };
+        if label
+            .name
+            .strip_prefix('<')
+            .and_then(|rest| rest.strip_suffix('>'))
+            != Some(name)
+        {
+            return Err(footprint());
+        }
+        let mut items = cell_items(content);
+        let inner = if position + 1 < layout.chain.len() {
+            Some(items.pop().ok_or_else(footprint)?)
+        } else {
+            None
+        };
+        assign(level, items, clauses, &mut groups)?;
+        match inner {
+            Some(next) => cell = next,
+            None => break,
+        }
+    }
+    Ok(groups)
+}
+
+/// A cell of the Semantic IR's configuration.
+type SemanticCell = FixedCell<SemanticSortRef, SemanticId>;
+
+/// A cell at or inside the key of a Map collection's instances, the instance cell's first child.
+struct KeyCell<'d> {
+    /// The collection cell.
+    holder: &'d SemanticCell,
+    /// The key cell.
+    key: &'d SemanticCell,
+    /// The cell itself: the key, or a cell inside it.
+    cell: &'d SemanticCell,
+}
+
+impl KeyCell<'_> {
+    /// Whether the cell is the key cell itself.
+    fn is_key(&self) -> bool {
+        self.cell.id() == self.key.id()
+    }
+
+    /// The refusal of a sentence that writes this cell other than as its subject matched it,
+    /// with the reason KRS gives the Rust source the sentence stands for, which writes the key
+    /// ([`krs_ir::subject::key_write_reason`]). The sentence is about one instance of the
+    /// collection, whose instance type is the group it is a rule for.
+    fn refusal(&self) -> Refusal {
+        let field = |cell: &SemanticCell| {
+            let field = cell.field().unwrap_or(cell.name());
+            field.strip_prefix("r#").unwrap_or(field).to_owned()
+        };
+        let group = self.holder.declaration().map_or_else(
+            || self.holder.name().to_owned(),
+            |declaration| declaration.item_name().to_owned(),
+        );
+        Refusal::Krs(Box::new(DescriptorLoweringError::GroupInstance {
+            code: krs_diagnostic::codes::analysis::MAP_COLLECTION_KEY,
+            reason: krs_ir::subject::key_write_reason(
+                &group,
+                &field(self.holder),
+                &field(self.key),
+                &field(self.cell),
+            ),
+            range: None,
+            item: None,
+        }))
+    }
+}
+
+/// The cells at or inside the keys of Map collections' instances in `modules`' configurations,
+/// by cell.
+fn map_keys(modules: &[SemanticModule]) -> BTreeMap<&SemanticId, KeyCell<'_>> {
+    fn inside<'d>(
+        holder: &'d SemanticCell,
+        key: &'d SemanticCell,
+        cell: &'d SemanticCell,
+        keys: &mut BTreeMap<&'d SemanticId, KeyCell<'d>>,
+    ) {
+        keys.insert(cell.id(), KeyCell { holder, key, cell });
+        if let FixedCellContent::Children { children } = cell.content() {
+            for child in children {
+                inside(holder, key, child, keys);
+            }
+        }
+    }
+    fn walk<'d>(cells: &'d [SemanticCell], keys: &mut BTreeMap<&'d SemanticId, KeyCell<'d>>) {
+        for cell in cells {
+            let FixedCellContent::Children { children } = cell.content() else {
+                continue;
+            };
+            let star = cell.attributes().iter().any(|attribute| {
+                matches!(
+                    attribute,
+                    CellAttribute::Multiplicity {
+                        value: CellMultiplicity::Star,
+                        ..
+                    }
+                )
+            });
+            let map = cell.attributes().iter().any(|attribute| {
+                matches!(
+                    attribute,
+                    CellAttribute::CollectionType {
+                        value: CellCollectionType::Map,
+                        ..
+                    }
+                )
+            });
+            if star
+                && map
+                && let Some(key) = children.first()
+            {
+                inside(cell, key, key, keys);
+            }
+            walk(children, keys);
+        }
+    }
+    let mut keys = BTreeMap::new();
+    for module in modules {
+        if let Some(configuration) = module.configuration() {
+            walk(configuration.cells(), &mut keys);
+        }
+    }
+    keys
+}
+
+/// Whether a lifted clause of a cell at or inside a Map instance's key keeps what its subject
+/// matched there: it leaves the content as matched, or writes back the variable the subject bound
+/// it to (as a variable or an alias) or the same token, as KRS's own predicate over a written key
+/// ([`krs_ir::subject::keeps_key_term`]) admits. `None` for an in-place rewrite inside the
+/// content, which KRS judges by each rewrite's sides ([`krs_ir::subject::rewrites_keep`]) and
+/// the lift does not read.
+///
+/// A key restated as another literal than the baseline's (`<id> 0 </id>` as `<id> 1 </id>`) is
+/// no write: the subject matches another instance, which a Rust source writes as `id: 1`, so
+/// it is a change of pattern, judged as any other.
+fn key_kept(clause: &FixedCellClause<SemanticId, SemanticTerm>) -> Option<bool> {
+    let written = match clause.after() {
+        CellPost::Preserve => return Some(true),
+        CellPost::Local => return None,
+        CellPost::Replace { term } => term,
+    };
+    let matched = clause.before();
+    let unaliased = match matched.kind() {
+        IrTermKind::As { pattern, .. } => pattern.as_ref(),
+        _ => matched,
+    };
+    Some(match (written.kind(), matched.kind(), unaliased.kind()) {
+        (
+            IrTermKind::Variable { variable },
+            IrTermKind::Variable { variable: bound } | IrTermKind::As { alias: bound, .. },
+            _,
+        ) => variable == bound,
+        (IrTermKind::Token { value }, _, IrTermKind::Token { value: other }) => {
+            value == other && written.sort() == unaliased.sort()
+        }
+        _ => false,
+    })
 }
 
 /// Whether two parsed rules are equal up to a bijective renaming of their variables.
@@ -2003,12 +2313,15 @@ impl<'i> Lift<'i> {
                             "the function `{name}` in a pattern"
                         )));
                     }
-                    if arguments.len() != production.arguments.len() {
+                    if arguments.len() != production.arguments.len() + production.keys {
                         return Err(LiftRefusal::Shape(format!(
                             "`{name}` of {} operands",
                             arguments.len()
                         )));
                     }
+                    // A function evaluated in one instance receives the instance's keys after
+                    // its own arguments, which KRS passes: they are not lifted.
+                    let arguments = &arguments[..production.arguments.len()];
                     let same = guide.and_then(|guide| match guide.kind() {
                         IrTermKind::Application {
                             application: ApplicationRef::Declared(id),
