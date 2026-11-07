@@ -525,7 +525,7 @@ fn a_refused_run_document_names_its_schedule() {
     fs::write(&bad_flow, "[spec]\nentry = 3\n").unwrap();
     let bad_list = dir.join("BAD-MUTATIONS.toml");
     fs::write(&bad_list, "this is not TOML [").unwrap();
-    let profile = kink_native::execution::SolverProfile::BUILD.name();
+    let solver = flow_support::solver_lines();
     for (manifest, mutations, section) in [
         (&bad_flow, dir.join("MUTATIONS.toml"), "spec"),
         (&dir.join("FLOW.toml"), bad_list.clone(), "mutation_list"),
@@ -557,8 +557,8 @@ fn a_refused_run_document_names_its_schedule() {
             let printed = String::from_utf8(output.stdout).unwrap();
             assert!(
                 printed.starts_with(&format!(
-                    "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\n\
-                     profile = \"{profile}\"\n\n[{section}]\noutcome = \"refused\"\n"
+                    "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n\
+                     {solver}\n[{section}]\noutcome = \"refused\"\n"
                 )),
                 "{printed}"
             );
@@ -1365,11 +1365,10 @@ mod kink_tier {
         .unwrap();
         assert_eq!(full_cold, full_warm);
         assert_eq!(first_cold, first_warm);
-        let profile = kink_native::execution::SolverProfile::BUILD.name();
+        let solver = flow_support::solver_lines();
         assert!(
             full_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
-                 \"{profile}\"\n"
+                "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n{solver}"
             )),
             "{full_cold}"
         );
@@ -1388,8 +1387,7 @@ mod kink_tier {
         );
         assert!(
             first_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
-                 \"{profile}\"\n"
+                "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n{solver}"
             )),
             "{first_cold}"
         );

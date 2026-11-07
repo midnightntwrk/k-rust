@@ -663,8 +663,8 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
     let rendered = verdicts(&versioned).unwrap();
     assert!(
         rendered.contains(&format!(
-            "profile = \"{}\"\nkrs_annotation = 2\n",
-            kink_native::execution::SolverProfile::BUILD.name()
+            "{}krs_annotation = 2\n",
+            flow_support::solver_lines()
         )),
         "{rendered}"
     );
@@ -821,12 +821,12 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         "the reversed manifest names other killers"
     );
     assert_eq!(cold_results, warm_results);
-    // Version 6 names the solver profile, and no schedule.
+    // Version 6 names the solver profile, and no schedule; version 8 the Z3 build under Z3.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
-             \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
-            kink_native::execution::SolverProfile::BUILD.name()
+            "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n{}\n[spec]\n\
+             outcome = \"admitted\"\n",
+            flow_support::solver_lines()
         )),
         "{cold}"
     );
@@ -939,9 +939,9 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
-             \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
-            kink_native::execution::SolverProfile::BUILD.name()
+            "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n{}\n\
+             [mutation_list]\noutcome = \"refused\"\n",
+            flow_support::solver_lines()
         )
     );
     let stderr = String::from_utf8(output.stderr).unwrap();

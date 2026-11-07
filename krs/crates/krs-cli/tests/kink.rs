@@ -5244,12 +5244,19 @@ fn locked_story(package: &'static str) -> Project {
 
 /// The lock of the story's three edits naming `killers` (`plus/a`, `plus/b`, `plus/c`), in the
 /// bytes `krs kink run` writes: the run's verdicts rendering without `killed_by`, under the Z3
-/// profile krs links.
+/// profile krs links, whose header names the Z3 build (k-rust's `z3_build`).
 fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
-    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
-                    \"z3\"\n\n[spec]\noutcome = \"admitted\"\n"
-        .to_owned();
+    let build = k_rust::backend::z3_build().expect("krs links Z3");
+    let mut text = format!(
+        "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\nprofile = \"z3\"\n\
+         z3_version = \"{}\"\n",
+        build.version
+    );
+    if let Some(digest) = &build.library_sha256 {
+        let _ = writeln!(text, "z3_library_sha256 = \"{digest}\"");
+    }
+    text.push_str("\n[spec]\noutcome = \"admitted\"\n");
     for (id, killer) in ["plus/a", "plus/b", "plus/c"].into_iter().zip(killers) {
         let _ = write!(
             text,
