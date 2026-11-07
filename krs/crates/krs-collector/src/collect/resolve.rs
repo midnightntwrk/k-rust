@@ -2322,7 +2322,10 @@ fn placeholder_term() -> krs_ir::HostTerm {
 /// the List reading beside them, and a `*` collection cell takes the List
 /// reading, its instances in place of the head or the elements. Any other
 /// cell keeps the reading the macro took, which names the computation cell,
-/// a list cell, or is reported as naming neither. Only a cell-record clause
+/// a list cell, or is reported as naming neither. An item-less `[..]` is
+/// carried as `_` beside its instance list (`read_machine_clause`'s reading):
+/// every cell but a `Cell` leaf takes the instance list. Only a cell-record
+/// clause
 /// carries a List reading: the syntax reads a table clause's (`for Sort;
 /// pattern => result`) values one way and gives it no alternative, so it is
 /// returned as it is.
@@ -2343,8 +2346,17 @@ fn readable_bracket_reading(
         .iter()
         .filter(|candidate| candidate.names.iter().any(|name| name == &cell.name))
         .collect::<Vec<_>>();
+    // An item-less `[..]` is read as `_` with its instance list beside it.
+    // `_` is what it means on a `Cell` leaf. The computation cell has no `_`
+    // entry (its entry is its items in brackets) and keeps the instance
+    // list, as every other cell does, whose kind's mistake it names.
+    let keeps_instances = |candidate: &HeadRuleCellTarget| {
+        candidate.is_collection()
+            || (item_less_brackets(&alternative.extra).is_some()
+                && candidate.leaf_wrapper() != Some(krs_ir::CellWrapper::Cell))
+    };
     if let [candidate] = named.as_slice()
-        && candidate.is_collection()
+        && keeps_instances(candidate)
     {
         if rule
             .computation_cell
@@ -2357,8 +2369,9 @@ fn readable_bracket_reading(
         rule.extras.retain(|extra| {
             !matches!(
                 extra,
-                krs_ir::ProtocolHeadRuleExtra::RewriteList { cell: list, .. }
-                    if list.name == cell.name
+                krs_ir::ProtocolHeadRuleExtra::RewriteList { cell: read, .. }
+                    | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell: read, .. }
+                    if read.name == cell.name
             )
         });
         rule.bindings = alternative.bindings;
@@ -2462,10 +2475,12 @@ fn readable_list_reading(
         }
     }
     // `[..]` names no item, element or instance, so it matches whatever the
-    // cell holds and keeps it: the macro reads it as instances, which is
-    // what it means on a collection. On a leaf cell, a list or a computation,
-    // it constrains and binds nothing, so the rule is the rule that leaves
-    // the cell out, as it would be with `_` there.
+    // cell holds and keeps it. The macro reads the first such value as `_`
+    // with its instance list beside it, which a `Cell` leaf keeps
+    // ([`readable_bracket_reading`]). The instance list that remains on a
+    // leaf (the computation cell's, or a value beside another carried
+    // reading) constrains and binds nothing, so the rule is the rule that
+    // leaves the cell out.
     rule.extras.retain(|extra| {
         item_less_brackets(extra).is_none_or(|cell| {
             !matches!(

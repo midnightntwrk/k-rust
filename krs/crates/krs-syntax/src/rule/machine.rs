@@ -735,10 +735,42 @@ pub(super) fn tokens_before_arrow(input: ParseStream<'_>) -> Result<TokenStream,
     Ok(tokens)
 }
 
+/// Whether a record value is `Some([..])`: the present cell, whatever it holds.
+fn is_item_less_presence(value: &[TokenTree]) -> bool {
+    let [TokenTree::Ident(head), TokenTree::Group(inside)] = value else {
+        return false;
+    };
+    let inside = inside.stream().into_iter().collect::<Vec<_>>();
+    head == "Some"
+        && matches!(inside.as_slice(), [TokenTree::Group(brackets)]
+            if brackets.delimiter() == proc_macro2::Delimiter::Bracket
+                && is_dots(&brackets.stream()))
+}
+
+/// The cells a subject record writes `Some([..])` for.
+fn item_less_presences(record: &TokenTree) -> Vec<Ident> {
+    let TokenTree::Group(record) = record else {
+        return Vec::new();
+    };
+    let tokens = record.stream().into_iter().collect::<Vec<_>>();
+    tokens
+        .split(|token| matches!(token, TokenTree::Punct(comma) if comma.as_char() == ','))
+        .filter_map(|field| match field {
+            [TokenTree::Ident(cell), TokenTree::Punct(colon), value @ ..]
+                if colon.as_char() == ':' && is_item_less_presence(value) =>
+            {
+                Some(cell.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn parse_machine_result_record(
     input: ParseStream<'_>,
     states: &[(Ident, StateFamily)],
     matched: &[&Ident],
+    present: &[Ident],
 ) -> Result<Vec<(Ident, MachineResultCell)>, ParseError> {
     let content = input.call(|input| {
         let content;
@@ -792,6 +824,23 @@ fn parse_machine_result_record(
             continue;
         }
         content.parse::<Token![:]>()?;
+        // `Some([..])` over the subject's `Some([..])` keeps the present cell's content, as
+        // `[..] => [..]` keeps a leaf's: the rule only reads the cell, which the subject's
+        // `Some(_)` matches ([`parse_readable_pattern_state`]).
+        if present.iter().any(|name| name.unraw() == cell.unraw()) {
+            let fork = content.fork();
+            let value = [fork.parse::<TokenTree>(), fork.parse::<TokenTree>()];
+            if let [Ok(head), Ok(inside)] = value
+                && is_item_less_presence(&[head, inside])
+                && (fork.is_empty() || fork.peek(Token![,]))
+            {
+                content.advance_to(&fork);
+                if content.peek(Token![,]) {
+                    content.parse::<Token![,]>()?;
+                }
+                continue;
+            }
+        }
         // L1: presence is lexical. Over a cell the subject does not match, `Some(..)` and
         // `None` are a presence, whatever the cell's kind; the collector then judges the
         // overwrite of that presence against the cell (`unmatched-optional-result` on a `?`
@@ -955,7 +1004,8 @@ pub(super) fn parse_machine_clause(
         .iter()
         .map(|(cell, _)| cell)
         .collect::<Vec<_>>();
-    let result_cells = parse_machine_result_record(input, &states, &matched)?;
+    let present = item_less_presences(&pattern_record);
+    let result_cells = parse_machine_result_record(input, &states, &matched, &present)?;
     let subject_cells = with_overwritten_cells(subject_cells, &result_cells)?;
     let mut layout = RuleClauseLayout {
         label: TokenRange::for_tokens(name)?,
@@ -1124,6 +1174,77 @@ impl BracketReadings {
     }
 }
 
+/// Reads a cell-record clause's bracketed values ([`read_machine_readings`]),
+/// with an item-less `[..]` read by what it means. `[..]` names no item,
+/// element or instance, so it matches whatever its cell holds, and with no
+/// result value, or `[..]` again, the rule keeps that content. On a List
+/// collection that is every instance, the instance list the brackets parse
+/// as; on a leaf it is the cell matched by `_` and left out of the result,
+/// the entry `x: _` is. Only the cell's declared type says which, so the
+/// first such value is read as `_`, and its instance list is carried beside
+/// it for the collector to keep on every cell but a leaf. When another
+/// value's reading is carried already, the clause keeps its instance list,
+/// as every later item-less value does.
+fn read_machine_clause(
+    clause: &MachineClause<'_>,
+    subject_cells: &[(Ident, MachinePatternCell)],
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<RuleClause, ParseError> {
+    let instances = read_machine_readings(clause, subject_cells, result_cells);
+    let item_less = subject_cells.iter().find_map(|(cell, pattern)| {
+        let MachinePatternCell::Bracket(group) = pattern else {
+            return None;
+        };
+        let result = result_cells
+            .iter()
+            .find(|(result_cell, _)| result_cell.unraw() == cell.unraw());
+        let kept = result.is_none_or(|(_, result)| {
+            matches!(result, MachineResultCell::Bracket(result) if is_dots(&result.stream()))
+        });
+        (is_dots(&group.stream()) && kept).then(|| (cell, group.span()))
+    });
+    let (Ok(list), Some((cell, span))) = (&instances, item_less) else {
+        return instances;
+    };
+    // The `_` stands at the brackets, which a diagnostic about the entry names.
+    let wildcard = Pat::Wild(syn::PatWild {
+        attrs: Vec::new(),
+        underscore_token: Token![_](span),
+    });
+    let (pattern, tree) = readable_cell_pattern(wildcard, NegativeLiteralSpans::default())?;
+    let subject = subject_cells
+        .iter()
+        .map(|(name, value)| {
+            let value = if name.unraw() == cell.unraw() {
+                MachinePatternCell::Term {
+                    pattern: Box::new(pattern.clone()),
+                    tree: Box::new(tree.clone()),
+                }
+            } else {
+                value.clone()
+            };
+            (name.clone(), value)
+        })
+        .collect::<Vec<_>>();
+    let result = result_cells
+        .iter()
+        .filter(|(name, _)| name.unraw() != cell.unraw())
+        .cloned()
+        .collect::<Vec<_>>();
+    match read_machine_readings(clause, &subject, &result) {
+        Ok(mut primary) if primary.bracket_alternative.is_none() => {
+            match BracketAlternative::from_list_reading(list.clone(), cell) {
+                Some(alternative) => {
+                    primary.bracket_alternative = Some(alternative);
+                    Ok(primary)
+                }
+                None => instances,
+            }
+        }
+        _ => instances,
+    }
+}
+
 /// Reads a cell-record clause's bracketed values (KF-023, F6). A bracketed
 /// value that reads only one way is read that way. One that reads several
 /// ways depends on the cell's declared type, which only the collector knows.
@@ -1139,7 +1260,7 @@ impl BracketReadings {
 /// `job: [.., Job { payload: p }]`, and is not read as the computation cell,
 /// is read as elements and carries its List reading beside it, when no head
 /// carries one.
-fn read_machine_clause(
+fn read_machine_readings(
     clause: &MachineClause<'_>,
     subject_cells: &[(Ident, MachinePatternCell)],
     result_cells: &[(Ident, MachineResultCell)],

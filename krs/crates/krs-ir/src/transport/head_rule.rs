@@ -1017,8 +1017,10 @@ impl HostHeadRule {
         }
         if let Some(alternative) = &self.bracket_alternative {
             // The List reading replaces the reading of the same cell the
-            // clause took: the head, when it names the computation cell, or
-            // the cell's list elements.
+            // clause took: the head, when it names the computation cell, the
+            // cell's list elements, or, for an item-less `[..]` (alone or
+            // `[..] => [..]`), which matches whatever the cell holds and
+            // keeps it, the cell read by `_`.
             let ProtocolHeadRuleExtra::RewriteState {
                 cell,
                 result_key,
@@ -1042,7 +1044,31 @@ impl HostHeadRule {
                         if list.name == cell.name
                 )
             });
-            if !(replaces_list || replaces_head && !cells.contains(cell.name.as_str()))
+            let item_less = |state: &crate::ProtocolRuleStateTerm<HostTerm>| {
+                matches!(
+                    state,
+                    crate::ProtocolRuleStateTerm::Instances(instances)
+                        if instances.front.is_empty()
+                            && instances.back.is_empty()
+                            && matches!(instances.rest, crate::ProtocolRuleFrame::Anonymous { .. })
+                )
+            };
+            let replaces_wildcard = item_less(before)
+                && after.as_ref().is_none_or(item_less)
+                && self.extras.iter().any(|extra| {
+                    matches!(
+                        extra,
+                        ProtocolHeadRuleExtra::RewriteCell {
+                            cell: read,
+                            before: crate::Term::Wildcard { .. },
+                            after: None,
+                            ..
+                        } if read.name == cell.name
+                    )
+                });
+            if !(replaces_list
+                || replaces_wildcard
+                || replaces_head && !cells.contains(cell.name.as_str()))
                 || cell.key.role() != ProvenanceRole::RuleLeftCellsField
                 || result_key
                     .as_ref()

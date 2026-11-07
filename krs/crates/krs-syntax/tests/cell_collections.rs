@@ -240,6 +240,64 @@ fn a_bracket_that_reads_both_ways_carries_its_list_reading() {
     assert_eq!(labelled.bindings(), ["first"]);
 }
 
+/// An item-less `[..]` matches whatever its cell holds: it reads as the cell's
+/// `_`, keyed at the brackets, with its instance list beside it for a
+/// collection; `[..] => [..]` keeps the cell as `_` does, and so does
+/// `Some([..]) => Some([..])` the present cell.
+#[test]
+fn an_item_less_bracket_reads_as_its_wildcard_beside_its_instances() {
+    let source = r"
+        for Machine;
+        use Cmd::*;
+
+        read: { k: [Go(), ..], stack: [..] } => { k: [..] };
+
+        kept: { k: [Go(), ..], stack: [..] } => { k: [..], stack: [..] };
+
+        two: { stack: [..], seq: [..], pc: x } => { pc: x + 1 };
+
+        present: { k: [Go(), ..], olist: Some([..]) } => { k: [..], olist: Some([..]) };
+        ";
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let clauses = block.clauses();
+    for clause in &clauses[..2] {
+        assert!(matches!(
+            clause.extras(),
+            [RuleExtra::RewriteCell { cell, after: None, .. }] if cell == "stack"
+        ));
+        let alternative = clause.bracket_alternative().unwrap();
+        assert_eq!(alternative.cell(), "stack");
+        let StateTerm::Instances(before) = alternative.before() else {
+            panic!("expected the instance list");
+        };
+        assert!(before.front().is_empty() && before.back().is_empty());
+        let anchors = clause.provenance().unwrap();
+        let [wildcard] = anchors
+            .iter()
+            .filter(|anchor| anchor.role() == krs_syntax::ProvenanceRole::RuleLeftWildcard)
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!("one wildcard");
+        };
+        assert_eq!(anchored(source, wildcard), "[..]");
+    }
+    // Only one value's other reading is carried: the first is `_`, a later
+    // one keeps its instance list.
+    let two = &clauses[2];
+    assert_eq!(two.bracket_alternative().unwrap().cell(), "stack");
+    assert!(matches!(
+        two.extras(),
+        [RuleExtra::RewriteCell { cell: stack, .. }, RuleExtra::RewriteState { cell: seq, .. }, ..]
+            if stack == "stack" && seq == "seq"
+    ));
+    let present = &clauses[3];
+    assert!(matches!(
+        present.extras(),
+        [RuleExtra::RewriteState { cell, after: None, .. }] if cell == "olist"
+    ));
+    present.provenance().unwrap();
+}
+
 /// The text `anchor` selects in `source`.
 fn anchored<'a>(source: &'a str, anchor: &krs_syntax::ProvenanceAnchor) -> &'a str {
     let offset = |at: proc_macro2::LineColumn| {

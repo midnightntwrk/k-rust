@@ -450,7 +450,7 @@ advice = "none"
 
 [class.nested-anonymous-rest]
 code = "krs::syntax::invalid-list-notation"
-doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell and a `cells!` list cell's root brackets after an item: a group record's or an instance's child (`H { hl: [x, ..], hb: 0 }`, a fragment's `tk: [x, ..]`), inside a readable `Some([..])`, or a `cells!` `Cell([..])` with no item; not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
+doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell, a readable instance update's List child (`A { al: [x, ..], ..me }`) and a `cells!` list cell's root brackets after an item: a group record's child (`H { hl: [x, ..], hb: 0 }`), an instance's `k` child (`T { tk: [x, ..], ..me }`), a fragment's child, inside a readable `Some([..])` (but over the subject's `Some([..])`, which keeps the present cell), or a `cells!` `Cell([..])` with no item; not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
 advice = "none"
 
 [class.never-cools]
@@ -8081,6 +8081,7 @@ lint = "no-effect-entry"
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
+<stack> _ </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -11150,6 +11151,7 @@ lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
+<stack> _ </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -11788,6 +11790,7 @@ lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
+<stack> _ </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -14276,6 +14279,7 @@ lint = "no-effect-entry"
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
+<seq> _ </seq>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -14608,6 +14612,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/written/olist/Some([..])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/written/olist/Some(_)"]
 k = """
@@ -14699,6 +14710,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
+<seq> _ </seq>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -14779,6 +14791,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
+<stack> _ </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16111,6 +16124,7 @@ lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
+<seq> _ </seq>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16443,6 +16457,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/written/olist/Some([..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/written/olist/Some(_)"]
 k = """
@@ -16534,6 +16555,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
+<seq> _ </seq>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16614,6 +16636,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
+<stack> _ </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

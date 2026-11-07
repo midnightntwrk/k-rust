@@ -513,9 +513,11 @@ fn expand_head_rule(
             let name = alternative.cell().unraw().to_string();
             // The parser attaches an alternative only beside a reading that
             // holds its records: the cell read as a list's elements, which
-            // is a `RewriteList` extra of the cell, or the cell read as the
-            // computation cell, which is the head. Without either, the
-            // alternative's nodes would reach no wire node.
+            // is a `RewriteList` extra of the cell, the cell read as the
+            // computation cell, which is the head, or an item-less `[..]`
+            // read as `_`, a `RewriteCell` extra of the cell, whose instance
+            // list has no records. Without any, the alternative's nodes
+            // would reach no wire node.
             let records = update_extras
                 .iter()
                 .find_map(|extra| match extra {
@@ -526,6 +528,11 @@ fn expand_head_rule(
                         ..
                     } if cell.name == name => {
                         Some(AlternativeRecords::list(before, after.as_ref()))
+                    }
+                    krs_ir::wire::WireHeadRuleExtra::RewriteCell { cell, .. }
+                        if cell.name == name =>
+                    {
+                        Some(AlternativeRecords::none())
                     }
                     _ => None,
                 })
@@ -965,6 +972,14 @@ impl<'t> AlternativeRecords<'t> {
         Self {
             subject: (head.items.iter().collect(), Vec::new()),
             result: (result, Vec::new()),
+        }
+    }
+
+    /// No records: the reading of an item-less `[..]` as `_`.
+    const fn none() -> Self {
+        Self {
+            subject: (Vec::new(), Vec::new()),
+            result: (Vec::new(), Vec::new()),
         }
     }
 

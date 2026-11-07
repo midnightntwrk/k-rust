@@ -1635,14 +1635,6 @@ kind = "diagnostic"
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
-["claim/subject/stack/[..]"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["readable/subject/stack/[..]"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
 # K-1, K-2 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
 ["terms/readable/map-key/as-body/!(x < 1)"]
 finding = "S0-14"
@@ -1982,10 +1974,6 @@ deviation = "krs::syntax::invalid-pattern-or @ entry"
 # NT-19: the run families (`readable-run/..`, `cells-run/..`), the readable records and `cells!` rules
 # on the run base, which K7 runs. A twin of a pending machine-base case deviates exactly as its twin
 # does (checked when these entries were made), under its twin's finding and step.
-
-["readable-run/subject/stack/[..]"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
 
 # NT-35-1 (K7, the printed state): the printer reverses the case's alias, whose subject writes
 # `k::builtin::set::item(x)`, so the `<k>` head prints `SetItem ( .. )`, which the program grammar,
@@ -2353,22 +2341,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 ["sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
-
-["sweep/claim/subject/seq/[..]"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["sweep/claim/written/olist/Some([..])"]
-finding = "S5-Q1"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/readable/subject/seq/[..]"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["sweep/readable/written/olist/Some([..])"]
-finding = "S5-Q1"
-deviation = "krs::syntax::invalid-list-notation @ item"
 
 ["sweep/claim/result/job/[x, ..]"]
 finding = "S5-Q2"
