@@ -336,9 +336,8 @@ pub fn condition_flips(
         lowered: &kept.lowered,
         sources: &sources,
     };
-    let spelling = spelling::KrsSpelling::new(request);
     let derived = kink_flow::on_stack(|| {
-        let checks = judged_checks(&baseline, &spelling, &manifest, None);
+        let checks = judged_checks(&baseline, &manifest, None);
         flips::derive(&baseline, &checks, &manifest, &loaded)
     });
     derived.ok_or_else(|| refuse(outcome, "the flip thread panicked".to_owned()))
@@ -606,7 +605,7 @@ fn run_flow(
                     options.cache.as_deref(),
                 );
                 if let Some(rows) = checked.mutations.as_mut() {
-                    judged_checks(baseline, spelling, &manifest, options.cache.as_deref())
+                    judged_checks(baseline, &manifest, options.cache.as_deref())
                         .annotate_check(rows);
                 }
                 let (mut document, status) =
@@ -626,13 +625,9 @@ fn run_flow(
         return finish(outcome, &document, status_code, output);
     }
     // `run` and a `fuzz` kill job: the mutations the front end refuses run nothing.
-    let Some(refused_mutations) = front_refusals(
-        &command,
-        baseline.as_ref(),
-        spelling,
-        &manifest,
-        measurement,
-    ) else {
+    let Some(refused_mutations) =
+        front_refusals(&command, baseline.as_ref(), &manifest, measurement)
+    else {
         outcome
             .notes
             .push("krs kink: the mutation check thread panicked".into());
@@ -713,7 +708,6 @@ fn shown_lock(document: &mut Value, lock: &(String, String)) {
 fn front_refusals(
     command: &FlowCommand,
     baseline: Option<&checks::Baseline<'_>>,
-    spelling: &spelling::KrsSpelling,
     manifest: &kink_flow::FlowManifest,
     measurement: &mut Measurement,
 ) -> Option<std::collections::BTreeMap<String, kink_flow::InvalidMutation>> {
@@ -734,7 +728,7 @@ fn front_refusals(
     );
     measurement.timings.span("kink.krs-checks", |_| {
         kink_flow::on_stack(|| {
-            judged_checks(baseline, spelling, manifest, command_cache(command))
+            judged_checks(baseline, manifest, command_cache(command))
                 .refusals(manifest, &list, &run)
         })
     })
@@ -744,11 +738,10 @@ fn front_refusals(
 /// `manifest` describes, whose cache directory `cache` names, else its default.
 fn judged_checks<'a>(
     baseline: &checks::Baseline<'a>,
-    spelling: &spelling::KrsSpelling,
     manifest: &kink_flow::FlowManifest,
     cache: Option<&Path>,
 ) -> checks::KrsChecks<'a> {
-    checks::KrsChecks::new(baseline, spelling)
+    checks::KrsChecks::new(baseline)
         .with_cache(&kink_flow::results::cache_directory(manifest, cache))
 }
 

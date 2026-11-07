@@ -45,8 +45,8 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 use kink_flow::{
-    CommandSpelling, FlowManifest, InvalidMutation, InvalidReason, MutationCheck as FlowCheck,
-    MutationList, ResolvedMutation, Verb, check::Finding,
+    FlowManifest, InvalidMutation, InvalidReason, MutationCheck as FlowCheck, MutationList,
+    ResolvedMutation, check::Finding,
 };
 use krs_compiler::{
     DEFINITION_ARTIFACT, EditContainer, InsertedNodeRef, KEdit, LoweredDefinition, MutantTheory,
@@ -777,15 +777,13 @@ pub(crate) struct KrsChecks<'a> {
     by_start: BTreeMap<usize, SourceMapKey>,
     /// The rule table by label.
     by_label: BTreeMap<&'a str, &'a EmittedRule>,
-    /// The command that checks a mutation list, as this front end spells it.
-    check_command: String,
     /// The judge cache the judgements are read from and written to, when one is given.
     cache: Option<JudgeCache>,
 }
 
 impl<'a> KrsChecks<'a> {
-    /// The checks over `baseline`; `spelling` spells the next step that names `check`.
-    pub(crate) fn new(baseline: &Baseline<'a>, spelling: &dyn CommandSpelling) -> Self {
+    /// The checks over `baseline`.
+    pub(crate) fn new(baseline: &Baseline<'a>) -> Self {
         let emitted = baseline.emitted;
         let checker = Rederivation::new(baseline.retained, baseline.lowered)
             .map_err(|error| error.to_string())
@@ -866,7 +864,6 @@ impl<'a> KrsChecks<'a> {
                 .iter()
                 .map(|rule| (rule.label.as_str(), rule))
                 .collect(),
-            check_command: spelling.command(Verb::Check),
             cache: None,
         }
     }
@@ -981,7 +978,9 @@ impl<'a> KrsChecks<'a> {
 
     /// The front end's first refusal of `resolved`, by edit order, as a run gives it: its
     /// reason, next step and detail, the detail counting the other refusals; `None` when the
-    /// front end admits the mutation.
+    /// front end admits the mutation. Like the judgement, the refusal is a function of the
+    /// definition and the mutation: it names `check` by its verb alone, never by a command line
+    /// that would carry the checkout's paths.
     pub(crate) fn refusal(&self, resolved: &ResolvedMutation) -> Option<InvalidMutation> {
         let judged = self.judge(resolved);
         let ordered = judged.ordered();
@@ -990,9 +989,10 @@ impl<'a> KrsChecks<'a> {
         let detail = if more == 0 {
             first.detail.clone()
         } else {
+            let edits = if more == 1 { "edit" } else { "edits" };
             format!(
-                "{} ({more} more: run `{}`)",
-                first.detail, self.check_command
+                "{} (and {more} more refused {edits}, which `krs kink check` reports)",
+                first.detail
             )
         };
         Some(InvalidMutation {
