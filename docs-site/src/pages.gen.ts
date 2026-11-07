@@ -18,8 +18,13 @@ type Page =
   | { path: '/k-rust/compatibility'; render: 'static' }
   | { path: '/k-rust/fuzzing'; render: 'static' }
   | { path: '/k-rust'; render: 'static' }
+  | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
   | { path: '/lean'; render: 'static' }
+  | { path: '/lean/making-proofs-cheap'; render: 'static' }
+  | { path: '/lean/matching-logic'; render: 'static' }
   | { path: '/lean/proving-a-property'; render: 'static' }
+  | { path: '/lean/the-definition-as-a-value'; render: 'static' }
+  | { path: '/lean/theorem-a'; render: 'static' }
   | { path: '/lean/what-a-step-means'; render: 'static' }
   | { path: '/lean/what-you-have-to-read'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
