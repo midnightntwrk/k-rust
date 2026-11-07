@@ -730,8 +730,8 @@ mod tests {
     mod kink_tier {
         use super::*;
 
-        // Portable only: its cached answer is a `no`, an answer the Z3 profile never gives.
-        #[cfg(not(feature = "z3"))]
+        // In both profiles: calc's searches ask no solver query, so under Z3 too each completed
+        // one counts no undecided answer and its answer is a `no`.
         #[test]
         #[ignore = "kink"]
         fn a_cached_answer_is_judged_with_the_current_facts() {

@@ -32,36 +32,19 @@ fn flow(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// The answer to a pattern that a complete exploration never matches: `no` in the portable
-/// profile, `unknown` under Z3. `pattern::judge` gives no `no` under the Z3 profile because a
-/// solver query can be left undecided and k-rust's search responses carry no `smtUnknowns` count
-/// to show that none was (k-in-k2 ADDENDUM-5 KINK-28; adoption A-5, repin-58720d2e ADOPTION.md section 5),
-/// so the Z3 answer is the more conservative `unknown`.
-const NO: &str = if cfg!(feature = "z3") {
-    "unknown"
-} else {
-    "no"
-};
+/// The answer to a pattern that a complete exploration never matches, in both profiles: the
+/// fixtures' searches ask Z3 nothing it leaves undecided, so under Z3 each counts no undecided
+/// solver answer and gives the `no` the portable profile gives (KINK-query-no-z3; before it, a
+/// completed exploration was `unknown` under Z3).
+const NO: &str = "no";
 
 /// The exit status of a query some of whose unclaimed (pattern, program) pairs a complete
-/// exploration never matches, every other pair hitting: `no` answers such a pair ([`EXIT_YES`]) in
-/// the portable profile, while under Z3 the answer is `unknown` (see [`NO`]), which has none
-/// ([`EXIT_UNANSWERED`]).
-const UNREACHED_STATUS: u8 = if cfg!(feature = "z3") {
-    EXIT_UNANSWERED
-} else {
-    EXIT_YES
-};
+/// exploration never matches, every other pair hitting: `no` answers such a pair ([`NO`]).
+const UNREACHED_STATUS: u8 = EXIT_YES;
 
 /// The exit status of a query one of whose claims a complete exploration never matches, and no
-/// pair of which could not be asked: the refuted claim is a finding ([`EXIT_NO`]) in the portable
-/// profile, while under Z3 the answer is `unknown` and the claim `unconfirmed` (see [`NO`]), which
-/// has no answer ([`EXIT_UNANSWERED`]).
-const REFUTED_STATUS: u8 = if cfg!(feature = "z3") {
-    EXIT_UNANSWERED
-} else {
-    EXIT_NO
-};
+/// pair of which could not be asked: the refuted claim is a finding ([`NO`]).
+const REFUTED_STATUS: u8 = EXIT_NO;
 
 /// The cause of a `no`: under Z3 the count that licensed it, without Z3 none.
 fn no_cause() -> Value {
@@ -172,8 +155,7 @@ fn expect(rows: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
         .collect()
 }
 
-/// Whether each row whose answer the cache can hold (a `hit` or a `no`; under Z3 a would-be `no`
-/// is `unknown`, see NO, and is never cached) was read from the cache.
+/// Whether each row whose answer the cache can hold (a `hit` or a `no`) was read from the cache.
 fn cached(document: &Value) -> Vec<bool> {
     document["rows"]
         .as_array()
@@ -355,7 +337,6 @@ fn the_initial_and_the_final_states_count() {
             "LOOP.done"
         ])
     );
-    // Under Z3 `unknown`, not `no`: see NO.
     assert_eq!(row(&document, "zero", "twice")["answer"], NO);
 }
 
@@ -401,7 +382,6 @@ fn a_state_on_some_paths_only_is_a_hit() {
         expect(&[
             ("left-first", "both", "hit"),
             ("right-first", "both", "hit"),
-            // Under Z3 `unknown`, not `no`: see NO.
             ("never", "both", NO),
         ])
     );
@@ -481,7 +461,8 @@ fn facts<'a>(
 /// Flow F-18: the answer rules, one premise at a time. A completed exploration is a `no` only on a
 /// comparable baseline, a definition with no exclusion (a rule the short-circuit analysis flags is
 /// none: the search's own readings decide, before the rules), an initial state with none, and
-/// outside the Z3 profile; a hit stays a hit under every model-choice exclusion, and no answer is
+/// a search that received no undecided solver answer, in either profile (under Z3 the `no`'s cause
+/// names that count); a hit stays a hit under every model-choice exclusion, and no answer is
 /// given on a load stack stop or an equals condition.
 #[test]
 fn the_answer_rules() {
@@ -490,6 +471,7 @@ fn the_answer_rules() {
     let complete = SearchOutcome::Complete { smt_unknowns: 0 };
     let no = judge(&complete, &facts(&clean, "comparable", SolverProfile::NoZ3));
     assert_eq!(no.answer, "no");
+    assert_eq!(no.cause, None);
     assert_eq!(
         judge(&hit, &facts(&clean, "timeout", SolverProfile::NoZ3)).answer,
         "hit"
@@ -504,9 +486,18 @@ fn the_answer_rules() {
                 .contains(&format!("and it is {class}"))
         );
     }
+    // KINK-query-no-z3: under Z3 a completed search that received no undecided solver answer is
+    // a `no` whose cause names the count; one that received some is `unknown` with the count,
+    // whatever the baseline (the count is read before it).
     let z3 = judge(&complete, &facts(&clean, "comparable", SolverProfile::Z3));
-    assert_eq!(z3.answer, "unknown");
-    assert!(z3.cause.unwrap().contains("z3 profile"));
+    assert_eq!(z3.answer, "no");
+    assert!(
+        z3.cause
+            .as_deref()
+            .unwrap()
+            .contains("the search received 0 undecided solver answers"),
+        "{z3:?}"
+    );
     let undecided = SearchOutcome::Complete { smt_unknowns: 2 };
     for (profile, class) in [
         (SolverProfile::Z3, "comparable"),
@@ -903,7 +894,6 @@ fn the_readme_example_answers() {
         expect(&[
             ("result-three", "add", "hit"),
             ("result-three", "sub", "hit"),
-            // Under Z3 `unknown`, not `no`: see NO.
             ("result-above-five", "add", NO),
             ("result-above-five", "nested", "hit"),
             ("result-above-five", "sub", NO),
@@ -1017,9 +1007,7 @@ fn spec_dir(
     dir
 }
 
-/// The result record of `program` in `document`'s cache under `dir`. Portable only, as its
-/// users are: they forge a stored `no`, an answer the Z3 profile never gives.
-#[cfg(not(feature = "z3"))]
+/// The result record of `program` in `document`'s cache under `dir`.
 fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
     let digest = document["programs"]
         .as_array()
@@ -1040,8 +1028,7 @@ fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
         .join(format!("{digest}.json"))
 }
 
-/// Rewrite one field of a JSON file. Portable only, as [`result_record`] is.
-#[cfg(not(feature = "z3"))]
+/// Rewrite one field of a JSON file.
 fn forge(path: &Path, field: &str, value: Value) {
     let mut record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     record[field] = value;
@@ -1125,8 +1112,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
 
     /// Flow F-18 deliverable 4, CF-33: the pattern cache is on in both profiles (as tier 1 is):
     /// under Z3 the search's solver queries are bounded by Z3 resource units, which the key's
-    /// budget names with the Z3 build. Under Z3 a completed exploration is still not a `no` (see
-    /// NO), so it is not cached, while a hit stays a hit and is cached.
+    /// budget names with the Z3 build. A hit and a `no` are cached in both.
     #[test]
     #[ignore = "kink"]
     fn the_pattern_cache_is_on_in_both_profiles() {
@@ -1140,15 +1126,10 @@ pattern = "<k> lookup(_) ~> _ </k>"
         assert_eq!(row(&document, "result-three", "add")["answer"], "hit");
         let refuted = row(&document, "result-four", "add");
         assert_eq!(refuted["answer"], NO);
-        if SolverProfile::BUILD == SolverProfile::Z3 {
-            assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
-        }
+        assert_eq!(refuted["cause"], no_cause());
         let (again, _) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(row(&again, "result-three", "add")["cached"], true);
-        assert_eq!(
-            row(&again, "result-four", "add")["cached"],
-            SolverProfile::BUILD == SolverProfile::NoZ3
-        );
+        assert_eq!(row(&again, "result-four", "add")["cached"], true);
     }
 
     /// Flow F-18 deliverable 2: a pattern that does not parse, that k-rust's pattern compiler
@@ -1275,22 +1256,13 @@ programs = ["add"]
         assert_eq!(status, REFUTED_STATUS);
         let refuted = row(&document, "four", "add");
         assert_eq!(refuted["witness"], Value::Null);
-        if cfg!(feature = "z3") {
-            // Under Z3 the complete exploration is `unknown`, not `no` (see NO), so the claim is
-            // unconfirmed rather than refuted.
-            assert_eq!(refuted["answer"], NO);
-            assert_eq!(refuted["claim"], "unconfirmed");
-            assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
-            assert_eq!(document["refuted_claims"], json!([]));
-        } else {
-            assert_eq!(refuted["answer"], "no");
-            assert_eq!(refuted["claim"], "refuted");
-            assert_eq!(refuted["cause"], Value::Null);
-            assert_eq!(
-                document["refuted_claims"],
-                json!([{"pattern": "four", "program": "add"}])
-            );
-        }
+        assert_eq!(refuted["answer"], "no");
+        assert_eq!(refuted["claim"], "refuted");
+        assert_eq!(refuted["cause"], no_cause());
+        assert_eq!(
+            document["refuted_claims"],
+            json!([{"pattern": "four", "program": "add"}])
+        );
         assert_eq!(
             document["programs"]
                 .as_array()
@@ -1300,13 +1272,10 @@ programs = ["add"]
                 .unwrap()["class"],
             "comparable"
         );
-        // Under Z3 the three `no` answers are `unknown` (see NO).
-        let counts = if cfg!(feature = "z3") {
-            json!({"hit": 3, "no": 0, "unknown": 3, "invalid-pattern": 0, "error": 0})
-        } else {
+        assert_eq!(
+            document["counts"],
             json!({"hit": 3, "no": 3, "unknown": 0, "invalid-pattern": 0, "error": 0})
-        };
-        assert_eq!(document["counts"], counts);
+        );
     }
 
     /// Flow F-18 deliverables 2, 3 and 5: a claimed hit is confirmed, with the matching state, its
@@ -1321,7 +1290,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 2);
+        assert_eq!(document["version"], 3);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1367,7 +1336,6 @@ programs = ["add"]
                 .collect::<Vec<_>>(),
             expect(&[
                 ("three", "add", "hit"),
-                // Under Z3 `unknown`, not `no`: see NO.
                 ("three", "nested", NO),
                 ("three", "sub", "hit"),
                 ("three", "inline", NO),
@@ -1500,16 +1468,12 @@ programs = ["add"]
         assert_eq!(output.status.code(), Some(i32::from(REFUTED_STATUS)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-query");
-        // Under Z3 `unknown`, not `no` (see NO): no claim is refuted, and an `unknown` is never
-        // cached, so the cache holds no pattern record.
         assert_eq!(answers(&document), expect(&[("result-four", "add", NO)]));
-        let refuted = if cfg!(feature = "z3") {
-            json!([])
-        } else {
+        assert_eq!(
+            document["refuted_claims"],
             json!([{"pattern": "result-four", "program": "add"}])
-        };
-        assert_eq!(document["refuted_claims"], refuted);
-        assert_eq!(cache.join("patterns").is_dir(), !cfg!(feature = "z3"));
+        );
+        assert!(cache.join("patterns").is_dir());
         assert!(!dir.join(CACHE_DIRECTORY).exists());
         for (args, code) in [
             (vec!["--only", "nope"], EXIT_UNASKED),
@@ -1733,7 +1697,6 @@ programs = ["add"]
         );
         assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
         assert_eq!(row(&document, "spin-five", "spin")["witness"]["depth"], 5);
-        // Under Z3 `unknown`, not `no`: see NO.
         assert_eq!(row(&document, "spin-five", "countdown")["answer"], NO);
 
         // The clock: a depth the run cannot reach and a small time bound.
@@ -1751,7 +1714,7 @@ programs = ["add"]
         // The baseline run of spin times out, yet the hit stands: it is an existential fact.
         assert_eq!(document["programs"][0]["class"], "timeout", "{document:#}");
         assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
-        // A complete exploration of a comparable program is a no (under Z3 `unknown`: see NO).
+        // A complete exploration of a comparable program is a no.
         assert_eq!(row(&document, "spin-five", "countdown")["answer"], NO);
 
         let (again, _) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
@@ -1765,9 +1728,6 @@ programs = ["add"]
     /// honoured (whoever can write the cache can forge an answer), and `--verify` re-derives every
     /// answer, reports the forged one and exits 1, writing nothing. A record whose digest does not
     /// recompute is not used.
-    // Portable only: its forged and stored records are `no` answers, and under Z3 no answer is
-    // `no` (see NO): a stored `no` is judged again under the profile and never used.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_reports_a_forged_record() {
@@ -1902,10 +1862,7 @@ programs = ["add"]
             );
         }
         assert_eq!(row(&edited, "result-three", "add")["answer"], NO);
-        assert_eq!(
-            row(&edited, "result-three", "add")["claim"],
-            if NO == "no" { "refuted" } else { "unconfirmed" }
-        );
+        assert_eq!(row(&edited, "result-three", "add")["claim"], "refuted");
 
         // A comment and blank lines: every cached answer stands.
         let spec = fs::read_to_string(dir.join("calc.k")).unwrap();
@@ -1949,9 +1906,6 @@ programs = ["add"]
     /// another run digest, or of class unknown, under the same key makes the command search again
     /// (an unknown then gives unknown), and a stored timeout is never read, so the program runs
     /// again; a cached hit does not depend on the baseline.
-    // Portable only: its forged and stored records are `no` answers, and under Z3 no answer is
-    // `no` (see NO): a stored `no` is judged again under the profile and never used.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_cached_no_needs_the_same_comparable_baseline() {
@@ -2075,13 +2029,6 @@ programs = ["add"]
                 let expected = match row["answer"].as_str().unwrap() {
                     "hit" => Some(true),
                     "no" => Some(false),
-                    // Under Z3 a would-be `no` is `unknown` (see NO): stepping must find no hit.
-                    "unknown"
-                        if cfg!(feature = "z3")
-                            && row["cause"].as_str().unwrap().contains("z3 profile") =>
-                    {
-                        Some(false)
-                    }
                     other => panic!("{other} in {row:#}"),
                 };
                 assert_eq!(stepped, expected, "{} on {program}", entry.id);

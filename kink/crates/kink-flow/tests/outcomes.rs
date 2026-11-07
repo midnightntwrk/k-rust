@@ -1180,7 +1180,7 @@ mod heavy {
 #[cfg(feature = "z3")]
 #[test]
 fn both_caches_are_on_under_the_z3_profile() {
-    use kink_flow::{cli::EXIT_UNANSWERED, query::QueryOptions, search::tier1_refusal};
+    use kink_flow::{cli::EXIT_NO, query::QueryOptions, search::tier1_refusal};
     use kink_native::execution::SolverProfile;
     assert_eq!(SolverProfile::BUILD, SolverProfile::Z3);
     assert_eq!(
@@ -1206,8 +1206,9 @@ fn both_caches_are_on_under_the_z3_profile() {
         .join()
         .unwrap();
     // calc's PATTERNS.toml asks pairs no exploration matches (`result-four` of `add`, for one),
-    // which under Z3 are `unknown` (query.rs's NO): no answer.
-    assert_eq!(status, EXIT_UNANSWERED, "{query:#}");
+    // whose searches receive no undecided solver answer, so under Z3 too they are `no`
+    // (query.rs's NO) and a claim no case reaches is refuted (query.rs's REFUTED_STATUS).
+    assert_eq!(status, EXIT_NO, "{query:#}");
     assert_eq!(query["pattern_cache"]["enabled"], true, "{query:#}");
     assert_eq!(query["pattern_cache"]["reason"], Value::Null, "{query:#}");
 }

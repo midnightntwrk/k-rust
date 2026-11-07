@@ -573,22 +573,15 @@ mod kink_tier {
     }
 
     /// A query `no` is `unknown` while a finding is left (matching is syntactic, the theory
-    /// identifies terms); a hit stays a hit. With the finding named, the `no` is given (outside
-    /// the Z3 profile, where no `no` is ever given).
+    /// identifies terms); a hit stays a hit. With the finding named, the `no` is given, in both
+    /// profiles: the search receives no undecided solver answer.
     #[test]
     #[ignore = "kink"]
     fn a_query_no_is_unknown_on_a_baseline_with_findings_and_a_hit_stands() {
         on_stack(|| {
             for (premises, no) in [
                 (None, "unknown"),
-                (
-                    Some(&["spec.k:7:3,spec.k:8:3@root"][..]),
-                    if cfg!(feature = "z3") {
-                        "unknown"
-                    } else {
-                        "no"
-                    },
-                ),
+                (Some(&["spec.k:7:3,spec.k:8:3@root"][..]), "no"),
             ] {
                 let dir = repro("r3-plainq", "query", premises);
                 fs::write(
