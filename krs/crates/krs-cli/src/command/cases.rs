@@ -53,8 +53,10 @@ use crate::DiagnosticSources;
 /// refused it), and its summary's `status` is the exit status of the four actions
 /// ([`exit_status`]), under which a refused case is 2, no longer 1. Version 3 records the halt
 /// `stop-undecided` of a run whose stop condition was left undecided, a halt word a version 2
-/// reader does not know.
-pub const CASES_SCHEMA: &str = "krs-cases/3";
+/// reader does not know. Version 4 records the stops of a run with stop rules as `krs run
+/// --output json` reports them (`stop`, `stops`, `arrivals`, `undecided`, `passed_stops`), so a
+/// version 3 reader would read a record without them as a run that passed no stop.
+pub const CASES_SCHEMA: &str = "krs-cases/4";
 
 /// How `krs cases` prints its records.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -189,6 +191,9 @@ struct Record {
     /// The views and the observer the expectation names, as it writes them, for a record with no
     /// checked verdict to name them.
     written: (BTreeMap<String, String>, Option<String>),
+    /// The run's stops, when it has stop rules: the status line's clause `krs run` prints
+    /// ([`exec::stops_passed`]) and the members `krs run --output json` reports.
+    stops: Option<(String, serde_json::Map<String, serde_json::Value>)>,
 }
 
 impl Record {
@@ -200,6 +205,7 @@ impl Record {
             checked: None,
             reason: Some(reason),
             written: (BTreeMap::new(), None),
+            stops: None,
         }
     }
 
@@ -244,6 +250,11 @@ impl Record {
         if let Some(reason) = &self.reason {
             document["reason"] = json!(reason);
         }
+        if let Some((_, members)) = &self.stops {
+            for (key, value) in members {
+                document[key] = value.clone();
+            }
+        }
         if let Some(checked) = &self.checked {
             checked.extend(&mut document);
         } else {
@@ -283,10 +294,13 @@ impl Record {
             (None, Some((halt, steps)), None) => {
                 let _ = writeln!(
                     text,
-                    "{}: ran, {} after {steps} step{}",
+                    "{}: ran, {} after {steps} step{}{}",
                     self.id,
                     halt.as_str(),
-                    if steps == 1 { "" } else { "s" }
+                    if steps == 1 { "" } else { "s" },
+                    self.stops
+                        .as_ref()
+                        .map_or("", |(clause, _)| clause.as_str()),
                 );
             }
             (None, None, None) => {
@@ -819,7 +833,7 @@ fn run_case(
     budget: u64,
 ) -> Result<Record, Failure> {
     let case = &job.case;
-    let stop = case.stop(&StopCriterion::None)?;
+    let stop = case.stop(&StopCriterion::None, None)?;
     let depth = case.depth(None)?;
     let state = exec::configure(semantics, Inputs::of_case(case), false)?;
     let mut expectation = SelectedCase::expectation_of(Some(case), semantics)?;
@@ -847,6 +861,7 @@ fn run_case(
                 checked: Some(checked),
                 reason: None,
                 written: (BTreeMap::new(), None),
+                stops: None,
             });
         }
         // Without an expectation, the case ran to no one end: no answer, as an inconclusive halt.
@@ -858,11 +873,13 @@ fn run_case(
                 checked: None,
                 reason: Some(format!("the run has no one end: {error}")),
                 written: (BTreeMap::new(), None),
+                stops: None,
             });
         }
         (Err(error), _) => return Err(error.into()),
     };
     let run = Some((report.halt, report.steps));
+    let stops = stops_of(semantics, &report, &options.stop);
     let Some(mut expectation) = expectation else {
         return Ok(Record {
             id: job.id.clone(),
@@ -871,6 +888,7 @@ fn run_case(
             checked: None,
             reason: None,
             written: (BTreeMap::new(), None),
+            stops,
         });
     };
     let checked = exec::check_run(
@@ -898,7 +916,32 @@ fn run_case(
         checked: Some(checked),
         reason: None,
         written: (BTreeMap::new(), None),
+        stops,
     })
+}
+
+/// A record's stops ([`Record::stops`]): `None` for a run without stop rules.
+fn stops_of(
+    semantics: &Semantics,
+    report: &krs_exec::RunReport,
+    criterion: &StopCriterion,
+) -> Option<(String, serde_json::Map<String, serde_json::Value>)> {
+    let stops = report.reported_stops()?;
+    let mut members = serde_json::Map::new();
+    let mut put = |key: &str, value: serde_json::Result<serde_json::Value>| {
+        if let Ok(value) = value
+            && !value.is_null()
+            && value != json!([])
+        {
+            members.insert(key.to_owned(), value);
+        }
+    };
+    put("stop", serde_json::to_value(&report.stop));
+    put("stops", Ok(json!(stops)));
+    put("arrivals", serde_json::to_value(report.arrivals));
+    put("undecided", serde_json::to_value(&report.undecided));
+    put("passed_stops", serde_json::to_value(&report.passed_stops));
+    Some((exec::stops_passed(semantics, report, criterion), members))
 }
 
 /// Whether `name` matches `pattern`, where `*` matches any text and `?` any one character.
@@ -953,6 +996,7 @@ mod tests {
             checked: None,
             reason: None,
             written: (BTreeMap::new(), None),
+            stops: None,
         };
         let mut tally = Tally::default();
         tally.count(&ran(Halt::Stuck));

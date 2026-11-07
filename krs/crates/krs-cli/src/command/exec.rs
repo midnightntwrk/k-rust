@@ -108,8 +108,12 @@ pub struct RunRequest {
     pub variables: Vec<(String, String)>,
     /// `--depth`.
     pub depth: Option<u64>,
-    /// `--stop-before`, `--stop-after` and `--stop-count`.
+    /// `--stop-before`, `--stop-after`, `--stop-count` and `--stop-when`.
     pub stop: StopCriterion,
+    /// Beside `--case`, the refusal of `--stop-count` or `--stop-when` given without a stop rule
+    /// (`stop` is then none): a case whose `run` names stops refuses the flags beside its own,
+    /// since only one may say where the run ends; a case that names none refuses them with this.
+    pub stop_unpaired: Option<String>,
     /// `--trace`.
     pub trace: bool,
     /// `--coverage`.
@@ -653,21 +657,40 @@ impl SelectedCase {
         })
     }
 
+    /// The case's id, as `krs cases` names it: the document as given and, for a named case, `#`
+    /// and its name.
+    pub(super) fn id(&self) -> String {
+        match &self.case.name {
+            Some(name) => format!("{}#{name}", self.path.display()),
+            None => self.path.display().to_string(),
+        }
+    }
+
     /// The run's stop criterion: the stop flags' (`--stop-before`, `--stop-after`,
-    /// `--stop-count`) or the case's `run` stops (`stop_before`, `stop_after`, `stop_count`),
-    /// which may not both be given: each says where the run ends, and one source bounds it.
-    pub(super) fn stop(&self, flags: &StopCriterion) -> Result<StopCriterion, Failure> {
+    /// `--stop-count`, `--stop-when`) or the case's `run` stops (`stop_before`, `stop_after`,
+    /// `stop_count`, `stop_when`), which may not both be given: each says where the run ends, and
+    /// a case's question is its own. `unpaired` is the refusal of a count or a condition flag
+    /// given without a stop rule ([`RunRequest::stop_unpaired`]), a flag all the same.
+    pub(super) fn stop(
+        &self,
+        flags: &StopCriterion,
+        unpaired: Option<&str>,
+    ) -> Result<StopCriterion, Failure> {
         let own = self
             .case
             .run
             .as_ref()
             .map_or(StopCriterion::None, krs_exec::CaseRun::stop);
-        match (flags, own) {
-            (StopCriterion::None, own) => Ok(own),
-            (flags, StopCriterion::None) => Ok(flags.clone()),
-            _ => Err(Failure::Usage(format!(
-                "--stop-before, --stop-after, --stop-count and --stop-when, and the `run` stops of the case `{}`, both say where the run ends; give one",
-                self.path.display()
+        let given = !matches!(flags, StopCriterion::None) || unpaired.is_some();
+        match (given, own) {
+            (false, own) => Ok(own),
+            (true, StopCriterion::None) => match unpaired {
+                Some(refusal) => Err(Failure::Usage(refusal.to_owned())),
+                None => Ok(flags.clone()),
+            },
+            (true, _) => Err(Failure::Usage(format!(
+                "the stop flags (--stop-before, --stop-after, --stop-count, --stop-when) and the `run` stops of the case `{}` both say where the run ends; a flag may not change a case's question, so give one",
+                self.id()
             ))),
         }
     }
@@ -678,7 +701,7 @@ impl SelectedCase {
         match (flag, own) {
             (Some(_), Some(_)) => Err(Failure::Usage(format!(
                 "--depth and the `run.depth` of the case `{}` both bound the run; give one",
-                self.path.display()
+                self.id()
             ))),
             (flag, own) => Ok(flag.or(own)),
         }
@@ -1068,8 +1091,11 @@ fn run(
         request.depth,
     )?;
     let stop = match &case {
-        Some(case) => case.stop(&request.stop)?,
-        None => request.stop.clone(),
+        Some(case) => case.stop(&request.stop, request.stop_unpaired.as_deref())?,
+        None => match &request.stop_unpaired {
+            Some(refusal) => return Err(Failure::Usage(refusal.clone())),
+            None => request.stop.clone(),
+        },
     };
     let state = configure(semantics, Inputs::of_run(request, case.as_ref()), true)?;
     let mut expectation = SelectedCase::expectation_of(case.as_ref(), semantics)?;
@@ -1143,7 +1169,13 @@ fn run(
     let mut prints = PrintCheck::new(request.output);
     prints.check(semantics, &report.state)?;
     prints.verdict()?;
-    let head = main_cell_head(semantics, &report.state, request.output, &mut stderr);
+    // A stop is where the run was asked to end, so the main cell, which explains a run that ended
+    // on its own, says nothing of why it ended.
+    let head = if matches!(report.halt, Halt::Stopped | Halt::StopUndecided) {
+        String::new()
+    } else {
+        main_cell_head(semantics, &report.state, request.output, &mut stderr)
+    };
     let stops = stops_passed(semantics, &report, &stop);
     let _ = write!(
         stderr,
@@ -1296,7 +1328,7 @@ fn searchable(case: &SelectedCase, mode: SearchMode) -> Result<(), Failure> {
     {
         return Err(Failure::Usage(format!(
             "the case `{}` names stop rules in `run`, which krs search does not apply: a search's final states are not the ends of runs cut at those rules; run the case with krs run",
-            case.path.display()
+            case.id()
         )));
     }
     if mode != SearchMode::Final && case.case.expect.is_some() {
@@ -2017,7 +2049,11 @@ fn log_text(lines: &[String]) -> String {
 /// ([`Semantics::stop_name`]); where the report does not name the rule (a stop after a rule of a
 /// name that selects several, without a trace), by the name written for that side when it is
 /// one.
-fn stops_passed(semantics: &Semantics, report: &RunReport, criterion: &StopCriterion) -> String {
+pub(super) fn stops_passed(
+    semantics: &Semantics,
+    report: &RunReport,
+    criterion: &StopCriterion,
+) -> String {
     let StopCriterion::Rules {
         rules, count, when, ..
     } = criterion
@@ -2036,6 +2072,7 @@ fn stops_passed(semantics: &Semantics, report: &RunReport, criterion: &StopCrite
         (Some(when), None) => (format!(", where `{}` holds", when.function), String::new()),
         (None, _) => (String::new(), String::new()),
     };
+    let passed = passed_stops(semantics, report);
     let name = |at: StopAt, rule: Option<&krs_exec::NamedRule>| {
         let (at, names) = match at {
             StopAt::Before => ("before", &rules.before),
@@ -2054,24 +2091,74 @@ fn stops_passed(semantics: &Semantics, report: &RunReport, criterion: &StopCrite
     // larger `--view-budget` could decide it.
     if let (Some(undecided), Some(when)) = (&report.undecided, when) {
         return format!(
-            ", {}, undecided whether `{}` holds ({} of {count} stops reached{arrivals}): {}",
+            ", {}, undecided whether `{}` holds ({} of {count} stops reached{arrivals}): {}; {}{passed}",
             name(undecided.at, Some(&undecided.rule)),
             when.function,
             report.stops,
-            undecided.reason
+            undecided.reason,
+            if undecided.budget_spent {
+                "a larger --view-budget can decide it"
+            } else {
+                "a larger --view-budget does not decide it"
+            }
         );
     }
     let Some(stop) = &report.stop else {
+        // The count's stops under a condition are the arrivals where it holds: say which, so
+        // that `0 of 1` does not read as if the condition held.
+        let counted = match when {
+            Some(when) if report.stops == 0 => {
+                format!(" (no arrival where `{}` holds{arrivals})", when.function)
+            }
+            Some(when) => format!(" (arrivals where `{}` holds{arrivals})", when.function),
+            None => String::new(),
+        };
         return format!(
-            ", {} of {count} stops reached{holds}{arrivals}",
+            ", {} of {count} stops reached{counted}{passed}",
             report.stops
         );
     };
     format!(
-        ", {} (stop {} of {count}{holds}{arrivals})",
+        ", {} (stop {} of {count}{holds}{arrivals}){passed}",
         name(stop.at, stop.rule.as_ref()),
         stop.nth
     )
+}
+
+/// The status line's account of the stop rules a run went on past ([`RunReport::passed_stops`]),
+/// each as [`passed_list`] names it, followed by why the step was no arrival; empty when it
+/// passed none.
+fn passed_stops(semantics: &Semantics, report: &RunReport) -> String {
+    passed_list(semantics, report).map_or_else(String::new, |passed| {
+        format!(
+            "; went on past {passed} (a step its state had another successor beside, so no arrival)"
+        )
+    })
+}
+
+/// The stop rules a run went on past, each by the name a stop flag accepts and the steps to the
+/// first state it was passed at (`` `crate::tick` after 0 steps ``); `None` when it passed none.
+pub(super) fn passed_list(semantics: &Semantics, report: &RunReport) -> Option<String> {
+    if report.passed_stops.is_empty() {
+        return None;
+    }
+    let passed = report
+        .passed_stops
+        .iter()
+        .map(|passed| {
+            let name = semantics
+                .stop_name(&passed.rule.rule_id)
+                .or_else(|| passed.rule.label.clone())
+                .unwrap_or_else(|| passed.rule.rule_id.clone());
+            format!(
+                "`{name}` after {} step{}",
+                passed.depth,
+                if passed.depth == 1 { "" } else { "s" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(passed)
 }
 
 fn status_word(word: &str, smt: bool) -> String {
@@ -2304,9 +2391,8 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::UnknownRule { .. }
         | ExecError::AmbiguousRule { .. }
         | ExecError::UnknownItem { .. }
-        | ExecError::AmbiguousItem { .. }
-        | ExecError::StopWhen(_)
-        | ExecError::StopCondition { .. } => codes::exec::RULE,
+        | ExecError::AmbiguousItem { .. } => codes::exec::RULE,
+        ExecError::StopWhen(_) | ExecError::StopCondition { .. } => codes::exec::STOP_CONDITION,
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,

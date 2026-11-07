@@ -104,10 +104,14 @@ pub enum EvaluationError {
     Backend(String),
     /// The definition gives the application no value: the result still holds this part.
     NoValue(String),
-    /// The evaluation stopped before it ended, for the caller's budget of polls or another stop
-    /// of the backend ([`Semantics::evaluate_within`]), which this says: whether it has a value
-    /// is not known.
+    /// The evaluation stopped before it ended, for a stop of the backend other than the caller's
+    /// budget ([`Semantics::evaluate_within`]), which this says: whether it has a value is not
+    /// known.
     Stopped(String),
+    /// The evaluation spent the caller's budget of this many polls before it ended
+    /// ([`Semantics::evaluate_within`]): whether it has a value is not known, and a larger budget
+    /// can decide it.
+    Spent(u64),
     /// The evaluation ended short of a value after the solver answered `Unknown` this many
     /// times to the queries it asked: a condition so answered is undecided by the solver run,
     /// not by the definition, so whether it has a value is not known.
@@ -126,6 +130,11 @@ impl fmt::Display for EvaluationError {
             Self::Stopped(stop) => write!(
                 formatter,
                 "its evaluation stopped before it ended ({stop}), so whether it has a value is not known"
+            ),
+            Self::Spent(budget) => write!(
+                formatter,
+                "its evaluation stopped before it ended (it spent its budget of {budget} poll{}), so whether it has a value is not known",
+                if *budget == 1 { "" } else { "s" }
             ),
             Self::Undecided(answers) => write!(
                 formatter,
@@ -371,7 +380,11 @@ impl CellViews {
                         .or_default()
                         .insert(value, viewed);
                 }
-                Err(error @ (EvaluationError::Stopped(_) | EvaluationError::Undecided(_))) => {
+                Err(
+                    error @ (EvaluationError::Stopped(_)
+                    | EvaluationError::Spent(_)
+                    | EvaluationError::Undecided(_)),
+                ) => {
                     stopped.get_or_insert_with(|| EndError::ViewStopped {
                         cell: view.cell.clone(),
                         function: view.function.clone(),
@@ -491,8 +504,9 @@ impl Semantics {
     /// the result holds a part with no KRS description (an unevaluated application, `\bottom`,
     /// a disjunction) and no stop or `Unknown` solver answer explains it,
     /// [`EvaluationError::Stopped`] for a simplification that a stop of the backend ended before
-    /// it reached a value, and [`EvaluationError::Undecided`] for one that ended short of a value
-    /// after the solver answered `Unknown`.
+    /// it reached a value (with no budget of the caller's, never [`EvaluationError::Spent`]), and
+    /// [`EvaluationError::Undecided`] for one that ended short of a value after the solver
+    /// answered `Unknown`.
     pub fn evaluate(
         &mut self,
         function: &str,
@@ -506,8 +520,10 @@ impl Semantics {
     ///
     /// # Errors
     ///
-    /// Fails as [`Self::evaluate`] does, and returns [`EvaluationError::Stopped`] for a
-    /// simplification that spent `budget`, or that another stop ended, before it reached a value.
+    /// Fails as [`Self::evaluate`] does, and returns [`EvaluationError::Spent`] for a
+    /// simplification that spent `budget` before it reached a value, which a larger budget can
+    /// decide, and [`EvaluationError::Stopped`] for one that a stop of the backend other than
+    /// `budget` ended first.
     /// The simplification is one operation of the backend: what it met
     /// (`stop::with_operation_record`) is read, whatever record or budget encloses the call.
     pub fn evaluate_within(
@@ -534,17 +550,14 @@ impl Semantics {
             )
         });
         let spent = || match budget {
-            Some(budget) if record.budget_exhausted => Some(format!(
-                "it spent its budget of {budget} poll{}",
-                if budget == 1 { "" } else { "s" }
+            Some(budget) if record.budget_exhausted => Some(EvaluationError::Spent(budget)),
+            _ if record.stack_exhausted => Some(EvaluationError::Stopped(
+                "it ran out of the simplifier's native stack".to_owned(),
             )),
-            _ if record.stack_exhausted => {
-                Some("it ran out of the simplifier's native stack".to_owned())
-            }
             _ => None,
         };
         let simplified = simplified.map_err(|error| match (spent(), error.stop_cause()) {
-            (Some(stop), _) => EvaluationError::Stopped(stop),
+            (Some(stop), _) => stop,
             (None, Some(_)) => EvaluationError::Stopped(error.to_string()),
             (None, None) => EvaluationError::Backend(error.to_string()),
         })?;
@@ -558,7 +571,7 @@ impl Semantics {
         // nothing stopped and every answer of the solver was decided.
         match (opaque_part(&self.values, &value), spent()) {
             (None, _) => Ok(value),
-            (Some(_), Some(stop)) => Err(EvaluationError::Stopped(stop)),
+            (Some(_), Some(stop)) => Err(stop),
             (Some(_), None) if operation.unknown_answers > 0 => {
                 Err(EvaluationError::Undecided(operation.unknown_answers))
             }

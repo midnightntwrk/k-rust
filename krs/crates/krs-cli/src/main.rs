@@ -96,8 +96,9 @@ Options:
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
                              parameter name; its file paths are relative to FILE's directory.
-                             A case's run table gives the depth, stop rules and stop count,
-                             in place of the flags; its instances table gives the starting
+                             A case's run table gives the depth, stop rules, stop count and
+                             stop condition, in place of the flags (a flag beside what the
+                             case gives is refused); its instances table gives the starting
                              instances of optional and repeated cells; its expect table is
                              checked: met, unmet or inconclusive. --case FILE#NAME names the
                              case NAME of a document of named cases, as krs cases prints its id
@@ -1522,6 +1523,27 @@ fn stop_name(parser: &mut lexopt::Parser, option: &str) -> Result<String, UsageE
     Ok(name)
 }
 
+/// [`stop_criterion`] of `krs run`'s stop flags in `exec`, beside `--case` when it is given: a count or a
+/// condition without a rule is then not refused here but beside the case
+/// ([`RunRequest::stop_unpaired`]), since a case whose `run` names stops refuses every stop flag
+/// for the reason that only one may say where the run ends, which is the first thing wrong.
+fn stop_flags(exec: &mut ExecOptions) -> Result<(StopCriterion, Option<String>), UsageError> {
+    let rules = std::mem::take(&mut exec.stop);
+    let count = exec.stop_count.take();
+    let when = exec.stop_when.take();
+    let observer = exec.observer.take();
+    let case = exec.case.is_some();
+    if case && rules.is_empty() && (count.is_some() || when.is_some()) {
+        let refusal = match stop_criterion(rules, count, when, observer) {
+            Err(UsageError::Message(message)) => message,
+            Err(other) => return Err(other),
+            Ok(_) => unreachable!("a count or a condition without a rule is refused"),
+        };
+        return Ok((StopCriterion::None, Some(refusal)));
+    }
+    Ok((stop_criterion(rules, count, when, observer)?, None))
+}
+
 /// The stop criterion of `--stop-before`, `--stop-after`, `--stop-count` and `--stop-when`
 /// with `--observer`: a count or a condition without a rule has no arrival to count or ask at,
 /// and an observer without a condition has nothing to evaluate.
@@ -2018,6 +2040,7 @@ fn exec_command(
         return Err(usage("more than one FILE given"));
     }
     let case_name = selected_case_name(&mut exec)?;
+    let (stop, stop_unpaired) = stop_flags(&mut exec)?;
     let input = exec.inputs.into_iter().next().map(|input| {
         if input == "-" {
             ProgramSource::Stdin
@@ -2040,7 +2063,8 @@ fn exec_command(
             inputs: exec.typed,
             variables: exec.variables,
             depth: exec.depth,
-            stop: stop_criterion(exec.stop, exec.stop_count, exec.stop_when, exec.observer)?,
+            stop,
+            stop_unpaired,
             trace: exec.trace,
             coverage: exec.coverage,
             output,
@@ -3359,6 +3383,7 @@ mod tests {
                 ],
                 depth: Some(3),
                 stop: StopCriterion::None,
+                stop_unpaired: None,
                 trace: true,
                 coverage: true,
                 output: TermOutput::Json,

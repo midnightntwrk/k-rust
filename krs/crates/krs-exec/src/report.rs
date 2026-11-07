@@ -1,8 +1,8 @@
 //! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
 //!
-//! A run document is `krs-exec/5` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
-//! their item with its package, and which may end `stop-undecided` and count its arrivals beside
-//! its stop events; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
+//! A run document is `krs-exec/6` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
+//! their item with its package, which may end `stop-undecided` and count its arrivals beside its
+//! stop events, and which lists the stop rules it went on past; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
 //! document is `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and
 //! `timeout` and which names the solver its claims were proved with ([`SolverReport`]).
 //!
@@ -35,7 +35,13 @@ use serde::{Deserialize, Serialize, Serializer};
 /// arrival it passed (`arrivals`) beside the stop events it counted (`stops`), which a
 /// `krs-exec/4` reader would read as all its arrivals: a run document with a condition is a
 /// format of its own version, `krs-exec/5`.
-pub const RUN_REPORT_SCHEMA: &str = "krs-exec/5";
+///
+/// A run with stop rules reports `stops` whenever it has them, 0 included, where a `krs-exec/5`
+/// run document omitted it at 0, and lists the stop rules it went on past at a state with another
+/// successor (`passed_stops`, [`RunReport::passed_stops`]); its `undecided` says whether a larger
+/// budget can decide it (`budget_spent`). A `krs-exec/5` reader would read a run with no `stops`
+/// and no `passed_stops` as one that passed none, so a run document is `krs-exec/6`.
+pub const RUN_REPORT_SCHEMA: &str = "krs-exec/6";
 
 /// The schema name a serialized search envelope carries (`krs search`; [report
 /// versions](crate#report-versions)).
@@ -486,6 +492,19 @@ pub struct Undecided {
     /// polls or met another stop, or ended short of a value after the solver answered
     /// `Unknown`. A larger budget can decide the first, never the others.
     pub reason: String,
+    /// Whether its evaluation spent its budget of polls, which a larger budget can decide; false
+    /// for another stop and for an `Unknown` answer of the solver, which it cannot.
+    pub budget_spent: bool,
+}
+
+/// A stop rule the run went on past: at a state whose successors were more than the stop
+/// rule's one step, so the step was no arrival ([`RunReport::passed_stops`]).
+#[derive(Clone, Debug, Serialize)]
+pub struct PassedStop {
+    /// The stop rule.
+    pub rule: NamedRule,
+    /// The steps from the run's start to the first state at which the run went on past it.
+    pub depth: u64,
 }
 
 /// A rule, by its identities and origin.
@@ -538,14 +557,6 @@ const fn is_one(value: &u64) -> bool {
     *value == 1
 }
 
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's skip_serializing_if passes the field by reference"
-)]
-const fn is_zero(value: &u64) -> bool {
-    *value == 0
-}
-
 /// The result of `run`: one path, as krun follows it.
 #[derive(Clone, Debug, Serialize)]
 pub struct RunReport {
@@ -590,9 +601,13 @@ pub struct RunReport {
     /// How many arrivals at a stop the run counted, the one that ended it included
     /// ([`crate::StopCriterion::Rules`]): the count it was asked for when it ended at a stop,
     /// fewer when it ended on its own first. Under a stop condition ([`crate::StopWhen`]) it
-    /// counts the stop events, the arrivals where the condition held. Omitted when 0.
-    #[serde(skip_serializing_if = "is_zero")]
+    /// counts the stop events, the arrivals where the condition held. Reported whenever the run
+    /// has stop rules, 0 included, and omitted without them.
+    #[serde(skip)]
     pub stops: u64,
+    /// [`Self::stops`] as the report serializes it: `Some` exactly when the run has stop rules.
+    #[serde(rename = "stops", skip_serializing_if = "Option::is_none")]
+    pub(crate) stops_reported: Option<u64>,
     /// Under a stop condition, every arrival at a stop the run passed, whatever the condition
     /// answered there, the one that ended it included; `None` (omitted) without a condition,
     /// where every arrival is an event and [`Self::stops`] counts them.
@@ -602,6 +617,12 @@ pub struct RunReport {
     /// ([`Halt::StopUndecided`]); omitted otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub undecided: Option<Undecided>,
+    /// Each stop rule the run went on past at a state with another successor beside the rule's
+    /// step, with the first such state's depth, in order of depth: such a step is no arrival, so
+    /// it stops nothing and the condition is not asked there, and the run took one of the
+    /// successors. Omitted when empty, and always without stop rules.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub passed_stops: Vec<PassedStop>,
     /// The state a later run goes on from, when it is not `state`'s own pattern
     /// ([`Self::resume`]).
     #[serde(skip)]
@@ -609,6 +630,13 @@ pub struct RunReport {
 }
 
 impl RunReport {
+    /// [`Self::stops`] where the run has stop rules, as the report serializes it; `None`
+    /// without them.
+    #[must_use]
+    pub const fn reported_stops(&self) -> Option<u64> {
+        self.stops_reported
+    }
+
     /// The state a later run goes on from ([`crate::Semantics::run`]): where this run ended, as
     /// the backend reached it (with its Floats as k-rust writes them, not as `state` prints
     /// them). The later run's depth bound and step count start there.

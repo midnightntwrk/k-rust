@@ -854,7 +854,7 @@ impl CaseDocument {
                 }
                 let run = top
                     .remove("run")
-                    .map(|run| case_run(&run, "run"))
+                    .map(|run| case_run(&run, "run", false))
                     .transpose()?;
                 let list = top.remove("case").unwrap_or(Json::Null);
                 reader.list(&list, "case", run.as_ref())?;
@@ -971,7 +971,7 @@ fn case_table(
     };
     let own = top
         .remove("run")
-        .map(|document| case_run(&document, &key_position(position, "run")))
+        .map(|document| case_run(&document, &key_position(position, "run"), run.is_some()))
         .transpose()?;
     let instances = match top.remove("instances") {
         Some(Json::Object(instances)) => Some(Json::Object(instances)),
@@ -1005,8 +1005,9 @@ fn case_table(
     })
 }
 
-/// The `run` table `document` at `position`.
-fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
+/// The `run` table `document` at `position`; `replaces` when it is a case's own `run` beside its
+/// document's, which it replaces whole.
+fn case_run(document: &Json, position: &str, replaces: bool) -> Result<CaseRun, InputError> {
     const KEYS: &str = "`depth`, `stop_before`, `stop_after`, `stop_count` and `stop_when`";
     let Json::Object(table) = document else {
         return Err(at(position, format!("`run` is a table of {KEYS}")));
@@ -1063,18 +1064,28 @@ fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
             }
         }
     }
+    // A case's own `run` replaces its document's whole, so a rule the document's names is none
+    // of the case's.
+    let whole = if replaces {
+        "; a case's own `run` replaces the document's `run` whole, so it names none of the \
+         document's stop rules"
+    } else {
+        ""
+    };
     if run.stop_when.is_some() && run.stop_before.is_empty() && run.stop_after.is_empty() {
         return Err(at(
             position,
-            "`stop_when` needs `stop_before` or `stop_after`: it is asked at the arrivals at their rules"
-                .to_owned(),
+            format!(
+                "`stop_when` needs `stop_before` or `stop_after`: it is asked at the arrivals at their rules{whole}"
+            ),
         ));
     }
     if run.stop_count.is_some() && run.stop_before.is_empty() && run.stop_after.is_empty() {
         return Err(at(
             position,
-            "`stop_count` needs `stop_before` or `stop_after`: it counts arrivals at their rules"
-                .to_owned(),
+            format!(
+                "`stop_count` needs `stop_before` or `stop_after`: it counts arrivals at their rules{whole}"
+            ),
         ));
     }
     Ok(run)

@@ -15,7 +15,7 @@
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/5` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/6` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 //!
 //! # Features
@@ -110,9 +110,10 @@ pub use origin::{Origins, item_spelling};
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
-    NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, ProofLeaf, ProofReport, RUN_REPORT_SCHEMA,
-    RuleKind, RunReport, SEARCH_REPORT_SCHEMA, SearchReport, Solution, SolverBuild, SolverReport,
-    SourceSpan, Step, StepOrigin, Stop, StopAt, Term, Undecided, Verdict,
+    NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, PassedStop, ProofLeaf, ProofReport,
+    RUN_REPORT_SCHEMA, RuleKind, RunReport, SEARCH_REPORT_SCHEMA, SearchReport, Solution,
+    SolverBuild, SolverReport, SourceSpan, Step, StepOrigin, Stop, StopAt, Term, Undecided,
+    Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -2542,6 +2543,8 @@ impl Semantics {
                 offered: asked.offered,
                 rules: Vec::new(),
             });
+            // The run has its stop rules, and reached none of them.
+            report.stops_reported = (!stops.is_empty()).then_some(0);
             report.resume = Some(state.clone());
             return Ok(report);
         };
@@ -2715,6 +2718,7 @@ impl Semantics {
             implementation_chosen_values,
             unsupported_hooks,
             coverage,
+            passed_stops,
             ..
         } = self.execute(
             run_request(start, options, stops),
@@ -2795,6 +2799,16 @@ impl Semantics {
             )
         });
         let stop = self.stop(&leaf, stops, &trace, arrivals);
+        // A stop passed at a state of the reported path: before its last state, which a run
+        // followed again to its last state with a value may have moved back.
+        let passed_stops = passed_stops
+            .into_iter()
+            .filter(|passed| passed.depth < leaf.depth)
+            .map(|passed| PassedStop {
+                rule: self.named_rule(passed.rule),
+                depth: passed.depth.saturating_add(offset),
+            })
+            .collect();
         let halt = Halt::from_backend(leaf.reason);
         // The one path ends at the arrival the condition was last left undecided at.
         let undecided = oracle
@@ -2807,6 +2821,7 @@ impl Semantics {
                 },
                 rule: self.named_rule(undecided.rule_id),
                 reason: undecided.reason,
+                budget_spent: undecided.budget_spent,
             });
         let reached = term(leaf.state, &self.sort_hooks)?;
         let stdout = if self.console.stdout {
@@ -2833,8 +2848,10 @@ impl Semantics {
             coverage,
             stop,
             stops: arrivals,
+            stops_reported: (!stops.is_empty()).then_some(arrivals),
             arrivals: passed,
             undecided,
+            passed_stops,
             resume,
         })
     }

@@ -28,6 +28,22 @@ const RUN_REFUSED: &str = "kink runs every program as the corpus says ([stop], t
      `stop_count`, [budget]), so it reads no case's `run`: remove it, and state the rules a run \
      stops at under [stop] and the count in `stop_count`";
 
+/// Why the `run` table `run` is refused ([`RUN_REFUSED`]), and when it holds a stop condition
+/// (`stop_when`), that the corpus states it, as `[stop] when`, for every program alike.
+fn run_refused(run: Option<&Value>) -> String {
+    if run
+        .and_then(Value::as_table)
+        .is_some_and(|run| run.contains_key("stop_when"))
+    {
+        format!(
+            "{RUN_REFUSED}; its `stop_when` is a stop condition, which the corpus states as \
+             `[stop] when`"
+        )
+    } else {
+        RUN_REFUSED.to_owned()
+    }
+}
+
 /// One case of a case document.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct DocumentCase {
@@ -67,7 +83,7 @@ pub(super) fn case_document(root: &Path, id: &str) -> Result<Vec<DocumentCase>, 
         return Err(ManifestError::new(
             join(&key, other),
             if other == "run" {
-                RUN_REFUSED.to_owned()
+                run_refused(document.get("run"))
             } else {
                 format!(
                     "a document of named cases holds `case` only; one case's `{other}` belongs \
@@ -103,9 +119,12 @@ fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestErro
         .find(|other| !matches!(other.as_str(), "inputs" | "expect"))
     {
         let message = match other.as_str() {
-            "run" => RUN_REFUSED,
-            "name" => "a document of one case names none; named cases are listed under `case`",
-            _ => "unknown key in a case document; a case has the keys `inputs` and `expect`",
+            "run" => run_refused(document.get("run")),
+            "name" => {
+                "a document of one case names none; named cases are listed under `case`".to_owned()
+            }
+            _ => "unknown key in a case document; a case has the keys `inputs` and `expect`"
+                .to_owned(),
         };
         return Err(ManifestError::new(join(key, other), message));
     }
@@ -196,9 +215,10 @@ impl CaseList<'_> {
                 .find(|other| !matches!(other.as_str(), "inputs" | "expect"))
             {
                 let message = if other == "run" {
-                    RUN_REFUSED
+                    run_refused(case.get("run"))
                 } else {
                     "unknown key in a named case; it has the keys `name`, `inputs` and `expect`"
+                        .to_owned()
                 };
                 return Err(ManifestError::new(join(&here, other), message));
             }

@@ -1178,6 +1178,18 @@ fn named_cases_are_programs_named_by_their_document_and_name() {
         run,
     );
     refused("[run]\ndepth = 3\n", &format!("{id}.run"), run);
+    // A `run` that holds a stop condition says that kink asks none, wherever it stands.
+    let condition = "its `stop_when` is a stop condition, which the corpus states as `[stop] when`";
+    refused(
+        "[run]\nstop_before = [\"X.a\"]\nstop_when = { function = \"F\", cells = [\"n\"] }\n",
+        &format!("{id}.run"),
+        condition,
+    );
+    refused(
+        "[[case]]\nname = \"a\"\nrun = { stop_when = { function = \"F\", cells = [\"n\"] } }\n",
+        &format!("{id}.case[0].run"),
+        condition,
+    );
     refused(
         &format!("{document}\n[[case]]\nname = \"first\"\n"),
         &format!("{id}.case[2].name"),

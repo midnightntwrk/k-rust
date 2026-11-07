@@ -906,8 +906,36 @@ impl Semantics {
     pub fn end_of(&self, report: &RunReport) -> Result<Ends, EndError> {
         let halt = report.halt;
         if !halt.is_complete() {
+            // A stop condition left undecided names where and why, which says whether a larger
+            // budget can decide it.
+            let undecided = report
+                .undecided
+                .as_ref()
+                .map_or_else(String::new, |undecided| {
+                    let rule = &undecided.rule;
+                    let name = self
+                        .stop_name(&rule.rule_id)
+                        .or_else(|| rule.label.clone())
+                        .unwrap_or_else(|| rule.rule_id.clone());
+                    format!(
+                        ": at the arrival {} `{name}` after {} step{}, whether the stop condition \
+                     holds is undecided ({}); {}",
+                        match undecided.at {
+                            crate::StopAt::Before => "before",
+                            crate::StopAt::After => "after",
+                        },
+                        report.steps,
+                        if report.steps == 1 { "" } else { "s" },
+                        undecided.reason,
+                        if undecided.budget_spent {
+                            "a larger budget of polls (`--view-budget`) can decide it"
+                        } else {
+                            "a larger budget of polls does not decide it"
+                        }
+                    )
+                });
             return Ok(Ends::none(format!(
-                "the run halted `{}`, which is no end of the definition",
+                "the run halted `{}`, which is no end of the definition{undecided}",
                 halt.as_str()
             )));
         }

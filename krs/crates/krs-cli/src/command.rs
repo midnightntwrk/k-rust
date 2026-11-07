@@ -1062,7 +1062,7 @@ const OBSERVER_PACKAGE_HELP: &str = "the observer's package is one of the packag
 /// naming the observer.
 fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
     let note = format!(
-        "in the observer `{name}`, the definition krs composes to resolve and evaluate the views"
+        "in the observer `{name}`, the definition krs composes to resolve and evaluate the views or the stop condition"
     );
     match error.diagnostics() {
         Some(diagnostics) => {

@@ -414,7 +414,8 @@ pub(super) fn execute(
                     }
                     CompareOutput::Json => format!("{}\n", verdict.document()),
                 };
-                Ok(exec::outcome(stdout, String::new(), verdict.exit_code()))
+                let stderr = runs.passed_notes("krs compare");
+                Ok(exec::outcome(stdout, stderr, verdict.exit_code()))
             })
             .map_err(|error| {
                 CommandError::InvalidRequest(format!("could not start the compare worker: {error}"))
@@ -618,6 +619,24 @@ struct CaseRuns {
 }
 
 impl CaseRuns {
+    /// The notes of the runs taken that went on past a stop rule ([`CaseRun::passed`]), each
+    /// headed by `label`.
+    fn passed_notes(&self, label: &str) -> String {
+        let slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut notes = slots
+            .values()
+            .filter_map(|slot| match slot.get() {
+                Some(Ok(run)) => run.passed.clone(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        notes.sort();
+        notes.into_iter().fold(String::new(), |mut text, note| {
+            let _ = std::fmt::Write::write_fmt(&mut text, format_args!("{label}: {note}\n"));
+            text
+        })
+    }
+
     /// The run of `case`, run on `semantics` the first time a side names it.
     fn get(
         &self,
@@ -661,7 +680,7 @@ pub(super) fn condition_observers(read: &ReadSides) -> Vec<String> {
             continue;
         };
         // A case whose stops cannot be read is refused when it is run.
-        let Ok(stop) = case.stop(&StopCriterion::None) else {
+        let Ok(stop) = case.stop(&StopCriterion::None, None) else {
             continue;
         };
         if let Some(name) = stop.when().and_then(|when| when.observer.clone())
@@ -776,6 +795,9 @@ impl<'a> Conditions<'a> {
 /// its end is the case's only one.
 struct CaseRun {
     ends: Ends,
+    /// The note of the stop rules the run went on past ([`krs_exec::RunReport::passed_stops`]),
+    /// naming the case; `None` when it passed none.
+    passed: Option<String>,
     /// The run, when it has an end whose completeness following it again could change.
     run: Option<RunOf>,
     /// Once followed again: the ends with why they are incomplete, or `None` when they are
@@ -798,7 +820,7 @@ impl CaseRun {
         conditions: &mut Conditions<'_>,
         case: &SelectedCase,
     ) -> Result<Self, Failure> {
-        let stop = case.stop(&StopCriterion::None)?;
+        let stop = case.stop(&StopCriterion::None, None)?;
         let depth = case.depth(None)?;
         let state = exec::configure(semantics, Inputs::of_case(case), false)?;
         let options = RunOptions {
@@ -814,6 +836,7 @@ impl CaseRun {
             Err(error @ ExecError::Undecided { .. }) => {
                 return Ok(Self {
                     ends: Ends::none(format!("the run has no one end: {error}")),
+                    passed: None,
                     run: None,
                     followed: OnceLock::new(),
                 });
@@ -823,6 +846,13 @@ impl CaseRun {
         let ends = semantics
             .end_of(&report)
             .map_err(|error| exec::end_failure(&error))?;
+        let passed = exec::passed_list(semantics, &report).map(|passed| {
+            format!(
+                "the run of the case `{}` went on past {passed}, at a step its state had another \
+                 successor beside, so no arrival",
+                case.id()
+            )
+        });
         // A run with no end has nothing a completeness could change.
         let run = (!ends.ends.is_empty()).then_some(RunOf {
             state,
@@ -831,6 +861,7 @@ impl CaseRun {
         });
         Ok(Self {
             ends,
+            passed,
             run,
             followed: OnceLock::new(),
         })
@@ -923,10 +954,23 @@ impl Produced {
         case: &SelectedCase,
         timings: &mut Timings,
     ) -> Result<Self, Failure> {
+        // A stop condition refused on this side's run names the side and its case, which the
+        // run's own refusal cannot.
+        let run =
+            runs.get(semantics, conditions, case, timings)
+                .map_err(|failure| match failure {
+                    Failure::Exec(
+                        error @ (ExecError::StopWhen(_) | ExecError::StopCondition { .. }),
+                    ) => Failure::Exec(ExecError::StopWhen(format!(
+                        "the {name} side, the case `{}`: {error}",
+                        case.id()
+                    ))),
+                    other => other,
+                })?;
         Ok(Self {
             name,
             source: Source::Run {
-                run: runs.get(semantics, conditions, case, timings)?,
+                run,
                 followed: false,
             },
         })

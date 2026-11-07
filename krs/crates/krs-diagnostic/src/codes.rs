@@ -527,6 +527,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         SORT: "krs::exec::sort" => "A requested parse sort is not a program sort.",
         CLAIM: "krs::exec::claim" => "A claim label matched no claim, several claims, or the definition has no claims.",
         RULE: "krs::exec::rule" => "A stop rule's name selects no rewrite rule: a label matched no sentence, a sentence that is no rewrite rule, or several labels by suffix, or a KRS item lowers to no rewrite rule, names no sentence, or names items of several packages.",
+        STOP_CONDITION: "krs::exec::stop-condition" => "A stop condition cannot be resolved (its function is unknown to the observer, has another arity or parameter sort, or no `Bool` result; a cell is unknown, unobservable, or below a repeated or optional cell; the observer cannot be prepared), or has no value at a stop state.",
         STREAMS: "krs::exec::streams" => "Search was requested on a definition with stream cells.",
         UNAVAILABLE: "krs::exec::unavailable" [Environment] => "The requested operation is not available in this build.",
         RESULT: "krs::exec::result" [Internal] => "The backend returned a result KRS cannot read.",

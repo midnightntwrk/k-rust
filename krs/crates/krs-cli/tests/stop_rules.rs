@@ -1708,6 +1708,20 @@ fn krs_run_passes_a_stop_rule_step_from_a_state_with_two_successors() {
         assert_eq!(phase_and_ticks(&report), phase_ticks, "{extra:?}: {report}");
         assert_eq!(report["stops"].as_u64().unwrap_or(0), stops, "{extra:?}");
         assert_eq!(report["arrivals"].as_u64(), arrivals, "{extra:?}");
+        // The run reports the step it went on past: `advance`'s from the start.
+        let passed = report["passed_stops"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{report}"));
+        assert_eq!(passed.len(), 1, "{extra:?}: {report}");
+        assert_eq!(passed[0]["depth"], 0, "{extra:?}: {report}");
+        assert_eq!(
+            passed[0]["rule"]["item"], "crate::advance",
+            "{extra:?}: {report}"
+        );
+        assert!(
+            status.contains("; went on past `crate::advance` after 0 steps"),
+            "{extra:?}: {status}"
+        );
     }
 }
 
@@ -1741,6 +1755,38 @@ fn a_case_passes_a_stop_rule_step_from_a_state_with_two_successors() {
     assert!(
         stdout.contains(branch) && stdout.contains("1 inconclusive"),
         "{stdout}"
+    );
+    // The record lists the stop rule its run went on past, as `krs run --output json` does.
+    let (status, stdout, stderr) = fixture.krs("cases", &["stop.json", "--output", "json"]);
+    assert_eq!(status, Some(3), "{stdout}{stderr}");
+    let record: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(record["passed_stops"][0]["depth"], 0, "{record}");
+    assert_eq!(
+        record["passed_stops"][0]["rule"]["item"], "crate::advance",
+        "{record}"
+    );
+    // `krs compare` notes on stderr the stop rule each side's run went on past, naming the case.
+    let (_, stdout, stderr) = fixture.krs("compare", &["stop.json", "stop.json"]);
+    assert!(
+        stderr.contains("krs compare: the run of the case `")
+            && stderr.contains("went on past `crate::advance` after 0 steps"),
+        "{stdout}{stderr}"
+    );
+    // A case with no expectation prints its run's stops on its ran line, as `krs run`'s status
+    // line does.
+    fs::write(
+        project.join("plain.json"),
+        serde_json::json!({
+            "inputs": {"start": 0},
+            "run": {"stop_before": ["crate::advance"]},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let (_, stdout, stderr) = fixture.krs("cases", &["plain.json"]);
+    assert!(
+        stdout.contains(": ran, stopped after 2 steps, before `crate::advance` (stop 1 of 1); went on past `crate::advance` after 0 steps"),
+        "{stdout}{stderr}"
     );
 }
 

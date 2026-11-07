@@ -337,6 +337,11 @@ fn a_spent_budget_ends_stop_undecided() {
         "{run}"
     );
     let undecided = &run["undecided"];
+    assert_eq!(undecided["budget_spent"], true, "{run}");
+    assert!(
+        stderr.contains("a larger --view-budget can decide it"),
+        "{stderr}"
+    );
     assert_eq!(undecided["at"], "before", "{run}");
     assert_eq!(undecided["rule"]["item"], "crate::tick", "{run}");
     assert!(
@@ -367,6 +372,19 @@ fn a_spent_budget_ends_stop_undecided() {
     assert_eq!(record["schema"], "krs-cases/3", "{record}");
     assert_eq!(record["halt"], "stop-undecided", "{record}");
     assert_eq!(record["verdict"], "inconclusive", "{record}");
+    // The record carries the run's stops, and its reason where and why it has no end, with the
+    // remedy.
+    assert_eq!(record["undecided"]["budget_spent"], true, "{record}");
+    assert_eq!(record["stops"], 0, "{record}");
+    assert!(
+        record["reason"].as_str().unwrap().contains(
+            "at the arrival before `crate::tick` after 0 steps, whether the stop condition holds is undecided"
+        ) && record["reason"]
+            .as_str()
+            .unwrap()
+            .contains("a larger budget of polls (`--view-budget`) can decide it"),
+        "{record}"
+    );
 
     // Each side is the case's run, under its condition and the budget: a run with no end.
     let mut arguments = vec![case.as_str(), case.as_str()];
@@ -374,6 +392,7 @@ fn a_spent_budget_ends_stop_undecided() {
     let (status, stdout, stderr) = workspace.krs("compare", &arguments);
     assert_eq!(status, Some(3), "{stdout}{stderr}");
     assert!(stdout.contains("stop-undecided"), "{stdout}{stderr}");
+    assert!(stdout.contains("can decide it"), "{stdout}{stderr}");
     let pairs = workspace.write(
         "climb-pairs.toml",
         &format!("[[pair]]\nleft = {case:?}\nright = {case:?}\n"),
@@ -433,6 +452,8 @@ fn refusals() {
         assert!(stderr.contains(message), "{when}: {stderr}");
     };
     refused("n=Nope", "the stop condition `Nope`");
+    // A condition that does not resolve is refused under its own code.
+    refused("n=Nope", "error[krs::exec::stop-condition]");
     refused(
         "n=Total",
         "takes 2 parameters, but the condition reads 1 cell",
@@ -448,6 +469,19 @@ fn refusals() {
     refused("timer=Third", "below the optional cell `timer`");
     // The two-cell condition is the observer's: the counter's definition does not hold it.
     refused("n,m=Apart", "the stop condition `Apart`");
+    // `krs compare` names the side and the case whose condition is refused, which the run's
+    // own refusal cannot.
+    let nope = workspace.write(
+        "nope.toml",
+        "[inputs]\nstart = 1\n[run]\nstop_before = [\"tick\"]\nstop_when = { function = \"Nope\", cells = [\"n\"] }\n",
+    );
+    let (status, stdout, stderr) = workspace.krs("compare", &[&nope, &nope]);
+    assert_eq!(status, Some(2), "{stdout}{stderr}");
+    assert!(
+        stderr.contains("the left side, the case `")
+            && stderr.contains("the stop condition `Nope`"),
+        "{stderr}"
+    );
     let (status, _, stderr) = workspace.krs("run", &["--stop-when", "n=Third"]);
     assert_eq!(status, Some(2), "{stderr}");
     assert!(stderr.contains("--stop-when needs --stop-before or --stop-after"));
@@ -462,6 +496,43 @@ fn refusals() {
     assert_eq!(status, Some(2), "{stderr}");
     assert!(
         stderr.contains("`stop_when` needs `stop_before` or `stop_after`"),
+        "{stderr}"
+    );
+    // Beside a case whose `run` names stops, a count or condition flag is refused for what is
+    // wrong first: only one may say where the run ends. Beside a case that names none, it is
+    // refused for having no rule.
+    let ruled = workspace.write(
+        "ruled.toml",
+        "[inputs]\nstart = 1\n[run]\nstop_before = [\"tick\"]\n",
+    );
+    for flags in [&["--stop-when", "n=Third"][..], &["--stop-count", "2"][..]] {
+        let mut arguments = vec!["--case", ruled.as_str()];
+        arguments.extend(flags);
+        let (status, _, stderr) = workspace.krs("run", &arguments);
+        assert_eq!(status, Some(2), "{flags:?}: {stderr}");
+        assert!(
+            stderr.contains("both say where the run ends; a flag may not change a case's question"),
+            "{flags:?}: {stderr}"
+        );
+    }
+    let plain = workspace.write("plain.toml", "[inputs]\nstart = 1\n");
+    let (status, _, stderr) = workspace.krs("run", &["--case", &plain, "--stop-count", "2"]);
+    assert_eq!(status, Some(2), "{stderr}");
+    assert!(
+        stderr.contains("--stop-count needs --stop-before or --stop-after"),
+        "{stderr}"
+    );
+    // A case's own `run` replaces its document's whole, so a count beside it names no rule.
+    let named = workspace.write(
+        "named.toml",
+        "[run]\nstop_before = [\"tick\"]\n\n[[case]]\nname = \"third\"\n[case.inputs]\nstart = 1\n[case.run]\nstop_count = 3\n",
+    );
+    let (status, _, stderr) = workspace.krs("run", &["--case", &format!("{named}#third")]);
+    assert_eq!(status, Some(2), "{stderr}");
+    assert!(
+        stderr.contains(
+            "replaces the document's `run` whole, so it names none of the document's stop rules"
+        ),
         "{stderr}"
     );
 }

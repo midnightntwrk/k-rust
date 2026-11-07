@@ -133,13 +133,24 @@ impl std::error::Error for ObservationError {}
 impl ObservationError {
     /// Whether the observation is not known rather than absent: the evaluation stopped, or the
     /// solver left a condition undecided ([`EvaluationError::Stopped`],
-    /// [`EvaluationError::Undecided`]).
+    /// [`EvaluationError::Spent`], [`EvaluationError::Undecided`]).
     #[must_use]
     pub const fn is_undecided(&self) -> bool {
         matches!(
             self,
-            Self::Evaluation(EvaluationError::Stopped(_) | EvaluationError::Undecided(_))
+            Self::Evaluation(
+                EvaluationError::Stopped(_)
+                    | EvaluationError::Spent(_)
+                    | EvaluationError::Undecided(_)
+            )
         )
+    }
+
+    /// Whether the evaluation spent its budget of polls ([`EvaluationError::Spent`]), which a
+    /// larger budget can decide, unlike another stop or an `Unknown` answer of the solver.
+    #[must_use]
+    pub const fn spent_budget(&self) -> bool {
+        matches!(self, Self::Evaluation(EvaluationError::Spent(_)))
     }
 }
 
@@ -247,6 +258,8 @@ pub(crate) struct UndecidedArrival {
     pub(crate) side: StopSide,
     /// Why the observation is not known ([`ObservationError::is_undecided`]).
     pub(crate) reason: String,
+    /// Whether the evaluation spent its budget of polls ([`ObservationError::spent_budget`]).
+    pub(crate) budget_spent: bool,
 }
 
 /// The backend's stop condition of a run ([`StopCondition`]): the observation's `Bool`, an
@@ -303,6 +316,7 @@ impl StopCondition for ConditionOracle<'_> {
                     rule_id: arrival.rule().to_owned(),
                     side: arrival.side(),
                     reason,
+                    budget_spent: error.spent_budget(),
                 });
                 decision
             }
@@ -466,5 +480,26 @@ impl Semantics {
                 ValueIndex::sort_name(&cell_sort)
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every stop of an evaluation leaves its arrival undecided, but only a spent budget of polls
+    /// is one a larger budget can decide: a stop of the backend other than the budget, or the
+    /// solver's `Unknown`, is not (`undecided.budget_spent`).
+    #[test]
+    fn only_a_spent_budget_is_decided_by_a_larger_budget() {
+        let spent = ObservationError::Evaluation(EvaluationError::Spent(5));
+        let stopped = ObservationError::Evaluation(EvaluationError::Stopped("a stop".to_owned()));
+        let unknown = ObservationError::Evaluation(EvaluationError::Undecided(1));
+        for error in [&spent, &stopped, &unknown] {
+            assert!(error.is_undecided(), "{error}");
+        }
+        assert!(spent.spent_budget());
+        assert!(!stopped.spent_budget());
+        assert!(!unknown.spent_budget());
     }
 }
