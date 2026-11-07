@@ -18,6 +18,7 @@ struct Field {
     sorts: Sorts,
     input: Sort,
     output: Sort,
+    #[cfg(any(feature = "z3", test))]
     column: usize,
 }
 
@@ -290,11 +291,13 @@ impl Products {
                 sorts: *sort_arguments,
                 input: product.sort,
                 output: result.sort(),
+                #[cfg(any(feature = "z3", test))]
                 column,
             }),
         ))
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(crate) fn reconstruction(&self, term: &Term) -> Option<Term> {
         let TermKind::Application {
             symbol,
@@ -366,6 +369,7 @@ impl Products {
         ))
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(crate) fn field_value(&self, term: &Term) -> Option<Term> {
         let TermKind::Application {
             symbol,

@@ -766,6 +766,7 @@ fn ceil_term_node<'a>(
 
 /// A collection's own canonical obligations, without walking its strict operands again.
 /// Callers retain the operand domains separately and bound the footprint before this call.
+#[cfg(any(feature = "z3", test))]
 pub(crate) fn collection_head_domain(
     definition: &BackendDefinition,
     term: &Term,
@@ -2006,6 +2007,7 @@ pub(crate) fn request_definedness(
 /// partial calls whose domains it states (a summary's body domain, whose obligations are facts
 /// about the body and are never eliminated) must see `t`'s partial calls hoisted beside the
 /// binding, or it would state their domain without evidence.
+#[cfg(any(feature = "z3", test))]
 pub(crate) fn stated_definedness_of(
     definition: &BackendDefinition,
     predicates: Vec<Predicate>,

@@ -449,6 +449,7 @@ pub struct TranslationState {
     /// head's domain function (`functional::domain_lemmas`), each stated once per binder scope.
     domain_lemmas: BTreeMap<Term, Arc<[Predicate]>>,
     domain_lemma_seen: BTreeSet<(Term, Vec<String>)>,
+    #[cfg(any(feature = "z3", test))]
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
     observation_facts: BTreeMap<Term, Vec<Predicate>>,
@@ -543,6 +544,7 @@ impl TranslationState {
             domains: BTreeMap::new(),
             domain_lemmas: BTreeMap::new(),
             domain_lemma_seen: BTreeSet::new(),
+            #[cfg(any(feature = "z3", test))]
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
             observation_facts: BTreeMap::new(),
@@ -1078,7 +1080,11 @@ impl TranslationState {
         if may_denote_several(term) {
             return Err(TranslationError::MayDenoteSeveral(term.clone()));
         }
+        #[cfg(any(feature = "z3", test))]
         let reading = self.observations.get(term).cloned();
+        // Only a solver query prepares observations (`observation::prepare`).
+        #[cfg(not(any(feature = "z3", test)))]
+        let reading: Option<std::convert::Infallible> = None;
         let demands = self
             .observation_demands
             .get(term)
@@ -1543,6 +1549,7 @@ impl TranslationState {
     /// the scalar reading that a word plan's fact relates to its word value under the operands'
     /// domains (`word::prepare`). Such a reading is a value, and value bindings precede domain
     /// bindings (`record_source_fact`), so it must not read a domain.
+    #[cfg(any(feature = "z3", test))]
     pub(super) fn translate_predicate_reading(
         &mut self,
         predicate: &Predicate,

@@ -1,10 +1,35 @@
 //! Translate source-checked finite observations while retaining the ordinary value/domain
 //! signature. These source consequences are guarded, not asserted caller obligations.
 
-use std::{collections::BTreeMap, sync::Arc};
+#[cfg(any(feature = "z3", test))]
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use super::{SExpr, TranslationError, TranslationState};
-use crate::{observation::reading::Reading, rule::Predicate, term::Term};
+use crate::term::Term;
+#[cfg(any(feature = "z3", test))]
+use crate::{observation::reading::Reading, rule::Predicate};
+
+/// Only a solver query prepares observations (`prepare`), so without one a translation has
+/// none to read and these readers have no input.
+#[cfg(not(any(feature = "z3", test)))]
+impl TranslationState {
+    pub(super) fn translate_observation(
+        &mut self,
+        _: &Term,
+        reading: &std::convert::Infallible,
+    ) -> Result<SExpr, TranslationError> {
+        match *reading {}
+    }
+
+    pub(super) fn observation_domain(
+        &mut self,
+        _: &Term,
+        reading: &std::convert::Infallible,
+    ) -> Result<SExpr, TranslationError> {
+        match *reading {}
+    }
+}
 
 impl TranslationState {
     /// Forward congruence of the checked source map roles, retaining the original
@@ -92,6 +117,7 @@ impl TranslationState {
         Ok(value)
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(super) fn translate_observation(
         &mut self,
         term: &Term,
@@ -120,6 +146,7 @@ impl TranslationState {
         Ok(original)
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn observation_value(
         &mut self,
         reading: &Arc<Reading>,
@@ -153,6 +180,7 @@ impl TranslationState {
         Ok(value)
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(super) fn observation_domain(
         &mut self,
         term: &Term,
@@ -168,6 +196,7 @@ impl TranslationState {
         Ok(SExpr::application("and", domains))
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn observation_leaf_domain(
         &mut self,
         reading: &Arc<Reading>,

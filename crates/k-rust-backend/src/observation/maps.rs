@@ -9,11 +9,15 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(any(feature = "z3", test))]
 use crate::{
-    builtin::{CollectionOperand, read_collection_item, stored_at},
+    builtin::stored_at,
+    stop::{self, Stoppable},
+};
+use crate::{
+    builtin::{CollectionOperand, read_collection_item},
     definition::BackendDefinition,
     rule::{ClassifiedAxiom, Predicate, TermIndex},
-    stop::{self, Stoppable},
     term::{CollectionMetadata, HeadRole, MapDefinition, Sort, Symbol, Term, TermKind},
 };
 
@@ -304,6 +308,7 @@ impl Operations {
     }
 
     /// Retain the observation's actual source head and key rank at an opaque view leaf.
+    #[cfg(any(feature = "z3", test))]
     pub(super) fn on_base(&self, source: &Term, map: Term) -> Option<Term> {
         let TermKind::Application {
             symbol,
@@ -406,6 +411,7 @@ impl Operations {
     /// Admitted declarations of one primitive observe the same stored key. Normalize
     /// only when the actual source key can be read at this collection's storage rank;
     /// changed/effectful heads and incompatible ranks retain their conservative reading.
+    #[cfg(any(feature = "z3", test))]
     pub(super) fn canonical_observation(
         &self,
         definition: &BackendDefinition,
@@ -524,6 +530,7 @@ pub(super) fn read_at(definition: &BackendDefinition, value: &Term, sort: &Sort)
     }
 }
 
+#[cfg(any(feature = "z3", test))]
 #[derive(Clone, Debug)]
 pub(crate) enum View {
     Base(Term),
@@ -544,6 +551,7 @@ pub(crate) enum View {
 }
 
 /// One observation request's source-term DAG. No caller facts or SMT names are retained.
+#[cfg(any(feature = "z3", test))]
 pub(crate) struct Views<'a> {
     definition: &'a BackendDefinition,
     operations: &'a Operations,
@@ -551,6 +559,7 @@ pub(crate) struct Views<'a> {
     remaining: usize,
 }
 
+#[cfg(any(feature = "z3", test))]
 impl<'a> Views<'a> {
     pub fn new(definition: &'a BackendDefinition, operations: &'a Operations) -> Self {
         Self {

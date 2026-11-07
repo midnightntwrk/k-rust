@@ -263,7 +263,10 @@ impl TranslationState {
         #[cfg(not(any(feature = "z3", test)))]
         let summary: Option<()> = None;
         let plan = self.domains.get(term).cloned();
+        #[cfg(any(feature = "z3", test))]
         let observation = self.observations.get(term).cloned();
+        #[cfg(not(any(feature = "z3", test)))]
+        let observation: Option<std::convert::Infallible> = None;
         let supplies_value = observation.is_some() || self.observation_demands.contains_key(term);
         if plan.is_none() && summary.is_none() && observation.is_none() {
             self.opaque_domain_reads += 1;

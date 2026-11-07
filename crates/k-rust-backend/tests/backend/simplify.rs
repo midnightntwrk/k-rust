@@ -3602,6 +3602,7 @@ fn a_ceil_equation_beside_a_sibling_equality_is_not_decided_valid_through_its_sm
 /// definedness atom itself, so its path condition held the sibling's equality. K14: the function
 /// equation `zz-zero` (`zz(Y) = 0`) applied in the subject of `\ceil(zz(half(1)))`, whose
 /// obligation `\ceil(half(1))` the term simplifier decides under every assumption.
+#[cfg(feature = "z3")]
 fn binder_route(definition: &BackendDefinition) -> Predicate {
     Predicate::Exists(
         Variable::new("Y", Sort::simple("SortInt")),
@@ -3765,6 +3766,7 @@ fn a_ceil_under_a_shadowing_binder_beside_a_sibling_equality_is_not_decided_vali
 /// `\ceil(0 /\ half(1))` is `\ceil(0) /\ 0 = half(1)`, an ML equivalence. Both are K
 /// equivalences; neither form is valid, since each is `\bottom` where `half(1)` is undefined, and
 /// Z3, reading `half` as `div` without its domain, decided both valid.
+#[cfg(feature = "z3")]
 fn review_route_definition() -> BackendDefinition {
     definition(
         r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]

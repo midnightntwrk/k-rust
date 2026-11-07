@@ -22,6 +22,7 @@
 
 pub(crate) mod frames;
 pub(crate) mod lists;
+#[cfg(any(feature = "z3", test))]
 mod map_equality;
 pub(crate) mod maps;
 pub(crate) mod products;
@@ -82,6 +83,7 @@ impl Selector {
     /// Cancel only the licensed spine of this checked source inverse. In particular,
     /// E(p(kseq(raw,dotk)))=kseq(raw,dotk) gives the stored-item equality only when
     /// the actual singleton has the free-constructor role (which includes injectivity).
+    #[cfg(any(feature = "z3", test))]
     pub(crate) fn reconstruct_subterm(
         &self,
         definition: &BackendDefinition,

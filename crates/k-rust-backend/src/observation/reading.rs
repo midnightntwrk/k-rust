@@ -1,20 +1,22 @@
 //! Bounded source observation DAGs. Leaves and tests contain only source terms/predicates;
 //! these plans never hold caller facts, solver names, or an invented strict K conditional.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(any(feature = "z3", test))]
+use std::sync::Arc;
 
 use crate::{
     definition::BackendDefinition,
-    rule::Predicate,
     stop::{self, Stoppable},
-    term::{HeadRole, Term, TermKind},
+    term::{Term, TermKind},
 };
+#[cfg(any(feature = "z3", test))]
+use crate::{rule::Predicate, term::HeadRole};
 
+#[cfg(any(feature = "z3", test))]
 use super::maps::{self, View, Views};
 
+#[cfg(any(feature = "z3", test))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Reading {
     Leaf(Term),
@@ -26,6 +28,7 @@ pub(crate) enum Reading {
     },
 }
 
+#[cfg(any(feature = "z3", test))]
 fn choice(test: Predicate, yes: Arc<Reading>, no: Arc<Reading>) -> Arc<Reading> {
     match test {
         Predicate::True => yes,
@@ -41,6 +44,7 @@ fn choice(test: Predicate, yes: Arc<Reading>, no: Arc<Reading>) -> Arc<Reading> 
 
 /// Equality of stored keys, using only licensed injection cancellation and existing
 /// solver-free apartness. Unknown aliases remain ordinary equality obligations.
+#[cfg(any(feature = "z3", test))]
 pub(crate) fn key_equal(definition: &BackendDefinition, a: &Term, b: &Term) -> Predicate {
     if a == b {
         return Predicate::True;
@@ -70,9 +74,16 @@ pub(crate) fn key_equal(definition: &BackendDefinition, a: &Term, b: &Term) -> P
 }
 
 pub(crate) struct Builder<'a> {
+    #[cfg(any(feature = "z3", test))]
     definition: &'a BackendDefinition,
+    /// Without a solver the builder only decides purity (`pure`), which reads no definition.
+    #[cfg(not(any(feature = "z3", test)))]
+    definition: std::marker::PhantomData<&'a BackendDefinition>,
+    #[cfg(any(feature = "z3", test))]
     maps: BTreeMap<crate::term::Sort, Views<'a>>,
+    #[cfg(any(feature = "z3", test))]
     memo: BTreeMap<Term, Option<Arc<Reading>>>,
+    #[cfg(any(feature = "z3", test))]
     observations: BTreeMap<(usize, Term), Arc<Reading>>,
     pure: BTreeMap<Term, bool>,
     effects: Option<BTreeSet<String>>,
@@ -82,9 +93,15 @@ pub(crate) struct Builder<'a> {
 impl<'a> Builder<'a> {
     pub fn new(definition: &'a BackendDefinition) -> Self {
         Self {
+            #[cfg(any(feature = "z3", test))]
             definition,
+            #[cfg(not(any(feature = "z3", test)))]
+            definition: std::marker::PhantomData,
+            #[cfg(any(feature = "z3", test))]
             maps: BTreeMap::new(),
+            #[cfg(any(feature = "z3", test))]
             memo: BTreeMap::new(),
+            #[cfg(any(feature = "z3", test))]
             observations: BTreeMap::new(),
             pure: BTreeMap::new(),
             effects: definition.console_effect_symbols(),
@@ -92,10 +109,12 @@ impl<'a> Builder<'a> {
         }
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub fn of(&mut self, term: &Term) -> Stoppable<Option<Arc<Reading>>> {
         self.node(term, 0)
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(crate) fn map_equality(
         &mut self,
         left: &Term,
@@ -127,6 +146,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn node(&mut self, term: &Term, depth: usize) -> Stoppable<Option<Arc<Reading>>> {
         stop::check()?;
         if let Some(result) = self.memo.get(term) {
@@ -313,6 +333,7 @@ impl<'a> Builder<'a> {
         Ok(self.pure.get(root) == Some(&true))
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn wrapper(&self, term: &Term) -> bool {
         match term.kind() {
             TermKind::Injection { source, target, .. } => {
@@ -330,6 +351,7 @@ impl<'a> Builder<'a> {
         }
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn lift(
         &mut self,
         context: &Term,
@@ -376,6 +398,7 @@ impl<'a> Builder<'a> {
         }))
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn observe(
         &mut self,
         view: &Arc<View>,
@@ -466,6 +489,7 @@ impl<'a> Builder<'a> {
 }
 
 /// Recover the raw stored item only through a checked selector inverse.
+#[cfg(any(feature = "z3", test))]
 pub(super) fn stored_reconstruction(definition: &BackendDefinition, term: &Term) -> Option<Term> {
     let TermKind::Injection {
         term: projected, ..

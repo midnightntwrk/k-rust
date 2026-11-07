@@ -19,6 +19,7 @@ use crate::{
     },
 };
 
+#[cfg(any(feature = "z3", test))]
 use super::reading::Reading;
 
 const PREFIX_LIMIT: usize = 128;
@@ -231,6 +232,7 @@ impl Operations {
         (index < PREFIX_LIMIT).then_some((list, index))
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(crate) fn demanded_prefix<'a>(&self, term: &'a Term) -> Option<(&'a Term, usize)> {
         let (list, index) = self.get_parts(term)?;
         Some((list, index + 1))
@@ -251,6 +253,7 @@ impl Operations {
         Some((list, fixed(front)?))
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub fn prefix(&self, list: Term, count: usize) -> Option<Term> {
         if count == 0 || count > PREFIX_LIMIT {
             return None;
@@ -267,6 +270,7 @@ impl Operations {
 
     /// The zero-length list law, guarded by the original value's domain. This is a
     /// source consequence, never a proposed replacement domain for an opaque function.
+    #[cfg(any(feature = "z3", test))]
     pub(crate) fn empty_fact(&self, list: &Term) -> Option<Predicate> {
         Some(Predicate::Implies(
             Arc::new(Predicate::And(
@@ -283,6 +287,7 @@ impl Operations {
         ))
     }
 
+    #[cfg(any(feature = "z3", test))]
     fn reconstruction(&self, definition: &BackendDefinition, term: &Term) -> Option<Term> {
         let TermKind::List {
             definition: collection,
@@ -313,6 +318,7 @@ impl Operations {
         Some(base.clone())
     }
 
+    #[cfg(any(feature = "z3", test))]
     pub(super) fn reading(
         &self,
         definition: &BackendDefinition,
