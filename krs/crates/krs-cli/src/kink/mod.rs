@@ -261,6 +261,23 @@ pub fn condition_flips(
     target_directory: Option<&Path>,
     measurement: &mut Measurement,
 ) -> Result<DerivedFlips, Box<KinkOutcome>> {
+    condition_flips_reading(request, target_directory, measurement, None)
+}
+
+/// [`condition_flips`], the judge reading every authored source from the directory `authored`,
+/// when given, in place of its package's root: a way to judge against a source that is not the
+/// revision the build read, as when a file is edited while a command runs.
+///
+/// # Errors
+///
+/// As [`condition_flips`].
+#[doc(hidden)]
+pub fn condition_flips_reading(
+    request: &KinkRequest,
+    target_directory: Option<&Path>,
+    measurement: &mut Measurement,
+    authored: Option<&Path>,
+) -> Result<DerivedFlips, Box<KinkOutcome>> {
     let mut sources = DiagnosticSources::default();
     let selection = selection_request(request);
     let planned = match plan_collection(&selection, target_directory, measurement, &mut sources) {
@@ -329,7 +346,10 @@ pub fn condition_flips(
                 ));
             }
         };
-    let sources = outcome.sources.clone();
+    let sources = authored.map_or_else(
+        || outcome.sources.clone(),
+        |root| outcome.sources.rooted_at(root),
+    );
     let baseline = checks::Baseline {
         emitted: &emitted,
         retained: &kept.retained,

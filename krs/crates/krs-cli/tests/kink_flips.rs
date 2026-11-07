@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use krs_cli::kink::{
-    DerivedFlip, DerivedFlips, FlipStatus, KinkRequest, KinkVerb, condition_flips,
+    DerivedFlip, DerivedFlips, FlipStatus, KinkRequest, KinkVerb, condition_flips_reading,
 };
 use krs_test_support::{
     SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
@@ -66,6 +66,12 @@ impl Package {
 
     /// The package's condition flips, judged in this process.
     fn flips(&self) -> DerivedFlips {
+        self.flips_reading(None)
+    }
+
+    /// The package's condition flips, judged in this process reading the authored sources from
+    /// `authored` when given, in place of the package's directory.
+    fn flips_reading(&self, authored: Option<&Path>) -> DerivedFlips {
         let request = KinkRequest {
             manifest_path: self.path().join("Cargo.toml"),
             root: krs_cli::FacetSelector {
@@ -82,8 +88,13 @@ impl Package {
             verb: KinkVerb::Emit { check: false },
         };
         let mut measurement = krs_ir::measure::Measurement::default();
-        condition_flips(&request, Some(self.target.path()), &mut measurement)
-            .unwrap_or_else(|outcome| panic!("no flips: {:?}", outcome.notes))
+        condition_flips_reading(
+            &request,
+            Some(self.target.path()),
+            &mut measurement,
+            authored,
+        )
+        .unwrap_or_else(|outcome| panic!("no flips: {:?}", outcome.notes))
     }
 
     /// `krs kink VERB ARGUMENTS` with this package selected, from its directory.
@@ -390,6 +401,54 @@ fn judgements_come_from_the_judge_cache() {
         refusal(&checked).contains("a checked lookup guard"),
         "{checked:#}"
     );
+}
+
+/// A cache entry holds what a judgement of its key gives, so a judgement that cannot read an
+/// authored source is not written: with `src/lib.rs` read from another revision than the build's,
+/// the flips are judged, their Rust locations without positions, and no entry is written; the next
+/// judgement, reading the build's revision, is written with its positions.
+#[test]
+fn a_judgement_that_cannot_read_its_source_is_not_cached() {
+    let package = Package::new("krs-cli-kink-flips", "FLIPS", LIBRARY, FLOW);
+    let elsewhere = temp_dir();
+    fs::create_dir_all(elsewhere.path().join("src")).unwrap();
+    fs::write(
+        elsewhere.path().join("src/lib.rs"),
+        format!("// another revision\n{LIBRARY}"),
+    )
+    .unwrap();
+    let unread = package.flips_reading(Some(elsewhere.path()));
+    assert!(!unread.flips.is_empty(), "{:#}", unread.value());
+    assert_eq!(package.cache_entries(), Vec::<PathBuf>::new());
+
+    let read = package.flips();
+    let outcomes = |flips: &DerivedFlips| {
+        flips
+            .flips
+            .iter()
+            .map(|flip| (flip.id.clone(), admitted(flip)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(outcomes(&unread), outcomes(&read));
+    let entries = package.cache_entries();
+    assert_eq!(entries.len(), read.flips.len());
+    let mut positioned = 0;
+    for entry in entries {
+        let stored: Value = serde_json::from_str(&fs::read_to_string(&entry).unwrap()).unwrap();
+        for edit in stored["judged"]["edits"].as_array().unwrap() {
+            if edit["judged"] != "authored" && edit["judged"] != "inserted" {
+                continue;
+            }
+            for span in edit["rust"].as_array().unwrap() {
+                assert!(
+                    span["line"].is_u64() && span["text"].is_string(),
+                    "{stored:#}"
+                );
+                positioned += 1;
+            }
+        }
+    }
+    assert!(positioned > 0);
 }
 
 /// The story's rules have no guard and no `k::bits!` argument, so it has no flip, and says so.

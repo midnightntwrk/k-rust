@@ -39,7 +39,7 @@
 //! kill job and the condition flips ([`super::flips`]) read alike, so a mutation is judged once per
 //! build and emission.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -90,33 +90,49 @@ const NEXT_PARTIAL_RENDERING: &str = "this mutant is the source in which the aut
      occurrence out by hand; to mutate the construct itself, also edit its other renderings (the \
      detail)";
 
-/// What the author does next for an edit of a node KRS inserted, per kind.
-const fn generated_only_next(kind: InsertedNode) -> &'static str {
-    match kind {
-        InsertedNode::DefinednessTest => {
-            "KRS states this test because the construct it guards has no value where the test \
-             fails: edit that construct (the detail names it), with the test KRS derives from the \
-             edited construct in the same mutation (`krs kink check` prints it)"
-        }
-        InsertedNode::LookupGuard => {
-            "KRS writes this guard for the instance or key the rule's pattern computes; edits of a \
-             guard family are not judged yet, so mutate another part of the rule"
-        }
-        InsertedNode::GeneratedBinder => {
-            "this is a name KRS gave (to a k::bits! template, a record update's base, a lookup); \
-             edit the tests or reads that use it"
-        }
-        InsertedNode::CellFrame => {
-            "the frame is the block form's: a block-form rule keeps the rest of the cell; edit what \
-             the rule matches or writes in the cell instead (a machine-form rule with a closed \
-             cell is the source of a closed match)"
-        }
-        InsertedNode::LocalFunction => {
-            "this is KRS's encoding of a `let` block or `k::matches!`; edits of it are not judged \
-             yet, so mutate another part of the rule"
-        }
-        _ => NEXT_INSERTED,
-    }
+/// What the author does next for an edit of a node KRS inserted, for each kind with a step of its
+/// own; any other kind takes [`NEXT_INSERTED`].
+///
+/// The one table serves the refusal ([`generated_only_next`]) and the judge cache's decoding
+/// ([`next_steps`]), so a step a refusal gives is a step a stored judgement may hold. The steps
+/// cannot be a `match` without a wildcard: [`InsertedNode`] is `#[non_exhaustive]`, so a match
+/// outside its crate needs one, and a kind added there takes [`NEXT_INSERTED`], which both read.
+const GENERATED_ONLY_NEXT: [(InsertedNode, &str); 5] = [
+    (
+        InsertedNode::DefinednessTest,
+        "KRS states this test because the construct it guards has no value where the test \
+         fails: edit that construct (the detail names it), with the test KRS derives from the \
+         edited construct in the same mutation (`krs kink check` prints it)",
+    ),
+    (
+        InsertedNode::LookupGuard,
+        "KRS writes this guard for the instance or key the rule's pattern computes; edits of a \
+         guard family are not judged yet, so mutate another part of the rule",
+    ),
+    (
+        InsertedNode::GeneratedBinder,
+        "this is a name KRS gave (to a k::bits! template, a record update's base, a lookup); \
+         edit the tests or reads that use it",
+    ),
+    (
+        InsertedNode::CellFrame,
+        "the frame is the block form's: a block-form rule keeps the rest of the cell; edit what \
+         the rule matches or writes in the cell instead (a machine-form rule with a closed \
+         cell is the source of a closed match)",
+    ),
+    (
+        InsertedNode::LocalFunction,
+        "this is KRS's encoding of a `let` block or `k::matches!`; edits of it are not judged \
+         yet, so mutate another part of the rule",
+    ),
+];
+
+/// What the author does next for an edit of a node of kind `kind` KRS inserted.
+fn generated_only_next(kind: InsertedNode) -> &'static str {
+    GENERATED_ONLY_NEXT
+        .iter()
+        .find(|(own, _)| *own == kind)
+        .map_or(NEXT_INSERTED, |(_, next)| next)
 }
 
 /// What the author does next for an edit of a node KRS inserted of a kind without its own step.
@@ -266,6 +282,10 @@ struct SourceText {
 struct Positions<'a> {
     sources: &'a DiagnosticSources,
     files: RefCell<BTreeMap<SourceFileId, Option<SourceText>>>,
+    /// How many spans had no source to read: a file whose package is not selected, which is
+    /// unreadable, or whose bytes are not the revision the build read. Such a span has no
+    /// position, which a judgement read when the file is the build's revision has.
+    unread: Cell<usize>,
 }
 
 impl Positions<'_> {
@@ -291,6 +311,7 @@ impl Positions<'_> {
             tokens,
         }) = indexed.as_ref()
         else {
+            self.unread.set(self.unread.get() + 1);
             return RustSpan {
                 file,
                 line: None,
@@ -611,17 +632,11 @@ fn refusal_reason(reason: &str) -> Option<&'static str> {
 /// Every next step the front end gives a refusal for `reason`.
 fn next_steps(reason: &'static str) -> Vec<&'static str> {
     match reason {
-        GENERATED_ONLY => [
-            InsertedNode::DefinednessTest,
-            InsertedNode::LookupGuard,
-            InsertedNode::GeneratedBinder,
-            InsertedNode::CellFrame,
-            InsertedNode::LocalFunction,
-        ]
-        .into_iter()
-        .map(generated_only_next)
-        .chain([NEXT_INSERTED])
-        .collect(),
+        GENERATED_ONLY => GENERATED_ONLY_NEXT
+            .iter()
+            .map(|(_, next)| *next)
+            .chain([NEXT_INSERTED])
+            .collect(),
         CHANGES_NO_NODE => vec![NEXT_CHANGES_NO_NODE],
         DERIVED_MISMATCH => vec![NEXT_DERIVED_MISMATCH],
         NO_CHANGE => vec![NEXT_NO_CHANGE],
@@ -650,6 +665,12 @@ pub(crate) const JUDGE_CACHE_DIRECTORY: &str = "krs-judge";
 /// judgement's Rust locations and refused edits name. An entry whose key differs, which does
 /// not decode, or which holds a reason or next step this build does not give, is judged again
 /// and rewritten; a build whose identity is unknown reads and writes nothing.
+///
+/// An entry holds what a judgement of its key gives, so a judgement that could not read an
+/// authored source is not written: the key names each file by the digest the build read, and a
+/// file on disk that is another revision (edited since the build, or unreadable) leaves the
+/// judgement's Rust locations without positions, which the next judgement of the same key, once
+/// the file is that revision again, has.
 pub(crate) struct JudgeCache {
     directory: std::path::PathBuf,
     /// The build and emission parts of every key; `None` when the build's identity is unknown.
@@ -854,6 +875,7 @@ impl<'a> KrsChecks<'a> {
             positions: Positions {
                 sources: baseline.sources,
                 files: RefCell::new(BTreeMap::new()),
+                unread: Cell::new(0),
             },
             nodes,
             by_authored,
@@ -1091,8 +1113,13 @@ impl<'a> KrsChecks<'a> {
         if let Some(judged) = cache.read(&name, &key, resolved) {
             return judged;
         }
+        let unread = self.positions.unread.get();
         let judged = self.judge_fresh(resolved);
-        cache.write(&name, &key, &judged);
+        // A judgement that could not read an authored source lacks positions the key does not
+        // account for; it is this command's answer, not the one its key stands for.
+        if self.positions.unread.get() == unread {
+            cache.write(&name, &key, &judged);
+        }
         judged
     }
 

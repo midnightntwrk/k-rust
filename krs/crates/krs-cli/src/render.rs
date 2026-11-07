@@ -47,6 +47,18 @@ impl DiagnosticSources {
         }
     }
 
+    /// The same packages, every one read from `root` in place of its own root.
+    #[cfg(feature = "kink")]
+    pub(crate) fn rooted_at(&self, root: &Path) -> Self {
+        Self {
+            packages: self
+                .packages
+                .keys()
+                .map(|package| (package.clone(), root.to_path_buf()))
+                .collect(),
+        }
+    }
+
     /// Renders an envelope, showing each exact authored range in its source revision when that
     /// revision is available: the primary's file first, then each label's file in producer
     /// order, each file once. An envelope without an authored range names its item, if any.
