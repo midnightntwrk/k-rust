@@ -703,12 +703,6 @@ match = 'sweep/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCel
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 1
-[[family]]
-match = 'sweep/cells/overwrite/c04-hcell/k::fragment![crate::H \{ hl: [x\, ..]\, hb: 0 \}]'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep: 3
 [[family]]
 match = 'sweep/cells/result/*/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]'
@@ -717,19 +711,7 @@ kind = "diagnostic"
 
 # sweep: 1
 [[family]]
-match = 'sweep/cells/result/c07-ohcell/Some(k::fragment![crate::Ho \{ ohl: [x\, ..]\, ohb: 0 \}])'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
 match = 'sweep/cells/result/f04-mcell/k::fragment![crate::M \{ mm: k::map![y -> x]\, mn: 0 \}]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/f17-ccell/k::fragment![crate::C \{ cc: [x\, ..]\, cn: 0 \}]'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -742,12 +724,6 @@ kind = "diagnostic"
 # sweep: 1
 [[family]]
 match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 3
-[[family]]
-match = 'sweep/cells/result/{c02-hcell,f10-hcell,f13-hcell}/k::fragment![crate::H \{ hl: [x\, ..]\, hb: 0 \}]'
 finding = "S0-9"
 kind = "diagnostic"
 
