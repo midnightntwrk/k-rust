@@ -9101,9 +9101,12 @@ fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
 /// A search pattern's condition over a `<<Int` result above the size bound is not decided by
 /// the solver reading the hook as an arbitrary function: the search reports the state as
 /// incomplete with the unsupported-hook error instead of a solution (no reachable state has
-/// `X <=Int 0`). A pattern that only binds the value reports it. A condition the solver decides
-/// over a `^Int` result above the bound (`^Int` has an interpreted SMT encoding) is decided: the
-/// state is a solution of `X >Int 0` and not of `X <=Int 0`. `i` hides the shift amount and the
+/// `X <=Int 0`). A pattern that only binds the value reports it. A condition over a `^Int`
+/// result above the bound is read through `^Int`'s interpreted SMT encoding, never as an
+/// unsupported hook, and the state is never a solution of `X <=Int 0`. Whether the linked solver
+/// decides it is the solver's: a decided search makes the state a solution of `X >Int 0` only,
+/// and an undecided one is an incomplete search naming the solver's reason (Z3 5.3.3 answers
+/// "power is too large to compute" where 4.16.0 decides). `i` hides the shift amount and the
 /// exponent from the constant folder.
 #[test]
 fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
@@ -9142,9 +9145,17 @@ fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
     for (condition, solution) in [("X >Int 0", true), ("X <=Int 0", false)] {
         let (success, stdout, stderr) =
             search_from(&power, &format!("<k> f(X) </k> requires {condition}"));
-        assert!(success, "{condition}: {stdout}{stderr}");
         assert!(!stderr.contains("UnsupportedHook"), "{condition}: {stderr}");
-        assert_eq!(stdout.contains("VarX"), solution, "{condition}: {stdout}");
+        if success {
+            assert_eq!(stdout.contains("VarX"), solution, "{condition}: {stdout}");
+        } else {
+            assert!(
+                stderr.contains("search was incomplete")
+                    && stderr.contains("the solver did not decide it")
+                    && !stdout.contains("VarX"),
+                "{condition}: {stdout}{stderr}"
+            );
+        }
     }
     for condition in ["X <=Int 0", "X >Int 0"] {
         let (success, stdout, stderr) = search(&format!("<k> f(X) </k> requires {condition}"));
