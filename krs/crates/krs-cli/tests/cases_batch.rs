@@ -1,5 +1,5 @@
 //! `krs cases` runs a batch of named cases, the definition loaded once per worker: one verdict
-//! record per case in document order (`krs-cases/2`) and a summary, exit 2 when a case is
+//! record per case in document order (`krs-cases/3`) and a summary, exit 2 when a case is
 //! refused, else 1 when one is unmet, else 3 when one is inconclusive or ran to no end, else 0;
 //! `--jobs N` prints
 //! what `--jobs 1` prints, views and their budget included. A case's views are evaluated in the
@@ -421,7 +421,7 @@ fn a_batch_reports_each_case_in_document_order() {
         .iter()
         .take(lines.len() - 1)
         .map(|record| {
-            assert_eq!(record["schema"], "krs-cases/2", "{record}");
+            assert_eq!(record["schema"], "krs-cases/3", "{record}");
             (
                 record["case"].as_str().unwrap().to_owned(),
                 record["verdict"].as_str().unwrap().to_owned(),
@@ -466,7 +466,7 @@ fn a_batch_reports_each_case_in_document_order() {
     assert_eq!(
         lines[5],
         json!({
-            "schema": "krs-cases/2",
+            "schema": "krs-cases/3",
             "summary": {"cases": 5, "met": 1, "unmet": 1, "inconclusive": 1, "refused": 1, "ran": 1},
             "status": 2,
         })

@@ -695,7 +695,7 @@ fn a_run_meets_or_misses_its_expectation() {
         stderr(&run)
     );
     let report = json(&project.krs("run", &["--case", "unmet.json", "--output", "json"]));
-    assert_eq!(report["schema"], "krs-exec/4");
+    assert_eq!(report["schema"], "krs-exec/5");
     let expectation = &report["expectation"];
     assert_eq!(expectation["verdict"], "unmet", "{expectation}");
     let difference = &expectation["difference"];

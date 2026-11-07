@@ -95,7 +95,7 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     );
     assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
     let report = json(&run);
-    assert_eq!(report["schema"], "krs-exec/4");
+    assert_eq!(report["schema"], "krs-exec/5");
     let run_report = &report["run"];
     assert_eq!(run_report["halt"], "stuck");
     assert_eq!(run_report["steps"], 1);
