@@ -138,6 +138,8 @@ Any other pair of guards is treated as possibly overlapping; KRS evaluates guard
 Members of one `overload` family are one head, as K's overload axioms make them: a rule on `ExpSyntax::Dot` whose base is an `LVal` overlaps a rule on `LValSyntax::Dot`, while a rule on `ExpSyntax::Dot` whose base is an `Int` does not.
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
+`krs search` finds every rule's successor; `krs run` follows one path and takes the first rule that applies in item order: by K namespace, then module path, then item name, so `advance` before `leap` in one module.
+The order is not part of the semantics, but it is a function of the definition: renaming the Cargo package or moving a rule within its file changes nothing, and renaming the rule may change the path.
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
 
 ### Computation-cell patterns
