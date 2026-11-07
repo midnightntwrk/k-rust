@@ -29,6 +29,15 @@
 //! under `--locked` the command is refused instead (stage `definition`, reason
 //! `definition-stale`), and `krs kink emit --check` is the gate a CI runs.
 //!
+//! `run` keeps the corpus's killer record, `<corpus>/verdicts.lock` (kink-flow `run --lock`:
+//! one recorded killer per killed mutation, kept while it still kills), when it reads the
+//! corpus's own mutation list: the front end gives kink-flow `--lock <corpus>/verdicts.lock`
+//! unless the command names a lock or another list (`--mutations`), since the lock describes the
+//! corpus with its own list, and one corpus is also run with other lists. A run of the whole list
+//! rewrites it; under `--locked` the run writes nothing, kink-flow's `--locked` compares the lock
+//! it would write with the file, and a difference is a finding (exit 1). So a CI runs `krs kink
+//! emit --check` and `krs kink run --locked`.
+//!
 //! `report` builds nothing. The stored run document is a file of the corpus's cache, whose place
 //! depends on the corpus directory and `--cache` alone, so `report` reads the corpus manifest and
 //! prints that document as the run printed it; its `definition` is the run's, since the run
@@ -72,6 +81,8 @@ pub const CORPUS_DIRECTORY: &str = "kink";
 pub const MANIFEST_FILE: &str = "FLOW.toml";
 /// The emitted definition's name inside the corpus directory.
 pub const DEFINITION_FILE: &str = "definition.k";
+/// The killer record's name inside the corpus directory (kink-flow `run --lock`).
+pub const LOCK_FILE: &str = kink_flow::lock::LOCK_FILE;
 
 /// The exit statuses of kink-flow's command line, which `krs kink` keeps: the four actions of
 /// krs's executing commands (`crate::exit_status`). The command answered its question.
@@ -104,7 +115,8 @@ pub struct KinkRequest {
     /// `--corpus DIR`: the corpus directory; default `<root package directory>/kink`.
     pub corpus: Option<PathBuf>,
     /// `--locked`: refuse a `kink/definition.k` that differs from the emission instead of
-    /// rewriting it.
+    /// rewriting it, and under `run` with a lock leave `verdicts.lock` unwritten, a run that
+    /// would change it being a finding.
     pub locked: bool,
     /// The verb and its own options.
     pub verb: KinkVerb,
@@ -263,7 +275,7 @@ fn selection_refused(
             outcome.json(&document, EXIT_UNASKED)
         }
         KinkVerb::Flow { verb, options } => {
-            if let Ok(command) = command_files(&corpus, *verb, options)
+            if let Ok(command) = flow_arguments(&corpus, *verb, options, request.locked)
                 .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
             {
                 let document = refused(&command, "krs-build", "krs-refused", &detail);
@@ -302,7 +314,7 @@ fn flow_command(
 ) -> KinkOutcome {
     let corpus = paths.corpus;
     let spelling = spelling::KrsSpelling::new(request);
-    let command = match command_files(corpus, verb, options)
+    let command = match flow_arguments(corpus, verb, options, request.locked)
         .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
     {
         Ok(command) => command,
@@ -376,6 +388,13 @@ fn flow_command(
     }
     let definition = emit::definition_value(&shown, status);
     let observers = render::Observers::new(selection_request(request), outcome.sources.clone());
+    // The lock's path as kink-flow reads it, and as documents show it: relative to the root
+    // package, as `definition.path` is.
+    let lock = corpus.join(LOCK_FILE);
+    let lock = (
+        lock.display().to_string(),
+        emit::shown_path(&lock, paths.root),
+    );
     run_flow(
         command,
         declared,
@@ -383,6 +402,7 @@ fn flow_command(
             emitted: &emitted,
             kept,
             observers,
+            lock,
         },
         &spelling,
         definition,
@@ -422,6 +442,8 @@ struct Built<'a> {
     emitted: &'a EmittedDefinition,
     kept: Option<KeptLowering>,
     observers: render::Observers,
+    /// The killer record's path as kink-flow reads it, and as documents show it.
+    lock: (String, String),
 }
 
 /// Run the parsed `command` on the corpus `declared`, bound to the fresh `definition.k` of
@@ -439,6 +461,7 @@ fn run_flow(
         emitted,
         kept,
         observers,
+        lock,
     } = built;
     let output = command.output();
     let verb = command.verb();
@@ -514,6 +537,9 @@ fn run_flow(
     let annotate = |document: &mut Value| {
         annotator.annotate(document);
         document["definition"] = definition.clone();
+        if document["lock"]["path"] == lock.0.as_str() {
+            document["lock"]["path"] = json!(lock.1);
+        }
     };
     let front = FrontEnd {
         spelling,
@@ -783,6 +809,31 @@ fn command_files(
     Ok((files, rest))
 }
 
+/// [`command_files`], with the corpus's killer record for a `run` of the corpus's own mutation
+/// list: `--lock <corpus>/verdicts.lock` unless the command names a lock or another list
+/// (`--mutations`), and kink-flow's `--locked` when krs's `--locked` is given and a lock is in
+/// use, so that the run leaves the lock unwritten and a run that would change it is a finding.
+fn flow_arguments(
+    corpus: &Path,
+    verb: Verb,
+    options: &[String],
+    locked: bool,
+) -> Result<(CommandFiles, Vec<String>), String> {
+    let (files, mut rest) = command_files(corpus, verb, options)?;
+    if verb != Verb::Run {
+        return Ok((files, rest));
+    }
+    let named = |flag: &str| options.iter().any(|arg| arg == flag);
+    if !named("--lock") && !named("--mutations") {
+        rest.push("--lock".to_owned());
+        rest.push(corpus.join(LOCK_FILE).display().to_string());
+    }
+    if locked && rest.iter().any(|arg| arg == "--lock") {
+        rest.push("--locked".to_owned());
+    }
+    Ok((files, rest))
+}
+
 /// The files a verb reads from the corpus layout: the mutations directory `mutations/`, else
 /// `MUTATIONS.toml`; `PATTERNS.toml`; `TEMPLATES.toml`. A verb that needs a list gets its
 /// layout path even when it is missing, so that kink-flow's refusal names the file the layout
@@ -923,6 +974,12 @@ fn finish(
     status: u8,
     output: OutputFormat,
 ) -> KinkOutcome {
+    // A lock `--locked` found stale: what would change, one line each, whatever the output.
+    outcome.notes.extend(
+        kink_flow::lock::stale_lines(document)
+            .into_iter()
+            .map(|line| format!("krs kink: {line}")),
+    );
     match output {
         OutputFormat::Json => outcome.json(document, status),
         OutputFormat::Verdicts => match kink_flow::verdicts(document) {

@@ -622,7 +622,10 @@ fn coverage_and_stops_name_rules_as_the_document_does(project: &Project, documen
 fn run_kills_the_story_edits() {
     let project = story();
     project.write("kink/mutations/plus.toml", STORY_MUTATIONS);
-    let ran = project.kink("run", &["--full"]);
+    // A lock of this test's own: the default `kink/verdicts.lock` of the shared project would be
+    // read by every other test that runs its corpus.
+    let lock = ["--lock", "target/locks/story-edits.lock"];
+    let ran = project.kink("run", &[&["--full"][..], &lock[..]].concat());
     assert_status(&ran, 0);
     let document = json(&ran);
     let rows = document["mutations"].as_array().unwrap();
@@ -722,10 +725,13 @@ fn run_kills_the_story_edits() {
     };
     assert_eq!(built(&timings), Vec::<String>::new());
     // `report --output verdicts` prints what `run --output verdicts` printed.
-    let rendered = project.kink("run", &["--full", "--output", "verdicts"]);
+    let rendered = project.kink(
+        "run",
+        &[&["--full", "--output", "verdicts"][..], &lock[..]].concat(),
+    );
     assert_status(&rendered, 0);
     assert!(
-        stdout(&rendered).contains("schedule = \"full\""),
+        stdout(&rendered).contains("killer = \"t2\"\nkilled_by = [\"t2\", \"t3\", \"t4\"]\n"),
         "{}",
         stdout(&rendered)
     );
@@ -1954,7 +1960,16 @@ fn run_refuses_what_check_refuses() {
         ("test-only", "generated-only"),
         ("layout", "no-change"),
     ];
-    let output = project.kink("run", &["--full", "--cache", "kink/run-cache"]);
+    let output = project.kink(
+        "run",
+        &[
+            "--full",
+            "--cache",
+            "kink/run-cache",
+            "--lock",
+            "target/locks/run-refuses.lock",
+        ],
+    );
     assert_status(&output, 2);
     let document = json(&output);
     for (id, reason) in refused {
@@ -1986,7 +2001,17 @@ fn run_refuses_what_check_refuses() {
         "{document:#}"
     );
     // `--only` judges the mutations it runs, and refuses them as the whole list does.
-    let output = project.kink("run", &["--only", "overlap", "--cache", "kink/only-cache"]);
+    let output = project.kink(
+        "run",
+        &[
+            "--only",
+            "overlap",
+            "--cache",
+            "kink/only-cache",
+            "--lock",
+            "target/locks/run-refuses.lock",
+        ],
+    );
     assert_status(&output, 2);
     let document = json(&output);
     let rows = document["mutations"].as_array().unwrap();
@@ -3140,7 +3165,7 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
             "[[mutation]]\nid = \"twice\"\nmisunderstanding = \"a tick adds two\"\n\n  [[mutation.edit]]\n  rule = \"tick\"\n  find = {find:?}\n  replace = \"+Int 2\"\n"
         ),
     );
-    let output = project.kink("run", &[]);
+    let output = project.kink("run", &["--lock", "target/locks/ticker-stop.lock"]);
     let run = json(&output);
     assert_eq!(
         run["stop"]["krs"]["items"]["crate::tick"],
@@ -4231,4 +4256,364 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
         .collect::<Vec<_>>();
     assert!(kinds.contains(&"global-witnesses"), "{document:#}");
     assert!(!kinds.contains(&"template-not-a-witness"), "{document:#}");
+}
+
+/// The guide's corpus (`docs-site/story/plus/guide`): the introduction's cases and the case `t5`
+/// that kills a survivor, with its two mutation lists, one of them holding the survivor `swap`.
+const GUIDE_FILES: [(&str, &str); 8] = [
+    (
+        "guide/FLOW.toml",
+        include_str!("../../../../docs-site/story/plus/guide/FLOW.toml"),
+    ),
+    (
+        "guide/cases/t1.nat",
+        include_str!("../../../../docs-site/story/plus/guide/cases/t1.nat"),
+    ),
+    (
+        "guide/cases/t2.nat",
+        include_str!("../../../../docs-site/story/plus/guide/cases/t2.nat"),
+    ),
+    (
+        "guide/cases/t3.nat",
+        include_str!("../../../../docs-site/story/plus/guide/cases/t3.nat"),
+    ),
+    (
+        "guide/cases/t4.nat",
+        include_str!("../../../../docs-site/story/plus/guide/cases/t4.nat"),
+    ),
+    (
+        "guide/cases/t5.nat",
+        include_str!("../../../../docs-site/story/plus/guide/cases/t5.nat"),
+    ),
+    (
+        "guide/mutations/correlated.toml",
+        include_str!("../../../../docs-site/story/plus/guide/mutations/correlated.toml"),
+    ),
+    (
+        "guide/mutations/survivors.toml",
+        include_str!("../../../../docs-site/story/plus/guide/mutations/survivors.toml"),
+    ),
+];
+
+/// A private copy of the story package with its corpus, the story's three edits as the corpus's
+/// own list, and the guide's corpus: the default lock is written into it, so no other test reads
+/// it.
+fn locked_story(package: &'static str) -> Project {
+    let mut files = story_files();
+    files.push((
+        "kink/mutations/plus.toml".to_owned(),
+        STORY_MUTATIONS.as_bytes().to_vec(),
+    ));
+    for (path, text) in GUIDE_FILES {
+        files.push((path.to_owned(), text.as_bytes().to_vec()));
+    }
+    project_of(package, "NAT", &files)
+}
+
+/// The lock of the story's three edits naming `killers` (`plus/a`, `plus/b`, `plus/c`), in the
+/// bytes `krs kink run` writes: the run's verdicts rendering without `killed_by`, under the Z3
+/// profile krs links.
+fn story_lock(killers: [&str; 3]) -> String {
+    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+                    \"z3\"\n\n[spec]\noutcome = \"admitted\"\n"
+        .to_owned();
+    for (id, killer) in ["plus/a", "plus/b", "plus/c"].into_iter().zip(killers) {
+        text.push_str(&format!(
+            "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
+        ));
+    }
+    text
+}
+
+/// The programs of each call of the row `id` of a run document.
+fn row_calls(document: &Value, id: &str) -> Vec<Vec<String>> {
+    let row = document["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("no row {id}: {document:#}"));
+    row["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|call| {
+            strings(&call["programs"])
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        })
+        .collect()
+}
+
+/// `(id, status)` of every row of a run document.
+fn row_statuses(document: &Value) -> Vec<(String, String)> {
+    document["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap().to_owned(),
+                row["status"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// FB-32 acceptance 4 on the corpus `corpus` (`[]` for `kink/`) in its current state: the
+/// statuses of a first-kill run equal a `--full` run's, and the lock a `--full` run would write is
+/// the first-kill run's (`--locked` finds it unchanged). Both runs leave the lock as it was.
+fn assert_full_agrees(project: &Project, corpus: &[&str]) {
+    let lock = corpus.get(1).map_or_else(
+        || "kink/verdicts.lock".to_owned(),
+        |dir| format!("{dir}/verdicts.lock"),
+    );
+    let before = project.read(&lock);
+    let mut first_args = corpus.to_vec();
+    first_args.push("--locked");
+    let first = project.kink("run", &first_args);
+    assert_status(&first, 0);
+    let mut full_args = first_args.clone();
+    full_args.push("--full");
+    let full = project.kink("run", &full_args);
+    assert_status(&full, 0);
+    assert_eq!(
+        json(&full)["lock"]["status"],
+        "unchanged",
+        "{:#}",
+        json(&full)
+    );
+    assert_eq!(row_statuses(&json(&first)), row_statuses(&json(&full)));
+    assert_eq!(project.read(&lock), before);
+}
+
+/// FB-32 acceptance 1: a fresh checkout with a committed lock and no cache runs each killed
+/// mutation's recorded killer alone (here `t4`, a valid killer that is not the search's first for
+/// `plus/a` and `plus/b`), keeps it, and leaves the lock byte for byte; `run --output verdicts`
+/// prints the lock's bytes, and a second run makes no call.
+#[test]
+fn a_recorded_killer_runs_alone_from_a_fresh_checkout() {
+    let project = locked_story("story-plus-lock-fresh");
+    let lock = story_lock(["t4", "t4", "t4"]);
+    project.write("kink/verdicts.lock", &lock);
+    // A checkout commits definition.k beside the lock.
+    assert_status(&project.kink("emit", &[]), 0);
+    assert!(!project.path().join("kink/.kink-flow").exists());
+    let ran = project.kink("run", &["--locked"]);
+    assert_status(&ran, 0);
+    let document = json(&ran);
+    assert_eq!(
+        document["profile"], "z3",
+        "the lock's header names krs's profile"
+    );
+    for row in document["mutations"].as_array().unwrap() {
+        let id = row["id"].as_str().unwrap();
+        assert_eq!(row_calls(&document, id), [["t4"]], "{id}");
+        assert_eq!(
+            (&row["killer"], &row["killer_source"], &row["killer_change"]),
+            (&Value::from("t4"), &Value::from("record"), &Value::Null),
+            "{id}"
+        );
+    }
+    assert_eq!(document["lock"]["status"], "unchanged", "{document:#}");
+    assert_eq!(document["lock"]["path"], "kink/verdicts.lock");
+    assert_eq!(project.read("kink/verdicts.lock"), lock);
+    let rendered = project.kink("run", &["--output", "verdicts", "--locked"]);
+    assert_status(&rendered, 0);
+    assert_eq!(stdout(&rendered), lock);
+    let again = project.kink("run", &[]);
+    assert_status(&again, 0);
+    let again = json(&again);
+    for id in ["plus/a", "plus/b", "plus/c"] {
+        assert!(row_calls(&again, id).is_empty(), "{id}: {again:#}");
+    }
+    assert_eq!(project.read("kink/verdicts.lock"), lock);
+    assert_full_agrees(&project, &[]);
+}
+
+/// FB-32 acceptance 2: on the guide's corpus, which holds the survivor `swap`, a killing case
+/// prepended to `FLOW.toml` moves no killer: the lock is unchanged, no killed row runs the new
+/// case, and the survivor runs only it. From a fresh cache each killed row runs its recorded
+/// killer alone.
+#[test]
+fn prepending_a_killing_case_moves_no_killer() {
+    let project = locked_story("story-plus-lock-prepend");
+    let guide = ["--corpus", "guide"];
+    let created = project.kink("run", &guide);
+    assert_status(&created, 0);
+    assert_eq!(json(&created)["lock"]["status"], "created");
+    let lock = project.read("guide/verdicts.lock");
+    let killers = json(&created)["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["status"] == "killed")
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap().to_owned(),
+                row["killer"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        killers.iter().any(|(id, _)| id == "survivors/one"),
+        "{killers:?}"
+    );
+    // t0, `plus(s(zero), s(s(zero)))`, kills `survivors/one`, whose recorded killer is t5, and
+    // comes first in the search's order.
+    project.write("guide/cases/t0.nat", "plus(s(zero), s(s(zero)))\n");
+    let flow = project.read("guide/FLOW.toml");
+    project.write(
+        "guide/FLOW.toml",
+        flow.replacen(
+            "[[program]]\nid = \"t1\"",
+            "[[program]]\nid = \"t0\"\nfile = \"cases/t0.nat\"\n\n[[program]]\nid = \"t1\"",
+            1,
+        ),
+    );
+    let warm = project.kink("run", &guide);
+    assert_status(&warm, 0);
+    let warm = json(&warm);
+    assert_eq!(warm["lock"]["status"], "unchanged", "{warm:#}");
+    assert_eq!(project.read("guide/verdicts.lock"), lock);
+    for (id, killer) in &killers {
+        assert!(row_calls(&warm, id).is_empty(), "{id}: {warm:#}");
+        let row = warm["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id.as_str())
+            .unwrap();
+        assert_eq!(row["killer"], killer.as_str(), "{id}");
+    }
+    assert_eq!(row_calls(&warm, "survivors/swap"), [["t0"]]);
+    // From a fresh cache, with the same lock.
+    fs::remove_dir_all(project.path().join("guide/.kink-flow")).unwrap();
+    let cold = project.kink("run", &guide);
+    assert_status(&cold, 0);
+    let cold = json(&cold);
+    for (id, killer) in &killers {
+        assert_eq!(row_calls(&cold, id), [[killer.clone()]], "{id}: {cold:#}");
+    }
+    assert_eq!(project.read("guide/verdicts.lock"), lock);
+    assert_full_agrees(&project, &guide);
+}
+
+/// FB-32 acceptance 3: a recorded killer that leaves the corpus (a) or no longer kills (b) is
+/// replaced by the first killer in the search's order, which is the first member of `--full`'s
+/// `killed_by` that witnesses the edit; `plus/c`, which only t4 killed, survives. `run --locked`
+/// names exactly the moved rows and exits 1; `run` rewrites the lock, and its diff is those rows.
+#[test]
+fn a_killer_that_stops_killing_or_leaves_is_replaced() {
+    let story_flow = STORY_FLOW.to_owned();
+    for (package, how) in [
+        ("story-plus-lock-left", "not-in-corpus"),
+        ("story-plus-lock-agrees", "no-longer-kills"),
+    ] {
+        let project = locked_story(package);
+        project.write("kink/verdicts.lock", &story_lock(["t4", "t4", "t4"]));
+        match how {
+            "not-in-corpus" => project.write(
+                "kink/FLOW.toml",
+                story_flow.replacen(
+                    "\n[[program]]\nid = \"t4\"\nfile = \"cases/t4.nat\"\n",
+                    "",
+                    1,
+                ),
+            ),
+            _ => project.write(
+                "kink/cases/t4.nat",
+                include_str!("../../../../docs-site/story/plus/kink/cases/t1.nat"),
+            ),
+        }
+        assert_status(&project.kink("emit", &[]), 0);
+        let full = project.kink("run", &["--full", "--mutations", "kink/mutations"]);
+        assert_status(&full, 0);
+        let full = json(&full);
+        let first_witness = |id: &str| {
+            let row = full["mutations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap();
+            let witnesses = row["witnesses"].as_array().unwrap();
+            row["killed_by"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|program| witnesses.contains(program))
+                .cloned()
+                .unwrap()
+        };
+        let stale = project.kink("run", &["--locked"]);
+        assert_status(&stale, 1);
+        let stale = json(&stale);
+        assert_eq!(stale["lock"]["status"], "stale", "{package}");
+        let changed = stale["lock"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|change| change["mutation"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(changed, ["plus/a", "plus/b", "plus/c"], "{package}");
+        let ran = project.kink("run", &[]);
+        assert_status(&ran, 0);
+        let ran = json(&ran);
+        assert_eq!(ran["lock"]["status"], "written", "{package}");
+        for (id, killer) in [("plus/a", "t2"), ("plus/b", "t3")] {
+            let row = ran["mutations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap();
+            assert_eq!(row["killer"], killer, "{package} {id}");
+            assert_eq!(row["killer"], first_witness(id), "{package} {id}");
+            assert_eq!(row["killer_change"], how, "{package} {id}");
+        }
+        let survived = &ran["mutations"][2];
+        assert_eq!(
+            (&survived["id"], &survived["status"]),
+            (&Value::from("plus/c"), &Value::from("survived")),
+            "{package}"
+        );
+        let written = project.read("kink/verdicts.lock");
+        assert_eq!(
+            written,
+            story_lock(["t2", "t3", "t4"]).replace(
+                "id = \"plus/c\"\nstatus = \"killed\"\nkiller = \"t4\"\n",
+                "id = \"plus/c\"\nstatus = \"survived\"\n"
+            ),
+            "{package}"
+        );
+        assert_full_agrees(&project, &[]);
+    }
+}
+
+/// The front end's lock: `--locked` with no lock file is a finding (exit 1) and creates nothing;
+/// a run of another list (`--mutations`) uses no lock and writes none beside either corpus.
+#[test]
+fn locked_without_a_lock_is_a_finding_and_mutations_use_no_lock() {
+    let project = locked_story("story-plus-lock-absent");
+    assert_status(&project.kink("emit", &[]), 0);
+    let locked = project.kink("run", &["--locked"]);
+    assert_status(&locked, 1);
+    assert_eq!(json(&locked)["lock"]["status"], "stale");
+    assert!(
+        stderr(&locked).contains("kink/verdicts.lock: the header differs"),
+        "{}",
+        stderr(&locked)
+    );
+    assert!(!project.path().join("kink/verdicts.lock").exists());
+    let other = project.kink("run", &["--mutations", "guide/mutations"]);
+    assert_status(&other, 0);
+    assert_eq!(json(&other)["lock"], Value::Null);
+    for corpus in ["kink", "guide"] {
+        assert!(
+            !project.path().join(corpus).join("verdicts.lock").exists(),
+            "{corpus}"
+        );
+    }
 }
