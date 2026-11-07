@@ -1813,12 +1813,25 @@ impl<'a> Execution<'a> {
     /// terminal rule's the normalized successor. A step by a stop rule whose successor is not
     /// shown defined is no arrival, and goes on as a step whose successor's own normalization
     /// ends its path.
+    ///
+    /// Under strategy any, `applied` is the one successor the sequential step took, not
+    /// necessarily its state's one successor: where it is a stop rule's and the state has another
+    /// ([`Self::has_another_successor`]), the step is no arrival but a passed stop, which stops
+    /// nothing, is not counted and is not asked the condition, and the path goes on through
+    /// `applied` as through any other step.
     fn stop_plan(
         &mut self,
         state: &ExecutionState,
         applied: &AppliedRule,
         successor: Option<&crate::term::Term>,
     ) -> Result<StopPlan, Stop> {
+        if self.options.mode == ExecutionMode::Any
+            && self.selects_stop(applied)
+            && self.has_another_successor(state)?
+        {
+            self.note_passed_stop(applied, state.depth);
+            return Ok(StopPlan::default());
+        }
         let ends = self.ends_at_arrival(state);
         let cut_point = selected_stop_rule(applied, &self.options.cut_point_rules);
         if self.condition.is_none() {
@@ -1953,6 +1966,123 @@ impl<'a> Execution<'a> {
     fn selects_stop(&self, applied: &AppliedRule) -> bool {
         selected_stop_name(applied, &self.options.cut_point_rules).is_some()
             || selected_stop_name(applied, &self.options.terminal_rules).is_some()
+    }
+
+    /// Record that the run went on past a step by `applied` from a state at `depth` that is not
+    /// its state's one successor, once per selected rule at its shallowest depth
+    /// ([`ExecutionResult::passed_stops`]): the record grows with the selected rules, not with
+    /// the run.
+    fn note_passed_stop(&mut self, applied: &AppliedRule, depth: u64) {
+        for selected in [&self.options.cut_point_rules, &self.options.terminal_rules] {
+            if let Some(rule) = selected_stop_name(applied, selected) {
+                match self.passed_stops.get_mut(rule) {
+                    Some(passed) => *passed = (*passed).min(depth),
+                    None => {
+                        self.passed_stops.insert(rule.to_owned(), depth);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Under strategy any, whether `state` has a successor besides the one the sequential step
+    /// took ([`Self::stop_plan`]).
+    ///
+    /// The sequential step offers each instance to the rules of a priority in turn and stops at
+    /// the first that gives it a defined result, so it never tries the later rules there: its
+    /// answer cannot say whether another rule of that priority applies too. That is a fact of
+    /// the definition, not of the strategy, so it is the all-path step's: the state's successors
+    /// are that step's candidates whose successors are not shown undefined, with its remainder,
+    /// as a step under strategy all reads them where a stop rule may select one of several
+    /// candidates ([`Self::branch`]). One such candidate and no remainder is the one successor;
+    /// any other answer (several, a remainder, or a halt the sequential step did not meet) is
+    /// read as another successor, so a passed stop is never omitted.
+    ///
+    /// The step is the run's work at a stop rule's step and decides where the path ends, so a
+    /// fact it notes (a value the definition leaves open, a contradicted claim) is a fact of
+    /// the path, as every candidate's is under strategy all. Otherwise it changes nothing in
+    /// the run: it reports to no coverage set, emits no diagnostic, mints no name and fills no
+    /// memo the run is later served from, so the path after it is the path the run without the
+    /// question takes.
+    fn has_another_successor(&mut self, state: &ExecutionState) -> Stoppable<bool> {
+        let definition = self.definition;
+        let solver = self.solver;
+        let options =
+            SimplificationOptions::keep_partial(self.options.max_simplification_iterations);
+        let subject_definedness = if self.options.assume_initial_defined {
+            SubjectDefinedness::Assumed
+        } else {
+            SubjectDefinedness::Where(&state.defined_where)
+        };
+        let io = state.io_enabled.then_some(&state.io);
+        let mut fresh_counter = self.fresh_counter.clone();
+        let ask = || -> Stoppable<bool> {
+            let rewritten = rewrite_step_with_optional_execution(
+                definition,
+                &state.pattern,
+                &mut fresh_counter,
+                options,
+                solver,
+                ExecutionMode::All,
+                subject_definedness,
+                io,
+                true,
+                None,
+            )?;
+            let (branches, remainder) = match rewritten {
+                RewriteResult::Finished(_) => return Ok(false),
+                RewriteResult::Branch {
+                    branches,
+                    remainder,
+                    ..
+                } => (branches, remainder),
+                RewriteResult::Stuck(_)
+                | RewriteResult::Trivial(_, _)
+                | RewriteResult::Vacuous(_)
+                | RewriteResult::Indeterminate { .. }
+                | RewriteResult::Simplification { .. } => return Ok(true),
+            };
+            if remainder.is_some() {
+                return Ok(true);
+            }
+            let mut defined = 0_usize;
+            for applied in &branches {
+                let rule = applied.observing_rule();
+                let checked = crate::path_facts::observed_by(
+                    || Some(rule.clone()),
+                    || {
+                        normalize_successor(
+                            definition,
+                            &applied.pattern,
+                            &applied.before.constraints,
+                            options,
+                            solver,
+                            applied.io.as_ref().or(io),
+                        )
+                    },
+                )?;
+                if checked.undefined.is_none() {
+                    defined += 1;
+                    if defined > 1 {
+                        return Ok(true);
+                    }
+                }
+            }
+            Ok(false)
+        };
+        crate::coverage::suspend(|| {
+            crate::diagnostic::discarded(|| {
+                crate::rule::with_apart_names_restored(|| {
+                    crate::deferred::hook_values_aside(|| {
+                        crate::simplify::unspecified_values_aside(|| {
+                            crate::simplify::condition_memo_aside(|| {
+                                crate::simplify::normal_forms::aside(ask)
+                            })
+                        })
+                    })
+                })
+            })
+        })
     }
 
     /// The `CutPointRule` leaf for a proposed successor that is normalized, on its own
@@ -2284,19 +2414,9 @@ impl<'a> Execution<'a> {
         // The step goes on through every successor, and it is no lone candidate without a
         // remainder (such a step goes on as `finished`), so a candidate of a selected stop rule
         // among them has another successor beside it and is not its state's one successor: the
-        // run passes that stop. A rule passed again keeps its shallowest depth, so the record
-        // grows with the selected rules, not with the run.
+        // run passes that stop.
         for applied in &branches {
-            for selected in [&self.options.cut_point_rules, &self.options.terminal_rules] {
-                if let Some(rule) = selected_stop_name(applied, selected) {
-                    match self.passed_stops.get_mut(rule) {
-                        Some(depth) => *depth = (*depth).min(state.depth),
-                        None => {
-                            self.passed_stops.insert(rule.to_owned(), state.depth);
-                        }
-                    }
-                }
-            }
+            self.note_passed_stop(applied, state.depth);
         }
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         let candidates = branches
@@ -6930,6 +7050,60 @@ mod tests {
             }
         }
 
+        /// Under strategy any the sequential step takes `tick-x`'s successor of `1`, its first
+        /// rule, and never tries `work-x`; but `1` has two successors, so that step is no
+        /// arrival and the condition is not asked there. The path goes on through it, and its
+        /// arrivals are `tick-a`'s and `tick-b`'s.
+        #[test]
+        fn under_strategy_any_the_condition_is_not_asked_at_a_passed_stop() {
+            let step = |from: &str, to: &str, label: &str| {
+                format!(
+                    r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                        \and{{SortS{{}}}}(\dv{{SortS{{}}}}("{from}"), \top{{SortS{{}}}}()),
+                        \dv{{SortS{{}}}}("{to}")
+                    ) [label{{}}("{label}")]"#
+                )
+            };
+            let definition = definition(
+                &[
+                    step("0", "1", "tick-a"),
+                    step("1", "2", "tick-x"),
+                    step("1", "9", "work-x"),
+                    step("2", "3", "tick-b"),
+                ]
+                .join("\n"),
+            );
+            for terminal in [false, true] {
+                let options = ExecutionOptions {
+                    mode: ExecutionMode::Any,
+                    ..options(terminal, 1)
+                };
+                let (result, asked) = run(&definition, options.clone(), &[], &[], &[]);
+                let result = result.unwrap();
+                let values = asked
+                    .iter()
+                    .map(|(_, _, value)| value.as_str())
+                    .collect::<Vec<_>>();
+                let expected = if terminal { ["1", "3"] } else { ["0", "2"] };
+                assert_eq!(values, expected, "terminal={terminal}");
+                assert_eq!(ends(&result), [("3".into(), 3, "stuck", 0, 2)]);
+                let rule = |stop: &PassedStop| (stop.rule.clone(), stop.depth);
+                assert_eq!(
+                    result.passed_stops.iter().map(rule).collect::<Vec<_>>(),
+                    [("tick-x".to_owned(), 1)]
+                );
+                // A condition that holds at the passed stop's stop state, and at the next
+                // arrival's: the run stops at that arrival, not at the passed stop.
+                let (holds, stop) = if terminal {
+                    (["2", "3"], ("3".into(), 3, "stop", 1, 2))
+                } else {
+                    (["1", "2"], ("2".into(), 2, "stop", 1, 2))
+                };
+                let (result, _) = run(&definition, options, &holds, &[], &[]);
+                assert_eq!(ends(&result.unwrap()), [stop], "terminal={terminal}");
+            }
+        }
+
         /// A selected step whose one successor is undefined is no arrival: the condition is not
         /// asked of its stop state, whatever it would answer, and the path ends at the undefined
         /// step. `tick-d` takes `6` to `dead(7)`, which `dead`'s equation reduces to `\bottom`.
@@ -7705,6 +7879,141 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// Under strategy any the sequential step takes one successor of `a`, `to-b`'s (its first
+    /// rule), and never tries `to-c`; but `a` has two successors, so that step is no arrival.
+    /// The run goes on through it as through any other step, without counting it, and lists it
+    /// as a passed stop; its one arrival is `to-e`'s, the one successor of `d`, so a count of 2
+    /// is never reached. From `u` the selected `u-b` is the one successor, since `u-bottom`'s
+    /// successor is undefined, so the run stops there. Every end of the one path is an end of
+    /// the same run under strategy all, which passes the same stop.
+    #[test]
+    fn a_stop_rule_the_sequential_step_takes_beside_another_successor_is_passed() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("a"), \top{SortS{}}()), \dv{SortS{}}("b")
+            ) [label{}("to-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("a"), \top{SortS{}}()), \dv{SortS{}}("c")
+            ) [label{}("to-c")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("b"), \top{SortS{}}()), \dv{SortS{}}("d")
+            ) [label{}("b-d")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("d"), \top{SortS{}}()), \dv{SortS{}}("e")
+            ) [label{}("to-e")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("u"), \top{SortS{}}()),
+                \and{SortS{}}(\dv{SortS{}}("x"), \bottom{SortS{}}())
+            ) [label{}("u-bottom")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("u"), \top{SortS{}}()), \dv{SortS{}}("b")
+            ) [label{}("u-b")]
+            "#,
+        );
+        let state = |value: &str| Pattern {
+            term: definition
+                .internalize_term(
+                    &parse_pattern(&format!(r#"\dv{{SortS{{}}}}("{value}")"#)).unwrap(),
+                    &[],
+                )
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let selected = || BTreeSet::from(["to-b".to_owned(), "to-e".to_owned(), "u-b".to_owned()]);
+        let run = |start: &str, terminal: bool, count: u64, mode| {
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (BTreeSet::new(), selected())
+            } else {
+                (selected(), BTreeSet::new())
+            };
+            super::super::execute(
+                &definition,
+                state(start),
+                ExecutionOptions {
+                    cut_point_rules,
+                    terminal_rules,
+                    stop_count: NonZeroU64::new(count).unwrap(),
+                    mode,
+                    retain_trace: true,
+                    result_modality: ResultModality::StateSet,
+                    ..ExecutionOptions::default()
+                },
+            )
+        };
+        let ends = |result: &ExecutionResult| {
+            let mut ends = result
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    let value = match &crate::externalize::term(&leaf.pattern.term) {
+                        k_rust_kore::kore::ast::Pattern::DomainValue { value, .. } => {
+                            value.as_utf8().unwrap().to_owned()
+                        }
+                        other => format!("{other:?}"),
+                    };
+                    (value, leaf.depth, halt_name(&leaf.halt_reason), leaf.stops)
+                })
+                .collect::<Vec<_>>();
+            ends.sort();
+            ends
+        };
+        let passed = |depth| {
+            vec![PassedStop {
+                depth,
+                rule: "to-b".to_owned(),
+            }]
+        };
+        for terminal in [false, true] {
+            let context = format!("terminal={terminal}");
+            // The one arrival: before `to-e` at `d`, or after it at `e`.
+            let stop = if terminal {
+                ("e".to_owned(), 3, "stop", 1)
+            } else {
+                ("d".to_owned(), 2, "stop", 1)
+            };
+            let one = run("a", terminal, 1, ExecutionMode::Any);
+            assert_eq!(
+                ends(&one),
+                std::slice::from_ref(&stop),
+                "{context}: {one:#?}"
+            );
+            assert_eq!(one.passed_stops, passed(0), "{context}");
+            let trace = &one.leaves[0].trace;
+            assert_eq!(
+                rewrite_labels(trace)[..2],
+                ["to-b".to_owned(), "b-d".to_owned()],
+                "{context}: the passed step is taken"
+            );
+            // The count counts `to-e`'s arrival only.
+            let two = run("a", terminal, 2, ExecutionMode::Any);
+            assert_eq!(
+                ends(&two),
+                [("e".to_owned(), 3, "stuck", 1)],
+                "{context}: {two:#?}"
+            );
+            assert_eq!(two.passed_stops, passed(0), "{context}");
+            // Strategy all takes both successors of `a`, passing the same stop; the one path's
+            // end is among its ends.
+            let all = run("a", terminal, 1, ExecutionMode::All);
+            assert_eq!(
+                ends(&all),
+                [("c".to_owned(), 1, "stuck", 0), stop],
+                "{context}: {all:#?}"
+            );
+            assert_eq!(all.passed_stops, passed(0), "{context}");
+            // An undefined sibling is no successor: `u-b`'s step is an arrival.
+            let sole = run("u", terminal, 1, ExecutionMode::Any);
+            let stop = if terminal {
+                ("b".to_owned(), 1, "stop", 1)
+            } else {
+                ("u".to_owned(), 0, "stop", 1)
+            };
+            assert_eq!(ends(&sole), [stop], "{context}: {sole:#?}");
+            assert_eq!(sole.passed_stops, [], "{context}");
         }
     }
 }
