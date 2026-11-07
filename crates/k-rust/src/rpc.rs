@@ -920,6 +920,10 @@ impl RpcService {
                     HaltReason::StopUndecided { .. } => {
                         unreachable!("an RPC request has no stop condition")
                     }
+                    // Only an in-process request with a probe has them.
+                    HaltReason::ProbeDifference { .. } | HaltReason::ProbeDone { .. } => {
+                        unreachable!("an RPC request has no probe")
+                    }
                 };
                 output.insert("reason".into(), Value::String(reason.into()).into());
                 output.insert("depth".into(), Value::from(leaf.depth).into());
@@ -1811,9 +1815,12 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
         },
         HaltReason::Simplification(_) => ("Internal match error", None),
         // A stop arrival whose condition is undecided ends the path at a stop, as `Stopped`
-        // does: no rewrite failed there.
+        // does, and a probe's answer at a point where the probe stopped it: no rewrite failed
+        // there.
         HaltReason::Stopped(_)
         | HaltReason::StopUndecided { .. }
+        | HaltReason::ProbeDifference { .. }
+        | HaltReason::ProbeDone { .. }
         | HaltReason::Trivial { .. }
         | HaltReason::Vacuous { .. }
         | HaltReason::Branch { .. }

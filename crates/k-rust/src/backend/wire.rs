@@ -1807,6 +1807,8 @@ fn execution_candidates_output<K: WireKore>(
         | HaltReason::Vacuous { .. }
         | HaltReason::TerminalRule { .. }
         | HaltReason::StopUndecided { .. }
+        | HaltReason::ProbeDifference { .. }
+        | HaltReason::ProbeDone { .. }
         | HaltReason::DepthBound
         | HaltReason::BreadthBound
         | HaltReason::WorkBound
@@ -2122,6 +2124,8 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::CutPointRule { .. }
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::StopUndecided { .. }
+                    | HaltReason::ProbeDifference { .. }
+                    | HaltReason::ProbeDone { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
                     | HaltReason::WorkBound
@@ -2145,6 +2149,8 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::CutPointRule { .. }
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::StopUndecided { .. }
+                    | HaltReason::ProbeDifference { .. }
+                    | HaltReason::ProbeDone { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
                     | HaltReason::WorkBound
@@ -2170,6 +2176,8 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::CutPointRule { .. }
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::StopUndecided { .. }
+                    | HaltReason::ProbeDifference { .. }
+                    | HaltReason::ProbeDone { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
                     | HaltReason::WorkBound => None,

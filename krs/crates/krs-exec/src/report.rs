@@ -253,7 +253,7 @@ pub enum Halt {
     /// The run ended at one of its stop rules ([`crate::StopRules`], [`RunReport::stop`]).
     Stopped,
     /// The backend stopped for a reason a run does not request (branch, breadth or work bound,
-    /// cancellation).
+    /// cancellation, a probe's answer: no run asks a probe).
     Interrupted,
     /// The run's stop condition was left undecided at an arrival ([`crate::StopWhen`]): its
     /// evaluation spent its budget, met another stop, or ended short of a value after the
@@ -276,7 +276,9 @@ impl Halt {
             HaltReasonOutput::Cancelled
             | HaltReasonOutput::Branch
             | HaltReasonOutput::BreadthBound
-            | HaltReasonOutput::WorkBound => Self::Interrupted,
+            | HaltReasonOutput::WorkBound
+            | HaltReasonOutput::ProbeDifference
+            | HaltReasonOutput::ProbeDone => Self::Interrupted,
         }
     }
 

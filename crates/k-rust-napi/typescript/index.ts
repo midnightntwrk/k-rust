@@ -438,6 +438,7 @@ export interface ExecutionLeaf {
    * where exploration stopped, unexpanded and unnormalised, not a result, and the pending states
    * were not explored.
    * Under strategy 'all' without stops, bounds or diagnostics, the leaves' constraints cover the initial state.
+   * 'stop-undecided', 'probe-difference' and 'probe-done' come only from an in-process execution with a stop condition or a probe, which these bindings do not offer.
    */
   reason:
     | 'cancelled'
@@ -448,6 +449,8 @@ export interface ExecutionLeaf {
     | 'cut-point'
     | 'terminal'
     | 'stop-undecided'
+    | 'probe-difference'
+    | 'probe-done'
     | 'depth-bound'
     | 'breadth-bound'
     | 'work-bound'

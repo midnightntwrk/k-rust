@@ -1857,6 +1857,8 @@ fn run_backend_in_execution(
             | HaltReason::CutPointRule { .. }
             | HaltReason::TerminalRule { .. }
             | HaltReason::StopUndecided { .. }
+            | HaltReason::ProbeDifference { .. }
+            | HaltReason::ProbeDone { .. }
             | HaltReason::DepthBound
             | HaltReason::BreadthBound
             | HaltReason::WorkBound => false,
@@ -2010,6 +2012,8 @@ fn run_backend_in_execution(
                 | HaltReason::CutPointRule { .. }
                 | HaltReason::TerminalRule { .. }
                 | HaltReason::StopUndecided { .. }
+                | HaltReason::ProbeDifference { .. }
+                | HaltReason::ProbeDone { .. }
                 | HaltReason::DepthBound
                 | HaltReason::BreadthBound
                 | HaltReason::WorkBound

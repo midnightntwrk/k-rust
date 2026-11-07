@@ -1513,6 +1513,7 @@ impl Semantics {
                 .as_deref_mut()
                 .map(|oracle| -> &mut dyn StopCondition { oracle }),
             reading: Some(&reading),
+            probe: None,
         };
         let result = self.backend.execute_kore_in_process(request, in_process);
         let Some(oracle) = oracle else {

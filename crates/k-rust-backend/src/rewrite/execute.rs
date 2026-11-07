@@ -91,6 +91,7 @@ use crate::{
     },
 };
 
+use super::probe::{self, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeState};
 use super::refutation_memo::RefutationMemo;
 use super::stop_condition::{
     self, Arrival as StopArrival, InProcess, StopCondition, StopConditionRefusal, StopDecision,
@@ -209,7 +210,11 @@ fn execute_counted(
     mut observe: impl FnMut(&BuiltinEffect),
     in_process: InProcess<'_>,
 ) -> Result<(ExecutionResult, InitialSimplificationStatus), StopConditionRefusal> {
-    let InProcess { condition, reading } = in_process;
+    let InProcess {
+        condition,
+        reading,
+        probe,
+    } = in_process;
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let _apart = crate::rule::ApartScope::enter();
     // Every evaluation of the run, its rule and equation conditions included, runs in the mode
@@ -250,6 +255,7 @@ fn execute_counted(
             // Reborrowed for the run alone, which ends inside this call.
             condition.map(|condition| -> &mut dyn StopCondition { &mut *condition }),
             reading,
+            probe.map(|probe| -> &mut dyn Probe { &mut *probe }),
         );
         if execution.options.max_breadth == Some(0) {
             return execution.collect_at_breadth_zero();
@@ -386,6 +392,14 @@ struct Execution<'a> {
     reading: Option<&'a dyn SuccessorReading>,
     /// The condition's refusal, once it refused: the run ends there, with no result.
     refusal: Option<StopConditionRefusal>,
+    /// The probe of an in-process run that has one (`probe`).
+    probe: Option<&'a mut dyn Probe>,
+    /// Whether the probe is still asked: it is, until the path splits, ends, or the probe's
+    /// own answer ends it (`probe`, "One path").
+    probing: bool,
+    /// The number of leaves before the expansion of the state being expanded: a leaf pushed
+    /// since is the expansion's own, so the state has split once its step leaves another path.
+    expansion_leaves: usize,
     /// After each expansion: the merge table's size, its shallowest recorded depth, and the
     /// depth of the back of `pending`.
     #[cfg(test)]
@@ -407,6 +421,7 @@ impl<'a> Execution<'a> {
         observe: &'a mut dyn FnMut(&BuiltinEffect),
         condition: Option<&'a mut dyn StopCondition>,
         reading: Option<&'a dyn SuccessorReading>,
+        probe: Option<&'a mut dyn Probe>,
     ) -> Self {
         let initial_input_count = initial.len();
         // One request: every name the execution mints is apart from every variable of the
@@ -438,6 +453,7 @@ impl<'a> Execution<'a> {
                     stops: 0,
                     arrivals: 0,
                     arriving: None,
+                    probing: None,
                 }
             })
             .collect::<VecDeque<_>>();
@@ -521,6 +537,9 @@ impl<'a> Execution<'a> {
             condition,
             reading,
             refusal: None,
+            probing: probe.is_some(),
+            probe,
+            expansion_leaves: 0,
             #[cfg(test)]
             merge_census: Vec::new(),
         }
@@ -529,6 +548,7 @@ impl<'a> Execution<'a> {
     /// `max_breadth = Some(0)`: every initial pattern is a `BreadthBound` leaf.
     fn collect_at_breadth_zero(mut self) -> (ExecutionResult, InitialSimplificationStatus) {
         self.drain_at_breadth_bound();
+        self.probe_seed();
         let modality = self.options.result_modality;
         let leaves = std::mem::take(&mut self.leaves);
         let leaves = self.selected_leaves(leaves);
@@ -596,17 +616,23 @@ impl<'a> Execution<'a> {
         // raises the depth, which `max_depth` bounds, or consumes a remainder, so the loop
         // terminates.
         // Invariant: `pending` holds unexpanded states of depth <= `max_depth`; `leaves` only grows.
+        self.probe_seed();
         while let Some(state) = self.pending.pop_front() {
             // A refused stop condition ends the run: the request has no result.
             if self.refusal.is_some() {
                 break;
             }
+            // What the state's expansion leaves, for the probe (`probe`, "One path").
+            let depth = state.depth;
+            let leaves_from = self.leaves.len();
+            self.expansion_leaves = leaves_from;
             // The work budget: a run that has visited `max_work` states ends at the next one,
             // which is reported unvisited; the other pending states are dropped (`work`).
             if !self.work.visit() {
                 self.leaves
                     .push(state.leaf(HaltReason::WorkBound, &self.observation_log));
                 self.pending.clear();
+                self.probe_paths(depth, leaves_from, 0);
                 break;
             }
             measure::bump(Counter::RewriteSteps);
@@ -621,6 +647,7 @@ impl<'a> Execution<'a> {
                     if self.refusal.is_some() {
                         break;
                     }
+                    self.probe_paths(depth, leaves_from, successors.len());
                     self.record_arrival();
                     enqueue_execution_states(&mut self.pending, successors);
                     if let Expansion::BreadthBound = self.breadth_checked() {
@@ -644,6 +671,7 @@ impl<'a> Execution<'a> {
                         }
                     };
                     self.leaves.push(*leaf);
+                    self.probe_paths(depth, leaves_from, 0);
                     if ends_execution {
                         break;
                     }
@@ -1368,6 +1396,11 @@ impl<'a> Execution<'a> {
                 state.stops += u64::from(event);
             }
         }
+        // The step's points, now that its successor is shown defined (`probe`).
+        let mut state = match state.probing.take() {
+            Some(probing) => self.probe_step(state, *probing)?,
+            None => state,
+        };
         if state.depth >= self.options.max_depth {
             // A state the depth bound stops is reached; it takes no part in merging.
             if let ExecutionStateKind::Rewritable = state.kind {
@@ -1675,6 +1708,7 @@ impl<'a> Execution<'a> {
             )));
         }
         let producer = Producer::of(&state, &applied);
+        let probing = self.probing(&state, &applied);
         let mut next = next_state(
             self.definition,
             state,
@@ -1684,6 +1718,7 @@ impl<'a> Execution<'a> {
         );
         next.producer = Some(std::rc::Rc::new(producer));
         next.arriving = arriving;
+        next.probing = probing;
         if let Some(rule) = terminal_rule {
             let producer_rule = next.producer.as_ref().map(|producer| producer.rule.clone());
             let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
@@ -1758,6 +1793,10 @@ impl<'a> Execution<'a> {
         deferred: Option<StopDecision>,
     ) -> Phase<Vec<ExecutionState>> {
         Self::note_committed(&next);
+        // The step is taken: its points are asked before the path ends at the terminal rule.
+        if let Some(probing) = next.probing.take() {
+            next = self.probe_step(next, *probing)?;
+        }
         if let Some(decision) = deferred {
             return self.deferred_answer(next, rule, StopSide::After, decision);
         }
@@ -1768,6 +1807,150 @@ impl<'a> Execution<'a> {
             HaltReason::TerminalRule { rule },
             &self.observation_log,
         )))
+    }
+
+    /// The points a probe observes of a step by `applied` from `state`, which the path takes:
+    /// its before point with the state before the step, and its after point (`probe`). `None`
+    /// where the run has no probe still asked, the rule is selected on neither side, or the
+    /// step already left a leaf beside this successor (instances of an undefined candidate): the
+    /// state splits there, which the probe is told once the expansion ends
+    /// ([`Self::probe_paths`]), so no point of either path is asked before it.
+    fn probing(&self, state: &ExecutionState, applied: &AppliedRule) -> Option<Box<Probing>> {
+        if !self.probing || self.leaves.len() > self.expansion_leaves {
+            return None;
+        }
+        let rules = &self.options.probe_rules;
+        let before = selected_stop_rule(applied, &rules.before);
+        let after = selected_stop_rule(applied, &rules.after);
+        if before.is_none() && after.is_none() {
+            return None;
+        }
+        Some(Box::new(Probing {
+            before: before.map(|rule| {
+                let before = ExecutionState {
+                    producer: None,
+                    probing: None,
+                    arriving: None,
+                    ..state.clone()
+                };
+                (rule, before)
+            }),
+            after,
+        }))
+    }
+
+    /// Ask the probe about the points `probing` of the step that produced `successor`, whose
+    /// normalization showed it defined: the before point, then the after point (`probe`). A
+    /// `Differs` answer ends the request and a `Done` answer the path, each with a leaf of the
+    /// point's observed state; otherwise `successor` goes on.
+    fn probe_step(
+        &mut self,
+        successor: ExecutionState,
+        probing: Probing,
+    ) -> Result<ExecutionState, Box<ExecutionLeaf>> {
+        if !self.probing {
+            return Ok(successor);
+        }
+        if let Some((rule, before)) = probing.before {
+            let decision =
+                self.observe(&rule, StopSide::Before, before.depth, &before.pattern.term);
+            if let Some(halt) = self.probe_end(rule, StopSide::Before, decision) {
+                return Err(Box::new(before.leaf(halt, &self.observation_log)));
+            }
+        }
+        if let Some(rule) = probing.after {
+            let decision = self.observe(
+                &rule,
+                StopSide::After,
+                successor.depth,
+                &successor.pattern.term,
+            );
+            if let Some(halt) = self.probe_end(rule, StopSide::After, decision) {
+                return Err(Box::new(successor.leaf(halt, &self.observation_log)));
+            }
+        }
+        Ok(successor)
+    }
+
+    /// Ask the probe about the point of `rule` on `side` whose observed state, at `depth`, has
+    /// the term `term`, isolated from the run (`probe::isolated`).
+    fn observe(
+        &mut self,
+        rule: &str,
+        side: StopSide,
+        depth: u64,
+        term: &crate::term::Term,
+    ) -> ProbeDecision {
+        let Some(probe) = self.probe.as_deref_mut() else {
+            unreachable!("only a run with a probe asks one");
+        };
+        probe::isolated(|| {
+            probe.observe(&ProbeArrival {
+                rule,
+                side,
+                state: ProbeState { depth, term },
+            })
+        })
+    }
+
+    /// The halt a probe's `decision` at the point of `rule` on `side` ends the path with, if
+    /// any: `Differs` also ends the request, dropping every pending state, and either ends the
+    /// probe's questions.
+    fn probe_end(
+        &mut self,
+        rule: String,
+        side: StopSide,
+        decision: ProbeDecision,
+    ) -> Option<HaltReason> {
+        let halt = match decision {
+            ProbeDecision::Continue => return None,
+            ProbeDecision::Differs(reason) => {
+                self.pending.clear();
+                HaltReason::ProbeDifference { rule, side, reason }
+            }
+            ProbeDecision::Done => HaltReason::ProbeDone { rule, side },
+        };
+        self.probing = false;
+        Some(halt)
+    }
+
+    /// Before the first expansion, or in place of every expansion (`max_breadth = 0`): what the
+    /// seed leaves, for the probe ([`Self::probe_paths`]). Several initial states are several
+    /// paths from the start.
+    fn probe_seed(&mut self) {
+        let pending = self.pending.len();
+        self.probe_paths(0, 0, pending);
+    }
+
+    /// Tell the probe what the expansion of the state at `depth` left (`probe`, "One path"):
+    /// the leaves pushed from `leaves_from` on and `successors` states to expand. More than one
+    /// path, or a branch leaf, is a split ([`Probe::branched`]); one leaf is the path's end
+    /// ([`Probe::ended`]), unless the probe's own answer made it. Either ends the probe's
+    /// questions.
+    fn probe_paths(&mut self, depth: u64, leaves_from: usize, successors: usize) {
+        if !self.probing {
+            return;
+        }
+        let Some(probe) = self.probe.as_deref_mut() else {
+            return;
+        };
+        let leaves = &self.leaves[leaves_from..];
+        match (leaves, successors) {
+            ([], 0 | 1) => return,
+            ([leaf], 0) if !matches!(leaf.halt_reason, HaltReason::Branch { .. }) => {
+                probe::isolated(|| {
+                    probe.ended(&ProbeLeaf {
+                        halt: &leaf.halt_reason,
+                        state: ProbeState {
+                            depth: leaf.depth,
+                            term: &leaf.pattern.term,
+                        },
+                    });
+                });
+            }
+            _ => probe::isolated(|| probe.branched(depth)),
+        }
+        self.probing = false;
     }
 
     /// Whether a stop event at `state`'s arrival ends the path: it is the path's
@@ -2778,8 +2961,10 @@ impl<'a> Execution<'a> {
                                 observation,
                             )));
                         }
+                        let probing = self.probing(&state, &applied);
                         let mut next = commit_applied(state, applied, observation);
                         next.arriving = plan.arriving;
+                        next.probing = probing;
                         if let Some(rule) = plan.terminal {
                             // Normalized within the step and not bottom: committed and reached,
                             // the path's last arrival.
@@ -3432,6 +3617,10 @@ enum MergeClass {
     /// A stop condition was left undecided at the path's arrival (`StopUndecided`): the leaf
     /// says that the run to its stop has no answer there, so it is never merged.
     StopUndecided,
+    /// A probe's answer ended the path or the request (`ProbeDifference`, `ProbeDone`): the
+    /// leaf says where the probe stopped the run, nothing about the configuration, so it is
+    /// never merged.
+    ProbeAnswer,
 }
 
 impl MergeClass {
@@ -3466,6 +3655,9 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
         }
         HaltReason::TerminalRule { .. } => MergeClass::ByArrival,
         HaltReason::StopUndecided { .. } => MergeClass::StopUndecided,
+        HaltReason::ProbeDifference { .. } | HaltReason::ProbeDone { .. } => {
+            MergeClass::ProbeAnswer
+        }
     }
 }
 
@@ -3523,7 +3715,10 @@ impl Standing {
             }
             (MergeClass::Unexplored, _)
             | (
-                MergeClass::NoConfiguration | MergeClass::RunEnding | MergeClass::StopUndecided,
+                MergeClass::NoConfiguration
+                | MergeClass::RunEnding
+                | MergeClass::StopUndecided
+                | MergeClass::ProbeAnswer,
                 _,
             ) => false,
         }
@@ -4442,6 +4637,18 @@ struct ExecutionState {
     /// How the step that produced this state is an arrival at a stop the path goes on past,
     /// counted once the state's normalization shows it defined; `None` on every other state.
     arriving: Option<Arriving>,
+    /// The probe's points of the step that produced this state, asked once the state's
+    /// normalization shows it defined (`probe`); `None` on every other state.
+    probing: Option<Box<Probing>>,
+}
+
+/// The points of a step a probe observes ([`ExecutionState::probing`]): the rule of its before
+/// point with the state before the step, and the rule of its after point, each by the name the
+/// request selected it by.
+#[derive(Clone)]
+struct Probing {
+    before: Option<(String, ExecutionState)>,
+    after: Option<String>,
 }
 
 /// How a step is an arrival at a stop that does not end the path at the step
@@ -5774,6 +5981,7 @@ mod tests {
             stops: 0,
             arrivals: 0,
             arriving: None,
+            probing: None,
             pattern: subject(definition, "state"),
             depth: 500,
             trace,
@@ -6097,7 +6305,7 @@ mod tests {
             moving_average: false,
         });
         let mut execution = Execution::seed(
-            definition, initial, options, solver, solver, None, None, observe, None, None,
+            definition, initial, options, solver, solver, None, None, observe, None, None, None,
         );
         execution.run(&timeout_controller);
         execution
@@ -6266,6 +6474,7 @@ mod tests {
             None,
             None,
             &mut observe,
+            None,
             None,
             None,
         );
@@ -6663,6 +6872,7 @@ mod tests {
                         stops: 0,
                         arrivals: 0,
                         arriving: None,
+                        probing: None,
                         pattern: pattern.clone(),
                         depth: 0,
                         trace: PathTrace::default(),
@@ -6965,12 +7175,12 @@ mod tests {
         /// The stop states a condition was asked about, with their side and depth, in order.
         type Asked = Vec<(StopSide, u64, String)>;
 
-        fn steps(choice: bool) -> BackendDefinition {
+        pub(super) fn steps(choice: bool) -> BackendDefinition {
             steps_then(choice, "")
         }
 
         /// [`steps`], with the axioms `then` besides.
-        fn steps_then(choice: bool, then: &str) -> BackendDefinition {
+        pub(super) fn steps_then(choice: bool, then: &str) -> BackendDefinition {
             let step = |from: &str, to: &str, label: &str| {
                 format!(
                     r#"axiom{{}} \rewrites{{SortS{{}}}}(
@@ -6995,7 +7205,7 @@ mod tests {
             definition(&axioms.join("\n"))
         }
 
-        fn state(definition: &BackendDefinition, value: &str) -> Pattern {
+        pub(super) fn state(definition: &BackendDefinition, value: &str) -> Pattern {
             Pattern {
                 term: definition
                     .internalize_term(
@@ -7559,6 +7769,805 @@ mod tests {
                     None
                 )]
             );
+        }
+    }
+
+    /// A probe asked at the points of selected rules (`probe`), on the stop condition's run of
+    /// `0` to `6` by alternating `tick-*` and `work-*` steps; with `choice`, `3` also has a
+    /// `tick-x` successor beside `work-b`.
+    mod probe {
+        use std::cell::RefCell;
+
+        use super::stop_condition::{state, steps, steps_then};
+        use super::*;
+        use crate::rewrite::{
+            Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival,
+            StopDecision, StopSide,
+        };
+
+        /// What a probe was asked, in order.
+        #[derive(Clone, Debug, Eq, PartialEq)]
+        enum Asked {
+            /// A point: its side, the observed state's depth and value, and its rule.
+            Point(StopSide, u64, String, String),
+            /// The path split at the state of this depth.
+            Branched(u64),
+            /// The path ended at a leaf of this depth, value and halt.
+            Ended(u64, String, &'static str),
+            /// A stop condition was asked about the stop state of this value.
+            Condition(String),
+        }
+
+        fn value(state: &ProbeState<'_>) -> String {
+            match state.configuration() {
+                k_rust_kore::kore::ast::Pattern::DomainValue { ref value, .. } => {
+                    value.as_utf8().unwrap().to_owned()
+                }
+                other => format!("{other:?}"),
+            }
+        }
+
+        fn halt(halt: &HaltReason) -> &'static str {
+            match halt {
+                HaltReason::CutPointRule { .. } => "cut-point",
+                HaltReason::TerminalRule { .. } => "terminal",
+                HaltReason::Stuck => "stuck",
+                HaltReason::Trivial { .. } => "trivial",
+                HaltReason::Branch { .. } => "branch",
+                HaltReason::DepthBound => "depth-bound",
+                HaltReason::WorkBound => "work-bound",
+                HaltReason::ProbeDifference { .. } => "probe-difference",
+                HaltReason::ProbeDone { .. } => "probe-done",
+                _ => "other",
+            }
+        }
+
+        /// A probe that records what it is asked into `log` and answers `answers` (by the
+        /// observed state's value and side), else continues.
+        struct Recorder<'a> {
+            log: &'a RefCell<Vec<Asked>>,
+            answers: Vec<(String, StopSide, ProbeDecision)>,
+        }
+
+        impl Probe for Recorder<'_> {
+            fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+                let value = value(point);
+                self.log.borrow_mut().push(Asked::Point(
+                    point.side(),
+                    point.depth(),
+                    value.clone(),
+                    point.rule().to_owned(),
+                ));
+                self.answers
+                    .iter()
+                    .find(|(answer, side, _)| *answer == value && *side == point.side())
+                    .map_or(ProbeDecision::Continue, |(_, _, decision)| decision.clone())
+            }
+
+            fn branched(&mut self, depth: u64) {
+                self.log.borrow_mut().push(Asked::Branched(depth));
+            }
+
+            fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+                self.log.borrow_mut().push(Asked::Ended(
+                    leaf.depth(),
+                    value(leaf),
+                    halt(leaf.halt()),
+                ));
+            }
+        }
+
+        fn names(names: &[&str]) -> BTreeSet<String> {
+            names.iter().map(|name| (*name).to_owned()).collect()
+        }
+
+        fn probing(before: &[&str], after: &[&str]) -> ExecutionOptions {
+            ExecutionOptions {
+                probe_rules: ProbeRules {
+                    before: names(before),
+                    after: names(after),
+                },
+                ..ExecutionOptions::default()
+            }
+        }
+
+        fn point(side: StopSide, depth: u64, value: &str, rule: &str) -> Asked {
+            Asked::Point(side, depth, value.to_owned(), rule.to_owned())
+        }
+
+        fn ended(depth: u64, value: &str, halt: &'static str) -> Asked {
+            Asked::Ended(depth, value.to_owned(), halt)
+        }
+
+        /// A run from `0` under `options` with a probe answering `answers`; also what it asked.
+        fn run(
+            definition: &BackendDefinition,
+            options: ExecutionOptions,
+            answers: &[(&str, StopSide, ProbeDecision)],
+        ) -> (ExecutionResult, Vec<Asked>) {
+            let log = RefCell::new(Vec::new());
+            let mut probe = Recorder {
+                log: &log,
+                answers: answers
+                    .iter()
+                    .map(|(value, side, decision)| ((*value).to_owned(), *side, decision.clone()))
+                    .collect(),
+            };
+            let result = crate::rewrite::execute_with_probe(
+                definition,
+                state(definition, "0"),
+                options,
+                &crate::smt::NoSolver,
+                None,
+                None,
+                &mut probe,
+            )
+            .unwrap();
+            (result, log.into_inner())
+        }
+
+        /// Each leaf's value, depth and halt.
+        fn ends(result: &ExecutionResult) -> Vec<(String, u64, &'static str)> {
+            result
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    let state = ProbeState {
+                        depth: leaf.depth,
+                        term: &leaf.pattern.term,
+                    };
+                    (value(&state), leaf.depth, halt(&leaf.halt_reason))
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_probe_is_asked_at_each_taken_step_of_a_point_rule_before_and_after() {
+            let definition = steps(false);
+            for mode in [ExecutionMode::All, ExecutionMode::Any] {
+                for branch_mode in [
+                    ExecutionBranchMode::ExploreAll,
+                    ExecutionBranchMode::StopAtBranch,
+                ] {
+                    let options = ExecutionOptions {
+                        mode,
+                        branch_mode,
+                        ..probing(&["tick-a", "tick-b", "tick-c"], &["work-a", "tick-b"])
+                    };
+                    let (result, asked) = run(&definition, options, &[]);
+                    assert_eq!(
+                        asked,
+                        [
+                            point(StopSide::Before, 0, "0", "tick-a"),
+                            point(StopSide::After, 2, "2", "work-a"),
+                            // One rule on both sides: before, then after.
+                            point(StopSide::Before, 2, "2", "tick-b"),
+                            point(StopSide::After, 3, "3", "tick-b"),
+                            point(StopSide::Before, 4, "4", "tick-c"),
+                            ended(6, "6", "stuck"),
+                        ],
+                        "{mode:?} {branch_mode:?}"
+                    );
+                    assert_eq!(ends(&result), [("6".into(), 6, "stuck")]);
+                }
+            }
+        }
+
+        /// No unselected rule's step is a point, and neither is a selected step whose one
+        /// successor is undefined: `tick-d` takes `6` to `dead(7)`, which `dead`'s equation
+        /// reduces to `\bottom`. The path ends at the undefined step, which the probe is told.
+        #[test]
+        fn not_at_other_steps_nor_at_an_undefined_successor() {
+            let definition = steps_then(
+                false,
+                r#"symbol dead{}(SortS{}) : SortS{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        dead{}(X:SortS{}),
+                        \and{SortS{}}(\dv{SortS{}}("dead"), \bottom{SortS{}}())
+                    )
+                ) [label{}("dead"), simplification{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(\dv{SortS{}}("6"), \top{SortS{}}()),
+                    dead{}(\dv{SortS{}}("7"))
+                ) [label{}("tick-d")]"#,
+            );
+            let (result, asked) = run(
+                &definition,
+                probing(&["tick-a", "tick-d"], &["tick-d"]),
+                &[],
+            );
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    ended(6, "6", "trivial"),
+                ]
+            );
+            assert_eq!(ends(&result), [("6".into(), 6, "trivial")]);
+        }
+
+        /// The stop's `stop_count`th event of a cut-point rule is not taken, so it has no point;
+        /// an earlier arrival is a step like any other, and a terminal rule's last step is
+        /// taken, so its points are asked before the path ends there.
+        #[test]
+        fn a_before_stop_nth_event_emits_no_point() {
+            let definition = steps(false);
+            let (result, asked) = run(
+                &definition,
+                ExecutionOptions {
+                    cut_point_rules: names(&["tick-b"]),
+                    ..probing(&["tick-a", "tick-b"], &["tick-b"])
+                },
+                &[],
+            );
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    ended(2, "2", "cut-point"),
+                ]
+            );
+            assert_eq!(ends(&result), [("2".into(), 2, "cut-point")]);
+            // The second arrival ends the path: the first is taken, and is a point.
+            let (_, asked) = run(
+                &definition,
+                ExecutionOptions {
+                    cut_point_rules: names(&["tick-a", "tick-b"]),
+                    stop_count: NonZeroU64::new(2).unwrap(),
+                    ..probing(&["tick-a", "tick-b"], &["tick-a", "tick-b"])
+                },
+                &[],
+            );
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    point(StopSide::After, 1, "1", "tick-a"),
+                    ended(2, "2", "cut-point"),
+                ]
+            );
+            let (result, asked) = run(
+                &definition,
+                ExecutionOptions {
+                    terminal_rules: names(&["tick-b"]),
+                    ..probing(&["tick-b"], &["tick-b"])
+                },
+                &[],
+            );
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 2, "2", "tick-b"),
+                    point(StopSide::After, 3, "3", "tick-b"),
+                    ended(3, "3", "terminal"),
+                ]
+            );
+            assert_eq!(ends(&result), [("3".into(), 3, "terminal")]);
+        }
+
+        #[test]
+        fn differs_ends_the_request_with_its_observed_state() {
+            let definition = steps(false);
+            let options = || probing(&["tick-b"], &["work-b"]);
+            let differs = ProbeDecision::Differs("two".to_owned());
+            let (result, asked) = run(
+                &definition,
+                options(),
+                &[("2", StopSide::Before, differs.clone())],
+            );
+            // Nothing is asked after the difference, and the probe is not told of its own end.
+            assert_eq!(asked, [point(StopSide::Before, 2, "2", "tick-b")]);
+            assert_eq!(ends(&result), [("2".into(), 2, "probe-difference")]);
+            assert_eq!(
+                result.leaves[0].halt_reason,
+                HaltReason::ProbeDifference {
+                    rule: "tick-b".into(),
+                    side: StopSide::Before,
+                    reason: "two".into()
+                }
+            );
+            // After: the leaf is the normalized successor.
+            let (result, asked) = run(&definition, options(), &[("4", StopSide::After, differs)]);
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 2, "2", "tick-b"),
+                    point(StopSide::After, 4, "4", "work-b"),
+                ]
+            );
+            assert_eq!(ends(&result), [("4".into(), 4, "probe-difference")]);
+        }
+
+        #[test]
+        fn done_ends_the_path() {
+            let definition = steps(false);
+            let options = || probing(&["tick-b"], &["tick-b", "tick-c"]);
+            let (result, asked) = run(
+                &definition,
+                options(),
+                &[("3", StopSide::After, ProbeDecision::Done)],
+            );
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 2, "2", "tick-b"),
+                    point(StopSide::After, 3, "3", "tick-b"),
+                ]
+            );
+            assert_eq!(ends(&result), [("3".into(), 3, "probe-done")]);
+            assert_eq!(
+                result.leaves[0].halt_reason,
+                HaltReason::ProbeDone {
+                    rule: "tick-b".into(),
+                    side: StopSide::After
+                }
+            );
+            // Before: the leaf is the state before the step, and the after point is not asked.
+            let (result, asked) = run(
+                &definition,
+                options(),
+                &[("2", StopSide::Before, ProbeDecision::Done)],
+            );
+            assert_eq!(asked, [point(StopSide::Before, 2, "2", "tick-b")]);
+            assert_eq!(ends(&result), [("2".into(), 2, "probe-done")]);
+        }
+
+        /// `3` has two successors: the probe is told once, at `3`, and asked nothing after,
+        /// neither at the points of either path nor at their ends.
+        #[test]
+        fn branched_is_asked_once_at_the_first_state_with_two_successors() {
+            let definition = steps(true);
+            let before = ["tick-a", "tick-b", "tick-c", "tick-x"];
+            for result_modality in [ResultModality::PathSet, ResultModality::StateSet] {
+                let options = ExecutionOptions {
+                    result_modality,
+                    ..probing(&before, &["work-x", "work-b"])
+                };
+                let (_, asked) = run(&definition, options, &[]);
+                assert_eq!(
+                    asked,
+                    [
+                        point(StopSide::Before, 0, "0", "tick-a"),
+                        point(StopSide::Before, 2, "2", "tick-b"),
+                        Asked::Branched(3),
+                    ],
+                    "{result_modality:?}"
+                );
+            }
+            // A branch leaf reports the state's successors: the path splits there.
+            let options = ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..probing(&before, &[])
+            };
+            let (result, asked) = run(&definition, options, &[]);
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    point(StopSide::Before, 2, "2", "tick-b"),
+                    Asked::Branched(3),
+                ]
+            );
+            assert_eq!(ends(&result), [("3".into(), 3, "branch")]);
+        }
+
+        /// A probe that always continues is no probe: the same result, coverage, traces and
+        /// work included, under every strategy, branch mode, result modality and stop rule,
+        /// and a work bound the run without it meets exactly cuts neither short.
+        #[test]
+        fn a_continue_probe_leaves_leaves_coverage_and_work_unchanged() {
+            let all = [
+                "tick-a", "tick-b", "tick-c", "tick-x", "work-a", "work-b", "work-c", "work-x",
+            ];
+            let stops: [(&[&str], &[&str], u64); 4] = [
+                (&[], &[], 1),
+                (&["tick-b"], &[], 1),
+                (&[], &["tick-b"], 1),
+                (&["tick-a", "tick-b", "tick-c"], &[], 2),
+            ];
+            for choice in [false, true] {
+                let definition = steps(choice);
+                for mode in [ExecutionMode::All, ExecutionMode::Any] {
+                    for branch_mode in [
+                        ExecutionBranchMode::ExploreAll,
+                        ExecutionBranchMode::StopAtBranch,
+                    ] {
+                        for result_modality in [ResultModality::StateSet, ResultModality::PathSet] {
+                            for (cut, terminal, count) in stops {
+                                let options = ExecutionOptions {
+                                    mode,
+                                    branch_mode,
+                                    result_modality,
+                                    cut_point_rules: names(cut),
+                                    terminal_rules: names(terminal),
+                                    stop_count: NonZeroU64::new(count).unwrap(),
+                                    retain_trace: true,
+                                    collect_coverage: true,
+                                    collect_counts: true,
+                                    collect_committed: true,
+                                    ..probing(&all, &all)
+                                };
+                                let context = format!(
+                                    "choice={choice} {mode:?} {branch_mode:?} \
+                                     {result_modality:?} cut={cut:?} terminal={terminal:?} \
+                                     count={count}"
+                                );
+                                let plain = crate::rewrite::execute(
+                                    &definition,
+                                    state(&definition, "0"),
+                                    options.clone(),
+                                );
+                                let (probed, _) = run(&definition, options.clone(), &[]);
+                                assert!(plain.coverage.is_some(), "{context}");
+                                assert_eq!(probed, plain, "{context}");
+                                let bounded = ExecutionOptions {
+                                    max_work: Some(plain.work),
+                                    ..options
+                                };
+                                let plain = crate::rewrite::execute(
+                                    &definition,
+                                    state(&definition, "0"),
+                                    bounded.clone(),
+                                );
+                                assert!(
+                                    plain
+                                        .leaves
+                                        .iter()
+                                        .all(|leaf| leaf.halt_reason != HaltReason::WorkBound),
+                                    "{context}"
+                                );
+                                let (probed, _) = run(&definition, bounded, &[]);
+                                assert_eq!(probed, plain, "{context} max_work");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// `top(left(N), right(R))`: `tick-0` and `tick-1` rewrite `left` and keep `right` by a
+        /// variable, so the cell `right` is the same node at both points, and `left` is not.
+        #[test]
+        fn cell_handle_is_stable_for_an_unchanged_cell() {
+            let source = r#"[]
+                module MAIN
+                    sort SortS{} [hasDomainValues{}()]
+                    sort SortT{} []
+                    sort SortC{} []
+                    symbol top{}(SortC{}, SortC{}) : SortT{} [constructor{}(), functional{}(), injective{}()]
+                    symbol left{}(SortS{}) : SortC{} [constructor{}(), functional{}(), injective{}()]
+                    symbol right{}(SortS{}) : SortC{} [constructor{}(), functional{}(), injective{}()]
+                    axiom{} \rewrites{SortT{}}(
+                        \and{SortT{}}(top{}(left{}(\dv{SortS{}}("0")), R:SortC{}), \top{SortT{}}()),
+                        top{}(left{}(\dv{SortS{}}("1")), R:SortC{})
+                    ) [label{}("tick-0")]
+                    axiom{} \rewrites{SortT{}}(
+                        \and{SortT{}}(top{}(left{}(\dv{SortS{}}("1")), R:SortC{}), \top{SortT{}}()),
+                        top{}(left{}(\dv{SortS{}}("2")), R:SortC{})
+                    ) [label{}("tick-1")]
+                endmodule []"#;
+            let syntax = parse_definition(source).unwrap();
+            let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+            let start = Pattern {
+                term: definition
+                    .internalize_term(
+                        &parse_pattern(
+                            r#"top{}(left{}(\dv{SortS{}}("0")), right{}(\dv{SortS{}}("r")))"#,
+                        )
+                        .unwrap(),
+                        &[],
+                    )
+                    .unwrap(),
+                constraints: Vec::new(),
+            };
+            struct Handles(Vec<(crate::rewrite::CellHandle, crate::rewrite::CellHandle)>);
+            impl Probe for Handles {
+                fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+                    assert!(point.cell_handle(&["top", "middle"]).is_none());
+                    self.0.push((
+                        point.cell_handle(&["top", "left"]).unwrap(),
+                        point.cell_handle(&["top", "right"]).unwrap(),
+                    ));
+                    ProbeDecision::Continue
+                }
+
+                fn ended(&mut self, _: &ProbeLeaf<'_>) {}
+            }
+            let mut handles = Handles(Vec::new());
+            crate::rewrite::execute_with_probe(
+                &definition,
+                start,
+                probing(&[], &["tick-0", "tick-1"]),
+                &crate::smt::NoSolver,
+                None,
+                None,
+                &mut handles,
+            )
+            .unwrap();
+            let [(left_1, right_1), (left_2, right_2)] = handles.0.as_slice() else {
+                panic!("two points");
+            };
+            assert!(right_1.same(right_2));
+            assert!(!left_1.same(left_2));
+            assert_eq!(left_2.kore().to_string(), r#"left{}(\dv{SortS{}}("2"))"#);
+            assert_eq!(right_1.kore().to_string(), r#"right{}(\dv{SortS{}}("r"))"#);
+        }
+
+        /// `top(n(N), out(L))`: `emit-0` and `emit-1` append `a` and then `b` to the list `out`
+        /// holds; a probe that reads the list from its last length on reads each appended item
+        /// once.
+        #[test]
+        fn list_items_reads_only_the_appended_part() {
+            let source = r#"[]
+                module MAIN
+                    sort SortS{} [hasDomainValues{}()]
+                    sort SortT{} []
+                    sort SortN{} []
+                    sort SortOut{} []
+                    hooked-sort SortList{}
+                        [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+                    hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+                    hooked-symbol listItem{}(SortS{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+                    hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{} [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+                    symbol top{}(SortN{}, SortOut{}) : SortT{} [constructor{}(), functional{}(), injective{}()]
+                    symbol n{}(SortS{}) : SortN{} [constructor{}(), functional{}(), injective{}()]
+                    symbol out{}(SortList{}) : SortOut{} [constructor{}(), functional{}(), injective{}()]
+                    axiom{} \rewrites{SortT{}}(
+                        \and{SortT{}}(top{}(n{}(\dv{SortS{}}("0")), out{}(L:SortList{})), \top{SortT{}}()),
+                        top{}(n{}(\dv{SortS{}}("1")), out{}(listConcat{}(L:SortList{}, listItem{}(\dv{SortS{}}("a")))))
+                    ) [label{}("emit-0")]
+                    axiom{} \rewrites{SortT{}}(
+                        \and{SortT{}}(top{}(n{}(\dv{SortS{}}("1")), out{}(L:SortList{})), \top{SortT{}}()),
+                        top{}(n{}(\dv{SortS{}}("2")), out{}(listConcat{}(L:SortList{}, listItem{}(\dv{SortS{}}("b")))))
+                    ) [label{}("emit-1")]
+                endmodule []"#;
+            let syntax = parse_definition(source).unwrap();
+            let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+            let start = Pattern {
+                term: definition
+                    .internalize_term(
+                        &parse_pattern(r#"top{}(n{}(\dv{SortS{}}("0")), out{}(listUnit{}()))"#)
+                            .unwrap(),
+                        &[],
+                    )
+                    .unwrap(),
+                constraints: Vec::new(),
+            };
+            #[derive(Default)]
+            struct Log {
+                read: usize,
+                items: Vec<(Option<usize>, Vec<String>)>,
+                end: Option<(Option<usize>, Option<Vec<String>>)>,
+            }
+            impl Probe for Log {
+                fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+                    let path = ["top", "out"];
+                    let length = point.list_len(&path);
+                    let items = point.list_items(&path, self.read).unwrap();
+                    self.read = length.unwrap();
+                    self.items
+                        .push((length, items.iter().map(ToString::to_string).collect()));
+                    // Not a list, and no such cell.
+                    assert_eq!(point.list_len(&["top", "n"]), None);
+                    assert_eq!(point.list_items(&["top", "missing"], 0), None);
+                    ProbeDecision::Continue
+                }
+
+                fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+                    let path = ["top", "out"];
+                    self.end = Some((
+                        leaf.list_len(&path),
+                        leaf.list_items(&path, 5)
+                            .map(|items| items.iter().map(ToString::to_string).collect()),
+                    ));
+                }
+            }
+            let mut log = Log::default();
+            crate::rewrite::execute_with_probe(
+                &definition,
+                start,
+                probing(&[], &["emit-0", "emit-1"]),
+                &crate::smt::NoSolver,
+                None,
+                None,
+                &mut log,
+            )
+            .unwrap();
+            let item = |value: &str| format!(r#"\dv{{SortS{{}}}}("{value}")"#);
+            assert_eq!(
+                log.items,
+                [(Some(1), vec![item("a")]), (Some(2), vec![item("b")])]
+            );
+            // Read past its end at the leaf: no item.
+            assert_eq!(log.end, Some((Some(2), Some(Vec::new()))));
+        }
+
+        /// The probe's work is not the run's: it runs off the step clock, in a proof scope,
+        /// with its own operation record and poll budget, reporting to no coverage set of the
+        /// run, and the run's result is the one without that work.
+        #[test]
+        fn the_probe_runs_isolated_off_the_clock() {
+            struct Working(Vec<(crate::evaluation::EvaluationMode, bool, usize)>);
+            impl Probe for Working {
+                fn observe(&mut self, _: &ProbeArrival<'_>) -> ProbeDecision {
+                    let mode = crate::evaluation::current();
+                    crate::coverage::note_matched("probe-work");
+                    let ((spent, ()), record) = crate::stop::with_operation_record(|| {
+                        crate::stop::dismiss_a_stack_stop();
+                        let ((), budget) = crate::stop::with_poll_budget(
+                            2,
+                            crate::timeout::StepTimeoutMode::Manual(std::time::Duration::ZERO),
+                            || loop {
+                                if let Err(stop) = crate::stop::check() {
+                                    stop.forgo_refinement();
+                                    break;
+                                }
+                            },
+                        );
+                        (budget.budget_exhausted, ())
+                    });
+                    // A lower bound on the time the run does not charge: no clock decides it.
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    self.0.push((mode, spent, record.stack_stops));
+                    ProbeDecision::Continue
+                }
+
+                fn ended(&mut self, _: &ProbeLeaf<'_>) {
+                    crate::coverage::note_matched("probe-end");
+                }
+            }
+            let definition = steps(false);
+            let options = ExecutionOptions {
+                evaluation: crate::evaluation::EvaluationMode::Execution,
+                collect_coverage: true,
+                ..probing(&["tick-a", "tick-b"], &[])
+            };
+            let mut probe = Working(Vec::new());
+            let off_before = crate::stop::time_off_the_clock();
+            let result = crate::rewrite::execute_with_probe(
+                &definition,
+                state(&definition, "0"),
+                options.clone(),
+                &crate::smt::NoSolver,
+                None,
+                None,
+                &mut probe,
+            )
+            .unwrap();
+            let off = crate::stop::time_off_the_clock() - off_before;
+            assert_eq!(
+                probe.0,
+                [
+                    (crate::evaluation::EvaluationMode::Proof, true, 1),
+                    (crate::evaluation::EvaluationMode::Proof, true, 1)
+                ]
+            );
+            assert!(off >= std::time::Duration::from_millis(10), "{off:?}");
+            assert_eq!(result.stack_stops, 0);
+            assert_eq!(result.stopped, None);
+            let matched = &result.coverage.as_ref().unwrap().matched;
+            assert!(!matched.contains("probe-work") && !matched.contains("probe-end"));
+            let plain = crate::rewrite::execute(&definition, state(&definition, "0"), options);
+            assert_eq!(result, plain);
+        }
+
+        /// A probe and a stop condition on one run, each asked where it is asked alone: the
+        /// condition at each arrival as the step is taken, the probe once the step's successor
+        /// is shown defined. A stop's last event of a cut-point rule ends the path before the
+        /// step, with no point; a terminal rule's last step has its points, then its end. A
+        /// probe that continues leaves the condition's run as it is.
+        #[test]
+        fn probe_and_stop_condition_compose() {
+            let definition = steps(false);
+            let ticks = ["tick-a", "tick-b", "tick-c"];
+            let compose = |terminal: bool, probe_answers: &[(&str, StopSide, ProbeDecision)]| {
+                let log = RefCell::new(Vec::new());
+                let holds = if terminal { "3" } else { "2" };
+                let mut condition = |arrival: &StopArrival<'_>| {
+                    let value = match arrival.configuration() {
+                        k_rust_kore::kore::ast::Pattern::DomainValue { ref value, .. } => {
+                            value.as_utf8().unwrap().to_owned()
+                        }
+                        other => format!("{other:?}"),
+                    };
+                    log.borrow_mut().push(Asked::Condition(value.clone()));
+                    if value == holds {
+                        StopDecision::Holds
+                    } else {
+                        StopDecision::Fails
+                    }
+                };
+                let mut probe = Recorder {
+                    log: &log,
+                    answers: probe_answers
+                        .iter()
+                        .map(|(value, side, decision)| {
+                            ((*value).to_owned(), *side, decision.clone())
+                        })
+                        .collect(),
+                };
+                let (cut_point_rules, terminal_rules) = if terminal {
+                    (BTreeSet::new(), names(&ticks))
+                } else {
+                    (names(&ticks), BTreeSet::new())
+                };
+                let options = ExecutionOptions {
+                    cut_point_rules,
+                    terminal_rules,
+                    ..probing(&["tick-a", "tick-b"], &["tick-a", "tick-b", "work-a"])
+                };
+                let probed = crate::rewrite::execute_with_probe(
+                    &definition,
+                    state(&definition, "0"),
+                    options.clone(),
+                    &crate::smt::NoSolver,
+                    None,
+                    Some(&mut condition),
+                    &mut probe,
+                )
+                .unwrap();
+                let asked = log.borrow().clone();
+                let mut condition = |arrival: &StopArrival<'_>| match arrival.configuration() {
+                    k_rust_kore::kore::ast::Pattern::DomainValue { ref value, .. }
+                        if value.as_utf8().unwrap() == holds =>
+                    {
+                        StopDecision::Holds
+                    }
+                    _ => StopDecision::Fails,
+                };
+                let alone = crate::rewrite::execute_with_stop_condition(
+                    &definition,
+                    state(&definition, "0"),
+                    options,
+                    &crate::smt::NoSolver,
+                    None,
+                    &mut condition,
+                )
+                .unwrap();
+                (probed, alone, asked)
+            };
+            let condition = |value: &str| Asked::Condition(value.to_owned());
+            // Cut point: the condition fails at `0`, whose step is taken, and holds at `2`, the
+            // last event, whose step is not.
+            let (probed, alone, asked) = compose(false, &[]);
+            assert_eq!(
+                asked,
+                [
+                    condition("0"),
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    point(StopSide::After, 1, "1", "tick-a"),
+                    point(StopSide::After, 2, "2", "work-a"),
+                    condition("2"),
+                    ended(2, "2", "cut-point"),
+                ]
+            );
+            assert_eq!(probed, alone);
+            // Terminal: the condition fails at `1` and holds at `3`, whose step is taken.
+            let (probed, alone, asked) = compose(true, &[]);
+            assert_eq!(
+                asked,
+                [
+                    condition("1"),
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    point(StopSide::After, 1, "1", "tick-a"),
+                    point(StopSide::After, 2, "2", "work-a"),
+                    condition("3"),
+                    point(StopSide::Before, 2, "2", "tick-b"),
+                    point(StopSide::After, 3, "3", "tick-b"),
+                    ended(3, "3", "terminal"),
+                ]
+            );
+            assert_eq!(probed, alone);
+            // A difference at the terminal rule's last step ends the request before its end.
+            let differs = ProbeDecision::Differs("three".to_owned());
+            let (probed, _, asked) = compose(true, &[("3", StopSide::After, differs)]);
+            assert_eq!(
+                asked.last(),
+                Some(&point(StopSide::After, 3, "3", "tick-b"))
+            );
+            assert_eq!(ends(&probed), [("3".into(), 3, "probe-difference")]);
         }
     }
 
@@ -8315,6 +9324,7 @@ mod tests {
                 InProcess {
                     condition: None,
                     reading: reading.map(|reading| -> &dyn SuccessorReading { reading }),
+                    probe: None,
                 },
             )
             .unwrap()

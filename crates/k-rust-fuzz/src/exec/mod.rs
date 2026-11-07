@@ -1132,6 +1132,7 @@ fn leaf_class(
         H::Stuck => Err("a stuck leaf unclean by its halt"),
         H::Branch | H::CutPoint => Err("a branch or cut-point halt"),
         H::StopUndecided => Err("a stop-undecided halt in a request without a stop condition"),
+        H::ProbeDifference | H::ProbeDone => Err("a probe's halt in a request without a probe"),
     }
 }
 

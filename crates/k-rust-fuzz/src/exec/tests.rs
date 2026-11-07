@@ -934,7 +934,12 @@ fn every_halt_has_a_class() {
             }
             H::DepthBound | H::BreadthBound => Some(OutcomeClass::DepthBound),
             H::WorkBound => Some(OutcomeClass::WorkBound),
-            H::Branch | H::CutPoint | H::Terminal | H::StopUndecided => None,
+            H::Branch
+            | H::CutPoint
+            | H::Terminal
+            | H::StopUndecided
+            | H::ProbeDifference
+            | H::ProbeDone => None,
         };
         let leaf = if halt == H::Stuck {
             abnormal()

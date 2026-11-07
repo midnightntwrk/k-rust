@@ -224,8 +224,9 @@ pub use k_rust_backend::definition::{
 };
 pub use k_rust_backend::nesting::SegmentRefused;
 pub use k_rust_backend::rewrite::{
-    InProcess, StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
-    SuccessorCandidate, SuccessorReading,
+    CellHandle, InProcess, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
+    StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide, SuccessorCandidate,
+    SuccessorReading,
 };
 pub use k_rust_backend::stop::{
     CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,
@@ -2007,6 +2008,16 @@ pub enum HaltReasonOutput {
     /// is no result of the run; only a request with a stop condition has it, and under
     /// `state-set` it is never merged.
     StopUndecided,
+    /// An in-process probe found a difference at a point ([`Backend::execute_kore_with_probe`]),
+    /// and the request ended there: the leaf's state is the point's observed state (the state
+    /// before a before point's step, the normalized successor of an after point's). It is no end
+    /// of the run; only a request with a probe has it, and under `state-set` it is never merged.
+    ProbeDifference,
+    /// An in-process probe needed nothing more of the path at a point
+    /// ([`Backend::execute_kore_with_probe`]), and the path ended there, at the point's observed
+    /// state. It is no end of the run; only a request with a probe has it, and under
+    /// `state-set` it is never merged.
+    ProbeDone,
     DepthBound,
     BreadthBound,
     /// The request's `max_work` was reached before this state was visited. The leaf's state is
@@ -2023,7 +2034,7 @@ pub enum HaltReasonOutput {
 }
 
 impl HaltReasonOutput {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 17] = [
         Self::Cancelled,
         Self::Stuck,
         Self::Trivial,
@@ -2032,6 +2043,8 @@ impl HaltReasonOutput {
         Self::CutPoint,
         Self::Terminal,
         Self::StopUndecided,
+        Self::ProbeDifference,
+        Self::ProbeDone,
         Self::DepthBound,
         Self::BreadthBound,
         Self::WorkBound,
@@ -2710,7 +2723,7 @@ impl Backend {
         &mut self,
         request: ExecuteRequest,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request, None, InProcess::default())
+        self.execute_using(request, None, InProcess::default(), ProbeRules::default())
     }
 
     /// [`Self::execute_kore`] with a stop condition: a path ends at its `stopCount`th arrival
@@ -2738,6 +2751,7 @@ impl Backend {
             InProcess {
                 condition: Some(condition),
                 reading: None,
+                probe: None,
             },
         )
     }
@@ -2755,7 +2769,31 @@ impl Backend {
         request: ExecuteRequest,
         in_process: InProcess<'_>,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request, None, in_process)
+        self.execute_kore_with_probe(request, ProbeRules::default(), in_process)
+    }
+
+    /// [`Self::execute_kore_in_process`] with the rules whose steps `in_process.probe` observes:
+    /// the probe is asked at each point, a taken step of a rule `probe_rules` selects whose
+    /// successor is defined, of the state before the step for a before point and of the
+    /// normalized successor for an after point (docs/compatibility.md, "Probes (in-process)").
+    /// Its `Differs` answer ends the request with a `probe-difference` leaf, its `Done` answer
+    /// the path with a `probe-done` leaf. It is told once where the path splits and asked
+    /// nothing after, or else where the path ends. Without a probe the rules change nothing.
+    ///
+    /// In-process only: the probe is a callback, which no wire request carries. It is asked
+    /// isolated from the run and off its clock, and a probe that always continues leaves the
+    /// result as it is without it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::execute_kore_with_condition`].
+    pub fn execute_kore_with_probe(
+        &mut self,
+        request: ExecuteRequest,
+        probe_rules: ProbeRules,
+        in_process: InProcess<'_>,
+    ) -> Result<KoreExecutionResult, BackendError> {
+        self.execute_using(request, None, in_process, probe_rules)
     }
 
     /// Execute with observation without changing the leaves or their order.
@@ -2772,7 +2810,12 @@ impl Backend {
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request.request, Some(request.rules), InProcess::default())
+        self.execute_using(
+            request.request,
+            Some(request.rules),
+            InProcess::default(),
+            ProbeRules::default(),
+        )
     }
 
     fn execute_using<K: wire::WireKore>(
@@ -2780,6 +2823,7 @@ impl Backend {
         mut request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
         in_process: InProcess<'_>,
+        probe_rules: ProbeRules,
     ) -> Result<ExecutionResult<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         if request.collect_offered && !request.collect_coverage {
@@ -2917,12 +2961,14 @@ impl Backend {
                 match_states,
                 collect_committed: request.collect_committed,
                 request_literals: literals.to_vec(),
+                probe_rules,
             };
             let observation = observation_rules
                 .map(|rules| observation_options(definition, rules))
                 .transpose()?;
             let asked = in_process.condition.is_some();
-            let in_process_run = asked || in_process.reading.is_some();
+            let in_process_run =
+                asked || in_process.reading.is_some() || in_process.probe.is_some();
             let result = match (in_process_run, &observation) {
                 (true, observation) => execute_in_process(
                     definition,
@@ -3305,12 +3351,18 @@ impl Backend {
             request.request,
             Some(request.rules),
             InProcess::default(),
+            ProbeRules::default(),
         )?;
         serde_json::to_writer(writer, &response).map_err(json_output_error)
     }
 
     pub fn execute_json(&mut self, request: ExecuteRequest) -> Result<String, BackendError> {
-        serialize_wire(&self.execute_using::<Box<RawValue>>(request, None, InProcess::default())?)
+        serialize_wire(&self.execute_using::<Box<RawValue>>(
+            request,
+            None,
+            InProcess::default(),
+            ProbeRules::default(),
+        )?)
     }
 
     pub fn execute_observed_json(
@@ -3321,6 +3373,7 @@ impl Backend {
             request.request,
             Some(request.rules),
             InProcess::default(),
+            ProbeRules::default(),
         )?)
     }
 
@@ -4010,6 +4063,8 @@ fn halt_reason(
         HaltReason::CutPointRule { .. } => (HaltReasonOutput::CutPoint, detail()),
         HaltReason::TerminalRule { .. } => (HaltReasonOutput::Terminal, detail()),
         HaltReason::StopUndecided { .. } => (HaltReasonOutput::StopUndecided, detail()),
+        HaltReason::ProbeDifference { .. } => (HaltReasonOutput::ProbeDifference, detail()),
+        HaltReason::ProbeDone { .. } => (HaltReasonOutput::ProbeDone, detail()),
         HaltReason::DepthBound => (HaltReasonOutput::DepthBound, None),
         HaltReason::BreadthBound => (HaltReasonOutput::BreadthBound, None),
         HaltReason::WorkBound => (HaltReasonOutput::WorkBound, None),
@@ -5981,6 +6036,92 @@ mod tests {
             "the stop condition has no value at the arrival before `cd` at depth 2: the cell holds a variable"
         );
         assert_typescript_member("ExecutionLeaf", "arrivals?: number");
+    }
+
+    /// An in-process probe reaches the facade: a probe that continues leaves the result as the
+    /// plain request's, a difference ends the request `probe-difference` at the point's observed
+    /// state, and `Done` ends the path `probe-done` there. On `a -> b -> c -> d`, `ab` a before
+    /// point and `bc` an after point.
+    #[test]
+    fn the_probe_reaches_the_facade() {
+        struct Answering {
+            at: &'static str,
+            answer: ProbeDecision,
+            asked: Vec<(StopSide, u64, String)>,
+            ended: Vec<String>,
+        }
+        impl Probe for Answering {
+            fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+                let state = text(point.configuration());
+                self.asked
+                    .push((point.side(), point.depth(), state.clone()));
+                if state == self.at {
+                    self.answer.clone()
+                } else {
+                    ProbeDecision::Continue
+                }
+            }
+
+            fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+                self.ended.push(text(leaf.configuration()));
+            }
+        }
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap();
+        let rules = || ProbeRules {
+            before: ["ab".to_owned()].into(),
+            after: ["bc".to_owned()].into(),
+        };
+        let mut run = |at: &'static str, answer: ProbeDecision| {
+            let mut probe = Answering {
+                at,
+                answer,
+                asked: Vec::new(),
+                ended: Vec::new(),
+            };
+            let result = backend
+                .execute_kore_with_probe(
+                    ExecuteRequest::new(kore("a{}()")),
+                    rules(),
+                    InProcess {
+                        probe: Some(&mut probe),
+                        ..InProcess::default()
+                    },
+                )
+                .unwrap();
+            (serde_json::to_value(result).unwrap(), probe)
+        };
+        let leaf = |value: &serde_json::Value| {
+            let [leaf] = value["leaves"].as_array().unwrap().as_slice() else {
+                panic!("expected one leaf: {value}");
+            };
+            (
+                leaf["reason"].as_str().unwrap().to_owned(),
+                leaf["depth"].as_u64().unwrap(),
+                text(kore_codec::from_value(&leaf["state"]).unwrap()),
+            )
+        };
+        let (continued, probe) = run("", ProbeDecision::Continue);
+        assert_eq!(
+            probe.asked,
+            [
+                (StopSide::Before, 0, "a{}()".to_owned()),
+                (StopSide::After, 2, "c{}()".to_owned())
+            ]
+        );
+        assert_eq!(probe.ended, ["d{}()"]);
+        let plain = Backend::new(CHAIN, "MAIN", BackendOptions::default())
+            .unwrap()
+            .execute_kore(ExecuteRequest::new(kore("a{}()")))
+            .unwrap();
+        assert_eq!(continued, serde_json::to_value(plain).unwrap());
+        let (differs, probe) = run("c{}()", ProbeDecision::Differs("c".to_owned()));
+        assert_eq!(
+            leaf(&differs),
+            ("probe-difference".into(), 2, "c{}()".into())
+        );
+        assert!(probe.ended.is_empty());
+        let (done, _) = run("a{}()", ProbeDecision::Done);
+        assert_eq!(leaf(&done), ("probe-done".into(), 0, "a{}()".into()));
     }
 
     /// A chain of three steps, `a -> b -> c -> d`, labelled `ab`, `bc` and `cd`.

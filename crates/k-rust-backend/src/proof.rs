@@ -1763,6 +1763,8 @@ impl ProofState {
             | HaltReason::CutPointRule { .. }
             | HaltReason::TerminalRule { .. }
             | HaltReason::StopUndecided { .. }
+            | HaltReason::ProbeDifference { .. }
+            | HaltReason::ProbeDone { .. }
             | HaltReason::DepthBound
             | HaltReason::BreadthBound
             | HaltReason::WorkBound

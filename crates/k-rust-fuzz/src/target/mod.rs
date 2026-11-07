@@ -662,6 +662,8 @@ fn no_path_ends_naturally(result: &CaseResult) -> bool {
             | HaltReasonOutput::CutPoint
             | HaltReasonOutput::Terminal
             | HaltReasonOutput::StopUndecided
+            | HaltReasonOutput::ProbeDifference
+            | HaltReasonOutput::ProbeDone
             | HaltReasonOutput::DepthBound
             | HaltReasonOutput::BreadthBound
             | HaltReasonOutput::WorkBound

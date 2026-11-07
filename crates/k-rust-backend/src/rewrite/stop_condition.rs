@@ -70,14 +70,17 @@
 
 use k_rust_kore::kore::ast as kore;
 
-use crate::term::{Term, TermKind};
+use crate::term::Term;
 
-/// Where an arrival's stop state lies relative to the stop rule's step.
+/// Which state of a rule's step is meant: the state before the step, or its normalized
+/// successor. An arrival's stop state lies on the side of its stop rule; a probe's point on the
+/// side its rule was selected for (`probe`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StopSide {
-    /// A cut-point rule: the stop state is the state before the step.
+    /// The state before the step: a cut-point rule's stop state, a before point's observed state.
     Before,
-    /// A terminal rule: the stop state is the step's normalized successor.
+    /// The step's normalized successor: a terminal rule's stop state, an after point's observed
+    /// state.
     After,
 }
 
@@ -144,13 +147,17 @@ impl Candidate<'_> {
 }
 
 /// What an in-process caller adds to an execution ([`super::execute_in_process`]): a stop
-/// condition, a reading of the step's candidates, both or neither.
+/// condition, a reading of the step's candidates and a probe, each or none.
 #[derive(Default)]
 pub struct InProcess<'a> {
     /// The stop condition asked at each arrival ([`StopCondition`]).
     pub condition: Option<&'a mut dyn StopCondition>,
     /// The reading of a stop rule's step's candidates ([`SuccessorReading`]).
     pub reading: Option<&'a dyn SuccessorReading>,
+    /// The probe asked at the points of the rules
+    /// [`ExecutionOptions::probe_rules`](super::ExecutionOptions::probe_rules) selects
+    /// ([`Probe`](super::Probe)).
+    pub probe: Option<&'a mut dyn super::Probe>,
 }
 
 /// An arrival at a stop, as a [`StopCondition`] is asked about it.
@@ -196,27 +203,7 @@ impl Arrival<'_> {
     /// path and the size of the cell, not of the configuration.
     #[must_use]
     pub fn cell(&self, path: &[&str]) -> Option<kore::Pattern> {
-        let (first, below) = path.split_first()?;
-        let mut current = self.term;
-        if application_symbol(current)? != *first {
-            return None;
-        }
-        for symbol in below {
-            let TermKind::Application { arguments, .. } = current.kind() else {
-                return None;
-            };
-            current = arguments
-                .iter()
-                .find(|argument| application_symbol(argument) == Some(symbol))?;
-        }
-        Some(crate::externalize::term(current))
-    }
-}
-
-fn application_symbol(term: &Term) -> Option<&str> {
-    match term.kind() {
-        TermKind::Application { symbol, .. } => Some(&symbol.name),
-        _ => None,
+        super::probe::cell_term(self.term, path).map(crate::externalize::term)
     }
 }
 
@@ -254,10 +241,5 @@ impl std::error::Error for StopConditionRefusal {}
 
 /// Ask `condition` about `arrival`, isolated from the run ([module documentation](self)).
 pub(super) fn ask(condition: &mut dyn StopCondition, arrival: &Arrival<'_>) -> StopDecision {
-    let (decision, _) = crate::coverage::isolated(u64::MAX, || {
-        let _proof =
-            crate::evaluation::EvaluationScope::enter(crate::evaluation::EvaluationMode::Proof);
-        crate::term::domain::outside_definition_scopes(|| condition.decide(arrival))
-    });
-    decision
+    super::probe::isolated(|| condition.decide(arrival))
 }

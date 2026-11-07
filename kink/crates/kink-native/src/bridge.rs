@@ -506,11 +506,14 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         // outside the contract, as the adapter says. A stop-undecided leaf is admitted only for a
         // run with a stop condition, which its caller judges before it bridges the run (a path
         // that ends undecided makes it no evidence, kink-campaign's `stop-condition`), so a
-        // bridge given one was given a run outside that contract.
+        // bridge given one was given a run outside that contract. No request asks a probe, so a
+        // probe's leaf is outside it too.
         HaltClass::Branch
         | HaltClass::Timeout
         | HaltClass::Cancelled
-        | HaltClass::StopUndecided => {
+        | HaltClass::StopUndecided
+        | HaltClass::ProbeDifference
+        | HaltClass::ProbeDone => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -2110,7 +2113,7 @@ mod tests {
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 61] = [
+        let rows: [Row; 63] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
@@ -2202,6 +2205,9 @@ mod tests {
             (H::Branch, BOTTOM, U, 0, Violation),
             // No request asks a stop condition, so a stop-undecided leaf is outside the contract.
             (H::StopUndecided, CONSTRAINED, N, 0, Violation),
+            // No request asks a probe, so a probe's leaf is outside the contract.
+            (H::ProbeDifference, CONSTRAINED, N, 0, Violation),
+            (H::ProbeDone, CONSTRAINED, N, 0, Violation),
         ];
         let covered = rows
             .iter()
@@ -2557,11 +2563,18 @@ mod tests {
             before: vec!["r".to_owned()],
             after: vec!["s".to_owned()],
         };
-        // No request asks a stop condition, so no budget or stop rule admits a stop-undecided
-        // leaf.
-        let always_excluded = [H::Branch, H::Timeout, H::Cancelled, H::StopUndecided]
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>();
+        // No request asks a stop condition or a probe, so no budget or stop rule admits a
+        // stop-undecided leaf or a probe's leaf.
+        let always_excluded = [
+            H::Branch,
+            H::Timeout,
+            H::Cancelled,
+            H::StopUndecided,
+            H::ProbeDifference,
+            H::ProbeDone,
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
         let with = |extra: &[HaltClass]| {
             always_excluded
                 .iter()

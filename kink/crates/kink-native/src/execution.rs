@@ -86,10 +86,18 @@ pub enum HaltClass {
     /// it exactly for such a request ([`Requested::admits`]), never by [`HaltClass::admitted_by`],
     /// which judges the wire request alone. It never completes a run.
     StopUndecided,
+    /// k-rust's `probe-difference` halt: an in-process probe found a difference at a point and
+    /// the request ended there. Only a request with a probe has it, and the adapter asks none,
+    /// so no request admits it. It never completes a run.
+    ProbeDifference,
+    /// k-rust's `probe-done` halt: an in-process probe needed nothing more of the path at a
+    /// point and the path ended there. Only a request with a probe has it, and the adapter asks
+    /// none, so no request admits it. It never completes a run.
+    ProbeDone,
 }
 
 impl HaltClass {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 17] = [
         Self::Stuck,
         Self::Trivial,
         Self::Vacuous,
@@ -105,6 +113,8 @@ impl HaltClass {
         Self::Cancelled,
         Self::WorkBound,
         Self::StopUndecided,
+        Self::ProbeDifference,
+        Self::ProbeDone,
     ];
 
     /// Whether the adapter's request can yield this halt under `budget`, for a request without
@@ -141,7 +151,12 @@ impl HaltClass {
             Self::WorkBound => max_work.is_some(),
             Self::CutPoint => !stop.before.is_empty(),
             Self::TerminalRule => !stop.after.is_empty(),
-            Self::Branch | Self::Timeout | Self::Cancelled | Self::StopUndecided => false,
+            Self::Branch
+            | Self::Timeout
+            | Self::Cancelled
+            | Self::StopUndecided
+            | Self::ProbeDifference
+            | Self::ProbeDone => false,
         }
     }
 
@@ -164,6 +179,8 @@ impl HaltClass {
             HaltReasonOutput::Cancelled => Self::Cancelled,
             HaltReasonOutput::WorkBound => Self::WorkBound,
             HaltReasonOutput::StopUndecided => Self::StopUndecided,
+            HaltReasonOutput::ProbeDifference => Self::ProbeDifference,
+            HaltReasonOutput::ProbeDone => Self::ProbeDone,
         }
     }
 }

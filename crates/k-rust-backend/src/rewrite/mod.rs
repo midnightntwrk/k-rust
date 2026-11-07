@@ -16,6 +16,7 @@ mod execute;
 mod exploration_merge;
 pub(crate) mod path_trace;
 mod predicates;
+mod probe;
 mod recover;
 mod refutation_memo;
 mod roles;
@@ -39,6 +40,9 @@ pub(crate) use predicates::{
     alpha_normal, check_concreteness, conjunctively_contains_alpha_equivalent,
     free_variables_by_first_occurrence, predicate_root_truth, predicate_truth, predicates_truth,
     quantify_introduced_variables, violates_finite_constructor_domain,
+};
+pub use probe::{
+    CellHandle, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
 };
 use recover::{
     GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,
@@ -775,6 +779,10 @@ pub struct ExecutionOptions {
     /// every leaf after it, carries the mark `literal` of each, and so does the run's list
     /// (empty by default).
     pub request_literals: Vec<std::sync::Arc<str>>,
+    /// The rules whose steps an in-process probe observes, on their before or after side
+    /// (`probe`, [`execute_with_probe`]); none by default. Without a probe nothing is asked and
+    /// the selection changes nothing.
+    pub probe_rules: ProbeRules,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -818,6 +826,7 @@ impl Default for ExecutionOptions {
             match_states: None,
             collect_committed: false,
             request_literals: Vec::new(),
+            probe_rules: ProbeRules::default(),
         }
     }
 }
@@ -902,6 +911,24 @@ pub enum HaltReason {
     StopUndecided {
         rule: String,
         reason: String,
+    },
+    /// An in-process probe answered that the run differs at a point of `rule` on `side`
+    /// (`probe`, [`ProbeDecision::Differs`]), with `reason`: the request ended there. The leaf
+    /// is the point's observed state: the state before the step for a before point, the
+    /// normalized successor for an after point. It is no end of the system, only a request with
+    /// a probe has it, and it is never merged with another leaf.
+    ProbeDifference {
+        rule: String,
+        side: StopSide,
+        reason: String,
+    },
+    /// An in-process probe answered that it needs nothing more of the path at a point of `rule`
+    /// on `side` (`probe`, [`ProbeDecision::Done`]): the path ended there. The leaf is the
+    /// point's observed state, as for [`Self::ProbeDifference`]. It is no end of the system,
+    /// only a request with a probe has it, and it is never merged with another leaf.
+    ProbeDone {
+        rule: String,
+        side: StopSide,
     },
     DepthBound,
     BreadthBound,
@@ -1496,14 +1523,47 @@ pub fn execute_with_stop_condition(
         InProcess {
             condition: Some(condition),
             reading: None,
+            probe: None,
+        },
+    )
+}
+
+/// Execute with a probe asked at the points of the rules `options.probe_rules` selects
+/// (`probe`), and with a stop condition where `condition` gives one, asked as
+/// [`execute_with_stop_condition`] asks it. In-process only: the probe is a callback, which no
+/// wire request carries. A probe that always continues leaves the result as it is without it.
+///
+/// # Errors
+///
+/// As [`execute_with_stop_condition`].
+pub fn execute_with_probe<'a>(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+    condition: Option<&'a mut dyn StopCondition>,
+    probe: &'a mut dyn Probe,
+) -> Result<ExecutionResult, StopConditionRefusal> {
+    execute_in_process(
+        definition,
+        initial,
+        options,
+        solver,
+        observation,
+        InProcess {
+            condition,
+            reading: None,
+            probe: Some(probe),
         },
     )
 }
 
 /// Execute with what an in-process caller adds ([`InProcess`]): a stop condition asked at each
-/// arrival at a stop, as [`execute_with_stop_condition`] asks it, and a reading of the
+/// arrival at a stop, as [`execute_with_stop_condition`] asks it, a reading of the
 /// candidates of a stop rule's step, which decides whether the step is its state's one successor
-/// (`stop_condition`, "Successors read by the caller"). Without either it runs as
+/// (`stop_condition`, "Successors read by the caller"), and a probe asked at the points of the
+/// rules `options.probe_rules` selects ([`execute_with_probe`]). Without any it runs as
 /// [`execute_with_solver`] does, observed where `observation` asks.
 ///
 /// # Errors

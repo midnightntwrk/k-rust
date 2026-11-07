@@ -213,12 +213,30 @@ impl Display for AtSort<'_, HaltReason> {
                 formatter,
                 "the stop condition is undecided at the arrival at {rule}: {reason}"
             ),
+            HaltReason::ProbeDifference { rule, side, reason } => write!(
+                formatter,
+                "the probe found a difference at the point {} {rule}: {reason}",
+                side_word(*side)
+            ),
+            HaltReason::ProbeDone { rule, side } => write!(
+                formatter,
+                "the probe needs nothing more of the path at the point {} {rule}",
+                side_word(*side)
+            ),
             HaltReason::DepthBound => formatter.write_str("the depth bound was reached"),
             HaltReason::BreadthBound => formatter.write_str("the breadth bound was exceeded"),
             HaltReason::WorkBound => formatter.write_str("the work budget was reached"),
             HaltReason::Indeterminate(reason) => write!(formatter, "{}", reason.at(self.sort)),
             HaltReason::Simplification(error) => write!(formatter, "{}", error.at(self.sort)),
         }
+    }
+}
+
+/// The side of a rule's step a probe's point is on, as a word before the rule's name.
+const fn side_word(side: crate::rewrite::StopSide) -> &'static str {
+    match side {
+        crate::rewrite::StopSide::Before => "before",
+        crate::rewrite::StopSide::After => "after",
     }
 }
 

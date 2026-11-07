@@ -1367,7 +1367,7 @@ fn runner_mapping_is_exhaustive() {
     };
     let infrastructure = Err(ExecutionFailureKind::Infrastructure);
     #[rustfmt::skip]
-    let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 15] = [
+    let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 17] = [
         (H::Stuck, Ok(value(std::slice::from_ref(&done)))),
         // kink27 R1-UNDEF: an undefined step is a complete terminal but no end; its whole term is
         // the empty set. Before: its pre-step configuration.
@@ -1394,6 +1394,9 @@ fn runner_mapping_is_exhaustive() {
         (H::WorkBound, Ok(OracleSide::Unknown)),
         // Only a request with a stop condition has it, and kink asks none: a contract violation.
         (H::StopUndecided, infrastructure.clone()),
+        // Only a request with a probe has them, and kink asks none: a contract violation.
+        (H::ProbeDifference, infrastructure.clone()),
+        (H::ProbeDone, infrastructure.clone()),
     ];
     assert_eq!(
         halts.iter().map(|(halt, _)| *halt).collect::<Vec<_>>(),
