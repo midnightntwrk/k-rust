@@ -230,8 +230,8 @@ Usage:
   krs kink results --package P --definition D [--corpus DIR] [--verify] [--mutations PATH]
                    [--cache DIR] [--output json|verdicts] [--locked]
   krs kink run     --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]...
-                   [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo]
-                   [--progress] [--cache DIR] [--output json|verdicts] [--locked]
+                   [--verify] [--full] [--compile-workers N] [--no-memo] [--progress]
+                   [--cache DIR] [--output json|verdicts] [--locked]
   krs kink report  --package P --definition D [--corpus DIR] [--cache DIR]
                    [--output json|verdicts]
   krs kink query   --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]...
@@ -347,8 +347,8 @@ const KINK_VERB_USAGE: [(&str, &str); 7] = [
     (
         "run",
         "krs kink run --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]... \
-         [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo] \
-         [--progress] [--cache DIR] [--output json|verdicts] [--locked]",
+         [--verify] [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] \
+         [--output json|verdicts] [--locked]",
     ),
     (
         "report",

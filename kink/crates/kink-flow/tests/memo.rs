@@ -22,7 +22,7 @@ use kink_flow::{
     digest::spec_digest,
     memo::{self, CENSUS_MEMO_VERSION, Facts, MemoUse, RESOLUTION_MEMO_VERSION},
     results::CACHE_DIRECTORY,
-    search::{ProgramOrder, RunMode, RunOptions, run_with},
+    search::{RunMode, RunOptions, run_with},
 };
 use kink_patch::Sha256Digest;
 use serde_json::{Value, json};
@@ -137,7 +137,6 @@ fn search_only(
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
-            order: ProgramOrder::Corpus,
             compile_workers: Some(1),
             memo,
             schedule: kink_campaign::ScheduleMode::FirstKill,

@@ -53,8 +53,7 @@
 //! Left out, each because it is not a function of the specification, the corpus and the budget:
 //! timings, digests, the build's identity (its solver profile is in the header) and the cache's
 //! state; the killer of a first-kill run, since it is the first killing program the search
-//! reached, which depends on the order (`--order cost` reads wall times) and on the outcomes the
-//! cache already holds; and the reason of any other status, since the reason of `unknown` is the
+//! reached, which depends on the outcomes the cache already holds; and the reason of any other status, since the reason of `unknown` is the
 //! first exclusion in run order. A status itself does not depend
 //! on the order or the cache in the no-Z3 profile while no `budget.time_ms` bound fires (README,
 //! the program order), and neither does a full run's `killed_by`: it is the set of comparable

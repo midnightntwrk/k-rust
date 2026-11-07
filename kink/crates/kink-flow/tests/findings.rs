@@ -35,7 +35,7 @@ use kink_flow::{
     query::{QueryOptions, query},
     resolve,
     results::{ResultsOptions, results},
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -132,7 +132,6 @@ fn search(dir: &Path) -> (Value, bool) {
         &RunOptions {
             only: Vec::new(),
             cache: None,
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,

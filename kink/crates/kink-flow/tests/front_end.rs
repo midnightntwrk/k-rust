@@ -119,9 +119,7 @@ fn kink_flow_options_parse_with_the_front_end_files() {
     let parsed = FlowCommand::parse(
         "run",
         mutations(&dir),
-        &strings(&[
-            "--only", "no-mul", "--order", "corpus", "--output", "verdicts",
-        ]),
+        &strings(&["--only", "no-mul", "--output", "verdicts"]),
     )
     .unwrap();
     assert_eq!(parsed.verb(), Verb::Run);
@@ -287,7 +285,7 @@ fn a_refused_mutation_runs_nothing_and_writes_nothing() {
         &dir,
         "run",
         mutations(&dir),
-        &["--only", "sub-off-by-one", "--order", "corpus"],
+        &["--only", "sub-off-by-one"],
         refusing("sub-off-by-one"),
     );
     assert_eq!(status, EXIT_UNASKED, "{document:#}");
@@ -395,7 +393,7 @@ fn a_fuzz_kill_job_of_a_refused_mutation_is_refused() {
 fn a_refused_mutation_leaves_the_other_rows_as_without_it() {
     let refused_dir = calc("refused-list");
     let plain_dir = calc("plain-list");
-    let options = ["--order", "corpus"];
+    let options: [&str; 0] = [];
     let (with, status) = command(
         &refused_dir,
         "run",
@@ -560,13 +558,7 @@ fn every_rule_a_document_names_is_visited_once() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let loaded = load_source(&corpus_source(&manifest)).unwrap();
     let (results, _) = command(&dir, "results", mutations(&dir), &[], FrontEnd::default());
-    let (run, _) = command(
-        &dir,
-        "run",
-        mutations(&dir),
-        &["--order", "corpus"],
-        FrontEnd::default(),
-    );
+    let (run, _) = command(&dir, "run", mutations(&dir), &[], FrontEnd::default());
     let (check, _) = command(&dir, "check", mutations(&dir), &[], FrontEnd::default());
     assert_every_rule_visited_once(
         &loaded,
@@ -643,13 +635,7 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
         annotate: Some(&annotate),
         ..FrontEnd::default()
     };
-    let (run, status) = command(
-        &dir,
-        "run",
-        mutations(&dir),
-        &["--order", "corpus"],
-        front(),
-    );
+    let (run, status) = command(&dir, "run", mutations(&dir), &[], front());
     assert_eq!(status, EXIT_YES, "{run:#}");
     let mut objects = BTreeSet::new();
     rule_objects(&run, "", &mut objects);
@@ -761,30 +747,22 @@ fn next_steps_name_the_front_end_command() {
     );
 }
 
-/// Rewrite every result record's `wall_ms` in `dir`'s cache so that cost order is the reverse
-/// of corpus order; `wall_ms` is outside the key, so every record stays in use.
-fn reverse_costs(dir: &Path, results: &Value) {
-    let programs = results["programs"].as_array().unwrap();
-    let records = dir.join(".kink-flow").join("results").join(
-        results["spec"]["execution_digest"]["digest"]
-            .as_str()
-            .unwrap(),
-    );
-    let mut rewritten = 0;
-    for (index, program) in programs.iter().enumerate() {
-        let path = records.join(format!("{}.json", program["digest"].as_str().unwrap()));
-        let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        record["wall_ms"] = json!((programs.len() - index) * 1000);
-        fs::write(&path, record.to_string()).unwrap();
-        rewritten += 1;
+/// Rewrite the manifest of `dir` with its programs in reverse order: the same programs, which
+/// the search tries the other way round; a program's digest does not name its place, so every
+/// result record stays in use.
+fn reverse_programs(dir: &Path) {
+    let manifest = dir.join("FLOW.toml");
+    let mut value: toml::Table = fs::read_to_string(&manifest).unwrap().parse().unwrap();
+    if let Some(toml::Value::Array(programs)) = value.get_mut("program") {
+        programs.reverse();
     }
-    assert_eq!(rewritten, programs.len());
+    fs::write(&manifest, toml::to_string(&value).unwrap()).unwrap();
 }
 
 #[test]
 fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     let corpus = calc("verdicts-corpus");
-    let cost = calc("verdicts-cost");
+    let reversed = calc("verdicts-reversed");
     let document = |dir: &Path, verb: &str, options: &[&str]| {
         let files = if verb == "run" {
             mutations(dir)
@@ -796,15 +774,15 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     let render =
         |dir: &Path, verb: &str, options: &[&str]| verdicts(&document(dir, verb, options)).unwrap();
     let cold_results = render(&corpus, "results", &[]);
-    let cold_document = document(&corpus, "run", &["--order", "corpus"]);
+    let cold_document = document(&corpus, "run", &[]);
     let cold = verdicts(&cold_document).unwrap();
-    let warm = render(&corpus, "run", &["--order", "corpus"]);
+    let warm = render(&corpus, "run", &[]);
     let warm_results = render(&corpus, "results", &[]);
-    // Cost order, made the reverse of corpus order, on a cache with result records and no
-    // outcome record or hint.
-    let cost_results = document(&cost, "results", &[]);
-    reverse_costs(&cost, &cost_results);
-    let cost_document = document(&cost, "run", &["--order", "cost"]);
+    // The programs in reverse order, on a cache with result records and no outcome record or
+    // hint.
+    document(&reversed, "results", &[]);
+    reverse_programs(&reversed);
+    let reversed_document = document(&reversed, "run", &[]);
     let executed = |document: &Value| {
         document["mutations"]
             .as_array()
@@ -822,10 +800,10 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     };
     assert_ne!(
         executed(&cold_document),
-        executed(&cost_document),
-        "the cost order ran the programs in another order"
+        executed(&reversed_document),
+        "the reversed manifest ran the programs in another order"
     );
-    let other_order = verdicts(&cost_document).unwrap();
+    let other_order = verdicts(&reversed_document).unwrap();
     assert_eq!(cold, warm);
     assert_eq!(cold, other_order);
     assert_eq!(cold_results, warm_results);

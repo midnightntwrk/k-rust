@@ -18,7 +18,7 @@ use kink_flow::{
     outcomes::OUTCOMES_DIRECTORY,
     resolve,
     results::{CACHE_DIRECTORY, ResultsOptions},
-    search::{ProgramOrder, REPORT_FILE, RunOptions, run},
+    search::{REPORT_FILE, RunOptions, run},
 };
 use kink_patch::Sha256Digest;
 use serde_json::{Value, json};
@@ -83,9 +83,6 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
-            // F-05's corpus order, so that the pinned calls and killers do not depend on host
-            // timing (F-13's cost order: tests/usability.rs).
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
@@ -394,7 +391,7 @@ mod kink_tier {
             .arg("run")
             .arg(&manifest)
             .arg(&mutations)
-            .args(["--only", "put-offset", "--order", "corpus", "--cache"])
+            .args(["--only", "put-offset", "--cache"])
             .arg(&cache)
             .output()
             .unwrap();

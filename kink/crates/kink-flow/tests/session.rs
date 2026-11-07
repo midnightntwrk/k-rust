@@ -10,7 +10,7 @@ use kink_flow::{
     cli::{EXIT_YES, results},
     outcomes::OUTCOMES_DIRECTORY,
     results::{CACHE_DIRECTORY, ResultsOptions},
-    search::{ProgramOrder, RunMode, RunOptions, run_with},
+    search::{RunMode, RunOptions, run_with},
 };
 use serde_json::{Value, json};
 use std::{
@@ -66,9 +66,7 @@ fn after_cold(test: &str) -> (PathBuf, Value) {
 fn run(manifest: &Path, mode: RunMode) -> (Value, bool) {
     let flow = FlowManifest::read(manifest).unwrap();
     let list = MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap();
-    // F-05's corpus order, so that the pinned calls do not depend on host timing.
     let options = RunOptions {
-        order: ProgramOrder::Corpus,
         ..RunOptions::default()
     };
     run_with(&flow, &list, &options, mode)

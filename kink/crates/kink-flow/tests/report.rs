@@ -9,7 +9,7 @@ use kink_flow::{
     cli::{EXIT_UNASKED, EXIT_YES},
     report::{MISSING_SCHEMA, RUN_SCHEMA, RUN_VERSION},
     results::CACHE_DIRECTORY,
-    search::{ProgramOrder, REPORT_FILE, RunOptions, run},
+    search::{REPORT_FILE, RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -67,9 +67,6 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
-            // F-05's corpus order, so that the pinned calls and killers do not depend on host
-            // timing (F-13's cost order: tests/usability.rs).
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,

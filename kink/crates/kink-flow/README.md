@@ -13,7 +13,7 @@ the survivor report with the `report` command (flow F-06),
 Markdown sources (flow F-10),
 the outcome cache: proved outcomes kept across commands, killer hints that survive specification edits, and `run --verify` (flow F-14),
 one baseline run per program per command (flow F-12),
-report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13),
+report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, and the rules no mutation targets (flow F-13),
 per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below),
 the `fuzz` command: hole values of a template program that kill a mutation, match or fire a rule, or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below),
 the mutations directory, anchors by a suffix of a label's components and the required `misunderstanding` (CF-13; `MUTATIONS.toml` below),
@@ -725,7 +725,7 @@ a reason and a detail; it is never compiled. `check --mutations` gives each reas
 | `host-stack-refused` (status `error`) | The host refused the native stack that encoding the mutation's patch needs: the system would not map a stack segment of the size the patch's depth needs (an address-space limit such as `ulimit -v`, or memory it will not commit). It is the host's limit, neither a fault of the mutation nor a verdict, so the row is `error`, not `invalid-mutation`; rerun where the host grants the stack. Only a deep patch needs a segment: the segment is sized from the patch's own document depth (re-pin L1-3-tail; at L1-3-fix-2 every patch more than 48 term levels deep took a segment sized for `MAX_JSON_DEPTH`, 768 MB in release, and a refusal was reported as `patch-rejected`). |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does not resolve); not expected on rules k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1): a mutant is valid when it compiles, so compilation decides, and kink-patch records the edited rules' errors in compilation's typing view (`SentenceTyper::for_compilation` with `typing_in`) as the row's `typing_diagnostics`. k-rust documents that view's errors as errors compilation stops at, but at 501f18b9 it refuses shapes compilation accepts: a local function with a variable in a cell with children (`CellCompletion`), and a rule `a(X) => b(X)` whose sorts `A` and `B` have a second common supersort in the main module (a non-unique least upper bound). At the pin 8f8ad57c5 that view types the second shape (k-rust KINK-21/1), so its rows carry no typing diagnostic; the first remains. |
 
-## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output json|verdicts]`
+## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output json|verdicts]`
 
 Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
 is there a program of the corpus whose result the mutation changes?
@@ -744,9 +744,9 @@ The lines depend on the corpus and the cache alone, never on time, and stdout is
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
    A mutation whose edit only weakens the specification (it deletes equations of functions or lemmas, or replaces one by an instance of itself, a narrower pattern or `requires`) is `unkillable` and stops there too (kink's `trust.md`), unless a program is in O (step 3) and the baseline has a finding `[spec] assume_joined` leaves unnamed: then it is `unknown` with reason `baseline-findings`, as every such mutation is, since the weakening argument reads the baseline's normal forms as a model of the specification, which such a finding puts in doubt, and fixing the specification comes first.
    When every edited equation only adds to its `requires` conjuncts that hold under every valuation of their variables (the sort predicate of a variable of that sort, written or inferred, `isNat ( N:Nat )`: kind `valid-condition`), the equation is the specification's own and the mutant has exactly its models, so the mutation is `equivalent` with reason `valid-condition` instead, on the same terms.
-3. The programs are ordered (O): cheapest first, by the result record's `wall_ms` (the program's baseline run time), then the manifest's order
-   (`--order corpus`: the manifest's order only, F-05's order, for a reproducible search).
-   Each live call then runs first the programs of its call whose cached coverage witnesses the mutant's edit, then the rest, each group in O's order.
+3. The programs O are the comparable programs in the manifest's order.
+   Each live call runs first the programs of its call whose cached coverage witnesses the mutant's edit, then the rest, each group in O's order: the search order C.
+   The order is fixed: a project that wants cheap cases tried first lists them first in `FLOW.toml`, which is an input, so the order stays a function of the inputs.
    The edit is read from the compiled mutant, once it compiles, as kink-campaign's coverage selection reads it (`CompiledEdit::between` of the compiled baseline and the claim-free mutant every program runs on; kink's `trust.md`), but for one change: when kink withdrew only definedness claims from the mutant (a symbol's `total` or `functional`, a rule's `preserves-definedness`), the edit is read from the mutant as written (kink-campaign `CompiledEdit::for_ground_tests`).
    A withdrawn `total` or `functional` changes a declaration, which the claim-free side's edit reads as not site-local, and a withdrawn `preserves-definedness`, a rule attribute, makes the claim-free side edit rules the author did not edit, or edit beyond the right-hand side one whose right-hand side alone the author edited.
    But a program is ground, and a ground program whose complete coverage reaches no sentence the author's edits change applies the specification's sentences to the same terms on the claim-free mutant, where each application its equations evaluate is defined by its value with no claim, and one they leave unevaluated in a step's result is a contradicted claim or an end that is no data, on either side.
@@ -761,19 +761,16 @@ The lines depend on the corpus and the cache alone, never on time, and stdout is
    The coverage records list baseline sentences, so a removed axiom is read through the compiled baseline's rule authors, where kink-campaign reads its tests' coverage by compiled id. The two readings differ only in the order: a removed axiom with no baseline sentence (one a compiler pass generated) is witnessed by no program, and a sentence behind several compiled axioms is witnessed by a program that matched or applied any of them, not only the removed one.
    The mutation's outcome file keeps the compiled edit so read ("The cache directory", `witness`), so a row tier 1 decides with no compile still has its `witnesses`.
    What is decided before any mutant compiles (tier 1, step 4, and which mutants are compiled ahead) depends only on the set of programs in O, not on their order.
-   Under the cost order the measured times decide, so the killer found first (and hinted) and the set of outcomes cached
-   (first-kill caches nothing for the programs after the kill) can differ between hosts and runs; the content of every
-   cached outcome cannot, and with `--order corpus` the outcomes and hints written are reproducible byte for byte.
+   C is a function of the inputs: the witness set is computed from the compiled edit and the result records' coverage, both keyed facts, by the one predicate a live call and tier 1 share, so the outcomes written are reproducible byte for byte.
    In either profile, while no `budget.time_ms` bound fires, the order never changes a status: a kill outranks every other outcome under first-kill, and a mutant that fails as a whole
    fails before any program runs; it changes which killing program is found first (the reported killer and the hint) and the cost.
    That needs each program's outcome to be independent of the programs run before it in the same call. Without Z3 k-rust's Execute promise gives it; under Z3 it gives it for the resource-bounded queries kink asks (`budget.smt_resource_limit`), whose answers, decided or not, are functions of the query, the units and the Z3 build, so the mutant's backend, reused for every program of a call, cannot answer a query otherwise because an earlier program asked it.
    Under a solver bounded by the clock it would not hold: a query could time out, and an answer an earlier program cached could turn a program that times out alone into a kill or an agreement, so the order could move a status between `killed`, `unknown` and `survived` (never to a false kill: a kill is still a proved difference); tier 1 is off for such a solver for the same reason.
    A run near its `budget.time_ms` bound can time out in one order, while caches are cold, and finish in another, in either profile; a `timeout` is host- and timing-dependent anyway (review L2-1-tail-1 D1, D2).
-   Existing hints are kept; deleting `hints.json` and `outcomes/` re-runs the cold searches in the new order.
 4. **Outcome cache, tier 1.** Each program of O may have a cached outcome for this mutation: `killed` (a proved difference), `agree`, or `unknown` (since CF-33d: an inconclusive outcome that is a function of its key, step 8).
    A cached outcome is used only when its key is exactly the current one (see "The cache directory" below) and the program's
    current result record has the baseline run digest the outcome was compared with.
-   If some program has a cached `killed` outcome, the status is `killed`, with no compile and no run; its killer is the first such program in the order a live call would run O, the programs that witness the compiled edit the outcome file keeps first (step 3), so once `--full` has cached every killer the killer is the one a cold first-kill call finds first for the same order of O (before `--full`, the cache holds the killer some earlier call found: "The full matrix").
+   If some program has a cached `killed` outcome, the status is `killed`, with no compile and no run; its killer is the first such program in the order a live call would run O, the programs that witness the compiled edit the outcome file keeps first (step 3), so once `--full` has cached every killer the killer is the one a cold first-kill call finds first (before `--full`, the cache holds the killer some earlier call found: "The full matrix").
    Otherwise the programs with a cached `agree` or `unknown` outcome are not run again; if every program has one, the status is the fold of the cached outcomes (`survived`, or `unknown` when one of them is), with no run.
 5. **Killer hint, tier 2.** If programs remain and the hint names one of them (by program digest, so a renamed program keeps its hint),
    the mutant runs on that program alone. If it kills, that is the verdict.
@@ -803,7 +800,7 @@ The lines depend on the corpus and the cache alone, never on time, and stdout is
 
 **The full matrix (`--full`).** The steps above are the first-kill search, which stops at the first killing program: right for finding whether a mutation survives, but it leaves the other cells unrun and names one killer chosen by the order and the cache.
 `--full` runs every comparable program on every selected mutation, in corpus order, under kink-campaign's full schedule (kink-corpus's `schedule = "full"`), so that the document holds the whole kill matrix:
-- O is every comparable program in `FLOW.toml`'s order, and a live call keeps that order (step 3; `witnesses` still names the witnessing programs of the compiled edit, in that order); `--order` is a usage error beside `--full`, since under the full schedule no program is skipped and the order changes no cell.
+- O is every comparable program in `FLOW.toml`'s order, and a live call keeps that order (step 3; `witnesses` still names the witnessing programs of the compiled edit, in that order).
 - Tier 1 (step 4) decides with no call only when every program of O has a cached outcome: a cached `killed` outcome does not decide a full row, which needs every cell. The cached outcomes, kills and agreements alike, are not run again, and the mutant runs once on all the others, in corpus order.
 - No one-program call is made for the hint (step 5): a hint only orders the first-kill search. A hint that names no comparable program is still reported and removed.
 - The status (step 6) is kink-campaign's fold under the full schedule over the cached outcomes and the call's, with the same `outcome-conflict` and `infrastructure` rules (step 7), except that a cached kill does not decide alone: a cached kill next to a mutant that no longer compiles is an `outcome-conflict` too (its next step is `run --full --verify`), and an infrastructure failure leaves the cached kills out of the row as it leaves the agreements; outcomes and the hint are cached as in step 8, so a full run caches every cacheable cell.
@@ -834,7 +831,7 @@ The premises are those the result cache and tier 1 already rest on: k-rust's loa
 
 ### Cost model
 
-Where a run's wall time goes (release build, `--order corpus`, 4 compile workers; re-pin L1-3 and L1-4 measurements, shared 32-core host at load 15-35):
+Where a run's wall time goes (release build, 4 compile workers; re-pin L1-3 and L1-4 measurements, shared 32-core host at load 15-35):
 
 | Stage | Cost | Cold | Warm (tier 1 decides) |
 | --- | --- | --- | --- |
@@ -1026,7 +1023,6 @@ Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 ad
 | `outcome_cache` | `{context_sha256, enabled, verify, reason, mutations_from_cache, programs_from_cache, records_written}`: tier 1's context (null when disabled), whether it decided statuses, whether this is `run --verify`, why not, the mutations decided with no call, the cached program outcomes used, and the records written (one per program, also when a hinted program ran in two calls). |
 | `mismatches` | `run --verify`'s differences `{mutation, program, cached, live}`; empty otherwise. A program's entry gives each side's `outcome`, `mutant_run_sha256`, `cause`, `smt_unknowns` and `decider_smt_unknowns` (the last three since version 24) and `open_application` (version 27), all compared. |
 | `baseline_runs` | `{live, reused, diagnostic}`: the baseline runs this command made live (the result update's and the calls'), at most one per program, the baseline requests of its calls answered by one of them, and the diagnostic runs of refused baselines that did not stop on time; null when the specification is refused. Outside every digest and key. |
-| `order` | `cost` or `corpus`: how the programs were ordered inside each group (step 3); `corpus` under `--full`. |
 | `schedule` | `first-kill`, or `full` for `run --full`; present on every run document, a refused one included (a manifest or a mutation list that does not decode). |
 | `matrix` | Null unless `schedule` is `full` and the specification was admitted; then `{programs: [{id, kills, sole_killer_of, undecided}]}`, one entry per `comparable` program in `FLOW.toml`'s order (a list, since a JSON object would order the ids by name): `kills` the mutations, in row order, whose `killed_by` holds the program; `sole_killer_of` those whose `killed_by` is exactly that program (the only proven killer: where another program's cell is undecided, that program might kill too); `undecided` those whose `executed` has an entry of the program with an outcome other than `agree` and `distinguish` (a timeout, unknown, incomparable, error or failed run), where the program might kill and the run could not tell. A row with no cell (`invalid-mutation`, `unkillable`, a corpus error, a mutant that failed as a whole) is in no list. It is computed from the rows, so the document written after each mutation holds the rows finished so far. It gives the facts a corpus minimization needs; choosing a subset also needs coverage and the survivors, and is the user's. |
 | `untargeted_rules` | The rules no resolving mutation of the whole list targets (`--only` limits the search, not this list, and a mutation a front end refused counts by kink-flow's resolution), as in `results --mutations`. |
@@ -1111,7 +1107,7 @@ the end, in pre-order, that fails its own test there, as a refused baseline's ca
 
 `results` and `run` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status; `report --output verdicts` renders the stored run document.
 It holds what the specification, the corpus and the budget decide and nothing that depends on the host, the build's identity, the cache or the order the work was done in (it names the build's solver profile, below),
-so an unchanged corpus renders the same bytes on a cold and on a warm cache and under either `--order`.
+so an unchanged corpus renders the same bytes on a cold and on a warm cache.
 It is meant as the format of recorded outputs and of a corpus's optional committed `verdicts.lock`, which no command writes or checks yet, so that a moved verdict shows in review.
 
 ```toml
@@ -1150,7 +1146,7 @@ A refusal's or a stop's text is not part of the rendering, since it explains a r
 A rule is named by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line`; the names of a case are ordered by module name, then by position in the module.
 The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`).
 Two renderings of the same verdicts under different annotation versions differ in that line and in the rule names only.
-A first-kill run's killer and the reason of every other status are left out: under the first-kill search the killer is the first killing program the search reached, which depends on the order (`--order cost` reads wall times) and on the outcomes the cache holds,
+A first-kill run's killer and the reason of every other status are left out: under the first-kill search the killer is the first killing program the search reached, which depends on the outcomes the cache holds,
 and the reason of `unknown` is the first exclusion in run order.
 A status does not depend on either while no `budget.time_ms` bound fires ("Cost model"); a `timeout` depends on the host by its nature.
 A full run's `killed_by` does not either ("The full matrix"), so a `run --full` rendering records each killed mutation's every killer, and a warm full run renders the bytes a cold one does.

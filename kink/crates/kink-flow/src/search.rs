@@ -16,10 +16,10 @@
 //!    conjuncts that hold under every valuation of their variables, such as `isNat ( N:Nat )`),
 //!    the mutant has exactly the specification's models, and the mutation is `equivalent` with
 //!    reason [`VALID_CONDITION_REASON`] instead.
-//! 2. Choose the programs O: the comparable programs of the up-to-date result cache, cheapest
-//!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). Every
-//!    live call then runs first the programs of the call whose cached coverage witnesses the
-//!    mutant's edit, then the rest, each group in O's order: once the mutant's claim-free side
+//! 2. Choose the programs O: the comparable programs of the up-to-date result cache, in
+//!    `FLOW.toml`'s order. Every live call runs first the programs of the call whose cached
+//!    coverage witnesses the mutant's edit, then the rest, each group in O's order (the search
+//!    order C, README 5.6 step 3): once the mutant's claim-free side
 //!    compiles, the runner gives its compiled edit as a ground program witnesses it
 //!    (kink-campaign `CompiledEdit::for_ground_tests`: `CompiledEdit::between` of that side, the
 //!    rule its coverage selection reads, or of the mutant as written when only definedness claims
@@ -33,10 +33,13 @@
 //!    what its run explored before it stopped. The row's `witnesses` lists the witnessing
 //!    programs of O, from a live call's compiled edit or, on a row tier 1 decides with no call,
 //!    from the one the mutation's outcome file keeps ([`EditWitness`]); it is empty on the
-//!    `no-comparable-program` row of an empty O, and otherwise null when there is neither. What is decided before any compile
+//!    `no-comparable-program` row of an empty O, and otherwise null when there is neither. C is
+//!    a function of the inputs: the witness set is computed from the compiled edit and the result
+//!    records' coverage, both keyed facts, by the one predicate the live call and the tier-1 sort
+//!    share. What is decided before any compile
 //!    (tier 1, the compiles ahead) depends only on the set of programs in O, not on their
-//!    order. The order changes which killing program is found first and the cost,
-//!    never a status while no `budget.time_ms` bound fires, in either profile: under Z3 every
+//!    order. Which program a call runs first changes which killing program it finds first and the
+//!    cost, never a status while no `budget.time_ms` bound fires, in either profile: under Z3 every
 //!    solver query is bounded by Z3 resource units (`[budget] smt_resource_limit`), so its
 //!    answer does not depend on what a reused backend asked before ([`tier1_refusal`]; under a
 //!    clock-bounded solver it could move a status between killed, unknown and survived, never
@@ -48,7 +51,7 @@
 //!    the status `killed` with no call (its killer the first such program in the order a live
 //!    call would run O: first the programs that witness the compiled edit the outcome file
 //!    keeps, then the rest, each in O's order; so after `--full` cached every killer, the killer
-//!    is the one a cold first-kill call finds first, for the same order of O); otherwise the
+//!    is the one a cold first-kill call finds first); otherwise the
 //!    programs with a valid `agree` or `unknown` record (CF-33d: an unknown that is a function
 //!    of the key, [`crate::outcomes`]) form A, in that order, and L = O minus A. With L empty the
 //!    status is the runner's fold over A's cached outcomes (survived, or unknown when some record
@@ -298,8 +301,6 @@ pub struct RunOptions {
     pub only: Vec<String>,
     /// The cache directory; default `<directory of FLOW.toml>/.kink-flow`.
     pub cache: Option<PathBuf>,
-    /// How the programs are ordered inside each tier of the kill search.
-    pub order: ProgramOrder,
     /// How many threads compile mutants ahead of their turn (`--compile-workers`; `None`:
     /// [`DEFAULT_COMPILE_WORKERS`]). 1 compiles each mutant in its own campaign call, on the
     /// calling thread. Every run document, outcome record and hint is the same for every value
@@ -310,8 +311,8 @@ pub struct RunOptions {
     pub memo: MemoUse,
     /// Which programs each mutation runs on: [`ScheduleMode::FirstKill`] (the default), the kill
     /// search, which stops at the first killing program; [`ScheduleMode::Full`] (`--full`), every
-    /// comparable program in corpus order, whatever [`RunOptions::order`] says, so that each row
-    /// holds every cell of the kill matrix (module documentation).
+    /// comparable program in corpus order, so that each row holds every cell of the kill matrix
+    /// (module documentation).
     pub schedule: ScheduleMode,
 }
 
@@ -322,7 +323,6 @@ impl Default for RunOptions {
         Self {
             only: Vec::new(),
             cache: None,
-            order: ProgramOrder::default(),
             compile_workers: None,
             memo: MemoUse::default(),
             schedule: ScheduleMode::FirstKill,
@@ -346,51 +346,6 @@ pub const fn schedule_name(schedule: ScheduleMode) -> &'static str {
 /// ([`kink_native::NativeValidator::compile_workers`]).
 pub const DEFAULT_COMPILE_WORKERS: usize = 4;
 
-/// How the kill search orders the programs of O, and so inside each tier of a live call (the
-/// programs whose coverage witnesses the mutant's compiled edit, then the rest; README 5.6 step 2
-/// and 6.4).
-///
-/// The order never changes a status while no wall-clock bound (`budget.time_ms`) fires (README
-/// 6.4; a run near the bound can time out in one order and finish in another, review
-/// L2-1-tail-1 D2): under FirstKill a Killed
-/// status comes from any killing test and ranks above every other status, and a mutant-scope
-/// failure arises before any test runs (F-05 review 1), so the order changes only which killing
-/// program is found first (and hence becomes the hint and the reported killer) and what the
-/// search costs. That needs each program's outcome to be independent of the programs run before
-/// it in the same call, which k-rust's Execute promise gives without Z3, and under Z3 for
-/// resource-bounded queries (`[budget] smt_resource_limit`), whose answers are functions of the
-/// query, the units and the Z3 build. Under a clock-bounded solver it would not: a query could
-/// time out and the mutant's reused backend caches satisfiability answers across programs, so the
-/// order could move a status between killed, unknown and survived (a timed-out query is unknown,
-/// a warmed answer can kill or agree, and with no kill the fold reads survived; never a false
-/// kill: a kill is still a proved distinction; re-pin L2-1-tail, review L2-1-1 D4, review
-/// L2-1-tail-1 D1).
-///
-/// Under [`ProgramOrder::Cost`] the order comes from measured wall times, so the killer found
-/// first, the hint, and the SET of tier-1 records written (under FirstKill the programs after
-/// the first kill get none) depend on host timing; no record's content does (flow F-16, F-13
-/// review 1). The byte-equality of `outcomes/` and `hints.json` across runs holds under
-/// [`ProgramOrder::Corpus`].
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum ProgramOrder {
-    /// Cheaper killers first (flow F-13): by the result record's `wall_ms` ascending (the wall
-    /// time of the program's live baseline run), then corpus order; a record without `wall_ms`
-    /// comes last in its tier.
-    #[default]
-    Cost,
-    /// Corpus order (F-05's order), for a reproducible search.
-    Corpus,
-}
-
-impl ProgramOrder {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Cost => "cost",
-            Self::Corpus => "corpus",
-        }
-    }
-}
-
 /// How `run` uses the outcome cache.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum RunMode {
@@ -410,8 +365,6 @@ struct Candidate<'r> {
     digest: Sha256Digest,
     /// The cached record's run digest (a comparable record always has one, unless edited).
     run_sha256: Option<&'r str>,
-    /// The cached record's `wall_ms`: the cost key of [`ProgramOrder::Cost`].
-    wall_ms: Option<u64>,
     /// The cached coverage's `complete`: a run that is not complete covers only what it explored
     /// before it stopped, so it witnesses every edit (kink-campaign `coverage_selected`).
     complete: bool,
@@ -449,7 +402,6 @@ fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candi
         id,
         digest: row.digest?,
         run_sha256: record["run_sha256"].as_str(),
-        wall_ms: record["wall_ms"].as_u64(),
         complete: record["coverage"]["complete"].as_bool().unwrap_or(false),
         matches: sentences("sentences"),
         applies: sentences("applied_sentences"),
@@ -528,8 +480,6 @@ struct Search<'a, 's> {
     stats: Stats,
     /// `run --verify`'s disagreements, for the run document's `mismatches`.
     mismatches: Vec<Value>,
-    /// How the programs are ordered inside each tier of O.
-    order: ProgramOrder,
     /// Which programs each mutation runs on ([`RunOptions::schedule`]).
     schedule: ScheduleMode,
     /// The baseline's claim support, for each row's `removed_claims` (the runner builds every
@@ -910,16 +860,12 @@ impl Search<'_, '_> {
     }
 
     /// The programs O of a mutation (README 5.6 step 2), as candidate indices, before its mutant
-    /// compiles: under [`ScheduleMode::Full`] every candidate in corpus order (the candidates are
-    /// built in manifest order), under [`ScheduleMode::FirstKill`] by [`ProgramOrder`]
-    /// ([`order`]). A live call then runs first the programs whose coverage witnesses the
-    /// mutant's compiled edit ([`Search::call_untimed`]); what is decided before any compile
-    /// (tier 1, the compiles ahead) depends only on the set of programs, not on their order.
+    /// compiles: every candidate in corpus order (the candidates are built in manifest order). A
+    /// first-kill call then runs first the programs whose coverage witnesses the mutant's
+    /// compiled edit ([`Search::call_untimed`]); what is decided before any compile (tier 1, the
+    /// compiles ahead) depends only on the set of programs, not on their order.
     fn program_order(&self) -> Vec<usize> {
-        match self.schedule {
-            ScheduleMode::Full => (0..self.candidates.len()).collect(),
-            ScheduleMode::FirstKill => order(&self.candidates, self.order),
-        }
+        (0..self.candidates.len()).collect()
     }
 
     /// The row's `witnesses` ([`Self::witness_programs`]) and `witnesses_global`: whether the
@@ -2583,7 +2529,6 @@ pub fn run_front(
         store: Store::new(&cache),
         stats: Stats::default(),
         mismatches: Vec::new(),
-        order: options.order,
         schedule: options.schedule,
         support: ClaimSupport::new(spec.validator.baseline()),
         spelling: front.spelling,
@@ -2790,7 +2735,6 @@ pub fn run_front(
                 outcome_cache: outcome_cache(&search),
                 mismatches: &search.mismatches,
                 baseline_runs: runner.baseline_runs(),
-                order: order_value(options),
                 schedule: json!(schedule_name(options.schedule)),
                 untargeted_rules: untargeted.clone(),
                 data: spec.data.value(),
@@ -2833,7 +2777,6 @@ pub fn run_front(
             outcome_cache: outcome_cache(&search),
             mismatches: &search.mismatches,
             baseline_runs: runner.baseline_runs(),
-            order: order_value(options),
             schedule: json!(schedule_name(options.schedule)),
             untargeted_rules: untargeted,
             data: spec.data.value(),
@@ -3295,41 +3238,12 @@ fn witnesses(candidate: &Candidate<'_>, witness: &EditWitness) -> bool {
         || !witness.applied.is_disjoint(&candidate.applies)
 }
 
-/// The order of O before the mutant compiles (README 5.6 step 2, 6.4): by cost (the record's
-/// `wall_ms` ascending, then corpus order) or in corpus order ([`ProgramOrder`]). A live call
-/// keeps it inside each of its two tiers, the programs whose coverage witnesses the compiled
-/// edit and the rest ([`Search::call_untimed`]). The order changes only which killing program is
-/// found first and the cost, never a status while no `budget.time_ms` bound fires (README 6.4).
-fn order(candidates: &[Candidate<'_>], program_order: ProgramOrder) -> Vec<usize> {
-    let mut order = (0..candidates.len()).collect::<Vec<_>>();
-    if program_order == ProgramOrder::Cost {
-        order.sort_by_key(|&c| {
-            (
-                candidates[c].wall_ms.unwrap_or(u64::MAX),
-                candidates[c].index,
-            )
-        });
-    }
-    order
-}
-
-/// The run document's `order`: `corpus` under [`ScheduleMode::Full`], which runs every program in
-/// corpus order whatever [`RunOptions::order`] says.
-fn order_value(options: &RunOptions) -> Value {
-    match options.schedule {
-        ScheduleMode::Full => json!(ProgramOrder::Corpus.as_str()),
-        ScheduleMode::FirstKill => json!(options.order.as_str()),
-    }
-}
-
 /// The run document's accounting of the command: `outcome_cache`, `mismatches`,
-/// `baseline_runs`, the program `order`, the `schedule` and `untargeted_rules` (outside every
-/// digest and key).
+/// `baseline_runs`, the `schedule` and `untargeted_rules` (outside every digest and key).
 struct Accounting<'m> {
     outcome_cache: Value,
     mismatches: &'m [Value],
     baseline_runs: Value,
-    order: Value,
     /// [`schedule_name`] of the run's schedule; under `full` the document carries the `matrix`.
     schedule: Value,
     untargeted_rules: Value,
@@ -3355,7 +3269,6 @@ impl Accounting<'_> {
         outcome_cache: Value::Null,
         mismatches: &[],
         baseline_runs: Value::Null,
-        order: Value::Null,
         schedule: Value::Null,
         untargeted_rules: Value::Null,
         data: Value::Null,
@@ -3441,7 +3354,6 @@ fn document(
         "outcome_cache": accounting.outcome_cache,
         "mismatches": accounting.mismatches,
         "baseline_runs": accounting.baseline_runs,
-        "order": accounting.order,
         "schedule": accounting.schedule,
         "matrix": matrix,
         "untargeted_rules": accounting.untargeted_rules,

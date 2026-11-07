@@ -25,9 +25,7 @@ kink-flow run FLOW.toml MUTATIONS.toml
 - `results`: every one of the 17 rules is covered by a comparable program; the lesson's three programs alone cover them.
 - `run`: 20 mutations are killed; `add-commuted` survives and is equivalent
   (`+Int` is commutative and the rule only fires on two `Int` values), so it is kept as the one explained survivor.
-- Killers (since flow F-13 the search tries the cheapest programs first): `sum` 7, `arith` 6, `and` 3, `redeclare` 2, `divzero` 1, `primes` 1.
-  In the manifest's order (`--order corpus`, as before F-13) they are `sum` 8, `primes` 5, `arith` 3, `and` 2, `divzero` 1, `redeclare` 1;
-  the statuses are the same in both orders.
+- Killers, in the search's order (the manifest's order, the programs that reach an edited rule first): `sum` 8, `primes` 5, `arith` 3, `and` 2, `divzero` 1, `redeclare` 1.
   `divzero` and `redeclare` kill through both state oracles (the report's `slots` show `exit-stop` distinguishing, `["normal"]` against `[]`, and `whole-term` 1 final configuration against 0):
   the baseline is stuck, and the mutant's rule now applies with an undefined result (`1 /Int 0`, a map with a repeated key), which is no end, so the mutant has no end and lacks the baseline's (kink27 R1-UNDEF; before it, the exit stop read `["undefined-step"]` and the whole term agreed).
 - `collatz` is `timeout` (see below) and cannot kill a mutant. Its cause shows path explosion:
@@ -46,7 +44,7 @@ exactly the distinct final configurations of the path set (re-pin decision 3; ki
 11 mutant runs finished only as state sets). A mutant's run may also carry a work budget
 (`[budget] work_factor`, set to 4 above).
 
-A cold `run` in corpus order (`--order corpus`, release binary, under the 24 GiB scope, host
+A cold `run` (release binary, under the 24 GiB scope, host
 load 18-20): 20.7 s and 0.11 GiB peak, against 140.1 s and 10.2 GiB at 1ee9955 (path sets, load
 4-6). Without `work_factor`: 32.4 s and 0.32 GiB. Every status equals the path-set run's (20
 killed, `add-commuted` survives). Two things change, both because runs now finish inside
@@ -144,24 +142,6 @@ A rebuilt `kink-flow` starts a new outcome context (the cache key includes the e
 so the first run after a rebuild re-proves each killed mutation with one call over its last killer,
 and runs every baseline again, since the result key names the build too.
 
-## Cheaper killers first (flow F-13)
-
-Inside each group of the kill search (the programs that reach an edited rule, then the rest) the programs run cheapest first,
-by the wall time of their baseline run (`wall_ms` in `results`): here `redeclare`, `arith`, `and` and `divzero` take about 1 ms,
-`sum` about 0.1 s and `primes` about 3.5 s. The order never changes a status, only which killer is found first and the cost.
-Measured with the release binary on scratch copies, each run under the 24 GiB scope above (host load 19-25):
-
-| Scenario | Cost order (default) | Corpus order (`--order corpus`) |
-| --- | --- | --- |
-| cold run, fresh cache | 38.1 s, peak 0.42 GiB; calls take 16.8 s in all | 120.1 s, peak 14.0 GiB; calls take 98.4 s in all |
-| warm re-run, no change | 4.2 s, no campaign call | (as cost order: no call) |
-| `outcomes/` deleted: each killed mutation one call over its hint | 20.7 s; a call takes 0.39 s on average, 0.70 s at most | 28.6 s; 0.96 s on average, 5.6 s at most (`primes`) |
-
-Statuses are equal in every scenario (20 killed, `add-commuted` survived); five mutations get another killer
-(`arith`, `redeclare` or `and` instead of `primes` or `sum`).
-The cold run is cheaper mostly because a mutant that loops is now killed by a fast program before it can run a slow one to `time_ms`:
-in corpus order six (mutation, program) runs time out after 10 s each and make the 14 GiB peak; in cost order none does.
-
 ## The full matrix (`--full`)
 
 `kink-flow run FLOW.toml MUTATIONS.toml --full` runs every program on every mutation, in the manifest's order, instead of stopping at the first kill.
@@ -169,7 +149,7 @@ Measured when `--full` was added (k-rust e50ac51d1; debug build, shared host), i
 Kills per program: `sum` 8, `primes` 13, `collatz` 11, `arith` 6, `and` 5, `divzero` 2, `redeclare` 2.
 The only proven killer of a mutation (the matrix's `sole_killer_of`; where the mutation has an `unknown` cell, that cell's program might kill it too): `arith` of `div-becomes-mul`, `add-becomes-sub` and `neg-drops-sign`, `and` of `and-true-ignores-rhs`, `divzero` of `div-guard-dropped`, `redeclare` of `decl-allows-redeclaration`.
 `seq-reversed` is killed by `sum` and `collatz` only, so a corpus that keeps every proven kill needs one of them.
-`collatz` kills 11, yet under first-kill a program the search ran before it killed each of them first: in corpus order, which no host changes, and in the `--order cost` run measured, whose order reads that host's wall times.
+`collatz` kills 11, yet under first-kill a program the search runs before it kills each of them first.
 
-A cold full run took 33.4 s and 0.87 GiB peak, against 31.5 s and 0.33 GiB for a cold first-kill run in corpus order on the same build (which ran 48 cells): the mutant compiles, which both pay once per mutation, dominate, and the full call holds every program's mutant evidence at once.
+A cold full run took 33.4 s and 0.87 GiB peak, against 31.5 s and 0.33 GiB for a cold first-kill run on the same build (which ran 48 cells): the mutant compiles, which both pay once per mutation, dominate, and the full call holds every program's mutant evidence at once.
 A warm full run took 10.4 s: the 136 cacheable cells are cached, and the 6 mutations with an `unknown` cell compile and run that cell again.

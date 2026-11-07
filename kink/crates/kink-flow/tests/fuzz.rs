@@ -1052,7 +1052,6 @@ note = "narrows the pattern to a nonzero second argument"
                 &manifest,
                 &list,
                 &RunOptions {
-                    order: kink_flow::search::ProgramOrder::Corpus,
                     cache: Some(run_cache),
                     ..RunOptions::default()
                 },
@@ -1179,7 +1178,6 @@ note = "narrows the pattern to a nonzero second argument"
         );
         let ((run, _), (verified, _)) = on_stack(move || {
             let options = RunOptions {
-                order: kink_flow::search::ProgramOrder::Corpus,
                 cache: Some(run_cache),
                 ..RunOptions::default()
             };

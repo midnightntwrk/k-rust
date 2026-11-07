@@ -34,7 +34,7 @@ use crate::{
     query::{QueryOptions, pattern_list_refused},
     report::{ReportOptions, render},
     results::{ResultsOptions, cache_directory},
-    search::{ProgramOrder, RunMode, RunOptions, mutation_list_refused},
+    search::{RunMode, RunOptions, mutation_list_refused},
 };
 use kink_campaign::ScheduleMode;
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
@@ -65,7 +65,7 @@ macro_rules! usage_line {
          MUTATIONS] [--cache DIR] | kink-flow \
          results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
          [--output json|verdicts] | kink-flow run \
-         FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
+         FLOW.toml MUTATIONS [--only ID]... [--verify] \
          [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
          FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
@@ -349,10 +349,6 @@ const RUN_OPTIONS: &[VerbOption] = &[
     ),
     VERIFY,
     option(
-        "--order cost|corpus",
-        "the order the first-kill search tries programs in (default: cost); not with --full",
-    ),
-    option(
         "--full",
         "run every comparable program on every mutation, and list every killer (killed_by)",
     ),
@@ -546,7 +542,7 @@ impl Verb {
                  json|verdicts]"
             }
             Self::Run => {
-                "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--full] \
+                "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] \
                  [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
                  json|verdicts]"
             }
@@ -1544,7 +1540,6 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
     let mut options = RunOptions::default();
     let mut mode = RunMode::Search;
     let mut progress = false;
-    let mut order = None;
     let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -1552,15 +1547,6 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
         match arg.as_str() {
             "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--verify" if mode == RunMode::Search => mode = RunMode::Verify,
-            "--order" if order.is_none() => {
-                let value = args.next().ok_or("--order needs cost or corpus")?;
-                order = Some(match value.as_str() {
-                    "cost" => ProgramOrder::Cost,
-                    "corpus" => ProgramOrder::Corpus,
-                    _ => return Err(format!("--order {value:?}: expected cost or corpus")),
-                });
-                options.order = order.unwrap_or_default();
-            }
             "--compile-workers" if options.compile_workers.is_none() => {
                 let value = args.next().ok_or("--compile-workers needs a number")?;
                 options.compile_workers = Some(
@@ -1590,15 +1576,6 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
             "--progress" if !progress => progress = true,
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
-    }
-    // Under `Full` no test is skipped, so the order changes no cell in the no-Z3 profile; under
-    // Z3, where a mutant's reused backend carries solver answers from one program to the next, a
-    // fixed order is the reproducible one.
-    if options.schedule == ScheduleMode::Full && order.is_some() {
-        return Err(
-            "--order orders the first-kill search; --full runs every program in corpus order"
-                .to_owned(),
-        );
     }
     Ok((options, mode, output.unwrap_or_default(), progress))
 }

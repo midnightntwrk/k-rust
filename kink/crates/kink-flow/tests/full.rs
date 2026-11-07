@@ -2,8 +2,7 @@
 //! order, under kink-campaign's `ScheduleMode::Full`; each row's `killed_by` and the document's
 //! kill `matrix`; one outcome store for both schedules.
 //!
-//! Every first-kill run here is in corpus order (`ProgramOrder::Corpus`), so that its killers do
-//! not depend on host timing. Statuses are always compared with a first-kill or a cold run of the
+//! Statuses are always compared with a first-kill or a cold run of the
 //! same files: the full schedule may change which cells run, never a status.
 
 mod flow_support;
@@ -21,7 +20,7 @@ use kink_flow::{
     outcomes::{OUTCOMES_DIRECTORY, record_sha256},
     resolve,
     results::CACHE_DIRECTORY,
-    search::{ProgramOrder, RunMode, RunOptions, run_with},
+    search::{RunMode, RunOptions, run_with},
     verdicts::verdicts,
 };
 use serde_json::{Value, json};
@@ -49,7 +48,7 @@ fn fixture(name: &str, test: &str) -> PathBuf {
     dir
 }
 
-/// `kink-flow run` through the library under `schedule` (first-kill in corpus order).
+/// `kink-flow run` through the library under `schedule`.
 fn run_as(
     manifest: &Path,
     mutations: &Path,
@@ -65,7 +64,6 @@ fn run_as(
         &list,
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
-            order: ProgramOrder::Corpus,
             compile_workers: Some(1),
             memo,
             schedule,
@@ -506,7 +504,7 @@ fn calc_statuses() -> Vec<(String, String)> {
     .collect()
 }
 
-/// The parser: `--full` once, never with `--order`.
+/// The parser: `--full` once; `--order` is no option (the search order is fixed).
 #[test]
 fn the_full_flag_parses() {
     let files = || CommandFiles {
@@ -549,10 +547,7 @@ fn the_full_flag_parses() {
         ["--full", "--order", "corpus"],
         ["--order", "cost", "--full"],
     ] {
-        assert_eq!(
-            parse(&args).unwrap_err(),
-            "--order orders the first-kill search; --full runs every program in corpus order"
-        );
+        assert_eq!(parse(&args).unwrap_err(), "unexpected argument \"--order\"");
     }
 }
 
@@ -760,7 +755,6 @@ mod kink_tier {
         let manifest = dir.join("FLOW.toml");
         let document = full(&manifest, &dir.join("MUTATIONS.toml"));
         assert_eq!(document["schedule"], "full");
-        assert_eq!(document["order"], "corpus");
         assert_eq!(statuses(&document), calc_statuses());
         assert_eq!(killed_by(&document), calc_killed_by());
         for row in rows(&document) {
@@ -1353,7 +1347,7 @@ mod kink_tier {
         );
     }
 
-    /// The binary: `--full` is accepted once and never with `--order`; `report` prints the
+    /// The binary: `--full` is accepted once, and `--order` is no option; `report` prints the
     /// stored full document byte for byte.
     #[test]
     #[ignore = "kink"]
@@ -1376,7 +1370,7 @@ mod kink_tier {
             (&["--full", "--full"][..], "unexpected argument \"--full\""),
             (
                 &["--full", "--order", "corpus"][..],
-                "--order orders the first-kill search; --full runs every program in corpus order",
+                "unexpected argument \"--order\"",
             ),
         ] {
             let output = run(args);

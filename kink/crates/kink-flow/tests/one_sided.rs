@@ -53,7 +53,7 @@ use kink_campaign::{
     RunOptions, ScheduleMode, SideRun, TestCase, TestRun, WorkBudget, run_campaign_multi_with,
 };
 use kink_corpus::runner::all_normal;
-use kink_flow::search::{ProgramOrder, RunOptions as SearchOptions, run};
+use kink_flow::search::{RunOptions as SearchOptions, run};
 use kink_flow::{
     admit::admit,
     manifest::FlowManifest,
@@ -569,7 +569,6 @@ fn search(manifest: &Path) -> Value {
         &SearchOptions {
             only: Vec::new(),
             cache: None,
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,

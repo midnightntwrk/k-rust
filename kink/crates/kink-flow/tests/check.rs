@@ -1828,7 +1828,6 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                 &kink_flow::search::RunOptions {
                     only: Vec::new(),
                     cache: None,
-                    order: kink_flow::search::ProgramOrder::Corpus,
                     compile_workers: Some(1),
                     memo: kink_flow::memo::MemoUse::On,
                     schedule: kink_campaign::ScheduleMode::FirstKill,

@@ -20,7 +20,7 @@ use kink_flow::{
     mutation::MutationList,
     report::{ReportOptions, report},
     results::{ResultsOptions, results},
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -65,7 +65,6 @@ fn search(manifest: &Path) -> Value {
         &FlowManifest::read(manifest).unwrap(),
         &MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap(),
         &RunOptions {
-            order: ProgramOrder::Corpus,
             ..RunOptions::default()
         },
     );

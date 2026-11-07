@@ -1,13 +1,13 @@
 //! Report usability (flow F-13, README 6.4): named oracle slots, timings, leaf censuses in the
-//! causes of stopped runs, no second run for a baseline this command saw stop on time, cheaper
-//! killers first, and the rules no mutation targets.
+//! causes of stopped runs, no second run for a baseline this command saw stop on time, and the
+//! rules no mutation targets.
 //!
 //! The soundness conditions pinned here: no timing or census value enters an evidence row, a
 //! digest, a key or a hint (two cold runs give equal digests, keys, outcome records and hints);
 //! a timeout program is classified from this command's one live run, never comparable; and the
-//! program order changes which killer is found first and the cost, never a status (every fixture
-//! list gives the same statuses under corpus order, under the measured cost order and under a
-//! forged reversed cost order).
+//! order of the programs in `FLOW.toml` changes which killer is found first and the cost, never a
+//! status (every fixture list gives the same statuses with its programs in either order, warm
+//! and cold).
 
 mod flow_support;
 
@@ -19,7 +19,7 @@ use kink_flow::{
     outcomes::OUTCOMES_DIRECTORY,
     report::{KORE_CAP, slots_value},
     results::{CACHE_DIRECTORY, ResultsOptions},
-    search::{ProgramOrder, REPORT_FILE, RunOptions, run},
+    search::{REPORT_FILE, RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -67,7 +67,7 @@ fn fixture(name: &str, test: &str) -> PathBuf {
     dir
 }
 
-fn search(manifest: &Path, mutations: &Path, order: ProgramOrder) -> Value {
+fn search(manifest: &Path, mutations: &Path) -> Value {
     let flow = FlowManifest::read(manifest).unwrap();
     let list = MutationList::read(mutations).unwrap();
     let (document, ok) = run(
@@ -76,7 +76,6 @@ fn search(manifest: &Path, mutations: &Path, order: ProgramOrder) -> Value {
         &RunOptions {
             only: Vec::new(),
             cache: None,
-            order,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,
@@ -264,29 +263,6 @@ fn assert_census_cause(cause: &str, prefix: &str, rules: Option<(usize, usize)>)
     }
 }
 
-/// Rewrite every result record's `wall_ms` so that cost order is the reverse of corpus
-/// order. `wall_ms` is outside the key, so every record stays in use.
-fn reverse_costs(manifest: &Path, document: &Value) {
-    let programs = document["programs"].as_array().unwrap();
-    let directory = cache_of(manifest).join("results").join(
-        document["spec"]["execution_digest"]["digest"]
-            .as_str()
-            .unwrap(),
-    );
-    for (index, program) in programs.iter().enumerate() {
-        let Some(digest) = program["digest"].as_str() else {
-            continue;
-        };
-        let path = directory.join(format!("{digest}.json"));
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let mut record: Value = serde_json::from_str(&text).unwrap();
-        record["wall_ms"] = json!((programs.len() - index) * 1000);
-        fs::write(&path, record.to_string()).unwrap();
-    }
-}
-
 /// Every tier-1 record of a cache, by (context digest, mutation identity, program digest), as
 /// its JSON text.
 fn outcome_records(cache: &Path) -> BTreeMap<(String, String, String), String> {
@@ -331,16 +307,16 @@ fn undecided_answers(document: &Value) -> u64 {
     programs.chain(entries).sum()
 }
 
-/// The statuses of every mutation of a fixture list are the same under corpus order, under
-/// the measured cost order and under a forged cost order that reverses corpus order inside
-/// each tier (stop rule 1 of F-13: the order-independence premise of README 6.4). Only the
-/// killers and the costs may differ.
+/// The statuses of every mutation of a fixture list are the same with the programs of
+/// `FLOW.toml` in corpus order and in reverse order, on the corpus-order run's result records
+/// (outcomes forgotten) and cold (stop rule 1 of F-13: the order-independence premise of README
+/// 6.4). Only the killers and the costs may differ.
 ///
-/// F-13 review 1 minor 1 (flow F-16): under cost order the SET of tier-1 records written
-/// depends on host timing (under FirstKill the programs after the first kill get none), but
-/// no record's content does: every record a cost-order run writes (forged or measured costs)
-/// is byte-equal to the corpus-order run's record of the same (mutation, program) when that
-/// run wrote one. Returns the documents and the number of such shared records.
+/// F-13 review 1 minor 1 (flow F-16): the SET of tier-1 records a first-kill run writes depends
+/// on the order (the programs after the first kill get none), but no record's content does: every
+/// record a reversed run writes is byte-equal to the corpus-order run's record of the same
+/// (mutation, program) when that run wrote one. Returns the documents and the number of such
+/// shared records.
 fn statuses_do_not_depend_on_the_order(
     name: &str,
     manifest: &str,
@@ -354,36 +330,37 @@ fn statuses_do_not_depend_on_the_order(
     let flow = corpus.join(manifest);
     let list = corpus.join(mutations);
 
-    // The same result records with reversed costs; outcomes, hints and report forgotten.
-    reverse_costs(&flow, &by_corpus);
+    // The same result records with the programs reversed; outcomes, hints and report forgotten.
+    flow_support::reverse_programs(&flow);
     let cache = cache_of(&flow);
     let corpus_records = outcome_records(&cache);
     let _ = fs::remove_dir_all(cache.join(OUTCOMES_DIRECTORY));
     let _ = fs::remove_file(hints_path(&cache));
     let _ = fs::remove_file(cache.join(REPORT_FILE));
-    let reversed = search(&flow, &list, ProgramOrder::Cost);
+    let reversed = search(&flow, &list);
     let programs = reversed["programs"].as_array().unwrap();
     assert_eq!(
         programs.iter().filter(|p| p["cached"] == false).count(),
         0,
-        "the forged wall_ms keeps every record in use"
+        "reversing the programs keeps every record in use"
     );
 
-    let measured = fixture(name, &format!("order-cost-{slug}"));
-    let by_cost = search(
-        &measured.join(manifest),
-        &measured.join(mutations),
-        ProgramOrder::Cost,
-    );
+    let measured = fixture(name, &format!("order-reversed-cold-{slug}"));
+    flow_support::reverse_programs(&measured.join(manifest));
+    let cold_reversed = search(&measured.join(manifest), &measured.join(mutations));
 
     assert_eq!(statuses(&reversed), statuses(&by_corpus), "{name} reversed");
-    assert_eq!(statuses(&by_cost), statuses(&by_corpus), "{name} cost");
+    assert_eq!(
+        statuses(&cold_reversed),
+        statuses(&by_corpus),
+        "{name} reversed cold"
+    );
     // Under Z3 every solver query is resource-bounded, so an answer, decided or not, does not
-    // depend on what a backend reused in schedule order asked before (src/search.rs, README `run`
+    // depend on what a backend reused in search order asked before (src/search.rs, README `run`
     // step 3), and the statuses cannot depend on the order whatever the counts. Both counts are
     // reported, and no run of these fixtures takes an undecided answer, k-rust's or kink's.
     if cfg!(feature = "z3") {
-        for document in [&by_corpus, &reversed, &by_cost] {
+        for document in [&by_corpus, &reversed, &cold_reversed] {
             assert_eq!(
                 undecided_answers(document),
                 0,
@@ -394,7 +371,10 @@ fn statuses_do_not_depend_on_the_order(
     let mut shared = 0;
     for (label, records) in [
         ("reversed", outcome_records(&cache)),
-        ("cost", outcome_records(&cache_of(&measured.join(manifest)))),
+        (
+            "reversed cold",
+            outcome_records(&cache_of(&measured.join(manifest))),
+        ),
     ] {
         for (key, text) in &records {
             if let Some(corpus) = corpus_records.get(key) {
@@ -404,7 +384,7 @@ fn statuses_do_not_depend_on_the_order(
         }
     }
     // Each killer is a program that kills (a Distinguish of its own entry).
-    for document in [&by_corpus, &reversed, &by_cost] {
+    for document in [&by_corpus, &reversed, &cold_reversed] {
         for row in document["mutations"].as_array().unwrap() {
             if let Some(killer) = row["killer"].as_str() {
                 assert_eq!(
@@ -414,7 +394,7 @@ fn statuses_do_not_depend_on_the_order(
             }
         }
     }
-    ([by_corpus, reversed, by_cost], shared)
+    ([by_corpus, reversed, cold_reversed], shared)
 }
 
 mod heavy {
@@ -473,9 +453,9 @@ mod kink_tier {
         let ([by_corpus, reversed, _], shared) =
             statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS.toml");
         assert!(shared > 0, "the byte-equality check compared records");
-        // The forged costs did reorder the search: inside each tier the survivor ran its programs
-        // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
-        // reach the add rule).
+        // The reversed manifest did reorder the search: inside each tier the survivor ran its
+        // programs in reverse corpus order (corpus order: add, nested, sub, inline; add, nested
+        // and inline reach the add rule).
         assert_eq!(
             mutation(&by_corpus, "add-swaps-operands")["calls"],
             json!([{"programs": ["add", "nested", "inline", "sub"], "status": "survived"}])
@@ -484,7 +464,6 @@ mod kink_tier {
             mutation(&reversed, "add-swaps-operands")["calls"],
             json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
         );
-        assert_eq!(reversed["order"], "cost");
     }
 
     #[test]
@@ -652,7 +631,7 @@ text = 'h(opaque(1), 2)'
         // whole term read the mutant's pre-step configuration, the baseline's stuck one, and agreed.
         let dir = fixture("divide", "exit-stop");
         let manifest = dir.join("FLOW.toml");
-        let document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
+        let document = search(&manifest, &dir.join("MUTATIONS.toml"));
         let row = mutation(&document, "guard-dropped");
         assert_eq!(row["status"], "killed");
         assert_eq!(row["killer"], "by-zero");
@@ -703,11 +682,7 @@ text = 'h(opaque(1), 2)'
     fn a_mutants_timeout_and_depth_stop_carry_the_census() {
         let dir = fixture("loop", "mutant-census");
         let mutations = dir.join("MUTATIONS.toml");
-        let document = search(
-            &dir.join("FLOW-search.toml"),
-            &mutations,
-            ProgramOrder::Corpus,
-        );
+        let document = search(&dir.join("FLOW-search.toml"), &mutations);
         let countdown = entry(&document, "countdown-escapes", "countdown");
         assert_eq!(countdown["outcome"], "timeout");
         assert!(
@@ -721,11 +696,7 @@ text = 'h(opaque(1), 2)'
         );
 
         fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
-        let document = search(
-            &dir.join("FLOW-depth.toml"),
-            &mutations,
-            ProgramOrder::Corpus,
-        );
+        let document = search(&dir.join("FLOW-depth.toml"), &mutations);
         let countdown = entry(&document, "countdown-escapes", "countdown");
         assert_eq!(countdown["outcome"], "unknown");
         let cause = countdown["cause"].as_str().unwrap();
@@ -808,7 +779,7 @@ text = 'h(opaque(1), 2)'
 
         // From the outcome cache the kill's evidence is the record's (CF-16): the same difference,
         // and the sides read from it.
-        let warm = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
+        let warm = search(&manifest, &dir.join("MUTATIONS.toml"));
         let cached = entry(&warm, "add-becomes-sub", "add");
         assert_eq!(cached["cached"], true);
         assert_eq!(
@@ -825,70 +796,14 @@ text = 'h(opaque(1), 2)'
 
     #[test]
     #[ignore = "kink"]
-    fn the_cheaper_killer_is_found_and_hinted_first() {
-        // slow and fast both reach the done rule and both kill done-returns-one; slow is first in
-        // corpus order and takes many more steps.
-        let cost = fixture("loop", "cost");
-        let document = search(
-            &cost.join("FLOW-cost.toml"),
-            &cost.join("MUTATIONS-cost.toml"),
-            ProgramOrder::Cost,
-        );
-        assert_eq!(document["order"], "cost");
-        let wall = |id: &str| {
-            document["programs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|p| p["id"] == id)
-                .unwrap()["wall_ms"]
-                .as_u64()
-                .unwrap()
-        };
-        assert!(wall("slow") > wall("fast"), "{:#}", document["programs"]);
-        let row = mutation(&document, "done-returns-one");
-        assert_eq!(row["status"], "killed");
-        assert_eq!(row["killer"], "fast");
-        assert_eq!(
-            row["calls"],
-            json!([{"programs": ["fast", "slow"], "status": "killed"}])
-        );
-        let hints = read_json(&hints_path(&cache_of(&cost.join("FLOW-cost.toml"))));
-        let hinted = hints["hints"]
-            .as_object()
-            .unwrap()
-            .values()
-            .map(|h| h["program_id"].as_str().unwrap().to_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(hinted, ["fast"]);
-
-        let corpus = fixture("loop", "corpus");
-        let document = search(
-            &corpus.join("FLOW-cost.toml"),
-            &corpus.join("MUTATIONS-cost.toml"),
-            ProgramOrder::Corpus,
-        );
-        assert_eq!(document["order"], "corpus");
-        let row = mutation(&document, "done-returns-one");
-        assert_eq!(row["status"], "killed");
-        assert_eq!(row["killer"], "slow");
-    }
-
-    #[test]
-    #[ignore = "kink"]
     fn timings_are_recorded_outside_every_digest_key_record_digest_and_hint() {
-        // Two cold runs of the same files (corpus order, so that nothing the clock decides can
-        // differ): the result records differ at most in wall_ms, the outcome records and the
+        // Two cold runs of the same files: the result records differ at most in wall_ms, the outcome records and the
         // hints are byte-identical, and the run documents differ only in timing fields.
         let one = fixture("calc", "timings-1");
         let two = fixture("calc", "timings-2");
         let mut documents = Vec::new();
         for dir in [&one, &two] {
-            let document = search(
-                &dir.join("FLOW.toml"),
-                &dir.join("MUTATIONS.toml"),
-                ProgramOrder::Corpus,
-            );
+            let document = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"));
             // Every row has a wall time per call; every live executed entry its own run's time and
             // the program's baseline run's.
             for row in document["mutations"].as_array().unwrap() {
@@ -994,7 +909,7 @@ text = 'h(opaque(1), 2)'
         );
 
         // The run document (the report) lists them for the whole list, `--only` or not.
-        let run_document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
+        let run_document = search(&manifest, &dir.join("MUTATIONS.toml"));
         assert_eq!(
             run_document["untargeted_rules"],
             document["untargeted_rules"]
@@ -1017,7 +932,6 @@ text = 'h(opaque(1), 2)'
             &RunOptions {
                 only: vec!["countdown-escapes".into()],
                 cache: None,
-                order: ProgramOrder::Corpus,
                 compile_workers: None,
                 memo: kink_flow::memo::MemoUse::On,
                 schedule: kink_campaign::ScheduleMode::FirstKill,
@@ -1153,7 +1067,7 @@ note = "one sequence by two routes in a List element"
 "#,
         )
         .unwrap();
-        let document = search(&manifest, &mutations, ProgramOrder::Corpus);
+        let document = search(&manifest, &mutations);
         let expected = [
             ("cell-other", "killed"),
             ("cell-concat", "survived"),

@@ -11,8 +11,7 @@
 //! mutation on a program under an exact key ([`outcomes`]), and tier 2, killer hints that
 //! survive specification edits ([`hints`], which replaces F-05's killer cache). F-12 runs each
 //! program's baseline at most once per command; F-13 names the oracle slots of the report,
-//! records timings and leaf censuses, orders the kill search cheapest killer first and lists
-//! the rules no mutation targets. F-18 adds the per-input pattern checks: `PATTERNS.toml`, the
+//! records timings and leaf censuses and lists the rules no mutation targets. F-18 adds the per-input pattern checks: `PATTERNS.toml`, the
 //! lowering of a K pattern and its evaluation by k-rust's search ([`pattern`]), and the `query`
 //! command with its cache of definitive answers ([`query`]). fz26 P7-KINKFLOW T3a adds the
 //! `fuzz` command: a k-rust-fuzz campaign on kink's own sides that looks for hole values of a

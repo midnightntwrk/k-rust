@@ -11,7 +11,7 @@ use kink_flow::{
     cli::{check, results, run},
     manifest::{ManifestError, Program},
     results::ResultsOptions,
-    search::{ProgramOrder, RunOptions},
+    search::RunOptions,
 };
 use serde_json::Value;
 use std::{
@@ -991,7 +991,6 @@ fn a_pattern_corpus_is_reported_as_its_listed_programs() {
             &manifest,
             &dir.join("MUTATIONS.toml"),
             &RunOptions {
-                order: ProgramOrder::Corpus,
                 ..RunOptions::default()
             },
         );

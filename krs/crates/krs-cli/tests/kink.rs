@@ -4117,8 +4117,7 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
         "kink/witnesses-mutations.toml",
     ];
     let mut arguments = mutations.to_vec();
-    // Corpus order, so that each row's witnesses are listed in it.
-    arguments.extend(["--cache", cache, "--order", "corpus"]);
+    arguments.extend(["--cache", cache]);
     let ran = project.kink("run", &arguments);
     assert_status(&ran, 3);
     let document = json(&ran);

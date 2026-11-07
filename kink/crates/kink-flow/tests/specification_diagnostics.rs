@@ -10,7 +10,7 @@ use kink_flow::{
     FlowManifest, MutationList,
     cli::{EXIT_UNANSWERED, results},
     results::ResultsOptions,
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::Value;
 use std::{
@@ -255,7 +255,6 @@ mod kink_tier {
             &RunOptions {
                 only: Vec::new(),
                 cache: None,
-                order: ProgramOrder::Corpus,
                 compile_workers: Some(1),
                 memo: kink_flow::memo::MemoUse::On,
                 schedule: kink_campaign::ScheduleMode::FirstKill,

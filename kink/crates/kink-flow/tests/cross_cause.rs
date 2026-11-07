@@ -13,7 +13,7 @@ mod flow_support;
 use flow_support::copy_dir;
 use kink_flow::{
     FlowManifest, MutationList,
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::Value;
 use std::{
@@ -43,7 +43,6 @@ fn only_cause(manifest: &Path, mutations: &Path) -> String {
         &RunOptions {
             only: Vec::new(),
             cache: None,
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,

@@ -31,7 +31,7 @@ use kink_flow::{
     FlowManifest, MutationList,
     cli::{EXIT_YES, results},
     results::ResultsOptions,
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::Value;
 use std::{
@@ -90,7 +90,6 @@ fn search(manifest: &Path, mutations: &Path) -> Value {
         &RunOptions {
             only: Vec::new(),
             cache: None,
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,

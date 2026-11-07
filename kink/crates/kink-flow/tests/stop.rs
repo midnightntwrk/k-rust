@@ -20,7 +20,7 @@ use kink_flow::{
     mutation::MutationList,
     query::QueryOptions,
     results::{ResultsOptions, result_key, results},
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -73,7 +73,6 @@ fn search(manifest: &Path) -> Value {
         &FlowManifest::read(manifest).unwrap(),
         &MutationList::read(&manifest.with_file_name("mutations")).unwrap(),
         &RunOptions {
-            order: ProgramOrder::Corpus,
             ..RunOptions::default()
         },
     );

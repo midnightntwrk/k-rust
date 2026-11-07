@@ -103,7 +103,7 @@ use crate::{
     report::claims_value,
     results::kebab,
     search::status_name,
-    search::{ProgramOrder, RunMode, RunOptions},
+    search::{RunMode, RunOptions},
 };
 use k_rust::kore::{
     ast::{Pattern as KorePattern, Sentence},
@@ -3116,7 +3116,6 @@ fn confirm(
                 &RunOptions {
                     only: vec![mutation.to_owned()],
                     cache,
-                    order: ProgramOrder::Corpus,
                     compile_workers: Some(1),
                     ..RunOptions::default()
                 },

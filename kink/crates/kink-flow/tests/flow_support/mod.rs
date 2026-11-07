@@ -11,7 +11,7 @@
 use kink_flow::{
     FlowManifest, MutationList,
     results::CACHE_DIRECTORY,
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::Value;
 use std::{
@@ -56,8 +56,18 @@ pub fn copy_all(from: &Path, to: &Path) {
     }
 }
 
+/// Rewrite the manifest at `manifest` with its `[[program]]` entries in reverse order: a corpus
+/// with the same programs, whose search order lists them the other way round. A program's
+/// digest does not name its place, so every result record stays in use.
+pub fn reverse_programs(manifest: &Path) {
+    let mut value: toml::Table = fs::read_to_string(manifest).unwrap().parse().unwrap();
+    if let Some(toml::Value::Array(programs)) = value.get_mut("program") {
+        programs.reverse();
+    }
+    fs::write(manifest, toml::to_string(&value).unwrap()).unwrap();
+}
+
 /// `kink-flow run` of every mutation of `mutations` through the library, as the binary runs it,
-/// in F-05's corpus order (so that the pinned calls and killers do not depend on host timing),
 /// with the default compile workers and the memos.
 pub fn corpus_run(manifest: &Path, mutations: &Path) -> (Value, bool) {
     let manifest = FlowManifest::read(manifest).unwrap();
@@ -68,7 +78,6 @@ pub fn corpus_run(manifest: &Path, mutations: &Path) -> (Value, bool) {
         &RunOptions {
             only: Vec::new(),
             cache: None,
-            order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
             schedule: kink_campaign::ScheduleMode::FirstKill,

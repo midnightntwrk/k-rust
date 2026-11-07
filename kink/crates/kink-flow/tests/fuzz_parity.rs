@@ -52,7 +52,7 @@ use kink_flow::{
     pattern::PatternList,
     query::{QueryOptions, query},
     results::{ResultsOptions, results},
-    search::{ProgramOrder, RunOptions, run},
+    search::{RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -172,7 +172,6 @@ fn kink_run(dir: &Path, only: &str) -> Value {
     let options = RunOptions {
         only: vec![only.to_owned()],
         cache: Some(dir.join("cache")),
-        order: ProgramOrder::Corpus,
         compile_workers: None,
         memo: MemoUse::On,
         schedule: kink_campaign::ScheduleMode::FirstKill,
