@@ -2730,6 +2730,39 @@ A cancellation of the request stays visible inside it: an undecided answer reach
 The tests `rewrite::execute::tests::stop_condition` in [execute.rs](../crates/k-rust-backend/src/rewrite/execute.rs) run a closure condition on a definition of alternating selected and unselected steps, with and without a choice at a selected rule: a failed answer takes the arrival as a step on both sides, the count counts events, a condition that always holds gives the run without it, its work included, the condition reads the state before a cut-point rule's step and a terminal rule's successor, it is asked once per arrival and neither at a passed stop, under either strategy, nor at a step whose successor is undefined, undecided answers end the path and refusals fail the request, a state-set run equals the path-set run where two paths meet with as many events and different arrivals, and the condition's work is off the clock, in its own operation and outside the run's coverage; `the_stop_condition_reaches_the_facade` in [backend/mod.rs](../crates/k-rust/src/backend/mod.rs) reads `stops`, `arrivals`, `stop-undecided` and the refusal's kind from the facade.
 The Rust structs gain public fields (`arrivals` on both execution leaves), the backend's `HaltReason` and the facade's `HaltReasonOutput` and `BackendErrorKind` gain variants, and the TypeScript declarations gain the reason `stop-undecided` and the optional member `arrivals`, which those bindings never produce.
 
+### Probes (in-process)
+
+An in-process execution may add a probe: an observer the run asks at the steps of selected rules along its path, which may end the request or the path there (`Backend::execute_kore_with_probe` with `InProcess::probe`; `execute_with_probe`, `ExecutionOptions::probe_rules` and the `Probe` trait in the backend).
+The probe is a callback, which no wire request carries, so the RPC, napi and WebAssembly routes have none, and the wire request is unchanged.
+
+A *point* is a step by a rule the probe rules select, by label or `UNIQUE_ID` as a stop rule is, on its before or after side, whose successor is defined and which the path takes.
+Its *observed state* is the state before the step for a before point and the step's normalized successor for an after point, the states at which a cut-point and a terminal rule end a path.
+The probe is asked at each point once, in path order, the before point of a step before its after point, and answers `Continue`, `Differs` with a reason, or `Done`.
+`Continue` changes nothing.
+`Differs` ends the request: the path's leaf is the observed state with the halt `probe-difference` (`HaltReason::ProbeDifference`, `HaltReasonOutput::ProbeDifference`), naming the rule, the side and the reason, and no pending state is explored.
+`Done` ends the path at the observed state with the halt `probe-done` (`HaltReason::ProbeDone`, `HaltReasonOutput::ProbeDone`).
+Neither halt is an end of the system: each says where the probe stopped the run, nothing about the configuration, so neither is a result of the run, and under `state-set` neither is ever merged.
+
+Whether a step's successor is defined is shown by the successor's own normalization, so a step's points are asked once that normalization shows the successor defined, before anything else is done with it (the depth bound, merging, the next step).
+A step whose successor is undefined, or whose normalization did not finish (a stop, a failed simplification, the work budget reached first), has no point.
+With stop rules, the `stopCount`th arrival at a cut-point rule ends the path before its step, so that step has no point; an earlier arrival is a step like any other, and a terminal rule's last step is taken, so its points are asked before the path ends at the terminal rule, unless the probe ends it first.
+A stop condition and a probe compose: each is asked where it is asked alone, the condition at an arrival as its step is taken, the probe once the step's successor is shown defined.
+
+The probe observes one path.
+Where the state being expanded leaves more than one path (several successors, a successor beside leaves of the same step's undefined instances, or a `branch` leaf), the probe is told once (`Probe::branched`, with the state's depth) and asked nothing from then on: its callbacks name no path, so the points of several paths in the order the run explores them are no sequence of one path.
+Where the path ends first, at a leaf other than one the probe's answer made, the probe is told once (`Probe::ended`) and reads the leaf's state and halt.
+Under strategy `any` the run takes one successor of each state, so the probe is told of a split only where a step's instances end apart from its successor.
+
+The probe reads the observed state through `ProbeState`: a cell by its path of cell symbols, converting only that cell; a handle on a cell (`CellHandle`), two handles being the same exactly when they hold the same term node, so a cell no step rewrote is told from a changed one by a pointer comparison while the handle is held; and the length of a list cell and its items from a position on, converting only those items, so a log is read by what was appended since its last length.
+
+A probe that always continues leaves the run as it is without it: the same leaves, coverage, traces and work.
+It is asked at a point of the successor's normalization the run reaches anyway, so it costs the run no state visit, and its work is isolated from the run as a stop condition's is: it reports to no coverage set, emits no diagnostic into the run, notes no path fact, fills none of the run's memos, runs off the run's clock, in a proof evaluation scope without a console and outside the run's definition scope.
+A cancellation of the request stays visible inside it and ends the run at its next poll.
+
+The tests `rewrite::execute::tests::probe` in [execute.rs](../crates/k-rust-backend/src/rewrite/execute.rs) run a recording probe on the stop condition's definition of alternating steps, with and without a choice: it is asked at each taken step of a selected rule, before and after, under both strategies and both branch modes, and at no other step nor at a step whose successor is undefined; a stop's last cut-point event has no point and a terminal rule's last step has its points; a difference ends the request and `Done` the path, each at its observed state; the probe is told once where the run first branches and asked nothing after; a probe that continues leaves every result unchanged, its coverage, traces and work included, under every strategy, branch mode, modality and stop rule, and under a work bound the run meets exactly; a cell handle is the same for a cell no step rewrote; a list is read by its appended items; the probe's work is off the clock and outside the run's coverage; and a probe composes with a stop condition in the order above.
+`the_probe_reaches_the_facade` in [backend/mod.rs](../crates/k-rust/src/backend/mod.rs) reads `probe-difference` and `probe-done` from the facade and finds a continuing probe's result equal to the plain request's.
+The backend's `ExecutionOptions` and `InProcess` gain public fields (`probe_rules`, `probe`), so a struct literal of them outside k-rust names the field; the backend's `HaltReason` and the facade's `HaltReasonOutput` gain variants, and the TypeScript declarations gain the reasons `probe-difference` and `probe-done`, which those bindings never produce.
+
 ### Work budget
 
 An execute request may bound the work of its run: `maxWork` (`ExecuteRequest::max_work`, `ExecutionOptions::max_work` in the backend; absent by default, no bound) is the most states the run may visit across all its paths.
