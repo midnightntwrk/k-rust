@@ -1,0 +1,60 @@
+---
+title: The definition as a Lean value
+description: A K definition as a Lean value with a core, a presentation and a certificate; the generator emit; the fragment F0 and its round trip against kompile's KORE; and what F0 rejects.
+---
+
+import { Provenance } from '../../components/lean/Provenance'
+import { numbers } from '../../components/lean/numbers'
+import { EmitScene, PartsScene, RejectScene, RoundTripScene } from '../../components/lean/ValueScenes'
+
+# The definition as a Lean value
+
+Lesson 3 of [A K definition in Lean](/lean).
+
+[Lesson 2](/lean/matching-logic) gave a step its official meaning: what the theory of the KORE text entails in every model.
+To prove things with a proof assistant, the definition has to be something Lean can compute with.
+This lesson turns peano's KORE into a Lean value, and shows how anyone can check, without trusting the conversion, that the value is the KORE kompile wrote.
+
+The idea is a round trip.
+Converting KORE into Lean data is hard to get right and needs no review: a generator, `emit`, turns the data back into KORE, and the result is compared with kompile's text.
+Only `emit` has to be right, and it is reviewed once for every definition.
+
+## Three parts
+
+<PartsScene />
+
+## From the value back to KORE
+
+<EmitScene />
+
+## The round trip
+
+<RoundTripScene />
+
+The comparison is "up to the order of each module's sentences", not exact equality, since 2026-11-07.
+krust writes some sentences of a definition at positions that depend on the module's name, and exact equality turned that into a reason to reject a definition.
+The cost of the looser comparison is one theorem, `reordered_sameModels`, which is proved: reordering a module's sentences does not change the models of its theory.
+
+## What the round trip rejects
+
+<RejectScene />
+
+## What is machine-checked here
+
+- `F0.sound`, `reordered_sameModels` and the proofs of this lesson use only the axioms `propext`, `Classical.choice` and `Quot.sound`; the build pins their axiom lists.
+- For peano, kernel decisions: `wf peano`, `peano.emit = kore` (exact equality with kompile's KORE), and `F0 kore`. They are in `test/F0Check.lean`, outside the default build: its last run took {numbers.f0Minutes} minutes and {numbers.f0Gb} GiB of memory.
+- The {numbers.f0Rejections} rejections and {numbers.f0Controls} acceptances of the last scene are kernel decisions in the same file; the reason each is rejected is a compiled check in the default build, so a change of reason fails the build.
+- Not checked: that `emit` writes, for other definitions, the text krust's kompile writes. That is a question of coverage, not soundness: a definition `emit` cannot reproduce is rejected, never misread.
+
+## Reproduce
+
+In the kcore-spec package directory:
+
+```sh
+lake build                        # includes the compiled checks of every rejection's reason
+lake env lean test/F0Check.lean   # the kernel decisions (heavy: see above)
+```
+
+<Provenance />
+
+Next: [What a step means in Lean](/lean/what-a-step-means).
