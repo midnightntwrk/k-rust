@@ -172,6 +172,39 @@ impl<'a> DefinitionIndex<'a> {
         Ok(chain[outermost.min(chain.len())..].to_vec())
     }
 
+    /// Returns where a sentence's clauses, whose cells are `cells` in clause order, are written:
+    /// inside the cells of the instances they lie in ([`Self::sentence_instances`]), each
+    /// instance's cell holding the clauses that lie in it directly, in clause order, then the
+    /// cell of the next instance, open on the right for the instance's other cells; or at the
+    /// top, every clause in order, where they lie in no instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MixedInstances`] as [`Self::sentence_instances`] does.
+    pub fn clause_layout<'c>(
+        &self,
+        cells: impl IntoIterator<Item = &'c SymbolId>,
+    ) -> Result<ClauseLayout<'_>, MixedInstances> {
+        let cells = cells.into_iter().collect::<Vec<_>>();
+        let chain = self.sentence_instances(cells.iter().copied())?;
+        let levels = if chain.is_empty() {
+            vec![(0..cells.len()).collect()]
+        } else {
+            chain
+                .iter()
+                .map(|instance| {
+                    cells
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, cell)| self.instance_holder(cell) == Some(*instance))
+                        .map(|(index, _)| index)
+                        .collect()
+                })
+                .collect()
+        };
+        Ok(ClauseLayout { chain, levels })
+    }
+
     /// The instances `cell` lies in, outermost first ([`Self::instance_holder`], then the
     /// instance that holder lies in, and so on).
     fn instance_chain(&self, cell: &SymbolId) -> Vec<&SymbolId> {
@@ -250,6 +283,81 @@ pub fn instance_key_holder(field: &str) -> Option<&str> {
 }
 
 const INSTANCE_KEY: &str = "key_";
+
+/// Where a sentence's clauses are written ([`DefinitionIndex::clause_layout`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClauseLayout<'a> {
+    /// The instances whose cells hold the clauses, outermost first; empty where the clauses are
+    /// written at the top.
+    pub chain: Vec<&'a SymbolId>,
+    /// The clauses each level holds directly, by index, in clause order: one level, the top,
+    /// where `chain` is empty, else one for each instance of `chain`, in its order.
+    pub levels: Vec<Vec<usize>>,
+}
+
+/// The number of items a clause is written as among the cells of its level
+/// ([`DefinitionIndex::clause_layout`]): one cell, or one rewrite of an optional cell, for a
+/// fixed or an optional cell's clause; for a collection's, its [`InstancesLayout::written`].
+#[must_use]
+pub fn written_items<C, T>(clause: &krs_ir::ConfigurationClause<C, T>) -> usize {
+    match clause {
+        krs_ir::ConfigurationClause::Fixed(_) | krs_ir::ConfigurationClause::Optional(_) => 1,
+        krs_ir::ConfigurationClause::Instances(clause) => instances_layout(clause).written(),
+    }
+}
+
+/// One item a collection (`*`) clause is written as ([`instances_layout`]).
+#[derive(Debug)]
+pub enum InstancesItem<'c, C, T> {
+    /// An instance the clause matches, creates or removes.
+    Instance(&'c krs_ir::InstanceClause<C, T>),
+    /// `...`, the other instances, inside the collection's parent cell.
+    Others,
+    /// A variable naming the other instances, before the back instances.
+    Rest,
+}
+
+/// How a collection (`*`) clause is written: an open Set or Map clause as its instances, beside
+/// the other cells of its level, leaving the collection's parent cell to cell completion; an
+/// exact clause and a List clause inside the parent cell, a List clause's back instances after
+/// the other instances, which a variable names.
+#[derive(Debug)]
+pub struct InstancesLayout<'c, C, T> {
+    /// Whether the items are written inside the collection's parent cell.
+    pub in_parent: bool,
+    /// The items, in order: the front instances, the other instances (`...` inside the parent
+    /// cell, or a variable when back instances follow them), the back instances.
+    pub items: Vec<InstancesItem<'c, C, T>>,
+}
+
+impl<C, T> InstancesLayout<'_, C, T> {
+    /// The number of items the clause is written as among the cells of its level: the parent
+    /// cell, or each of [`Self::items`].
+    #[must_use]
+    pub fn written(&self) -> usize {
+        if self.in_parent { 1 } else { self.items.len() }
+    }
+}
+
+/// How the collection clause `clause` is written ([`InstancesLayout`]).
+#[must_use]
+pub fn instances_layout<C, T>(clause: &krs_ir::InstancesClause<C, T>) -> InstancesLayout<'_, C, T> {
+    let in_parent = clause.ordering() == krs_ir::InstanceOrdering::List || !clause.is_open();
+    let mut items = clause
+        .front()
+        .iter()
+        .map(InstancesItem::Instance)
+        .collect::<Vec<_>>();
+    if clause.is_open() {
+        if !clause.back().is_empty() {
+            items.push(InstancesItem::Rest);
+        } else if in_parent {
+            items.push(InstancesItem::Others);
+        }
+    }
+    items.extend(clause.back().iter().map(InstancesItem::Instance));
+    InstancesLayout { in_parent, items }
+}
 
 /// Two cells of one sentence that lie in different instances
 /// ([`DefinitionIndex::sentence_instances`]).

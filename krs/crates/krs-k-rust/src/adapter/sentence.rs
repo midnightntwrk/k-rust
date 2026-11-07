@@ -1458,9 +1458,9 @@ impl Adapter<'_> {
         let Some(&(_, origin, _)) = clauses.first() else {
             return Ok(Vec::new());
         };
-        let chain = self
+        let layout = self
             .index
-            .sentence_instances(clauses.iter().map(|(cell, _, _)| *cell))
+            .clause_layout(clauses.iter().map(|(cell, _, _)| *cell))
             .map_err(|error| AdapterError::MissingReference {
                 key: clauses
                     .iter()
@@ -1471,25 +1471,27 @@ impl Adapter<'_> {
                 kind: "instance cell holding every clause of a sentence about one instance",
                 target: error.to_string(),
             })?;
-        if chain.is_empty() {
-            return Ok(clauses
-                .into_iter()
-                .flat_map(|(_, _, adapted)| adapted)
-                .collect());
+        let mut adapted = clauses
+            .into_iter()
+            .map(|(_, _, adapted)| adapted)
+            .collect::<Vec<_>>();
+        let levels = layout
+            .levels
+            .iter()
+            .map(|level| {
+                level
+                    .iter()
+                    .flat_map(|&index| std::mem::take(&mut adapted[index]))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        if layout.chain.is_empty() {
+            return Ok(levels.into_iter().flatten().collect());
         }
         // Each instance's cell, innermost first, holds the clauses that lie in it and the cell
         // of the instance inside it.
-        let mut levels = chain.iter().map(|_| Vec::new()).collect::<Vec<_>>();
-        for (cell, _, adapted) in clauses {
-            let holder = self.index.instance_holder(cell);
-            let level = chain
-                .iter()
-                .position(|instance| Some(*instance) == holder)
-                .expect("every clause lies in an instance of the chain");
-            levels[level].extend(adapted);
-        }
         let mut inner = None;
-        for (instance, mut cells) in chain.iter().zip(levels).rev() {
+        for (instance, mut cells) in layout.chain.iter().zip(levels).rev() {
             cells.extend(inner);
             inner = Some(incomplete_cell(
                 self.cell_name(instance, origin)?,
