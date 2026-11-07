@@ -212,6 +212,28 @@ fn kink_flow_options_parse_with_the_front_end_files() {
         request.job,
         FuzzJobRequest::Kill { ref mutations, .. } if *mutations == dir.join("MUTATIONS.toml")
     ));
+    // The search ends after `--stack-stops N` cases in a row that stopped for lack of stack, 25
+    // by default; 0 is refused, since no case would then run.
+    assert_eq!(
+        request.options.stack_stops,
+        kink_flow::fuzz::DEFAULT_STACK_STOPS
+    );
+    let FlowCommand::Fuzz { request, .. } = FlowCommand::parse(
+        "fuzz",
+        templates.clone(),
+        &strings(&["--template", "t", "--kill", "no-mul", "--stack-stops", "3"]),
+    )
+    .unwrap() else {
+        panic!("fuzz");
+    };
+    assert_eq!(request.options.stack_stops, 3);
+    let refused = FlowCommand::parse(
+        "fuzz",
+        templates.clone(),
+        &strings(&["--template", "t", "--kill", "no-mul", "--stack-stops", "0"]),
+    )
+    .unwrap_err();
+    assert!(refused.contains("--stack-stops 0"), "{refused}");
     // A rule job is named by the predicate it targets: `--matched RULE` a rule's `matched_by`,
     // `--fired RULE` its `fired_by`.
     let rule_job = |flag: &str| {

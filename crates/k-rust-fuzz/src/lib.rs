@@ -49,7 +49,7 @@ pub mod spec;
 pub mod target;
 pub mod values;
 
-pub use engine::Campaign;
+pub use engine::{Campaign, CaseNote};
 pub use error::CampaignError;
 pub use exec::OutcomeClass;
 pub use filter::{FilterRefusal, WitnessFilter};

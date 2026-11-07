@@ -1104,6 +1104,205 @@ note = "narrows the pattern to a nonzero second argument"
         assert!(!kinds.contains(&"template-not-a-witness"), "{document:#}");
     }
 
+    /// What kink decides from a mutation's edit, no case can change, so `fuzz --kill` refuses it
+    /// before any campaign, exit 2, with the status and reason `run` gives the row and its
+    /// action: `requires false` and a narrower pattern are `unkillable` (reason `weakening`), and
+    /// `requires isNat ( N:Nat )`, which holds of every `Nat`, keeps `plus_succ`'s axiom, so the
+    /// mutant is the specification: `equivalent`, reason `valid-condition`, kind
+    /// `valid-condition`. `no-decrease` recurses without end on every case that reaches `plus_succ`: `fuzz` warns
+    /// `stack-stop` before any case, and ends the search after `--stack-stops` such cases in a
+    /// row (`stopped: stack-stops`, exit 3) with the advice of the reason, never a larger budget.
+    /// `shifted`'s cases whose second argument is `zero` end on an application of `plus` its
+    /// equations leave open, which the campaign cannot judge (`not-ceil-free`): the document
+    /// names `plus` in a `not-ceil-free` warning, as its action says.
+    #[test]
+    #[ignore = "kink"]
+    fn a_decided_mutation_is_refused_and_a_recursion_without_end_ends_the_search() {
+        let mutations = r#"[[mutation]]
+id = "false"
+note = "never applies plus_succ"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( M:Nat , N:Nat ) ) requires false"
+
+[[mutation]]
+id = "guide-pattern"
+note = "plus_succ only for a nonzero second argument"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )"
+  replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )"
+
+[[mutation]]
+id = "isnat"
+note = "a condition every Nat meets"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( M:Nat , N:Nat ) ) requires isNat ( N:Nat )"
+
+[[mutation]]
+id = "no-decrease"
+note = "recurses on s(M) instead of M"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( s ( M:Nat ) , N:Nat ) )"
+
+[[mutation]]
+id = "shifted"
+note = "narrows the pattern to a nonzero second argument"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )"
+  replace = "plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( s ( plus ( M:Nat , N:Nat ) ) )"
+"#;
+        // `no-decrease` stops at the native stack's bound, a bound on work: the clock never
+        // decides a run of the tests (R4-WALLCLOCK), so the budget's time is far above it.
+        let manifest = format!(
+            "{STORY_MANIFEST}\n[budget]\n# the clock never decides a run of the tests (R4-WALLCLOCK)\ntime_ms = 600000\n"
+        );
+        let dir = scratch_flow("story-decided", "story.k", STORY_K, &manifest, mutations);
+        let cache = scratch("story-decided-cache");
+        let (flow, list, run_cache) = (
+            dir.join("FLOW.toml"),
+            dir.join("MUTATIONS.toml"),
+            cache.clone(),
+        );
+        let (run, _) = on_stack(move || {
+            let options = RunOptions {
+                order: kink_flow::search::ProgramOrder::Corpus,
+                cache: Some(run_cache),
+                ..RunOptions::default()
+            };
+            kink_flow::cli::run(&flow, &list, &options)
+        });
+        let row = |document: &Value, id: &str| {
+            document["mutations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap_or_else(|| panic!("no row {id}: {document:#}"))
+                .clone()
+        };
+        for (id, status, reason) in [
+            ("false", "unkillable", "weakening"),
+            ("guide-pattern", "unkillable", "weakening"),
+            ("isnat", "equivalent", "valid-condition"),
+            ("no-decrease", "unknown", "stack-stop"),
+            ("shifted", "unknown", "open-application"),
+        ] {
+            let row = row(&run, id);
+            assert_eq!(row["status"], status, "{row:#}");
+            assert_eq!(row["reason"], reason, "{row:#}");
+        }
+        let isnat = row(&run, "isnat");
+        assert_eq!(isnat["weakening"][0]["kind"], "valid-condition", "{isnat:#}");
+        assert!(
+            isnat["action"]
+                .as_str()
+                .unwrap()
+                .contains("hold of every value"),
+            "{isnat:#}"
+        );
+
+        let options = || FuzzOptions {
+            cache: Some(cache.clone()),
+            ..imp_options(50)
+        };
+        for (id, status, reason) in [
+            ("false", "unkillable", "weakening"),
+            ("guide-pattern", "unkillable", "weakening"),
+            ("isnat", "equivalent", "valid-condition"),
+        ] {
+            let (document, ok) = fuzz_kill(
+                &dir,
+                "MUTATIONS.toml",
+                Some(STORY_TEMPLATES),
+                "t4-second",
+                id,
+                options(),
+            );
+            assert!(!ok, "{document:#}");
+            assert_eq!(document["stopped"], "refused", "{document:#}");
+            assert_eq!(
+                kink_flow::cli::fuzz_status(&document),
+                EXIT_UNASKED,
+                "{document:#}"
+            );
+            let refusal = &document["job"]["refusal"];
+            assert_eq!(refusal["stage"], "mutation", "{document:#}");
+            assert_eq!(refusal["reason"], status, "{document:#}");
+            assert_eq!(document["job"]["status"], status, "{document:#}");
+            assert_eq!(document["job"]["reason"], reason, "{document:#}");
+            assert!(!document["job"]["weakening"].is_null(), "{document:#}");
+            assert_eq!(document["attempts"], serde_json::json!([]), "{document:#}");
+            let action = document["action"].as_str().unwrap();
+            assert!(
+                action.contains(row(&run, id)["action"].as_str().unwrap()),
+                "{action}"
+            );
+        }
+
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STORY_TEMPLATES),
+            "t4-second",
+            "no-decrease",
+            FuzzOptions {
+                stack_stops: 2,
+                ..options()
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert!(warning_kinds(&document).contains(&"stack-stop"), "{document:#}");
+        assert_eq!(document["stopped"], "stack-stops", "{document:#}");
+        assert_eq!(
+            kink_flow::cli::fuzz_status(&document),
+            kink_flow::cli::EXIT_UNANSWERED
+        );
+        assert_eq!(totals(&document)["cases"], 2, "{document:#}");
+        let action = document["action"].as_str().unwrap();
+        assert!(action.contains("a mutant that ends"), "{action}");
+        assert!(!action.contains("--cases"), "{action}");
+        assert!(!action.contains("raise"), "{action}");
+
+        let (document, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STORY_TEMPLATES),
+            "t4-second",
+            "shifted",
+            options(),
+        );
+        assert_eq!(document["stopped"], "budget", "{document:#}");
+        let named = document["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|warning| warning["kind"] == "not-ceil-free")
+            .unwrap_or_else(|| panic!("no not-ceil-free warning: {document:#}"));
+        assert!(
+            named["detail"].as_str().unwrap().contains("`plus`"),
+            "{named:#}"
+        );
+        assert!(
+            document["action"]
+                .as_str()
+                .unwrap()
+                .contains("a warning names the function"),
+            "{document:#}"
+        );
+    }
+
     /// Design F4 (the review's probe A, kept as a test): every mutant kink builds converts through
     /// `from_artifacts` with the baseline's source table, and both provenance digests compute.
     #[test]

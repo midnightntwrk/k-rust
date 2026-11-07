@@ -3892,7 +3892,10 @@ fn a_refused_expectation(project: &Project) {
 /// the reviewer's `plus_succ` narrowed to a nonzero second argument, with the same result on
 /// every input it still covers, is `unkillable` with reason `weakening` and runs nothing. KRS
 /// writes every variable of the emitted K with its sort (`N:Nat`), which is what lets kink read
-/// the narrowing as an instance.
+/// the narrowing as an instance. A `requires isNat ( N:Nat )` holds of every `Nat`, so it
+/// narrows nothing: the mutant is the specification, `equivalent` with reason
+/// `valid-condition`. `fuzz --kill` refuses both before any case, exit 2, with the row's status
+/// and action: no case can change a fact of the axioms.
 #[test]
 fn a_narrowed_equation_of_the_story_is_unkillable() {
     let project = project_of("story-plus-narrow", "NAT", &story_files());
@@ -3918,6 +3921,61 @@ fn a_narrowed_equation_of_the_story_is_unkillable() {
     assert_eq!(weakening[0]["label"], "nat--plus_succ", "{row:#}");
     assert_eq!(weakening[0]["head"], "plus", "{row:#}");
     assert_eq!(weakening[0]["kind"], "narrowed", "{row:#}");
+
+    project.write(
+        "kink/always.toml",
+        mutation(
+            "always-nat",
+            "plus_succ",
+            "s ( plus ( M:Nat , N:Nat ) )",
+            "s ( plus ( M:Nat , N:Nat ) ) requires isNat ( N:Nat )",
+        ),
+    );
+    let output = project.kink("run", &["--mutations", "kink/always.toml"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let row = &document["mutations"][0];
+    assert_eq!(row["status"], "equivalent", "{row:#}");
+    assert_eq!(row["reason"], "valid-condition", "{row:#}");
+    assert_eq!(row["weakening"][0]["kind"], "valid-condition", "{row:#}");
+    assert_eq!(row["executed"], serde_json::json!([]), "{row:#}");
+
+    project.write(
+        "kink/narrowing-templates.toml",
+        "[[template]]\nid = \"t4-second\"\nprogram = \"t4\"\n\n  [[template.hole]]\n  name = \"B\"\n  \
+         sort = \"Nat\"\n  find = \", s(zero))\"\n  literal = \"s(zero)\"\n  allow-refused-sort = true\n",
+    );
+    for (list, id, status) in [
+        ("kink/narrowing.toml", "needs-nonzero", "unkillable"),
+        ("kink/always.toml", "always-nat", "equivalent"),
+    ] {
+        let output = project.kink(
+            "fuzz",
+            &[
+                "--mutations",
+                list,
+                "--templates",
+                "kink/narrowing-templates.toml",
+                "--template",
+                "t4-second",
+                "--kill",
+                id,
+            ],
+        );
+        assert_status(&output, 2);
+        let document = json(&output);
+        assert_eq!(document["stopped"], "refused", "{document:#}");
+        assert_eq!(document["job"]["refusal"]["stage"], "mutation", "{document:#}");
+        assert_eq!(document["job"]["refusal"]["reason"], status, "{document:#}");
+        assert_eq!(document["job"]["status"], status, "{document:#}");
+        assert!(
+            document["action"]
+                .as_str()
+                .unwrap()
+                .contains("no search can kill this mutation (`krs kink run "),
+            "{document:#}"
+        );
+    }
 }
 
 /// A status is a property of the loaded axiom: kink reads each variable's sort from the rule as

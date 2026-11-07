@@ -33,6 +33,7 @@ use self::{
     schedule::Schedule,
 };
 use crate::{
+    exec::{OutcomeClass, UnjudgedReason},
     assemble::build_backend,
     error::CampaignError,
     graph::RuleGraph,
@@ -55,6 +56,18 @@ use crate::{
     target::{RuleMode, TargetKind, differential},
     values::{self, Generator, Value, ValueRng},
 };
+
+/// What [`Campaign::run_observed`] shows its observer of one case, once the case is recorded.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CaseNote {
+    /// The case's number, counted from 0, as the report counts cases.
+    pub case: u64,
+    /// The class the case is counted under.
+    pub class: OutcomeClass,
+    /// Why the case could not be judged: `Some` exactly when `class` is `unsupported` or
+    /// `baseline-incomplete` (the reason the report's totals count it under).
+    pub unjudged: Option<UnjudgedReason>,
+}
 
 /// A validated campaign (ARCHITECTURE 9.2).
 ///
@@ -256,7 +269,7 @@ impl Campaign {
         reason = "ARCHITECTURE 9.2 fixes this signature; a token is a shared handle"
     )]
     pub fn run(&mut self, budget: Budget, cancel: Option<CancellationToken>) -> FuzzReport {
-        self.run_with(budget, cancel.as_ref(), None)
+        self.run_with(budget, cancel.as_ref(), None, None)
     }
 
     /// [`Campaign::run`] with the client's witness filter `filter` ([`crate::filter`],
@@ -282,7 +295,32 @@ impl Campaign {
         cancel: Option<CancellationToken>,
         filter: &mut dyn crate::filter::WitnessFilter,
     ) -> FuzzReport {
-        self.run_with(budget, cancel.as_ref(), Some(filter))
+        self.run_with(budget, cancel.as_ref(), Some(filter), None)
+    }
+
+    /// [`Campaign::run`], with the client's witness filter when one is given
+    /// ([`Campaign::run_filtered`]), showing every case that does not end the run to `observe`
+    /// once the case is recorded: when `observe` answers `true` the run ends there, as when
+    /// `cancel` is cancelled between cases (outcome `cancelled`), so the caller can end a search
+    /// by what its cases have shown, such as a run of cases no witness can come from. The case
+    /// sequence before the stop is [`Campaign::run`]'s; an observer that never answers `true`
+    /// gives its report.
+    ///
+    /// # Panics
+    ///
+    /// As [`Campaign::run`]: never.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the signature of `run`; a token is a shared handle"
+    )]
+    pub fn run_observed(
+        &mut self,
+        budget: Budget,
+        cancel: Option<CancellationToken>,
+        filter: Option<&mut dyn crate::filter::WitnessFilter>,
+        observe: &mut dyn FnMut(&CaseNote) -> bool,
+    ) -> FuzzReport {
+        self.run_with(budget, cancel.as_ref(), filter, Some(observe))
     }
 
     /// The report of a run that executes no case, with `outcome` and the filter identity `id`.
@@ -363,6 +401,7 @@ impl Campaign {
         budget: Budget,
         cancel: Option<&CancellationToken>,
         filter: Option<&mut dyn crate::filter::WitnessFilter>,
+        observe: Option<&mut dyn FnMut(&CaseNote) -> bool>,
     ) -> FuzzReport {
         let id = match self.before_cases(budget, filter.as_deref()) {
             Ok(id) => id,
@@ -471,6 +510,7 @@ impl Campaign {
             budget,
             cancel,
             filter,
+            observe,
         )
     }
 }

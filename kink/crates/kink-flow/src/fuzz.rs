@@ -20,7 +20,11 @@
 //! `[spec] assume_joined`), converted with the baseline's source table: a mutant shares the
 //! baseline's sources, and its provenance indexes them. A mutation kink would refuse
 //! (`invalid-mutation`, `equivalent`, an invalid or inconsistent mutant, unsupported claims) ends
-//! the command with kink's status and reason, and nothing is fuzzed.
+//! the command with kink's status and reason, and nothing is fuzzed. So does a mutation kink
+//! decides from its edit alone (kink-patch `ClaimSupport::weakening`, on a baseline without an
+//! unassumed finding, as `run` decides it): `unkillable` (reason `weakening`) or `equivalent`
+//! (reason `valid-condition`) is a fact of the axioms, which no case can change, so the job is
+//! refused at stage `mutation` with that status's reason and the row's action.
 //!
 //! **Comparability.** The campaign reads data ends strictly: a definition whose full critical-pair
 //! check reports a finding no name assumes makes the campaign `not-comparable`, and the document
@@ -71,7 +75,12 @@
 //! use all paths unless `--one-path`. `--time-limit-ms T` cancels the campaign's run (not its
 //! setup) after `T` ms; a cancelled campaign is outside the determinism contract
 //! (`stopped: time-limit`). The campaign runs on the caller's thread, which the command line
-//! gives kink-corpus's definition stack allowance.
+//! gives kink-corpus's definition stack allowance. A case whose run stopped for lack of native
+//! stack (k-rust-fuzz's unjudged reason `stack-stops`) judges nothing, and no budget bounds the
+//! stack: after `--stack-stops N` such cases in a row (default [`DEFAULT_STACK_STOPS`]) the search
+//! ends (`stopped: stack-stops`), with the advice of kink's `stack-stop` reason in place of a
+//! larger budget. A kill job whose mutation the last run left `unknown` with reason `stack-stop`
+//! warns so before any case (`stack-stop`).
 //!
 //! **Output.** One document ([`FUZZ_SCHEMA`]): the fuzz report of the attempt, the candidate (the
 //! shrunk witness case, else the first), and the `[[program]]` fragment, printed, never written.
@@ -121,6 +130,7 @@ use kink_corpus::{ProgramSource, cli::DEFINITION_STACK_BYTES};
 use kink_native::{
     ValidatedDefinition,
     coverage::{RuleAuthors, coverage_domain},
+    data::{DataEnds, data_ends},
     exclusion::{DefinitionExclusions, Exclusion, ValidatedLoad},
     execution::SolverProfile,
 };
@@ -166,12 +176,29 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// its `action`. Version 8 adds `template.last_run.mutation.witnesses_global`, the last run row's
 /// `witnesses_global`, and the warning `global-witnesses`: the mutation's edit is not site-local,
 /// so every program is a witness by default, the template included, whatever its case reaches.
+/// Version 9 refuses a kill job of a mutation kink decides from its edit (stage `mutation`, reason
+/// `unkillable` or `equivalent`, with `job.status`, `job.reason` and `job.weakening`) in place of
+/// the warning `unkillable`, adds the `stopped` value `stack-stops` (`--stack-stops N`
+/// consecutive cases that stopped for lack of native stack), the warning `stack-stop` (the last
+/// run's reason for the mutation) and the warning `not-ceil-free` (each function the campaign's
+/// report names as held unevaluated in a leaf it could not judge).
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 8;
+pub const FUZZ_VERSION: u32 = 9;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
 pub const DEFAULT_MAX_WORK: u64 = 100_000;
+/// How many consecutive cases that stopped for lack of native stack end the search when
+/// `--stack-stops` is not given ([`FuzzOptions::stack_stops`]). A case whose run stops for lack
+/// of stack judges nothing, so it can be no witness, and no option of the campaign bounds the
+/// stack; a template whose cases keep reaching a recursion that does not end spends each case to
+/// that stop (seconds each on the introduction's story). The guide's trials killed every
+/// killable mutation on a template whose run reached the edited rule and ended on both
+/// definitions within 1 to 25 cases of blind sampling, so 25 cases in a row on which the run did
+/// not end are as many as a template that can kill needed there, none of them a case that could.
+/// The stop ends a search and decides no verdict: a search it ends has found no witness, as one
+/// the budget ends.
+pub const DEFAULT_STACK_STOPS: u64 = 25;
 
 // ---------------------------------------------------------------------------------------------
 // TEMPLATES.toml
@@ -498,6 +525,9 @@ pub struct FuzzOptions {
     /// Judge each candidate hit and shrink candidate inside the campaign by kink's own rules
     /// ([`crate::fuzz_filter`], fz26 FZ-COMPARABLE-B); on by default, off with `--no-filter`.
     pub filter: bool,
+    /// `--stack-stops N`: how many consecutive cases that stopped for lack of native stack end
+    /// the search (`stopped: stack-stops`); at least 1. Default [`DEFAULT_STACK_STOPS`].
+    pub stack_stops: u64,
 }
 
 impl Default for FuzzOptions {
@@ -512,6 +542,7 @@ impl Default for FuzzOptions {
             cache: None,
             confirm: false,
             filter: true,
+            stack_stops: DEFAULT_STACK_STOPS,
         }
     }
 }
@@ -897,6 +928,50 @@ fn under_watchdog<T>(
     drop(done);
     guard.join().expect("the watchdog thread does not panic");
     (value, fired.load(Ordering::Acquire))
+}
+
+/// The run of consecutive cases that stopped for lack of native stack, which ends the search at
+/// `limit` ([`FuzzOptions::stack_stops`]): a case is counted when it could not be judged for that
+/// reason (k-rust-fuzz's `stack-stops`, on either side), and any other case starts the run again.
+struct StackStops {
+    limit: u64,
+    run: u64,
+    /// Whether every case of the current run was `unsupported` (the mutant's run, or the only
+    /// side's), not `baseline-incomplete`.
+    unsupported: bool,
+}
+
+impl StackStops {
+    const fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            run: 0,
+            unsupported: true,
+        }
+    }
+
+    /// Count `note`; whether the search ends there.
+    fn observe(&mut self, note: &k_rust_fuzz::CaseNote) -> bool {
+        if note.unjudged == Some(k_rust_fuzz::exec::UnjudgedReason::StackStops) {
+            if self.run == 0 {
+                self.unsupported = true;
+            }
+            self.run += 1;
+            self.unsupported &= note.class == k_rust_fuzz::OutcomeClass::Unsupported;
+        } else {
+            self.run = 0;
+        }
+        self.ended()
+    }
+
+    /// Whether the run reached the limit (the observer ended the search).
+    const fn ended(&self) -> bool {
+        self.limit > 0 && self.run >= self.limit
+    }
+
+    const fn all_unsupported(&self) -> bool {
+        self.unsupported
+    }
 }
 
 /// The `[[program]]` a witness case re-enters the corpus as, and its printed fragment.
@@ -1355,14 +1430,22 @@ fn last_run(
     let global = known && entry["witnesses_global"] == true;
     let template_id = row.and_then(|row| row["id"].as_str());
     let status = entry["status"].as_str().unwrap_or_default();
-    if status == crate::search::UNKILLABLE {
-        // kink27 R5-WEAKENING: no program can kill it, so no template helps.
+    if status == "unknown" && entry["reason"] == "stack-stop" {
+        // Every program the last run left undecided stopped for lack of native stack on the
+        // mutant: a case whose run recurses the same way judges nothing either.
         warnings.push(warning(
-            "unkillable",
-            crate::report::action_spelled(status, entry["reason"].as_str(), spelling)
-                .unwrap_or_default(),
+            "stack-stop",
+            format!(
+                "the last run left this mutation unknown with reason stack-stop: {}; a case that \
+                 stops for lack of stack is no witness either, so the search ends after {} such \
+                 cases in a row (--stack-stops)",
+                crate::report::action_spelled(status, Some("stack-stop"), spelling)
+                    .unwrap_or_default(),
+                options.stack_stops,
+            ),
         ));
-    } else if status == "killed" {
+    }
+    if status == "killed" {
         warnings.push(warning(
             "already-killed",
             format!(
@@ -1745,6 +1828,37 @@ pub fn fuzz_front(
                 }
             };
             let baseline = spec.validator.baseline();
+            // kink27 R5-WEAKENING: a mutation whose edit only weakens the specification, or keeps
+            // every axiom, is decided from the edit, as `run` decides it: after the baseline's
+            // findings, since the argument reads the baseline's normal forms as a model. No case
+            // can change a fact of the axioms, so there is nothing to search for.
+            if data_ends(&spec.data) != DataEnds::None
+                && let Some(weakening) =
+                    kink_patch::ClaimSupport::new(baseline).weakening(baseline, &resolved.patch)
+            {
+                let value = crate::search::weakening_value(baseline, Some(&weakening));
+                let (status, reason) = crate::search::weakening_status(&value);
+                document["job"]["status"] = json!(status);
+                document["job"]["reason"] = json!(reason);
+                document["job"]["weakening"] = value;
+                let action = crate::report::action_spelled(status, Some(reason), spelling)
+                    .unwrap_or_default();
+                return refuse(
+                    document,
+                    Refusal::new(
+                        "mutation",
+                        status,
+                        format!(
+                            "kink decides this mutation from its edit alone: {status} ({reason}), \
+                             a fact of the axioms that no case can change"
+                        ),
+                    ),
+                    &format!(
+                        "no search can kill this mutation (`{}` gives it the same status): {action}",
+                        spelling.verb(Verb::Run)
+                    ),
+                );
+            }
             // The names every later step judges under: the flow's and the command line's (the
             // campaign, the filter and the confirmation read the same set; final review N1).
             let admission = MutantAdmission::new(
@@ -2142,11 +2256,18 @@ pub fn fuzz_front(
             filter = Some(judgement);
         }
     }
+    // A case whose run stopped for lack of native stack judges nothing, and no budget bounds the
+    // stack: `--stack-stops` of them in a row end the search ([`DEFAULT_STACK_STOPS`]).
+    let mut stack_stops = StackStops::new(options.stack_stops);
     let (report, fired) = under_watchdog(
         options.time_limit_ms.map(Duration::from_millis),
-        |token| match filter.as_mut() {
-            Some(filter) => campaign.run_filtered(options.budget, token, filter),
-            None => campaign.run(options.budget, token),
+        |token| {
+            let filter = filter
+                .as_mut()
+                .map(|filter| filter as &mut dyn k_rust_fuzz::WitnessFilter);
+            campaign.run_observed(options.budget, token, filter, &mut |note| {
+                stack_stops.observe(note)
+            })
         },
     );
     drop(filter);
@@ -2186,6 +2307,13 @@ pub fn fuzz_front(
     // (FZ-CRASH).
     for line in report.crashes.lines() {
         push_warning(&mut document, warning("crash", line));
+    }
+    // The campaign's statement of a `not-ceil-free` case says that a warning names the function
+    // when it is known: each such warning of its report, here too (its text after the kind).
+    for text in &report.warnings {
+        if let Some(detail) = text.strip_prefix("not-ceil-free: ") {
+            push_warning(&mut document, warning("not-ceil-free", detail));
+        }
     }
     let fuzz =
         serde_json::from_str::<Value>(&report.to_canonical_json()).expect("a fuzz report is JSON");
@@ -2466,6 +2594,30 @@ pub fn fuzz_front(
                 "no witness: {} Most generated values were rejected: narrow the holes' ranges or \
                  choices",
                 no_witness.statement
+            ));
+            true
+        }
+        CampaignOutcome::Cancelled { no_witness } if stack_stops.ended() => {
+            // The observer ended the search: the last cases each stopped for lack of native
+            // stack, and no budget bounds it, so more cases or work would only repeat them. The
+            // advice is that of kink's `stack-stop` reason for a kill, which can be written as a
+            // mutant that ends; a rule or pattern job's template recurses on the baseline itself.
+            document["stopped"] = json!("stack-stops");
+            let advice = match job {
+                FuzzJob::Kill { .. } if stack_stops.all_unsupported() => {
+                    "every one of them recursed on the mutant, so a case of this template that \
+                     reaches the edit is unlikely to end on it: write a case on an input the \
+                     mutant ends on; when it recurses without end on every input that reaches \
+                     the edit, no case kills it: write the misunderstanding as a mutant that \
+                     ends, or as a replacement whose result differs, or drop the mutation"
+                }
+                _ => &format!("their runs recursed until the stack stopped them: {sought}"),
+            };
+            document["action"] = json!(format!(
+                "no witness: the last {} cases in a row each stopped for lack of native stack \
+                 (unjudged reason stack-stops), which no budget bounds, so no such case can be a \
+                 witness and the search ended there (--stack-stops); {advice}. {}",
+                stack_stops.limit, no_witness.statement
             ));
             true
         }

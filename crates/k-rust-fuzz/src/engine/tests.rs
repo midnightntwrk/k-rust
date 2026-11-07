@@ -1117,6 +1117,96 @@ fn a_cancelled_token_ends_the_campaign_before_the_next_case() {
     assert!(report.no_witness().is_some());
 }
 
+/// An observer sees every recorded case, in order, with its class and its unjudged reason, and
+/// its `true` ends the run there as a cancellation: the case it stopped at is counted, and no
+/// later case runs. One that never answers `true` leaves the report the unobserved run's.
+#[test]
+fn an_observer_sees_each_case_and_its_stop_ends_the_campaign() {
+    let class = |case: usize| {
+        if case % 3 == 1 {
+            OutcomeClass::Miss
+        } else {
+            OutcomeClass::Unsupported
+        }
+    };
+    let mut runner = Scripted::new(
+        {
+            let mut case = 0;
+            move |_| {
+                case += 1;
+                run(class(case - 1), 1)
+            }
+        },
+        |_| unreachable!(),
+    );
+    let mut seen = Vec::new();
+    let mut observe = |note: &super::CaseNote| {
+        seen.push((note.case, note.class, note.unjudged));
+        note.case == 4
+    };
+    let report = run_loop_filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        None,
+        None,
+        Some(&mut observe),
+    );
+    assert!(matches!(report.outcome, CampaignOutcome::Cancelled { .. }));
+    assert_eq!(report.totals.cases, 5);
+    let defect = Some(crate::exec::UnjudgedReason::EngineDefect);
+    assert_eq!(
+        seen,
+        [
+            (0, OutcomeClass::Unsupported, defect),
+            (1, OutcomeClass::Miss, None),
+            (2, OutcomeClass::Unsupported, defect),
+            (3, OutcomeClass::Unsupported, defect),
+            (4, OutcomeClass::Miss, None),
+        ]
+    );
+
+    let mut runner = Scripted::new(
+        {
+            let mut case = 0;
+            move |_| {
+                case += 1;
+                run(class(case - 1), 1)
+            }
+        },
+        |_| unreachable!(),
+    );
+    let mut never = |_: &super::CaseNote| false;
+    let observed = run_loop_filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        None,
+        None,
+        Some(&mut never),
+    );
+    let mut runner = Scripted::new(
+        {
+            let mut case = 0;
+            move |_| {
+                case += 1;
+                run(class(case - 1), 1)
+            }
+        },
+        |_| unreachable!(),
+    );
+    let plain = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        None,
+    );
+    assert_eq!(observed.to_canonical_json(), plain.to_canonical_json());
+}
+
 #[test]
 fn an_abort_ends_the_campaign() {
     let mut runner = Scripted::new(|_| run(OutcomeClass::Miss, 1), |_| unreachable!());
@@ -3441,7 +3531,7 @@ fn filtered(
     budget: Budget,
     filter: &mut Judging,
 ) -> FuzzReport {
-    run_loop_filtered(runner, schedule, settings, budget, None, Some(filter))
+    run_loop_filtered(runner, schedule, settings, budget, None, Some(filter), None)
 }
 
 fn ints(values: &[Vec<Value>]) -> Vec<Vec<i64>> {

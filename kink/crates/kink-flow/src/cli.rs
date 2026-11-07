@@ -73,8 +73,8 @@ macro_rules! usage_line {
          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
          | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
-         [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
-         [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
+         [--stack-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
+         [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
          <topic>.toml files; --help (or -h), anywhere, prints the loop, the mutation format and \
          the exit statuses"
     };
@@ -425,6 +425,11 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
         "cancel the campaign's run after T ms (not the admission and compiles before it)",
     ),
     option(
+        "--stack-stops N",
+        "end the search after N cases in a row that stopped for lack of native stack (default: \
+         25)",
+    ),
+    option(
         "--assume-joined NAME",
         "read this critical-pair finding as joined, for this command (repeatable)",
     ),
@@ -551,8 +556,8 @@ impl Verb {
                 "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
                  MUTATIONS | --matched RULE | --fired RULE | --pattern ID --patterns \
                  PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] \
-                 [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] \
-                 [--no-confirm] [--no-filter]"
+                 [--time-limit-ms T] [--stack-stops N] [--assume-joined NAME]... [--one-path] \
+                 [--cache DIR] [--no-confirm] [--no-filter]"
             }
         }
     }
@@ -1340,10 +1345,10 @@ pub fn query_status(document: &Value) -> u8 {
 
 /// The exit status of a fuzz document by its `stopped` ([`crate::fuzz`]): `fuzz` asks whether
 /// the template's hole values hold a witness of its job that kink accepts. A witness kink offers
-/// (`null`) or a proof that no input has one (`equivalent`: the two definitions execute alike)
-/// answers it ([`EXIT_YES`]). A search that ran its cases and ended without a witness kink
+/// (`null`) or a proof that no input has one (`equivalent`: the two definitions denote one
+/// theory) answers it ([`EXIT_YES`]). A search that ran its cases and ended without a witness kink
 /// accepts (`budget`, `time-limit`, `cancelled`, `domain-exhausted`, `client-refused`,
-/// `unconfirmed`, `assembly-mismatch`) leaves the job's own question, whether some input
+/// `unconfirmed`, `assembly-mismatch`, `stack-stops`) leaves the job's own question, whether some input
 /// witnesses it, without an answer ([`EXIT_UNANSWERED`]): the caller retries with more cases or
 /// time, or with other holes or another template; `domain-exhausted` answers only that this
 /// template's holes hold none. A job refused before any case (`refused`, `not-comparable`), a
@@ -1357,7 +1362,7 @@ pub fn fuzz_status(document: &Value) -> u8 {
         Some("equivalent") => EXIT_YES,
         Some(
             "budget" | "time-limit" | "cancelled" | "domain-exhausted" | "client-refused"
-            | "unconfirmed" | "assembly-mismatch",
+            | "unconfirmed" | "assembly-mismatch" | "stack-stops",
         ) => EXIT_UNANSWERED,
         _ => EXIT_UNASKED,
     }
@@ -1660,6 +1665,7 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     let (mut template, mut mutation, mut mutations) = (None, None, None);
     let (mut rule, mut pattern, mut patterns, mut fired) = (None, None, None, false);
     let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
+    let mut stack_stops = None;
     let (mut one_path, mut no_confirm, mut no_filter) = (false, false, false);
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -1737,6 +1743,13 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
             "--time-limit-ms" if time_limit.is_none() => {
                 time_limit = Some(number("--time-limit-ms", args.next())?);
             }
+            "--stack-stops" if stack_stops.is_none() => {
+                let count = number("--stack-stops", args.next())?;
+                if count == 0 {
+                    return Err("--stack-stops 0: give at least one case".into());
+                }
+                stack_stops = Some(count);
+            }
             "--assume-joined" => {
                 let name = args
                     .next()
@@ -1811,6 +1824,9 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     options.seed = seed.unwrap_or(0);
     options.max_work = max_work;
     options.time_limit_ms = time_limit;
+    if let Some(count) = stack_stops {
+        options.stack_stops = count;
+    }
     if one_path {
         options.paths = k_rust_fuzz::PathMode::OnePath;
     }

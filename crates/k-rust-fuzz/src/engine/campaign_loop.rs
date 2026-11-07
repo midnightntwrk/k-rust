@@ -10,6 +10,7 @@ use std::{
 use k_rust::backend::CancellationToken;
 
 use super::{
+    CaseNote,
     proposer::{CoverageFeedback, Feedback as _, Observation, Origin, Proposal, ValueShrinker},
     runner::{CaseCrash, CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail},
     schedule::Schedule,
@@ -289,7 +290,7 @@ pub(crate) fn run_loop(
     budget: Budget,
     cancel: Option<&CancellationToken>,
 ) -> FuzzReport {
-    run_loop_filtered(runner, schedule, settings, budget, cancel, None)
+    run_loop_filtered(runner, schedule, settings, budget, cancel, None, None)
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -307,6 +308,11 @@ pub(crate) fn run_loop(
 /// its confirmation and the confirmed case after it; a refused hit is `unsupported`
 /// (`client-refused`) and, when shrinking is on, repaired ([`repair`]); every shrink candidate is
 /// judged the same way inside the shrink screen. Without a filter no call of the loop changes.
+///
+/// With the caller's observer `observe` ([`crate::Campaign::run_observed`]), every case that does
+/// not end the run is shown to it once it is recorded, as a [`CaseNote`]; when it answers `true`
+/// the run ends there as a cancellation (`Ending::Cancelled`), before the case's observation
+/// reaches the proposers. Without an observer no call of the loop changes.
 #[expect(
     clippy::too_many_lines,
     reason = "the loop over cases, each case's crash, filter, confirmation and witness in order"
@@ -318,6 +324,7 @@ pub(crate) fn run_loop_filtered(
     budget: Budget,
     cancel: Option<&CancellationToken>,
     filter: Option<&mut dyn WitnessFilter>,
+    mut observe: Option<&mut dyn FnMut(&CaseNote) -> bool>,
 ) -> FuzzReport {
     let mut state = State::new(budget);
     state.warnings.clone_from(&settings.warnings);
@@ -573,6 +580,16 @@ pub(crate) fn run_loop_filtered(
         state.record(&run, class);
         if is_cancelled(cancel) {
             break Ending::Cancelled;
+        }
+        if let Some(observe) = observe.as_mut() {
+            let note = CaseNote {
+                case,
+                class,
+                unjudged: run.unjudged,
+            };
+            if observe(&note) {
+                break Ending::Cancelled;
+            }
         }
         let observation = observation(settings, case, class, run);
         state.score(case, observation.score.as_ref());
