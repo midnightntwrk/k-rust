@@ -16,6 +16,9 @@
 //!
 //! The fourth ([`BRANCHING`]) takes `boundary`, the start's one successor, to `toss(0)`, which
 //! has two, `done(1)` and `done(0)`, by the rules of the `nondet` group `toss`.
+//!
+//! The fifth ([`CHOICE_AT_STOP`]) has a choice at a stop rule: `advance` and `leap`, one
+//! `nondet` group, are both enabled at the start.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -272,6 +275,81 @@ fn toss_tails(k::term![Step::Toss { value }]: Term<Op>) -> Term<Op> {
 }
 "##;
 const BRANCHING_PACKAGE: &str = "krs-exec-branching-fixture";
+
+/// `advance` and `leap` are one `nondet` group, both enabled at phase 0, so the start has two
+/// successors. A run takes `advance` there to phase 1, `leap`, the only rule at phase 1, to
+/// phase 3, and `advance`, the only rule at phase 3, to phase 4, where it is stuck. `Start`
+/// holds at phase 0 only, `Reached` at every phase of the run.
+const CHOICE_AT_STOP: &str = r##"
+use k::builtin::{Bool, Int, KSequence};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Op: KItem;
+}
+
+#[k::constructors(sort = Op, result = KResult)]
+pub enum Step {
+    #[k::syntax("#go")]
+    Go,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub phase: Int,
+    #[k::cell]
+    pub ticks: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(start: Int) -> Self {
+        Self {
+            k: k::k![Step::Go],
+            phase: start,
+            ticks: 0,
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+
+    #[k::rule(nondet = toss)]
+    #[k::requires(phase == 0 || phase == 3)]
+    advance: {
+        k: [Step::Go, ..],
+        phase,
+        ticks,
+    } => {
+        phase: phase + 1,
+        ticks: ticks + 1,
+    };
+
+    #[k::rule(nondet = toss)]
+    #[k::requires(phase < 3)]
+    leap: {
+        k: [Step::Go, ..],
+        phase,
+    } => {
+        phase: phase + 2,
+    };
+}
+
+#[k::function(total, internal)]
+pub fn Start(phase: Term<Int>) -> Term<Bool> {
+    phase == 0
+}
+
+#[k::function(total, internal)]
+pub fn Reached(phase: Term<Int>) -> Term<Bool> {
+    phase >= 0
+}
+"##;
+const CHOICE_AT_STOP_PACKAGE: &str = "krs-exec-stop-choice-fixture";
 
 /// A Cargo project of the KRS definition `source`, as package `package`.
 fn project(source: &str, package: &str, namespace: &str) -> krs_test_support::TempDir {
@@ -1461,5 +1539,203 @@ fn krs_run_counts_stops_and_reports_them() {
             "and the `run` stops of the case `counted.json`, both say where the run ends; give one"
         ),
         "{stderr}"
+    );
+}
+
+/// [`CHOICE_AT_STOP`] as a project, and the fixture target `krs` builds it in.
+struct ChoiceAtStop {
+    temporary: krs_test_support::TempDir,
+    target: krs_test_support::SharedFixtureTarget,
+}
+
+impl ChoiceAtStop {
+    fn new() -> Self {
+        Self {
+            temporary: project(
+                CHOICE_AT_STOP,
+                CHOICE_AT_STOP_PACKAGE,
+                "ORG-KRS-EXEC-CHOICE",
+            ),
+            target: shared_fixture_target(),
+        }
+    }
+
+    fn project(&self) -> std::path::PathBuf {
+        self.temporary.path().join("language")
+    }
+
+    /// `krs VERB --package PACKAGE --definition main EXTRA`: the exit status, stdout and stderr.
+    fn krs(&self, verb: &str, extra: &[&str]) -> (Option<i32>, String, String) {
+        let project = self.project();
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, self.target.path());
+        let output = process
+            .current_dir(&project)
+            .args([verb, "--manifest-path"])
+            .arg(project.join("Cargo.toml"))
+            .args(["--package", CHOICE_AT_STOP_PACKAGE, "--definition", "main"])
+            .args(extra)
+            .output()
+            .unwrap();
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    }
+
+    /// `krs run` from phase 0 with `extra`: the JSON report's `run` and the status line.
+    fn run(&self, extra: &[&str]) -> (serde_json::Value, String) {
+        let mut arguments = vec!["-c", "start=0", "--output", "json"];
+        arguments.extend(extra);
+        let (status, stdout, stderr) = self.krs("run", &arguments);
+        assert_eq!(status, Some(0), "{stderr}");
+        let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let line = stderr
+            .lines()
+            .find(|line| line.starts_with("krs run: "))
+            .unwrap_or_else(|| panic!("{stderr}"))
+            .to_owned();
+        (report["run"].clone(), line)
+    }
+}
+
+/// The `<phase>` and `<ticks>` of a JSON report's `run` state.
+fn phase_and_ticks(run: &serde_json::Value) -> (i64, i64) {
+    let top = &run["state"]["term"]["args"];
+    let cell = |name: &str| {
+        top.as_array()
+            .unwrap()
+            .iter()
+            .find(|cell| cell["label"]["name"] == name)
+            .and_then(|cell| cell["args"][0]["token"].as_str())
+            .unwrap_or_else(|| panic!("{run}"))
+            .parse::<i64>()
+            .unwrap()
+    };
+    (cell("<phase>"), cell("<ticks>"))
+}
+
+/// A step by a stop rule from a state with another successor is no arrival: in
+/// [`CHOICE_AT_STOP`] the run takes `advance` from the start, which also has `leap`'s successor,
+/// and goes on through it without stopping, counting it or asking the stop condition there. Its
+/// one arrival is `advance`'s at phase 3, so a stop before it ends at phase 3, one after it at
+/// phase 4, and a count of 2 is never reached. A condition that holds only at the start is never
+/// asked there, so the run ends on its own; one that holds everywhere stops at phase 3.
+#[test]
+fn krs_run_passes_a_stop_rule_step_from_a_state_with_two_successors() {
+    let fixture = ChoiceAtStop::new();
+
+    // The fixture's premise: the run takes `advance` from the start, where `leap` applies too.
+    // Which of a `nondet` group's rules a run takes is not part of the semantics; it rests on
+    // the order the compiled definition lists them in, which the package's name moves.
+    let (whole, _) = fixture.run(&["--trace"]);
+    let labels = whole["trace"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|step| step["label"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        labels,
+        ["advance", "leap", "advance"].map(|rule| format!("ORG-KRS-EXEC-CHOICE.{rule}")),
+        "{whole}"
+    );
+    let (status, stdout, stderr) = fixture.krs("search", &["-c", "start=0", "--mode", "one-step"]);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert!(
+        stderr.contains("krs search: 2 solutions"),
+        "{stdout}{stderr}"
+    );
+
+    for (extra, line, phase_ticks, stops, arrivals) in [
+        (
+            &["--stop-before", "advance"][..],
+            "krs run: stopped after 2 steps, before `crate::advance` (stop 1 of 1)",
+            (3, 1),
+            1,
+            None,
+        ),
+        (
+            &["--stop-after", "crate::advance"][..],
+            "krs run: stopped after 3 steps, after `crate::advance` (stop 1 of 1)",
+            (4, 2),
+            1,
+            None,
+        ),
+        (
+            &["--stop-before", "advance", "--stop-count", "2"][..],
+            "krs run: stuck after 3 steps, 1 of 2 stops reached",
+            (4, 2),
+            1,
+            None,
+        ),
+        (
+            &["--stop-after", "advance", "--stop-count", "2"][..],
+            "krs run: stuck after 3 steps, 1 of 2 stops reached",
+            (4, 2),
+            1,
+            None,
+        ),
+        (
+            &["--stop-before", "advance", "--stop-when", "phase=Start"][..],
+            "krs run: stuck after 3 steps, 0 of 1 stops reached, where `Start` holds; 1 arrival",
+            (4, 2),
+            0,
+            Some(1),
+        ),
+        (
+            &["--stop-before", "advance", "--stop-when", "phase=Reached"][..],
+            "krs run: stopped after 2 steps, before `crate::advance` (stop 1 of 1, where `Reached` holds; 1 arrival)",
+            (3, 1),
+            1,
+            Some(1),
+        ),
+        (
+            &["--stop-after", "advance", "--stop-when", "phase=Reached"][..],
+            "krs run: stopped after 3 steps, after `crate::advance` (stop 1 of 1, where `Reached` holds; 1 arrival)",
+            (4, 2),
+            1,
+            Some(1),
+        ),
+    ] {
+        let (report, status) = fixture.run(extra);
+        assert!(status.starts_with(line), "{extra:?}: {status}");
+        assert_eq!(phase_and_ticks(&report), phase_ticks, "{extra:?}: {report}");
+        assert_eq!(report["stops"].as_u64().unwrap_or(0), stops, "{extra:?}");
+        assert_eq!(report["arrivals"].as_u64(), arrivals, "{extra:?}");
+    }
+}
+
+/// A case of [`CHOICE_AT_STOP`] stops where `krs run`'s flags do, at `advance`'s one arrival;
+/// its run took one successor of the start, so its expectation is inconclusive under `krs run
+/// --case` and `krs cases` alike, naming the start's two successors.
+#[test]
+fn a_case_passes_a_stop_rule_step_from_a_state_with_two_successors() {
+    let fixture = ChoiceAtStop::new();
+    let project = fixture.project();
+    fs::write(
+        project.join("stop.json"),
+        serde_json::json!({
+            "inputs": {"start": 0},
+            "run": {"stop_before": ["crate::advance"]},
+            "expect": {"halt": "stopped", "rule": "crate::advance", "compare": ["phase", "ticks"], "cells": {"phase": 3, "ticks": 1}},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let branch = "the run took one successor of the state after 0 steps, which has 2 successors, by `crate::advance`, `crate::leap`, so another path may end otherwise";
+    let (status, _, stderr) = fixture.krs("run", &["--case", "stop.json", "--output", "none"]);
+    assert_eq!(status, Some(3), "{stderr}");
+    assert!(
+        stderr.contains("krs run: stopped after 2 steps, before `crate::advance` (stop 1 of 1)")
+            && stderr.contains(branch),
+        "{stderr}"
+    );
+    let (status, stdout, stderr) = fixture.krs("cases", &["stop.json"]);
+    assert_eq!(status, Some(3), "{stdout}{stderr}");
+    assert!(
+        stdout.contains(branch) && stdout.contains("1 inconclusive"),
+        "{stdout}"
     );
 }
