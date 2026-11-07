@@ -74,8 +74,8 @@ A kill is a proved difference: on some comparable program, the mutant's ends dif
 It is found by a live run, or read from the outcome cache, whose key names every input of the outcome (kink's build, the k-rust revision, the specification, the mutation, the program, its baseline result and the budget).
 `kink-flow run --verify` re-proves every cached outcome, and a killer hint only orders the work.
 A survivor says that no program of the corpus tells the mutant apart from the specification:
-it is a target for a new program, or an equivalent mutant to argue away, never a sign that the specification is wrong.
-A survivor is not an equivalent mutant either: "no program found" is not "no program exists".
+it is a target for a new program, or a mutant no program can kill, to argue away, never a sign that the specification is wrong.
+Nor does a survivor show that no program can kill it: "no program found" is not "no program exists".
 
 What makes a run `unknown` instead of a verdict, each cause with the premise it protects in [`trust.md`](trust.md):
 
@@ -418,8 +418,9 @@ for the whole final configuration it gives each side's number of final configura
                                     "mutant": {"final_configurations": 1, "kore": [{"truncated": false}]}}}}}
 ```
 
-A survivor that no program can kill is an equivalent mutant: for example, swapping the operands of `+Int` changes no result.
-Argue why, then drop it from `MUTATIONS.toml`.
+A survivor its author argues no program can kill stays `survived`: kink decides two such cases by itself, `equivalent` for a mutant that compiles to the baseline's definition and `unkillable` for an edit that only weakens the specification, and an author's argument is neither.
+Swapping the operands of `+Int`, for example, changes no result, yet its mutant is another definition and its edit is no weakening, so it survives every program.
+Argue why, then drop it from `MUTATIONS.toml`, or keep it with the argument in its `misunderstanding`.
 
 ### Reading the report
 
