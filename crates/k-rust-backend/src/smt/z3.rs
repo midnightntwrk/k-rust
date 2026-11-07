@@ -160,12 +160,24 @@ struct Attempted {
     _traced: Option<trace::Answered>,
 }
 
+/// The assertions of a query's script, as its first attempt loaded them into the query's Z3
+/// context (`None` before that attempt).
+type Loaded = Option<Vec<Bool>>;
+
 /// Run attempt `attempt` of `script`, with `limit`, on the thread's current Z3 context: a fresh
-/// solver with the attempt's parameters, loaded with the script and checked. With the SMT trace
-/// on ([`trace`]), the script is on disk before Z3 reads it and the attempt is recorded after its
-/// check; `observe` asks for the check's resource units and time without the trace.
+/// solver with the attempt's parameters, holding the script's assertions, checked. With the SMT
+/// trace on ([`trace`]), the script is on disk before Z3 reads it and the attempt is recorded
+/// after its check; `observe` asks for the check's resource units and time without the trace.
+///
+/// The first attempt loads the script, and `loaded` keeps the assertions it added; a later one
+/// asserts those, the terms of the context the script's parse made. A script's declarations and
+/// definitions belong to the context, not to the solver, so a later attempt does not read the
+/// script again: Z3 5.3.3 refuses a second `define-fun-rec` of a function its context already
+/// defines (`recursive function f already defined`), which would turn every retry of a script
+/// with a recursive definition into a rejected script.
 fn run_attempt(
     script: &str,
+    loaded: &mut Loaded,
     ladder: &Ladder,
     attempt: u32,
     limit: AttemptLimit,
@@ -174,11 +186,21 @@ fn run_attempt(
     let solver = Solver::new();
     solver.set_params(&parameters(limit));
     let traced = trace::Attempt::begin(script, ladder, attempt, limit);
-    if let Err(rejected) = load(&solver, script) {
-        if let Some(traced) = traced {
-            traced.rejected(&rejected);
+    match loaded {
+        Some(assertions) => {
+            for assertion in assertions.iter() {
+                solver.assert(assertion);
+            }
         }
-        return Err(rejected);
+        None => {
+            if let Err(rejected) = load(&solver, script) {
+                if let Some(traced) = traced {
+                    traced.rejected(&rejected);
+                }
+                return Err(rejected);
+            }
+            *loaded = Some(solver.get_assertions());
+        }
     }
     let checked = measured_check(&solver, observe || traced.is_some());
     let traced = traced.map(|traced| traced.finish(&solver, &checked));
@@ -291,11 +313,11 @@ fn load(solver: &Solver, script: &str) -> Result<(), RejectedScript> {
 ///
 /// A query's attempts share the context: each retry starts from the state the attempts before it
 /// left, which sets it on another path than theirs. A larger budget alone does not end a path
-/// that never decides the query (with Z3 4.16.0, the backend's `H *Int I ==Int 2021027` factoring
-/// check, from a fresh context, is undecided at 128,000,000 resource units, and decided by its
-/// third attempt at 1,000,000 after two at 250,000 and 500,000). The answer is then a function of the script,
-/// the attempts' parameters and the Z3 library only, as it is for the first query a process
-/// asks on a thread.
+/// that never decides the query: of 200 traced queries of a Game Boy CPU specification's proofs,
+/// Z3 4.16.0 decided 177 within 310,000 units and 3 retries, 52 of them at an attempt whose limit
+/// one attempt from a fresh context does not decide them within. The answer is then a function of
+/// the script, the attempts' parameters and the Z3 library only, as it is for the first query a
+/// process asks on a thread.
 ///
 /// Every Z3 object the query makes belongs to that context (the `z3` crate creates objects on
 /// the thread's current context, which `with_z3_config` replaces for the call), and none can
@@ -806,14 +828,16 @@ impl Z3Solver {
 
         on_own_context(|| {
             let ladder = self.ladder();
+            let mut loaded = None;
             let mut timeout = self.options.timeout_ms;
             for attempt in 0..=self.options.retry_limit {
                 stop::check()?;
                 let limit = self.attempt_limit(&ladder, timeout, attempt);
-                let attempted = match run_attempt(script, &ladder, attempt, limit, false) {
-                    Ok(attempted) => attempted,
-                    Err(rejected) => return Ok(Err(Unanswered::Rejected(rejected))),
-                };
+                let attempted =
+                    match run_attempt(script, &mut loaded, &ladder, attempt, limit, false) {
+                        Ok(attempted) => attempted,
+                        Err(rejected) => return Ok(Err(Unanswered::Rejected(rejected))),
+                    };
                 match attempted.checked.result {
                     SatResult::Sat => return Ok(Ok(Satisfiability::Sat)),
                     SatResult::Unsat => return Ok(Ok(Satisfiability::Unsat)),
@@ -869,6 +893,7 @@ impl Z3Solver {
         // answer is confirmed against the prelude after the context is gone.
         let outcome = on_own_context(|| {
             let ladder = self.ladder();
+            let mut loaded = None;
             let mut timeout = self.options.timeout_ms;
             for attempt in 0..=self.options.retry_limit {
                 stop::check()?;
@@ -876,10 +901,11 @@ impl Z3Solver {
                 let limit = self.attempt_limit(&ladder, timeout, attempt);
                 // Held until the attempt's model is read: Z3 works on the attempt's context until
                 // then.
-                let attempted = match run_attempt(query.base(), &ladder, attempt, limit, false) {
-                    Ok(attempted) => attempted,
-                    Err(rejected) => return Ok(Err(Unanswered::Rejected(rejected))),
-                };
+                let attempted =
+                    match run_attempt(query.base(), &mut loaded, &ladder, attempt, limit, false) {
+                        Ok(attempted) => attempted,
+                        Err(rejected) => return Ok(Err(Unanswered::Rejected(rejected))),
+                    };
                 let solver = &attempted.solver;
                 match attempted.checked.result {
                     SatResult::Sat => {
@@ -4873,8 +4899,8 @@ mod tests {
     /// path than theirs. The answer is still the query's own: equal on a fresh thread and after
     /// unrelated Z3 work, on every Z3 version. Which answers those are depends on the version:
     /// with Z3 4.16.0 the factoring check is undecided by one attempt of 1,000,000 units on a
-    /// fresh context, and decided within three attempts of 250,000, 500,000 and 1,000,000 (4.12.5
-    /// decides it within neither).
+    /// fresh context, and by three attempts of 250,000, 500,000 and 1,000,000 (when each attempt
+    /// read the script again, the third decided it; 4.12.5 decides it within neither).
     #[test]
     fn a_retry_starts_from_the_querys_earlier_attempts() {
         let options = |resource_limit: u32, retry_limit: u32| Z3Options {
@@ -4898,8 +4924,29 @@ mod tests {
         assert_eq!(run(options(1_000_000, 0), true), single);
         assert_eq!(run(options(250_000, 2), true), retried);
         if z3_version().starts_with("Z3 4.16.0") {
-            assert_eq!((single.as_str(), retried.as_str()), ("?", "S"));
+            assert_eq!((single.as_str(), retried.as_str()), ("?", "?"));
         }
+    }
+
+    /// A retry checks the assertions the first attempt loaded, never the script read again: a
+    /// recursive definition is a declaration of the query's context, which Z3 5.3.3 refuses to
+    /// read twice, so a reloaded script with one would be rejected at its first retry.
+    #[test]
+    fn a_retry_of_a_script_with_a_recursive_definition_is_checked_again() {
+        const RECURSIVE: &str = "(declare-fun g (Int) Int)\n\
+            (define-fun-rec f ((x Int)) Int (ite (<= x 0) 0 (f (- x 1))))\n\
+            (assert (= (f (g 7)) 1))\n(assert (> (g 7) 100000))";
+        let solver = Z3Solver::with_options(
+            &definition(),
+            Z3Options {
+                timeout_ms: 125,
+                retry_limit: 2,
+                resource_limit: NonZeroU32::new(100),
+            },
+        )
+        .unwrap();
+        assert_eq!(answers(&solver, RECURSIVE, 1), "?");
+        assert_eq!(solver.attempt_limits().len(), 3);
     }
 
     /// A panic inside a query reaches its caller, and leaves the thread on the Z3 context it was

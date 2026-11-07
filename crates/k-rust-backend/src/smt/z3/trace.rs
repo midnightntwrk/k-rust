@@ -668,11 +668,12 @@ pub fn replay(
 ) -> Result<Vec<ReplayedAttempt>, String> {
     let ladder = Ladder { options, clocked };
     on_own_context(|| {
+        let mut loaded = None;
         let mut attempts = Vec::new();
         let mut timeout = options.timeout_ms;
         for attempt in 0..=options.retry_limit {
             let limit = ladder.limit(timeout, attempt);
-            let attempted = run_attempt(script, &ladder, attempt, limit, true)
+            let attempted = run_attempt(script, &mut loaded, &ladder, attempt, limit, true)
                 .map_err(|rejected| rejected.message)?;
             let checked = &attempted.checked;
             let reason = matches!(checked.result, SatResult::Unknown)

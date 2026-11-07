@@ -143,8 +143,15 @@ fn an_attempts_script_is_written_before_its_check_and_recorded_after() {
         // An answered attempt leaves its record at once, and removes its script once Z3 is
         // done with it: while its solver is held, a model can still be read.
         let answered = on_own_context(|| {
-            let attempted =
-                run_attempt(FACTORING_QUERY, &ladder, 0, ladder.limit(125, 0), false).unwrap();
+            let attempted = run_attempt(
+                FACTORING_QUERY,
+                &mut None,
+                &ladder,
+                0,
+                ladder.limit(125, 0),
+                false,
+            )
+            .unwrap();
             assert!(scratch.0.join(&inflight).exists(), "{:?}", scratch.files());
             assert_eq!(of_kind(&scratch.records(), "check").len(), 1);
             answer_text(attempted.checked.result)
