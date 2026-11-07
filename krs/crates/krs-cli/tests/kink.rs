@@ -94,6 +94,152 @@ impl Machine {
 }
 "#;
 
+/// A story-shaped machine for guard outcomes: four complementary boundary rules over a halted
+/// flag and an interrupt flag, of which no case reaches the halted ones, and a write whose
+/// function splits the address range, of which no case reaches the high half.
+const GUARDED: &str = r#"use k::builtin::{Int, KSequence};
+use k::{KItem, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[k::syntax("boundary({halted}, {irq})")] Boundary { halted: Int, irq: Int },
+    #[k::syntax("write({addr})")] Write { addr: Int },
+    #[k::syntax("done({value})")] Done { value: Int },
+}
+
+#[k::rule]
+#[k::requires(halted == 0 && irq == 1)]
+fn boundary_dispatch(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done(1)
+}
+
+#[k::rule]
+#[k::requires(halted == 0 && irq == 0)]
+fn boundary_run(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done(2)
+}
+
+#[k::rule]
+#[k::requires(halted == 1 && irq == 1)]
+fn boundary_wake(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done(3)
+}
+
+#[k::rule]
+#[k::requires(halted == 1 && irq == 0)]
+fn boundary_halted(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done(4)
+}
+
+#[k::rule]
+fn write(k::term![ExpSyntax::Write { addr }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done(WriteByte(addr))
+}
+
+#[k::function(total, internal)]
+pub fn WriteByte(addr: Term<Int>) -> Term<Int> {
+    if addr < 32768 { addr } else { 0 }
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+"#;
+
+fn guarded() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        project_of(
+            "krs-cli-kink-guarded",
+            "GUARDED",
+            &[
+                ("src/lib.rs".to_owned(), GUARDED.as_bytes().to_vec()),
+                (
+                    "kink/FLOW.toml".to_owned(),
+                    b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"irq\"\nfile = \"cases/irq.g\"\n\n[[program]]\nid = \"idle\"\nfile = \"cases/idle.g\"\n\n[[program]]\nid = \"low\"\nfile = \"cases/low.g\"\n"
+                        .to_vec(),
+                ),
+                ("kink/cases/irq.g".to_owned(), b"boundary(0, 1)\n".to_vec()),
+                ("kink/cases/idle.g".to_owned(), b"boundary(0, 0)\n".to_vec()),
+                ("kink/cases/low.g".to_owned(), b"write(5)\n".to_vec()),
+            ],
+        )
+    })
+}
+
+/// FB-33's four lines on a story-shaped machine whose corpus never halts: `boundary_wake` and
+/// `boundary_halted` are reported never held and `WriteByte`'s low equation never refuted;
+/// `boundary_dispatch`'s operand `halted == 0` is never false (the halted flag never true), for
+/// the operand as well as in the verdicts rendering; the function's equations are reported; and
+/// every guarded row is named by its KRS item and position, no status reads `covered`, and the
+/// rules matched and never fired read `matched`.
+#[test]
+fn results_report_each_guards_outcomes_per_operand() {
+    let project = guarded();
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert!(!output.stdout.windows(9).any(|w| w == b"\"covered\""));
+    for item in ["crate::boundary_wake", "crate::boundary_halted"] {
+        let row = rule(&document, item);
+        assert_eq!(row["status"], "matched", "{item}: {row:#}");
+        assert_eq!(
+            row["guard"]["held_by"],
+            Value::Array(Vec::new()),
+            "{item}: {row:#}"
+        );
+        assert_eq!(strings(&row["guard"]["never"]), ["held"], "{item}");
+        assert!(row["krs"]["line"].as_u64().is_some(), "{item}: {row:#}");
+    }
+    let dispatch = rule(&document, "crate::boundary_dispatch");
+    assert_eq!(dispatch["status"], "fired");
+    let halted = &dispatch["guard"]["operands"][1];
+    assert_eq!(halted["path"], "0.0", "{dispatch:#}");
+    assert_eq!(strings(&halted["never"]), ["false"], "{dispatch:#}");
+    assert_eq!(strings(&halted["true_by"]), ["irq", "idle"], "{dispatch:#}");
+    let equations = document["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            row["krs"]["kind"] == "equation"
+                && row["krs"]["item"]
+                    .as_str()
+                    .is_some_and(|item| item.starts_with("crate::write_byte"))
+        })
+        .collect::<Vec<_>>();
+    assert!(!equations.is_empty(), "{:#}", document["rules"]);
+    assert!(
+        equations.iter().any(|row| {
+            row["guard"]["held_by"] == serde_json::json!(["low"])
+                && row["guard"]["refuted_by"] == Value::Array(Vec::new())
+        }),
+        "the low equation is never refuted: {equations:#?}"
+    );
+    let verdicts = project.kink("results", &["--output", "verdicts"]);
+    assert_status(&verdicts, 0);
+    let verdicts = stdout(&verdicts);
+    assert!(
+        verdicts.contains("[[guard]]\nrule = \"crate::boundary_wake\"\nnever = [\"held\"]"),
+        "{verdicts}"
+    );
+    assert!(verdicts.contains("never = [\"false\"]"), "{verdicts}");
+}
+
 /// A definition that never ends on its own: `tick(n)` steps to `tick(n + 1)` forever, so a run's
 /// end is where a stop puts it.
 const TICKER: &str = r#"use k::builtin::{Int, KSequence, int};
