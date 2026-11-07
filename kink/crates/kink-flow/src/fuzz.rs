@@ -2633,8 +2633,8 @@ pub fn fuzz_front(
         CampaignOutcome::Equivalent => {
             document["stopped"] = json!("equivalent");
             document["action"] = json!(
-                "the two definitions execute alike (equal execution digests): no input can kill \
-                 this mutation"
+                "the two definitions denote one theory (equal execution digests, and equal \
+                 program assembly): no input can kill this mutation; drop or change it"
             );
             true
         }

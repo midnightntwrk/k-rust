@@ -23,7 +23,7 @@ This guide teaches the jobs and links there for details.
 ## What the tools do not do
 
 - They do not write programs. Random or grammar-driven programs are nothing a person would write, and you already write the programs. The tool only chooses values for the holes you mark.
-- They do not prove that no input exists. "No witness" means none was found within the budget. A mutation that keeps surviving may be equivalent to the definition, or your template may be unable to show the difference; the tool cannot tell which.
+- They do not prove that no input exists. "No witness" means none was found within the budget. No input may kill a mutation that keeps surviving, or your template may be unable to show the difference; the tool cannot tell which.
 - They do not decide a mutation's status. `kink-flow run` decides it with kink's own oracle, on the program you append. The fuzz searches for a program that `run` will confirm.
 - They do not change the definition or its claims.
 
@@ -237,10 +237,12 @@ kink-flow run FLOW.toml MUTATIONS.toml --only add-becomes-sub > run2.json
 `program.file` suggests a file name if you prefer to write the text to a file and give `file = ...` instead.
 When the document lists `premises` (below, [Premises](#premises-findings-you-assume)), add each to `[spec] assume_joined` first.
 
-### Equivalent mutants
+### Survivors no input kills
 
 `add-commuted` swaps the operands of `+Int`, which changes nothing: no input kills it, and the fuzz ends `budget` however long it runs.
-The tool cannot tell an equivalent mutant from a template that cannot show the difference. Read the edited rule: when every input that matches it gives the same result, say so and drop the mutation.
+Its status stays `survived`: `equivalent` is only the status of a mutant kink shows to be the specification, one that compiles to the specification's own definition or whose edits only add conditions that hold of every value, and kink shows neither here.
+The tool cannot tell a mutation no input kills from a template that cannot show the difference. Read the edited rule: when every input that matches it gives the same result, say so and drop the mutation.
+A mutation `run` decides from its edit alone, `unkillable` or `equivalent` with reason `valid-condition`, is refused before any case (refusal stage `mutation`): no search can change a fact of the axioms.
 
 ## Cover an uncovered rule
 
@@ -368,7 +370,7 @@ The exceptions are clocks and the stack: a case that a step's time limit (the fl
 ## Choosing a template
 
 The template decides more than the search does.
-In trials on IMP, SIMPLE, WebAssembly and KEVM, every mutation that was not equivalent, on a template whose run matched the edited rule and ended on both definitions, was killed within 1 to 25 cases of blind sampling. Every miss came from the template:
+In trials on IMP, SIMPLE, WebAssembly and KEVM, every mutation some input kills, on a template whose run matched the edited rule and ended on both definitions, was killed within 1 to 25 cases of blind sampling. Every miss came from the template:
 
 - **A loop the mutant never leaves** (`add-becomes-sub` above): the definition finishes and the mutant runs out of work. The statement says "the mutant may not terminate on this program".
 - **A masking expression.** `x < y && !(x == y)` gives the same result whether `<` means `<` or `<=`. Write one comparison or connective per line.
@@ -659,10 +661,10 @@ On WebAssembly and KEVM, compile the definition and the mutant with `krust kcomp
 2. Template: start from a program in the mutation's `witnesses` (or one near the rule). Mark every data literal, with small ranges.
 3. Run with a small budget and a fixed seed: `--cases 50` to `300`, `--max-work 20000`, default `--seed 0`.
 4. `stopped: null`: append `program.fragment` (and any `premises` to `[spec] assume_joined`), run `kink-flow run --only ID` or `results`, and check the status.
-5. `stopped: budget` or `domain-exhausted`: read `action`. `Domain exhausted`, "may not terminate", or 100 % `miss` with no progress means: write a new three-to-eight-line program in which the edited rule's result reaches the end directly. Then consider whether the mutation is equivalent.
+5. `stopped: budget` or `domain-exhausted`: read `action`. `Domain exhausted`, "may not terminate", or 100 % `miss` with no progress means: write a new three-to-eight-line program in which the edited rule's result reaches the end directly. Then consider whether any input can kill the mutation. `stopped: stack-stops` means the mutant recursed without end on the last cases: write a case it ends on, or write the misunderstanding as a mutant that ends, or drop it.
 6. `client-refused` or `unconfirmed`: read the cause; change the template or ranges (ASCII strings), or try another seed.
 7. `not-comparable`: do not name findings by reflex. Name one only if you accept it as a premise, and say so beside the test.
-8. Never claim a mutation is equivalent, or a rule unreachable, because the fuzz found nothing; say what you tried.
+8. Never claim that no input kills a mutation, or that a rule is unreachable, because the fuzz found nothing; say what you tried.
 
 ## How this guide is checked
 
