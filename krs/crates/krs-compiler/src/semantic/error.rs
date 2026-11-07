@@ -618,6 +618,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending rewrite or rule.
         range: Option<Box<SourceRange>>,
     },
+    /// A `?` cell's `Some(..)` or a collection's instance list in a context
+    /// alias or an equation's function context, whose lowerings read fixed
+    /// cells only ([`krs_syntax::cell_entries::fixed_cells_only_reason`]).
+    FixedCellsOnly {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the limit and the cell.
+        reason: String,
+        /// Sole exact authored range of the entry.
+        range: Option<Box<SourceRange>>,
+    },
     /// An equation's function context names a cell shape it cannot read, or
     /// declares a binder at a sort its cell does not have (KF-025).
     InvalidFunctionContext {
@@ -1203,6 +1214,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::FixedCellsOnly {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidParametricProduction {
                 range: $named_range,
                 item: $named_item,
@@ -1733,6 +1749,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidMlPredicate { reason, .. }
             | Self::InvalidLocalRewrite { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
+            | Self::FixedCellsOnly { reason, .. }
             | Self::InvalidParametricProduction { reason, .. }
             | Self::InvalidStrictness { reason, .. }
             | Self::ParametricInstance { reason, .. }
@@ -1847,6 +1864,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,
             Self::InvalidLocalRewrite { .. } => codes::analysis::INVALID_LOCAL_REWRITE,
             Self::InvalidFunctionContext { .. } => codes::analysis::INVALID_FUNCTION_CONTEXT,
+            Self::FixedCellsOnly { .. } => codes::expand::CELL_COLLECTION_PLACEMENT,
             Self::InvalidParametricProduction { .. } => {
                 codes::analysis::INVALID_PARAMETRIC_PRODUCTION
             }

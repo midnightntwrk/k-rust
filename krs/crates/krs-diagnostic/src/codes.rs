@@ -494,7 +494,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule; fresh values are drawn only by a transition step of the configuration.",
         ML_PLACEMENT: "krs::expand::ml-placement" => "An `ml::Predicate` subject or result is on a sentence other than a simplification, the subject and result types of a predicate simplification disagree, or an `ml::exists` closure occurs in an initializer.",
         UNKNOWN_ML_ITEM: "krs::expand::unknown-ml-item" => "A term names an `ml::` item outside the closed set of matching-logic connectives.",
-        CELL_COLLECTION_PLACEMENT: "krs::expand::cell-collection-placement" => "An optional-cell `Some`/`None` entry or a cell-collection entry occurs in a context alias or an equation's function context, which read fixed cells only.",
+        CELL_COLLECTION_PLACEMENT: "krs::expand::cell-collection-placement" => "A `?` cell's `Some(..)` entry or a collection's instance list occurs in a context alias or an equation's function context, which read fixed cells only: not supported yet.",
         TURBOFISH_SPELLING: "krs::expand::turbofish-spelling" => "A turbofish argument is spelled for the other layer: a readable `k::rules!` clause writes a sort marker (`Choose::<dyn ExpSort>`), or reference code writes a sort's `k::Term<..>` alias (`Choose::<Exp>`); readable clauses name the sort and reference code the marker.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.

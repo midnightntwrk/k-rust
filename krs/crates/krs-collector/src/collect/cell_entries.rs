@@ -715,6 +715,9 @@ fn judge_sentence(
             kept_key(key, &subject, &result)?;
             kept_key_in_place(key, subject_cells, &subject)?;
         }
+        if rewrite == (Rewrite::Kept { as_rule: false }) {
+            fixed_cells_only(subject_cells, &subject)?;
+        }
     }
     match judged {
         Ok(lints) => Ok(lints
@@ -742,6 +745,32 @@ fn judge_sentence(
                 &tree.groups,
             ))
         }
+    }
+}
+
+/// Refuses the first admitted entry of a context alias's or an equation's function context's
+/// pattern ([`Rewrite::Kept`], lowered as no rule's pattern is) that is a `?` cell's `Some(..)`
+/// or a collection's instance list. The entry means what it means in a rule's subject, the
+/// present cell or the instances it names, matched and kept, but those two sentences' lowerings
+/// read fixed cells only, so it is a limit, raised once the entries' kinds and pairing admit the
+/// pattern: a `None`, which tests absence without creating the cell, is refused as such before.
+fn fixed_cells_only(cells: &DescriptorCells, subject: &[Entry<'_>]) -> Result<(), CollectionError> {
+    let Some((_, entry)) = cells.iter().zip(subject).find(|(cell, _)| {
+        matches!(
+            cell.value,
+            krs_ir::ProtocolRuleStateTerm::Present { .. }
+                | krs_ir::ProtocolRuleStateTerm::Instances(_)
+        )
+    }) else {
+        return Ok(());
+    };
+    let error = CollectionError::new(
+        CollectionErrorKind::FixedCellsOnly,
+        cell_entries::fixed_cells_only_reason(unraw(&entry.cell.field)),
+    );
+    match &entry.field.range {
+        Some(range) => Err(error.with_source_range(range.clone())),
+        None => Err(error),
     }
 }
 

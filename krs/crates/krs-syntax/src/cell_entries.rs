@@ -506,6 +506,21 @@ pub fn instance_binder_advice(side: EntrySide, group: &str, name: Option<&str>) 
     }
 }
 
+/// Why the entry of the cell `cell` in a context alias or an equation's function context, a `?`
+/// cell's `Some(..)` or a collection's instance list, is refused: the limit of those two
+/// sentences, whose lowerings read fixed cells only. The entry has a meaning, the same as in a
+/// rule's subject (the present cell, or the instances it names, matched and kept), and no
+/// lowering there yet. Every site that meets such an entry answers with this one reason, under
+/// `krs::expand::cell-collection-placement`: the macro for a collection's named rest, which no
+/// context alias binding carries, the collector once the entry's kind admits it, and the
+/// compiler's lowerings of the two sentences.
+#[must_use]
+pub fn fixed_cells_only_reason(cell: &str) -> String {
+    format!(
+        "a context alias and an equation's function context read fixed cells only; the entry of `{cell}`, a `?` cell's `Some(..)` or a collection's instance list, is not supported there yet"
+    )
+}
+
 /// The step from a sequence or a map to its rest (`..`, `name @ ..`, `..name`), which is no
 /// spelling of its own: [`Located::at`]'s last step where a rest is refused.
 pub const REST: usize = usize::MAX;

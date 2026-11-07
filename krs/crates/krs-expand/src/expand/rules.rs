@@ -1304,7 +1304,7 @@ fn function_context(
                 unreachable!("the parser rejects a bound configuration remainder")
             }
             krs_syntax::StateRuleBindingKind::InstancesFrame => {
-                return Err(collection_placement(binding.name().span()));
+                return Err(collection_placement(context.pattern(), binding.name()));
             }
         };
         context_bindings.push(krs_ir::ProtocolRuleBinding {
@@ -1558,18 +1558,50 @@ fn hand_to_marker(
     ))
 }
 
-/// `#[k::fresh]` on a sentence other than a transition step: an equation,
-/// simplification, alias, claim, context, context alias, anywhere rule (KF-022), or
-/// heat or cool rule (KF-014).
-/// An optional or collection entry outside a configuration rule or claim.
-pub(super) fn collection_placement(span: Span) -> ExpandError {
+/// A collection's named rest (`instances0 @ ..`) in the pattern of a function context or a
+/// context alias, at the rest's binder `binding`: its instance list is one of the entries those
+/// sentences do not support yet ([`krs_syntax::cell_entries::fixed_cells_only_reason`]), and a
+/// context alias's bindings carry no instances rest, so the macro is the first to meet it. The
+/// reason names the cell whose entry holds the rest.
+pub(super) fn collection_placement(
+    pattern: &krs_syntax::CellsExpression,
+    binding: &syn::Ident,
+) -> ExpandError {
+    let cell = pattern
+        .entries()
+        .iter()
+        .find(|entry| names_instances_rest(entry.value(), binding))
+        .map_or_else(
+            || binding.to_string(),
+            |entry| entry.name().unraw().to_string(),
+        );
     ExpandError::new(
         expand::CELL_COLLECTION_PLACEMENT,
-        span,
-        "an equation's function context and a context alias read fixed cells only; optional `Some`/`None` and collection entries belong in rules and claims",
+        binding.span(),
+        krs_syntax::cell_entries::fixed_cells_only_reason(&cell),
     )
 }
 
+/// Whether `state` holds an instance list whose rest is `binding @ ..`, at any depth of its
+/// instances' children.
+fn names_instances_rest(state: &krs_syntax::StateTerm, binding: &syn::Ident) -> bool {
+    let krs_syntax::StateTerm::Instances(list) = state.unwrap_present() else {
+        return false;
+    };
+    let named = match list.rest() {
+        krs_syntax::StateMacroRemainder::Bind { binding: rest, .. } => rest == binding,
+        _ => false,
+    };
+    named
+        || list
+            .instances()
+            .flat_map(krs_syntax::InstanceItem::fields)
+            .any(|field| names_instances_rest(field.value(), binding))
+}
+
+/// `#[k::fresh]` on a sentence other than a transition step: an equation,
+/// simplification, alias, claim, context, context alias, anywhere rule (KF-022), or
+/// heat or cool rule (KF-014).
 /// `span` is the misplaced binder or helper; `None` when the helper is the invocation being
 /// expanded.
 pub(super) fn misplaced_fresh(span: Option<Span>) -> ExpandError {

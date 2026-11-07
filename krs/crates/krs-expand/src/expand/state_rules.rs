@@ -149,7 +149,10 @@ pub(crate) fn context_alias(
                     ProtocolContextAliasBindingKind::ConfigurationFrame
                 }
                 StateRuleBindingKind::InstancesFrame => {
-                    return Err(super::rules::collection_placement(binding.name().span()));
+                    return Err(super::rules::collection_placement(
+                        alias.pattern(),
+                        binding.name(),
+                    ));
                 }
             }
         };

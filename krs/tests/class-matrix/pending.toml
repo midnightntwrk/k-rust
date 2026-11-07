@@ -1587,14 +1587,6 @@ match = 'sweep/init/init/{env,pc,seq,set,stack}/G \{ a: 0\, ..base \}'
 finding = "S5-U1"
 kind = "diagnostic"
 
-# S5-Z1, diagnostic: 1 reds
-
-# cells: 1
-[[family]]
-match = 'cells/g6-context-alias/kinds/counter/None'
-finding = "S5-Z1"
-kind = "diagnostic"
-
 # Exact entries, one per case, in place.
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
@@ -2002,46 +1994,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
-finding = "S5-Z1"
-deviation = "krs::collect::invalid-configuration @ item"
-
-["cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
-finding = "S5-Z1"
-deviation = "krs::expand::cell-collection-placement @ spelling"
-
-["cells/g6-context-alias/kinds/counter/Some(k::configuration::Cell(x))"]
-finding = "S5-Z1"
-deviation = "krs::analysis::invalid-term @ entry"
-
-["cells/g6-context-alias/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
-finding = "S5-Z1"
-deviation = "krs::collect::invalid-configuration @ item"
-
-["cells/g6-context-alias/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
-finding = "S5-Z1"
-deviation = "krs::collect::invalid-configuration @ item"
-
-["cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
-finding = "S5-Z1"
-deviation = "krs::analysis::invalid-function-context @ entry"
-
-["cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
-finding = "S5-Z1"
-deviation = "krs::expand::cell-collection-placement @ spelling"
-
-["cells/g6-function-context/kinds/counter/Some(k::configuration::Cell(x))"]
-finding = "S5-Z1"
-deviation = "krs::analysis::invalid-term @ entry"
-
-["cells/g6-function-context/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
-finding = "S5-Z1"
-deviation = "krs::analysis::invalid-function-context @ entry"
-
-["cells/g6-function-context/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
-finding = "S5-Z1"
-deviation = "krs::analysis::invalid-function-context @ entry"
 
 ["cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
 finding = "S5-P1"

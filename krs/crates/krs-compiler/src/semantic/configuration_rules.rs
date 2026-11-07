@@ -1859,6 +1859,7 @@ fn lower_function_context_cell(
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<FixedCellPattern<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
+    fixed_cell_entry(descriptor, pattern)?;
     let declared = require_cell_field(&pattern.field.cell, terms.declarations)?;
     let invalid =
         |key: &ProvenanceKey, reason: String| DescriptorLoweringError::InvalidFunctionContext {
@@ -1949,12 +1950,44 @@ fn is_subsort_or_equal(
     false
 }
 
+/// Refuses an entry of a context alias or an equation's function context
+/// that is a `?` cell's `Some(..)` or a collection's instance list: both
+/// lowerings read fixed cells, one leaf content each, and match no present
+/// optional cell or instance yet, though the entry has its rule-subject
+/// meaning ([`krs_syntax::cell_entries::fixed_cells_only_reason`]). The
+/// collector raises the same limit once it admits the entry; this is that
+/// limit where the lowering meets it, before reading the cell's content.
+fn fixed_cell_entry(
+    descriptor: &Descriptor,
+    pattern: &DescriptorRuleCell,
+) -> Result<(), DescriptorLoweringError> {
+    if !matches!(
+        pattern.value,
+        ProtocolRuleStateTerm::Present { .. } | ProtocolRuleStateTerm::Instances(_)
+    ) {
+        return Ok(());
+    }
+    let cell = &pattern.field.cell.field;
+    Err(DescriptorLoweringError::FixedCellsOnly {
+        item: Box::new(descriptor.id().clone()),
+        reason: krs_syntax::cell_entries::fixed_cells_only_reason(
+            cell.strip_prefix("r#").unwrap_or(cell),
+        ),
+        range: descriptor
+            .provenance()
+            .origin_for(&pattern.field.key)
+            .and_then(krs_ir::OriginStack::exact_authored_range)
+            .map(Box::new),
+    })
+}
+
 fn lower_context_alias_cell(
     terms: &mut StateRuleTerms<'_>,
     pattern: &DescriptorRuleCell,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<FixedCellPattern<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
+    fixed_cell_entry(descriptor, pattern)?;
     let declared = require_cell_field(&pattern.field.cell, terms.declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
         return Err(DescriptorLoweringError::unsupported_shape(

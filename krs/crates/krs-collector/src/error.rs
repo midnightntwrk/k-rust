@@ -107,6 +107,11 @@ pub enum CollectionErrorKind {
     /// A readable result entry over a collection the subject does not match: Q1's overwrite of
     /// every instance, which the table admits and no lowering expresses yet.
     CollectionOverwrite,
+    /// A `?` cell's `Some(..)` or a collection's instance list in a context alias or an
+    /// equation's function context, which the table admits and those sentences' lowerings, which
+    /// read fixed cells only, do not express yet
+    /// ([`krs_syntax::cell_entries::fixed_cells_only_reason`]).
+    FixedCellsOnly,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -277,6 +282,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::CellEntry(refusal) => refusal.code(),
             CollectionErrorKind::ResultRemainderReuse => codes::syntax::UNSUPPORTED_RULE_BODY,
             CollectionErrorKind::CollectionOverwrite => codes::analysis::COLLECTION_ENTRY,
+            CollectionErrorKind::FixedCellsOnly => codes::expand::CELL_COLLECTION_PLACEMENT,
         };
         let diagnostic = Diagnostic::error(
             code,

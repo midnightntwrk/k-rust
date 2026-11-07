@@ -892,37 +892,7 @@ fn validate_context_alias_frames<I, T, S>(
         .collect::<BTreeSet<_>>();
     let mut discovered = BTreeSet::new();
     for cell in &cells.cells {
-        let mut value = &cell.value;
-        while let ProtocolRuleStateTerm::Present { value: inner } = value {
-            value = inner;
-        }
-        match value {
-            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_) => {}
-            ProtocolRuleStateTerm::KSequence(sequence) => validate_context_alias_frame(
-                &sequence.tail,
-                ContextAliasBindingUse::KSequenceFrame,
-                &structural,
-                &mut discovered,
-            )?,
-            ProtocolRuleStateTerm::Map(map) => {
-                if let ProtocolRuleMapBody::Items { remainder, .. } = &map.body {
-                    validate_context_alias_frame(
-                        remainder,
-                        ContextAliasBindingUse::MapFrame,
-                        &structural,
-                        &mut discovered,
-                    )?;
-                }
-            }
-            // A context alias is a one-sided pattern over fixed cells.
-            ProtocolRuleStateTerm::Present { .. }
-            | ProtocolRuleStateTerm::Absent
-            | ProtocolRuleStateTerm::Instances(_) => {
-                return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::InvalidOptionalCellEntry,
-                ));
-            }
-        }
+        validate_context_alias_state(&cell.value, &structural, &mut discovered)?;
     }
     validate_context_alias_frame(
         &cells.remainder,
@@ -936,6 +906,66 @@ fn validate_context_alias_frames<I, T, S>(
         ));
     }
     Ok(())
+}
+
+/// Checks the frames one cell's state of a context alias names against the alias's bindings.
+///
+/// A `?` cell's `Some(..)` and `None` and a collection's instance list are well-formed states of
+/// a one-sided pattern, which the wire carries as a rule's subject does: whether the alias's
+/// cell admits them is the collector's question, and their lowering the compiler's, which both
+/// answer at the entry. No context alias binding names a collection's instances rest, so a
+/// bound or reused one has no binding here.
+fn validate_context_alias_state<T>(
+    state: &ProtocolRuleStateTerm<T>,
+    structural: &BTreeSet<(String, ContextAliasBindingUse)>,
+    discovered: &mut BTreeSet<(String, ContextAliasBindingUse)>,
+) -> Result<(), StateTransportError> {
+    match state {
+        ProtocolRuleStateTerm::Term(_)
+        | ProtocolRuleStateTerm::Group(_)
+        | ProtocolRuleStateTerm::Absent => Ok(()),
+        ProtocolRuleStateTerm::Present { value } => {
+            validate_context_alias_state(value, structural, discovered)
+        }
+        ProtocolRuleStateTerm::KSequence(sequence) => validate_context_alias_frame(
+            &sequence.tail,
+            ContextAliasBindingUse::KSequenceFrame,
+            structural,
+            discovered,
+        ),
+        ProtocolRuleStateTerm::Map(map) => match &map.body {
+            ProtocolRuleMapBody::Items { remainder, .. } => validate_context_alias_frame(
+                remainder,
+                ContextAliasBindingUse::MapFrame,
+                structural,
+                discovered,
+            ),
+            _ => Ok(()),
+        },
+        ProtocolRuleStateTerm::Instances(instances) => {
+            match &instances.rest {
+                ProtocolRuleFrame::Exact | ProtocolRuleFrame::Anonymous { .. } => {}
+                ProtocolRuleFrame::Bind { .. } => {
+                    return Err(StateTransportError::InvalidTerm(
+                        StateTermReason::AliasFrameBindingMismatch,
+                    ));
+                }
+                ProtocolRuleFrame::Reuse { .. } => {
+                    return Err(StateTransportError::InvalidTerm(
+                        StateTermReason::OneSidedAliasReusesResultFrame,
+                    ));
+                }
+            }
+            instances
+                .front
+                .iter()
+                .chain(&instances.back)
+                .flat_map(|instance| &instance.fields)
+                .try_for_each(|field| {
+                    validate_context_alias_state(&field.value, structural, discovered)
+                })
+        }
+    }
 }
 
 fn validate_context_alias_frame(

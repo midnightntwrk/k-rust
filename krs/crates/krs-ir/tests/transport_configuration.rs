@@ -17,14 +17,14 @@ use krs_ir::{
     DescriptorRuleCells, DescriptorRuleCondition, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, HostBuiltinRegistry, HostBuiltinRegistryError,
     HostCellIdentity, HostCellReference, HostConfigurationReference, HostConfigurationRule,
-    HostRuleCells, HostSortReference, HostTerm, HostTypeKey, HostTypeReference, ItemKind,
-    OriginStack, PackageId, ProtocolCellContent, ProtocolContextAliasBinding,
+    HostRuleCells, HostSortReference, HostTerm, HostTypeKey, HostTypeReference, InstanceDelimiter,
+    ItemKind, OriginStack, PackageId, ProtocolCellContent, ProtocolContextAliasBinding,
     ProtocolContextAliasBindingKind, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
     ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
     ProtocolMapBody, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell,
-    ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
-    ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole,
-    SentenceKind, StableItemId, StateTransportError,
+    ProtocolRuleFrame, ProtocolRuleInstances, ProtocolRuleKSequence, ProtocolRuleKSequenceItem,
+    ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm,
+    ProvenanceKey, ProvenanceRole, SentenceKind, StableItemId, StateTransportError,
 };
 
 fn package() -> PackageId {
@@ -541,6 +541,67 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
         lost_configuration.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::AliasBindingCatalogMismatch
+        ))
+    ));
+}
+
+/// A `?` cell's `Some(..)` and `None` and a collection's instance list are
+/// well-formed states of a context alias's one-sided pattern: the wire
+/// carries them as it carries a rule's subject, and the collector and the
+/// compiler answer for them at the entry. No alias binding names an
+/// instances rest, so a bound one has no binding.
+#[test]
+fn context_alias_protocol_carries_optional_and_collection_entries() {
+    let configuration = item("Machine", ItemKind::Configuration);
+    let instances = |rest| {
+        ProtocolRuleStateTerm::Instances(ProtocolRuleInstances {
+            delimiter: InstanceDelimiter::Brace,
+            front: Vec::new(),
+            rest,
+            back: Vec::new(),
+        })
+    };
+    let mut alias = descriptor_context_alias();
+    alias.pattern.cells.extend([
+        rule_cell(
+            &configuration,
+            "left",
+            1,
+            "counter",
+            CellWrapper::Cell,
+            ProtocolRuleStateTerm::Present {
+                value: Box::new(ProtocolRuleStateTerm::Term(rule_variable("left", 1, "x"))),
+            },
+        ),
+        rule_cell(
+            &configuration,
+            "left",
+            2,
+            "flag",
+            CellWrapper::Cell,
+            ProtocolRuleStateTerm::Absent,
+        ),
+        rule_cell(
+            &configuration,
+            "left",
+            3,
+            "bag",
+            CellWrapper::Cell,
+            instances(ProtocolRuleFrame::Anonymous {
+                key: key(ProvenanceRole::RuleLeftCellsInstancesRest, 0),
+            }),
+        ),
+    ]);
+    alias.validate(ItemKind::ContextAlias).unwrap();
+
+    alias.pattern.cells[3].value = instances(ProtocolRuleFrame::Bind {
+        key: key(ProvenanceRole::RuleLeftCellsInstancesRest, 0),
+        binding: "instances0".into(),
+    });
+    assert!(matches!(
+        alias.validate(ItemKind::ContextAlias),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::AliasFrameBindingMismatch
         ))
     ));
 }

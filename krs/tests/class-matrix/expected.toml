@@ -286,6 +286,11 @@ code = "krs::expand::existential-placement"
 doc = "`#[k::ensures]` or `#[k::exists]`, which state what a step's result satisfies and which of its values are existential, on a sentence that reaches no result state: an equation, a simplification, a static clause, a context; or `#[k::exists]` on an `anywhere` rule of either form, which replaces an application in place by the one term its result writes, as an equation gives an application its value, so that no value of its result is existential"
 advice = "none"
 
+[class.fixed-cells-only]
+code = "krs::expand::cell-collection-placement"
+doc = "a `?` cell's `Some(..)` or a collection's instance list, with or without a named rest, in a context alias or an equation's function context (`counter: Some(Cell(x))`, `bag: { k::fragment![Obj { .. }], .. }`): it means there what it means in a rule's subject, the present cell or the instances it names, matched and kept, but those sentences' lowerings read fixed cells only, so it is not supported yet; a `#[k::context]` over `k::cells!`, lowered as a rule's subject is, admits it"
+advice = "none"
+
 [class.fragment-in-initializer]
 code = "krs::expand::initializer-fragment"
 doc = "`k::fragment!` in an initializer, which builds nested cells with their structs"
@@ -6907,6 +6912,24 @@ at = "entry"
 [[refuse]]
 match = 'cells/g6-context/kinds/job/[..\, k::fragment![crate::Job \{ payload: x \}]]'
 class = "instance-list-shape"
+at = "entry"
+
+# fixed-cells-only (TRI-B1): a function context and a context alias, whose lowerings read fixed
+# cells only, meet the limit at a `?` cell's `Some(..)` and a collection's instance list, which
+# the principles admit there as in a context
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/counter/Some(k::configuration::Cell(x))'
+class = "fixed-cells-only"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/bag/{\{ k::fragment![crate::Obj \{ key: x \}]\, .. \},\{ k::fragment![crate::Obj \{ key: x \}]\, instances0 @ .. \}}'
+class = "fixed-cells-only"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/job/{[k::fragment![crate::Job \{ payload: x \}]\, ..],[..\, k::fragment![crate::Job \{ payload: x \}]]}'
+class = "fixed-cells-only"
 at = "entry"
 
 [[refuse]]
@@ -16755,16 +16778,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
-
-[accept."cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
-
-[accept."cells/g6-context-alias/kinds/counter/Some(k::configuration::Cell(x))"]
-
-[accept."cells/g6-context-alias/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
-
-[accept."cells/g6-context-alias/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
-
 [accept."cells/g6-context-alias/kinds/pc/k::configuration::Cell(_)"]
 lint = "no-effect-entry"
 k = """
@@ -16774,16 +16787,6 @@ context alias [caseTAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
-
-[accept."cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
-
-[accept."cells/g6-function-context/kinds/counter/Some(k::configuration::Cell(x))"]
-
-[accept."cells/g6-function-context/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
-
-[accept."cells/g6-function-context/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
 
 [accept."cells/g6-function-context/kinds/pc/k::configuration::Cell(_)"]
 lint = "no-effect-entry"
@@ -17401,6 +17404,11 @@ findings = ["S5-A1"]
 code = "krs::analysis::invalid-list-notation"
 docs = "brackets read one computation cell per rule"
 findings = ["S5-C2"]
+
+[limit.fixed-cells-only]
+code = "krs::expand::cell-collection-placement"
+docs = "A context alias and an equation's function context read fixed cells only"
+findings = ["S5-Z1"]
 
 [limit.instance-binder]
 code = "krs::analysis::collection-entry"
