@@ -43,8 +43,9 @@ use super::{Pattern, state_match::MatchMark};
 /// A state that arrives at a depth, as the table compares and records it.
 pub(super) struct Arrival {
     pub(super) depth: u64,
-    /// The arrivals at a stop the state's path passed.
-    pub(super) stops: u64,
+    /// The stop events and the arrivals at a stop the state's path passed: its subtree rests on
+    /// both, since the condition of a stop, where there is one, is asked at every arrival.
+    pub(super) stops: (u64, u64),
     pub(super) pattern: Pattern,
     pub(super) effects: EffectJournal,
     pub(super) io: ExecutionIoState,
@@ -62,7 +63,7 @@ pub(super) struct Arrival {
 impl Arrival {
     pub(super) fn new(
         depth: u64,
-        stops: u64,
+        stops: (u64, u64),
         pattern: Pattern,
         effects: EffectJournal,
         io: ExecutionIoState,

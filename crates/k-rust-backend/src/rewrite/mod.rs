@@ -21,6 +21,7 @@ mod refutation_memo;
 mod roles;
 mod state_match;
 mod step;
+mod stop_condition;
 mod work;
 
 use apply::{
@@ -57,6 +58,9 @@ pub use state_match::{
 #[cfg(test)]
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
+pub use stop_condition::{
+    Arrival as StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+};
 
 use std::{collections::BTreeSet, hash::Hash, num::NonZeroU64, sync::Arc, time::Duration};
 
@@ -603,6 +607,10 @@ pub struct ExecutionOptions {
     /// merges compare them: a state merges only into a state of the same count, and a leaf only
     /// into a leaf whose path passed as many arrivals before its own halt. With a count of 1
     /// every state and every leaf has passed none, so the count changes nothing there.
+    ///
+    /// An in-process execution may add a stop condition ([`execute_with_stop_condition`],
+    /// `stop_condition`): then the count counts the arrivals where the condition holds of the
+    /// arrival's stop state, and every other arrival is taken as any other step.
     pub stop_count: NonZeroU64,
     pub step_timeout: Option<Duration>,
     pub moving_average_timeout: bool,
@@ -861,6 +869,16 @@ pub enum HaltReason {
     TerminalRule {
         rule: String,
     },
+    /// The path's arrival at a stop of `rule` where the stop condition was left undecided
+    /// (`stop_condition`, [`StopDecision::Undecided`]): continuing would run past a possible
+    /// stop, and stopping would claim an event that was not shown, so the path ends here. The
+    /// leaf is the arrival's stop state: the state before a cut-point rule's step, the
+    /// normalized successor of a terminal rule's. Only an execution asked with a stop condition
+    /// has it; it is no result of the run and never merged with another leaf.
+    StopUndecided {
+        rule: String,
+        reason: String,
+    },
     DepthBound,
     BreadthBound,
     /// The request's `ExecutionOptions::max_work` was reached before this state was visited: the
@@ -992,8 +1010,12 @@ pub struct ExecutionLeaf {
     pub diagnostics: Vec<BackendDiagnostic>,
     /// The arrivals at a stop this leaf's path counted ([`ExecutionOptions::stop_count`]): the
     /// arrival it ends at included, for a `CutPointRule` or `TerminalRule` leaf, whose count is
-    /// then `stop_count`; 0 on a run without stop rules.
+    /// then `stop_count`; 0 on a run without stop rules. Under a stop condition
+    /// (`stop_condition`) it counts the stop events, the arrivals where the condition held.
     pub stops: u64,
+    /// The arrivals at a stop this leaf's path passed, whatever a stop condition answered there
+    /// (`stop_condition`); equal to [`Self::stops`] on a run without a stop condition.
+    pub arrivals: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1422,6 +1444,32 @@ pub fn execute_disjunction_with_solver_and_io_state_and_observer_with_initial_st
         Some(io),
         None,
         observe,
+    )
+}
+
+/// Execute with a stop condition asked at each arrival at a stop (`stop_condition`): a path
+/// ends at its `stop_count`th arrival where `condition` holds. In-process only: the condition is
+/// a callback, which no wire request carries.
+///
+/// # Errors
+///
+/// Returns the condition's refusal ([`StopConditionRefusal`]) when it refused at an arrival:
+/// the stop criterion is undefined on this run, so the request has no result.
+pub fn execute_with_stop_condition(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+    condition: &mut dyn StopCondition,
+) -> Result<ExecutionResult, StopConditionRefusal> {
+    execute::execute_with_condition(
+        definition,
+        vec![initial],
+        options,
+        solver,
+        observation,
+        condition,
     )
 }
 

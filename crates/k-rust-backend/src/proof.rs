@@ -1762,6 +1762,7 @@ impl ProofState {
             | HaltReason::Branch { .. }
             | HaltReason::CutPointRule { .. }
             | HaltReason::TerminalRule { .. }
+            | HaltReason::StopUndecided { .. }
             | HaltReason::DepthBound
             | HaltReason::BreadthBound
             | HaltReason::WorkBound

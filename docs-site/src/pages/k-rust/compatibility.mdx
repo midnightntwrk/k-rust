@@ -2660,6 +2660,39 @@ The arrivals are counted where the path is executed, rather than by a new reques
 The Rust structs gain public fields (`stop_count` on `ExecuteRequest`, on `ExecutionOptions` and on `BackendCapabilities`, `stops` on both execution leaves), so a struct literal of them outside k-rust names the field; the wire and the TypeScript declarations gain optional members, and the backend schema version stays 1.
 The RPC `execute` takes `stop-count` as a k-rust extension and then answers `stops`.
 
+### Stop condition (in-process)
+
+An in-process execution may add a stop condition to its stop rules: a question the caller answers at each arrival, so that a path ends at its `stopCount`th arrival where the answer is yes (`Backend::execute_kore_with_condition`; `execute_with_stop_condition` and the `StopCondition` trait in the backend).
+The condition is a callback, which no wire request carries, so the RPC, napi and WebAssembly routes have none, and the wire request is unchanged.
+
+The *stop state* of an arrival is the state the path would end at there: the state before the step of a cut-point rule, the step's normalized successor for a terminal rule.
+The condition is a statement about the candidate end, so it is asked of the stop state, never of another state of the path.
+A *stop event* is an arrival whose stop state the condition holds of.
+A path ends at its `stopCount`th event, before or after the rule's step as at an arrival without a condition, and takes every other arrival as any other step: a cut-point rule's step is committed and normalized, and a terminal rule's path goes on from the successor.
+So a condition that holds at every stop state is no condition, and the run to the Nth event is one path, as a counted run is ([Stop count](#stop-count)).
+The answer is yes (`Holds`), no (`Fails`), undecided (`Undecided`) or no value (`Refused`).
+
+The condition is asked only at arrivals, each once, and only of their stop states.
+A step by a stop rule with another successor beside it is no arrival whatever the condition would say: it is a passed stop, and the condition is not asked there.
+A step by a stop rule is an arrival only once its successor is shown defined, so the successor is normalized within the step before the condition is asked, whichever the rule's side; a successor that goes on takes that normalization instead of repeating it.
+A step whose successor is undefined is therefore no arrival: the condition is not asked there, so such a step is never an undecided stop and never a refusal, and its path ends at its undefined step as it does without a condition.
+The condition is asked within the step, so it costs the run no state visit: a run under a condition that always holds does the same work as the run without it, and meets a `maxWork` bound where that run does.
+
+An undecided answer ends the path at the arrival with a `stop-undecided` leaf (`HaltReason::StopUndecided`, `HaltReasonOutput::StopUndecided`), the stop state, naming the rule: continuing would run past a possible stop, and stopping would claim an event that was not shown.
+Such a leaf is no result of the run, and under `state-set` it is never merged.
+An answer of no value means that the observation the condition reads does not exist at a reached state, so the stop criterion is undefined on this run: the request fails with `BackendErrorKind::StopConditionRefused`, whose message names the rule, the side of its step, the depth of the stop state and the reason, and the run ends there.
+
+Each leaf of such an execution reports its events as `stops` and every arrival its path passed as `arrivals` (`ExecutionLeaf::arrivals`, present only with a condition).
+The condition must be a function of the stop state's configuration.
+So under `state-set` a state merges only into a state whose path passed as many events and as many arrivals, and a leaf only into a leaf whose path did before its own halt; a cut point still merges by configuration and a terminal leaf by arrival.
+
+The condition is asked from the stepping loop, between two phases of a state's expansion, never inside a simplification or a rewrite, and its work is isolated from the run: it reports to no coverage set, emits no diagnostic into the run, notes no path fact, fills none of the run's memos, and is recorded by no operation record of the run.
+It runs off the run's clock, as condition records do: a step deadline neither stops it nor is charged with its time.
+It runs in a proof evaluation scope without a console and outside the run's definition scope, so the caller may evaluate it in another definition, whose operation opens its own record, poll budget and stack measurement inside it.
+A cancellation of the request stays visible inside it: an undecided answer reached while the request is cancelled is that stop, not an undecided arrival.
+The tests `rewrite::execute::tests::stop_condition` in [execute.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/src/rewrite/execute.rs) run a closure condition on a definition of alternating selected and unselected steps, with and without a choice at a selected rule: a failed answer takes the arrival as a step on both sides, the count counts events, a condition that always holds gives the run without it, its work included, the condition reads the state before a cut-point rule's step and a terminal rule's successor, it is asked once per arrival and neither at a passed stop nor at a step whose successor is undefined, undecided answers end the path and refusals fail the request, a state-set run equals the path-set run where two paths meet with as many events and different arrivals, and the condition's work is off the clock, in its own operation and outside the run's coverage; `the_stop_condition_reaches_the_facade` in [backend/mod.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/src/backend/mod.rs) reads `stops`, `arrivals`, `stop-undecided` and the refusal's kind from the facade.
+The Rust structs gain public fields (`arrivals` on both execution leaves), the backend's `HaltReason` and the facade's `HaltReasonOutput` and `BackendErrorKind` gain variants, and the TypeScript declarations gain the reason `stop-undecided` and the optional member `arrivals`, which those bindings never produce.
+
 ### Work budget
 
 An execute request may bound the work of its run: `maxWork` (`ExecuteRequest::max_work`, `ExecutionOptions::max_work` in the backend; absent by default, no bound) is the most states the run may visit across all its paths.

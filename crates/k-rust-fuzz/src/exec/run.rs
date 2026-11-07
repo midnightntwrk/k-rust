@@ -1302,6 +1302,7 @@ impl Judge<'_> {
             | HaltReasonOutput::Vacuous
             | HaltReasonOutput::Branch
             | HaltReasonOutput::CutPoint
+            | HaltReasonOutput::StopUndecided
             | HaltReasonOutput::DepthBound
             | HaltReasonOutput::BreadthBound
             | HaltReasonOutput::WorkBound

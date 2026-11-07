@@ -607,7 +607,7 @@ impl UnjudgedReason {
             H::DepthBound | H::BreadthBound => Self::DepthBound,
             H::Timeout => Self::Clock,
             H::Cancelled => Self::Cancelled,
-            H::Terminal | H::Branch | H::CutPoint => Self::HaltUnexpected,
+            H::Terminal | H::Branch | H::CutPoint | H::StopUndecided => Self::HaltUnexpected,
             H::Stuck | H::Trivial => return None,
         })
     }
@@ -887,6 +887,7 @@ pub fn halt_cause<K: Serialize>(
         | HaltReasonOutput::Branch
         | HaltReasonOutput::CutPoint
         | HaltReasonOutput::Terminal
+        | HaltReasonOutput::StopUndecided
         | HaltReasonOutput::DepthBound
         | HaltReasonOutput::BreadthBound
         | HaltReasonOutput::WorkBound

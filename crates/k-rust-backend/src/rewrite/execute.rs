@@ -92,6 +92,9 @@ use crate::{
 };
 
 use super::refutation_memo::RefutationMemo;
+use super::stop_condition::{
+    self, Arrival as StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+};
 use super::work::Work;
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions,
@@ -117,11 +120,60 @@ pub(super) fn execute_using(
     observation: Option<&ObservationOptions>,
     observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
+    match execute_asking(
+        definition,
+        initial,
+        options,
+        solver,
+        initial_io,
+        observation,
+        observe,
+        None,
+    ) {
+        Ok(outcome) => outcome,
+        Err(refusal) => unreachable!("a run without a stop condition has no refusal: {refusal}"),
+    }
+}
+
+/// [`execute_using`] with a stop condition asked at each arrival at a stop
+/// (`stop_condition`); the condition's refusal fails the run.
+pub(super) fn execute_with_condition(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+    condition: &mut dyn StopCondition,
+) -> Result<ExecutionResult, StopConditionRefusal> {
+    execute_asking(
+        definition,
+        initial,
+        options,
+        solver,
+        None,
+        observation,
+        |_| {},
+        Some(condition),
+    )
+    .map(|(result, _)| result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_asking(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    initial_io: Option<ExecutionIoState>,
+    observation: Option<&ObservationOptions>,
+    observe: impl FnMut(&BuiltinEffect),
+    condition: Option<&mut dyn StopCondition>,
+) -> Result<(ExecutionResult, InitialSimplificationStatus), StopConditionRefusal> {
     // Every stack stop of the run is counted, those that end a state and those a refinement
     // dismisses alike (`ExecutionResult::stack_stops`), and so is every undecided answer the
     // solver delivers to a decision of the run (`ExecutionResult::smt_unknowns`).
     let counting = crate::smt::UndecidedCounting::new(solver);
-    let ((mut result, status), stack_stops) = crate::stop::counting_stack_stops(|| {
+    let (outcome, stack_stops) = crate::stop::counting_stack_stops(|| {
         execute_counted(
             definition,
             initial,
@@ -131,11 +183,13 @@ pub(super) fn execute_using(
             initial_io,
             observation,
             observe,
+            condition,
         )
     });
+    let (mut result, status) = outcome?;
     result.stack_stops = stack_stops;
     result.smt_unknowns = counting.undecided();
-    (result, status)
+    Ok((result, status))
 }
 
 /// [`execute_using`] inside its count of stack stops. `solver` counts the run's undecided
@@ -151,7 +205,8 @@ fn execute_counted(
     initial_io: Option<ExecutionIoState>,
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
-) -> (ExecutionResult, InitialSimplificationStatus) {
+    condition: Option<&mut dyn StopCondition>,
+) -> Result<(ExecutionResult, InitialSimplificationStatus), StopConditionRefusal> {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let _apart = crate::rule::ApartScope::enter();
     // Every evaluation of the run, its rule and equation conditions included, runs in the mode
@@ -175,6 +230,8 @@ fn execute_counted(
     // Under state-set, the standing of every halt a leaf of the run can have.
     let replaceable_halts =
         (options.result_modality == ResultModality::StateSet).then(|| Standing::possible(&options));
+    // The condition's refusal, which fails the run: its leaves are no result.
+    let refused = std::cell::RefCell::new(None);
     let run = || {
         let mut execution = Execution::seed(
             definition,
@@ -185,11 +242,14 @@ fn execute_counted(
             initial_io,
             observation,
             &mut observe,
+            // Reborrowed for the run alone, which ends inside this call.
+            condition.map(|condition| -> &mut dyn StopCondition { &mut *condition }),
         );
         if execution.options.max_breadth == Some(0) {
             return execution.collect_at_breadth_zero();
         }
         execution.run(&timeout_controller);
+        *refused.borrow_mut() = execution.refusal.take();
         execution.collect()
     };
     // Every mark the run notes, whatever becomes of the work that noted it.
@@ -238,7 +298,11 @@ fn execute_counted(
         (result, status)
     };
     if !collect_coverage {
-        return run();
+        let outcome = run();
+        return match refused.into_inner() {
+            Some(refusal) => Err(refusal),
+            None => Ok(outcome),
+        };
     }
     // The definition is selected and internalized before this call, so the collection holds
     // what the run applied and nothing a module's construction did (`crate::coverage`).
@@ -249,8 +313,11 @@ fn execute_counted(
         collect_conditions,
         run,
     );
+    if let Some(refusal) = refused.into_inner() {
+        return Err(refusal);
+    }
     result.coverage = Some(coverage);
-    (result, status)
+    Ok((result, status))
 }
 
 /// A phase either hands the state on or ends it as a leaf.
@@ -304,6 +371,10 @@ struct Execution<'a> {
     merged_arrival: bool,
     /// The state matcher of a run that asks for state matches ([`ExecutionOptions::match_states`]).
     matcher: Option<StateMatcher<'a>>,
+    /// The stop condition of an in-process run that has one (`stop_condition`).
+    condition: Option<&'a mut dyn StopCondition>,
+    /// The condition's refusal, once it refused: the run ends there, with no result.
+    refusal: Option<StopConditionRefusal>,
     /// After each expansion: the merge table's size, its shallowest recorded depth, and the
     /// depth of the back of `pending`.
     #[cfg(test)]
@@ -323,6 +394,7 @@ impl<'a> Execution<'a> {
         initial_io: Option<ExecutionIoState>,
         observation: Option<&'a ObservationOptions>,
         observe: &'a mut dyn FnMut(&BuiltinEffect),
+        condition: Option<&'a mut dyn StopCondition>,
     ) -> Self {
         let initial_input_count = initial.len();
         // One request: every name the execution mints is apart from every variable of the
@@ -352,7 +424,8 @@ impl<'a> Execution<'a> {
                     diagnostics: diagnostics.empty_like(),
                     producer: None,
                     stops: 0,
-                    arriving: false,
+                    arrivals: 0,
+                    arriving: None,
                 }
             })
             .collect::<VecDeque<_>>();
@@ -433,6 +506,8 @@ impl<'a> Execution<'a> {
             arrival: None,
             merged_arrival: false,
             matcher,
+            condition,
+            refusal: None,
             #[cfg(test)]
             merge_census: Vec::new(),
         }
@@ -509,6 +584,10 @@ impl<'a> Execution<'a> {
         // terminates.
         // Invariant: `pending` holds unexpanded states of depth <= `max_depth`; `leaves` only grows.
         while let Some(state) = self.pending.pop_front() {
+            // A refused stop condition ends the run: the request has no result.
+            if self.refusal.is_some() {
+                break;
+            }
             // The work budget: a run that has visited `max_work` states ends at the next one,
             // which is reported unvisited; the other pending states are dropped (`work`).
             if !self.work.visit() {
@@ -525,6 +604,9 @@ impl<'a> Execution<'a> {
                     // A merged arrival took no rewrite step: its time is not a step's time.
                     if std::mem::take(&mut self.merged_arrival) {
                         step_timer.discard_measurement();
+                    }
+                    if self.refusal.is_some() {
+                        break;
                     }
                     self.record_arrival();
                     enqueue_execution_states(&mut self.pending, successors);
@@ -582,7 +664,7 @@ impl<'a> Execution<'a> {
         }
         let mut arrival = Arrival::new(
             state.depth,
-            state.stops,
+            (state.stops, state.arrivals),
             state.pattern.clone(),
             state.effects.clone(),
             state.io.clone(),
@@ -1251,8 +1333,16 @@ impl<'a> Execution<'a> {
         // arrival at a stop where it was a stop rule's step the path goes on past
         // ([`ExecutionOptions::stop_count`]).
         Self::note_committed(&state);
-        if std::mem::take(&mut state.arriving) {
-            state.stops += 1;
+        match state.arriving.take() {
+            None => {}
+            Some(Arriving::Counted) => {
+                state.stops += 1;
+                state.arrivals += 1;
+            }
+            Some(Arriving::Asked { event }) => {
+                state.arrivals += 1;
+                state.stops += u64::from(event);
+            }
         }
         if state.depth >= self.options.max_depth {
             // A state the depth bound stops is reached; it takes no part in merging.
@@ -1428,12 +1518,35 @@ impl<'a> Execution<'a> {
     fn finished(
         &mut self,
         mut state: ExecutionState,
-        applied: AppliedRule,
+        mut applied: AppliedRule,
         excluded: &Exclusion,
     ) -> Phase<Vec<ExecutionState>> {
-        let ends = self.ends_at_arrival(&state);
-        if ends && let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
-            let mut applied = applied;
+        let normalized = match self.shows_stop_successor_defined(&state, &mut applied) {
+            Ok(true) => applied.normalized.0.clone(),
+            Ok(false) => None,
+            Err(stop) => return Err(Box::new(self.stopped_leaf(state, stop))),
+        };
+        let successor = normalized
+            .as_ref()
+            .and_then(|normalization| normalization.term.as_ref())
+            .map(|term| &term.simplified.term);
+        let StopPlan {
+            ends_before,
+            deferred,
+            arriving,
+            terminal: terminal_rule,
+        } = match self.stop_plan(&state, &applied, successor) {
+            Ok(plan) => plan,
+            Err(stop) => return Err(Box::new(self.stopped_leaf(state, stop))),
+        };
+        if let Some(rule) = ends_before {
+            if let Some(decision) = deferred {
+                // The condition answered neither yes nor no at a cut-point rule's arrival: the
+                // path ends at the state before the step, which the undefined step stands for
+                // some instances of.
+                excluded.exclude_from(&mut state.pattern);
+                return self.deferred_answer(state, rule, StopSide::Before, decision);
+            }
             let producer = Producer::of(&state, &applied);
             commit_proposed_effects(&mut state, &applied);
             // The cut-point rule is proposed, not committed: the `CutPointRule` leaf stays at
@@ -1533,10 +1646,6 @@ impl<'a> Execution<'a> {
                 candidate_observation,
             )));
         }
-        let arriving = !ends && self.selects_stop(&applied);
-        let terminal_rule = ends
-            .then(|| selected_stop_rule(&applied, &self.options.terminal_rules))
-            .flatten();
         let producer = Producer::of(&state, &applied);
         let mut next = next_state(
             self.definition,
@@ -1605,20 +1714,239 @@ impl<'a> Execution<'a> {
             }
             // The successor is normalized and defined: committed and reached, the path's last
             // arrival.
-            Self::note_committed(&next);
-            self.match_state(&next);
-            next.stops += 1;
-            return Err(Box::new(
-                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log),
-            ));
+            return self.terminal_end(next, rule, deferred);
         }
         Ok(vec![next])
     }
 
-    /// Whether a step by a stop rule from `state`, its one successor, ends the path: it is the
-    /// path's `stop_count`th arrival at a stop ([`ExecutionOptions::stop_count`]).
+    /// The end of a path at a terminal rule `rule`'s arrival, whose successor `next` is
+    /// normalized, defined and committed: a `TerminalRule` leaf, its last event; or, where the
+    /// stop condition answered `deferred` there, neither yes nor no, that answer's end
+    /// ([`Self::deferred_answer`]).
+    fn terminal_end(
+        &mut self,
+        mut next: ExecutionState,
+        rule: String,
+        deferred: Option<StopDecision>,
+    ) -> Phase<Vec<ExecutionState>> {
+        Self::note_committed(&next);
+        if let Some(decision) = deferred {
+            return self.deferred_answer(next, rule, StopSide::After, decision);
+        }
+        self.match_state(&next);
+        next.stops += 1;
+        next.arrivals += 1;
+        Err(Box::new(next.leaf(
+            HaltReason::TerminalRule { rule },
+            &self.observation_log,
+        )))
+    }
+
+    /// Whether a stop event at `state`'s arrival ends the path: it is the path's
+    /// `stop_count`th ([`ExecutionOptions::stop_count`]). Without a stop condition every arrival
+    /// is an event.
     fn ends_at_arrival(&self, state: &ExecutionState) -> bool {
         state.stops.saturating_add(1) >= self.options.stop_count.get()
+    }
+
+    /// Whether the successor of `applied`, its state's one candidate, is shown defined where the
+    /// step is by a stop rule under a stop condition, so that the step is an arrival the
+    /// condition may be asked about ([`Self::stop_plan`]): by the step's own normalization
+    /// ([`AppliedRule::normalized`]), else by normalizing the successor here
+    /// ([`normalize_successor`]), which the successor then takes instead of repeating it, so
+    /// that the condition costs the run no state visit and no normalization of a successor that
+    /// goes on. Any other step asks nothing, and is answered `false`.
+    fn shows_stop_successor_defined(
+        &self,
+        state: &ExecutionState,
+        applied: &mut AppliedRule,
+    ) -> Stoppable<bool> {
+        if self.condition.is_none() || !self.selects_stop(applied) {
+            return Ok(false);
+        }
+        if applied
+            .normalized
+            .0
+            .as_ref()
+            .is_some_and(|normalization| normalization.built == applied.pattern)
+        {
+            return Ok(true);
+        }
+        let rule = applied.observing_rule();
+        let io = applied
+            .io
+            .as_ref()
+            .or(state.io_enabled.then_some(&state.io));
+        // A result found `\bottom` is reported, not noted: the successor's own normalization,
+        // which goes on as if nothing were asked, notes it.
+        let (checked, _) = crate::path_facts::observed_by(
+            || Some(rule.clone()),
+            || {
+                normalize_successor_with(
+                    self.definition,
+                    &applied.pattern,
+                    &applied.before.constraints,
+                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                    self.solver,
+                    io,
+                    ResultClaim::Report,
+                )
+            },
+        )?;
+        Ok(match (checked.undefined, checked.normalization) {
+            (None, Some(normalization)) => {
+                applied.normalized = NormalizedSuccessor(Some(Arc::new(normalization)));
+                true
+            }
+            // Undefined, or not normalized: no arrival, whatever its own normalization finds.
+            _ => false,
+        })
+    }
+
+    /// What a step by `applied` from `state`, its state's one successor, does at the stop rules:
+    /// whether it ends the path before the step, is an arrival the path goes on past, or ends
+    /// the path after the step ([`ExecutionOptions::stop_count`]).
+    ///
+    /// Under a stop condition (`stop_condition`) the condition is asked here, once the step is an
+    /// arrival: when `successor`, the normalized successor's term, shows the successor defined
+    /// ([`Self::shows_stop_successor_defined`]). A cut-point rule's stop state is `state`, a
+    /// terminal rule's the normalized successor. A step by a stop rule whose successor is not
+    /// shown defined is no arrival, and goes on as a step whose successor's own normalization
+    /// ends its path.
+    fn stop_plan(
+        &mut self,
+        state: &ExecutionState,
+        applied: &AppliedRule,
+        successor: Option<&crate::term::Term>,
+    ) -> Result<StopPlan, Stop> {
+        let ends = self.ends_at_arrival(state);
+        let cut_point = selected_stop_rule(applied, &self.options.cut_point_rules);
+        if self.condition.is_none() {
+            return Ok(match cut_point {
+                Some(rule) if ends => StopPlan {
+                    ends_before: Some(rule),
+                    ..StopPlan::default()
+                },
+                _ => StopPlan {
+                    arriving: (!ends && self.selects_stop(applied)).then_some(Arriving::Counted),
+                    terminal: ends
+                        .then(|| selected_stop_rule(applied, &self.options.terminal_rules))
+                        .flatten(),
+                    ..StopPlan::default()
+                },
+            });
+        }
+        let Some(successor) = successor else {
+            return Ok(StopPlan::default());
+        };
+        let (rule, side, depth, term) = match cut_point {
+            Some(rule) => (rule, StopSide::Before, state.depth, &state.pattern.term),
+            None => match selected_stop_rule(applied, &self.options.terminal_rules) {
+                Some(rule) => (rule, StopSide::After, state.depth + 1, successor),
+                None => return Ok(StopPlan::default()),
+            },
+        };
+        let decision = self.ask(&rule, side, depth, term)?;
+        let event = match decision {
+            StopDecision::Holds if ends => {
+                return Ok(match side {
+                    StopSide::Before => StopPlan {
+                        ends_before: Some(rule),
+                        ..StopPlan::default()
+                    },
+                    StopSide::After => StopPlan {
+                        terminal: Some(rule),
+                        ..StopPlan::default()
+                    },
+                });
+            }
+            StopDecision::Holds => true,
+            StopDecision::Fails => false,
+            deferred @ (StopDecision::Undecided(_) | StopDecision::Refused(_)) => {
+                return Ok(match side {
+                    StopSide::Before => StopPlan {
+                        ends_before: Some(rule),
+                        deferred: Some(deferred),
+                        ..StopPlan::default()
+                    },
+                    StopSide::After => StopPlan {
+                        terminal: Some(rule),
+                        deferred: Some(deferred),
+                        ..StopPlan::default()
+                    },
+                });
+            }
+        };
+        Ok(StopPlan {
+            arriving: Some(Arriving::Asked { event }),
+            ..StopPlan::default()
+        })
+    }
+
+    /// Ask the run's stop condition about the arrival at `rule` on `side` whose stop state, at
+    /// `depth`, has the term `term` (`stop_condition::ask`). An undecided answer whose evaluation
+    /// met a stop of the request (a cancellation, a failed solver prelude), which stays raised,
+    /// is that stop: the arrival is not left undecided by the condition but by the request.
+    fn ask(
+        &mut self,
+        rule: &str,
+        side: StopSide,
+        depth: u64,
+        term: &crate::term::Term,
+    ) -> Result<StopDecision, Stop> {
+        let Some(condition) = self.condition.as_deref_mut() else {
+            unreachable!("only a run with a stop condition asks one");
+        };
+        let decision = stop_condition::ask(
+            condition,
+            &StopArrival {
+                rule,
+                side,
+                depth,
+                term,
+            },
+        );
+        if matches!(decision, StopDecision::Undecided(_)) {
+            stop::check()?;
+        }
+        Ok(decision)
+    }
+
+    /// The end of a path at the arrival at `rule` on `side` whose stop state is `state`, where
+    /// the step's successor is shown defined and the condition answered `decision`, neither yes
+    /// nor no: a `stop-undecided` leaf of `state`, or the request's refusal.
+    fn deferred_answer(
+        &mut self,
+        mut state: ExecutionState,
+        rule: String,
+        side: StopSide,
+        decision: StopDecision,
+    ) -> Phase<Vec<ExecutionState>> {
+        state.arrivals += 1;
+        match decision {
+            StopDecision::Undecided(reason) => Err(Box::new(state.leaf(
+                HaltReason::StopUndecided { rule, reason },
+                &self.observation_log,
+            ))),
+            StopDecision::Refused(reason) => {
+                self.refuse(rule, side, state.depth, reason);
+                Ok(Vec::new())
+            }
+            StopDecision::Holds | StopDecision::Fails => {
+                unreachable!("a decided answer is acted on at the step")
+            }
+        }
+    }
+
+    /// The stop condition refused at an arrival: the run ends, with no result.
+    fn refuse(&mut self, rule: String, side: StopSide, depth: u64, reason: String) {
+        self.refusal.get_or_insert(StopConditionRefusal {
+            rule,
+            side,
+            depth,
+            reason,
+        });
+        self.pending.clear();
     }
 
     /// Whether `applied` is a step by a rule the cut-point or terminal rules select.
@@ -1643,6 +1971,7 @@ impl<'a> Execution<'a> {
             .observation_log
             .events_since(candidate, state.observation);
         state.stops += 1;
+        state.arrivals += 1;
         state.leaf(
             HaltReason::CutPointRule {
                 rule,
@@ -2161,15 +2490,24 @@ impl<'a> Execution<'a> {
                         // as a `Finished` step's application is: the stop rules apply to it
                         // alike. It is already normalized, on its own head, and not bottom.
                         let (applied, observation, _) = branches.pop().expect("one branch remains");
-                        let ends = self.ends_at_arrival(&state);
-                        if ends
-                            && let Some(rule) =
-                                selected_stop_rule(&applied, &self.options.cut_point_rules)
-                        {
+                        let plan =
+                            match self.stop_plan(&state, &applied, Some(&applied.pattern.term)) {
+                                Ok(plan) => plan,
+                                Err(stop) => return Err(Box::new(self.stopped_leaf(state, stop))),
+                            };
+                        if let Some(rule) = plan.ends_before {
                             let mut state = state;
                             // The undefined step stands for some instances of this state: the
                             // leaf stands for the others, the candidate's own.
                             excluded.exclude_from(&mut state.pattern);
+                            if let Some(decision) = plan.deferred {
+                                return self.deferred_answer(
+                                    state,
+                                    rule,
+                                    StopSide::Before,
+                                    decision,
+                                );
+                            }
                             commit_proposed_effects(&mut state, &applied);
                             return Err(Box::new(self.cut_point_leaf(
                                 state,
@@ -2178,21 +2516,12 @@ impl<'a> Execution<'a> {
                                 observation,
                             )));
                         }
-                        let arriving = !ends && self.selects_stop(&applied);
-                        let terminal_rule = ends
-                            .then(|| selected_stop_rule(&applied, &self.options.terminal_rules))
-                            .flatten();
                         let mut next = commit_applied(state, applied, observation);
-                        next.arriving = arriving;
-                        if let Some(rule) = terminal_rule {
+                        next.arriving = plan.arriving;
+                        if let Some(rule) = plan.terminal {
                             // Normalized within the step and not bottom: committed and reached,
                             // the path's last arrival.
-                            Self::note_committed(&next);
-                            self.match_state(&next);
-                            next.stops += 1;
-                            return Err(Box::new(
-                                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log),
-                            ));
+                            return self.terminal_end(next, rule, plan.deferred);
                         }
                         Ok(vec![next])
                     }
@@ -2838,6 +3167,9 @@ enum MergeClass {
     ByConfiguration,
     /// The halt records the rule by which the path arrived (`TerminalRule`).
     ByArrival,
+    /// A stop condition was left undecided at the path's arrival (`StopUndecided`): the leaf
+    /// says that the run to its stop has no answer there, so it is never merged.
+    StopUndecided,
 }
 
 impl MergeClass {
@@ -2871,6 +3203,7 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
             MergeClass::ByConfiguration
         }
         HaltReason::TerminalRule { .. } => MergeClass::ByArrival,
+        HaltReason::StopUndecided { .. } => MergeClass::StopUndecided,
     }
 }
 
@@ -2927,7 +3260,10 @@ impl Standing {
                 true
             }
             (MergeClass::Unexplored, _)
-            | (MergeClass::NoConfiguration | MergeClass::RunEnding, _) => false,
+            | (
+                MergeClass::NoConfiguration | MergeClass::RunEnding | MergeClass::StopUndecided,
+                _,
+            ) => false,
         }
     }
 
@@ -2977,21 +3313,24 @@ fn replaceable_in_state_set(possible: &[Standing], halt: &HaltReason) -> bool {
             .any(|other| other.class != standing.class && other.absorbs(standing))
 }
 
-/// The arrivals at a stop `leaf`'s path passed before its own halt
-/// ([`ExecutionOptions::stop_count`]): its count, less the arrival a cut-point or terminal-rule
-/// leaf ends at.
+/// The stop events and the arrivals at a stop `leaf`'s path passed before its own halt
+/// ([`ExecutionOptions::stop_count`]): its counts, less the arrival a cut-point or terminal-rule
+/// leaf ends at, which is an event.
 ///
 /// A configuration's subtree under a count rests on the arrivals passed before it: a cut-point
 /// leaf's configuration is final only at the last count, while at an earlier one the path goes
 /// on from it, so an unexplored leaf of that configuration with fewer arrivals stands for more
 /// than the configuration. A leaf is therefore merged only into a leaf of the same count before
 /// its halt. Without a count every leaf has passed none, so the merge is unchanged.
-fn arrivals_before_halt(leaf: &ExecutionLeaf) -> u64 {
-    let own = matches!(
+fn arrivals_before_halt(leaf: &ExecutionLeaf) -> (u64, u64) {
+    let own = u64::from(matches!(
         leaf.halt_reason,
         HaltReason::CutPointRule { .. } | HaltReason::TerminalRule { .. }
-    );
-    leaf.stops.saturating_sub(u64::from(own))
+    ));
+    (
+        leaf.stops.saturating_sub(own),
+        leaf.arrivals.saturating_sub(own),
+    )
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -3833,11 +4172,41 @@ struct ExecutionState {
     /// The step that produced this state, until the state's first normalization, which may find
     /// that step undefined ([`Producer`]); `None` on every other state.
     producer: Option<std::rc::Rc<Producer>>,
-    /// The arrivals at a stop this state's path passed ([`ExecutionOptions::stop_count`]).
+    /// The stop events this state's path passed ([`ExecutionOptions::stop_count`]): its
+    /// arrivals at a stop where the stop condition held, every arrival without a condition.
     stops: u64,
-    /// Whether the step that produced this state is an arrival at a stop the path goes on past,
-    /// counted once the state's normalization shows it defined; false on every other state.
-    arriving: bool,
+    /// The arrivals at a stop this state's path passed, whatever the stop condition answered.
+    arrivals: u64,
+    /// How the step that produced this state is an arrival at a stop the path goes on past,
+    /// counted once the state's normalization shows it defined; `None` on every other state.
+    arriving: Option<Arriving>,
+}
+
+/// How a step is an arrival at a stop that does not end the path at the step
+/// ([`ExecutionState::arriving`]), counted once its successor's normalization shows it defined.
+#[derive(Clone)]
+enum Arriving {
+    /// A run without a stop condition: every arrival is an event.
+    Counted,
+    /// A run with a stop condition, asked at the step ([`Execution::stop_plan`]): whether it
+    /// held, which makes the arrival an event.
+    Asked { event: bool },
+}
+
+/// What a step by a stop rule, its state's one successor, does at the stop rules
+/// ([`Execution::stop_plan`]).
+#[derive(Default)]
+struct StopPlan {
+    /// The path ends before the step, at this cut-point rule, once the successor is shown
+    /// defined.
+    ends_before: Option<String>,
+    /// With [`Self::ends_before`] or [`Self::terminal`]: the condition's answer there, neither
+    /// yes nor no, which ends the path otherwise ([`Execution::deferred_answer`]).
+    deferred: Option<StopDecision>,
+    /// The step is an arrival the path goes on past.
+    arriving: Option<Arriving>,
+    /// The path ends after the step, at this terminal rule, once the successor is shown defined.
+    terminal: Option<String>,
 }
 
 /// The step that produced a successor, kept on it until its first normalization.
@@ -4378,6 +4747,7 @@ impl ExecutionState {
             halt_reason,
             diagnostics: self.diagnostics.to_vec(),
             stops: self.stops,
+            arrivals: self.arrivals,
         }
     }
 
@@ -4787,6 +5157,7 @@ mod tests {
         let definition = definition("");
         let leaf = |name, halt_reason| ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: subject(&definition, name),
             depth: 1,
             trace: Vec::new(),
@@ -4834,6 +5205,7 @@ mod tests {
         };
         let leaf = |name, depth, halt_reason, diagnostics| ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: subject(&definition, name),
             depth,
             trace: Vec::new(),
@@ -4878,6 +5250,7 @@ mod tests {
         let definition = definition("");
         let leaf = |name, halt_reason| ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: subject(&definition, name),
             depth: 1,
             trace: Vec::new(),
@@ -4936,6 +5309,7 @@ mod tests {
         let right_io = right_evaluation.commit();
         let leaf = |io| ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: subject(&definition, "same"),
             depth: 1,
             trace: Vec::new(),
@@ -5094,7 +5468,8 @@ mod tests {
         trace.extend(prefix.iter().cloned());
         ExecutionState {
             stops: 0,
-            arriving: false,
+            arrivals: 0,
+            arriving: None,
             pattern: subject(definition, "state"),
             depth: 500,
             trace,
@@ -5241,6 +5616,7 @@ mod tests {
         let definition = definition("");
         let leaf = |depth, halt_reason| ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: subject(&definition, "same"),
             depth,
             trace: Vec::new(),
@@ -5417,7 +5793,7 @@ mod tests {
             moving_average: false,
         });
         let mut execution = Execution::seed(
-            definition, initial, options, solver, solver, None, None, observe,
+            definition, initial, options, solver, solver, None, None, observe, None,
         );
         execution.run(&timeout_controller);
         execution
@@ -5586,6 +5962,7 @@ mod tests {
             None,
             None,
             &mut observe,
+            None,
         );
         execution.run(&timeout_controller);
         let delta = measure::snapshot().delta(&before);
@@ -5979,7 +6356,8 @@ mod tests {
                     // The state holds thread-confined values, so it is made on the thread.
                     let state = ExecutionState {
                         stops: 0,
-                        arriving: false,
+                        arrivals: 0,
+                        arriving: None,
                         pattern: pattern.clone(),
                         depth: 0,
                         trace: PathTrace::default(),
@@ -6112,6 +6490,7 @@ mod tests {
         let definition = definition("");
         let leaves = ["a", "b", "a"].map(|name| ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: subject(&definition, name),
             depth: 1,
             trace: Vec::new(),
@@ -6267,6 +6646,561 @@ mod tests {
                 .collect::<Vec<_>>(),
             [HaltReason::Stuck, HaltReason::Stuck]
         );
+    }
+
+    /// A stop condition asked at each arrival at a stop (`stop_condition`), on a run of `0` to
+    /// `6` by alternating selected `tick-*` and unselected `work-*` steps; with `choice`, `3`
+    /// also has a selected `tick-x` successor beside `work-b` (a passed stop under strategy
+    /// `all`), and `4x` goes on to `5` by `work-x`, so two paths meet at `5` at depth 5 with
+    /// different arrivals.
+    mod stop_condition {
+        use super::*;
+        use crate::rewrite::{StopArrival, StopConditionRefusal, StopDecision, StopSide};
+
+        /// The stop states a condition was asked about, with their side and depth, in order.
+        type Asked = Vec<(StopSide, u64, String)>;
+
+        fn steps(choice: bool) -> BackendDefinition {
+            steps_then(choice, "")
+        }
+
+        /// [`steps`], with the axioms `then` besides.
+        fn steps_then(choice: bool, then: &str) -> BackendDefinition {
+            let step = |from: &str, to: &str, label: &str| {
+                format!(
+                    r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                        \and{{SortS{{}}}}(\dv{{SortS{{}}}}("{from}"), \top{{SortS{{}}}}()),
+                        \dv{{SortS{{}}}}("{to}")
+                    ) [label{{}}("{label}")]"#
+                )
+            };
+            let mut axioms = vec![
+                step("0", "1", "tick-a"),
+                step("1", "2", "work-a"),
+                step("2", "3", "tick-b"),
+                step("3", "4", "work-b"),
+                step("4", "5", "tick-c"),
+                step("5", "6", "work-c"),
+            ];
+            if choice {
+                axioms.push(step("3", "4x", "tick-x"));
+                axioms.push(step("4x", "5", "work-x"));
+            }
+            axioms.push(then.to_owned());
+            definition(&axioms.join("\n"))
+        }
+
+        fn state(definition: &BackendDefinition, value: &str) -> Pattern {
+            Pattern {
+                term: definition
+                    .internalize_term(
+                        &parse_pattern(&format!(r#"\dv{{SortS{{}}}}("{value}")"#)).unwrap(),
+                        &[],
+                    )
+                    .unwrap(),
+                constraints: Vec::new(),
+            }
+        }
+
+        /// The value of a stop state of this definition.
+        fn value(arrival: &StopArrival<'_>) -> String {
+            match &arrival.configuration() {
+                k_rust_kore::kore::ast::Pattern::DomainValue { value, .. } => {
+                    value.as_utf8().unwrap().to_owned()
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+
+        fn options(terminal: bool, count: u64) -> ExecutionOptions {
+            let selected =
+                BTreeSet::from(["tick-a", "tick-b", "tick-c", "tick-x"].map(str::to_owned));
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (BTreeSet::new(), selected)
+            } else {
+                (selected, BTreeSet::new())
+            };
+            ExecutionOptions {
+                cut_point_rules,
+                terminal_rules,
+                stop_count: NonZeroU64::new(count).unwrap(),
+                ..ExecutionOptions::default()
+            }
+        }
+
+        /// A run under `options` from `0` whose condition holds of the stop states `holds`,
+        /// is undecided at `undecided` and refuses at `refused`; also the stop states it was
+        /// asked about, with their side and depth, in order.
+        fn run(
+            definition: &BackendDefinition,
+            options: ExecutionOptions,
+            holds: &[&str],
+            undecided: &[&str],
+            refused: &[&str],
+        ) -> (Result<ExecutionResult, StopConditionRefusal>, Asked) {
+            let mut asked = Vec::new();
+            let mut condition = |arrival: &StopArrival<'_>| {
+                let value = value(arrival);
+                asked.push((arrival.side(), arrival.depth(), value.clone()));
+                if undecided.contains(&value.as_str()) {
+                    StopDecision::Undecided(format!("undecided at {value}"))
+                } else if refused.contains(&value.as_str()) {
+                    StopDecision::Refused(format!("no value at {value}"))
+                } else if holds.contains(&value.as_str()) {
+                    StopDecision::Holds
+                } else {
+                    StopDecision::Fails
+                }
+            };
+            let result = crate::rewrite::execute_with_stop_condition(
+                definition,
+                state(definition, "0"),
+                options,
+                &crate::smt::NoSolver,
+                None,
+                &mut condition,
+            );
+            (result, asked)
+        }
+
+        /// Each leaf's value, depth, halt, stop events and arrivals.
+        fn ends(result: &ExecutionResult) -> Vec<(String, u64, &'static str, u64, u64)> {
+            let mut ends = result
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    let value = match &crate::externalize::term(&leaf.pattern.term) {
+                        k_rust_kore::kore::ast::Pattern::DomainValue { value, .. } => {
+                            value.as_utf8().unwrap().to_owned()
+                        }
+                        other => format!("{other:?}"),
+                    };
+                    let halt = match &leaf.halt_reason {
+                        HaltReason::StopUndecided { .. } => "stop-undecided",
+                        halt => halt_name(halt),
+                    };
+                    (value, leaf.depth, halt, leaf.stops, leaf.arrivals)
+                })
+                .collect::<Vec<_>>();
+            ends.sort();
+            ends
+        }
+
+        #[test]
+        fn a_failed_condition_takes_the_arrival_as_a_step() {
+            let definition = steps(false);
+            // Before: the arrival at `0` fails and is stepped; the one at `2` holds and ends.
+            let (result, _) = run(&definition, options(false, 1), &["2"], &[], &[]);
+            assert_eq!(ends(&result.unwrap()), [("2".into(), 2, "stop", 1, 2)]);
+            // After: the arrival at `1` fails and the path goes on; the one at `3` holds.
+            let (result, _) = run(&definition, options(true, 1), &["3"], &[], &[]);
+            assert_eq!(ends(&result.unwrap()), [("3".into(), 3, "stop", 1, 2)]);
+            // A condition that never holds: the run ends on its own, past every arrival.
+            for terminal in [false, true] {
+                let (result, _) = run(&definition, options(terminal, 1), &[], &[], &[]);
+                assert_eq!(ends(&result.unwrap()), [("6".into(), 6, "stuck", 0, 3)]);
+            }
+        }
+
+        #[test]
+        fn the_count_counts_arrivals_where_the_condition_holds() {
+            let definition = steps(false);
+            let (result, _) = run(&definition, options(false, 2), &["0", "4"], &[], &[]);
+            assert_eq!(ends(&result.unwrap()), [("4".into(), 4, "stop", 2, 3)]);
+            let (result, _) = run(&definition, options(true, 2), &["1", "5"], &[], &[]);
+            assert_eq!(ends(&result.unwrap()), [("5".into(), 5, "stop", 2, 3)]);
+            // Fewer events than the count: the run ends on its own, having counted them.
+            let (result, _) = run(&definition, options(false, 3), &["0", "4"], &[], &[]);
+            assert_eq!(ends(&result.unwrap()), [("6".into(), 6, "stuck", 2, 3)]);
+        }
+
+        /// A condition that holds everywhere is no condition: the same leaves, each arrival an
+        /// event.
+        #[test]
+        fn a_condition_that_always_holds_changes_nothing() {
+            let definition = steps(true);
+            for terminal in [false, true] {
+                for count in 1..=4 {
+                    for mode in [ExecutionMode::Any, ExecutionMode::All] {
+                        let options = ExecutionOptions {
+                            mode,
+                            retain_trace: true,
+                            ..options(terminal, count)
+                        };
+                        let plain = super::super::super::execute(
+                            &definition,
+                            state(&definition, "0"),
+                            options.clone(),
+                        );
+                        let all = ["0", "1", "2", "3", "4", "4x", "5", "6"];
+                        let (asked, _) = run(&definition, options.clone(), &all, &[], &[]);
+                        // The same work too: the condition is asked within the step, of a
+                        // successor normalized there, and costs the run no state visit, so a
+                        // work bound the run without it meets exactly cuts neither run short.
+                        let asked = asked.unwrap();
+                        assert_eq!(asked, plain, "terminal={terminal} count={count} {mode:?}");
+                        assert!(asked.leaves.iter().all(|leaf| leaf.arrivals == leaf.stops));
+                        let bounded = ExecutionOptions {
+                            max_work: Some(plain.work),
+                            ..options
+                        };
+                        let (asked, _) = run(&definition, bounded.clone(), &all, &[], &[]);
+                        let plain = super::super::super::execute(
+                            &definition,
+                            state(&definition, "0"),
+                            bounded,
+                        );
+                        assert!(
+                            plain
+                                .leaves
+                                .iter()
+                                .all(|leaf| leaf.halt_reason != HaltReason::WorkBound)
+                        );
+                        assert_eq!(
+                            asked.unwrap(),
+                            plain,
+                            "terminal={terminal} count={count} {mode:?} max_work"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn a_before_condition_reads_the_state_and_an_after_condition_the_successor() {
+            let definition = steps(false);
+            let (_, asked) = run(&definition, options(false, 1), &[], &[], &[]);
+            assert_eq!(
+                asked,
+                [
+                    (StopSide::Before, 0, "0".into()),
+                    (StopSide::Before, 2, "2".into()),
+                    (StopSide::Before, 4, "4".into())
+                ]
+            );
+            let (_, asked) = run(&definition, options(true, 1), &[], &[], &[]);
+            assert_eq!(
+                asked,
+                [
+                    (StopSide::After, 1, "1".into()),
+                    (StopSide::After, 3, "3".into()),
+                    (StopSide::After, 5, "5".into())
+                ]
+            );
+        }
+
+        /// The condition is asked once per arrival, and not at a stop rule's step that has
+        /// another successor beside it (a passed stop) nor at any other step.
+        #[test]
+        fn the_condition_is_asked_only_at_arrivals() {
+            let definition = steps(true);
+            for terminal in [false, true] {
+                let options = ExecutionOptions {
+                    mode: ExecutionMode::All,
+                    result_modality: ResultModality::PathSet,
+                    ..options(terminal, 1)
+                };
+                let (result, asked) = run(&definition, options, &[], &[], &[]);
+                let result = result.unwrap();
+                let rule = |stop: &PassedStop| (stop.rule.clone(), stop.depth);
+                assert_eq!(
+                    result.passed_stops.iter().map(rule).collect::<Vec<_>>(),
+                    [("tick-x".to_owned(), 3)]
+                );
+                let values = asked
+                    .iter()
+                    .map(|(_, _, value)| value.as_str())
+                    .collect::<Vec<_>>();
+                // Before: the arrivals at `0` and `2` are on both paths, the one at `4` on one;
+                // after, `1`, `3` and `5`. The paths share their prefix, asked once.
+                let expected = if terminal {
+                    ["1", "3", "5"]
+                } else {
+                    ["0", "2", "4"]
+                };
+                assert_eq!(values, expected, "terminal={terminal}");
+                // Each leaf counts the arrivals of its own path.
+                assert_eq!(
+                    ends(&result)
+                        .iter()
+                        .map(|(value, _, _, _, arrivals)| (value.clone(), *arrivals))
+                        .collect::<Vec<_>>(),
+                    [("6".to_owned(), 2), ("6".to_owned(), 3)]
+                );
+            }
+        }
+
+        /// A selected step whose one successor is undefined is no arrival: the condition is not
+        /// asked of its stop state, whatever it would answer, and the path ends at the undefined
+        /// step. `tick-d` takes `6` to `dead(7)`, which `dead`'s equation reduces to `\bottom`.
+        #[test]
+        fn the_condition_is_not_asked_at_a_step_without_a_defined_successor() {
+            let definition = steps_then(
+                false,
+                r#"symbol dead{}(SortS{}) : SortS{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        dead{}(X:SortS{}),
+                        \and{SortS{}}(\dv{SortS{}}("dead"), \bottom{SortS{}}())
+                    )
+                ) [label{}("dead"), simplification{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(\dv{SortS{}}("6"), \top{SortS{}}()),
+                    dead{}(\dv{SortS{}}("7"))
+                ) [label{}("tick-d")]"#,
+            );
+            for terminal in [false, true] {
+                // The count is reached at the first event, or not before the last arrival.
+                for count in [1, 4] {
+                    let mut options = options(terminal, count);
+                    for selected in [&mut options.cut_point_rules, &mut options.terminal_rules] {
+                        if !selected.is_empty() {
+                            selected.insert("tick-d".to_owned());
+                        }
+                    }
+                    // `6` would be undecided, were it asked.
+                    let (result, asked) = run(&definition, options, &[], &["6"], &[]);
+                    let values = asked
+                        .iter()
+                        .map(|(_, _, value)| value.as_str())
+                        .collect::<Vec<_>>();
+                    let expected = if terminal {
+                        ["1", "3", "5"]
+                    } else {
+                        ["0", "2", "4"]
+                    };
+                    assert_eq!(values, expected, "terminal={terminal} count={count}");
+                    let result = result.unwrap();
+                    let [leaf] = result.leaves.as_slice() else {
+                        panic!("one leaf: {:?}", result.leaves);
+                    };
+                    assert!(
+                        matches!(leaf.halt_reason, HaltReason::Trivial { .. }),
+                        "terminal={terminal} count={count}: {:?}",
+                        leaf.halt_reason
+                    );
+                    assert_eq!(
+                        ends(&result),
+                        [("6".into(), 6, "other", 0, 3)],
+                        "terminal={terminal} count={count}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn an_undecided_condition_ends_the_path_stop_undecided() {
+            let definition = steps(false);
+            let (result, _) = run(&definition, options(false, 1), &[], &["2"], &[]);
+            let result = result.unwrap();
+            assert_eq!(ends(&result), [("2".into(), 2, "stop-undecided", 0, 2)]);
+            assert_eq!(
+                result.leaves[0].halt_reason,
+                HaltReason::StopUndecided {
+                    rule: "tick-b".into(),
+                    reason: "undecided at 2".into()
+                }
+            );
+            let (result, _) = run(&definition, options(true, 1), &[], &["3"], &[]);
+            assert_eq!(
+                ends(&result.unwrap()),
+                [("3".into(), 3, "stop-undecided", 0, 2)]
+            );
+            // An undecided answer short of the count still ends the path: it may be an event.
+            let (result, _) = run(&definition, options(false, 3), &["0"], &["2"], &[]);
+            assert_eq!(
+                ends(&result.unwrap()),
+                [("2".into(), 2, "stop-undecided", 1, 2)]
+            );
+        }
+
+        #[test]
+        fn a_refused_condition_fails_the_request() {
+            let definition = steps(false);
+            let (result, asked) = run(&definition, options(false, 1), &[], &[], &["2"]);
+            assert_eq!(
+                result,
+                Err(StopConditionRefusal {
+                    rule: "tick-b".into(),
+                    side: StopSide::Before,
+                    depth: 2,
+                    reason: "no value at 2".into()
+                })
+            );
+            // The run ends there: no later arrival is asked.
+            assert_eq!(asked.len(), 2);
+            let (result, _) = run(&definition, options(true, 1), &[], &[], &["5"]);
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "the stop condition has no value at the arrival after `tick-c` at depth 5: no value at 5"
+            );
+        }
+
+        /// Under `state-set` a state merges only into one of the same events and arrivals: the
+        /// paths meet at `5` at depth 5 with as many events (the arrival at `4` fails) and
+        /// different arrivals, and their leaves stay apart, as under `path-set`.
+        #[test]
+        fn state_set_with_a_condition_equals_path_set() {
+            let definition = steps(true);
+            let holds_cases: [&[&str]; 4] = [&[], &["0", "2"], &["2", "4"], &["1", "5"]];
+            for terminal in [false, true] {
+                for count in 1..=3 {
+                    for holds in holds_cases {
+                        let run_in = |result_modality| {
+                            let options = ExecutionOptions {
+                                mode: ExecutionMode::All,
+                                result_modality,
+                                ..options(terminal, count)
+                            };
+                            ends(&run(&definition, options, holds, &[], &[]).0.unwrap())
+                        };
+                        assert_eq!(
+                            run_in(ResultModality::StateSet),
+                            run_in(ResultModality::PathSet),
+                            "terminal={terminal} count={count} holds={holds:?}"
+                        );
+                    }
+                }
+            }
+        }
+
+        /// The condition's work is not the run's: it runs off the step clock, in a proof scope,
+        /// with its own operation record and poll budget, reporting to no coverage set of the
+        /// run, and the run's result is the one without that work.
+        #[test]
+        fn the_condition_runs_off_the_step_clock_in_its_own_operation() {
+            let definition = steps(false);
+            let options = ExecutionOptions {
+                evaluation: crate::evaluation::EvaluationMode::Execution,
+                collect_coverage: true,
+                ..options(false, 1)
+            };
+            let mut inside = Vec::new();
+            let mut condition = |arrival: &StopArrival<'_>| {
+                let mode = crate::evaluation::current();
+                crate::coverage::note_matched("condition-work");
+                let ((spent, ()), record) = crate::stop::with_operation_record(|| {
+                    crate::stop::dismiss_a_stack_stop();
+                    let ((), budget) = crate::stop::with_poll_budget(
+                        2,
+                        crate::timeout::StepTimeoutMode::Manual(std::time::Duration::ZERO),
+                        || {
+                            // The stop is the condition's own, which it dismisses.
+                            loop {
+                                if let Err(stop) = crate::stop::check() {
+                                    stop.forgo_refinement();
+                                    break;
+                                }
+                            }
+                        },
+                    );
+                    (budget.budget_exhausted, ())
+                });
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                inside.push((mode, spent, record.stack_stops));
+                if value(arrival) == "2" {
+                    StopDecision::Holds
+                } else {
+                    StopDecision::Fails
+                }
+            };
+            let off_before = crate::stop::time_off_the_clock();
+            let result = crate::rewrite::execute_with_stop_condition(
+                &definition,
+                state(&definition, "0"),
+                options.clone(),
+                &crate::smt::NoSolver,
+                None,
+                &mut condition,
+            )
+            .unwrap();
+            let off = crate::stop::time_off_the_clock() - off_before;
+            assert_eq!(
+                inside,
+                [
+                    (crate::evaluation::EvaluationMode::Proof, true, 1),
+                    (crate::evaluation::EvaluationMode::Proof, true, 1)
+                ]
+            );
+            assert!(off >= std::time::Duration::from_millis(10), "{off:?}");
+            assert_eq!(result.stack_stops, 0);
+            assert_eq!(result.stopped, None);
+            assert!(
+                !result
+                    .coverage
+                    .as_ref()
+                    .unwrap()
+                    .matched
+                    .contains("condition-work")
+            );
+            assert_eq!(ends(&result), [("2".into(), 2, "stop", 1, 2)]);
+        }
+
+        /// A cell is read by its path of cell symbols from the configuration's top, each a direct
+        /// argument of the one before; nothing else of the configuration is converted.
+        #[test]
+        fn a_cell_is_read_by_its_path() {
+            let source = r#"[]
+                module MAIN
+                    sort SortS{} [hasDomainValues{}()]
+                    sort SortT{} []
+                    sort SortC{} []
+                    symbol top{}(SortC{}, SortC{}) : SortT{} [constructor{}(), functional{}(), injective{}()]
+                    symbol left{}(SortS{}) : SortC{} [constructor{}(), functional{}(), injective{}()]
+                    symbol right{}(SortS{}) : SortC{} [constructor{}(), functional{}(), injective{}()]
+                    axiom{} \rewrites{SortT{}}(
+                        \and{SortT{}}(top{}(left{}(\dv{SortS{}}("0")), right{}(\dv{SortS{}}("r"))), \top{SortT{}}()),
+                        top{}(left{}(\dv{SortS{}}("1")), right{}(\dv{SortS{}}("r")))
+                    ) [label{}("tick")]
+                endmodule []"#;
+            let syntax = parse_definition(source).unwrap();
+            let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+            let start = Pattern {
+                term: definition
+                    .internalize_term(
+                        &parse_pattern(
+                            r#"top{}(left{}(\dv{SortS{}}("0")), right{}(\dv{SortS{}}("r")))"#,
+                        )
+                        .unwrap(),
+                        &[],
+                    )
+                    .unwrap(),
+                constraints: Vec::new(),
+            };
+            let mut read = Vec::new();
+            let mut condition = |arrival: &StopArrival<'_>| {
+                read.push((
+                    arrival.cell(&["top", "left"]).map(|cell| cell.to_string()),
+                    arrival.cell(&["top", "right"]).map(|cell| cell.to_string()),
+                    arrival.cell(&["left"]),
+                    arrival.cell(&["top", "middle"]),
+                ));
+                StopDecision::Holds
+            };
+            let result = crate::rewrite::execute_with_stop_condition(
+                &definition,
+                start,
+                ExecutionOptions {
+                    cut_point_rules: BTreeSet::from(["tick".to_owned()]),
+                    ..ExecutionOptions::default()
+                },
+                &crate::smt::NoSolver,
+                None,
+                &mut condition,
+            )
+            .unwrap();
+            assert_eq!(result.leaves.len(), 1);
+            assert_eq!(
+                read,
+                [(
+                    Some(r#"left{}(\dv{SortS{}}("0"))"#.to_owned()),
+                    Some(r#"right{}(\dv{SortS{}}("r"))"#.to_owned()),
+                    None,
+                    None
+                )]
+            );
+        }
     }
 
     /// What a counted run's leaf is compared by: its configuration (as `Debug` text, to sort

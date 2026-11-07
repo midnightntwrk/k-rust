@@ -1806,6 +1806,7 @@ fn execution_candidates_output<K: WireKore>(
         | HaltReason::Trivial { .. }
         | HaltReason::Vacuous { .. }
         | HaltReason::TerminalRule { .. }
+        | HaltReason::StopUndecided { .. }
         | HaltReason::DepthBound
         | HaltReason::BreadthBound
         | HaltReason::WorkBound
@@ -2077,12 +2078,13 @@ fn incomplete_searches_output<K: WireKore, E>(
 pub(super) fn execute_answer<K: WireKore>(
     shape: CancelledResultOutput,
     counted: bool,
+    asked: bool,
     result: k_rust_backend::rewrite::ExecutionResult,
 ) -> Result<ExecutionResult<K>, BackendError> {
     match (shape, &result.stopped) {
         (CancelledResultOutput::Error, Some(cause)) => Err(BackendError::from(cause.clone())),
-        (CancelledResultOutput::Error, None) => execution_response(result, true, counted),
-        (CancelledResultOutput::Partial, _) => execution_response(result, false, counted),
+        (CancelledResultOutput::Error, None) => execution_response(result, true, counted, asked),
+        (CancelledResultOutput::Partial, _) => execution_response(result, false, counted, asked),
     }
 }
 
@@ -2090,11 +2092,13 @@ pub(super) fn execute_answer<K: WireKore>(
 /// is polled before each leaf is converted, and a stop observed there answers `Err` with its cause
 /// and converts no further leaf; without it nothing is polled, so a run that completed is
 /// converted whole whenever a cancellation arrives. With `counted`, each leaf reports its count
-/// of arrivals at a stop (`stops`).
+/// of arrivals at a stop (`stops`); with `asked` (a stop condition), also every arrival it
+/// passed (`arrivals`).
 pub(super) fn execution_response<K: WireKore>(
     result: k_rust_backend::rewrite::ExecutionResult,
     polled: bool,
     counted: bool,
+    asked: bool,
 ) -> Result<ExecutionResult<K>, BackendError> {
     Ok(ExecutionResult {
         modality: result.modality.into(),
@@ -2117,6 +2121,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::Branch { .. }
                     | HaltReason::CutPointRule { .. }
                     | HaltReason::TerminalRule { .. }
+                    | HaltReason::StopUndecided { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
                     | HaltReason::WorkBound
@@ -2139,6 +2144,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::Branch { .. }
                     | HaltReason::CutPointRule { .. }
                     | HaltReason::TerminalRule { .. }
+                    | HaltReason::StopUndecided { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
                     | HaltReason::WorkBound
@@ -2163,6 +2169,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::Branch { .. }
                     | HaltReason::CutPointRule { .. }
                     | HaltReason::TerminalRule { .. }
+                    | HaltReason::StopUndecided { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
                     | HaltReason::WorkBound => None,
@@ -2185,6 +2192,7 @@ pub(super) fn execution_response<K: WireKore>(
                     effects: effects_output(leaf.effects),
                     observations: observations_output(leaf.observations)?,
                     stops: counted.then_some(leaf.stops),
+                    arrivals: asked.then_some(leaf.arrivals),
                 })
             })
             .collect::<Result<_, BackendError>>()?,
@@ -2621,14 +2629,14 @@ mod tests {
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let error = token
-            .scope(|| execution_response::<KorePattern>(result.clone(), true, false))
+            .scope(|| execution_response::<KorePattern>(result.clone(), true, false, false))
             .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let converted = token
-            .scope(|| execution_response::<KorePattern>(result, false, false))
+            .scope(|| execution_response::<KorePattern>(result, false, false, false))
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
@@ -2648,7 +2656,12 @@ mod tests {
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let error = token
             .scope(|| {
-                execute_answer::<KorePattern>(CancelledResultOutput::Error, false, result.clone())
+                execute_answer::<KorePattern>(
+                    CancelledResultOutput::Error,
+                    false,
+                    false,
+                    result.clone(),
+                )
             })
             .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
@@ -2658,13 +2671,16 @@ mod tests {
             stopped: Some(StopCause::Cancelled),
             ..result.clone()
         };
-        let error = execute_answer::<KorePattern>(CancelledResultOutput::Error, false, stopped)
-            .unwrap_err();
+        let error =
+            execute_answer::<KorePattern>(CancelledResultOutput::Error, false, false, stopped)
+                .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
 
         let converted = token
-            .scope(|| execute_answer::<KorePattern>(CancelledResultOutput::Partial, false, result))
+            .scope(|| {
+                execute_answer::<KorePattern>(CancelledResultOutput::Partial, false, false, result)
+            })
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);

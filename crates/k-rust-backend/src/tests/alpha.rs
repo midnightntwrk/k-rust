@@ -1370,6 +1370,7 @@ impl AlphaComparable for ExecutionLeaf {
             halt_reason: self.halt_reason.rename_alpha(context)?,
             diagnostics: self.diagnostics.rename_alpha(context)?,
             stops: self.stops,
+            arrivals: self.arrivals,
         })
     }
 }
@@ -1610,6 +1611,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: after.clone(),
             depth: 1,
             trace: Vec::new(),

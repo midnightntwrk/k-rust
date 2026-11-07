@@ -73,10 +73,14 @@ pub enum HaltClass {
     /// unexpanded and unnormalised, and the pending states dropped. The adapter admits it only
     /// for a request that set `max_work` ([`HaltClass::admitted_by`]); it never completes a run.
     WorkBound,
+    /// k-rust's `stop-undecided` halt: a stop condition was left undecided at an arrival. Only
+    /// an in-process request with a stop condition has it, and the adapter asks none, so it
+    /// admits the halt never ([`HaltClass::admitted_by`]).
+    StopUndecided,
 }
 
 impl HaltClass {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Stuck,
         Self::Trivial,
         Self::Vacuous,
@@ -91,6 +95,7 @@ impl HaltClass {
         Self::Timeout,
         Self::Cancelled,
         Self::WorkBound,
+        Self::StopUndecided,
     ];
 
     /// Whether the adapter's request can yield this halt under `budget`, for a request without
@@ -127,7 +132,7 @@ impl HaltClass {
             Self::WorkBound => max_work.is_some(),
             Self::CutPoint => !stop.before.is_empty(),
             Self::TerminalRule => !stop.after.is_empty(),
-            Self::Branch | Self::Timeout | Self::Cancelled => false,
+            Self::Branch | Self::Timeout | Self::Cancelled | Self::StopUndecided => false,
         }
     }
 
@@ -149,6 +154,7 @@ impl HaltClass {
             HaltReasonOutput::Timeout => Self::Timeout,
             HaltReasonOutput::Cancelled => Self::Cancelled,
             HaltReasonOutput::WorkBound => Self::WorkBound,
+            HaltReasonOutput::StopUndecided => Self::StopUndecided,
         }
     }
 }
@@ -1729,6 +1735,7 @@ mod tests {
             effects: Vec::new(),
             observations: vec![event(TransitionClassOutput::Remainder, state.clone())],
             stops: None,
+            arrivals: None,
         };
         assert_eq!(step_states(&mut leaf), Err(StepRunFailure::Unobservable));
         leaf.observations = vec![event(TransitionClassOutput::Rewrite, state.clone())];
@@ -2232,6 +2239,7 @@ mod tests {
             effects: Vec::new(),
             observations: Vec::new(),
             stops: None,
+            arrivals: None,
         };
         let result = |leaf, passed_stops| KoreExecutionResult {
             modality: ResultModalityOutput::StateSet,
@@ -2628,6 +2636,7 @@ mod tests {
             effects: Vec::new(),
             observations: Vec::new(),
             stops: None,
+            arrivals: None,
         };
         let result = |leaves: Vec<KoreExecutionLeaf>| KoreExecutionResult {
             modality: ResultModalityOutput::PathSet,

@@ -4880,6 +4880,7 @@ mod tests {
                                 effects: Vec::new(),
                                 observations: Vec::new(),
                                 stops: None,
+                                arrivals: None,
                             }
                         })
                         .collect(),
@@ -5167,6 +5168,7 @@ mod tests {
                             effects: Vec::new(),
                             observations: Vec::new(),
                             stops: None,
+                            arrivals: None,
                         })
                         .collect(),
                     effects: Vec::new(),
@@ -5523,6 +5525,7 @@ mod tests {
                             effects: Vec::new(),
                             observations: Vec::new(),
                             stops: None,
+                            arrivals: None,
                         })
                         .collect(),
                     effects: Vec::new(),

@@ -114,6 +114,26 @@ impl Drop for DomainScope {
     }
 }
 
+/// Run `action` with no definition scope open, restoring the open ones afterwards, also when
+/// `action` unwinds: work for a caller in another definition (a stop condition,
+/// `rewrite::stop_condition`) is not checked against the definition of the run that asks it.
+pub(crate) fn outside_definition_scopes<T>(action: impl FnOnce() -> T) -> T {
+    #[cfg(debug_assertions)]
+    {
+        struct Restore(Vec<Arc<BTreeMap<Name, SortInfo>>>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let saved = std::mem::take(&mut self.0);
+                SCOPES.with_borrow_mut(|scopes| *scopes = saved);
+            }
+        }
+        let _restore = Restore(SCOPES.with_borrow_mut(std::mem::take));
+        action()
+    }
+    #[cfg(not(debug_assertions))]
+    action()
+}
+
 /// Note the construction of `term`, a domain value built with `kind`: record it for the hook
 /// evaluation entry, or check it against the innermost definition scope in a debug build.
 pub(super) fn note_construction(term: &Term, kind: DomainKind) {

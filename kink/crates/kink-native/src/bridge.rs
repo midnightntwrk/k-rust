@@ -503,8 +503,12 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         HaltClass::WorkBound => PathStop::BackendLimit,
         // Every request answers a cancellation with an error (`cancelled_result: error`, re-pin
         // L1-1, finding A-03), and no request stops at a branch, so a cancelled or branch leaf is
-        // outside the contract, as the adapter says.
-        HaltClass::Branch | HaltClass::Timeout | HaltClass::Cancelled => {
+        // outside the contract, as the adapter says. No request asks a stop condition, so a
+        // stop-undecided leaf is outside it too.
+        HaltClass::Branch
+        | HaltClass::Timeout
+        | HaltClass::Cancelled
+        | HaltClass::StopUndecided => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -2104,7 +2108,7 @@ mod tests {
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 60] = [
+        let rows: [Row; 61] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
@@ -2194,6 +2198,8 @@ mod tests {
             // The contract is checked before anything is discarded.
             (H::Timeout, CONSTRAINED, N, 0, Violation),
             (H::Branch, BOTTOM, U, 0, Violation),
+            // No request asks a stop condition, so a stop-undecided leaf is outside the contract.
+            (H::StopUndecided, CONSTRAINED, N, 0, Violation),
         ];
         let covered = rows
             .iter()
@@ -2549,7 +2555,9 @@ mod tests {
             before: vec!["r".to_owned()],
             after: vec!["s".to_owned()],
         };
-        let always_excluded = [H::Branch, H::Timeout, H::Cancelled]
+        // No request asks a stop condition, so no budget or stop rule admits a stop-undecided
+        // leaf.
+        let always_excluded = [H::Branch, H::Timeout, H::Cancelled, H::StopUndecided]
             .into_iter()
             .collect::<std::collections::BTreeSet<_>>();
         let with = |extra: &[HaltClass]| {

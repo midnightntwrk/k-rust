@@ -1856,6 +1856,7 @@ fn run_backend_in_execution(
             | HaltReason::Branch { .. }
             | HaltReason::CutPointRule { .. }
             | HaltReason::TerminalRule { .. }
+            | HaltReason::StopUndecided { .. }
             | HaltReason::DepthBound
             | HaltReason::BreadthBound
             | HaltReason::WorkBound => false,
@@ -2008,6 +2009,7 @@ fn run_backend_in_execution(
                 | HaltReason::Branch { .. }
                 | HaltReason::CutPointRule { .. }
                 | HaltReason::TerminalRule { .. }
+                | HaltReason::StopUndecided { .. }
                 | HaltReason::DepthBound
                 | HaltReason::BreadthBound
                 | HaltReason::WorkBound
@@ -2480,6 +2482,7 @@ mod captured_stdout_tests {
             halt_reason,
             diagnostics: Vec::new(),
             stops: 0,
+            arrivals: 0,
         }
     }
 

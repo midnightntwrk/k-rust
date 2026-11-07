@@ -254,10 +254,12 @@ impl Halt {
             HaltReasonOutput::SimplificationError => Self::SimplificationError,
             HaltReasonOutput::Timeout => Self::Timeout,
             HaltReasonOutput::CutPoint | HaltReasonOutput::Terminal => Self::Stopped,
+            // A run asks no stop condition, which alone yields `stop-undecided`.
             HaltReasonOutput::Cancelled
             | HaltReasonOutput::Branch
             | HaltReasonOutput::BreadthBound
-            | HaltReasonOutput::WorkBound => Self::Interrupted,
+            | HaltReasonOutput::WorkBound
+            | HaltReasonOutput::StopUndecided => Self::Interrupted,
         }
     }
 

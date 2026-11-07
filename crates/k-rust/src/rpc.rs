@@ -916,6 +916,10 @@ impl RpcService {
                     HaltReason::TerminalRule { rule } => {
                         ("terminal-rule", None, Some(rule.clone()))
                     }
+                    // Only an in-process request with a stop condition has it.
+                    HaltReason::StopUndecided { .. } => {
+                        unreachable!("an RPC request has no stop condition")
+                    }
                 };
                 output.insert("reason".into(), Value::String(reason.into()).into());
                 output.insert("depth".into(), Value::from(leaf.depth).into());
@@ -1806,7 +1810,10 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
             ),
         },
         HaltReason::Simplification(_) => ("Internal match error", None),
+        // A stop arrival whose condition is undecided ends the path at a stop, as `Stopped`
+        // does: no rewrite failed there.
         HaltReason::Stopped(_)
+        | HaltReason::StopUndecided { .. }
         | HaltReason::Trivial { .. }
         | HaltReason::Vacuous { .. }
         | HaltReason::Branch { .. }

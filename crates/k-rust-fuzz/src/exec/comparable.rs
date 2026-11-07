@@ -402,7 +402,8 @@ fn halt_condition(halt: HaltReasonOutput) -> Option<ComparableCondition> {
         | H::Vacuous
         | H::Terminal
         | H::Branch
-        | H::CutPoint => C::Halt,
+        | H::CutPoint
+        | H::StopUndecided => C::Halt,
     })
 }
 

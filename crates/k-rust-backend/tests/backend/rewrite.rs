@@ -54,7 +54,8 @@ use crate::support::{
 /// still states the rendering it was taken from and an added absent field moves none of them.
 /// A leaf's count of arrivals at a stop (`ExecutionLeaf::stops`) was added later too: these
 /// requests set no stop count, so it is 0, or 1 on a cut-point or terminal-rule leaf, which is
-/// what its halt already states, and its line is left out alike.
+/// what its halt already states, and its line is left out alike; so is the leaf's count of all
+/// its arrivals (`ExecutionLeaf::arrivals`), which equals it on a run without a stop condition.
 /// A result's list of the stop rules a run passed as one of several successors
 /// (`ExecutionResult::passed_stops`) and its list of the short-circuit readings its work rests
 /// on (`short_circuit_readings`) were added later as well. Both are empty in each of these
@@ -72,6 +73,8 @@ fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
                 "state_matches: None,"
                     | "stops: 0,"
                     | "stops: 1,"
+                    | "arrivals: 0,"
+                    | "arrivals: 1,"
                     | "passed_stops: [],"
                     | "short_circuit_readings: [],"
             )
@@ -7797,6 +7800,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
         result.leaves,
         [ExecutionLeaf {
             stops: 0,
+            arrivals: 0,
             pattern: initial,
             depth: 0,
             trace: Vec::new(),

@@ -183,7 +183,7 @@ use k_rust_backend::{
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, StateMatchOptions,
-        TraceKind, execute_observed_with_solver, execute_with_solver,
+        TraceKind, execute_observed_with_solver, execute_with_solver, execute_with_stop_condition,
     },
     rule::ClassifiedAxiom,
     search::{
@@ -223,6 +223,9 @@ pub use k_rust_backend::definition::{
     ParseExecutionDigestError, UnstatedDefinedness, execution_digest, execution_role,
 };
 pub use k_rust_backend::nesting::SegmentRefused;
+pub use k_rust_backend::rewrite::{
+    StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+};
 pub use k_rust_backend::stop::{
     CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,
 };
@@ -1590,6 +1593,12 @@ pub struct ExecutionLeaf<K = Value> {
     /// arrivals its path passed before it ended otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stops: Option<u64>,
+    /// Every arrival at a stop this leaf's path passed, whatever the stop condition answered
+    /// there, present exactly when the execution had a stop condition
+    /// ([`Backend::execute_kore_with_condition`]); `stops` then counts the arrivals where the
+    /// condition held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrivals: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1655,6 +1664,13 @@ pub enum HaltReasonOutput {
     /// stuck and terminal leaves of its configuration, and is kept beside a branch, cut-point,
     /// bound, timeout or other leaf of it.
     Terminal,
+    /// The path arrived at a stop where the in-process stop condition was left undecided
+    /// ([`Backend::execute_kore_with_condition`]): continuing would run past a possible stop,
+    /// and stopping would claim one that was not shown, so the path ends at the arrival's stop
+    /// state (the state before a cut-point rule's step, the successor of a terminal rule's). It
+    /// is no result of the run; only a request with a stop condition has it, and under
+    /// `state-set` it is never merged.
+    StopUndecided,
     DepthBound,
     BreadthBound,
     /// The request's `max_work` was reached before this state was visited. The leaf's state is
@@ -1671,7 +1687,7 @@ pub enum HaltReasonOutput {
 }
 
 impl HaltReasonOutput {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Cancelled,
         Self::Stuck,
         Self::Trivial,
@@ -1679,6 +1695,7 @@ impl HaltReasonOutput {
         Self::Branch,
         Self::CutPoint,
         Self::Terminal,
+        Self::StopUndecided,
         Self::DepthBound,
         Self::BreadthBound,
         Self::WorkBound,
@@ -1992,6 +2009,10 @@ pub enum BackendErrorKind {
     /// The solver for the definition's module could not be created: the definition's SMT
     /// declarations, their translation, or the host refused the solver context.
     SolverInit,
+    /// The in-process stop condition of an execution has no value at an arrival
+    /// ([`Backend::execute_kore_with_condition`]): the stop criterion is undefined on this run,
+    /// so the request has no result. The message names the rule, the depth and the reason.
+    StopConditionRefused,
 }
 
 impl BackendError {
@@ -2351,7 +2372,30 @@ impl Backend {
         &mut self,
         request: ExecuteRequest,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request, None)
+        self.execute_using(request, None, None)
+    }
+
+    /// [`Self::execute_kore`] with a stop condition: a path ends at its `stopCount`th arrival
+    /// at a stop where `condition` holds of the arrival's stop state (the state before a
+    /// cut-point rule's step, the normalized successor of a terminal rule's), and takes every
+    /// other arrival as any other step (docs/compatibility.md, "Stop condition (in-process)").
+    /// Each leaf reports its arrivals where the condition held (`stops`) and all its arrivals
+    /// (`arrivals`); an undecided answer ends its path `stop-undecided`.
+    ///
+    /// In-process only: the condition is a callback, which no wire request carries. It is asked
+    /// isolated from the run and off its clock, and may run another backend's operations (an
+    /// observer definition's simplification), which keep their own records and budgets.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::execute_kore`] does, and with [`BackendErrorKind::StopConditionRefused`]
+    /// where the condition refused at an arrival.
+    pub fn execute_kore_with_condition(
+        &mut self,
+        request: ExecuteRequest,
+        condition: &mut dyn StopCondition,
+    ) -> Result<KoreExecutionResult, BackendError> {
+        self.execute_using(request, None, Some(condition))
     }
 
     /// Execute with observation without changing the leaves or their order.
@@ -2368,13 +2412,14 @@ impl Backend {
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request.request, Some(request.rules))
+        self.execute_using(request.request, Some(request.rules), None)
     }
 
     fn execute_using<K: wire::WireKore>(
         &mut self,
         request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
+        condition: Option<&mut dyn StopCondition>,
     ) -> Result<ExecutionResult<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         if request.collect_offered && !request.collect_coverage {
@@ -2491,16 +2536,34 @@ impl Backend {
                 collect_committed: request.collect_committed,
                 request_literals: literals.to_vec(),
             };
-            let result = match observation_rules {
-                Some(rules) => {
-                    let observation = observation_options(definition, rules)?;
-                    execute_observed_with_solver(definition, initial, options, solver, &observation)
+            let observation = observation_rules
+                .map(|rules| observation_options(definition, rules))
+                .transpose()?;
+            let asked = condition.is_some();
+            let result = match (condition, &observation) {
+                (Some(condition), observation) => execute_with_stop_condition(
+                    definition,
+                    initial,
+                    options,
+                    solver,
+                    observation.as_ref(),
+                    condition,
+                )
+                .map_err(|refusal| {
+                    BackendError::of_kind(
+                        BackendErrorKind::StopConditionRefused,
+                        refusal.to_string(),
+                    )
+                })?,
+                (None, Some(observation)) => {
+                    execute_observed_with_solver(definition, initial, options, solver, observation)
                 }
-                None => execute_with_solver(definition, initial, options, solver),
+                (None, None) => execute_with_solver(definition, initial, options, solver),
             };
             wire::execute_answer(
                 request.cancelled_result,
-                request.stop_count.is_some(),
+                request.stop_count.is_some() || asked,
+                asked,
                 result,
             )
         })
@@ -2855,19 +2918,24 @@ impl Backend {
         request: ObservedRequest<ExecuteRequest>,
         writer: W,
     ) -> Result<(), BackendError> {
-        let response = self.execute_using::<Box<RawValue>>(request.request, Some(request.rules))?;
+        let response =
+            self.execute_using::<Box<RawValue>>(request.request, Some(request.rules), None)?;
         serde_json::to_writer(writer, &response).map_err(json_output_error)
     }
 
     pub fn execute_json(&mut self, request: ExecuteRequest) -> Result<String, BackendError> {
-        serialize_wire(&self.execute_using::<Box<RawValue>>(request, None)?)
+        serialize_wire(&self.execute_using::<Box<RawValue>>(request, None, None)?)
     }
 
     pub fn execute_observed_json(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
     ) -> Result<String, BackendError> {
-        serialize_wire(&self.execute_using::<Box<RawValue>>(request.request, Some(request.rules))?)
+        serialize_wire(&self.execute_using::<Box<RawValue>>(
+            request.request,
+            Some(request.rules),
+            None,
+        )?)
     }
 
     pub fn search_json(&mut self, request: SearchRequest) -> Result<String, BackendError> {
@@ -3555,6 +3623,7 @@ fn halt_reason(
         HaltReason::Branch { .. } => (HaltReasonOutput::Branch, detail()),
         HaltReason::CutPointRule { .. } => (HaltReasonOutput::CutPoint, detail()),
         HaltReason::TerminalRule { .. } => (HaltReasonOutput::Terminal, detail()),
+        HaltReason::StopUndecided { .. } => (HaltReasonOutput::StopUndecided, detail()),
         HaltReason::DepthBound => (HaltReasonOutput::DepthBound, None),
         HaltReason::BreadthBound => (HaltReasonOutput::BreadthBound, None),
         HaltReason::WorkBound => (HaltReasonOutput::WorkBound, None),
@@ -5446,6 +5515,86 @@ mod tests {
         assert_typescript_member("BackendCapabilities", "stopCount: boolean");
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["stopCount"], true);
+    }
+
+    /// The in-process stop condition reaches the facade: the count counts the arrivals where it
+    /// holds, each leaf reports its events (`stops`) and its arrivals (`arrivals`), an undecided
+    /// answer ends the path `stop-undecided`, and a refusal fails the request with its kind,
+    /// naming the rule and the depth. On `a -> b -> c -> d`, every step selected.
+    #[test]
+    fn the_stop_condition_reaches_the_facade() {
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap();
+        let rules = || vec!["ab".to_owned(), "bc".to_owned(), "cd".to_owned()];
+        // The condition holds at `holds`, is undecided at `undecided` and refuses at `refused`.
+        let mut run = |terminal: bool, count: u64, holds: &str, undecided: &str, refused: &str| {
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (Vec::new(), rules())
+            } else {
+                (rules(), Vec::new())
+            };
+            let mut condition = |arrival: &StopArrival<'_>| {
+                let state = text(arrival.configuration());
+                if state == undecided {
+                    StopDecision::Undecided("its budget ran out".to_owned())
+                } else if state == refused {
+                    StopDecision::Refused("the cell holds a variable".to_owned())
+                } else if state == holds {
+                    StopDecision::Holds
+                } else {
+                    StopDecision::Fails
+                }
+            };
+            let result = backend.execute_kore_with_condition(
+                ExecuteRequest {
+                    cut_point_rules,
+                    terminal_rules,
+                    stop_count: Some(std::num::NonZeroU64::new(count).unwrap()),
+                    ..ExecuteRequest::new(kore("a{}()"))
+                },
+                &mut condition,
+            )?;
+            let value = serde_json::to_value(result).unwrap();
+            let [leaf] = value["leaves"].as_array().unwrap().as_slice() else {
+                panic!("expected one leaf: {value}");
+            };
+            Ok::<_, BackendError>((
+                leaf["reason"].as_str().unwrap().to_owned(),
+                leaf["depth"].as_u64().unwrap(),
+                text(kore_codec::from_value(&leaf["state"]).unwrap()),
+                leaf["stops"].as_u64().unwrap(),
+                leaf["arrivals"].as_u64().unwrap(),
+            ))
+        };
+        let end = |reason: &str, depth, state: &str, stops, arrivals| {
+            (reason.to_owned(), depth, state.to_owned(), stops, arrivals)
+        };
+        assert_eq!(
+            run(false, 1, "b{}()", "", "").unwrap(),
+            end("cut-point", 1, "b{}()", 1, 2)
+        );
+        assert_eq!(
+            run(true, 1, "c{}()", "", "").unwrap(),
+            end("terminal", 2, "c{}()", 1, 2)
+        );
+        assert_eq!(
+            run(true, 1, "", "", "").unwrap(),
+            end("stuck", 3, "d{}()", 0, 3)
+        );
+        assert_eq!(
+            run(false, 1, "", "b{}()", "").unwrap(),
+            end("stop-undecided", 1, "b{}()", 0, 2)
+        );
+        assert_eq!(
+            run(true, 1, "", "c{}()", "").unwrap(),
+            end("stop-undecided", 2, "c{}()", 0, 2)
+        );
+        let refused = run(false, 1, "", "", "c{}()").unwrap_err();
+        assert_eq!(refused.kind(), Some(BackendErrorKind::StopConditionRefused));
+        assert_eq!(
+            refused.to_string(),
+            "the stop condition has no value at the arrival before `cd` at depth 2: the cell holds a variable"
+        );
+        assert_typescript_member("ExecutionLeaf", "arrivals?: number");
     }
 
     /// A chain of three steps, `a -> b -> c -> d`, labelled `ab`, `bc` and `cd`.

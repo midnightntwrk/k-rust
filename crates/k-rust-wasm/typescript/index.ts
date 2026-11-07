@@ -435,6 +435,7 @@ export interface ExecutionLeaf {
     | 'branch'
     | 'cut-point'
     | 'terminal'
+    | 'stop-undecided'
     | 'depth-bound'
     | 'breadth-bound'
     | 'work-bound'
@@ -464,6 +465,8 @@ export interface ExecutionLeaf {
   observations?: ObservationEvent[]
   /** The arrivals at a stop this leaf's path counted, present exactly when the request set `stopCount`; a 'cut-point-rule' or 'terminal-rule' leaf counts the arrival it ends at. */
   stops?: number
+  /** Every arrival at a stop this leaf's path passed, present only for an in-process execution with a stop condition, which these bindings do not offer; 'stop-undecided' likewise. */
+  arrivals?: number
 }
 
 export interface ExecutionCandidate {

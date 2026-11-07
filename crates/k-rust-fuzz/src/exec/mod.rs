@@ -1131,6 +1131,7 @@ fn leaf_class(
         // A clean `stuck` leaf is decided above, and `stuck` is never unclean by its halt.
         H::Stuck => Err("a stuck leaf unclean by its halt"),
         H::Branch | H::CutPoint => Err("a branch or cut-point halt"),
+        H::StopUndecided => Err("a stop-undecided halt in a request without a stop condition"),
     }
 }
 
