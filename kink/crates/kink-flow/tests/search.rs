@@ -1664,7 +1664,10 @@ note = "right-hand side"
     /// runs nothing: every model of the specification is a model of the mutant. A rewrite rule
     /// narrowed the same way is killed: `run(zero)` ends `<k> zero </k>` on the specification,
     /// and on the mutant no rule rewrites `run(zero)`, a stuck end that is data, so the narrowed
-    /// rule changes an end, as it does in every model.
+    /// rule changes an end, as it does in every model. The instance test reads each variable's
+    /// sort from the loaded rule, so a widening written without sorts is still no instance and
+    /// runs: `hn(_X:Nat)` given the inferred sort `KItem`, and `hp`'s wildcard of sort `Nat` met
+    /// by an unsorted one of sort `KItem`. No program applies either function, so both survive.
     #[test]
     #[ignore = "kink"]
     fn a_pattern_narrowing_is_unkillable_and_a_rewrite_narrowing_is_killed() {
@@ -1675,7 +1678,8 @@ note = "right-hand side"
             &manifest,
             "[spec]\nentry = \"narrow.k\"\nmain_module = \"NARROW\"\nsyntax_module = \"NARROW-SYNTAX\"\n\n\
              [[program]]\nid = \"zero\"\ntext = \"run(zero)\"\n\n\
-             [[program]]\nid = \"one\"\ntext = \"run(s(zero))\"\n",
+             [[program]]\nid = \"one\"\ntext = \"run(s(zero))\"\n\n\
+             [budget]\n# the clock never decides a run of the tests (R4-WALLCLOCK)\ntime_ms = 600000\n",
         )
         .unwrap();
         let mutations = dir.join("MUTATIONS.toml");
@@ -1688,7 +1692,15 @@ note = "right-hand side"
              [[mutation]]\nid = \"run-needs-nonzero\"\nmisunderstanding = \"runs only a nonzero number\"\n\n\
              \x20 [[mutation.edit]]\n  rule = \"run\"\n\
              \x20 find = \"run(N:Nat) => plus(N:Nat, zero)\"\n\
-             \x20 replace = \"run(s(N:Nat)) => plus(s(N:Nat), zero)\"\n",
+             \x20 replace = \"run(s(N:Nat)) => plus(s(N:Nat), zero)\"\n\n\
+             [[mutation]]\nid = \"hn-widened-unsorted\"\nmisunderstanding = \"takes any item\"\n\n\
+             \x20 [[mutation.edit]]\n  rule = \"hn-def\"\n\
+             \x20 find = \"hn(_X:Nat)\"\n\
+             \x20 replace = \"hn(_X)\"\n\n\
+             [[mutation]]\nid = \"hp-wildcard-widened-unsorted\"\nmisunderstanding = \"takes any item first\"\n\n\
+             \x20 [[mutation.edit]]\n  rule = \"hp-def\"\n\
+             \x20 find = \"hp(_:Nat, N:Nat)\"\n\
+             \x20 replace = \"hp(_, N)\"\n",
         )
         .unwrap();
         let (document, ok) = search(&manifest, &mutations, &[]);
@@ -1714,6 +1726,12 @@ note = "right-hand side"
         assert_eq!(row["status"], "killed", "{row:#}");
         assert_eq!(row["killer"], "zero", "{row:#}");
         assert_eq!(row["weakening"], Value::Null, "{row:#}");
+        for widened in ["hn-widened-unsorted", "hp-wildcard-widened-unsorted"] {
+            let row = mutation(&document, widened);
+            assert_eq!(row["weakening"], Value::Null, "{row:#}");
+            assert_eq!(row["status"], "survived", "{row:#}");
+            assert_ne!(row["executed"], json!([]), "{row:#}");
+        }
         assert_eq!(document["counts"]["unkillable"], 1);
     }
 }

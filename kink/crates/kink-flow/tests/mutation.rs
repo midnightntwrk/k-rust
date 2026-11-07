@@ -1492,10 +1492,18 @@ fn narrow_spec(test: &str) -> Spec {
 /// replacement's. The instance holds in every model of the original, so the mutant is a
 /// weakening, as a deletion is. The rank condition still applies (narrowing an equation widens
 /// the owise one after it), and the test fails closed on a function in σ's range, a macro, a
-/// variable written without its sort, a `concrete` lemma and a generalization; a rewrite rule is
-/// never weakened by narrowing. A wildcard binds nothing, so it meets only itself, its sort
-/// included: `_:Nat` widened to `_:KItem` or `_` is no instance, in an equation or a lemma. `_X`
-/// is a named variable, instantiated like any other and refused when its sort widens.
+/// `concrete` lemma and a generalization; a rewrite rule is never weakened by narrowing. A
+/// wildcard binds nothing, so it meets only itself, its sort included: `_:Nat` widened to
+/// `_:KItem` or `_` is no instance, in an equation or a lemma. `_X` is a named variable,
+/// instantiated like any other and refused when its sort widens.
+///
+/// Each variable's sort is the one its loaded rule gives it, written or inferred, so the test
+/// reads text written without sorts as it reads the same text with them: `f(I)` instantiated by
+/// `5` is a narrowing, `plus_succ` narrowed without sorts is a narrowing with the identity of the
+/// sorted narrowing, and an unsorted wildcard is met by an unsorted wildcard of the same inferred
+/// sort. A widening stays one when written without sorts: `_X` given the inferred sort `KItem`,
+/// a wildcard of sort `Nat` met by a variable of sort `KItem`, or an unsorted wildcard of sort
+/// `KItem` met by `_:Nat`, which binds nothing, so it must meet an equal term.
 #[test]
 fn an_instance_of_an_equation_or_lemma_is_a_narrowing() {
     use kink_patch::{ClaimSupport, WeakeningKind};
@@ -1581,6 +1589,32 @@ fn an_instance_of_an_equation_or_lemma_is_a_narrowing() {
             "hn-def",
             Some("hn"),
         ),
+        (
+            "f written without sorts",
+            edit(
+                "f-def",
+                "f(I) => v(I) requires I >Int 0",
+                "f(5) => v(5) requires 5 >Int 0",
+            ),
+            "f-def",
+            Some("f"),
+        ),
+        (
+            "plus-succ second argument without sorts",
+            edit(
+                "plus-succ",
+                plus_succ,
+                "plus(s(M), s(N)) => s(plus(M, s(N)))",
+            ),
+            "plus-succ",
+            Some("plus"),
+        ),
+        (
+            "hu unsorted wildcard met by itself",
+            edit("hu-def", "hu(_, N)", "hu(_, s(N))"),
+            "hu-def",
+            Some("hu"),
+        ),
     ];
     for (case, edits, rule, head) in &weakenings {
         let resolved = spec
@@ -1647,14 +1681,6 @@ fn an_instance_of_an_equation_or_lemma_is_a_narrowing() {
             ),
         ),
         (
-            "f without a written sort",
-            edit(
-                "f-def",
-                "f(I) => v(I) requires I >Int 0",
-                "f(5) => v(5) requires 5 >Int 0",
-            ),
-        ),
-        (
             "w concrete lemma",
             edit(
                 "w-one",
@@ -1687,6 +1713,18 @@ fn an_instance_of_an_equation_or_lemma_is_a_narrowing() {
             "hz lemma wildcard sort widened",
             edit("hz-nat", "hz(_:Nat)", "hz(_:KItem)"),
         ),
+        (
+            "hn named _X sort widened without sorts",
+            edit("hn-def", "hn(_X:Nat)", "hn(_X)"),
+        ),
+        (
+            "h wildcard met by an unsorted variable",
+            edit("h-nat", "h(_:Nat)", "h(X)"),
+        ),
+        (
+            "hu unsorted wildcard met by a sorted one",
+            edit("hu-def", "hu(_, N)", "hu(_:Nat, N)"),
+        ),
     ];
     for (case, edits) in &not_weakenings {
         let resolved = spec
@@ -1698,6 +1736,23 @@ fn an_instance_of_an_equation_or_lemma_is_a_narrowing() {
             "{case} is not a weakening"
         );
     }
+    // One loaded sentence, one verdict: the narrowing written with and without sorts loads to
+    // one mutant (one identity), and both are weakenings.
+    let [sorted, unsorted] = [
+        "plus(s(M:Nat), s(N:Nat)) => s(plus(M:Nat, s(N:Nat)))",
+        "plus(s(M), s(N)) => s(plus(M, s(N)))",
+    ]
+    .map(|replace| {
+        let resolved = spec
+            .resolve_edits(&edit("plus-succ", plus_succ, replace))
+            .unwrap_or_else(|e| panic!("{replace}: {e}"));
+        (
+            kink_flow::digest::mutation_identity(baseline, &resolved.patch),
+            support.weakening(baseline, &resolved.patch),
+        )
+    });
+    assert!(sorted.0.is_some(), "a pinned patch has an identity");
+    assert_eq!(sorted, unsorted);
 }
 
 // ---------------------------------------------------------------------------------------

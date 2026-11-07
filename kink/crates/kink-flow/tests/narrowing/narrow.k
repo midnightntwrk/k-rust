@@ -1,8 +1,8 @@
 // The specification of kink-flow's narrowing tests (tests/mutation.rs, tests/search.rs): the
 // equations and lemmas a mutation replaces by an instance of itself, beside the constructs the
-// instance test fails closed on (a function in the substitution, a macro, a variable written
-// without its sort, a `concrete` lemma, a wildcard met by anything but itself) and a rewrite
-// rule, which a narrowing does not weaken.
+// instance test fails closed on (a function in the substitution, a macro, a `concrete` lemma, a
+// wildcard met by anything but itself) and a rewrite rule, which a narrowing does not weaken.
+// `f-def` and `hu-def` write no sorts: the instance test reads them from the loaded rule.
 module NARROW-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
@@ -21,6 +21,7 @@ module NARROW-SYNTAX
   syntax Val ::= h(KItem) [function, symbol(h)]
   syntax Val ::= hp(KItem, Nat) [function, symbol(hp)]
   syntax Val ::= hn(KItem) [function, symbol(hn)]
+  syntax Val ::= hu(KItem, Nat) [function, symbol(hu)]
   syntax Int ::= hz(KItem) [function, total, symbol(hz)]
 endmodule
 
@@ -46,5 +47,6 @@ module NARROW
   rule [h-bool]: h(_:Bool) => v(2)
   rule [hp-def]: hp(_:Nat, N:Nat) => v(0)
   rule [hn-def]: hn(_X:Nat) => v(1)
+  rule [hu-def]: hu(_, N) => v(0)
   rule [hz-nat]: hz(_:Nat) >=Int 0 => true [simplification]
 endmodule

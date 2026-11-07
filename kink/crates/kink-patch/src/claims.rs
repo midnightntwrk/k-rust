@@ -97,8 +97,11 @@ pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
 /// `function` hooked `BOOL.and` or `BOOL.andThen`, not macro-like, heading no rule outside the
 /// builtin catalog), so a macro production hooked `BOOL.and` no longer makes an edit a narrowing.
 /// v3: a replacement by an instance of the sentence (a narrower pattern or `requires`,
-/// [`ClaimSupport::weakening`]) is a narrowing, and a lemma may be narrowed.
-pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v3";
+/// [`ClaimSupport::weakening`]) is a narrowing, and a lemma may be narrowed. v4: the instance
+/// test reads each variable's sort from the loaded sentence, the sort written for it or the one
+/// sort inference gave it, so a narrowing whose variables are written without their sorts is
+/// one, and two mutations that load to one sentence get one verdict.
+pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v4";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 0068938b1
 /// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
@@ -845,18 +848,21 @@ impl ClaimSupport {
     /// its cast and sort included, and every variable of the original's `requires` and `ensures`
     /// must be bound by its body.
     ///
-    /// σ maps a variable to itself (same name, sort and written sort), or a variable written with
-    /// its sort, `x:S` at some occurrence ([`written_sorts`]), to a constructor term whose root
-    /// sort is S or a subsort of it ([`InstanceFacts::constructor_sort`]): built from tokens,
-    /// variables and labels whose one production is a constructor, it denotes one element of S
-    /// under every valuation, so the instance holds in every model of the original. Fail closed
-    /// when σ moves a variable and either sentence holds a construct compilation expands or
+    /// Both sentences are read as loaded, which is what compilation reads: every variable
+    /// occurrence there carries the sort its axiom quantifies the variable over
+    /// ([`variable_sorts`]), the sort written for it or the one sort inference gave it. σ maps a
+    /// variable to itself (same name and sort), or a variable of sort S to a constructor term
+    /// whose root sort is S or a subsort of it ([`InstanceFacts::constructor_sort`]): built from
+    /// tokens, variables and labels whose one production is a constructor, it denotes one element
+    /// of S under every valuation, so the instance holds in every model of the original. Fail
+    /// closed when σ moves a variable and either sentence holds a construct compilation expands or
     /// resolves by the shape of the terms below it ([`InstanceFacts::expands`]), or the rule
     /// carries `concrete` or `symbolic`, which name the variables σ may replace: the instance of
-    /// the text need not be the instance of the axiom it compiles to. A variable written without
-    /// its sort, or with a cast over another sort of its own, bound to anything but itself fails
-    /// closed too, as does a wildcard against anything but itself: its sort in the baseline's
-    /// axiom is not read here. The test is iterative, as sentences can be deep.
+    /// the text need not be the instance of the axiom it compiles to. A variable no occurrence
+    /// gives a sort, or two occurrences give different ones, bound to anything but itself fails
+    /// closed too. The test reads no position and no span, so two replacements that load to one
+    /// sentence (one mutation identity) get one answer. It is iterative, as sentences can be
+    /// deep.
     fn instance(&self, original: &Sentence, replacement: &Sentence) -> bool {
         let (
             Sentence::Rule {
@@ -878,7 +884,8 @@ impl ClaimSupport {
         if positionless(attributes) != positionless(new_attributes) {
             return false;
         }
-        let (Some(sorts), Some(new_sorts)) = (written_sorts(original), written_sorts(replacement))
+        let (Some(sorts), Some(new_sorts)) =
+            (variable_sorts(original), variable_sorts(replacement))
         else {
             return false;
         };
@@ -900,15 +907,13 @@ impl ClaimSupport {
         let mut moved = false;
         for (name, term) in &sigma {
             if occurrence(term).is_some_and(|found| {
-                found.name == *name
-                    && new_sorts.sort(name) == sorts.sort(name)
-                    && new_sorts.written(name) == sorts.written(name)
+                found.name == *name && new_sorts.sort(name) == sorts.sort(name)
             }) {
                 continue;
             }
             moved = true;
             let (Some(sort), Some(root)) = (
-                sorts.written(name),
+                sorts.sort(name),
                 self.instances.constructor_sort(term, &new_sorts),
             ) else {
                 return false;
@@ -1068,13 +1073,13 @@ impl InstanceFacts {
     }
 
     /// The root sort of `term` when it is a constructor term of the replacement whose variables
-    /// carry `sorts`: a sorted variable written with its sort, a token, or an application of a
-    /// label whose one production is a constructor ([`Self::labels`]), with every subterm a
+    /// carry `sorts`: a variable with its sort ([`variable_sorts`]), a token, or an application
+    /// of a label whose one production is a constructor ([`Self::labels`]), with every subterm a
     /// token, a named variable or such an application. An anonymous variable is refused, since
     /// each of its occurrences is another variable.
-    fn constructor_sort(&self, term: &Term, sorts: &WrittenSorts) -> Option<Sort> {
+    fn constructor_sort(&self, term: &Term, sorts: &VariableSorts) -> Option<Sort> {
         let root = if let Some(found) = occurrence(term) {
-            sorts.written(found.name)?.clone()
+            sorts.sort(found.name)?.clone()
         } else {
             match term.unannotated() {
                 Term::Token { sort, .. } => sort.clone(),
@@ -1191,57 +1196,24 @@ fn main_module_sentences(definition: &Definition) -> Vec<&Sentence> {
 struct Occurrence<'t> {
     name: &'t str,
     /// The variable's sort at this occurrence: the cast's, unless the variable carries another
-    /// one under it (sort inference narrowed it), else the variable's own.
+    /// one under it (sort inference narrowed it below the cast), else the variable's own.
     sort: Option<Sort>,
-    /// `S` when the text writes `x:S` here and `S` is the variable's sort: the cast spans more
-    /// text than the variable (the casts sort inference inserts span none), and the variable
-    /// carries no other sort under it. A variable whose own sort differs from its written cast
-    /// has no written sort here (fail closed): the text does not say which of the two its axiom
-    /// quantifies over.
-    written: Option<Sort>,
 }
 
 /// The variable occurrence `term` is, through annotations.
 fn occurrence(term: &Term) -> Option<Occurrence<'_>> {
-    let mut span = None;
-    let mut term = term;
-    while let Term::Annotated {
-        term: inner,
-        metadata,
-    } = term
-    {
-        span = metadata.span.or(span);
-        term = inner;
-    }
-    match term {
+    match term.unannotated() {
         Term::Variable { name, sort } => Some(Occurrence {
             name,
             sort: sort.clone(),
-            written: None,
         }),
         Term::Apply { label, arguments } if arguments.len() == 1 => {
             let cast = label.semantic_cast_sort()?;
-            let variable = &arguments[0];
-            let Term::Variable { name, sort: under } = variable.unannotated() else {
+            let Term::Variable { name, sort: under } = arguments[0].unannotated() else {
                 return None;
             };
-            let variable_span = match variable {
-                Term::Annotated { metadata, .. } => metadata.span,
-                _ => None,
-            };
-            let spans_more = matches!(
-                (span, variable_span),
-                (Some(cast_span), Some(variable_span))
-                    if cast_span.source == variable_span.source
-                        && cast_span.start <= variable_span.start
-                        && cast_span.end >= variable_span.end
-                        && (cast_span.start, cast_span.end) != (variable_span.start, variable_span.end)
-            );
-            let written = (spans_more && under.as_ref().is_none_or(|under| *under == cast))
-                .then(|| cast.clone());
             Some(Occurrence {
                 name,
-                written,
                 sort: Some(under.clone().unwrap_or(cast)),
             })
         }
@@ -1256,25 +1228,31 @@ fn anonymous(name: &str) -> bool {
     k_rust::kast::binding::is_unresolved_anonymous(name)
 }
 
-/// The sort of each named variable of a rule, and the sort its text writes for it.
-struct WrittenSorts {
+/// The sort of each named variable of a rule, as its loaded sentence gives it.
+struct VariableSorts {
     sorts: BTreeMap<String, Option<Sort>>,
-    written: BTreeMap<String, Sort>,
 }
 
-impl WrittenSorts {
+impl VariableSorts {
     fn sort(&self, name: &str) -> Option<&Sort> {
         self.sorts.get(name)?.as_ref()
     }
-
-    fn written(&self, name: &str) -> Option<&Sort> {
-        self.written.get(name)
-    }
 }
 
-/// The sorts of the named variables of the rule `sentence`; `None` when a name carries two
-/// sorts, or the sentence is no rule (fail closed).
-fn written_sorts(sentence: &Sentence) -> Option<WrittenSorts> {
+/// The sort of each named variable of the loaded rule `sentence`: the sort its occurrences
+/// carry ([`occurrence`]), or none when no occurrence carries one. `None` when two occurrences
+/// of a name carry different sorts, or the sentence is no rule (fail closed).
+///
+/// This is the sort the rule's axiom quantifies the variable over. Loading parses each rule with
+/// sort inference, which leaves every occurrence of a named variable under a semantic cast: to the
+/// sort written for it (`X:S`), or to the sort it inferred, which it records on the variable
+/// itself under a written cast it narrows (`#SemanticCastToS(X:T)`), so that every occurrence
+/// agrees. Compilation reads the loaded sentence, and gives each named variable its sort under a
+/// cast, else the least of its cast sorts (k-rust `resolve_semantic_casts`); where every
+/// occurrence carries one sort, both readings give it. The passes before that one that rewrite
+/// a rule's terms rename variables apart, keeping their sorts, or resolve constructs the
+/// instance test refuses where σ moves a variable ([`InstanceFacts::expands`]).
+fn variable_sorts(sentence: &Sentence) -> Option<VariableSorts> {
     let Sentence::Rule {
         body,
         requires,
@@ -1284,9 +1262,8 @@ fn written_sorts(sentence: &Sentence) -> Option<WrittenSorts> {
     else {
         return None;
     };
-    let mut sorts = WrittenSorts {
+    let mut sorts = VariableSorts {
         sorts: BTreeMap::new(),
-        written: BTreeMap::new(),
     };
     let mut pending = vec![body, requires, ensures];
     while let Some(term) = pending.pop() {
@@ -1299,9 +1276,6 @@ fn written_sorts(sentence: &Sentence) -> Option<WrittenSorts> {
                 (Some(known), Some(sort)) if *known != sort => return None,
                 (None, Some(sort)) => *known = Some(sort),
                 _ => {}
-            }
-            if let Some(written) = found.written {
-                sorts.written.insert(found.name.to_owned(), written);
             }
             continue;
         }
