@@ -9,7 +9,7 @@ The report compares krust with reference K (K 7.1.337 and its Haskell and LLVM b
 | Inputs and generators that no checkout provides | `benchmarks/programs/<semantics>/` |
 | Cached reference K measurements | `benchmarks/reference.toml` |
 | A run's samples and report | `target/kbench/runs/<run id>/results.toml` and `report.md` |
-| Run history, one directory per run | `<main checkout>/draft-personal/benchmarks/<run id>/` |
+| Run history, one directory per run | `<main checkout>/target/kbench/history/<run id>/` |
 
 ## Running
 
@@ -66,7 +66,8 @@ Times have three significant digits, memory is in MiB.
 
 ## History and baselines
 
-Every run is copied to `draft-personal/benchmarks/<run id>/` of the main checkout (its own jj repository, ignored by Git), unless `--no-history` is given or `--history DIR` names another directory.
+Every run is copied to `target/kbench/history/<run id>/` of the main checkout, which every worktree of that checkout shares, unless `--no-history` is given or `--history DIR` names another directory.
+`cargo clean` in the main checkout removes that default; a history meant to outlive it is kept in a directory `--history` names.
 The baseline of a run is the latest history run of the same tier without a filter; `--baseline FILE` names another.
 The run id is the UTC start time and the krust commit, with `-dirty` when the checkout has modifications.
 

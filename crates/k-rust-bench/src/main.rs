@@ -69,7 +69,7 @@ enum Commands {
         /// The run directory (default: target/kbench/runs/<run id>).
         #[arg(long)]
         output: Option<PathBuf>,
-        /// Where results and reports are kept (default: <main checkout>/draft-personal/benchmarks).
+        /// Where results and reports are kept (default: <main checkout>/target/kbench/history).
         #[arg(long)]
         history: Option<PathBuf>,
         /// Do not copy the results into the history directory.
@@ -285,6 +285,8 @@ fn host() -> Host {
     }
 }
 
+/// The default history directory: under the main checkout's Cargo target, so every worktree of
+/// that checkout reads one history and no tracked or scratch directory is assumed.
 fn history_root(workspace: &Path) -> PathBuf {
     let common = git(
         workspace,
@@ -295,7 +297,7 @@ fn history_root(workspace: &Path) -> PathBuf {
         .map(Path::new)
         .and_then(Path::parent)
         .map_or_else(|| workspace.to_path_buf(), Path::to_path_buf);
-    main.join("draft-personal/benchmarks")
+    main.join("target/kbench/history")
 }
 
 /// The latest history run other than `current`, preferring one of the same tier.
