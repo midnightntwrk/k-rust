@@ -12,8 +12,8 @@ source_map_sha256 = "d0311747638d623d913bb9dcd81fd18f963690f8079f0f9a72bb4355847
 refusal_sha256 = "b56ec1282fdb48a079f6f96835c41979b35727b016fd95f85c131682588c23ac"
 
 [macro_output.imp."tests/imp/rust-definition/src/imp.rs"]
-text_sha256 = "02a246353da32b06c24fac3e6879efd36e2b045e4bebc56a5e80fb791eaf309d"
-source_map_sha256 = "5db55cfd268b9286b91a6d7b87591ac843950a6a32f4fe942592570f119ed334"
+text_sha256 = "0adc992dace3813b5b8bad80e79aea51836eb132b097c3395134215801bb23aa"
+source_map_sha256 = "ab8d76d0c27a15ed3894c7bcef9cc664f5eed18fab4a3cc5e4bc4897da35ca8c"
 
 [macro_output.imp."tests/imp/rust-definition/src/lib.rs"]
 text_sha256 = "39715992111fe6c7c802d2fa710c67e95c17393478c6b89980d9383fb89fb6e7"
@@ -45,8 +45,8 @@ source_map_sha256 = "a808d91b775d05f7d0570c38cc06a2eb12f6a31f140e8b35d0f3aa39275
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "f5f1c590cdd2ba501199b2ed361d05598b19c5d28b955a73437eca67b241494c"
-source_map_sha256 = "63baa35c6faec96ce23fa27f1afeb6f730dd40dec8194175445f5016e38e1bda"
+text_sha256 = "23200b12ec1b97e1141720a89deba41495de305cf44697cf91639964e056ccfd"
+source_map_sha256 = "376934b327282c8839201462e4da75378c927c35341be8c9318ef95c99fe07f8"
 
 [macro_output.kmir]
 
