@@ -187,7 +187,7 @@ fn the_inconsistent_mutant_action_states_the_rank_condition() {
             "fix the mutation: two equations of one function are not shown to agree where both \
              apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
              guard, make the guards exclusive or the results equal; if it only narrowed one (the \
-             equation applies to fewer inputs with the same sides, ensures and attributes) and \
+             equation gives every input it still covers the value the baseline gives) and \
              no equation of that function ranks after it (priority, owise), no program can kill \
              it whatever the check says, since the specification is one of its models: change a \
              right-hand side or a rewrite rule instead; a narrowing ranked before another \
