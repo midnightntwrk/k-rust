@@ -1,0 +1,22 @@
+schema = "kink-flow-verdicts"
+version = 6
+document = "run"
+profile = "z3"
+
+[spec]
+outcome = "admitted"
+
+[[mutation]]
+id = "plus/a"
+status = "killed"
+killer = "t2"
+
+[[mutation]]
+id = "plus/b"
+status = "killed"
+killer = "t3"
+
+[[mutation]]
+id = "plus/c"
+status = "killed"
+killer = "t4"

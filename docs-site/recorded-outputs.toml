@@ -438,6 +438,15 @@ package = "story-plus"
 definition = "main"
 args = ["kink", "run", "--corpus", "guide", "--full", "--output", "verdicts", "--locked"]
 
+# The guide's lock, as `run --locked` compares it: a first-kill run's verdicts rendering is the
+# lock's bytes, which the guide's corpus commits (guide/verdicts.lock).
+[[output]]
+id = "mutation-testing-run-locked"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "run", "--corpus", "guide", "--output", "verdicts", "--locked"]
+
 [[output]]
 id = "mutation-testing-run-refused"
 fixture = "story/plus"

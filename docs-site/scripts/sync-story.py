@@ -302,9 +302,6 @@ def killers(story: dict) -> dict[str, list[str]]:
     """
 
     verdicts = recorded_verdicts(RUN, "run")
-    if verdicts.get("schedule") != "full":
-        fail(f"recorded output {RUN} is a {verdicts.get('schedule')} run; the story needs `--full`, "
-             "which names every test that catches an edit")
     listing = verdicts.get("mutation_list", {"outcome": "ok"})
     if listing.get("outcome") != "ok":
         fail(f"recorded output {RUN}: the mutation list is {listing.get('outcome')}")
@@ -327,7 +324,8 @@ def killers(story: dict) -> dict[str, list[str]]:
             fail(f"edit {mutation['id']}: its mutation {row['id']} is {status} in {RUN}, neither killed nor survived")
         caught = row.get("killed_by")
         if not isinstance(caught, list) or not caught:
-            fail(f"edit {mutation['id']}: its mutation {row['id']} is killed with no `killed_by` in {RUN}")
+            fail(f"edit {mutation['id']}: its mutation {row['id']} is killed with no `killed_by` in {RUN}, "
+                 "which a run with `--full` names: every test that catches the edit")
         unknown = [test for test in caught if test not in tests]
         if unknown:
             fail(f"edit {mutation['id']} is killed by {unknown}, which story.toml has no test for")

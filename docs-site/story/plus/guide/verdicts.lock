@@ -1,0 +1,21 @@
+schema = "kink-flow-verdicts"
+version = 6
+document = "run"
+profile = "z3"
+
+[spec]
+outcome = "admitted"
+
+[[mutation]]
+id = "correlated/off-by-one"
+status = "killed"
+killer = "t1"
+
+[[mutation]]
+id = "survivors/one"
+status = "killed"
+killer = "t5"
+
+[[mutation]]
+id = "survivors/swap"
+status = "survived"
