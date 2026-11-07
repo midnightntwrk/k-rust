@@ -132,6 +132,13 @@ impl Sort {
         SortRole::of_name(&self.name)
     }
 
+    /// Whether compilation declares this sort a subsort of `KItem` (kompile's `subsort_kitem`
+    /// stage): every term of it is a K item, and it is neither `K` nor `KItem`. Parameters are
+    /// ignored, as in the sort's role.
+    pub fn has_implicit_kitem_subsort(&self) -> bool {
+        self.role().has_implicit_kitem_subsort()
+    }
+
     /// Whether this sort is a rigid sort variable of a sentence (`#SortParam{Q}`), which stands
     /// for every sort at once and is never solved.
     pub(crate) fn is_rigid_variable(&self) -> bool {
