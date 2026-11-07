@@ -51,10 +51,16 @@
 //! instance's cells inside the instance's cell, beside the key cells KRS adds so that the rule
 //! passes its instance's keys to a function evaluated in it. That placement is the rule's
 //! footprint, the cells and instances it reads or writes; an edit that changes it (a cell added,
-//! dropped or moved to another instance or out of one) is refused. A function evaluated in one
-//! instance receives the keys KRS passes after its own arguments, which are not lifted: KRS
-//! derives them, and the key cells, for the lifted sentence again, and the comparison with the
-//! mutant's sentence checks them.
+//! dropped or moved to another instance or out of one) is refused. An entry of a collection that
+//! steps one instance ([`stepped_instance_layout`]) is read the same way: the children of that
+//! instance's cell are the cells of a rule about it, and the rest of the collection is no part
+//! of the step; an entry about the collection whole and an optional cell are not judged. A
+//! function evaluated in one instance receives the keys KRS passes after its own arguments,
+//! which are not lifted: KRS derives them, and the key cells, for the lifted sentence again, and
+//! the comparison with the mutant's sentence checks them. A key cell KRS adds is read as the key
+//! the rule's subject matches, which it is ([`MutantChecker::check`]): a mutant that writes it
+//! is refused as KRS refuses a source that writes the key, and one that matches another key is
+//! lifted as the source that writes that key in its pattern.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -65,22 +71,23 @@ use k_rust::definition::{Attributes, Sentence};
 use k_rust::kast::Term;
 use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation};
 use krs_compiler::{
-    DEFINITION_ARTIFACT, DescriptorLoweringError, EditJudgement, JudgeError, KEdit, KLabelIndex,
-    MutationVerdict, Rederivation, RederiveFailure, SentenceJudgement, SentenceVerdict, Site,
-    SourceMap, SourceMapNodeKind, judge_edits,
+    DEFINITION_ARTIFACT, DescriptorLoweringError, EditContainer, EditJudgement, InsertedNodeRef,
+    JudgeError, KEdit, KLabelIndex, MutationVerdict, Rederivation, RederiveFailure,
+    SentenceJudgement, SentenceVerdict, Site, SourceMap, SourceMapNodeKind, judge_edits,
 };
 use krs_ir::{
     ApplicationRef, AtLeastTwo, BuiltinOperation, CellAttribute, CellClauseKind,
     CellCollectionType, CellContentFrame, CellMultiplicity, CellPost, CollectionResultSort,
     ConfigurationClause, FixedCell, FixedCellClause, FixedCellContent, FixedConfigurationRewrite,
-    GeneratedOperation, InsertedNode, ListOperation, MapOperation, NodeOrigin, OperationSort,
-    SemanticId, SemanticIdKind, SetOperation, SourceMapKey, StableItemId,
+    GeneratedOperation, GrammarProductionItemKind, InsertedNode, InstanceClause, InstancesClause,
+    ListOperation, MapOperation, NodeOrigin, OperationSort, Presence, SemanticId, SemanticIdKind,
+    SetOperation, SourceMapKey, StableItemId,
 };
 use krs_ir_levels::{
-    IrCondition, IrRewrite, IrTermKind, ListOperands, MapEntry, MapOperands, RuleBodyRef,
-    SemanticCondition, SemanticModule, SemanticRule, SemanticRuleCondition, SemanticSortRef,
-    SemanticTerm, SemanticVariable, SetOperands, SymbolId,
-    k_surface::{DefinitionIndex, written_items},
+    DefinitionTerm, IrCondition, IrRewrite, IrTermKind, ListOperands, MapEntry, MapOperands,
+    RuleBodyRef, RuleSentence, SemanticCondition, SemanticModule, SemanticRule,
+    SemanticRuleCondition, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands, SymbolId,
+    k_surface::{DefinitionIndex, instance_key_holder, stepped_instance_layout, written_items},
 };
 
 /// The re-derivation check over one baseline: its in-process lowering, its `definition.k` and
@@ -135,7 +142,8 @@ impl std::error::Error for CheckerError {}
 /// check's.
 #[derive(Debug)]
 pub struct MutationCheck {
-    /// The judge's answer.
+    /// The judge's answer, where every sentence whose edits change only key cells KRS adds and
+    /// the keys the sentence passes is handed on ([`MutantChecker::check`]).
     pub judgement: EditJudgement,
     /// One entry per sentence the judge hands on, in text order; empty when the judge refuses.
     pub sentences: Vec<SentenceCheck>,
@@ -332,8 +340,8 @@ pub enum NotJudged {
     /// The edit reaches a part of the sentence that holds a lookup guard or a local function.
     Family,
     /// The sentence's form is not one the check reads: a context, a predicate simplification, a
-    /// function context, an optional or collection cell, a cell grouped in its repeated
-    /// ancestor, a stream cell.
+    /// function context, an optional cell, a collection entry about the collection whole, a
+    /// cell grouped in its repeated ancestor, a stream cell.
     Form(String),
     /// The edit changes the sentence's shape: its cells, its form, a frame KRS adds.
     Skeleton(String),
@@ -404,20 +412,33 @@ fn trimmed(source: &str, edits: &[KEdit<'_>]) -> Vec<Trimmed> {
     order.sort_by_key(|&index| (edits[index].range.start, edits[index].range.end, index));
     order
         .into_iter()
-        .map(|index| {
-            let edit = &edits[index];
-            let old = &source[edit.range.clone()];
-            let new = edit.replacement;
-            let prefix = char_boundary_prefix(old, new);
-            let suffix = char_boundary_suffix(&old[prefix..], &new[prefix..]);
-            Trimmed {
-                start: edit.range.start + prefix,
-                end: edit.range.end - suffix,
-                replacement: new[prefix..new.len() - suffix].to_owned(),
-            }
-        })
+        .map(|index| trim(source, &edits[index]))
         .filter(|edit| edit.start != edit.end || !edit.replacement.is_empty())
         .collect()
+}
+
+/// `edit` less the prefix and suffix its replacement keeps.
+fn trim(source: &str, edit: &KEdit<'_>) -> Trimmed {
+    let old = &source[edit.range.clone()];
+    let new = edit.replacement;
+    let prefix = char_boundary_prefix(old, new);
+    let suffix = char_boundary_suffix(&old[prefix..], &new[prefix..]);
+    Trimmed {
+        start: edit.range.start + prefix,
+        end: edit.range.end - suffix,
+        replacement: new[prefix..new.len() - suffix].to_owned(),
+    }
+}
+
+/// Whether the changed bytes of `edit` (its range less the prefix and suffix its replacement
+/// keeps) meet `region`: overlap it, or, for an insertion, stand at or inside it.
+fn changes_meet(source: &str, edit: &KEdit<'_>, region: &Range<usize>) -> bool {
+    let Trimmed { start, end, .. } = trim(source, edit);
+    if start == end {
+        region.start <= start && start <= region.end
+    } else {
+        start < region.end && region.start < end
+    }
 }
 
 /// The mutant position of the baseline position `position`, or `None` when an edit's changed
@@ -653,11 +674,26 @@ impl<'a> MutantChecker<'a> {
     /// Judges `edits` of the baseline's `definition.k` and checks every sentence the judge hands
     /// on.
     ///
+    /// A sentence whose edits change only nodes KRS inserted is refused by the judge, except
+    /// where they change a key cell KRS adds, and otherwise only the keys the sentence passes
+    /// to the functions it applies: that sentence is handed on, each change contained in the
+    /// deepest authored node that holds it.
+    /// KRS adds the key cell of an instance the rule is about, where the rule does not write the
+    /// cell, so that the key the rule's subject matches is bound; the cell is the key of the
+    /// instance the subject matches, not a name KRS gave.
+    /// A mutant that writes it is what every Rust source that writes the key in that instance
+    /// emits, which KRS refuses for writing the instance's identity with the reason it gives
+    /// that source ([`KeyWriter`]), and a mutant that matches another key is what
+    /// the source that writes that key in its pattern emits: the meaning of the edit is the same
+    /// whether or not the baseline's author wrote the cell, so it is judged the same, by the
+    /// lift ([`Self::added_key`]).
+    ///
     /// # Errors
     ///
     /// The judge's error for edits it cannot apply.
     pub fn check(&self, edits: &[KEdit<'_>]) -> Result<MutationCheck, JudgeError> {
-        let judgement = judge_edits(self.source, self.map, DEFINITION_ARTIFACT, edits)?;
+        let mut judgement = judge_edits(self.source, self.map, DEFINITION_ARTIFACT, edits)?;
+        self.hand_on_key_edits(&mut judgement, edits);
         let sentences = if judgement.verdict() == MutationVerdict::NeedsRederivation {
             judgement
                 .sentences
@@ -872,6 +908,283 @@ impl<'a> MutantChecker<'a> {
         }
     }
 
+    /// Hands on each sentence of `judgement` the judge refuses because the edits change only nodes
+    /// KRS inserted, where those nodes are key cells KRS adds and the keys the sentence passes,
+    /// one at least a key cell ([`Self::check`]): its containers are the deepest authored nodes
+    /// that hold them.
+    fn hand_on_key_edits(&self, judgement: &mut EditJudgement, edits: &[KEdit<'_>]) {
+        let trimmed = trimmed(self.source, edits);
+        for sentence in &mut judgement.sentences {
+            let SentenceVerdict::InsertedOnly { nodes } = &sentence.verdict else {
+                continue;
+            };
+            let Ok(site) = self.rederivation.site(&sentence.sentence) else {
+                continue;
+            };
+            let (cells, arguments) = self.key_nodes(site.definition);
+            let in_cell = |node: &InsertedNodeRef| {
+                cells
+                    .iter()
+                    .any(|cell| cell.start <= node.emitted.start && node.emitted.end <= cell.end)
+            };
+            if !nodes.iter().any(in_cell)
+                || !nodes.iter().all(|node| {
+                    node.kind == InsertedNode::GeneratedBinder
+                        && (in_cell(node) || arguments.contains(&node.key))
+                })
+            {
+                continue;
+            }
+            let Some(&index) = self.by_key.get(&sentence.sentence) else {
+                continue;
+            };
+            let authored = self
+                .nodes_in(&self.nodes[index].range)
+                .into_iter()
+                .filter(|node| node.inserted.is_none())
+                .collect::<Vec<_>>();
+            let holders = nodes
+                .iter()
+                .map(|node| {
+                    authored
+                        .iter()
+                        .filter(|holder| {
+                            holder.range.start <= node.emitted.start
+                                && node.emitted.end <= holder.range.end
+                        })
+                        .max_by_key(|holder| holder.depth)
+                        .copied()
+                })
+                .collect::<Option<Vec<_>>>();
+            let Some(mut holders) = holders else {
+                continue;
+            };
+            // Nested containers merge into the outer one.
+            holders.sort_by_key(|holder| (holder.range.start, holder.depth));
+            holders.dedup_by_key(|holder| holder.key.clone());
+            let outer = holders
+                .iter()
+                .filter(|holder| {
+                    !holders.iter().any(|other| {
+                        other.depth < holder.depth
+                            && other.range.start <= holder.range.start
+                            && holder.range.end <= other.range.end
+                    })
+                })
+                .map(|holder| {
+                    let held = |range: &Range<usize>| {
+                        holder.range.start <= range.start && range.end <= holder.range.end
+                    };
+                    let held_edits = sentence
+                        .edits
+                        .iter()
+                        .copied()
+                        .filter(|&edit| {
+                            nodes.iter().any(|node| {
+                                held(&node.emitted)
+                                    && changes_meet(self.source, &edits[edit], &node.emitted)
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    Some(EditContainer {
+                        key: holder.key.clone(),
+                        kind: holder.kind,
+                        emitted: holder.range.clone(),
+                        mutant: image_range(&trimmed, &holder.range)?,
+                        edits: held_edits,
+                    })
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(containers) = outer
+                && containers
+                    .iter()
+                    .all(|container| !container.edits.is_empty())
+            {
+                sentence.verdict = SentenceVerdict::NeedsRederivation { containers };
+            }
+        }
+    }
+
+    /// The key cells KRS adds to the Definition IR sentence `definition` (their bytes), and the
+    /// keys it passes to the functions it applies (their keys).
+    fn key_nodes(&self, definition: &RuleSentence) -> (Vec<Range<usize>>, BTreeSet<SourceMapKey>) {
+        let mut cells = Vec::new();
+        let mut terms = Vec::new();
+        let mut add = |clause: &'_ FixedCellClause<SymbolId, DefinitionTerm>| {
+            if self.is_added_key(clause)
+                && let Some(&index) = self.by_key.get(clause.origin().key())
+            {
+                cells.push(self.nodes[index].range.clone());
+            }
+        };
+        match definition.relational_body() {
+            RuleBodyRef::Configuration { body, .. } => {
+                for clause in body.clauses() {
+                    match clause {
+                        ConfigurationClause::Fixed(fixed) => {
+                            add(fixed);
+                            terms.extend(fixed_terms(fixed));
+                        }
+                        ConfigurationClause::Instances(entry) => {
+                            if let Some(stepped) = stepped_instance_layout(entry) {
+                                stepped.children.iter().for_each(&mut add);
+                            }
+                            for instance in entry.instances() {
+                                match instance {
+                                    InstanceClause::Kept { children, .. } => {
+                                        terms.extend(children.iter().flat_map(fixed_terms));
+                                    }
+                                    InstanceClause::Removed { children, .. }
+                                    | InstanceClause::Created { children, .. } => {
+                                        terms.extend(
+                                            children.iter().map(krs_ir::InstanceChild::term),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        ConfigurationClause::Optional(optional) => {
+                            for presence in
+                                std::iter::once(optional.before()).chain(optional.after())
+                            {
+                                if let Presence::Present { term } = presence {
+                                    terms.push(term);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            RuleBodyRef::Term(body) => {
+                terms.push(body.from());
+                terms.push(body.to());
+                terms.extend(body.local_term());
+            }
+            RuleBodyRef::Predicate(_) => {}
+        }
+        for condition in [definition.requires(), definition.ensures()]
+            .into_iter()
+            .flatten()
+        {
+            if let IrCondition::Bool(condition) = condition {
+                terms.push(condition.term());
+            }
+        }
+        let mut arguments = BTreeSet::new();
+        for term in terms {
+            self.key_arguments(term, &mut arguments);
+        }
+        (cells, arguments)
+    }
+
+    /// The keys of the instance keys `term` passes at or below it, after the arguments of the
+    /// functions it applies ([`instance_key_holder`]).
+    fn key_arguments(&self, term: &DefinitionTerm, keys: &mut BTreeSet<SourceMapKey>) {
+        if let IrTermKind::Application {
+            application: ApplicationRef::Declared(symbol),
+            arguments,
+            ..
+        } = term.kind()
+            && let Some(production) = self.definition.production(symbol)
+        {
+            let fields = production
+                .items()
+                .iter()
+                .filter_map(|item| match item.kind() {
+                    GrammarProductionItemKind::NonTerminal { field, .. } => Some(field),
+                    _ => None,
+                });
+            for (field, argument) in fields.zip(arguments) {
+                if instance_key_holder(field.as_str()).is_some() {
+                    keys.insert(argument.origin().key().clone());
+                }
+            }
+        }
+        for child in term.children() {
+            self.key_arguments(child, keys);
+        }
+    }
+
+    /// The semantic cell of the Definition IR cell `cell`.
+    fn semantic_cell(&self, cell: &SymbolId) -> Option<&SemanticId> {
+        self.definition
+            .cell_name(cell)
+            .and_then(|name| self.rederivation.index().cell(name))
+    }
+
+    /// Whether `clause`, a clause of a Definition IR sentence, is a key cell KRS adds: one it
+    /// inserted, of a Map instance's key cell.
+    fn is_added_key(&self, clause: &FixedCellClause<SymbolId, DefinitionTerm>) -> bool {
+        clause.origin().origin().inserted().is_some()
+            && self
+                .semantic_cell(clause.cell())
+                .and_then(|cell| self.keys.get(cell))
+                .is_some_and(KeyCell::is_key)
+    }
+
+    /// The lift of the mutant's `item` in place of the key cell `emitted` KRS adds, read as the
+    /// cell a source that writes it would have: `None` where it keeps the key KRS binds there,
+    /// which KRS adds again for the lifted sentence; the cell where it matches another key, a
+    /// change of the pattern the lifted sentence states.
+    ///
+    /// # Errors
+    ///
+    /// KRS's refusal of a write of the key by `writer` ([`KeyCell::refusal`]), and the lift's.
+    fn added_key(
+        &self,
+        lift: &mut Lift<'_>,
+        emitted: &FixedCellClause<SymbolId, DefinitionTerm>,
+        item: &Term,
+        writer: KeyWriter,
+    ) -> Result<Option<FixedCellClause<SemanticId, SemanticTerm>>, Refusal> {
+        let unread = || Refusal::NotJudged(NotJudged::Form("a key cell KRS adds".into()));
+        let cell = self.semantic_cell(emitted.cell()).ok_or_else(unread)?;
+        let key = self.keys.get(cell).ok_or_else(unread)?;
+        let IrTermKind::Variable { variable: binder } = emitted.before().kind() else {
+            return Err(unread());
+        };
+        let FixedCellContent::Term { sort, .. } = key.cell.content() else {
+            return Err(unread());
+        };
+        // The binder KRS adds is a variable of the derived sentence, at the key's sort, which
+        // the pre-derivation sentence does not declare.
+        lift.sorts
+            .entry(binder.clone())
+            .or_insert_with(|| sort.clone());
+        let base = lift.base.clone();
+        let guide = FixedCellClause::new(
+            lift.fresh_origin(&base),
+            cell.clone(),
+            SemanticTerm::variable(lift.fresh_origin(&base), sort.clone(), binder.clone()),
+            CellPost::Preserve,
+            CellContentFrame::Exact,
+        );
+        let lifted = lift.clause(&guide, item)?;
+        Self::keep_key(key, &lifted, writer)?;
+        let binds = matches!(
+            lifted.before().kind(),
+            IrTermKind::Variable { variable } if variable == binder
+        );
+        Ok((!binds).then_some(lifted))
+    }
+
+    /// Refuses `lifted`, a lifted clause of the cell `key` at or inside a Map instance's key
+    /// that `writer` writes, where it writes the key other than as its subject matched it
+    /// ([`key_kept`]).
+    fn keep_key(
+        key: &KeyCell<'_>,
+        lifted: &FixedCellClause<SemanticId, SemanticTerm>,
+        writer: KeyWriter,
+    ) -> Result<(), Refusal> {
+        match key_kept(lifted) {
+            Some(true) => Ok(()),
+            Some(false) => Err(key.refusal(writer)),
+            None => Err(Refusal::NotJudged(NotJudged::Form(
+                "an in-place rewrite at or inside a Map instance's key".into(),
+            ))),
+        }
+    }
+
     /// The clause of `clauses` (a configuration rule's pre-derivation clauses) each of `emitted`
     /// (its Definition IR clauses) is lowered from, by provenance, in emitted order; `None` for a
     /// key cell KRS adds, so that the rule passes its instance's key to a function evaluated in
@@ -881,6 +1194,53 @@ impl<'a> MutantChecker<'a> {
         clauses: &[ConfigurationClause<SemanticId, T>],
         emitted: &[ConfigurationClause<SymbolId, U>],
     ) -> Result<Vec<Option<usize>>, Refusal> {
+        self.owners(
+            &clauses
+                .iter()
+                .map(|clause| (clause.cell(), clause.origin_key()))
+                .collect::<Vec<_>>(),
+            emitted.iter().map(|emitted| {
+                (
+                    emitted.cell(),
+                    emitted.origin_key(),
+                    matches!(emitted, ConfigurationClause::Fixed(_))
+                        && emitted.origin().origin().inserted().is_some(),
+                )
+            }),
+        )
+    }
+
+    /// The child of `children` (the pre-derivation children of the instance an entry steps) each
+    /// of `emitted` (its Definition IR children) is lowered from, as [`Self::clause_owners`]
+    /// pairs a rule's clauses.
+    fn child_owners<T, U>(
+        &self,
+        children: &[FixedCellClause<SemanticId, T>],
+        emitted: &[FixedCellClause<SymbolId, U>],
+    ) -> Result<Vec<Option<usize>>, Refusal> {
+        self.owners(
+            &children
+                .iter()
+                .map(|child| (child.cell(), child.origin().key()))
+                .collect::<Vec<_>>(),
+            emitted.iter().map(|emitted| {
+                (
+                    emitted.cell(),
+                    emitted.origin().key(),
+                    emitted.origin().origin().inserted().is_some(),
+                )
+            }),
+        )
+    }
+
+    /// The owner of each emitted clause `(cell, origin, inserted)` among `clauses`
+    /// `(cell, origin)`, by provenance; `None` for an inserted clause of a key cell, which KRS
+    /// adds. Each clause owns exactly one emitted clause of its own cell.
+    fn owners<'c>(
+        &self,
+        clauses: &[(&SemanticId, &SourceMapKey)],
+        emitted: impl IntoIterator<Item = (&'c SymbolId, &'c SourceMapKey, bool)>,
+    ) -> Result<Vec<Option<usize>>, Refusal> {
         let unpaired = || {
             Refusal::NotJudged(NotJudged::Sentence(
                 "its Definition IR clauses are neither its own clauses nor key cells KRS adds"
@@ -888,25 +1248,17 @@ impl<'a> MutantChecker<'a> {
             ))
         };
         let mut paired = vec![false; clauses.len()];
-        let mut owners = Vec::with_capacity(emitted.len());
-        for emitted in emitted {
-            let cell = self
-                .definition
-                .cell_name(emitted.cell())
-                .and_then(|name| self.rederivation.index().cell(name))
-                .ok_or_else(unpaired)?;
-            let owner = clauses.iter().position(|clause| {
-                self.rederivation
-                    .definition_keys(clause.origin_key())
-                    .contains(emitted.origin_key())
-            });
+        let mut owners = Vec::new();
+        for (emitted_cell, emitted_key, inserted) in emitted {
+            let cell = self.semantic_cell(emitted_cell).ok_or_else(unpaired)?;
+            let owner = clauses
+                .iter()
+                .position(|(_, key)| self.rederivation.definition_keys(key).contains(emitted_key));
             match owner {
-                Some(index) if !paired[index] && clauses[index].cell() == cell => {
+                Some(index) if !paired[index] && clauses[index].0 == cell => {
                     paired[index] = true;
                 }
-                None if matches!(emitted, ConfigurationClause::Fixed(_))
-                    && emitted.origin().origin().inserted().is_some()
-                    && self.keys.get(cell).is_some_and(KeyCell::is_key) => {}
+                None if inserted && self.keys.get(cell).is_some_and(KeyCell::is_key) => {}
                 _ => return Err(unpaired()),
             }
             owners.push(owner);
@@ -915,6 +1267,159 @@ impl<'a> MutantChecker<'a> {
             return Err(unpaired());
         }
         Ok(owners)
+    }
+
+    /// The lift of the mutant's `item` in place of `fixed`, a clause the author wrote that
+    /// `writer` writes, refused where it writes a Map instance's key other than as its subject
+    /// matched it.
+    fn lift_cell(
+        &self,
+        lift: &mut Lift<'_>,
+        fixed: &FixedCellClause<SemanticId, SemanticTerm>,
+        emitted: &FixedCellClause<SymbolId, DefinitionTerm>,
+        item: &Term,
+        writer: KeyWriter,
+    ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, Refusal> {
+        if matches!(emitted.frame(), CellContentFrame::ListRemainder { .. }) {
+            return Err(Refusal::NotJudged(NotJudged::Form("a stream cell".into())));
+        }
+        let lifted = lift.clause(fixed, item)?;
+        if let Some(key) = self.keys.get(fixed.cell()) {
+            Self::keep_key(key, &lifted, writer)?;
+        }
+        Ok(lifted)
+    }
+
+    /// The content of `term`, the mutant's cell `cell` with no frame on its left, and whether it
+    /// is open on its right.
+    fn cell_of(&self, term: &Term, cell: &SymbolId) -> Result<(Term, bool), Refusal> {
+        let footprint =
+            || Refusal::NotJudged(NotJudged::Skeleton("the cells the rule mentions".into()));
+        let name = self.definition.cell_name(cell).ok_or_else(footprint)?;
+        let Term::Apply { label, arguments } = term.unannotated() else {
+            return Err(footprint());
+        };
+        let [opening, content, closing] = arguments.as_slice() else {
+            return Err(footprint());
+        };
+        if label
+            .name
+            .strip_prefix('<')
+            .and_then(|rest| rest.strip_suffix('>'))
+            != Some(name)
+            || dots(opening) != Some(false)
+        {
+            return Err(footprint());
+        }
+        let open = dots(closing).ok_or_else(footprint)?;
+        Ok((content.clone(), open))
+    }
+
+    /// The lift of an entry `entry` of a configuration rule that steps one instance
+    /// ([`stepped_instance_layout`]), whose Definition IR entry is `emitted`, written as the
+    /// mutant's `items`: the children of that instance are the cells of a rule about it, each
+    /// lifted where an edit touches it ([`Self::lift_cell`]), and a key cell KRS adds read as
+    /// [`Self::added_key`] reads it. The instance's cell must hold one item per child, framed as
+    /// the instance is; the rest of the entry, which is no part of the step, the comparison of
+    /// the derived sentence with the mutant's checks. `None` for an entry about the collection
+    /// whole.
+    fn lift_stepped(
+        &self,
+        lift: &mut Lift<'_>,
+        entry: &InstancesClause<SemanticId, SemanticTerm>,
+        emitted: &ConfigurationClause<SymbolId, DefinitionTerm>,
+        items: &[&Term],
+        touches: &dyn Fn(Option<Range<usize>>) -> bool,
+        holds_family: &dyn Fn(&Range<usize>) -> bool,
+    ) -> Result<Option<InstancesClause<SemanticId, SemanticTerm>>, Refusal> {
+        let footprint =
+            || Refusal::NotJudged(NotJudged::Skeleton("the cells the rule mentions".into()));
+        let Some(stepped) = stepped_instance_layout(entry) else {
+            return Ok(None);
+        };
+        let ConfigurationClause::Instances(emitted) = emitted else {
+            return Err(footprint());
+        };
+        let Some(written) = stepped_instance_layout(emitted) else {
+            return Err(Refusal::NotJudged(NotJudged::Sentence(
+                "its Definition IR entry steps no instance".into(),
+            )));
+        };
+        let [item] = items else {
+            return Err(footprint());
+        };
+        let instance = if written.in_parent {
+            let parent = self
+                .definition
+                .cell_parent(emitted.cell())
+                .ok_or_else(footprint)?;
+            let (content, _) = self.cell_of(item, parent)?;
+            cell_items(&content)
+                .get(written.position)
+                .map(|&term| term.clone())
+                .ok_or_else(footprint)?
+        } else {
+            (*item).clone()
+        };
+        let (content, open) = self.cell_of(&instance, emitted.cell())?;
+        if open != written.open {
+            return Err(Refusal::NotJudged(NotJudged::Skeleton(
+                "an instance cell's frame".into(),
+            )));
+        }
+        let child_items = cell_items(&content);
+        if child_items.len() != written.children.len() {
+            return Err(footprint());
+        }
+        let owners = self.child_owners(stepped.children, written.children)?;
+        let mut children = Vec::with_capacity(stepped.children.len());
+        for ((emitted_child, item), owner) in written.children.iter().zip(child_items).zip(owners) {
+            let emitted_range = self
+                .by_key
+                .get(emitted_child.origin().key())
+                .map(|&index| self.nodes[index].range.clone());
+            let Some(index) = owner else {
+                if touches(emitted_range)
+                    && let Some(lifted) =
+                        self.added_key(lift, emitted_child, item, KeyWriter::Entry)?
+                {
+                    children.push(lifted);
+                }
+                continue;
+            };
+            let child = &stepped.children[index];
+            let range = self.range_of(child.origin().key()).or(emitted_range);
+            if !touches(range.clone()) {
+                children.push(child.clone());
+                continue;
+            }
+            if range.as_ref().is_some_and(holds_family) {
+                return Err(Refusal::NotJudged(NotJudged::Family));
+            }
+            children.push(self.lift_cell(lift, child, emitted_child, item, KeyWriter::Entry)?);
+        }
+        let step = |instance: &InstanceClause<SemanticId, SemanticTerm>| match instance {
+            InstanceClause::Kept {
+                origin,
+                label,
+                open,
+                ..
+            } if Some(instance) == entry.stepped_instance() => InstanceClause::Kept {
+                origin: origin.clone(),
+                label: label.clone(),
+                children: children.clone(),
+                open: *open,
+            },
+            other => other.clone(),
+        };
+        Ok(Some(InstancesClause::new(
+            entry.origin().clone(),
+            entry.cell().clone(),
+            entry.ordering(),
+            entry.front().iter().map(step).collect(),
+            entry.back().iter().map(step).collect(),
+            entry.is_open(),
+        )))
     }
 
     /// The range of the Definition IR node lowered from the semantic node `key`, the outermost
@@ -1003,9 +1508,32 @@ impl<'a> MutantChecker<'a> {
                 let items = clause_items(&parsed.body, emitted, &self.definition)?;
                 let mut lifted_clauses = vec![None; body.clauses().len()];
                 let mut changed = false;
+                let mut added = Vec::new();
                 for ((emitted, items), owner) in emitted.iter().zip(items).zip(owners) {
-                    // A key cell KRS adds is derived again for the lifted sentence.
+                    // A key cell KRS adds is derived again for the lifted sentence, unless the
+                    // mutant matches another key there.
                     let Some(index) = owner else {
+                        let ConfigurationClause::Fixed(emitted) = emitted else {
+                            continue;
+                        };
+                        let range = self
+                            .by_key
+                            .get(emitted.origin().key())
+                            .map(|&index| self.nodes[index].range.clone());
+                        if !touches(range) {
+                            continue;
+                        }
+                        let [item] = items.as_slice() else {
+                            return Err(Refusal::NotJudged(NotJudged::Skeleton(
+                                "the cells the rule mentions".into(),
+                            )));
+                        };
+                        if let Some(lifted) =
+                            self.added_key(&mut lift, emitted, item, KeyWriter::Group)?
+                        {
+                            added.push(ConfigurationClause::Fixed(lifted));
+                            changed = true;
+                        }
                         continue;
                     };
                     let clause = &body.clauses()[index];
@@ -1022,46 +1550,76 @@ impl<'a> MutantChecker<'a> {
                     if range.as_ref().is_some_and(holds_family) {
                         return Err(Refusal::NotJudged(NotJudged::Family));
                     }
-                    let ConfigurationClause::Fixed(fixed) = clause else {
-                        return Err(Refusal::NotJudged(NotJudged::Form(
-                            "an optional or collection cell".into(),
-                        )));
-                    };
-                    if let ConfigurationClause::Fixed(emitted) = emitted
-                        && matches!(emitted.frame(), CellContentFrame::ListRemainder { .. })
-                    {
-                        return Err(Refusal::NotJudged(NotJudged::Form("a stream cell".into())));
-                    }
-                    let [item] = items.as_slice() else {
-                        return Err(Refusal::NotJudged(NotJudged::Skeleton(
-                            "the cells the rule mentions".into(),
-                        )));
-                    };
-                    let lifted = lift.clause(fixed, item)?;
-                    if let Some(key) = self.keys.get(fixed.cell()) {
-                        match key_kept(&lifted) {
-                            Some(true) => {}
-                            Some(false) => return Err(key.refusal()),
-                            None => {
-                                return Err(Refusal::NotJudged(NotJudged::Form(
-                                    "an in-place rewrite at or inside a Map instance's key".into(),
+                    let lifted = match (clause, emitted) {
+                        (
+                            ConfigurationClause::Fixed(fixed),
+                            ConfigurationClause::Fixed(emitted),
+                        ) => {
+                            let [item] = items.as_slice() else {
+                                return Err(Refusal::NotJudged(NotJudged::Skeleton(
+                                    "the cells the rule mentions".into(),
                                 )));
-                            }
+                            };
+                            ConfigurationClause::Fixed(self.lift_cell(
+                                &mut lift,
+                                fixed,
+                                emitted,
+                                item,
+                                KeyWriter::Group,
+                            )?)
                         }
-                    }
-                    lifted_clauses[index] = Some(ConfigurationClause::Fixed(lifted));
+                        (ConfigurationClause::Instances(entry), _) => {
+                            let lifted = self.lift_stepped(
+                                &mut lift,
+                                entry,
+                                emitted,
+                                &items,
+                                &touches,
+                                &holds_family,
+                            )?;
+                            ConfigurationClause::Instances(lifted.ok_or_else(|| {
+                                Refusal::NotJudged(NotJudged::Form(
+                                    "a collection entry about the collection whole (one that \
+                                     matches several instances, creates or removes one, or names \
+                                     every one)"
+                                        .into(),
+                                ))
+                            })?)
+                        }
+                        (ConfigurationClause::Optional(_), _) => {
+                            return Err(Refusal::NotJudged(NotJudged::Form(
+                                "an optional cell".into(),
+                            )));
+                        }
+                        (ConfigurationClause::Fixed(_), _) => {
+                            return Err(Refusal::NotJudged(NotJudged::Skeleton(
+                                "the cells the rule mentions".into(),
+                            )));
+                        }
+                    };
+                    lifted_clauses[index] = Some(lifted);
                     changed = true;
                 }
-                let clauses = lifted_clauses
+                let mut clauses = lifted_clauses
                     .into_iter()
                     .collect::<Option<Vec<_>>>()
                     .expect("every clause has its emitted clause");
+                // A key cell the mutant matches another key in is one the lifted sentence
+                // mentions, as the source that writes that key in its pattern does, so it is
+                // no longer among the cells the rule leaves out.
+                let omitted = body
+                    .omitted_siblings()
+                    .iter()
+                    .filter(|cell| !added.iter().any(|clause| clause.cell() == *cell))
+                    .cloned()
+                    .collect();
+                clauses.extend(added);
                 if changed {
                     let rewritten = FixedConfigurationRewrite::new(
                         body.origin().clone(),
                         body.configuration().clone(),
                         clauses,
-                        body.omitted_siblings().to_vec(),
+                        omitted,
                     )
                     .map_err(|error| Refusal::NotJudged(NotJudged::Sentence(error.to_string())))?;
                     lifted = lifted.with_configuration_body(rewritten).map_err(|error| {
@@ -1289,6 +1847,24 @@ fn collect_tests(term: &krs_ir_levels::DefinitionTerm, tests: &mut BTreeSet<Sour
     }
 }
 
+/// The terms of a Definition IR cell clause: its pattern, and what it writes.
+fn fixed_terms(clause: &FixedCellClause<SymbolId, DefinitionTerm>) -> Vec<&DefinitionTerm> {
+    let mut terms = vec![clause.before()];
+    if let CellPost::Replace { term } = clause.after() {
+        terms.push(term);
+    }
+    terms
+}
+
+/// Whether a cell's frame argument is `...` (`Some(true)`), none (`Some(false)`), or neither.
+fn dots(term: &Term) -> Option<bool> {
+    match term.unannotated() {
+        Term::Apply { label, .. } if label.name == "#dots" => Some(true),
+        Term::Apply { label, .. } if label.name == "#noDots" => Some(false),
+        _ => None,
+    }
+}
+
 /// The cell items of a configuration rule's body: the leaves of its `#cells` tree.
 fn cell_items(body: &Term) -> Vec<&Term> {
     let mut items = Vec::new();
@@ -1412,30 +1988,52 @@ impl KeyCell<'_> {
     }
 
     /// The refusal of a sentence that writes this cell other than as its subject matched it,
-    /// with the reason KRS gives the Rust source the sentence stands for, which writes the key
-    /// ([`krs_ir::subject::key_write_reason`]). The sentence is about one instance of the
-    /// collection, whose instance type is the group it is a rule for.
-    fn refusal(&self) -> Refusal {
+    /// with the reason KRS gives the Rust source the sentence stands for, which `writer` picks.
+    fn refusal(&self, writer: KeyWriter) -> Refusal {
         let field = |cell: &SemanticCell| {
             let field = cell.field().unwrap_or(cell.name());
             field.strip_prefix("r#").unwrap_or(field).to_owned()
         };
-        let group = self.holder.declaration().map_or_else(
-            || self.holder.name().to_owned(),
-            |declaration| declaration.item_name().to_owned(),
-        );
-        Refusal::Krs(Box::new(DescriptorLoweringError::GroupInstance {
-            code: krs_diagnostic::codes::analysis::MAP_COLLECTION_KEY,
-            reason: krs_ir::subject::key_write_reason(
-                &group,
-                &field(self.holder),
-                &field(self.key),
-                &field(self.cell),
-            ),
-            range: None,
-            item: None,
-        }))
+        let code = krs_diagnostic::codes::analysis::MAP_COLLECTION_KEY;
+        let error = match writer {
+            KeyWriter::Group => {
+                let group = self.holder.declaration().map_or_else(
+                    || self.holder.name().to_owned(),
+                    |declaration| declaration.item_name().to_owned(),
+                );
+                DescriptorLoweringError::GroupInstance {
+                    code,
+                    reason: krs_ir::subject::key_write_reason(
+                        &group,
+                        &field(self.holder),
+                        &field(self.key),
+                        &field(self.cell),
+                    ),
+                    range: None,
+                    item: None,
+                }
+            }
+            KeyWriter::Entry => DescriptorLoweringError::CellCollection {
+                code,
+                reason: krs_ir::subject::key_update_reason(&field(self.holder), &field(self.key)),
+                range: None,
+                item: None,
+            },
+        };
+        Refusal::Krs(Box::new(error))
     }
+}
+
+/// Which Rust source writes a cell at or inside a Map instance's key, which picks the reason
+/// KRS refuses a write of the key with.
+#[derive(Clone, Copy, Debug)]
+enum KeyWriter {
+    /// A rule for the instance's group, whose clauses are the instance's cells: it is a local
+    /// step of the instance ([`krs_ir::subject::key_write_reason`]).
+    Group,
+    /// An entry of the collection, in a rule about an enclosing cell, that keeps the instance
+    /// and updates it ([`krs_ir::subject::key_update_reason`]).
+    Entry,
 }
 
 /// The cells at or inside the keys of Map collections' instances in `modules`' configurations,
@@ -2004,11 +2602,6 @@ impl<'i> Lift<'i> {
         }
         let [left, content, right] = arguments.as_slice() else {
             return Err(skeleton("a cell's frame"));
-        };
-        let dots = |term: &Term| match term.unannotated() {
-            Term::Apply { label, .. } if label.name == "#dots" => Some(true),
-            Term::Apply { label, .. } if label.name == "#noDots" => Some(false),
-            _ => None,
         };
         if dots(left) != Some(false) {
             return Err(skeleton("a cell's frame"));

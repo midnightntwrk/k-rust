@@ -251,6 +251,9 @@ The krs front end refuses what only KRS can tell:
 | `not-judged` | is one KRS cannot yet tell a Rust source writes | write the misunderstanding another way |
 | `krs::analysis::…` | stands for a Rust source KRS itself refuses, such as overlapping equations | when the `detail` lists siblings, make their edits too, as an author's Rust edit would; otherwise make the rules disjoint, or change the other rule the `detail` names in the same mutation (a correlated edit) |
 
+A key cell KRS adds for the instance a rule is about, such as a hart's `<id> Krs_KeyHart:Int </id>`, is no generated-only node: it is the key of the instance the rule's pattern matches, whether or not the author wrote the cell.
+An edit that writes it is refused as `krs::analysis::map-collection-key`, as the Rust source that writes the key is, and one that matches another key is judged as the source that writes that key in the pattern, with the key the rule passes to its functions following it.
+
 It also warns, without refusing: `claim-helper` for an edited equation of a function only claims apply, and `partial-rendering` for an edited construct KRS renders in other sentences the mutation leaves unchanged.
 
 kink's own refusals a KRS author meets include `unknown-label` (whose `detail` names the labels near the anchor), `ambiguous-label`, `find-not-found`, `find-ambiguous`, `edit-outside-rule`, `overlapping-edits`, `edited-load-failed` (the edited K does not parse or sort, as after a `replace` that is not K), `structure-changed`, `span-changed`, `label-changed`, `line-outside-rules`, `line-ambiguous`, `address-mismatch`, `source-changed`, `non-rule-sentence` and `no-change` (the edited rule loads to the same sentence: layout, comments and a `requires true` are no change); its warnings are `line-anchor`, `text-anchor`, `unmatched-rule`, `unapplied-rule`, `stop-hides-edit`, `stop-rule-deleted` and `no-coverage-signal`.

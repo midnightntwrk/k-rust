@@ -771,9 +771,11 @@ fn fixed_points(baseline: &Baseline) -> Vec<String> {
 
 /// The fixed point of the rules of a definition whose rules for `Hart` lie in the instances of a
 /// Map collection: each rule that names the hart's cells inside the instance's cell is its own
-/// re-derivation. The sentences left are the `#[k::context]`s, which the check does not read, and
-/// those that hold an optional cell or an instance record (`smp`'s rules over its collection, or
-/// a hart's jobs), which the lift does not read.
+/// re-derivation, and so is each rule for the configuration whose entry of the harts steps one
+/// hart (`read`, `report`, `work`, `write`), whose children are that hart's cells. The sentences
+/// left are the `#[k::context]`s, which the check does not read, and those that hold an optional
+/// cell or an entry about the collection whole (one that creates a hart, or matches several),
+/// which the lift does not read.
 #[test]
 fn every_rule_about_one_instance_is_its_own_rederivation() {
     let baseline = baseline("group-harts", "KRS-HARTS", smp_package());
@@ -853,8 +855,19 @@ fn every_rule_about_one_nested_instance_is_its_own_rederivation() {
 /// another literal key is no write but a change of the pattern (`id: 1` in Rust), judged as any
 /// other. In `nested`, an edit of the argument `leap` gives `pcPlus` is judged beside the key
 /// cells and the key arguments KRS adds, and an edit of a key argument is refused: KRS derives
-/// the keys the rule passes, and the mutant's are not those.
+/// the keys the rule passes, and the mutant's are not those. A key cell KRS adds is the key of
+/// the instance the rule is about, which its subject matches whether or not the author wrote the
+/// cell, so writing it is refused as KRS refuses the source that writes the key, and matching
+/// another key with the passed key following is judged as the source that matches that key; each
+/// change is then contained, with its own edit only, in the authored node that holds it. In a
+/// rule for the configuration whose entry of the harts steps one hart, writing the hart's key is
+/// an update of the instance that changes its key, refused with the reason KRS gives that
+/// source.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case per footprint change, in one baseline each."
+)]
 fn an_edit_of_a_rule_about_one_instance_is_judged_by_its_footprint() {
     let smp = baseline("group-harts", "KRS-HARTS", smp_package());
     let footprint = |check: &MutationCheck| {
@@ -916,6 +929,117 @@ fn an_edit_of_a_rule_about_one_instance_is_judged_by_its_footprint() {
     assert_eq!(lifted.id().item_name(), "leap");
     let check = nested.check(leap, &[("Krs_KeyHart:Int )", "Krs_KeyHart:Int +Int 1 )")]);
     assert!(!check.accepted(), "{check:#?}");
+    // The key cells KRS adds are the keys of the instances the rule is about: writing one is
+    // refused as KRS refuses the source that writes it.
+    for (cell, group, holder, key) in [
+        ("<id> Krs_KeyHart:Int </id>", "Hart", "hart", "id"),
+        (
+            "<cid> Krs_KeyCluster:Int </cid>",
+            "Cluster",
+            "cluster",
+            "cid",
+        ),
+    ] {
+        let written = cell.replace(":Int ", ":Int => 7 ");
+        let check = nested.check(leap, &[(cell, &written)]);
+        match outcome(&check) {
+            Err(Refusal::Krs(error)) => match error.as_ref() {
+                krs_compiler::DescriptorLoweringError::GroupInstance { code, reason, .. } => {
+                    assert_eq!(*code, krs_diagnostic::codes::analysis::MAP_COLLECTION_KEY);
+                    assert_eq!(
+                        *reason,
+                        krs_ir::subject::key_write_reason(group, holder, key, key)
+                    );
+                }
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{cell}: {other:?}"),
+        }
+    }
+    // Another key matched in a key cell KRS adds, with the key the rule passes following it.
+    for (cell, matched, argument, passed) in [
+        (
+            "<id> Krs_KeyHart:Int </id>",
+            "<id> 1 </id>",
+            "Krs_KeyHart:Int )",
+            "1 )",
+        ),
+        (
+            "<cid> Krs_KeyCluster:Int </cid>",
+            "<cid> 1 </cid>",
+            "#instance ( Krs_KeyCluster:Int ,",
+            "#instance ( 1 ,",
+        ),
+    ] {
+        let check = nested.check(leap, &[(cell, matched), (argument, passed)]);
+        accepted(&check);
+        let SentenceVerdict::NeedsRederivation { containers } =
+            &check.judgement.sentences[0].verdict
+        else {
+            panic!("{cell}: {check:#?}");
+        };
+        let mut held = containers
+            .iter()
+            .flat_map(|container| container.edits.iter().copied())
+            .collect::<Vec<_>>();
+        held.sort_unstable();
+        assert_eq!(held, [0, 1], "{cell}: {containers:#?}");
+    }
+
+    // An entry that steps one hart, whose key the author wrote: writing it is refused as the
+    // update of the hart that changes its key.
+    let read = "me @ Hart { k: [Read { addr }, ..], .. }";
+    let keyed = baseline(
+        "group-harts",
+        "KRS-HARTS",
+        Box::leak(
+            smp_package()
+                .replace(read, "me @ Hart { id: i, k: [Read { addr }, ..], .. }")
+                .replace(
+                    "Hart { k: [value, ..], ..me }",
+                    "Hart { id: i, k: [value, ..], ..me }",
+                )
+                .into_boxed_str(),
+        ),
+    );
+    let rekeyed = keyed.check("rule [read]", &[("<id> I:Int", "<id> I:Int => 1")]);
+    match outcome(&rekeyed) {
+        Err(Refusal::Krs(error)) => match error.as_ref() {
+            krs_compiler::DescriptorLoweringError::CellCollection { code, reason, .. } => {
+                assert_eq!(*code, krs_diagnostic::codes::analysis::MAP_COLLECTION_KEY);
+                assert_eq!(*reason, krs_ir::subject::key_update_reason("hart", "id"));
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The configuration-cells gate's `queue` package, a List collection of jobs.
+const QUEUE: &str = include_str!("../../../tests/configuration-cells/packages/queue/src/lib.rs");
+
+/// A List collection's entry is written inside the collection's parent cell, its front instance
+/// first, and an entry that steps the front instance is read there. `queue`'s `front` steps the
+/// front job: it is its own re-derivation, an edit that writes the job's payload in place is
+/// judged, and closing the job's cell, which states that the job has no other cells, is refused.
+#[test]
+fn an_entry_that_steps_a_list_instance_is_read_inside_its_parent_cell() {
+    let queue = baseline("queue", "KRS-QUEUE", QUEUE);
+    let outcomes = fixed_points(&queue);
+    assert!(
+        outcomes.contains(&"rule [front]: judged".to_owned()),
+        "{outcomes:#?}"
+    );
+    let front = "rule [front]";
+    accepted(&queue.check(
+        front,
+        &[(
+            "<payload> P:Int </payload>",
+            "<payload> P:Int => 0 </payload>",
+        )],
+    ));
+    let closed = queue.check(front, &[("...\n        </job>", "</job>")]);
+    assert!(!closed.accepted(), "{closed:#?}");
 }
 
 /// The cases of a derived node that must follow the edit, on the census fixture's `div`

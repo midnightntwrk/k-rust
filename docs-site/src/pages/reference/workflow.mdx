@@ -943,7 +943,7 @@ In a `check` document, each mutation that resolves gains `krs = {edits}`, and on
 
 | `judged` | the edit | `rust` |
 | --- | --- | --- |
-| `authored` | changes syntax the author wrote | the authored nodes it changes |
+| `authored` | changes syntax the author wrote, or a key cell KRS adds for the instance a rule is about, which is the key the authored pattern matches | the authored nodes it changes; for a key cell, the authored node that holds it |
 | `inserted` | changes or cuts through a node KRS inserted on its own (a definedness test, a key guard, an implicit frame, a generated binder), so the row is refused as `generated-only` or `not-judged` | the authored node each inserted node comes from |
 | `deleted` | removes its rule (`delete = true`) | the rule's item |
 | `no-node` | changes no node of a rule's syntax: layout or comments only, a declaration, or tokens outside every rule sentence | the rule's item |
