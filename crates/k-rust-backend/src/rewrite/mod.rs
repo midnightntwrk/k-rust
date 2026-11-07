@@ -59,7 +59,8 @@ pub use state_match::{
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
 pub use stop_condition::{
-    Arrival as StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+    Arrival as StopArrival, Candidate as SuccessorCandidate, InProcess, StopCondition,
+    StopConditionRefusal, StopDecision, StopSide, SuccessorReading,
 };
 
 use std::{collections::BTreeSet, hash::Hash, num::NonZeroU64, sync::Arc, time::Duration};
@@ -1463,13 +1464,43 @@ pub fn execute_with_stop_condition(
     observation: Option<&ObservationOptions>,
     condition: &mut dyn StopCondition,
 ) -> Result<ExecutionResult, StopConditionRefusal> {
+    execute_in_process(
+        definition,
+        initial,
+        options,
+        solver,
+        observation,
+        InProcess {
+            condition: Some(condition),
+            reading: None,
+        },
+    )
+}
+
+/// Execute with what an in-process caller adds ([`InProcess`]): a stop condition asked at each
+/// arrival at a stop, as [`execute_with_stop_condition`] asks it, and a reading of the
+/// candidates of a stop rule's step, which decides whether the step is its state's one successor
+/// (`stop_condition`, "Successors read by the caller"). Without either it runs as
+/// [`execute_with_solver`] does, observed where `observation` asks.
+///
+/// # Errors
+///
+/// As [`execute_with_stop_condition`].
+pub fn execute_in_process(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+    in_process: InProcess<'_>,
+) -> Result<ExecutionResult, StopConditionRefusal> {
     execute::execute_with_condition(
         definition,
         vec![initial],
         options,
         solver,
         observation,
-        condition,
+        in_process,
     )
 }
 

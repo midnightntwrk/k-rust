@@ -183,7 +183,7 @@ use k_rust_backend::{
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, StateMatchOptions,
-        TraceKind, execute_observed_with_solver, execute_with_solver, execute_with_stop_condition,
+        TraceKind, execute_in_process, execute_observed_with_solver, execute_with_solver,
     },
     rule::ClassifiedAxiom,
     search::{
@@ -224,7 +224,8 @@ pub use k_rust_backend::definition::{
 };
 pub use k_rust_backend::nesting::SegmentRefused;
 pub use k_rust_backend::rewrite::{
-    StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+    InProcess, StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+    SuccessorCandidate, SuccessorReading,
 };
 pub use k_rust_backend::stop::{
     CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,
@@ -2372,7 +2373,7 @@ impl Backend {
         &mut self,
         request: ExecuteRequest,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request, None, None)
+        self.execute_using(request, None, InProcess::default())
     }
 
     /// [`Self::execute_kore`] with a stop condition: a path ends at its `stopCount`th arrival
@@ -2395,7 +2396,29 @@ impl Backend {
         request: ExecuteRequest,
         condition: &mut dyn StopCondition,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request, None, Some(condition))
+        self.execute_kore_in_process(
+            request,
+            InProcess {
+                condition: Some(condition),
+                reading: None,
+            },
+        )
+    }
+
+    /// [`Self::execute_kore`] with what an in-process caller adds ([`InProcess`]): a stop
+    /// condition, as [`Self::execute_kore_with_condition`] asks it, and a reading of the
+    /// candidates of a stop rule's step, which decides whether the step is its state's one
+    /// successor, so whether it is an arrival (docs/compatibility.md, "Stop count").
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::execute_kore_with_condition`].
+    pub fn execute_kore_in_process(
+        &mut self,
+        request: ExecuteRequest,
+        in_process: InProcess<'_>,
+    ) -> Result<KoreExecutionResult, BackendError> {
+        self.execute_using(request, None, in_process)
     }
 
     /// Execute with observation without changing the leaves or their order.
@@ -2412,14 +2435,14 @@ impl Backend {
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
     ) -> Result<KoreExecutionResult, BackendError> {
-        self.execute_using(request.request, Some(request.rules), None)
+        self.execute_using(request.request, Some(request.rules), InProcess::default())
     }
 
     fn execute_using<K: wire::WireKore>(
         &mut self,
         request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
-        condition: Option<&mut dyn StopCondition>,
+        in_process: InProcess<'_>,
     ) -> Result<ExecutionResult<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         if request.collect_offered && !request.collect_coverage {
@@ -2539,15 +2562,16 @@ impl Backend {
             let observation = observation_rules
                 .map(|rules| observation_options(definition, rules))
                 .transpose()?;
-            let asked = condition.is_some();
-            let result = match (condition, &observation) {
-                (Some(condition), observation) => execute_with_stop_condition(
+            let asked = in_process.condition.is_some();
+            let in_process_run = asked || in_process.reading.is_some();
+            let result = match (in_process_run, &observation) {
+                (true, observation) => execute_in_process(
                     definition,
                     initial,
                     options,
                     solver,
                     observation.as_ref(),
-                    condition,
+                    in_process,
                 )
                 .map_err(|refusal| {
                     BackendError::of_kind(
@@ -2555,10 +2579,10 @@ impl Backend {
                         refusal.to_string(),
                     )
                 })?,
-                (None, Some(observation)) => {
+                (false, Some(observation)) => {
                     execute_observed_with_solver(definition, initial, options, solver, observation)
                 }
-                (None, None) => execute_with_solver(definition, initial, options, solver),
+                (false, None) => execute_with_solver(definition, initial, options, solver),
             };
             wire::execute_answer(
                 request.cancelled_result,
@@ -2918,13 +2942,16 @@ impl Backend {
         request: ObservedRequest<ExecuteRequest>,
         writer: W,
     ) -> Result<(), BackendError> {
-        let response =
-            self.execute_using::<Box<RawValue>>(request.request, Some(request.rules), None)?;
+        let response = self.execute_using::<Box<RawValue>>(
+            request.request,
+            Some(request.rules),
+            InProcess::default(),
+        )?;
         serde_json::to_writer(writer, &response).map_err(json_output_error)
     }
 
     pub fn execute_json(&mut self, request: ExecuteRequest) -> Result<String, BackendError> {
-        serialize_wire(&self.execute_using::<Box<RawValue>>(request, None, None)?)
+        serialize_wire(&self.execute_using::<Box<RawValue>>(request, None, InProcess::default())?)
     }
 
     pub fn execute_observed_json(
@@ -2934,7 +2961,7 @@ impl Backend {
         serialize_wire(&self.execute_using::<Box<RawValue>>(
             request.request,
             Some(request.rules),
-            None,
+            InProcess::default(),
         )?)
     }
 

@@ -1388,6 +1388,19 @@ pub(crate) fn run_read_chosen_value() -> bool {
         })
 }
 
+/// Whether the run so far left a hook unevaluated: the record of `load`, a definition's load
+/// record, followed by the open run record lists an unsupported hook
+/// ([`RunRecord::unsupported_hooks`], which leaves out a hook that is also an allowance refusal),
+/// as the run's result would if it ended now.
+pub(crate) fn run_left_hook_unsupported(load: &[PathFact]) -> bool {
+    STATE.with_borrow(|state| {
+        let run = state.run.as_deref().unwrap_or_default();
+        !RunRecord::of(load.iter().chain(run))
+            .unsupported_hooks
+            .is_empty()
+    })
+}
+
 /// A point in the notes of this thread, for [`since`] and [`noted_since`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Marker(u64);

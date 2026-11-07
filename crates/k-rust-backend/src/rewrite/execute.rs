@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(min(s, max_work)) state pops, plus initialization and callee work below; max_depth limits rewrite depth and max_breadth limits the queued frontier, not the per-state branching factor, so neither gives a b^d total-state bound (remainders can also be queued at the same depth). Exploration is unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+//! bound = "O(min(s, max_work)) state pops, plus initialization and callee work below; max_depth limits rewrite depth and max_breadth limits the queued frontier, not the per-state branching factor, so neither gives a b^d total-state bound (remainders can also be queued at the same depth). Exploration is unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; under strategy any, a step the sequential step takes by a cut-point or terminal rule selected also takes one all-path rewrite step from its state, with the condition and normal-form memos set aside so that it is served from none and fills none, and normalizes the successors of that step's candidates until two are defined (Execution::siblings); under an in-process successor reading, each candidate and remainder of a step holding a selected rule's candidate is externalized once, its path condition only, and read once (Execution::read_stop_step); and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -93,7 +93,8 @@ use crate::{
 
 use super::refutation_memo::RefutationMemo;
 use super::stop_condition::{
-    self, Arrival as StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+    self, Arrival as StopArrival, InProcess, StopCondition, StopConditionRefusal, StopDecision,
+    StopSide, SuccessorReading,
 };
 use super::work::Work;
 use super::{
@@ -128,22 +129,23 @@ pub(super) fn execute_using(
         initial_io,
         observation,
         observe,
-        None,
+        InProcess::default(),
     ) {
         Ok(outcome) => outcome,
         Err(refusal) => unreachable!("a run without a stop condition has no refusal: {refusal}"),
     }
 }
 
-/// [`execute_using`] with a stop condition asked at each arrival at a stop
-/// (`stop_condition`); the condition's refusal fails the run.
+/// [`execute_using`] with what an in-process caller adds (`stop_condition`): a stop condition
+/// asked at each arrival at a stop, whose refusal fails the run, and a reading of a stop rule's
+/// step's candidates.
 pub(super) fn execute_with_condition(
     definition: &BackendDefinition,
     initial: Vec<Pattern>,
     options: ExecutionOptions,
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
-    condition: &mut dyn StopCondition,
+    in_process: InProcess<'_>,
 ) -> Result<ExecutionResult, StopConditionRefusal> {
     execute_asking(
         definition,
@@ -153,7 +155,7 @@ pub(super) fn execute_with_condition(
         None,
         observation,
         |_| {},
-        Some(condition),
+        in_process,
     )
     .map(|(result, _)| result)
 }
@@ -167,7 +169,7 @@ fn execute_asking(
     initial_io: Option<ExecutionIoState>,
     observation: Option<&ObservationOptions>,
     observe: impl FnMut(&BuiltinEffect),
-    condition: Option<&mut dyn StopCondition>,
+    in_process: InProcess<'_>,
 ) -> Result<(ExecutionResult, InitialSimplificationStatus), StopConditionRefusal> {
     // Every stack stop of the run is counted, those that end a state and those a refinement
     // dismisses alike (`ExecutionResult::stack_stops`), and so is every undecided answer the
@@ -183,7 +185,7 @@ fn execute_asking(
             initial_io,
             observation,
             observe,
-            condition,
+            in_process,
         )
     });
     let (mut result, status) = outcome?;
@@ -205,8 +207,9 @@ fn execute_counted(
     initial_io: Option<ExecutionIoState>,
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
-    condition: Option<&mut dyn StopCondition>,
+    in_process: InProcess<'_>,
 ) -> Result<(ExecutionResult, InitialSimplificationStatus), StopConditionRefusal> {
+    let InProcess { condition, reading } = in_process;
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let _apart = crate::rule::ApartScope::enter();
     // Every evaluation of the run, its rule and equation conditions included, runs in the mode
@@ -244,6 +247,7 @@ fn execute_counted(
             &mut observe,
             // Reborrowed for the run alone, which ends inside this call.
             condition.map(|condition| -> &mut dyn StopCondition { &mut *condition }),
+            reading,
         );
         if execution.options.max_breadth == Some(0) {
             return execution.collect_at_breadth_zero();
@@ -373,6 +377,9 @@ struct Execution<'a> {
     matcher: Option<StateMatcher<'a>>,
     /// The stop condition of an in-process run that has one (`stop_condition`).
     condition: Option<&'a mut dyn StopCondition>,
+    /// The caller's reading of a stop rule's step's candidates, where it gives one
+    /// (`stop_condition`, "Successors read by the caller").
+    reading: Option<&'a dyn SuccessorReading>,
     /// The condition's refusal, once it refused: the run ends there, with no result.
     refusal: Option<StopConditionRefusal>,
     /// After each expansion: the merge table's size, its shallowest recorded depth, and the
@@ -395,6 +402,7 @@ impl<'a> Execution<'a> {
         observation: Option<&'a ObservationOptions>,
         observe: &'a mut dyn FnMut(&BuiltinEffect),
         condition: Option<&'a mut dyn StopCondition>,
+        reading: Option<&'a dyn SuccessorReading>,
     ) -> Self {
         let initial_input_count = initial.len();
         // One request: every name the execution mints is apart from every variable of the
@@ -507,6 +515,7 @@ impl<'a> Execution<'a> {
             merged_arrival: false,
             matcher,
             condition,
+            reading,
             refusal: None,
             #[cfg(test)]
             merge_census: Vec::new(),
@@ -1535,10 +1544,14 @@ impl<'a> Execution<'a> {
             deferred,
             arriving,
             terminal: terminal_rule,
+            undecided,
         } = match self.stop_plan(&state, &applied, successor) {
             Ok(plan) => plan,
             Err(stop) => return Err(Box::new(self.stopped_leaf(state, stop))),
         };
+        if let Some((halt, diagnostics)) = undecided {
+            return Err(Box::new(self.undecided_siblings(state, halt, &diagnostics)));
+        }
         if let Some(rule) = ends_before {
             if let Some(decision) = deferred {
                 // The condition answered neither yes nor no at a cut-point rule's arrival: the
@@ -1816,21 +1829,30 @@ impl<'a> Execution<'a> {
     ///
     /// Under strategy any, `applied` is the one successor the sequential step took, not
     /// necessarily its state's one successor: where it is a stop rule's and the state has another
-    /// ([`Self::has_another_successor`]), the step is no arrival but a passed stop, which stops
-    /// nothing, is not counted and is not asked the condition, and the path goes on through
-    /// `applied` as through any other step.
+    /// ([`Self::siblings`]), the step is no arrival but a passed stop, which stops nothing, is not
+    /// counted and is not asked the condition, and the path goes on through `applied` as through
+    /// any other step; where whether it has another is undecided, the path ends at `state`
+    /// ([`StopPlan::undecided`]).
     fn stop_plan(
         &mut self,
         state: &ExecutionState,
         applied: &AppliedRule,
         successor: Option<&crate::term::Term>,
     ) -> Result<StopPlan, Stop> {
-        if self.options.mode == ExecutionMode::Any
-            && self.selects_stop(applied)
-            && self.has_another_successor(state)?
-        {
-            self.note_passed_stop(applied, state.depth);
-            return Ok(StopPlan::default());
+        if self.options.mode == ExecutionMode::Any && self.selects_stop(applied) {
+            match self.siblings(state)? {
+                Siblings::None => {}
+                Siblings::Another => {
+                    self.note_passed_stop(applied, state.depth);
+                    return Ok(StopPlan::default());
+                }
+                Siblings::Undecided(undecided) => {
+                    return Ok(StopPlan {
+                        undecided: Some(*undecided),
+                        ..StopPlan::default()
+                    });
+                }
+            }
         }
         let ends = self.ends_at_arrival(state);
         let cut_point = selected_stop_rule(applied, &self.options.cut_point_rules);
@@ -1925,6 +1947,19 @@ impl<'a> Execution<'a> {
         Ok(decision)
     }
 
+    /// The end of a path at `state`, where whether a stop rule's step from it is its one
+    /// successor is undecided ([`Siblings::Undecided`]): the all-path step's `halt`, with the
+    /// diagnostics of its work.
+    fn undecided_siblings(
+        &mut self,
+        mut state: ExecutionState,
+        halt: HaltReason,
+        diagnostics: &[BackendDiagnostic],
+    ) -> ExecutionLeaf {
+        state.diagnostics.extend(diagnostics);
+        state.leaf(halt, &self.observation_log)
+    }
+
     /// The end of a path at the arrival at `rule` on `side` whose stop state is `state`, where
     /// the step's successor is shown defined and the condition answered `decision`, neither yes
     /// nor no: a `stop-undecided` leaf of `state`, or the request's refusal.
@@ -1994,19 +2029,25 @@ impl<'a> Execution<'a> {
     /// the definition, not of the strategy, so it is the all-path step's: the state's successors
     /// are that step's candidates whose successors are not shown undefined, with its remainder,
     /// as a step under strategy all reads them where a stop rule may select one of several
-    /// candidates ([`Self::branch`]). One such candidate and no remainder is the one successor;
-    /// any other answer (several, a remainder, or a halt the sequential step did not meet) is
-    /// read as another successor, so a passed stop is never omitted.
+    /// candidates ([`Self::branch`]), and less those the caller's reading says denote no state
+    /// ([`Self::read_stop_step`]). One such successor is the one the sequential step took, and
+    /// a step that shows no successor at all (no rule applies, no candidate's result is
+    /// defined, or the state has no instance) shows none beside it either. A step that does not
+    /// decide the state's successors (`Indeterminate`, `Simplification`) leaves the question
+    /// undecided, and the path ends at the state with that step's halt ([`Siblings::Undecided`]):
+    /// going on would claim no arrival, and stopping an arrival, neither of which was shown.
     ///
     /// The step is the run's work at a stop rule's step and decides where the path ends, so a
     /// fact it notes (a value the definition leaves open, a contradicted claim) is a fact of
-    /// the path, as every candidate's is under strategy all. Otherwise it changes nothing in
-    /// the run: it reports to no coverage set, emits no diagnostic, mints no name and fills no
-    /// memo the run is later served from, so the path after it is the path the run without the
-    /// question takes.
-    fn has_another_successor(&mut self, state: &ExecutionState) -> Stoppable<bool> {
+    /// the path, as every candidate's is under strategy all, and the names it mints are the
+    /// run's, so no later name of the run repeats one a kept fact may mention; its work is the
+    /// run's at that step, on the step's clock and in the run's measures. Otherwise it changes
+    /// nothing in the run: it reports to no coverage set, emits no diagnostic unless it ends the
+    /// path, and fills no memo the run is later served from.
+    fn siblings(&mut self, state: &ExecutionState) -> Stoppable<Siblings> {
         let definition = self.definition;
         let solver = self.solver;
+        let reading = self.reading;
         let options =
             SimplificationOptions::keep_partial(self.options.max_simplification_iterations);
         let subject_definedness = if self.options.assume_initial_defined {
@@ -2015,12 +2056,12 @@ impl<'a> Execution<'a> {
             SubjectDefinedness::Where(&state.defined_where)
         };
         let io = state.io_enabled.then_some(&state.io);
-        let mut fresh_counter = self.fresh_counter.clone();
-        let ask = || -> Stoppable<bool> {
+        let fresh_counter = &mut self.fresh_counter;
+        let ask = || -> Stoppable<Siblings> {
             let rewritten = rewrite_step_with_optional_execution(
                 definition,
                 &state.pattern,
-                &mut fresh_counter,
+                fresh_counter,
                 options,
                 solver,
                 ExecutionMode::All,
@@ -2030,23 +2071,46 @@ impl<'a> Execution<'a> {
                 None,
             )?;
             let (branches, remainder) = match rewritten {
-                RewriteResult::Finished(_) => return Ok(false),
                 RewriteResult::Branch {
                     branches,
                     remainder,
                     ..
                 } => (branches, remainder),
-                RewriteResult::Stuck(_)
+                RewriteResult::Finished(_)
+                | RewriteResult::Stuck(_)
                 | RewriteResult::Trivial(_, _)
-                | RewriteResult::Vacuous(_)
-                | RewriteResult::Indeterminate { .. }
-                | RewriteResult::Simplification { .. } => return Ok(true),
+                | RewriteResult::Vacuous(_) => return Ok(Siblings::None),
+                RewriteResult::Indeterminate { reason, .. } => {
+                    return Ok(Siblings::Undecided(Box::new((
+                        HaltReason::Indeterminate(reason),
+                        Vec::new(),
+                    ))));
+                }
+                RewriteResult::Simplification { error, .. } => {
+                    return Ok(Siblings::Undecided(Box::new((
+                        HaltReason::Simplification(error),
+                        Vec::new(),
+                    ))));
+                }
             };
-            if remainder.is_some() {
-                return Ok(true);
-            }
-            let mut defined = 0_usize;
+            let reading = reading.map(|reading| {
+                (
+                    reading,
+                    crate::path_facts::run_left_hook_unsupported(definition.load_record()),
+                )
+            });
+            let rejects = |pattern: &Pattern| {
+                reading.is_some_and(|(reading, hooks)| denotes_no_state(reading, pattern, hooks))
+            };
+            let mut successors = usize::from(
+                remainder
+                    .as_ref()
+                    .is_some_and(|remainder| !rejects(&remainder.pattern)),
+            );
             for applied in &branches {
+                if rejects(&applied.pattern) {
+                    continue;
+                }
                 let rule = applied.observing_rule();
                 let checked = crate::path_facts::observed_by(
                     || Some(rule.clone()),
@@ -2062,27 +2126,82 @@ impl<'a> Execution<'a> {
                     },
                 )?;
                 if checked.undefined.is_none() {
-                    defined += 1;
-                    if defined > 1 {
-                        return Ok(true);
+                    successors += 1;
+                    if successors > 1 {
+                        return Ok(Siblings::Another);
                     }
                 }
             }
-            Ok(false)
+            Ok(Siblings::None)
         };
-        crate::coverage::suspend(|| {
+        let (siblings, diagnostics) = crate::coverage::suspend(|| {
             crate::diagnostic::discarded(|| {
-                crate::rule::with_apart_names_restored(|| {
-                    crate::deferred::hook_values_aside(|| {
-                        crate::simplify::unspecified_values_aside(|| {
-                            crate::simplify::condition_memo_aside(|| {
-                                crate::simplify::normal_forms::aside(ask)
+                crate::diagnostic::collect(|| {
+                    crate::rule::with_apart_names_restored(|| {
+                        crate::deferred::hook_values_aside(|| {
+                            crate::simplify::unspecified_values_aside(|| {
+                                crate::simplify::condition_memo_aside(|| {
+                                    crate::simplify::normal_forms::aside(ask)
+                                })
                             })
                         })
                     })
                 })
             })
+        });
+        Ok(match siblings? {
+            Siblings::Undecided(undecided) => {
+                Siblings::Undecided(Box::new((undecided.0, diagnostics)))
+            }
+            siblings => siblings,
         })
+    }
+
+    /// Under a caller's reading ([`SuccessorReading`]), a step that holds a selected stop rule's
+    /// candidate without the candidates, and the remainder, the reading says denote no state:
+    /// they are no successors of the step, so a stop rule's candidate left alone is its state's
+    /// one successor (`stop_condition`, "Successors read by the caller"). A dropped candidate's
+    /// transition is rolled back, as an undefined one's is. The step is returned as built where
+    /// there is no reading, no selected stop rule's candidate, nothing the reading drops, or
+    /// nothing it keeps: a reading that leaves the step no successor contradicts the step.
+    fn read_stop_step(
+        &mut self,
+        branches: Vec<AppliedRule>,
+        remainder: Option<RemainderBranch>,
+    ) -> (Vec<AppliedRule>, Option<RemainderBranch>) {
+        let Some(reading) = self.reading else {
+            return (branches, remainder);
+        };
+        if !branches.iter().any(|applied| self.selects_stop(applied)) {
+            return (branches, remainder);
+        }
+        let hooks = crate::path_facts::run_left_hook_unsupported(self.definition.load_record());
+        let kept = branches
+            .iter()
+            .map(|applied| !denotes_no_state(reading, &applied.pattern, hooks))
+            .collect::<Vec<_>>();
+        let remainder_kept = remainder
+            .as_ref()
+            .is_some_and(|remainder| !denotes_no_state(reading, &remainder.pattern, hooks));
+        let all = kept.iter().all(|kept| *kept) && remainder_kept == remainder.is_some();
+        let none = !kept.iter().any(|kept| *kept) && !remainder_kept;
+        if all || none {
+            return (branches, remainder);
+        }
+        let mut survivors = Vec::with_capacity(branches.len());
+        for (applied, kept) in branches.into_iter().zip(kept) {
+            if kept {
+                survivors.push(applied);
+            } else {
+                self.roll_back(
+                    &applied.unique_id,
+                    &applied.label,
+                    &applied.pattern,
+                    &applied.effects,
+                );
+            }
+        }
+        (survivors, remainder.filter(|_| remainder_kept))
     }
 
     /// The `CutPointRule` leaf for a proposed successor that is normalized, on its own
@@ -2119,10 +2238,11 @@ impl<'a> Execution<'a> {
         mut state: ExecutionState,
         original: Pattern,
         branches: Vec<AppliedRule>,
-        mut remainder: Option<RemainderBranch>,
+        remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
     ) -> Phase<Vec<ExecutionState>> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
+        let (branches, mut remainder) = self.read_stop_step(branches, remainder);
         // The instances the step itself left without a defined successor (its trivial entries)
         // are parts of its undefined step, with those of the candidates whose successors
         // normalize to `\bottom`: the step has one `Trivial` leaf, standing for every instance on
@@ -2615,6 +2735,13 @@ impl<'a> Execution<'a> {
                                 Ok(plan) => plan,
                                 Err(stop) => return Err(Box::new(self.stopped_leaf(state, stop))),
                             };
+                        if let Some((halt, diagnostics)) = plan.undecided {
+                            return Err(Box::new(self.undecided_siblings(
+                                state,
+                                halt,
+                                &diagnostics,
+                            )));
+                        }
                         if let Some(rule) = plan.ends_before {
                             let mut state = state;
                             // The undefined step stands for some instances of this state: the
@@ -4327,6 +4454,36 @@ struct StopPlan {
     arriving: Option<Arriving>,
     /// The path ends after the step, at this terminal rule, once the successor is shown defined.
     terminal: Option<String>,
+    /// Under strategy any, whether the step is its state's one successor is undecided: the path
+    /// ends at the state before the step with this halt and the diagnostics of the work that
+    /// left it undecided ([`Execution::siblings`]).
+    undecided: Option<(HaltReason, Vec<BackendDiagnostic>)>,
+}
+
+/// Whether a stop rule's step taken under strategy any has a sibling ([`Execution::siblings`]).
+enum Siblings {
+    /// The step is its state's one successor.
+    None,
+    /// The state has another successor.
+    Another,
+    /// The all-path step at the state did not decide its successors: its halt, with the
+    /// diagnostics of its work.
+    Undecided(Box<(HaltReason, Vec<BackendDiagnostic>)>),
+}
+
+/// Whether `reading` says the candidate (or remainder) `pattern` denotes no state, its path
+/// condition's conjuncts externalized; `hooks` is whether the run so far left a hook unevaluated.
+fn denotes_no_state(reading: &dyn SuccessorReading, pattern: &Pattern, hooks: bool) -> bool {
+    let sort = pattern.term.sort();
+    let path_condition = pattern
+        .constraints
+        .iter()
+        .map(|predicate| crate::externalize::predicate_pattern(predicate, &sort))
+        .collect::<Vec<_>>();
+    reading.denotes_no_state(&stop_condition::Candidate {
+        path_condition: &path_condition,
+        hooks_unevaluated: hooks,
+    })
 }
 
 /// The step that produced a successor, kept on it until its first normalization.
@@ -5913,7 +6070,7 @@ mod tests {
             moving_average: false,
         });
         let mut execution = Execution::seed(
-            definition, initial, options, solver, solver, None, None, observe, None,
+            definition, initial, options, solver, solver, None, None, observe, None, None,
         );
         execution.run(&timeout_controller);
         execution
@@ -6082,6 +6239,7 @@ mod tests {
             None,
             None,
             &mut observe,
+            None,
             None,
         );
         execution.run(&timeout_controller);
@@ -8014,6 +8172,203 @@ mod tests {
             };
             assert_eq!(ends(&sole), [stop], "{context}: {sole:#?}");
             assert_eq!(sole.passed_stops, [], "{context}");
+        }
+    }
+
+    /// A reading that marks the candidates whose path condition applies `gate` as denoting no
+    /// state, and records whether each question said the run left a hook unevaluated.
+    #[derive(Default)]
+    struct NoGate {
+        asked: std::cell::RefCell<Vec<bool>>,
+    }
+
+    impl SuccessorReading for NoGate {
+        fn denotes_no_state(&self, candidate: &super::stop_condition::Candidate<'_>) -> bool {
+            self.asked.borrow_mut().push(candidate.hooks_unevaluated());
+            let mut pending = candidate.path_condition().iter().collect::<Vec<_>>();
+            while let Some(pattern) = pending.pop() {
+                if matches!(
+                    pattern,
+                    k_rust_kore::kore::ast::Pattern::Application { symbol, .. }
+                        if symbol.name == "gate"
+                ) {
+                    return true;
+                }
+                pending.extend(k_rust_kore::kore::walk::children(pattern));
+            }
+            false
+        }
+    }
+
+    /// A solver that shows neither a condition nor its negation, so that a rule's condition
+    /// over an unevaluated application is the condition of a candidate.
+    struct Contingent;
+
+    impl SmtSolver for Contingent {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+        ) -> Stoppable<Result<crate::smt::Satisfiability, crate::smt::SmtError>> {
+            Ok(Ok(crate::smt::Satisfiability::Sat))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<crate::smt::Validity, crate::smt::SmtError>> {
+            Ok(Ok(crate::smt::Validity::Contingent))
+        }
+    }
+
+    /// `tick` and `leap` both rewrite `s(0)`, `tick` (the first, which the sequential step
+    /// takes) to `s(1)` and `leap` to `s(5)` where `gate(0) == 1`, over a partial `gate` with no
+    /// equation. The backend reads `leap`'s candidate as a successor under that condition, so
+    /// `tick`'s step is no arrival and is passed, under either strategy; a caller's reading that
+    /// says `leap`'s candidate denotes no state makes `tick`'s step the state's one successor,
+    /// an arrival where the path stops, before or after `tick`, under either strategy. Where the
+    /// all-path step does not decide `leap`'s condition (no solver), whether `tick`'s step taken
+    /// under strategy any is an arrival is undecided, and the path ends at `s(0)` with that
+    /// step's halt instead of going on past a possible stop.
+    #[test]
+    fn a_callers_reading_decides_whether_a_stop_rules_step_is_an_arrival() {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol s{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol gate{}(SortInt{}) : SortInt{} [function{}()]
+                hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(s{}(\dv{SortInt{}}("0")), \top{SortS{}}()),
+                    s{}(\dv{SortInt{}}("1"))
+                ) [label{}("tick")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        s{}(\dv{SortInt{}}("0")),
+                        \equals{SortBool{}, SortS{}}(
+                            eqInt{}(gate{}(\dv{SortInt{}}("0")), \dv{SortInt{}}("1")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    s{}(\dv{SortInt{}}("5"))
+                ) [label{}("leap")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let start = Pattern {
+            term: definition
+                .internalize_term(&parse_pattern(r#"s{}(\dv{SortInt{}}("0"))"#).unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let run = |terminal: bool, mode, solver: &dyn SmtSolver, reading: Option<&NoGate>| {
+            let selected = BTreeSet::from(["tick".to_owned()]);
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (BTreeSet::new(), selected)
+            } else {
+                (selected, BTreeSet::new())
+            };
+            crate::rewrite::execute_in_process(
+                &definition,
+                start.clone(),
+                ExecutionOptions {
+                    cut_point_rules,
+                    terminal_rules,
+                    mode,
+                    ..ExecutionOptions::default()
+                },
+                solver,
+                None,
+                InProcess {
+                    condition: None,
+                    reading: reading.map(|reading| -> &dyn SuccessorReading { reading }),
+                },
+            )
+            .unwrap()
+        };
+        let ends = |result: &ExecutionResult| {
+            let mut ends = result
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    let value = match &crate::externalize::term(&leaf.pattern.term) {
+                        k_rust_kore::kore::ast::Pattern::Application { arguments, .. } => {
+                            match arguments.as_slice() {
+                                [k_rust_kore::kore::ast::Pattern::DomainValue { value, .. }] => {
+                                    value.as_utf8().unwrap().to_owned()
+                                }
+                                other => format!("{other:?}"),
+                            }
+                        }
+                        other => format!("{other:?}"),
+                    };
+                    let halt = match &leaf.halt_reason {
+                        HaltReason::Indeterminate(IndeterminateReason::Requires { .. }) => {
+                            "indeterminate"
+                        }
+                        halt => halt_name(halt),
+                    };
+                    (value, leaf.depth, halt, leaf.stops)
+                })
+                .collect::<Vec<_>>();
+            ends.sort();
+            ends
+        };
+        let passed = || {
+            vec![PassedStop {
+                depth: 0,
+                rule: "tick".to_owned(),
+            }]
+        };
+        for terminal in [false, true] {
+            for mode in [ExecutionMode::Any, ExecutionMode::All] {
+                let context = format!("terminal={terminal}, mode={mode:?}");
+                // The backend's own reading: `leap`'s conditional candidate is a successor.
+                let open = run(terminal, mode, &Contingent, None);
+                let expected = match mode {
+                    ExecutionMode::Any => vec![("1".to_owned(), 1, "stuck", 0)],
+                    ExecutionMode::All => vec![
+                        ("1".to_owned(), 1, "stuck", 0),
+                        ("5".to_owned(), 1, "stuck", 0),
+                    ],
+                };
+                assert_eq!(ends(&open), expected, "{context}: {open:#?}");
+                assert_eq!(open.passed_stops, passed(), "{context}");
+                // The caller's reading: `leap`'s candidate denotes no state, so `tick`'s step is
+                // the state's one successor.
+                let reading = NoGate::default();
+                let read = run(terminal, mode, &Contingent, Some(&reading));
+                let stop = if terminal {
+                    ("1".to_owned(), 1, "stop", 1)
+                } else {
+                    ("0".to_owned(), 0, "stop", 1)
+                };
+                assert_eq!(ends(&read), [stop], "{context}: {read:#?}");
+                assert_eq!(read.passed_stops, [], "{context}");
+                let asked = reading.asked.borrow();
+                assert!(
+                    !asked.is_empty() && asked.iter().all(|hooks| !hooks),
+                    "{context}: {asked:?}"
+                );
+            }
+            // Under strategy any with no solver, `leap`'s condition is undecided in the
+            // all-path step, so whether `tick`'s step is an arrival is too: the path ends at
+            // `s(0)`, neither stopping nor passing.
+            for reading in [None, Some(&NoGate::default())] {
+                let undecided = run(terminal, ExecutionMode::Any, &crate::smt::NoSolver, reading);
+                assert_eq!(
+                    ends(&undecided),
+                    [("0".to_owned(), 0, "indeterminate", 0)],
+                    "terminal={terminal}: {undecided:#?}"
+                );
+                assert_eq!(undecided.passed_stops, [], "terminal={terminal}");
+            }
         }
     }
 }

@@ -46,6 +46,27 @@
 //! scope. A computation it runs (another definition's simplification) opens its own operation,
 //! poll budget, stack measurement and record inside it. A cancellation of the request stays
 //! visible inside it and ends the run at its next poll.
+//!
+//! # Successors read by the caller
+//!
+//! Whether a step by a stop rule is its state's one successor rests on the step's other
+//! candidates. The backend reads a candidate whose condition it leaves open (a condition over
+//! an application no equation it tried reduced) as a successor: in some model of the
+//! definition the condition holds. A caller that reads the definition more closely gives the
+//! run a [`SuccessorReading`], with or without a condition ([`InProcess`]); KRS, for one, reads
+//! a ground application of a partial function defined by its equations alone, which no equation
+//! reduced, as having no value, so that a condition over it does not hold. The backend asks the
+//! reading about each candidate of a step that holds a selected stop rule's candidate, and about
+//! its remainder, and a candidate the reading says denotes no state is no successor of that
+//! step: the step goes on without it, so a stop rule's candidate left alone is an arrival. The
+//! reading decides nothing at any other step. Where it would leave a step no candidate and no
+//! remainder, it contradicts the step the backend built, and the step is taken as built.
+//!
+//! The reading is asked with the candidate's path condition as the step built it and with
+//! whether the run so far left a hook unevaluated ([`Candidate::hooks_unevaluated`]). An
+//! application the backend did not reduce was tried within the step that built the candidate,
+//! so every hook that trial left unevaluated is noted before the reading is asked: a hook the
+//! run leaves unevaluated later reads no condition the reading decided.
 
 use k_rust_kore::kore::ast as kore;
 
@@ -88,6 +109,48 @@ impl<F: FnMut(&Arrival<'_>) -> StopDecision> StopCondition for F {
     fn decide(&mut self, arrival: &Arrival<'_>) -> StopDecision {
         self(arrival)
     }
+}
+
+/// How an in-process caller reads a step's candidates where the backend leaves their conditions
+/// open ([module documentation](self), "Successors read by the caller").
+pub trait SuccessorReading {
+    /// Whether `candidate` denotes no state under the caller's reading of the definition: `true`
+    /// makes it no successor of its step; `false` leaves it one, as the backend reads it. Must be
+    /// a function of the candidate's path condition and of [`Candidate::hooks_unevaluated`].
+    fn denotes_no_state(&self, candidate: &Candidate<'_>) -> bool;
+}
+
+/// A candidate of a step, or its remainder, as a [`SuccessorReading`] is asked about it.
+pub struct Candidate<'a> {
+    pub(crate) path_condition: &'a [kore::Pattern],
+    pub(crate) hooks_unevaluated: bool,
+}
+
+impl Candidate<'_> {
+    /// The conjuncts of the candidate's path condition, as KORE predicates: the state's path
+    /// condition and what the step added to it (the rule's condition, or for the remainder the
+    /// negation of the candidates').
+    #[must_use]
+    pub fn path_condition(&self) -> &[kore::Pattern] {
+        self.path_condition
+    }
+
+    /// Whether the run, its definition's load included, left a hook unevaluated before the
+    /// question (`ExecutionResult::unsupported_hooks` so far).
+    #[must_use]
+    pub fn hooks_unevaluated(&self) -> bool {
+        self.hooks_unevaluated
+    }
+}
+
+/// What an in-process caller adds to an execution ([`super::execute_in_process`]): a stop
+/// condition, a reading of the step's candidates, both or neither.
+#[derive(Default)]
+pub struct InProcess<'a> {
+    /// The stop condition asked at each arrival ([`StopCondition`]).
+    pub condition: Option<&'a mut dyn StopCondition>,
+    /// The reading of a stop rule's step's candidates ([`SuccessorReading`]).
+    pub reading: Option<&'a dyn SuccessorReading>,
 }
 
 /// An arrival at a stop, as a [`StopCondition`] is asked about it.
