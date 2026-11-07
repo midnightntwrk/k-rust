@@ -39,9 +39,10 @@
 //! rule named by its KRS item when a front end annotated it (`krs.item`), else its label, else
 //! its `file:line`, ordered by module name, then by position in the module; then each fired or
 //! matched rule whose guard misses an outcome (`[[guard]]`, in the same order): the guard
-//! outcomes no program saw (`never`) and each authored operand that misses `true` or `false`
-//! (`[[guard.operand]]`, its text and `never`), without program lists, so that a lock moves when
-//! a gap opens or closes. A `run` document
+//! outcomes no program saw (`never`) and each operand that misses `true` or `false`
+//! (`[[guard.operand]]`, its text and `never`; the front end's authored operands, by source
+//! text, where it grouped the guard), without program lists, so that a lock moves when a gap
+//! opens or closes. A `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), and, when a corpus error stopped it, the mutation and the reason under
@@ -274,10 +275,12 @@ fn cases(text: &mut String, document: &Value) {
     }
 }
 
-/// Each fired or matched rule whose guard misses an outcome (`crate::guards`), ordered by
+/// Each fired or matched rule whose guard misses an outcome (`crate::guards::gaps`), ordered by
 /// module and position: the guard outcomes no comparable program saw (`never`, of `held` and
-/// `refuted`), then each authored operand that misses `true` or `false`, by its text (the KRS
-/// construct's where the front end named it). `undecided = true` marks a gap beside which some
+/// `refuted`), then each operand that misses `true` or `false`, by its text. Where a front end
+/// grouped the guard by its own constructs (`guard.krs`), its `never` and its authored operands,
+/// named by their source text, are read; the tests it inserted and a pattern's templates are not
+/// guard gaps. `undecided = true` marks a gap beside which some
 /// program left the guard or the operand undecided, so that the gap may be the report's and not
 /// the corpus's. Program lists are left out, so a lock moves when a gap opens or closes, not
 /// with every new case.
@@ -307,22 +310,20 @@ fn guards(text: &mut String, document: &Value) {
     };
     for rule in rules {
         let guard = &rule["guard"];
+        let (never, operands) = crate::guards::gaps(guard);
         text.push_str("\n[[guard]]\n");
         line(text, "rule", &string(&rule_name(rule)));
-        line(text, "never", &strings(&names(&guard["never"])));
-        if undecided(guard) && !names(&guard["never"]).is_empty() {
+        line(text, "never", &strings(&names(never)));
+        if undecided(guard) && !names(never).is_empty() {
             line(text, "undecided", "true");
         }
-        for operand in guard["operands"].as_array().into_iter().flatten() {
+        for operand in operands {
             let never = names(&operand["never"]);
             if never.is_empty() {
                 continue;
             }
             text.push_str("\n[[guard.operand]]\n");
-            let shown = operand["krs"]["text"]
-                .as_str()
-                .or_else(|| operand["text"].as_str())
-                .unwrap_or_default();
+            let shown = operand["text"].as_str().unwrap_or_default();
             line(text, "text", &string(shown));
             line(text, "never", &strings(&never));
             if undecided(operand) {

@@ -51,12 +51,21 @@
 //! Likewise its `[result] cells` names cells by Rust path or K name, mapped to K names, and every
 //! document's `result` gains the cells by path (`result.krs`, [`super::cells`]).
 //!
+//! A `results` document's guarded rows are named by KRS construct ([`super::guards`]): each node
+//! of a row's `guard.operands` gains a `krs` object, the guard gains `krs`, its authored
+//! operands, the tests KRS inserted and the pattern's `k::bits!` templates apart, and the row's
+//! `krs` of a sentence with templates gains `matched_by` and `status`, which read its match as the
+//! KRS pattern's. A guard the front end cannot name is listed under the document's
+//! `krs.unmatched_guards` (`{sentence, label, reason}`) rather than named by a guess, and the
+//! summary's `guards` is computed again over the named rows.
+//!
 //! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
 //! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
 //! names an item as above, while the annotation before it, which carried no version, named it as
 //! the `// KRS` line does (`plus_zero`, `Clamp, branch 3`), now `source_item`; version 3 adds
 //! `stop.krs.when`, the condition as the corpus wrote it, which a reader of version 2 would not
-//! know to read beside `stop.when`.
+//! know to read beside `stop.when`; version 4 names a `results` document's guard nodes and reads a
+//! template-guarded sentence's match as its KRS pattern's, as above.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -98,7 +107,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 3;
+pub(crate) const ANNOTATION_VERSION: u64 = 4;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -150,6 +159,8 @@ pub(crate) struct Annotator {
     stop_items: Option<Value>,
     /// The cells by Rust path that every document's `result` gains ([`super::cells`]).
     result_names: Option<super::cells::ResultNames>,
+    /// The names of a `results` document's guard nodes ([`super::guards`]).
+    guards: Option<super::guards::GuardNames>,
 }
 
 impl Annotator {
@@ -225,6 +236,7 @@ impl Annotator {
             anchors: OnceLock::new(),
             stop_items: None,
             result_names: None,
+            guards: None,
         }
     }
 
@@ -240,6 +252,13 @@ impl Annotator {
     /// ([`super::cells`]).
     pub(crate) fn naming_result(mut self, names: super::cells::ResultNames) -> Self {
         self.result_names = Some(names);
+        self
+    }
+
+    /// This annotator naming the guard nodes of a `results` document's rows by KRS construct
+    /// ([`super::guards`]).
+    pub(crate) fn naming_guards(mut self, guards: super::guards::GuardNames) -> Self {
+        self.guards = Some(guards);
         self
     }
 
@@ -324,6 +343,13 @@ impl Annotator {
             names.annotate(document);
         }
         let mut unnamed = Vec::new();
+        let mut unmatched_guards = Vec::new();
+        let programs = document["programs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|program| program["id"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
         kink_flow::visit_rules(document, &mut |rule: &RuleRef, object| {
             let label = rule
                 .label
@@ -336,6 +362,15 @@ impl Annotator {
             match self.sentence(&rule.at.module, &label) {
                 Some(krs) => {
                     object.insert("krs".into(), krs.clone());
+                    if let Some(guards) = &self.guards
+                        && let Err(reason) = guards.name(object, &rule.at.module, &label, &programs)
+                    {
+                        unmatched_guards.push(json!({
+                            "sentence": format!("{}#{}", rule.at.module, rule.at.index),
+                            "label": label,
+                            "reason": reason,
+                        }));
+                    }
                 }
                 None => unnamed.push(json!({
                     "sentence": format!("{}#{}", rule.at.module, rule.at.index),
@@ -346,11 +381,24 @@ impl Annotator {
         self.annotate_labels(document);
         unnamed.sort_by_key(ToString::to_string);
         unnamed.dedup();
+        unmatched_guards.sort_by_key(ToString::to_string);
+        unmatched_guards.dedup();
+        // The summary counts the operands the rows report, which the guards' grouping changed.
+        if self.guards.is_some()
+            && document["summary"].get("guards").is_some()
+            && let Some(rules) = document["rules"].as_array()
+        {
+            let guards = kink_flow::guards::summary(rules);
+            document["summary"]["guards"] = guards;
+        }
         if let Some(top) = document.as_object_mut() {
             let mut krs = Map::new();
             krs.insert("version".into(), json!(ANNOTATION_VERSION));
             if !unnamed.is_empty() {
                 krs.insert("unnamed_rules".into(), json!(unnamed));
+            }
+            if !unmatched_guards.is_empty() {
+                krs.insert("unmatched_guards".into(), json!(unmatched_guards));
             }
             top.insert("krs".into(), Value::Object(krs));
         }

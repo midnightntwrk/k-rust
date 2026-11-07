@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex, Weak};
 use krs_test_support::{
     SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
 /// The story's corpus (`docs-site/story/plus/kink`), the one the introduction's pages show:
@@ -94,150 +94,588 @@ impl Machine {
 }
 "#;
 
-/// A story-shaped machine for guard outcomes: four complementary boundary rules over a halted
-/// flag and an interrupt flag, of which no case reaches the halted ones, and a write whose
-/// function splits the address range, of which no case reaches the high half.
-const GUARDED: &str = r#"use k::builtin::{Int, KSequence};
-use k::{KItem, Term};
+/// A story-shaped machine for guard outcomes: four complementary boundary rules over the
+/// `halted`, `irq` and `ime` cells, of which no case reaches the halted ones (the corpus never
+/// halts); a write whose function splits the address range, of which no case reaches the high
+/// half; a rule whose condition divides and reads the `mem` map, and an equation that divides
+/// (definedness tests); a rule that looks up a computed key (a lookup guard), and one whose
+/// condition reads the looked-up value; and a decode function over `k::bits!` templates, one
+/// with a condition of its own, one without, and one no case matches.
+const GUARDED: &str = r#"use k::builtin::{map, Bool, Int, KSequence, Map};
+use k::{KItem, KResult, Term};
 
 k::sorts! {
-    Exp: KItem;
+    Cmd: KItem;
 }
 
-#[k::constructors(sort = Exp, result = k::KResult)]
-#[rustfmt::skip]
-pub enum ExpSyntax {
-    #[k::syntax("boundary({halted}, {irq})")] Boundary { halted: Int, irq: Int },
-    #[k::syntax("write({addr})")] Write { addr: Int },
-    #[k::syntax("done({value})")] Done { value: Int },
-}
-
-#[k::rule]
-#[k::requires(halted == 0 && irq == 1)]
-fn boundary_dispatch(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
-    ExpSyntax::Done(1)
-}
-
-#[k::rule]
-#[k::requires(halted == 0 && irq == 0)]
-fn boundary_run(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
-    ExpSyntax::Done(2)
-}
-
-#[k::rule]
-#[k::requires(halted == 1 && irq == 1)]
-fn boundary_wake(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
-    ExpSyntax::Done(3)
-}
-
-#[k::rule]
-#[k::requires(halted == 1 && irq == 0)]
-fn boundary_halted(k::term![ExpSyntax::Boundary { halted, irq }]: Term<Exp>) -> Term<Exp> {
-    ExpSyntax::Done(4)
-}
-
-#[k::rule]
-fn write(k::term![ExpSyntax::Write { addr }]: Term<Exp>) -> Term<Exp> {
-    ExpSyntax::Done(WriteByte(addr))
-}
-
-#[k::function(total, internal)]
-pub fn WriteByte(addr: Term<Int>) -> Term<Int> {
-    if addr < 32768 { addr } else { 0 }
+#[k::constructors(sort = Cmd, result = KResult)]
+#[k::precedence((Raise, Boundary, Write, Scale, Fetch, Peek, Ratio, Decode) > (Seq))]
+pub enum CmdSyntax {
+    #[k::syntax("{first} ; {rest}")]
+    Seq { first: Cmd, rest: Cmd },
+    #[k::syntax("raise")]
+    Raise(),
+    #[k::syntax("boundary")]
+    Boundary(),
+    #[k::syntax("write {addr} {value}")]
+    Write { addr: Int, value: Int },
+    #[k::syntax("scale {a}")]
+    Scale { a: Int },
+    #[k::syntax("fetch {a}")]
+    Fetch { a: Int },
+    #[k::syntax("peek {a}")]
+    Peek { a: Int },
+    #[k::syntax("ratio {a}")]
+    Ratio { a: Int },
+    #[k::syntax("decode {op}")]
+    Decode { op: Int },
 }
 
 #[k::configuration]
 pub struct Machine {
     #[k::cell]
     pub k: KSequence,
+    #[k::cell]
+    pub halted: Bool,
+    #[k::cell]
+    pub irq: Bool,
+    #[k::cell]
+    pub ime: Bool,
+    #[k::cell]
+    pub mem: Map,
+    #[k::cell]
+    pub idx: Map,
+    #[k::cell]
+    pub acc: Int,
 }
 
 impl Machine {
     #[k::init]
-    pub fn init(pgm: Exp) -> Self {
-        Self { k: k::k![pgm] }
+    pub fn init(pgm: Cmd) -> Self {
+        Self {
+            k: k::k![pgm],
+            halted: false,
+            irq: false,
+            ime: true,
+            mem: map![1 -> 5, 2 -> 2],
+            idx: map![1 -> 1, 2 -> 2],
+            acc: 0,
+        }
     }
+}
+
+k::rules! {
+    for Machine;
+    use CmdSyntax::*;
+
+    seq: { k: [Seq(first, rest), ..] } => { k: [first, rest, ..] };
+    raise: { k: [Raise(), ..], irq: _ } => { k: [..], irq: true };
+    #[k::requires(!halted && irq && ime)]
+    boundary_dispatch: { k: [Boundary(), ..], halted: halted, irq: irq, ime: ime, acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(!halted && !irq)]
+    boundary_run: { k: [Boundary(), ..], halted: halted, irq: irq, acc: _ } => { k: [..], acc: 2 };
+    #[k::requires(halted && irq)]
+    boundary_wake: { k: [Boundary(), ..], halted: halted, irq: irq, acc: _ } => { k: [..], acc: 3 };
+    #[k::requires(halted && !irq)]
+    boundary_halted: { k: [Boundary(), ..], halted: halted, irq: irq, acc: _ } => { k: [..], acc: 4 };
+    write: { k: [Write(addr, value), ..], mem: m } => { k: [..], mem: crate::WriteByte(m, addr, value) };
+    #[k::requires(100 / a > 1 && m[a] > 0)]
+    scale: { k: [Scale(a), ..], mem: m, acc: _ } => { k: [..], acc: 1 };
+    fetch: { k: [Fetch(a), ..], idx: ix, mem: { ix[a] -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    #[k::requires(v > 3)]
+    peek: { k: [Peek(a), ..], idx: ix, mem: { ix[a] -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    ratio: { k: [Ratio(a), ..], acc: _ } => { k: [..], acc: crate::Quotient(a) };
+    decode: { k: [Decode(op), ..], acc: _ } => { k: [..], acc: crate::DecodeOp(op) };
+}
+
+#[k::function(total, internal)]
+pub fn WriteByte(mem: Term<Map>, addr: Term<Int>, value: Term<Int>) -> Term<Map> {
+    if addr < 32768 { map::update(mem, addr, value) } else { mem }
+}
+
+#[k::function(total, internal)]
+pub fn Quotient(a: Term<Int>) -> Term<Int>;
+
+#[k::requires(100 / a > 1)]
+#[k::equation]
+fn quotient_big(k::term![Quotient(a)]: Term<Int>) -> Term<Int> {
+    1
+}
+
+#[k::equation(owise)]
+fn quotient_other(k::term![Quotient(a)]: Term<Int>) -> Term<Int> {
+    0
+}
+
+#[k::function(total, internal)]
+pub fn DecodeOp(op: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for DecodeOp;
+    #[k::requires(r != 6)]
+    decode_ld_r_r: k::bits!("01 rrr sss") => r;
+    decode_alu: k::bits!("10 aaa bbb") => a;
+    decode_xor: k::bits!("11 aaa bbb") => b;
+    #[k::equation(owise)]
+    decode_other: n => 0;
 }
 "#;
 
 fn guarded() -> Arc<Project> {
     static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
     Project::shared(&PROJECT, || {
-        project_of(
-            "krs-cli-kink-guarded",
-            "GUARDED",
-            &[
-                ("src/lib.rs".to_owned(), GUARDED.as_bytes().to_vec()),
-                (
-                    "kink/FLOW.toml".to_owned(),
-                    b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"irq\"\nfile = \"cases/irq.g\"\n\n[[program]]\nid = \"idle\"\nfile = \"cases/idle.g\"\n\n[[program]]\nid = \"low\"\nfile = \"cases/low.g\"\n"
-                        .to_vec(),
-                ),
-                ("kink/cases/irq.g".to_owned(), b"boundary(0, 1)\n".to_vec()),
-                ("kink/cases/idle.g".to_owned(), b"boundary(0, 0)\n".to_vec()),
-                ("kink/cases/low.g".to_owned(), b"write(5)\n".to_vec()),
-            ],
-        )
+        let mut files = vec![("src/lib.rs".to_owned(), GUARDED.as_bytes().to_vec())];
+        let cases = [
+            ("irq", "raise ; boundary"),
+            ("idle", "boundary"),
+            ("low", "write 5 7"),
+            ("scale", "scale 1"),
+            ("scale-zero", "scale 0"),
+            ("fetch", "fetch 1"),
+            ("ratio", "ratio 50"),
+            ("ratio-zero", "ratio 0"),
+            ("peek", "peek 1"),
+            ("peek-low", "peek 2"),
+            ("peek-missing", "peek 3"),
+            ("load", "decode 65"),
+            ("load-six", "decode 112"),
+            ("alu", "decode 130"),
+            ("other", "decode 7"),
+        ];
+        let mut flow = "[spec]\nkrs = { definition = \"main\" }\n".to_owned();
+        for (id, program) in cases {
+            flow += &[
+                "\n[[program]]\nid = \"",
+                id,
+                "\"\nfile = \"cases/",
+                id,
+                ".g\"\n",
+            ]
+            .concat();
+            files.push((
+                format!("kink/cases/{id}.g"),
+                format!("{program}\n").into_bytes(),
+            ));
+            if UNENTERED.contains(&id) {
+                files.push((
+                    format!("corpora/unentered/cases/{id}.g"),
+                    format!("{program}\n").into_bytes(),
+                ));
+            }
+        }
+        files.push(("kink/FLOW.toml".to_owned(), flow.into_bytes()));
+        // A corpus that never fetches, peeks or decodes: no case enters those conditions.
+        let mut flow = "[spec]\nkrs = { definition = \"main\" }\n".to_owned();
+        for id in UNENTERED {
+            flow += &[
+                "\n[[program]]\nid = \"",
+                id,
+                "\"\nfile = \"cases/",
+                id,
+                ".g\"\n",
+            ]
+            .concat();
+        }
+        files.push(("corpora/unentered/FLOW.toml".to_owned(), flow.into_bytes()));
+        project_of("krs-cli-kink-guarded", "GUARDED", &files)
     })
 }
 
-/// FB-33's four lines on a story-shaped machine whose corpus never halts: `boundary_wake` and
-/// `boundary_halted` are reported never held and `WriteByte`'s low equation never refuted;
-/// `boundary_dispatch`'s operand `halted == 0` is never false (the halted flag never true), for
-/// the operand as well as in the verdicts rendering; the function's equations are reported; and
-/// every guarded row is named by its KRS item and position, no status reads `covered`, and the
-/// rules matched and never fired read `matched`.
+/// The cases of [`GUARDED`]'s corpus `corpora/unentered`, which no `fetch`, `peek` or `decode`
+/// is among.
+const UNENTERED: [&str; 6] = ["irq", "idle", "low", "scale", "scale-zero", "ratio"];
+
+/// The guard row of the equation or rule whose `krs.item` is `item`.
+fn guard_of<'d>(document: &'d Value, item: &str) -> &'d Value {
+    &rule(document, item)["guard"]
+}
+
+/// The authored operand of `guard` whose Rust text is `text`.
+fn authored<'d>(guard: &'d Value, text: &str) -> &'d Value {
+    guard["krs"]["authored"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|operand| operand["text"] == text)
+        .unwrap_or_else(|| panic!("no authored operand {text:?}: {guard:#}"))
+}
+
+/// FB-33's four lines on a story-shaped machine whose corpus never halts:
+/// 1. `boundary_wake` and `boundary_halted` are never held and `WriteByte`'s low branch is never
+///    refuted;
+/// 2. `boundary_dispatch`'s operand `halted` is never true (so `!halted` never decides it), in
+///    the row and in the verdicts rendering;
+/// 3. equations are reported, and the tests KRS inserted (the division's definedness test, the
+///    computed key's lookup guard) are listed apart under the constructs they serve, a
+///    `k::bits!` template under `templates`;
+/// 4. every guard node is named by its KRS item and Rust text and position, no status reads
+///    `covered`, and the rules matched and never fired read `matched`;
+///
+/// a guard's `held_by`, `refuted_by` and `never` at the KRS level read the author's conjuncts
+/// alone: a template that did not match and an inserted test that was `false` refute nothing,
+/// and a condition with no authored conjunct (a template's or a lookup guard's alone) has no
+/// guard gap.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One assertion per acceptance line of FB-33."
+)]
 fn results_report_each_guards_outcomes_per_operand() {
     let project = guarded();
     let output = project.kink("results", &[]);
     assert_status(&output, 0);
     let document = json(&output);
     assert!(!output.stdout.windows(9).any(|w| w == b"\"covered\""));
+    assert_eq!(document["krs"]["version"], 3, "{:#}", document["krs"]);
+    assert!(
+        document["krs"].get("unmatched_guards").is_none(),
+        "{:#}",
+        document["krs"]
+    );
+    // 1.
     for item in ["crate::boundary_wake", "crate::boundary_halted"] {
         let row = rule(&document, item);
         assert_eq!(row["status"], "matched", "{item}: {row:#}");
-        assert_eq!(
-            row["guard"]["held_by"],
-            Value::Array(Vec::new()),
-            "{item}: {row:#}"
-        );
-        assert_eq!(strings(&row["guard"]["never"]), ["held"], "{item}");
+        assert_eq!(row["guard"]["held_by"], json!([]), "{item}: {row:#}");
+        assert_eq!(strings(&row["guard"]["krs"]["never"]), ["held"], "{item}");
         assert!(row["krs"]["line"].as_u64().is_some(), "{item}: {row:#}");
     }
-    let dispatch = rule(&document, "crate::boundary_dispatch");
-    assert_eq!(dispatch["status"], "fired");
-    let halted = &dispatch["guard"]["operands"][1];
-    assert_eq!(halted["path"], "0.0", "{dispatch:#}");
-    assert_eq!(strings(&halted["never"]), ["false"], "{dispatch:#}");
-    assert_eq!(strings(&halted["true_by"]), ["irq", "idle"], "{dispatch:#}");
-    let equations = document["rules"]
+    let low = document["rules"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|row| {
-            row["krs"]["kind"] == "equation"
-                && row["krs"]["item"]
-                    .as_str()
-                    .is_some_and(|item| item.starts_with("crate::write_byte"))
+            row["krs"]["kind"] == "equation" && row["krs"]["source_item"] == "WriteByte, branch 1"
         })
         .collect::<Vec<_>>();
-    assert!(!equations.is_empty(), "{:#}", document["rules"]);
-    assert!(
-        equations.iter().any(|row| {
-            row["guard"]["held_by"] == serde_json::json!(["low"])
-                && row["guard"]["refuted_by"] == Value::Array(Vec::new())
-        }),
-        "the low equation is never refuted: {equations:#?}"
+    let [low] = low.as_slice() else {
+        panic!("one low branch: {low:#?}");
+    };
+    assert_eq!(low["guard"]["held_by"], json!(["low"]), "{low:#}");
+    assert_eq!(low["guard"]["refuted_by"], json!([]), "{low:#}");
+    assert_eq!(strings(&low["guard"]["krs"]["never"]), ["refuted"]);
+    // 2.
+    let dispatch = guard_of(&document, "crate::boundary_dispatch");
+    let halted = authored(dispatch, "halted");
+    assert_eq!(halted["true_by"], json!([]), "{dispatch:#}");
+    assert_eq!(strings(&halted["never"]), ["true"]);
+    assert_eq!(strings(&halted["false_by"]), ["irq", "idle"]);
+    // The negation restates its operand: no operand of its own.
+    let negation = dispatch["operands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["kind"] == "negation")
+        .unwrap();
+    assert!(negation.get("never").is_none(), "{negation:#}");
+    assert_eq!(negation["krs"]["text"], "!");
+    assert_eq!(
+        rule(&document, "crate::boundary_dispatch")["status"],
+        "fired"
     );
+    // 3.
+    let scale = guard_of(&document, "crate::scale");
+    assert_eq!(
+        scale["krs"]["authored"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|operand| operand["text"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["100 / a > 1", "m[a] > 0"],
+        "{scale:#}"
+    );
+    let anchors = |guard: &Value| {
+        guard["krs"]["generated"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|test| {
+                (
+                    test["origin"].as_str().unwrap().to_owned(),
+                    test["anchor"]["text"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        anchors(scale),
+        [
+            ("definedness_test".to_owned(), "/".to_owned()),
+            ("definedness_test".to_owned(), "[a]".to_owned()),
+            ("definedness_test".to_owned(), "[a]".to_owned()),
+        ]
+    );
+    let division = &scale["krs"]["generated"][0];
+    assert_eq!(division["false_by"], json!(["scale-zero"]), "{scale:#}");
+    assert_eq!(authored(scale, "100 / a > 1")["true_by"], json!(["scale"]));
+    // A zero divisor fails the division's test, which refutes nothing the author wrote.
+    assert_eq!(scale["refuted_by"], json!(["scale-zero"]), "{scale:#}");
+    assert_eq!(scale["krs"]["held_by"], json!(["scale"]), "{scale:#}");
+    assert_eq!(scale["krs"]["refuted_by"], json!([]), "{scale:#}");
+    assert_eq!(strings(&scale["krs"]["never"]), ["refuted"]);
+    // A lookup guard alone is no condition of the author's: no guard gap.
+    let fetch = guard_of(&document, "crate::fetch");
+    assert_eq!(fetch["krs"]["authored"], json!([]), "{fetch:#}");
+    assert!(
+        anchors(fetch)
+            .iter()
+            .any(|(origin, _)| origin == "lookup_guard"),
+        "{fetch:#}"
+    );
+    assert_eq!(fetch["krs"]["held_by"], Value::Null, "{fetch:#}");
+    assert_eq!(fetch["krs"]["refuted_by"], Value::Null, "{fetch:#}");
+    assert_eq!(fetch["krs"]["never"], json!([]), "{fetch:#}");
+    // A lookup guard and an authored conjunct: the missing key is the guard's, not a refutation.
+    let peek = guard_of(&document, "crate::peek");
+    assert!(
+        strings(&peek["refuted_by"]).contains(&"peek-missing"),
+        "{peek:#}"
+    );
+    assert!(
+        peek["krs"]["generated"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|test| strings(&test["false_by"]).contains(&"peek-missing")),
+        "{peek:#}"
+    );
+    assert_eq!(
+        authored(peek, "v > 3")["false_by"],
+        json!(["peek-low"]),
+        "{peek:#}"
+    );
+    assert_eq!(peek["krs"]["held_by"], json!(["peek"]), "{peek:#}");
+    assert_eq!(peek["krs"]["refuted_by"], json!(["peek-low"]), "{peek:#}");
+    assert_eq!(peek["krs"]["never"], json!([]), "{peek:#}");
+    let quotient = guard_of(&document, "crate::quotient_big");
+    assert_eq!(
+        rule(&document, "crate::quotient_big")["krs"]["kind"],
+        "equation"
+    );
+    assert_eq!(
+        anchors(quotient),
+        [("definedness_test".to_owned(), "/".to_owned())]
+    );
+    assert_eq!(
+        authored(quotient, "100 / a > 1")["true_by"],
+        json!(["ratio"])
+    );
+    let load = guard_of(&document, "crate::decode_ld_r_r");
+    let templates = &load["krs"]["templates"];
+    assert_eq!(
+        templates["conjuncts"].as_array().unwrap().len(),
+        3,
+        "{load:#}"
+    );
+    assert_eq!(templates["binders"][0]["text"], "\"01 rrr sss\"");
+    assert_eq!(
+        templates["matched_by"],
+        json!(["load", "load-six"]),
+        "{load:#}"
+    );
+    assert_eq!(templates["not_matched_by"], json!(["other"]), "{load:#}");
+    // A template and an authored conjunct: the template's misses are no refutations.
+    assert_eq!(
+        authored(load, "r != 6")["false_by"],
+        json!(["load-six"]),
+        "{load:#}"
+    );
+    assert_eq!(load["refuted_by"], json!(["load-six", "other"]), "{load:#}");
+    assert_eq!(load["krs"]["held_by"], json!(["load"]), "{load:#}");
+    assert_eq!(load["krs"]["refuted_by"], json!(["load-six"]), "{load:#}");
+    assert_eq!(load["krs"]["never"], json!([]), "{load:#}");
+    // 4.
+    for row in document["rules"].as_array().unwrap() {
+        if let Some(guard) = row.get("guard").filter(|guard| guard["krs"].is_object()) {
+            assert!(row["krs"]["item"].is_string(), "{row:#}");
+            for operand in guard["krs"]["authored"].as_array().unwrap() {
+                assert!(operand["text"].is_string(), "{row:#}");
+                assert!(operand["line"].as_u64().is_some(), "{row:#}");
+                assert_eq!(operand["file"], "src/lib.rs", "{row:#}");
+            }
+        }
+    }
+    assert_eq!(
+        authored(dispatch, "halted")["line"],
+        line_of(GUARDED, "#[k::requires(!halted && irq && ime)]")
+    );
+    assert_eq!(rule(&document, "crate::boundary_wake")["status"], "matched");
+    // A template alone is no condition of the author's: no guard gap.
+    let alu = rule(&document, "crate::decode_alu");
+    assert_eq!(alu["status"], "fired", "{alu:#}");
+    assert_eq!(
+        alu["guard"]["refuted_by"],
+        json!(["load", "load-six", "other"]),
+        "{alu:#}"
+    );
+    assert_eq!(alu["guard"]["krs"]["authored"], json!([]), "{alu:#}");
+    assert_eq!(alu["guard"]["krs"]["held_by"], Value::Null, "{alu:#}");
+    assert_eq!(alu["guard"]["krs"]["refuted_by"], Value::Null, "{alu:#}");
+    assert_eq!(alu["guard"]["krs"]["never"], json!([]), "{alu:#}");
+    // A template no case matches has no authored operand: its guard is its pattern.
+    let xor = rule(&document, "crate::decode_xor");
+    assert_eq!(xor["guard"]["krs"]["authored"], json!([]), "{xor:#}");
+    assert_eq!(
+        xor["guard"]["krs"]["templates"]["matched_by"],
+        json!([]),
+        "{xor:#}"
+    );
+    // The summary counts the authored operands.
+    let summary = &document["summary"]["guards"];
+    let counted = document["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["guard"]["krs"]["authored"].as_array())
+        .flatten()
+        .filter(|operand| !operand["never"].as_array().unwrap().is_empty())
+        .count();
+    assert_eq!(
+        summary["operands_missing_an_outcome"], counted,
+        "{summary:#}"
+    );
+    // ... and the guards with an authored conjunct; every guard is grouped, also one whose
+    // condition has no node (an `else` branch's).
+    let guards = document["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row.get("guard"))
+        .collect::<Vec<_>>();
+    assert!(
+        guards.iter().all(|guard| guard["krs"].is_object()),
+        "{guards:#?}"
+    );
+    let reported = guards
+        .iter()
+        .filter(|guard| !guard["krs"]["held_by"].is_null())
+        .collect::<Vec<_>>();
+    assert_eq!(summary["sentences"], reported.len(), "{summary:#}");
+    let never_refuted = reported
+        .iter()
+        .filter(|guard| strings(&guard["krs"]["never"]).contains(&"refuted"))
+        .count();
+    assert_eq!(summary["never_refuted"], never_refuted, "{summary:#}");
+
     let verdicts = project.kink("results", &["--output", "verdicts"]);
     assert_status(&verdicts, 0);
     let verdicts = stdout(&verdicts);
+    assert!(verdicts.contains("krs_annotation = 4"), "{verdicts}");
     assert!(
         verdicts.contains("[[guard]]\nrule = \"crate::boundary_wake\"\nnever = [\"held\"]"),
         "{verdicts}"
     );
-    assert!(verdicts.contains("never = [\"false\"]"), "{verdicts}");
+    assert!(
+        verdicts.contains("[[guard.operand]]\ntext = \"halted\"\nnever = [\"true\"]"),
+        "{verdicts}"
+    );
+    // Neither the inserted tests nor a template's conjuncts are guard gaps.
+    assert!(!verdicts.contains("=/=Int 0"), "{verdicts}");
+    assert!(!verdicts.contains("bitRangeInt"), "{verdicts}");
+    // A condition with no authored conjunct is no guard gap.
+    let gaps = verdicts
+        .split_once("\n[[guard]]")
+        .map_or("", |(_, gaps)| gaps);
+    for item in ["crate::decode_alu", "crate::fetch"] {
+        assert!(
+            !gaps.contains(&format!("rule = \"{item}\"\n")),
+            "{item}: {verdicts}"
+        );
+    }
+    assert!(
+        gaps.contains("rule = \"crate::scale\"\nnever = [\"refuted\"]"),
+        "{verdicts}"
+    );
+}
+
+/// Which conjuncts of a condition are the author's is a fact of the definition, not of the cases
+/// that reached it: over a corpus that never fetches, peeks or decodes, every guard is grouped,
+/// the sentences with no authored conjunct (`fetch`'s lookup guard, the `decode_alu` and
+/// `decode_xor` templates) have `held_by` and `refuted_by` `null` and are no sentences of the
+/// summary's `guards`, and those with one (`peek`'s `v > 3` behind its lookup guard,
+/// `decode_ld_r_r`'s `r != 6` behind its template) were never held and never refuted.
+#[test]
+fn results_group_the_guards_no_case_entered() {
+    let project = guarded();
+    let output = project.kink("results", &["--corpus", "corpora/unentered"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert!(
+        document["krs"].get("unmatched_guards").is_none(),
+        "{:#}",
+        document["krs"]
+    );
+    for item in [
+        "crate::fetch",
+        "crate::decode_alu",
+        "crate::decode_xor",
+        "crate::peek",
+        "crate::decode_ld_r_r",
+    ] {
+        let guard = guard_of(&document, item);
+        assert_eq!(guard["operands"], json!([]), "{item}: {guard:#}");
+        assert_eq!(
+            strings(&guard["never"]),
+            ["held", "refuted"],
+            "{item}: {guard:#}"
+        );
+        assert_eq!(guard["krs"]["authored"], json!([]), "{item}: {guard:#}");
+        assert_eq!(guard["krs"]["generated"], json!([]), "{item}: {guard:#}");
+    }
+    for item in ["crate::fetch", "crate::decode_alu", "crate::decode_xor"] {
+        let guard = guard_of(&document, item);
+        assert_eq!(guard["krs"]["held_by"], Value::Null, "{item}: {guard:#}");
+        assert_eq!(guard["krs"]["refuted_by"], Value::Null, "{item}: {guard:#}");
+        assert_eq!(guard["krs"]["never"], json!([]), "{item}: {guard:#}");
+    }
+    for item in ["crate::peek", "crate::decode_ld_r_r"] {
+        let guard = guard_of(&document, item);
+        assert_eq!(guard["krs"]["held_by"], json!([]), "{item}: {guard:#}");
+        assert_eq!(guard["krs"]["refuted_by"], json!([]), "{item}: {guard:#}");
+        assert_eq!(
+            strings(&guard["krs"]["never"]),
+            ["held", "refuted"],
+            "{item}: {guard:#}"
+        );
+    }
+    let templates = &guard_of(&document, "crate::decode_ld_r_r")["krs"]["templates"];
+    assert_eq!(
+        templates["binders"][0]["text"], "\"01 rrr sss\"",
+        "{templates:#}"
+    );
+    assert_eq!(templates["matched_by"], json!([]), "{templates:#}");
+    assert_eq!(templates["not_matched_by"], json!([]), "{templates:#}");
+    assert_eq!(
+        guard_of(&document, "crate::fetch")["krs"]["templates"],
+        Value::Null
+    );
+    // Every guard is grouped, and the summary counts those with an authored conjunct.
+    let guards = document["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row.get("guard"))
+        .collect::<Vec<_>>();
+    assert!(
+        guards.iter().all(|guard| guard["krs"].is_object()),
+        "{guards:#?}"
+    );
+    let reported = guards
+        .iter()
+        .filter(|guard| !guard["krs"]["held_by"].is_null())
+        .collect::<Vec<_>>();
+    let never = |outcome: &str| {
+        reported
+            .iter()
+            .filter(|guard| strings(&guard["krs"]["never"]).contains(&outcome))
+            .count()
+    };
+    let summary = &document["summary"]["guards"];
+    assert_eq!(summary["sentences"], reported.len(), "{summary:#}");
+    assert_eq!(summary["never_held"], never("held"), "{summary:#}");
+    assert_eq!(summary["never_refuted"], never("refuted"), "{summary:#}");
+    assert_eq!(reported.len() + 3, guards.len(), "{summary:#}");
 }
 
 /// A definition that never ends on its own: `tick(n)` steps to `tick(n + 1)` forever, so a run's

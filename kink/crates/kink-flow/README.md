@@ -595,6 +595,9 @@ A rewrite rule or function equation with a `requires` (not a simplification) who
 
 The record also holds each guard's distinct valuations of its atoms with the guard outcome (bounded, the least ones in their order), which no command reports yet.
 The verdicts rendering lists each fired or matched rule whose guard misses an outcome (`[[guard]]`, its `never`, then each `[[guard.operand]]` with a `never` that misses `true` or `false`), without program lists, so a lock moves when a gap opens or closes; the summary's `guards` counts the sentences with a guard, those never held and never refuted, and the operands with a `never` that misses an outcome.
+A front end that groups a guard by its own constructs (krs's `guard.krs`: the author's operands by source text, its inserted tests and a pattern's templates apart) gives the reading both use (`guards::gaps`): the rendering lists its `never` and its authored operands, and the front end computes the summary's `guards` again over its rows.
+The grouping's `held_by`, `refuted_by` and `never` read the author's condition alone, since a template that did not match or an inserted test that was `false` refutes nothing the author wrote: a guard with no authored conjunct has `held_by` and `refuted_by` `null` and no gap, and is no sentence of the summary's `guards` (`guards::authored_condition`).
+Whether a condition has an authored conjunct is a fact of the definition, so the front end groups every guard, also one no program entered, whose `operands` are empty: one with an authored conjunct then has `held_by` and `refuted_by` empty and `never` both outcomes.
 
 A rule's coverage is k-rust's run coverage of each comparable program's baseline run (kink-native
 `coverage`, `kink/coverage/v2` since re-pin L2-1, v3 since L2-1-tail, v4 since a rewrite rule edit is witnessed by `applied` only when it is confined to its right-hand side or `ensures`), rewrite rules and equations alike: `matched_by` lists the

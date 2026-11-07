@@ -56,6 +56,7 @@ mod cells;
 mod checks;
 mod condition;
 mod emit;
+mod guards;
 mod inputs;
 mod render;
 mod spelling;
@@ -479,10 +480,11 @@ fn run_flow(
             }
         };
     resolve_rule(&mut command, emitted);
+    let sources = outcome.sources.clone();
     let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command))
         .naming_stop(stop_items)
         .naming_result(result_names);
-    let sources = outcome.sources.clone();
+    let annotator = naming_guards(annotator, &command, emitted, &sources);
     let baseline = kept.as_ref().map(|kept| checks::Baseline {
         emitted,
         retained: &kept.retained,
@@ -564,6 +566,27 @@ fn run_flow(
         }
     };
     finish(outcome, &document, status_code, output)
+}
+
+/// `annotator`, naming the guard nodes of the rows by KRS construct where `command` is `results`,
+/// the one command whose document has guards ([`guards`]), reading authored files from
+/// `sources`.
+fn naming_guards(
+    annotator: annotate::Annotator,
+    command: &FlowCommand,
+    emitted: &EmittedDefinition,
+    sources: &DiagnosticSources,
+) -> annotate::Annotator {
+    if !matches!(command, FlowCommand::Results { .. }) {
+        return annotator;
+    }
+    let read = sources.clone();
+    annotator.naming_guards(guards::GuardNames::new(
+        &emitted.definition,
+        &emitted.source_map,
+        &emitted.ir,
+        move |file| read.source_text(file),
+    ))
 }
 
 /// The mutations of the list `command` runs (`run`, a `fuzz` kill job) that the front end's

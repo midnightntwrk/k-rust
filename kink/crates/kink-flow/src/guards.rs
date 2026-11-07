@@ -195,7 +195,8 @@ impl NodeOutcomes {
 /// and `false` where some operand was reached `false`, a disjunction dually, an implication is
 /// `notBool A orBool B`, and a negation and an `\equals(b, literal)` restate their operand's:
 /// their gaps are their operands' gaps, so they carry no `never`.
-pub(crate) fn own_outcomes(kind: &str) -> bool {
+#[must_use]
+pub fn own_outcomes(kind: &str) -> bool {
     matches!(kind, "atom" | "exclusive")
 }
 
@@ -507,51 +508,81 @@ pub(crate) fn row_guard(entries: Option<&SentenceGuards<'_>>, printer: &dyn Atom
     guard
 }
 
-/// Whether `guard`, a row's guard, misses an outcome: the guard never held or never refuted, or
-/// an operand with outcomes of its own ([`own_outcomes`]) never `true` or never `false`.
-pub(crate) fn misses(guard: &Value) -> bool {
-    guard["never"]
+/// The gaps of `guard`, a row's guard, as a reader reports them: its `never` (of `held` and
+/// `refuted`) and the operands that may miss an outcome. Where a front end grouped the guard by
+/// its own constructs (`guard.krs`, krs's annotation), those are its `never` and its authored
+/// operands (`authored`), the inserted tests and the pattern's templates being listed apart and
+/// not counted; else the row's `never` and its operands with outcomes of their own
+/// ([`own_outcomes`]). A front end's `never` reads the author's condition alone, so a guard
+/// with no authored conjunct has no gap (its `held_by` is `null`, [`authored_condition`]).
+#[must_use]
+pub fn gaps(guard: &Value) -> (&Value, Vec<&Value>) {
+    let named = &guard["krs"];
+    if named.is_object() {
+        let operands = named["authored"].as_array().into_iter().flatten().collect();
+        return (&named["never"], operands);
+    }
+    let operands = guard["operands"]
         .as_array()
-        .is_some_and(|never| !never.is_empty())
-        || guard["operands"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|operand| {
-                operand["never"]
-                    .as_array()
-                    .is_some_and(|never| !never.is_empty())
-            })
+        .into_iter()
+        .flatten()
+        .filter(|operand| operand.get("never").is_some())
+        .collect();
+    (&guard["never"], operands)
 }
 
-/// The summary's `guards`: the sentences with a guard, those never held and never refuted, and
-/// the operands with outcomes of their own ([`own_outcomes`]) that miss an outcome.
-pub(crate) fn summary(rules: &[Value]) -> Value {
-    let guards = rules
+fn non_empty(value: &Value) -> bool {
+    value.as_array().is_some_and(|items| !items.is_empty())
+}
+
+/// Whether `guard`, a row's guard, misses an outcome ([`gaps`]): the guard never held or never
+/// refuted, or an operand never `true` or never `false`.
+#[must_use]
+pub fn misses(guard: &Value) -> bool {
+    let (never, operands) = gaps(guard);
+    non_empty(never) || operands.iter().any(|operand| non_empty(&operand["never"]))
+}
+
+/// Whether `guard`, a row's guard, has a condition a reader reports: every guard but one a front
+/// end grouped by its own constructs and found no authored conjunct in (`guard.krs.held_by`
+/// `null`: only a pattern's templates or the tests the front end inserted, which refute nothing
+/// the author wrote). Which conjuncts are the author's is a fact of the definition, so a front
+/// end decides it alike for a guard some program entered and one none did.
+#[must_use]
+pub fn authored_condition(guard: &Value) -> bool {
+    let named = &guard["krs"];
+    !named.is_object() || !named["held_by"].is_null()
+}
+
+/// The summary's `guards` of `rules`, a document's rows ([`gaps`]): the sentences with a guard
+/// that has a condition a reader reports ([`authored_condition`]), those never held and never
+/// refuted, and the operands that miss an outcome. A front end that groups guards by its own
+/// constructs computes it again over its annotated rows, so that the count is of the operands
+/// its rows report.
+#[must_use]
+pub fn summary(rules: &[Value]) -> Value {
+    let gaps = rules
         .iter()
         .filter_map(|rule| rule.get("guard"))
+        .filter(|guard| authored_condition(guard))
+        .map(gaps)
         .collect::<Vec<_>>();
     let never = |outcome: &str| {
-        guards
-            .iter()
-            .filter(|guard| {
-                guard["never"]
+        gaps.iter()
+            .filter(|(never, _)| {
+                never
                     .as_array()
                     .is_some_and(|never| never.iter().any(|item| item == outcome))
             })
             .count()
     };
-    let operands = guards
+    let operands = gaps
         .iter()
-        .flat_map(|guard| guard["operands"].as_array().into_iter().flatten())
-        .filter(|operand| {
-            operand["never"]
-                .as_array()
-                .is_some_and(|never| !never.is_empty())
-        })
+        .flat_map(|(_, operands)| operands)
+        .filter(|operand| non_empty(&operand["never"]))
         .count();
     json!({
-        "sentences": guards.len(),
+        "sentences": gaps.len(),
         "never_held": never("held"),
         "never_refuted": never("refuted"),
         "operands_missing_an_outcome": operands,
