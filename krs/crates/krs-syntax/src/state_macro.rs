@@ -777,7 +777,7 @@ impl InstanceField {
             _ => return None,
         };
         let reason = format!(
-            "the instance child `{}` is written {written}: {INSTANCE_CHILD_MULTIPLICITY}",
+            "the instance child `{}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}",
             self.name.unraw()
         );
         Some(SyntaxError::new(

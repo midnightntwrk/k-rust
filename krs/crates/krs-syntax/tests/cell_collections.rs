@@ -576,7 +576,7 @@ fn an_optional_instance_child_is_the_instance_child_multiplicity_limit() {
         assert_eq!(
             error.to_string(),
             format!(
-                "the instance child `acounter` is written {written}: {}",
+                "the instance child `acounter` holds {written}: {}",
                 krs_syntax::INSTANCE_CHILD_MULTIPLICITY
             ),
             "{source}"

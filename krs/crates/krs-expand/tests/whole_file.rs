@@ -611,7 +611,7 @@ fn a_readable_claim_s_optional_instance_child_is_the_instance_child_multiplicity
     assert_eq!(
         diagnostics[0].message,
         format!(
-            "the instance child `slot` is written `Some(..)`, a `?` cell's presence: {}",
+            "the instance child `slot` holds `Some(..)`, a `?` cell's presence: {}",
             krs_syntax::INSTANCE_CHILD_MULTIPLICITY
         )
     );
