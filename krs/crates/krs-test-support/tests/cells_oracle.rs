@@ -6273,6 +6273,17 @@ fn content_roots<'s>(
             | Spelling::InstSet(seq),
         ) => records(&seq.items, group, out),
         ([Layer::Group(group)], _) => records(std::slice::from_ref(spelling), group, out),
+        // An item-less `[..]` on a computation cell names nothing and changes nothing, so it is
+        // the cell left out (docs, "List notation"), and K writes no `<k>` for it: a configuration
+        // pattern frames every cell it does not name. A computation cell has no `_` entry to write
+        // instead (`cell-wrapper`), unlike a list leaf, where `[..]` is the entry `_` (TRI-A4).
+        (
+            [Layer::Computation],
+            Spelling::Brackets(Seq {
+                items,
+                rest: Some((Rest::Anon, _)),
+            }),
+        ) if items.is_empty() => {}
         (
             [Layer::Computation | Layer::Leaf(Notation::List | Notation::Cons | Notation::Map)],
             _,
