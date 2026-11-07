@@ -617,6 +617,18 @@ pub(crate) fn admit_rules(
             range: after.range.map(Box::new),
         });
     }
+    // In krs-compiler's own test builds, the guard families' reading of
+    // equation pairs is checked to contain every pair the equation check finds
+    // may both apply. Other crates' tests check it explicitly through
+    // `testing::equation_pairs_outside_guard_family_unifications`.
+    #[cfg(test)]
+    {
+        let (_, missing) = crate::guard_families::equation_pairs_outside_unifications(&modules);
+        assert!(
+            missing.is_empty(),
+            "equation pairs the overlap check of equations compares have no guard-family unification: {missing:#?}"
+        );
+    }
     if let Some(overlap) = crate::equation_domain::first_equation_overlap(&modules) {
         if let Some(arms) = declarations
             .get(&overlap.first)

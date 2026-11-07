@@ -1293,7 +1293,6 @@ pub(crate) struct EquationFamily<'m> {
     pub(crate) production: &'m SemanticProduction,
     /// The argument sorts of the instance the heads name.
     pub(crate) columns: Vec<Sort>,
-    #[expect(dead_code, reason = "the guard families read it")]
     pub(crate) rank: u32,
     /// The equations, in stable-identity order.
     pub(crate) rules: Vec<&'m SemanticRule>,
@@ -1363,7 +1362,6 @@ pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<Equat
     None
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// One question to [`holding_values`]: at which values of `binder` every
 /// one of `conjuncts` holds.
 pub(crate) struct ValueQuery<'a> {
@@ -1373,7 +1371,6 @@ pub(crate) struct ValueQuery<'a> {
     pub(crate) width: u32,
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// The bounded evaluation of guards at chosen values, for each query: entry
 /// `x` of the answer is whether every conjunct of the query holds with its
 /// binder at `x`, for `x` in `0..2^width`.

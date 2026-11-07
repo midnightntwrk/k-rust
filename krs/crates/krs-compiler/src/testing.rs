@@ -13,6 +13,18 @@ use crate::{
     EmittedK, LoweredDefinition, SourceMap, emit_k, lower_descriptor_bundle, lower_semantic_theory,
 };
 
+/// The pairs of equations the overlap check of equations finds may both
+/// apply, checked against the guard families' unifications of equation
+/// heads: the number of pairs checked, and each pair with no unification.
+/// Lowering asserts the same in test builds before it decides the equation
+/// check.
+#[must_use]
+pub fn equation_pairs_outside_guard_family_unifications(
+    modules: &[SemanticModule],
+) -> (usize, Vec<String>) {
+    crate::guard_families::equation_pairs_outside_unifications(modules)
+}
+
 /// Asserts canonical IR, deterministic lowering and emission, and complete provenance frames.
 ///
 /// Returns the first lowered definition and emission for fixture-specific assertions.

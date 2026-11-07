@@ -12,6 +12,7 @@ mod edit_origin;
 mod emit;
 mod equation_domain;
 mod error;
+mod guard_families;
 mod instance_keys;
 mod int_facts;
 mod lowering;
@@ -41,6 +42,10 @@ pub use emit::{
     smt_only_function_warnings, trusted_claim_warnings,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
+pub use guard_families::{
+    AtomKind, AtomOccurrence, FamilyKind, FamilySentence, Flip, FlipOperator, GuardAtom,
+    GuardFamily, NotGenerated, NotGeneratedReason, guard_families,
+};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};
 pub use mutant_theory::{
     MutantTheory, TheoryChanges, TheoryCheckError, TheoryRefusal, rule_sentence_key,

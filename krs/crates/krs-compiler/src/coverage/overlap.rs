@@ -760,6 +760,44 @@ fn confirm(
     })))
 }
 
+/// Whether the check's unifier leaves the argument patterns of `first` and
+/// `second` possibly matching one argument: some alternative of each whose
+/// patterns no column proves disjoint ([`Stop::Unknown`] counts as
+/// possibly matching). `false` when the check cannot read either equation,
+/// which it then never pairs. Every pair [`symbolic_overlap`] can report
+/// passes this test, since it reports a pair only after unifying these
+/// patterns (and the refinements of them its `k::matches!` reading makes).
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn heads_may_match(
+    signature: &EquationSignature,
+    first: &SemanticRule,
+    second: &SemanticRule,
+) -> bool {
+    let signature = &signature.0;
+    let (Some(lefts), Some(rights)) = (sides(signature, first), sides(signature, second)) else {
+        return false;
+    };
+    lefts.iter().any(|left| {
+        rights.iter().any(|right| {
+            left.patterns.len() == right.patterns.len()
+                && left.patterns.iter().zip(&right.patterns).enumerate().all(
+                    |(index, (left, right))| {
+                        !matches!(
+                            unify(
+                                signature,
+                                left,
+                                right,
+                                &mut vec![index],
+                                &mut BTreeMap::new()
+                            ),
+                            Err(Stop::Disjoint)
+                        )
+                    },
+                )
+        })
+    })
+}
+
 /// The first exact overlap among equations at one priority, sorted by
 /// identity, pair by pair (see the module documentation).
 pub(crate) fn symbolic_overlap(

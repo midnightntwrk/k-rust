@@ -2580,7 +2580,6 @@ fn chosen_clause_unification<'g, 'm>(
     Unification::completed(unifier, catalog, [left_requires, right_requires])
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// One side of a pair of sentences: the left one is rule 0 of a
 /// unification's variable catalog, the right one rule 1.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2590,7 +2589,6 @@ pub(crate) enum Side {
 }
 
 impl Side {
-    #[expect(dead_code, reason = "the guard families read it")]
     const fn index(self) -> usize {
         match self {
             Self::Left => 0,
@@ -2599,7 +2597,6 @@ impl Side {
     }
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// How two Bool terms of a pair of sentences relate under one of its
 /// unifications ([`Unification::relate`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2624,7 +2621,6 @@ pub(crate) enum AtomRelation {
 /// check compares. For equations, see [`Siblings::equation_unifications`].
 pub(crate) struct Unification<'g, 'm> {
     unifier: Unifier<'g>,
-    #[expect(dead_code, reason = "the guard families read it")]
     /// The variables of both sides as the unifier names them, to read more
     /// terms of either side ([`Self::relate`]).
     catalog: VariableCatalog,
@@ -2690,7 +2686,6 @@ impl<'g, 'm> Unification<'g, 'm> {
                 .int_facts_conflict(left.iter().chain(right).map(|(_, pattern)| pattern))
     }
 
-    #[expect(dead_code, reason = "the guard families read it")]
     /// How two Bool terms of the pair's guards, each a subterm of its
     /// side's guard, relate under this unifier: one term, complements, or
     /// neither.
@@ -2706,7 +2701,6 @@ impl<'g, 'm> Unification<'g, 'm> {
     }
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// How two patterns relate under `unifier`'s substitution.
 fn relation(unifier: &Unifier<'_>, first: &Pattern, second: &Pattern) -> AtomRelation {
     if unifier.complementary(first, second) {
@@ -2729,7 +2723,6 @@ fn relation(unifier: &Unifier<'_>, first: &Pattern, second: &Pattern) -> AtomRel
     AtomRelation::Unrelated
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// One transition the overlap check compares, as the guard families read it.
 #[derive(Clone, Copy)]
 pub(crate) struct SiblingRule<'m> {
@@ -2745,7 +2738,6 @@ pub(crate) struct SiblingRule<'m> {
 /// instance views, and every unification of them (one per combination of
 /// or-pattern alternatives that unifies).
 pub(crate) struct SiblingPair<'g, 'm> {
-    #[expect(dead_code, reason = "the guard families read it")]
     pub(crate) rules: [&'m SemanticRule; 2],
     pub(crate) unifications: Vec<Unification<'g, 'm>>,
 }
@@ -2760,7 +2752,6 @@ impl SiblingPair<'_, '_> {
     }
 }
 
-#[expect(dead_code, reason = "the guard families read it")]
 /// A family of transitions: the transitions at one priority that the
 /// overlap check compares with one another, a connected component of the
 /// "patterns unify" relation over [`Siblings::pairs`]. An overlapping pair
@@ -2794,7 +2785,6 @@ impl<'m> Siblings<'m> {
     /// transitions at one priority, in identity order (the left view first),
     /// with their unifications. A pair inside one `nondet` group is
     /// included; the check validates the group with it.
-    #[expect(dead_code, reason = "the guard families read it")]
     pub(crate) fn pairs(&self) -> Vec<SiblingPair<'_, 'm>> {
         let mut pairs = Vec::new();
         for left in 0..self.views.len() {
@@ -2818,7 +2808,6 @@ impl<'m> Siblings<'m> {
         })
     }
 
-    #[expect(dead_code, reason = "the guard families read it")]
     /// The transitions, one per rule, in identity order.
     pub(crate) fn rules(&self) -> Vec<SiblingRule<'m>> {
         let mut rules: Vec<SiblingRule<'m>> = Vec::new();
@@ -2836,7 +2825,6 @@ impl<'m> Siblings<'m> {
         rules
     }
 
-    #[expect(dead_code, reason = "the guard families read it")]
     /// The families `pairs` (this check's [`Self::pairs`]) form, ordered by
     /// their first transition.
     pub(crate) fn families(&self, pairs: &[SiblingPair<'_, 'm>]) -> Vec<RuleFamily<'m>> {
@@ -2875,7 +2863,6 @@ impl<'m> Siblings<'m> {
             .collect()
     }
 
-    #[expect(dead_code, reason = "the guard families read it")]
     /// Every way two equations' left-hand sides match one application, with
     /// their guards, as [`Self::pairs`] reads two transitions: one
     /// unification per combination of or-pattern alternatives that unifies.
@@ -2890,6 +2877,9 @@ impl<'m> Siblings<'m> {
     /// argument, and this unifier answers "no unification" only when no term
     /// matches both heads. A pair the check would never find overlapping can
     /// still unify here, which only adds a constraint to the guard families.
+    /// Test builds check the containment: lowering asserts, before it decides
+    /// the equation check, that every pair the check finds may both apply has
+    /// a unification here (`guard_families::equation_pairs_outside_unifications`).
     ///
     /// A literal at an argument in `any_literal` of either head stands for
     /// any value there: a reader that holds those arguments' literals apart
@@ -2953,7 +2943,6 @@ impl<'m> Siblings<'m> {
         unifications
     }
 
-    #[expect(dead_code, reason = "the guard families read it")]
     /// How two Bool subterms of one sentence's guard relate, read in that
     /// sentence alone.
     pub(crate) fn relate_within(

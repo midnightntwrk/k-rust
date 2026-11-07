@@ -4001,6 +4001,8 @@ fn stale_warning(
 }
 
 mod overlap;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use overlap::heads_may_match;
 pub(crate) use overlap::{EquationSignature, symbolic_overlap};
 
 #[cfg(test)]
