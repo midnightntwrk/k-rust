@@ -553,59 +553,65 @@ fn a_braced_name_or_wildcard_item_is_the_instance_binder_limit() {
     assert!(labelled.contains("`x @ Decl { .. }`"), "{labelled}");
 }
 
-/// `Some(..)` or `None` in an instance child is a `?` cell's presence or absence inside one
-/// instance, which an instance record does not name yet: `cells!` stops at the child with the
-/// limit's code, in a pattern and in a result, before `None` would be read as a binder or
-/// `Some(..)` as Rust's `Option`. A child that is only a name is a binder as before.
+/// `Some(..)` or `None` as an instance child is a `?` cell's presence or absence inside one
+/// instance, read by its spelling as a cell entry's is: `cells!` and readable records carry it as
+/// that state, in a pattern and in a result, for the collector, which says the limit
+/// instance-child-multiplicity once the sentence's entries are admitted, never as a binder `None`
+/// or Rust's `Option`. Only a reading whose children are terms says the limit itself
+/// ([`krs_syntax::InstanceField::multiplicity_limit`]). A child that is only a name is a binder
+/// as before, and a `Some(..)` holds the child's content, no other presence.
 #[test]
-fn an_optional_instance_child_is_the_instance_child_multiplicity_limit() {
-    let refused = |error: krs_syntax::SyntaxError, source: &str, written: &str| {
-        assert!(
-            matches!(
-                error.kind(),
-                krs_syntax::SyntaxErrorKind::InstanceChildMultiplicity { .. }
-            ),
-            "{source}: {:?}",
-            error.kind()
-        );
-        assert_eq!(
-            error.kind().code().as_str(),
-            "krs::analysis::collection-entry",
-            "{source}"
-        );
-        assert_eq!(
-            error.to_string(),
-            format!(
-                "the instance child `acounter` holds {written}: {}",
-                krs_syntax::INSTANCE_CHILD_MULTIPLICITY
-            ),
-            "{source}"
-        );
-    };
-    for (source, written) in [
-        (
-            "account: { k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }, state @ ..",
-            "`Some(..)`, a `?` cell's presence",
-        ),
-        (
-            "account: { Acct { id: z, acounter: None, .. }, .. }, state @ ..",
-            "`None`, a `?` cell's absence",
-        ),
-    ] {
-        refused(
-            parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
-                .unwrap_err(),
-            source,
-            written,
-        );
-    }
-    let result =
-        "account: { k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }, ..state";
-    refused(
-        krs_syntax::parse_cells_expression(krs_syntax::parse::tokens_from_source(result).unwrap())
-            .unwrap_err(),
-        result,
-        "`Some(..)`, a `?` cell's presence",
+fn an_optional_instance_child_is_carried_as_its_presence() {
+    let child = |state: &StateTerm| first_instance_fields(state)[1].value().clone();
+    let pattern_child = |source: &str| child(pattern(source).entries()[0].value());
+    assert!(matches!(
+        pattern_child("account: { k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }, state @ .."),
+        StateTerm::Present(inner) if matches!(*inner, StateTerm::Term(_))
+    ));
+    assert!(matches!(
+        pattern_child("account: { Acct { id: z, acounter: None, .. }, .. }, state @ .."),
+        StateTerm::Absent(_)
+    ));
+    let result = expression(
+        "account: { k::fragment![crate::Acct { id: z, acounter: Some(x), ..me }], ..instances0 }, ..state",
+    );
+    let field = &first_instance_fields(result.entries()[0].value())[1];
+    assert!(matches!(field.value(), StateTerm::Present(_)));
+    let limit = field
+        .multiplicity_limit()
+        .expect("a term reading says the limit");
+    assert_eq!(
+        limit.kind().code().as_str(),
+        "krs::analysis::collection-entry"
+    );
+    assert_eq!(
+        limit.to_string(),
+        krs_syntax::instance_child_multiplicity_reason("acounter", true)
+    );
+    assert_eq!(
+        krs_syntax::instance_child_multiplicity_reason("acounter", false),
+        format!(
+            "the instance child `acounter` holds `None`, a `?` cell's absence: {}",
+            krs_syntax::INSTANCE_CHILD_MULTIPLICITY
+        )
+    );
+    assert!(field.record_multiplicity_limit().is_none());
+    let readable = krs_syntax::RuleBlock::parse_source(
+        "for Machine; read: { k: [Go(), ..], account: { me @ Acct { acounter: None, .. }, .. } } => { k: [..], account: { Acct { acounter: Some(1), ..me }, .. } };",
+    );
+    assert!(readable.is_ok(), "{:?}", readable.err());
+    let nested = parse_cells_pattern(
+        krs_syntax::parse::tokens_from_source(
+            "account: { k::fragment![crate::Acct { acounter: Some(None), .. }], .. }, state @ ..",
+        )
+        .unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        nested
+            .to_string()
+            .contains("an instance child's `Some(..)` holds the cell's content"),
+        "{nested}"
     );
     parse_cells_pattern(
         krs_syntax::parse::tokens_from_source(

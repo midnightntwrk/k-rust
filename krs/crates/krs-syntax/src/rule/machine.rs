@@ -485,12 +485,32 @@ fn parse_readable_instance(
 /// One readable instance child `name`: `[items.., ..]` for a computation cell
 /// or a list, a map cell's entries `{ k -> v, .. }`, or a term; a braced
 /// list's child in a pattern is read as a key is ([`parse_readable_instances`]).
+/// A `?` cell's `Some(..)` around one of those, or `None`, read by their
+/// spelling as a cell entry's are, is the state the collector judges and
+/// refuses as not lowered yet once it admits it
+/// ([`crate::INSTANCE_CHILD_MULTIPLICITY`]).
 fn parse_readable_child(
     name: &Ident,
     tokens: TokenStream,
     context: StateMacroContext,
     braced: bool,
 ) -> Result<StateTerm, ParseError> {
+    match crate::state_macro::PresenceTokens::of(&tokens)? {
+        Some(crate::state_macro::PresenceTokens::Absent(range)) => {
+            return Ok(StateTerm::Absent(range));
+        }
+        Some(crate::state_macro::PresenceTokens::Present(inside)) => {
+            let value = parse_readable_child(name, inside, context, braced)?;
+            if matches!(value, StateTerm::Present(_) | StateTerm::Absent(_)) {
+                return Err(readable_error(
+                    tokens.span(),
+                    "an instance child's `Some(..)` holds the cell's content",
+                ));
+            }
+            return Ok(StateTerm::Present(Box::new(value)));
+        }
+        None => {}
+    }
     let read = |tokens| match context {
         StateMacroContext::Pattern if braced => {
             Ok(TermExpression::parse_key_pattern_tokens(tokens)?)

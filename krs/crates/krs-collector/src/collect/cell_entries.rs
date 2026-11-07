@@ -355,6 +355,7 @@ pub(super) fn judge_readable(
             )?;
         }
         whole_instances(authored.form, &subject, &result)?;
+        instance_child_multiplicity(&subject, &result)?;
     }
     match judged {
         Ok(lints) => Ok(lints
@@ -566,6 +567,45 @@ fn instance_binder(
     }
 }
 
+/// Refuses the first admitted entry, of the subject's then the result's, that names a child of a
+/// collection's instance record as a `?` cell's `Some(..)` or `None`
+/// ([`cell_entries::instance_child_presence`]), at the child: inside one instance it means whether
+/// that instance holds the cell, and an instance record does not name a `?` or `*` child yet. It
+/// is asked after the entries' form, kind and pairing, so a principle the same entry breaks (a
+/// subject `None` the result does not create, an update with no base) answers first; the macros
+/// carry such a child as a state for it.
+fn instance_child_multiplicity(
+    subject: &[Entry<'_>],
+    result: &[Entry<'_>],
+) -> Result<(), CollectionError> {
+    for entry in subject.iter().chain(result) {
+        let Some(spelling) = &entry.field.spelling else {
+            continue;
+        };
+        let Some((at, child, present)) =
+            cell_entries::instance_child_presence(&entry.kind.own.layers, spelling)
+        else {
+            continue;
+        };
+        let error = CollectionError::new(
+            CollectionErrorKind::InstanceChildMultiplicity,
+            krs_syntax::instance_child_multiplicity_reason(unraw(child), present),
+        );
+        let range = entry
+            .field
+            .located
+            .iter()
+            .find(|(path, _)| *path == at)
+            .map(|(_, range)| range)
+            .or(entry.field.range.as_ref());
+        return Err(match range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        });
+    }
+    Ok(())
+}
+
 /// The entries of one side of a readable clause, each field beside the one cell its name names;
 /// `None` where a name names no single cell.
 fn readable_entries<'a>(
@@ -718,6 +758,7 @@ fn judge_sentence(
         if rewrite == (Rewrite::Kept { as_rule: false }) {
             fixed_cells_only(subject_cells, &subject)?;
         }
+        instance_child_multiplicity(&subject, &result)?;
     }
     match judged {
         Ok(lints) => Ok(lints

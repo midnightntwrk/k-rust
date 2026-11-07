@@ -597,24 +597,20 @@ fn a_readable_clause_keys_each_nested_literal_once_at_its_token() {
     }
 }
 
-/// `Some(..)` in a readable claim's instance child is a `?` cell's presence inside one instance,
-/// which an instance record does not name yet: the expansion stops at the child with the limit's
-/// code, before rustc would read it as Rust's `Option`.
+/// `Some(..)` or `None` as an instance child, in a readable claim and a readable rule, is a `?`
+/// cell's presence inside one instance: the expansion carries it as that state, so rustc never
+/// reads it as Rust's `Option`, and the collector says the limit once the sentence's entries are
+/// admitted, after the principles that judge the same entry.
 #[test]
-fn a_readable_claim_s_optional_instance_child_is_the_instance_child_multiplicity_limit() {
-    let source = "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], thread: { Thread { name: k::id!(\"$a\"), slot: Some(k::id!(\"$b\")) }, .. } } => { k: [..] };\n}\n";
-    let diagnostics = expand(source).expect_err("an optional instance child is refused");
-    assert_eq!(
-        diagnostics[0].code,
-        krs_diagnostic::codes::analysis::COLLECTION_ENTRY
-    );
-    assert_eq!(
-        diagnostics[0].message,
-        format!(
-            "the instance child `slot` holds `Some(..)`, a `?` cell's presence: {}",
-            krs_syntax::INSTANCE_CHILD_MULTIPLICITY
-        )
-    );
+fn an_optional_instance_child_reaches_the_wire_as_its_presence() {
+    for source in [
+        "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], thread: { Thread { name: k::id!(\"$a\"), slot: Some(k::id!(\"$b\")) }, .. } } => { k: [..] };\n}\n",
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    go: { k: [Go(), ..], thread: { me @ Thread { slot: None, .. }, .. } } => { k: [..], thread: { Thread { slot: Some(1), ..me }, .. } };\n}\n",
+    ] {
+        let expansion = expand(source).expect("an optional instance child expands");
+        let text = &expansion.generated.text;
+        assert!(text.contains(r#"\"present\""#), "{source}");
+    }
 }
 
 /// A `?` cell's `Some(..)` or `None` inside one instance reaches no rustc reading in the two

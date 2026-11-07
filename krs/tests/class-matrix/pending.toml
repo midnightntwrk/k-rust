@@ -1247,44 +1247,6 @@ match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: 
 finding = "S5-F2"
 kind = "diagnostic"
 
-# S5-G3, diagnostic: 9 reds
-
-# cells: 4
-[[family]]
-match = 'cells/*/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, acounter: None\, .. \}]\, .. \}'
-finding = "S5-G3"
-kind = "diagnostic"
-
-# cells: 1
-[[family]]
-match = 'cells/g1-f/kinds/account/\{ k::fragment![crate::Acct \{ acounter: Some(x)\, ..me \}]\, ..instances0 \}'
-finding = "S5-G3"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'claim/g1-f/kinds/account/\{ Acct \{ acounter: Some(x)\, ..me \}\, .. \}'
-finding = "S5-G3"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'claim/g3-b/kinds/account/\{ Acct \{ id: z\, acounter: None\, .. \}\, .. \}'
-finding = "S5-G3"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'readable/g1-f/kinds/account/\{ Acct \{ acounter: Some(x)\, ..me \}\, .. \}'
-finding = "S5-G3"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'readable/g3-b/kinds/account/\{ Acct \{ id: z\, acounter: None\, .. \}\, .. \}'
-finding = "S5-G3"
-kind = "diagnostic"
-
 # S5-H1, diagnostic+rust-syntax: 28 reds
 
 # sweep: 24
@@ -1946,14 +1908,6 @@ deviation = "krs::syntax::invalid-pattern-or @ entry"
 # accepted (S5-L4); in a result it is refused with the descriptor term's code (S0-9).
 # S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
 # the first mistake the compiler meets.
-
-["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
-finding = "S5-G3"
-deviation = "krs::analysis::collection-entry @ spelling"
-
-["cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
-finding = "S5-G3"
-deviation = "krs::analysis::collection-entry @ item"
 
 ["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 finding = "S5-G3"

@@ -749,45 +749,66 @@ impl InstanceField {
         &self.value
     }
 
-    /// The refusal of the child when it is written `Some(..)` or `None`, a `?` cell's presence
-    /// or absence, as a cell entry writes them: inside one instance it would mean whether that
-    /// instance holds the cell, and an instance record does not name a `?` or `*` child yet
-    /// ([`INSTANCE_CHILD_MULTIPLICITY`]). `Some(..)` and `None` are read by their spelling, as a
-    /// cell entry's are, so no declaration is needed and the child stops here, before its term
-    /// would be read as Rust's `Option`; `None` for every other child.
+    /// The refusal of a `?` cell's `Some(..)` or `None` inside one instance, which would mean
+    /// whether that instance holds the cell, where no reading carries it to the collector: an
+    /// instance record does not name a `?` or `*` child yet ([`INSTANCE_CHILD_MULTIPLICITY`]).
+    /// `Some(..)` and `None` are read by their spelling, as a cell entry's are.
     ///
-    /// A record the child writes, a group record such as `Info { mark: Some(1) }`, names cells of
-    /// the same instance, so a `Some(..)` or `None` that stands as one of its fields, at any depth
-    /// of records, is the same presence inside one instance, refused at that field.
+    /// The child itself written `Some(..)` or `None` is a presence state the descriptor carries,
+    /// so the collector says the limit once the entries' kinds and pairing admit it
+    /// ([`instance_child_multiplicity_reason`]); this gives it only for a reading whose children
+    /// are terms rustc reads, such as a List collection's bracket reading. A record the child
+    /// writes, a group record such as `Info { mark: Some(1) }`, names cells of the same instance
+    /// as terms, so a `Some(..)` or `None` among its fields, at any depth of records, is refused
+    /// here in every reading ([`Self::record_multiplicity_limit`]); `None` for every other child.
     #[must_use]
     pub fn multiplicity_limit(&self) -> Option<SyntaxError> {
+        use syn::ext::IdentExt;
+        let present = match &self.value {
+            StateTerm::Present(_) => true,
+            StateTerm::Absent(_) => false,
+            _ => return self.record_multiplicity_limit(),
+        };
+        Some(SyntaxError::new(
+            SyntaxErrorKind::InstanceChildMultiplicity {
+                reason: instance_child_multiplicity_reason(&self.name.unraw().to_string(), present),
+            },
+            self.name.span(),
+        ))
+    }
+
+    /// [`Self::multiplicity_limit`] of a `Some(..)` or `None` that stands as a field of a record
+    /// the child writes, at any depth of records, at that field: the descriptor carries a record's
+    /// fields as terms, which rustc reads.
+    #[must_use]
+    pub fn record_multiplicity_limit(&self) -> Option<SyntaxError> {
         use syn::ext::IdentExt;
         let (StateTerm::Term(term) | StateTerm::Group(term)) = &self.value else {
             return None;
         };
-        let child = self.name.unraw();
-        let (reason, span) = if let Some((written, span)) = presence_spelling(term.tree()) {
-            (
-                format!(
-                    "the instance child `{child}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}"
-                ),
-                span,
-            )
-        } else {
-            let (cell, written, span) = record_presence(term.tree())?;
-            (
-                format!(
-                    "the cell `{}`, inside the instance child `{child}`, holds {written}: {INSTANCE_CHILD_MULTIPLICITY}",
-                    cell.unraw()
-                ),
-                span,
-            )
-        };
+        let (cell, written, span) = record_presence(term.tree())?;
+        let reason = format!(
+            "the cell `{}`, inside the instance child `{}`, holds {written}: {INSTANCE_CHILD_MULTIPLICITY}",
+            cell.unraw(),
+            self.name.unraw()
+        );
         Some(SyntaxError::new(
             SyntaxErrorKind::InstanceChildMultiplicity { reason },
             span,
         ))
     }
+}
+
+/// The reason an instance child `child` written `Some(..)` (`present`) or `None` is not lowered:
+/// a `?` cell's presence or absence inside one instance ([`INSTANCE_CHILD_MULTIPLICITY`]).
+#[must_use]
+pub fn instance_child_multiplicity_reason(child: &str, present: bool) -> String {
+    let written = if present {
+        "`Some(..)`, a `?` cell's presence"
+    } else {
+        "`None`, a `?` cell's absence"
+    };
+    format!("the instance child `{child}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}")
 }
 
 /// What `tree` writes when it is a `?` cell's `Some(..)` or `None`, read by its spelling as a cell
@@ -829,10 +850,39 @@ fn record_presence(tree: &TermTree) -> Option<(&syn::Ident, &'static str, proc_m
     })
 }
 
+/// An instance child's tokens that write a `?` cell's state, `Some(content)` or `None`, read by
+/// their spelling as a cell entry's are.
+pub(crate) enum PresenceTokens {
+    /// `Some(content)`: the content's tokens.
+    Present(TokenStream),
+    /// `None`: its range.
+    Absent(TokenRange),
+}
+
+impl PresenceTokens {
+    /// The state `tokens` write, if they are exactly `Some(..)` or `None`.
+    pub(crate) fn of(tokens: &TokenStream) -> Result<Option<Self>, SyntaxError> {
+        let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+        Ok(match trees.as_slice() {
+            [TokenTree::Ident(ident)] if ident == "None" => {
+                Some(Self::Absent(TokenRange::for_tokens(tokens)?))
+            }
+            [TokenTree::Ident(ident), TokenTree::Group(group)]
+                if ident == "Some" && group.delimiter() == proc_macro2::Delimiter::Parenthesis =>
+            {
+                Some(Self::Present(group.stream()))
+            }
+            _ => None,
+        })
+    }
+}
+
 /// What an instance record meets at a child that is a `?` cell or a collection of its own: what
 /// the child would mean is whether, or which, cells that one instance holds, and no lowering
-/// writes that yet, a stated limitation. The macros say it where `Some(..)` or `None` stand in an
-/// instance child, and the compiler where the child's declaration shows it.
+/// writes that yet, a stated limitation. The collector says it where `Some(..)` or `None` stand
+/// as an instance child, once the entries are admitted; the macros where they stand inside a
+/// record the child writes, or in a reading whose children rustc reads; and the compiler where
+/// the child's declaration shows it.
 pub const INSTANCE_CHILD_MULTIPLICITY: &str =
     "an instance record does not name a `?` or `*` child yet";
 
@@ -2292,7 +2342,7 @@ fn parse_instance_record(
                     ));
                 }
                 let field = InstanceField::new(name, parse_instance_child(tokens, context, keys)?);
-                if let Some(limit) = field.multiplicity_limit() {
+                if let Some(limit) = field.record_multiplicity_limit() {
                     return Err(limit);
                 }
                 fields.push(field);
@@ -2307,14 +2357,33 @@ fn parse_instance_record(
     )
 }
 
-/// Parses one instance child value: `k::k![..]`, `map![..]`, or a term (a
+/// Parses one instance child value: `k::k![..]`, `map![..]`, a term (a
 /// leaf's content or a whole nested cell, which semantic analysis tells
-/// apart by the declaration), read as a key when `keys`.
+/// apart by the declaration), read as a key when `keys`, or a `?` cell's
+/// `Some(..)` around one of those or `None`, read by their spelling as a cell
+/// entry's are: the state the collector judges, and refuses as not lowered
+/// yet once it admits it ([`INSTANCE_CHILD_MULTIPLICITY`]).
 fn parse_instance_child(
     tokens: TokenStream,
     context: StateMacroContext,
     keys: bool,
 ) -> Result<StateTerm, SyntaxError> {
+    match PresenceTokens::of(&tokens)? {
+        Some(PresenceTokens::Absent(range)) => return Ok(StateTerm::Absent(range)),
+        Some(PresenceTokens::Present(inside)) => {
+            let span = TokenRange::for_tokens(&tokens)?.first();
+            let value = parse_instance_child(inside, context, keys)?;
+            if matches!(value, StateTerm::Present(_) | StateTerm::Absent(_)) {
+                return Err(state_error(
+                    "cells",
+                    "an instance child's `Some(..)` holds the cell's content",
+                    span,
+                ));
+            }
+            return Ok(StateTerm::Present(Box::new(value)));
+        }
+        None => {}
+    }
     if let Some((name, payload)) = qualified_macro_payload(&tokens) {
         let invocation = || TokenRange::for_tokens(&tokens).map(Some);
         match name.as_str() {

@@ -521,6 +521,45 @@ pub fn fixed_cells_only_reason(cell: &str) -> String {
     )
 }
 
+/// Where `spelling`, an admitted entry of a cell whose own kind is `stack`, names a child of one
+/// of its collection's instance records as a `?` cell's `Some(..)` or `None`: the path to the
+/// first such child, in reading order, its name, and whether it is `Some(..)`. Inside one
+/// instance the child means whether that instance holds the cell, which the table admits and no
+/// lowering writes yet, the limit [`crate::INSTANCE_CHILD_MULTIPLICITY`]; it is asked once the
+/// sentence's entries are admitted, so a principle the same entry breaks answers first.
+#[must_use]
+pub fn instance_child_presence<'s>(
+    stack: &[Layer],
+    spelling: &'s EntrySpelling,
+) -> Option<(Vec<usize>, &'s str, bool)> {
+    let [Layer::Instances(_), Layer::Group(group), ..] = stack else {
+        return None;
+    };
+    let entry = usize::from(matches!(spelling, EntrySpelling::Alias(..)));
+    let seq = sequence(unaliased(spelling))?;
+    seq.items.iter().enumerate().find_map(|(step, item)| {
+        let record = record_of(item, group)?;
+        let labelled = matches!(item, EntrySpelling::Alias(..));
+        record
+            .fields
+            .iter()
+            .enumerate()
+            .find_map(|(child, (name, value))| {
+                let present = match unaliased(value) {
+                    EntrySpelling::Present(_) => true,
+                    EntrySpelling::Missing => false,
+                    _ => return None,
+                };
+                let path = std::iter::repeat_n(0, entry)
+                    .chain([step])
+                    .chain(labelled.then_some(0))
+                    .chain([child])
+                    .collect();
+                Some((path, name.as_str(), present))
+            })
+    })
+}
+
 /// The step from a sequence or a map to its rest (`..`, `name @ ..`, `..name`), which is no
 /// spelling of its own: [`Located::at`]'s last step where a rest is refused.
 pub const REST: usize = usize::MAX;

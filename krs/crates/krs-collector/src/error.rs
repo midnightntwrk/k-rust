@@ -112,6 +112,10 @@ pub enum CollectionErrorKind {
     /// read fixed cells only, do not express yet
     /// ([`krs_syntax::cell_entries::fixed_cells_only_reason`]).
     FixedCellsOnly,
+    /// A `?` cell's `Some(..)` or `None` naming a child of a collection's instance record, which
+    /// the table admits and no lowering writes yet
+    /// ([`krs_syntax::cell_entries::instance_child_presence`]).
+    InstanceChildMultiplicity,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -281,7 +285,8 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
             CollectionErrorKind::CellEntry(refusal) => refusal.code(),
             CollectionErrorKind::ResultRemainderReuse => codes::syntax::UNSUPPORTED_RULE_BODY,
-            CollectionErrorKind::CollectionOverwrite => codes::analysis::COLLECTION_ENTRY,
+            CollectionErrorKind::CollectionOverwrite
+            | CollectionErrorKind::InstanceChildMultiplicity => codes::analysis::COLLECTION_ENTRY,
             CollectionErrorKind::FixedCellsOnly => codes::expand::CELL_COLLECTION_PLACEMENT,
         };
         let diagnostic = Diagnostic::error(

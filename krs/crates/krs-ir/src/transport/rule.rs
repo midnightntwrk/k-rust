@@ -2487,13 +2487,25 @@ fn validate_rule_instances<S: RuleValidationStage>(
             if field.field.is_empty() || !names.insert(field.field.as_str()) {
                 return Err(invalid());
             }
-            if matches!(
-                field.value,
-                ProtocolRuleStateTerm::Present { .. }
-                    | ProtocolRuleStateTerm::Absent
-                    | ProtocolRuleStateTerm::Instances(_)
-            ) {
-                return Err(invalid());
+            // A `?` child's `Some(..)` or `None` is a well-formed state inside one instance, which
+            // the wire carries as a cell entry's: whether the child's cell admits it is the
+            // collector's question, and that no lowering writes it yet its limit, both at the
+            // child. A `Some(..)` holds the child's content, and a collection child holds no
+            // instance list of its own here.
+            let nested = |value: &ProtocolRuleStateTerm<Term<S>>| {
+                matches!(
+                    value,
+                    ProtocolRuleStateTerm::Present { .. }
+                        | ProtocolRuleStateTerm::Absent
+                        | ProtocolRuleStateTerm::Instances(_)
+                )
+            };
+            match &field.value {
+                ProtocolRuleStateTerm::Present { value } if nested(value) => {
+                    return Err(invalid());
+                }
+                ProtocolRuleStateTerm::Instances(_) => return Err(invalid()),
+                _ => {}
             }
             walk.instance_cells += 1;
             let validated = validate_rule_state::<S>(
