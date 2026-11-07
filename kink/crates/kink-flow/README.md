@@ -1219,10 +1219,10 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 6
+version = 7
 document = "results"          # or "run"
 profile = "no-z3"             # or "z3"
-krs_annotation = 3            # results: a document the KRS front end annotated, its krs.version
+krs_annotation = 4            # results: a document the KRS front end annotated, its krs.version
 
 [spec]
 outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below
@@ -1251,7 +1251,7 @@ An `invalid-mutation` or `not-admitted` mutation, which its author must fix befo
 A refusal's or a stop's text is not part of the rendering, since it explains a refusal rather than records a verdict: `kink-flow` prints it on stderr (`kink_flow::verdicts::refusal_details`), one line per refused specification or list, per mutation its author must fix (`mutation <id>: <status> <reason>: <detail>`), and for a stop.
 
 A rule is named by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line`; the names of a case are ordered by module name, then by position in the module.
-The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`); version 3 adds `stop.krs.when`, the stop condition as the corpus wrote it, and spells items as version 2 does.
+The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`); version 3 adds `stop.krs.when`, the stop condition as the corpus wrote it, and spells items as version 2 does; version 4 names a `results` document's guard nodes by KRS construct, which a `[[guard.operand]]`'s text follows, and spells items as version 2 does.
 Two renderings of the same verdicts under different annotation versions differ in that line and in the rule names only.
 A run rendering names no rule, so it has no `krs_annotation` line, which could only move a lock without any verdict moving.
 The reason of every status but a refusal is left out: the reason of `unknown` is the first exclusion in run order.
@@ -1264,6 +1264,7 @@ Version 2 (CF-23) added `schedule`, `profile` and `killed_by`, and version 3 (CF
 Version 4 adds the header's `krs_annotation`, so that a lock whose rule names move with the KRS annotation (version 2 of it spells `plus_zero` as `crate::plus_zero`) says why; a version 3 rendering of a KRS document named its rules as the document did, without saying which annotation version that was.
 Version 5 adds the `reason` of an `invalid-mutation` or `not-admitted` mutation; a version 4 rendering of such a mutation gave its status alone, so a reader learned the refusal only from `check`.
 Version 6 adds each killed mutation's `killer` under both schedules and a refused lock's `[lock]` section, and drops the header's `schedule` (a first-kill rendering no longer differs from a full one in what it records but `killed_by`) and a run rendering's `krs_annotation`.
+Version 7 adds a `results` rendering's `[[guard]]` list: each fired or matched rule whose guard misses an outcome, with its `never` and each `[[guard.operand]]` that misses `true` or `false`; a version 6 rendering of the same document has no such list, so a lock recorded at version 6 differs from a version 7 rendering in its `version` line and in that list only.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 

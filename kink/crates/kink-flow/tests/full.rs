@@ -557,7 +557,7 @@ fn a_refused_run_document_names_its_schedule() {
             let printed = String::from_utf8(output.stdout).unwrap();
             assert!(
                 printed.starts_with(&format!(
-                    "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\n\
+                    "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\n\
                      profile = \"{profile}\"\n\n[{section}]\noutcome = \"refused\"\n"
                 )),
                 "{printed}"
@@ -1368,7 +1368,7 @@ mod kink_tier {
         let profile = kink_native::execution::SolverProfile::BUILD.name();
         assert!(
             full_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+                "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
                  \"{profile}\"\n"
             )),
             "{full_cold}"
@@ -1388,7 +1388,7 @@ mod kink_tier {
         );
         assert!(
             first_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+                "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
                  \"{profile}\"\n"
             )),
             "{first_cold}"

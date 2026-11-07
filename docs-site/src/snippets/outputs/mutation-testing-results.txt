@@ -3,10 +3,17 @@ $ krs kink --package story-plus --definition main results --locked  # the docume
   "claim_helper": 0,
   "comparable": 4,
   "computed": 0,
-  "covered": 2,
+  "fired": 2,
+  "guards": {
+    "never_held": 0,
+    "never_refuted": 0,
+    "operands_missing_an_outcome": 0,
+    "sentences": 0
+  },
+  "matched": 0,
   "mismatches": 0,
   "no_coverage_signal": 0,
   "programs": 4,
   "rules": 2,
-  "uncovered": 0
+  "unmatched": 0
 }

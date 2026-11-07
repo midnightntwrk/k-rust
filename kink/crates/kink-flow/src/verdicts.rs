@@ -7,10 +7,10 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 6
+//! version = 7
 //! document = "results"
 //! profile = "no-z3"
-//! krs_annotation = 3
+//! krs_annotation = 4
 //!
 //! [spec]
 //! outcome = "admitted"
@@ -29,7 +29,8 @@
 //! `krs.version`), since a rule's KRS item is spelled as the annotation spells it: from version 2
 //! as a stop reads it (`crate::plus_zero`, `lang::step`), before it as the `// KRS` line names it
 //! (`plus_zero`); version 3 adds the stop condition as the corpus wrote it and spells items as
-//! version 2 does. Two renderings of the same verdicts under different annotation versions differ
+//! version 2 does, and version 4 names a guard's nodes by KRS construct, which a `[[guard]]`
+//! operand's text follows, and spells items as version 2 does. Two renderings of the same verdicts under different annotation versions differ
 //! in that line and in the names, not in a class, a rule set or a status. A run rendering names no
 //! rule, so it has no `krs_annotation` line, which could only move a lock without any verdict
 //! moving.

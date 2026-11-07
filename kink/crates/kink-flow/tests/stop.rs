@@ -511,7 +511,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let (document, ok) = results(&manifest, &ResultsOptions::default());
     assert!(ok, "{document:#}");
-    assert_eq!(document["version"], 10);
+    assert_eq!(document["version"], 11);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];

@@ -327,7 +327,7 @@ fn results_report_each_guards_outcomes_per_operand() {
     assert_status(&output, 0);
     let document = json(&output);
     assert!(!output.stdout.windows(9).any(|w| w == b"\"covered\""));
-    assert_eq!(document["krs"]["version"], 3, "{:#}", document["krs"]);
+    assert_eq!(document["krs"]["version"], 4, "{:#}", document["krs"]);
     assert!(
         document["krs"].get("unmatched_guards").is_none(),
         "{:#}",
@@ -1146,8 +1146,8 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     }
     assert_eq!(
         document["krs"],
-        serde_json::json!({"version": 3}),
-        "every rule is named, by version 3 of the annotation"
+        serde_json::json!({"version": 4}),
+        "every rule is named, by version 4 of the annotation"
     );
 
     // The verdicts rendering names the rules by the same items, as the docs-site's recorded
@@ -1157,7 +1157,7 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     let verdicts = stdout(&output);
     // Its header says which annotation version spells the names.
     assert!(
-        verdicts.lines().any(|line| line == "krs_annotation = 3"),
+        verdicts.lines().any(|line| line == "krs_annotation = 4"),
         "{verdicts}"
     );
     // The story's rules are equations, each fired where it applies, and each case matches
@@ -2860,8 +2860,8 @@ fn results_give_a_claim_helper_its_own_status() {
         "{:#}",
         document["summary"]
     );
-    assert_eq!(document["summary"]["uncovered"], count("uncovered"));
-    assert_eq!(document["version"], 10);
+    assert_eq!(document["summary"]["unmatched"], count("unmatched"));
+    assert_eq!(document["version"], 11);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -2950,7 +2950,7 @@ impl Machine {
         record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert_eq!(document["krs"], serde_json::json!({"version": 3}));
+    assert_eq!(document["krs"], serde_json::json!({"version": 4}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
@@ -5246,7 +5246,7 @@ fn locked_story(package: &'static str) -> Project {
 /// profile krs links.
 fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
-    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
                     \"z3\"\n\n[spec]\noutcome = \"admitted\"\n"
         .to_owned();
     for (id, killer) in ["plus/a", "plus/b", "plus/c"].into_iter().zip(killers) {

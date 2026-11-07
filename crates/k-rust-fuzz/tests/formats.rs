@@ -41,10 +41,12 @@ use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 /// version 10 by FZ-ENGINE-R4, in the same wave: `totals.domain`, `totals.diverging`,
 /// `totals.coverage-last-grew` and the unjudged reason `mutant-refused-state`. Re-pinned within
 /// version 10 by FZ-ENGINE-R4's fix round, in the same wave: the unjudged reason
-/// `end-names-undeclared-symbol`.
+/// `end-names-undeclared-symbol`. Re-pinned within version 10 by KINK-guard-coverage: k-rust's
+/// `RunCoverageOutput` gained `guards`, absent unless a request sets `collectGuards`, which the
+/// fuzzer never does, so no report it writes changes.
 const REPORT_SHAPE: (u32, &str) = (
     10,
-    "1ad45719b1897e936724e31c16a6637712a8e1fe0f39c6e4da106a62ee71b3ad",
+    "96e5d750af074ec240a61b850aa18d54e317935cab6c0f886d2fc463860e05a6",
 );
 
 /// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds.

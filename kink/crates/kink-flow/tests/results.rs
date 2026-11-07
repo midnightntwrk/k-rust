@@ -1092,8 +1092,9 @@ text = 'h(opaque(1), 2)'
         // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`;
         // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`; 8 (CF-45) gives an
         // unmatched claim helper its own status; 9 adds a stopped corpus's `stop` and ends' `halt`;
-        // 10 names cells inside `?` and `*` cells in `result`.
-        assert_eq!(document["version"], 10);
+        // 10 names cells inside `?` and `*` cells in `result`; 11 names statuses for their
+        // predicate (`fired`, `matched`, `unmatched`) and adds a guarded rule's `guard`.
+        assert_eq!(document["version"], 11);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1205,7 +1206,7 @@ text = 'h(opaque(1), 2)'
                                "operands_missing_an_outcome": 0},
                    "fired": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
         );
-        assert_eq!(document["version"], 10);
+        assert_eq!(document["version"], 11);
     }
 
     #[test]
@@ -1612,8 +1613,10 @@ endmodule
         // stored. v11 (CF-03), because a record holds the readings that excluded its run. v12
         // (v12), because a record holds each end once, as KORE text. v13, because a record of a
         // run with a stop holds how its ends were reached. v14 (CF-33), because a record holds
-        // kink's own undecided solver answers and records are written under Z3 too.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v15");
+        // kink's own undecided solver answers and records are written under Z3 too. v15, because
+        // a run with a stop condition is keyed by the condition. v16, because a record's coverage
+        // holds the guard outcomes.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v16");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

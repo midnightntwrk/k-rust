@@ -820,7 +820,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // Version 6 names the solver profile, and no schedule.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+            "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
              \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )),
@@ -886,7 +886,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+            "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\nprofile = \
              \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )

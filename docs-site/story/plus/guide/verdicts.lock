@@ -1,5 +1,5 @@
 schema = "kink-flow-verdicts"
-version = 6
+version = 7
 document = "run"
 profile = "z3"
 

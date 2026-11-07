@@ -162,7 +162,7 @@ fn statuses(document: &Value) -> Vec<(String, String)> {
 
 /// A lock that records `killers` (mutation id, program id) and nothing else.
 fn lock_with(killers: &[(&str, &str)]) -> String {
-    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\n".to_owned();
+    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 7\ndocument = \"run\"\n".to_owned();
     for (id, killer) in killers {
         text.push_str(&format!(
             "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
