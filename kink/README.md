@@ -537,20 +537,22 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 KRUST_GATE_Z3=system with-z3-static-5.3.3 kink/scripts/kink-tier.py lint
 KRUST_GATE_Z3=system with-z3-static-5.3.3 kink/scripts/kink-tier.py run gate
-cargo clippy -p kink-native -p kink-campaign -p kink-corpus -p kink-patch -p kink-pattern -p kink-flow --all-targets --no-default-features -- -D warnings
+kink/scripts/kink-tier.py clippy
 kink/scripts/kink-tier.py lint --portable
 kink/scripts/kink-tier.py run gate --portable
 ```
 
+`kink-tier.py clippy` is the portable profile's Clippy: every kink package, and k-rust-backend and k-rust-fuzz, whose code compiled only without the backend's `z3` feature no Z3 build lints, with `--no-default-features --all-targets` and warnings denied.
 The heavy gate adds `kink/scripts/kink-tier.py run heavy` in both profiles.
-`scripts/run-gates.sh kink` and `scripts/run-gates.sh kink-heavy` run the two tier pairs (`scripts/gates.toml`).
+`scripts/run-gates.sh kink` and `scripts/run-gates.sh kink-heavy` run the two tier pairs, and `scripts/run-gates.sh no-z3-clippy` the portable Clippy, which a change to krust's sources or to k-rust-fuzz also owes (`scripts/gates.toml`).
+`scripts/run-gates.sh kink-native-data` runs kink-native's `data` test in both profiles, which a change to the backend's observation catalogs or its `definedness.rs` owes, since its pins rest on them.
 The tier script acquires Z3 as k-rust's gates do (k-rust `docs/testing.md`): by default its Z3 runs add k-rust's `z3-inference-gh-release`, which downloads the Z3 5.3.3 release at build time,
 and `KRUST_GATE_Z3=system` links the Z3 the build environment provides instead, here the machine wrapper `with-z3-static-5.3.3`, which points the `z3-sys` build at a static Z3 5.3.3 library.
 `--and EXPR` narrows a tier to the tests matching a nextest filterset, for example `--and 'package(kink-flow)'`, without judging the budget.
 The Z3 profile runs every test of every kink package (`[z3]` of `kink/.config/kink-tiers.toml` says why no binary is skipped).
 kink-flow's tests are profile-aware (merge packet M-1): its `z3` feature (default, forwarding to kink-native's) selects the Z3 column; a `no` that a complete exploration gives in the portable build is `unknown` under Z3. The tests of the outcome cache, the warm-path memos and the pattern cache run in both profiles, since the caches are on in both, and the Z3-only light test `kink-flow::outcomes both_caches_are_on_under_the_z3_profile` keeps the Z3 side of them in the light tier.
 Under Z3 every solver query is resource-bounded, so a run order cannot move a status through a reused backend's cache; the order tests (`kink-flow::usability *_statuses_do_not_depend_on_the_order`) also check that both undecided-answer counts are reported and that no run of their fixtures takes one.
-So the tier lint counts differ by profile, only by tests that exist in one profile: portable light 680, kink 610, heavy 135, external 7; Z3 light 685, kink 608, heavy 135, external 9 (three kink-tier tests whose subject is a stored or cached `no`, an answer the Z3 profile never gives, compile only in the portable build, and one, of a remainder that only a solver leaves, only under Z3; the light and external columns differ by `cfg(feature = "z3")` tests).
+So the tier lint counts differ by profile, only by tests that exist in one profile: portable light 713, kink 613, heavy 135, external 7; Z3 light 718, kink 612, heavy 135, external 9 (three kink-tier tests whose subject is a stored or cached `no`, an answer the Z3 profile never gives, compile only in the portable build, and two, of a remainder that only a solver refutes and of the solver's units in the kill search, only under Z3; the light and external columns differ by `cfg(feature = "z3")` tests).
 `cargo test --workspace` still runs the light tier, and `cargo test` of the kink packages with `-- --include-ignored` every tier.
 Run the two profiles one after the other, never at the same time in one target directory:
 each build replaces the other's `kink-corpus` and `kink-flow` executables, which the tests run and hash, under a running test.

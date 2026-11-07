@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Run a test tier of the kink crates, check it against its budget, and lint tier membership.
+"""Run a test tier of the kink crates, check it against its budget, lint tier membership, and
+run Clippy over the portable profile's route.
 
     kink/scripts/kink-tier.py run TIER [--portable] [--no-budget] [--and EXPR] [-- NEXTEST_ARGS...]
     kink/scripts/kink-tier.py budget TIER JUNIT
     kink/scripts/kink-tier.py lint [--portable]
+    kink/scripts/kink-tier.py clippy
 
 TIER is light, kink, heavy, gate (light and kink in one run) or all (every tier).
 `--and EXPR` narrows the tier to the tests that also match the nextest filterset EXPR
@@ -15,6 +17,11 @@ k-rust's gates acquire it (docs/testing.md): by default k-rust's `z3-inference-g
 downloads the Z3 release at build time; with `KRUST_GATE_Z3=system` the build links the Z3 the
 build environment provides, for example under `with-z3-static-5.3.3`.
 `--portable` runs the portable (no-Z3) profile, the kink packages with `--no-default-features`.
+`clippy` lints that profile's route with Clippy, warnings denied: the kink packages, and k-rust-backend
+and k-rust-fuzz, whose code compiled only without the backend's `z3` feature no Z3 build lints, all
+with `--no-default-features` and `--all-targets`, which takes in each library's own build, where
+code that no caller reaches is dead, also of a package whose library no integration test or binary
+links (`--bins --tests` builds such a library with `cfg(test)` only).
 The JUnit report is read from nextest's store directory (`target/nextest` under the workspace root,
 which nextest keeps there even when `CARGO_TARGET_DIR` moves cargo's build output).
 The tiers, the module convention and the budgets are documented in kink/.config/kink-tiers.toml.
@@ -238,6 +245,20 @@ def lint(argv):
     return 1 if problems else 0
 
 
+# The packages outside kink/crates whose no-Z3 route the portable profile builds and `clippy` lints.
+NO_Z3_ROUTE = ["k-rust-backend", "k-rust-fuzz"]
+
+
+def clippy(argv):
+    if argv:
+        sys.exit(__doc__)
+    packages = [arg for p in NO_Z3_ROUTE + kink_packages() for arg in ("-p", p)]
+    command = ["cargo", "clippy", "--locked", "--no-deps", "--keep-going", "--all-targets",
+               "--no-default-features", *packages, "--", "-D", "warnings"]
+    print("+", " ".join(command), flush=True)
+    return subprocess.call(command, cwd=WORKSPACE)
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
@@ -249,6 +270,8 @@ def main():
         return budget(argv[0], Path(argv[1]), cfg, [busy()])
     if command == "lint":
         return lint(argv)
+    if command == "clippy":
+        return clippy(argv)
     sys.exit(__doc__)
 
 

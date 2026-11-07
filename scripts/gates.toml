@@ -563,6 +563,35 @@ command = "kink/scripts/kink-tier.py run gate && kink/scripts/kink-tier.py run g
 paths = ["@kink"]
 
 [[gate]]
+# Clippy of the route kink's portable profile builds (`kink-tier.py clippy`): every kink package,
+# k-rust-backend and k-rust-fuzz without default features, so the code compiled only without the
+# backend's `z3` feature, which no Z3 build lints, is linted too. A change to krust's sources or to
+# the fuzzer can add a warning there as well as a change to kink.
+name = "no-z3-clippy"
+run = "certification"
+command = "kink/scripts/kink-tier.py clippy"
+# --all-targets lints k-rust-backend's own test and example targets too, under the root
+# clippy.toml.
+paths = [
+  "@krust",
+  "@kink",
+  '^crates/k-rust-fuzz/',
+  '^crates/k-rust-backend/(tests|examples)/',
+  '^clippy\.toml$',
+]
+
+[[gate]]
+# kink-native's data test (kink/crates/kink-native/tests/data.rs) in both solver profiles:
+# its pins hold the walk's discharge of partial applications, which rests on the backend's
+# observation catalogs (src/observation*) and its value-contract judgement (src/definedness.rs),
+# so a change to either can move them. The test is in kink's per-change tier, which a backend
+# change does not otherwise owe.
+name = "kink-native-data"
+run = "certification"
+command = "kink/scripts/kink-tier.py run gate --and 'binary_id(kink-native::data)' && kink/scripts/kink-tier.py run gate --portable --and 'binary_id(kink-native::data)'"
+paths = ['^crates/k-rust-backend/src/(observation/|observation\.rs$|definedness\.rs$)']
+
+[[gate]]
 # kink's heavy tier: whole-fixture sweeps and full option matrices, both solver profiles. A k-rust
 # change can break a sweep that only heavy runs (k-rust nondeterminism, a fixture that stops
 # compiling), so it also follows [path-set.krust].
