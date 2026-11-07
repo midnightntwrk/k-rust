@@ -817,11 +817,11 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         "the reversed manifest names other killers"
     );
     assert_eq!(cold_results, warm_results);
-    // CF-23: version 2 names the schedule and the solver profile.
+    // Version 6 names the solver profile, and no schedule.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 5\ndocument = \"run\"\nschedule = \
-             \"first-kill\"\nprofile = \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
+            "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+             \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )),
         "{cold}"
@@ -886,8 +886,8 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 5\ndocument = \"run\"\nschedule = \
-             \"first-kill\"\nprofile = \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
+            "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
+             \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )
     );

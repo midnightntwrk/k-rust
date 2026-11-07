@@ -934,7 +934,7 @@ note = "right-hand side"
         // U8 stage 4b: version 25 names cells inside `?` and `*` cells in `result`.
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`.
-        assert_eq!(document["version"], 28);
+        assert_eq!(document["version"], 29);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

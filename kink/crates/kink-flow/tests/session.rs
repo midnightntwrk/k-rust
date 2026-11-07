@@ -232,22 +232,21 @@ mod kink_tier {
         assert!(call_programs(&warm).is_empty());
         assert_eq!(baseline_runs(&warm), (0, 0));
 
-        // Hints only: the live baseline runs are the distinct programs the calls ran; a program
-        // two calls run (nested: the hint of two mutations, then the survivor's cold call) is
-        // live once.
+        // Outcomes forgotten, no lock: the live baseline runs are the distinct programs the calls
+        // ran; a program several mutations' canonical calls run is live once.
         forget_outcomes(&manifest);
-        let (hinted, ok) = run(&manifest, RunMode::Search);
-        assert!(ok, "{hinted:#}");
-        assert_eq!(verdicts(&hinted), calc_verdicts());
-        let calls = call_programs(&hinted);
+        let (recomputed, ok) = run(&manifest, RunMode::Search);
+        assert!(ok, "{recomputed:#}");
+        assert_eq!(verdicts(&recomputed), calc_verdicts());
+        let calls = call_programs(&recomputed);
         let distinct = calls.iter().cloned().collect::<BTreeSet<_>>();
-        assert!(computed(&hinted).is_empty());
+        assert!(computed(&recomputed).is_empty());
         assert!(calls.len() > distinct.len(), "{calls:?}");
         assert_eq!(
-            baseline_runs(&hinted),
+            baseline_runs(&recomputed),
             (distinct.len() as u64, (calls.len() - distinct.len()) as u64)
         );
-        assert_once_per_program(&hinted, &distinct);
+        assert_once_per_program(&recomputed, &distinct);
     }
 
     #[test]
@@ -293,6 +292,8 @@ mod kink_tier {
         assert_eq!(first["reason"], "baseline-mismatch:add");
         assert_eq!(drifted["stopped"]["mutation"], "add-becomes-sub");
         assert_eq!(drifted["mutations"].as_array().unwrap().len(), 1);
-        assert_eq!(baseline_runs(&drifted), (1, 0));
+        // No lock: the first call is the canonical one over every program, each baseline live
+        // once before the drift check stops the run.
+        assert_eq!(baseline_runs(&drifted), (4, 0));
     }
 }
