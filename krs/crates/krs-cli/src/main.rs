@@ -5,7 +5,7 @@ use krs_cli::{
     CompareOutput, CompareRequest, CompareSides, DEFAULT_VIEW_BUDGET, DiagnosticSources,
     FacetSelector, KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource,
     ProveRequest, RegistrationMode, RunRequest, SearchMode, SearchRequest, SideFile, StopCriterion,
-    StopRules, TermOutput, execute_command_reported, exit_status, supervise_prove,
+    StopRules, StopWhen, TermOutput, execute_command_reported, exit_status, supervise_prove,
     valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
@@ -25,7 +25,9 @@ Usage:
   krs parse  --package P --definition D [--sort SORT] [--output kast|program|json|kore] [FILE|-]
   krs run    --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
              [--input NAME=JSON]... [-c NAME=TEXT]... [--depth N] [--stop-before NAME]...
-             [--stop-after NAME]... [--stop-count N] [--trace] [--coverage]
+             [--stop-after NAME]... [--stop-count N]
+             [--stop-when CELL,...=FUNCTION [--observer PACKAGE:DEFINITION]]
+             [--trace] [--coverage]
              [--output pretty|kast|json|kore|end|none] [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
              [--view-budget POLLS]
@@ -132,15 +134,17 @@ Options:
                              one parameter, at its value on each side; repeatable
   --observer PACKAGE:DEFINITION
                              With compare, the definition the views are resolved and evaluated
-                             in: a package that depends on the definition's and that no
-                             semantics imports, composed with the --dependency facets its
-                             closure holds; a facet outside the definition's closure is the
-                             observer's (default: the compared definition)
+                             in; with run, the one --stop-when's FUNCTION is: a package that
+                             depends on the definition's and that no semantics imports,
+                             composed with the --dependency facets its closure holds; a facet
+                             outside the definition's closure is the observer's (default: the
+                             run or compared definition)
   --view-budget POLLS        With run, search, cases and compare, the polls each evaluation of
-                             a view may take (default: 30000000), a count of its own work that
-                             the host's speed and load do not change; one that spends it, or
-                             that another stop ends, makes the verdict inconclusive unless a
-                             view has no value at another value, which refuses it
+                             a view or of a stop condition may take (default: 30000000), a
+                             count of its own work that the host's speed and load do not
+                             change; one that spends it, or that another stop ends, makes the
+                             verdict inconclusive unless a view has no value at another value,
+                             which refuses it, and makes a run end stop-undecided
   --input NAME=JSON          Bind input NAME to a JSON document of the typed encoding; file
                              paths are relative to the working directory; repeatable
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
@@ -152,6 +156,12 @@ Options:
   --stop-after NAME          With run, end after a step by a rule of NAME; repeatable
   --stop-count N             With run, end at the Nth stop, taking the earlier ones as any
                              other step (default: 1); needs --stop-before or --stop-after
+  --stop-when CELL,...=FUNCTION
+                             With run, count as a stop only an arrival whose stop state (the
+                             state before a --stop-before rule's step, after a --stop-after
+                             rule's) FUNCTION, a Bool function of the CELLs in parameter order,
+                             holds of; evaluated in --observer's definition; needs
+                             --stop-before or --stop-after
   --trace                    Print each rewrite step with its rule and source
   --coverage                 With run, list the rules and equations the run matched, applied
                              and committed, with their sources (--output json: the report's
@@ -855,6 +865,8 @@ struct ExecOptions {
     depth: Option<u64>,
     stop: StopRules,
     stop_count: Option<NonZeroU64>,
+    /// `--stop-when`: the cells and the function.
+    stop_when: Option<(Vec<String>, String)>,
     trace: bool,
     coverage: bool,
     mode: Option<SearchMode>,
@@ -1129,7 +1141,7 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 30] = [
+const EXEC_LONG_OPTIONS: [&str; 31] = [
     "case",
     "case-name",
     "jobs",
@@ -1145,6 +1157,7 @@ const EXEC_LONG_OPTIONS: [&str; 30] = [
     "stop-before",
     "stop-after",
     "stop-count",
+    "stop-when",
     "max-solutions",
     "mode",
     "trace",
@@ -1207,7 +1220,7 @@ fn exec_option(
                 .map_err(|_| usage(format!("--depth `{value}` is not a non-negative integer")))?;
             set_once(&mut exec.depth, depth, "--depth")?;
         }
-        "stop-before" | "stop-after" | "stop-count" => stop_option(parser, exec, option)?,
+        option if option.starts_with("stop-") => stop_option(parser, exec, option)?,
         "jobs" | "name" | "view-budget" => cases_option(parser, exec, option)?,
         option if COMPARE_OPTIONS.contains(&option) => compare_option(parser, exec, option)?,
         "max-solutions" => {
@@ -1399,6 +1412,27 @@ fn stop_option(
                 .map_err(|_| usage(format!("--stop-count `{value}` is not a positive integer")))?;
             set_once(&mut exec.stop_count, count, "--stop-count")?;
         }
+        "stop-when" => {
+            exec.note("--stop-when");
+            let value = option_value(parser, "stop condition")?;
+            let condition = value
+                .split_once('=')
+                .filter(|(cells, function)| {
+                    !function.is_empty() && cells.split(',').all(|cell| !cell.is_empty())
+                })
+                .map(|(cells, function)| {
+                    (
+                        cells.split(',').map(str::to_owned).collect::<Vec<_>>(),
+                        function.to_owned(),
+                    )
+                })
+                .ok_or_else(|| {
+                    usage(format!(
+                        "--stop-when `{value}` must have the form CELL,...=FUNCTION"
+                    ))
+                })?;
+            set_once(&mut exec.stop_when, condition, "--stop-when")?;
+        }
         _ => unreachable!("stop_option is called only for the stop options"),
     }
     Ok(())
@@ -1474,19 +1508,42 @@ fn stop_name(parser: &mut lexopt::Parser, option: &str) -> Result<String, UsageE
     Ok(name)
 }
 
-/// The stop criterion of `--stop-before`, `--stop-after` and `--stop-count`: a count without a
-/// rule has no stop to count.
+/// The stop criterion of `--stop-before`, `--stop-after`, `--stop-count` and `--stop-when`
+/// with `--observer`: a count or a condition without a rule has no arrival to count or ask at,
+/// and an observer without a condition has nothing to evaluate.
 fn stop_criterion(
     rules: StopRules,
     count: Option<NonZeroU64>,
+    when: Option<(Vec<String>, String)>,
+    observer: Option<String>,
 ) -> Result<StopCriterion, UsageError> {
-    match count {
-        Some(_) if rules.is_empty() => Err(usage(
+    if rules.is_empty() && count.is_some() {
+        return Err(usage(
             "--stop-count needs --stop-before or --stop-after: it counts arrivals at their rules",
-        )),
-        Some(count) => Ok(StopCriterion::Rules { rules, count }),
-        None => Ok(rules.into()),
+        ));
     }
+    if rules.is_empty() && when.is_some() {
+        return Err(usage(
+            "--stop-when needs --stop-before or --stop-after: it is asked at the arrivals at their rules",
+        ));
+    }
+    if when.is_none() && observer.is_some() {
+        return Err(usage(
+            "--observer with krs run names the definition --stop-when's function is evaluated in; give --stop-when",
+        ));
+    }
+    if rules.is_empty() {
+        return Ok(rules.into());
+    }
+    Ok(StopCriterion::Rules {
+        rules,
+        count: count.unwrap_or(NonZeroU64::MIN),
+        when: when.map(|(cells, function)| StopWhen {
+            function,
+            cells,
+            observer,
+        }),
+    })
 }
 
 /// The solver options `--smt-resource-limit`, `--smt-clock-ms` and `--smt-retries` give: krs's
@@ -1829,6 +1886,8 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--stop-before",
             "--stop-after",
             "--stop-count",
+            "--stop-when",
+            "--observer",
             "--trace",
             "--coverage",
             "--color",
@@ -1967,7 +2026,7 @@ fn exec_command(
             inputs: exec.typed,
             variables: exec.variables,
             depth: exec.depth,
-            stop: stop_criterion(exec.stop, exec.stop_count)?,
+            stop: stop_criterion(exec.stop, exec.stop_count, exec.stop_when, exec.observer)?,
             trace: exec.trace,
             coverage: exec.coverage,
             output,
@@ -3452,6 +3511,7 @@ mod tests {
             StopCriterion::Rules {
                 rules,
                 count: NonZeroU64::new(60).unwrap(),
+                when: None,
             }
         );
         // Without --stop-count the run ends at its first stop.
@@ -3463,6 +3523,7 @@ mod tests {
                     ..StopRules::default()
                 },
                 count: NonZeroU64::MIN,
+                when: None,
             }
         );
         assert_eq!(stop(&[]), StopCriterion::None);
@@ -3495,6 +3556,74 @@ mod tests {
         assert_eq!(
             failure("search", &["--stop-after", "tick"]),
             "--stop-after does not apply to krs search"
+        );
+    }
+
+    /// `--stop-when CELL,...=FUNCTION` with the observer `--observer` names, which needs a stop
+    /// rule; `--observer` with `krs run` needs a condition.
+    #[test]
+    fn parses_stop_when_and_its_observer() {
+        let base = ["--package", "imp", "--definition", "main"];
+        let with = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            run(&args).0.command
+        };
+        let failure = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            error(&args)
+        };
+        let stop = |extra: &[&str]| match with("run", extra) {
+            Command::Run(request) => request.stop,
+            other => panic!("{other:?}"),
+        };
+        // --stop-when: CELL,...=FUNCTION, with the observer --observer names.
+        assert_eq!(
+            stop(&[
+                "--stop-before",
+                "crate::interrupt::boundary_fetch",
+                "--stop-when",
+                "pc,rom_end,rom=MooneyeBreakpoint",
+                "--observer",
+                "views:views"
+            ]),
+            StopCriterion::Rules {
+                rules: StopRules {
+                    before: vec!["crate::interrupt::boundary_fetch".to_owned()],
+                    ..StopRules::default()
+                },
+                count: NonZeroU64::MIN,
+                when: Some(StopWhen {
+                    function: "MooneyeBreakpoint".to_owned(),
+                    cells: vec!["pc".to_owned(), "rom_end".to_owned(), "rom".to_owned()],
+                    observer: Some("views:views".to_owned()),
+                }),
+            }
+        );
+        assert_eq!(
+            failure("run", &["--stop-when", "n=Even"]),
+            "--stop-when needs --stop-before or --stop-after: it is asked at the arrivals at their rules"
+        );
+        for malformed in ["n", "n=", "=Even", "n,,m=Even", ",=Even"] {
+            assert_eq!(
+                failure("run", &["--stop-after", "tick", "--stop-when", malformed]),
+                format!("--stop-when `{malformed}` must have the form CELL,...=FUNCTION"),
+                "{malformed}"
+            );
+        }
+        assert_eq!(
+            failure(
+                "run",
+                &["--stop-after", "tick", "--observer", "views:views"]
+            ),
+            "--observer with krs run names the definition --stop-when's function is evaluated in; give --stop-when"
+        );
+        assert_eq!(
+            failure("search", &["--stop-when", "n=Even"]),
+            "--stop-when does not apply to krs search"
         );
     }
 

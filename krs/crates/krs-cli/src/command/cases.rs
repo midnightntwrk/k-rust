@@ -42,7 +42,8 @@ use krs_ir_levels::DefinitionIr;
 use serde_json::json;
 
 use super::exec::{
-    self, Checked, Failure, Inputs, ObserverDefinition, Run, SelectedCase, StageReuse, WORKER_STACK,
+    self, Checked, ConditionSource, Failure, Inputs, ObserverDefinition, Run, SelectedCase,
+    StageReuse, WORKER_STACK,
 };
 use super::{CommandError, CommandOutcome, PreparedDefinition, exit_status};
 use crate::DiagnosticSources;
@@ -50,8 +51,10 @@ use crate::DiagnosticSources;
 /// The schema every record of `krs cases --output json` names. Version 2 records a case with
 /// no expectation whose run has no one path as `ran` with a `reason` and no `halt` (version 1
 /// refused it), and its summary's `status` is the exit status of the four actions
-/// ([`exit_status`]), under which a refused case is 2, no longer 1.
-pub const CASES_SCHEMA: &str = "krs-cases/2";
+/// ([`exit_status`]), under which a refused case is 2, no longer 1. Version 3 records the halt
+/// `stop-undecided` of a run whose stop condition was left undecided, a halt word a version 2
+/// reader does not know.
+pub const CASES_SCHEMA: &str = "krs-cases/3";
 
 /// How `krs cases` prints its records.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -143,6 +146,8 @@ struct Job {
     id: String,
     case: SelectedCase,
     observer: Option<Arc<Observer>>,
+    /// The definition its run's stop condition is evaluated in: `None` without a condition.
+    condition: Option<ConditionSource<Arc<Observer>>>,
 }
 
 /// A case's verdict.
@@ -573,6 +578,21 @@ impl Feed<'_, '_> {
                     Some(Ok(observer)) => observer,
                     None => None,
                 };
+                let condition =
+                    match exec::run_condition(&krs_exec::StopCriterion::None, Some(&case))
+                        .map(|when| when.observer.clone())
+                    {
+                        None => None,
+                        Some(None) => Some(ConditionSource::Own),
+                        Some(Some(name)) => match self.observer(&name) {
+                            Ok(Some(observer)) => Some(ConditionSource::Named(observer)),
+                            Ok(None) => Some(ConditionSource::Own),
+                            Err(reason) => {
+                                self.settle(Record::refused(id, reason).naming(&case))?;
+                                continue;
+                            }
+                        },
+                    };
                 let case = SelectedCase {
                     case,
                     path: path.clone(),
@@ -584,6 +604,7 @@ impl Feed<'_, '_> {
                     id,
                     case,
                     observer,
+                    condition,
                 };
                 self.jobs.send(job).map_err(|_| {
                     Failure::Read("every cases worker ended before the cases were run".to_owned())
@@ -641,6 +662,10 @@ impl Feed<'_, '_> {
     }
 }
 
+/// A definition a stop condition is evaluated in, loaded: by the prepared observer, `None` for
+/// the case's own definition.
+type LoadedCondition = (Option<Arc<Observer>>, Result<Semantics, String>);
+
 /// A worker's definitions, each loaded on its first case.
 struct Worker<'a> {
     definition: &'a DefinitionIr,
@@ -651,6 +676,10 @@ struct Worker<'a> {
     subject: Option<Result<Semantics, String>>,
     /// The observers loaded, by the prepared observer they were loaded from.
     observers: Vec<(Arc<Observer>, Result<Semantics, String>)>,
+    /// The definitions stop conditions are evaluated in, loaded apart from the views' observers
+    /// (a comparison reads both at once): by the prepared observer, `None` for another
+    /// semantics of the case's own definition.
+    conditions: Vec<LoadedCondition>,
 }
 
 impl<'a> Worker<'a> {
@@ -663,6 +692,7 @@ impl<'a> Worker<'a> {
             budget: batch.request.view_budget,
             subject: None,
             observers: Vec::new(),
+            conditions: Vec::new(),
         }
     }
 
@@ -676,6 +706,7 @@ impl<'a> Worker<'a> {
             Err(_) => {
                 self.subject = None;
                 self.observers.clear();
+                self.conditions.clear();
                 Record::refused(id, "krs panicked while running the case".to_owned())
                     .naming(&job.case.case)
             }
@@ -691,7 +722,46 @@ impl<'a> Worker<'a> {
             budget,
             subject,
             observers,
+            conditions,
         } = self;
+        let condition = match &job.condition {
+            None => None,
+            Some(source) => {
+                let observer = match source {
+                    ConditionSource::Own => None,
+                    ConditionSource::Named(observer) => Some(observer),
+                };
+                let position = if let Some(position) =
+                    conditions
+                        .iter()
+                        .position(|(loaded, _)| match (loaded, observer) {
+                            (None, None) => true,
+                            (Some(loaded), Some(observer)) => Arc::ptr_eq(loaded, observer),
+                            _ => false,
+                        }) {
+                    position
+                } else {
+                    let semantics = exec::load_condition(
+                        definition,
+                        stage,
+                        observer.map(|observer| (&observer.definition, &observer.stage)),
+                        *solver,
+                        &mut Timings::disabled(),
+                    )
+                    .map_err(|error| {
+                        format!("krs cannot load the stop condition's definition: {error}")
+                    });
+                    conditions.push((observer.cloned(), semantics));
+                    conditions.len() - 1
+                };
+                Some(
+                    conditions[position]
+                        .1
+                        .as_mut()
+                        .map_err(|reason| reason.clone())?,
+                )
+            }
+        };
         let subject = subject
             .get_or_insert_with(|| {
                 let sources = (*sources).clone();
@@ -735,7 +805,7 @@ impl<'a> Worker<'a> {
                 )
             }
         };
-        run_case(subject, observer, job, *budget).map_err(|failure| failure.reason())
+        run_case(subject, observer, condition, job, *budget).map_err(|failure| failure.reason())
     }
 }
 
@@ -744,6 +814,7 @@ impl<'a> Worker<'a> {
 fn run_case(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
+    mut condition: Option<&mut Semantics>,
     job: &Job,
     budget: u64,
 ) -> Result<Record, Failure> {
@@ -758,9 +829,13 @@ fn run_case(
     let options = RunOptions {
         depth,
         stop,
+        condition_budget: Some(budget),
         ..RunOptions::default()
     };
-    let report = match (semantics.run(&state, options.clone()), &expectation) {
+    let report = match (
+        semantics.run_observed(&state, options.clone(), condition.as_deref_mut()),
+        &expectation,
+    ) {
         (Ok(report), _) => report,
         // A run that cannot decide which of several states it reaches has no one end.
         (Err(error @ ExecError::Undecided { .. }), Some(expectation)) => {
@@ -801,6 +876,7 @@ fn run_case(
     let checked = exec::check_run(
         semantics,
         observer,
+        condition,
         Run {
             case,
             state: &state,

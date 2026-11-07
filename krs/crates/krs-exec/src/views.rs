@@ -454,7 +454,7 @@ impl CellViews {
 }
 
 /// The first part of `value` with no KRS description, described.
-fn opaque_part(index: &ValueIndex, value: &Value) -> Option<String> {
+pub(crate) fn opaque_part(index: &ValueIndex, value: &Value) -> Option<String> {
     match value {
         Value::Opaque(pattern) => Some(index.opaque_part(pattern)),
         Value::Ctor(ctor) => ctor

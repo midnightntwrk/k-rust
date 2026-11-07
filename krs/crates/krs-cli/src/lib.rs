@@ -40,7 +40,7 @@ pub use diagnostic::{
 };
 pub use format::{FormatInput, discover_format_inputs};
 pub use generate::{GeneratedCollector, GenerationError};
-pub use krs_exec::{SearchMode, StopCriterion, StopRules};
+pub use krs_exec::{SearchMode, StopCriterion, StopRules, StopWhen};
 pub use krs_k_rust::Backend;
 pub use metadata::{
     CargoMetadata, MetadataError, MetadataNode, MetadataPackage, MetadataResolve, MetadataTarget,

@@ -846,6 +846,17 @@ fn result(value: &Value) -> Result<ResultSection, ManifestError> {
 /// at least one name in all and none in both; `count`, a positive integer, default 1.
 fn stop(value: &Value) -> Result<StopSection, ManifestError> {
     let section = table(value, "stop")?;
+    // A stop condition (`krs run --stop-when`, a case's `run.stop_when`) decides which arrivals
+    // end a run. kink does not ask one yet, so a run here would end at another arrival than the
+    // condition names and compare other ends than krs reaches: refused, never ignored.
+    if section.contains_key("when") {
+        return Err(ManifestError::new(
+            "stop.when",
+            "a stop condition is not supported by kink yet: kink asks no condition at the \
+             arrivals, so its runs would end elsewhere than the condition says; remove `when`, or \
+             check the cases that need it with `krs cases`",
+        ));
+    }
     known_keys(section, "stop", &["before", "after", "count"])?;
     let names = |name: &str| -> Result<Vec<String>, ManifestError> {
         let key = join("stop", name);

@@ -15,7 +15,7 @@
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/4` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/5` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 //!
 //! # Features
@@ -35,6 +35,7 @@
 
 mod cell_types;
 mod claims;
+pub mod condition;
 mod configuration;
 mod console;
 mod decided;
@@ -86,6 +87,8 @@ use krs_k_rust::{
 use krs_unparse::ListSpelling;
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
+use condition::ConditionOracle;
+pub use condition::{ArrivalObservation, ObservationError, ResolvedCondition};
 pub use configuration::Configuration;
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use ends::{
@@ -100,6 +103,7 @@ pub use inputs::{
 pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT,
 };
+use k_rust::backend::{BackendErrorKind, StopSide};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
@@ -109,7 +113,7 @@ pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
     NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, ProofLeaf, ProofReport, RUN_REPORT_SCHEMA,
     RuleKind, RunReport, SEARCH_REPORT_SCHEMA, SearchReport, Solution, SolverBuild, SolverReport,
-    SourceSpan, Step, StepOrigin, Stop, StopAt, Term, Verdict,
+    SourceSpan, Step, StepOrigin, Stop, StopAt, Term, Undecided, Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -150,6 +154,9 @@ pub struct RunOptions {
     /// ends only on its own. A [`StopRules`] converts into the criterion that ends the run at
     /// its first stop (`stop: rules.into()`).
     pub stop: StopCriterion,
+    /// The budget of polls of each evaluation of the stop condition ([`StopWhen`]), as
+    /// [`CellViews::evaluate_within`] bounds a view's; `None` for no bound.
+    pub condition_budget: Option<u64>,
 }
 
 /// Where a run ends besides its own end ([`RunOptions::stop`]).
@@ -177,11 +184,17 @@ pub enum StopCriterion {
     /// the states of its path: only the end is read for a term with no value. A run that ends
     /// on its own first reports that end, and how many arrivals it counted
     /// ([`RunReport::stops`]).
+    ///
+    /// With a stop condition ([`StopWhen`]) the count counts the arrivals whose stop state the
+    /// condition holds of, and every other arrival is taken as any other step.
     Rules {
         /// The rules a stop is a step by.
         rules: StopRules,
-        /// The arrival the run ends at.
+        /// The arrival the run ends at: the stop event, with a condition.
         count: NonZeroU64,
+        /// The condition an arrival's stop state must satisfy to be a stop event; `None` for
+        /// none, every arrival an event.
+        when: Option<StopWhen>,
     },
 }
 
@@ -194,6 +207,36 @@ impl StopCriterion {
             Self::Rules { count, .. } => Some(*count),
         }
     }
+
+    /// The stop condition, if the criterion has one.
+    #[must_use]
+    pub const fn when(&self) -> Option<&StopWhen> {
+        match self {
+            Self::Rules {
+                when: Some(when), ..
+            } => Some(when),
+            _ => None,
+        }
+    }
+}
+
+/// A stop condition ([`StopCriterion::Rules`], [module documentation](crate::condition)): a
+/// function of named cells, of result sort `Bool`, that an arrival's stop state must satisfy to
+/// be a stop event, evaluated in one fixed observer definition.
+///
+/// The stop state is the state the run would end at there: the state before a stop-before
+/// rule's step, the successor of a stop-after rule's. The condition is asked only at arrivals.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StopWhen {
+    /// The function, by its KRS path or a `::`-aligned suffix of it, as a view names one
+    /// ([`ValueIndex::function_decl`]).
+    pub function: String,
+    /// The leaf cells it reads, by Rust field path, in the order of its parameters.
+    pub cells: Vec<String>,
+    /// The definition it is evaluated in, `PACKAGE:DEFINITION` as an observer is named; `None`
+    /// for the run's own definition. A front end resolves the name and passes the definition to
+    /// [`Semantics::run_observed`].
+    pub observer: Option<String>,
 }
 
 /// The criterion that ends a run at its first stop of `rules`, or only on its own where `rules`
@@ -206,6 +249,7 @@ impl From<StopRules> for StopCriterion {
             Self::Rules {
                 rules,
                 count: NonZeroU64::MIN,
+                when: None,
             }
         }
     }
@@ -734,6 +778,20 @@ pub enum ExecError {
     /// partial end of the definition or does not state a cell it is compared on
     /// ([`Semantics::expectation`]); the message names the position.
     Case(String),
+    /// A stop condition that cannot be asked ([`Semantics::stop_condition`]): a function or a
+    /// cell it names is not one it may read, or no observer was given to evaluate it in; the
+    /// message names the cause.
+    StopWhen(String),
+    /// The stop condition has no value at an arrival of the run: the observation does not exist
+    /// at a reached state, so the stop criterion is undefined on this run.
+    StopCondition {
+        /// The stop rule, as a report names it.
+        rule: String,
+        /// The run's steps to the arrival's stop state.
+        steps: u64,
+        /// Why, naming the cell or the evaluation.
+        reason: String,
+    },
 }
 
 impl fmt::Display for ExecError {
@@ -748,9 +806,19 @@ impl fmt::Display for ExecError {
             | Self::Unavailable(message)
             | Self::Result(message)
             | Self::Undecided(message)
+            | Self::StopWhen(message)
             | Self::Case(message) => {
                 formatter.write_str(message)
             }
+            Self::StopCondition {
+                rule,
+                steps,
+                reason,
+            } => write!(
+                formatter,
+                "the stop condition has no value at the arrival at `{rule}` after {steps} step{}: {reason}",
+                if *steps == 1 { "" } else { "s" }
+            ),
             Self::StrayProgram { parameters } => {
                 formatter.write_str(NO_MAIN_PARAMETER)?;
                 formatter.write_str(", so FILE binds nothing; bind its parameters by name")?;
@@ -1413,10 +1481,56 @@ impl Semantics {
         self.execute_requests
     }
 
-    /// Send `request` to the backend, counted ([`Self::execute_requests`]).
-    fn execute(&mut self, request: ExecuteRequest) -> Result<KoreExecutionResult, BackendError> {
+    /// Send `request` to the backend, counted ([`Self::execute_requests`]), with the stop
+    /// condition `oracle` asks when there is one; `offset` is the steps the run took before the
+    /// request's start, which a refusal's step count includes.
+    fn execute(
+        &mut self,
+        request: ExecuteRequest,
+        oracle: Option<&mut ConditionOracle<'_>>,
+        offset: u64,
+    ) -> Result<KoreExecutionResult, ExecError> {
         self.execute_requests = self.execute_requests.saturating_add(1);
-        self.backend.execute_kore(request)
+        let Some(oracle) = oracle else {
+            return Ok(self.backend.execute_kore(request)?);
+        };
+        match self.backend.execute_kore_with_condition(request, oracle) {
+            Ok(result) => Ok(result),
+            Err(error) if error.kind() == Some(BackendErrorKind::StopConditionRefused) => {
+                Err(match oracle.refusal.take() {
+                    Some(refusal) => ExecError::StopCondition {
+                        rule: self
+                            .rules
+                            .stop_name(&refusal.rule_id)
+                            .unwrap_or(refusal.rule_id),
+                        steps: refusal.depth.saturating_add(offset),
+                        reason: refusal.reason,
+                    },
+                    None => ExecError::Backend(error.to_string()),
+                })
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The observer and the resolved stop condition of a run under `criterion`, when it has a
+    /// condition: `observer` is the definition it is evaluated in.
+    fn condition_of<'o>(
+        &self,
+        criterion: &StopCriterion,
+        observer: Option<&'o mut Self>,
+    ) -> Result<Option<(ResolvedCondition, &'o mut Self)>, ExecError> {
+        let Some(when) = criterion.when() else {
+            return Ok(None);
+        };
+        let Some(observer) = observer else {
+            return Err(ExecError::StopWhen(format!(
+                "the stop condition `{}` is evaluated in an observer definition, and none was given",
+                when.function
+            )));
+        };
+        let resolved = self.stop_condition(observer, when)?;
+        Ok(Some((resolved, observer)))
     }
 
     /// What this build supports. Every route of this crate executes, searches, and proves; SMT needs the `z3-inference` feature.
@@ -2364,9 +2478,39 @@ impl Semantics {
     /// conditions it cannot decide, or [`ExecError::Result`] when the backend returns several
     /// states under no condition, or none.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
+        self.run_observed(state, options, None)
+    }
+
+    /// [`Self::run`] under a criterion that may have a stop condition ([`StopWhen`]), evaluated
+    /// in `observer`: the definition the condition names, or another [`Semantics`] of this
+    /// definition when it names none (the run's own backend runs the path while the condition
+    /// is asked). The run is still one request: the backend asks the condition at each arrival.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::run`] does, and with [`ExecError::StopWhen`] for a condition that cannot
+    /// be resolved or has no observer, and [`ExecError::StopCondition`] for a condition with no
+    /// value at an arrival.
+    pub fn run_observed(
+        &mut self,
+        state: &State,
+        options: RunOptions,
+        observer: Option<&mut Self>,
+    ) -> Result<RunReport, ExecError> {
         let stops = self.stop_ids(&options.stop)?;
+        let condition = self.condition_of(&options.stop, observer)?;
+        let (resolved, observer) = match condition {
+            Some((resolved, observer)) => (Some(resolved), Some(observer)),
+            None => (None, None),
+        };
+        let mut oracle = match (&resolved, observer) {
+            (Some(resolved), Some(observer)) => Some(ConditionOracle::new(
+                ArrivalObservation::new(resolved, observer, options.condition_budget)?,
+            )),
+            _ => None,
+        };
         let Some(taken) = &state.taken else {
-            return self.run_from(&state.pattern, &options, &stops, None);
+            return self.run_from(&state.pattern, &options, &stops, None, oracle.as_mut());
         };
         // The bound left once the taken step is counted: `None` where the bound allows no step.
         let Some(depth) = options
@@ -2380,7 +2524,8 @@ impl Semantics {
                 trace: options.trace,
                 ..RunOptions::default()
             };
-            let mut report = self.run_from(&taken.before, &untaken, &StopIds::default(), None)?;
+            let mut report =
+                self.run_from(&taken.before, &untaken, &StopIds::default(), None, None)?;
             report.coverage = options.coverage.map(|asked| Coverage {
                 offered: asked.offered,
                 rules: Vec::new(),
@@ -2389,7 +2534,13 @@ impl Semantics {
             return Ok(report);
         };
         let options = RunOptions { depth, ..options };
-        self.run_from(&state.pattern, &options, &stops, Some(taken))
+        self.run_from(
+            &state.pattern,
+            &options,
+            &stops,
+            Some(taken),
+            oracle.as_mut(),
+        )
     }
 
     /// Why the definition may end otherwise from `state` than at the end of `report`, the run
@@ -2428,11 +2579,39 @@ impl Semantics {
         options: &RunOptions,
         report: &RunReport,
     ) -> Result<Option<String>, ExecError> {
+        self.other_ends_observed(state, options, report, None)
+    }
+
+    /// [`Self::other_ends`] of a run under a criterion that may have a stop condition, evaluated
+    /// in `observer` as [`Self::run_observed`] evaluates it: the path is followed again under
+    /// the same stop rules, count and condition.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::run_observed`] does.
+    pub fn other_ends_observed(
+        &mut self,
+        state: &State,
+        options: &RunOptions,
+        report: &RunReport,
+        observer: Option<&mut Self>,
+    ) -> Result<Option<String>, ExecError> {
         if let Some(reason) = open_values(&report.implementation_chosen_values) {
             return Ok(Some(format!("the run {reason}")));
         }
         let stops = self.stop_ids(&options.stop)?;
-        self.branch_in_path(state, options.depth, &stops)
+        let condition = self.condition_of(&options.stop, observer)?;
+        let (resolved, observer) = match condition {
+            Some((resolved, observer)) => (Some(resolved), Some(observer)),
+            None => (None, None),
+        };
+        let mut oracle = match (&resolved, observer) {
+            (Some(resolved), Some(observer)) => Some(ConditionOracle::new(
+                ArrivalObservation::new(resolved, observer, options.condition_budget)?,
+            )),
+            _ => None,
+        };
+        self.branch_in_path(state, options.depth, &stops, oracle.as_mut())
     }
 
     /// Why a run from `state`, to its arrival at a stop of `stops` that `stops` counts to within
@@ -2443,6 +2622,7 @@ impl Semantics {
         state: &State,
         depth: Option<u64>,
         stops: &StopIds,
+        oracle: Option<&mut ConditionOracle<'_>>,
     ) -> Result<Option<String>, ExecError> {
         // The taken step counts as the run's first and takes one step of the bound.
         let (depth, taken) = match (&state.taken, depth) {
@@ -2464,7 +2644,7 @@ impl Semantics {
         );
         request.strategy = ExecutionStrategy::All;
         request.stop_at_branch = true;
-        let leaves = self.execute(request)?.leaves;
+        let leaves = self.execute(request, oracle, taken)?.leaves;
         let Some(branch) = leaves
             .iter()
             .find(|leaf| leaf.reason == HaltReasonOutput::Branch)
@@ -2504,20 +2684,31 @@ impl Semantics {
 
     /// A run from `start` ([`Self::run`]); `taken` is the step that leads to `start`, which the
     /// run counts as its first, after a stop before its rule.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One run: the request, the path read, the proposal, the checks and the report."
+    )]
     fn run_from(
         &mut self,
         start: &Pattern,
         options: &RunOptions,
         stops: &StopIds,
         taken: Option<&TakenStep>,
+        mut oracle: Option<&mut ConditionOracle<'_>>,
     ) -> Result<RunReport, ExecError> {
+        let asked = oracle.is_some();
+        let offset = u64::from(taken.is_some());
         let KoreExecutionResult {
             leaves,
             implementation_chosen_values,
             unsupported_hooks,
             coverage,
             ..
-        } = self.execute(run_request(start, options, stops))?;
+        } = self.execute(
+            run_request(start, options, stops),
+            oracle.as_deref_mut(),
+            offset,
+        )?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
         // application is decided to have no value ([`decided`]).
         let decides = unsupported_hooks.is_empty();
@@ -2531,10 +2722,20 @@ impl Semantics {
             Err(error) => return Err(self.path_error(error)),
         };
         if held && leaf.depth > 0 {
-            leaf = self.before_valueless(start, leaf, decides, options.trace, stops)?;
+            leaf = self.before_valueless(
+                start,
+                leaf,
+                decides,
+                options.trace,
+                stops,
+                oracle.as_deref_mut(),
+                offset,
+            )?;
         }
-        // The arrivals the path counted, the one it ends at included.
+        // The arrivals the path counted, the one it ends at included: under a condition, the
+        // stop events, and every arrival beside them.
         let mut arrivals = leaf.stops.unwrap_or_default();
+        let mut passed = leaf.arrivals.filter(|_| asked);
         let mut proposal = None;
         if leaf.reason == HaltReasonOutput::CutPoint {
             let (read, proposed) =
@@ -2546,6 +2747,7 @@ impl Semantics {
                 Err(terms) => {
                     valueless.extend(terms);
                     arrivals = arrivals.saturating_sub(1);
+                    passed = passed.map(|passed| passed.saturating_sub(1));
                 }
             }
         }
@@ -2582,6 +2784,18 @@ impl Semantics {
         });
         let stop = self.stop(&leaf, stops, &trace, arrivals);
         let halt = Halt::from_backend(leaf.reason);
+        // The one path ends at the arrival the condition was last left undecided at.
+        let undecided = oracle
+            .and_then(|oracle| oracle.undecided.take())
+            .filter(|_| halt == Halt::StopUndecided)
+            .map(|undecided| Undecided {
+                at: match undecided.side {
+                    StopSide::Before => StopAt::Before,
+                    StopSide::After => StopAt::After,
+                },
+                rule: self.named_rule(undecided.rule_id),
+                reason: undecided.reason,
+            });
         let reached = term(leaf.state, &self.sort_hooks)?;
         let stdout = if self.console.stdout {
             console::stdout_buffer(reached.kore())
@@ -2607,6 +2821,8 @@ impl Semantics {
             coverage,
             stop,
             stops: arrivals,
+            arrivals: passed,
+            undecided,
             resume,
         })
     }
@@ -2682,7 +2898,7 @@ impl Semantics {
     fn stop_ids(&self, criterion: &StopCriterion) -> Result<StopIds, ExecError> {
         let (stop, count) = match criterion {
             StopCriterion::None => return Ok(StopIds::default()),
-            StopCriterion::Rules { rules, count } => (rules, *count),
+            StopCriterion::Rules { rules, count, .. } => (rules, *count),
         };
         let resolve = |names: &[String]| {
             let mut ids = BTreeSet::new();
@@ -2728,17 +2944,20 @@ impl Semantics {
             ),
             _ => return None,
         };
-        let rule = rule_id.map(|rule_id| {
-            let provenance = self.provenance.get(&rule_id);
-            NamedRule {
-                label: self.rules.get(&rule_id).and_then(|rule| rule.label.clone()),
-                item: origin::item_path(provenance, self.rules.crate_names())
-                    .map(|item| self.rules.spelling(&item)),
-                origin: self.origins.step_origin(provenance),
-                rule_id,
-            }
-        });
+        let rule = rule_id.map(|rule_id| self.named_rule(rule_id));
         Some(Stop { at, rule, nth })
+    }
+
+    /// The rule `rule_id`, by its identities and origin.
+    fn named_rule(&mut self, rule_id: String) -> NamedRule {
+        let provenance = self.provenance.get(&rule_id);
+        NamedRule {
+            label: self.rules.get(&rule_id).and_then(|rule| rule.label.clone()),
+            item: origin::item_path(provenance, self.rules.crate_names())
+                .map(|item| self.rules.spelling(&item)),
+            origin: self.origins.step_origin(provenance),
+            rule_id,
+        }
     }
 
     /// A run's coverage by identity, from k-rust's lists ([`Coverage`]): each identity once, with
@@ -2836,6 +3055,10 @@ impl Semantics {
     /// result undefined. The run is followed again to each earlier depth until a state with a
     /// value is found, or the first state, which then has none. Each run keeps its trace only
     /// when `trace` asks for the report's.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The path followed again takes the run's request, its condition and its offset."
+    )]
     fn before_valueless(
         &mut self,
         start: &Pattern,
@@ -2843,6 +3066,8 @@ impl Semantics {
         decides: bool,
         trace: bool,
         stops: &StopIds,
+        mut oracle: Option<&mut ConditionOracle<'_>>,
+        offset: u64,
     ) -> Result<KoreExecutionLeaf, ExecError> {
         let mut depth = leaf.depth;
         while depth > 0 {
@@ -2856,7 +3081,7 @@ impl Semantics {
                 },
                 stops,
             );
-            let leaves = self.execute(request)?.leaves;
+            let leaves = self.execute(request, oracle.as_deref_mut(), offset)?.leaves;
             let earlier = match one_path(leaves, self.heads(decides)) {
                 Ok(earlier) => earlier,
                 Err(error) => return Err(self.path_error(error)),

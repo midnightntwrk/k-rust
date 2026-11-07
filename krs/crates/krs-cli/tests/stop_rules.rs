@@ -424,6 +424,7 @@ fn counted(rules: &StopRules, count: u64) -> StopCriterion {
     StopCriterion::Rules {
         rules: rules.clone(),
         count: NonZeroU64::new(count).unwrap(),
+        when: None,
     }
 }
 

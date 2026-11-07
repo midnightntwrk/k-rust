@@ -293,6 +293,24 @@ pub(super) fn execute(
                 let (stage, reused) =
                     compiled_stage(definition, reuse, timings).map_err(Failure::Exec)?;
                 *reused_flag = reused;
+                let ReadCase {
+                    case,
+                    observer,
+                    condition,
+                } = read;
+                // The stop condition's definition: the named observer, or another semantics of
+                // this definition from its stage, loaded before the stage is the run's.
+                let mut condition = match condition {
+                    None => None,
+                    Some(ConditionSource::Own) => Some(
+                        load_condition(definition, &stage, None, command.solver(), timings)
+                            .map_err(Failure::Exec)?,
+                    ),
+                    Some(ConditionSource::Named(named)) => Some(
+                        load_observer(&named, reuse.restore, command.solver(), timings)
+                            .map_err(Failure::Exec)?,
+                    ),
+                };
                 let mut semantics = Semantics::from_stage_with_solver(
                     definition,
                     stage,
@@ -311,14 +329,19 @@ pub(super) fn execute(
                         load_spec_stage(&mut semantics, definition, module, reuse, timings)?;
                     *spec_reused_flag = Some(reused);
                 }
-                let ReadCase { case, observer } = read;
                 let mut observer = observer
                     .map(|observer| {
                         load_observer(&observer, reuse.restore, command.solver(), timings)
                     })
                     .transpose()
                     .map_err(Failure::Exec)?;
-                dispatch(&mut semantics, observer.as_mut(), command, case)
+                dispatch(
+                    &mut semantics,
+                    observer.as_mut(),
+                    condition.as_mut(),
+                    command,
+                    case,
+                )
             })
             .map_err(|error| {
                 CommandError::InvalidRequest(format!("could not start the run worker: {error}"))
@@ -504,6 +527,7 @@ fn read_program_bytes(source: &ProgramSource) -> Result<(String, Vec<u8>), Failu
 fn dispatch(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
+    condition: Option<&mut Semantics>,
     command: &Command,
     case: Option<SelectedCase>,
 ) -> Result<CommandOutcome, Failure> {
@@ -534,7 +558,7 @@ fn dispatch(
             .text;
             Ok(outcome(format!("{stdout}\n"), String::new(), 0))
         }
-        Command::Run(request) => run(semantics, observer, request, case),
+        Command::Run(request) => run(semantics, observer, condition, request, case),
         Command::Search(request) => search(semantics, observer, request, case),
         Command::Prove(request) => prove(semantics, request),
         _ => unreachable!("only run-family commands reach the run worker"),
@@ -642,7 +666,7 @@ impl SelectedCase {
             (StopCriterion::None, own) => Ok(own),
             (flags, StopCriterion::None) => Ok(flags.clone()),
             _ => Err(Failure::Usage(format!(
-                "--stop-before, --stop-after and --stop-count, and the `run` stops of the case `{}`, both say where the run ends; give one",
+                "--stop-before, --stop-after, --stop-count and --stop-when, and the `run` stops of the case `{}`, both say where the run ends; give one",
                 self.path.display()
             ))),
         }
@@ -819,6 +843,43 @@ pub(super) struct ReadCase {
     pub case: Option<SelectedCase>,
     /// The observer definition its expectation names, prepared.
     pub observer: Option<ObserverDefinition>,
+    /// The definition the run's stop condition is evaluated in: `None` without a condition;
+    /// [`ConditionSource::Own`] for another [`Semantics`] of the run's own definition (no
+    /// observer named, or the definition itself named); [`ConditionSource::Named`] for the named
+    /// observer, prepared.
+    pub condition: Option<ConditionSource<ObserverDefinition>>,
+}
+
+/// Where a run's stop condition is evaluated: another semantics of the run's own definition, or
+/// a named observer `T`.
+pub(super) enum ConditionSource<T> {
+    Own,
+    Named(T),
+}
+
+/// The stop condition of a run under `flags` of `case`: the flags' condition, else the case's
+/// `run.stop_when`; `None` without one.
+pub(super) fn run_condition<'a>(
+    flags: &'a StopCriterion,
+    case: Option<&'a Case>,
+) -> Option<&'a krs_exec::StopWhen> {
+    flags
+        .when()
+        .or_else(|| case?.run.as_ref()?.stop_when.as_deref())
+}
+
+/// The definition a stop condition is evaluated in, loaded: `observer` when it is named, else
+/// another [`Semantics`] of the run's definition from `own` (its compiled stage), since the
+/// run's own backend executes the path while the condition is asked.
+pub(super) fn load_condition(
+    definition: &DefinitionIr,
+    own: &CompiledStage,
+    observer: Option<(&DefinitionIr, &CompiledStage)>,
+    solver: BackendOptions,
+    timings: &mut Timings,
+) -> Result<Semantics, ExecError> {
+    let (definition, stage) = observer.unwrap_or((definition, own));
+    Semantics::from_stage_with_solver(definition, stage.clone(), None, solver, timings)
 }
 
 /// The case `--case FILE` and `--case-name NAME` select, if it can be read; `None` otherwise,
@@ -988,9 +1049,14 @@ fn read_console_input() -> Result<Vec<u8>, Failure> {
     Ok(input)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One run: its case, its options, its report, its expectation and its status line."
+)]
 fn run(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
+    mut condition: Option<&mut Semantics>,
     request: &RunRequest,
     read: Option<SelectedCase>,
 ) -> Result<CommandOutcome, Failure> {
@@ -1015,9 +1081,14 @@ fn run(
         trace: request.trace,
         coverage: request.coverage.then(CoverageOptions::default),
         stop: stop.clone(),
+        condition_budget: Some(request.view_budget),
         ..RunOptions::default()
     };
-    let report = match (semantics.run(&state, options.clone()), &case, &expectation) {
+    let report = match (
+        semantics.run_observed(&state, options.clone(), condition.as_deref_mut()),
+        &case,
+        &expectation,
+    ) {
         (Ok(report), _, _) => report,
         // A run that cannot decide which of several states it reaches has no one end, so it has
         // none to compare: the verdict is inconclusive, not a refusal of the case.
@@ -1030,6 +1101,7 @@ fn run(
         (Some(case), Some(expectation)) => Some(check_run(
             semantics,
             observer,
+            condition,
             Run {
                 case,
                 state: &state,
@@ -1400,6 +1472,7 @@ pub(super) struct Run<'a> {
 pub(super) fn check_run(
     semantics: &mut Semantics,
     mut observer: Option<&mut Semantics>,
+    condition: Option<&mut Semantics>,
     run: Run<'_>,
     expectation: &mut Expectation,
     budget: u64,
@@ -1418,7 +1491,8 @@ pub(super) fn check_run(
     if !matches!(checked.verdict, Compared::Equal) {
         return Ok(checked);
     }
-    let reason = match semantics.other_ends(run.state, run.options, run.report) {
+    let reason = match semantics.other_ends_observed(run.state, run.options, run.report, condition)
+    {
         Ok(Some(reason)) => reason,
         Ok(None) => return Ok(checked),
         // Followed again, the run reaches several states it cannot decide among: it may have
@@ -1944,26 +2018,60 @@ fn log_text(lines: &[String]) -> String {
 /// name that selects several, without a trace), by the name written for that side when it is
 /// one.
 fn stops_passed(semantics: &Semantics, report: &RunReport, criterion: &StopCriterion) -> String {
-    let StopCriterion::Rules { rules, count } = criterion else {
+    let StopCriterion::Rules {
+        rules, count, when, ..
+    } = criterion
+    else {
         return String::new();
     };
+    // Under a condition a stop is an arrival where it holds, and the arrivals are counted too.
+    let (holds, arrivals) = match (when, report.arrivals) {
+        (Some(when), Some(arrivals)) => (
+            format!(", where `{}` holds", when.function),
+            format!(
+                "; {arrivals} arrival{}",
+                if arrivals == 1 { "" } else { "s" }
+            ),
+        ),
+        (Some(when), None) => (format!(", where `{}` holds", when.function), String::new()),
+        (None, _) => (String::new(), String::new()),
+    };
+    let name = |at: StopAt, rule: Option<&krs_exec::NamedRule>| {
+        let (at, names) = match at {
+            StopAt::Before => ("before", &rules.before),
+            StopAt::After => ("after", &rules.after),
+        };
+        let rule = rule
+            .and_then(|rule| semantics.stop_name(&rule.rule_id))
+            .or_else(|| match names.as_slice() {
+                [name] => Some(name.clone()),
+                _ => None,
+            })
+            .map_or_else(|| "a stop rule".to_owned(), |name| format!("`{name}`"));
+        format!("{at} {rule}")
+    };
+    // An arrival left undecided names the rule, the condition and why, which says whether a
+    // larger `--view-budget` could decide it.
+    if let (Some(undecided), Some(when)) = (&report.undecided, when) {
+        return format!(
+            ", {}, undecided whether `{}` holds ({} of {count} stops reached{arrivals}): {}",
+            name(undecided.at, Some(&undecided.rule)),
+            when.function,
+            report.stops,
+            undecided.reason
+        );
+    }
     let Some(stop) = &report.stop else {
-        return format!(", {} of {count} stops reached", report.stops);
+        return format!(
+            ", {} of {count} stops reached{holds}{arrivals}",
+            report.stops
+        );
     };
-    let (at, names) = match stop.at {
-        StopAt::Before => ("before", &rules.before),
-        StopAt::After => ("after", &rules.after),
-    };
-    let rule = stop
-        .rule
-        .as_ref()
-        .and_then(|rule| semantics.stop_name(&rule.rule_id))
-        .or_else(|| match names.as_slice() {
-            [name] => Some(name.clone()),
-            _ => None,
-        })
-        .map_or_else(|| "a stop rule".to_owned(), |name| format!("`{name}`"));
-    format!(", {at} {rule} (stop {} of {count})", stop.nth)
+    format!(
+        ", {} (stop {} of {count}{holds}{arrivals})",
+        name(stop.at, stop.rule.as_ref()),
+        stop.nth
+    )
 }
 
 fn status_word(word: &str, smt: bool) -> String {
@@ -2196,7 +2304,9 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::UnknownRule { .. }
         | ExecError::AmbiguousRule { .. }
         | ExecError::UnknownItem { .. }
-        | ExecError::AmbiguousItem { .. } => codes::exec::RULE,
+        | ExecError::AmbiguousItem { .. }
+        | ExecError::StopWhen(_)
+        | ExecError::StopCondition { .. } => codes::exec::RULE,
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,

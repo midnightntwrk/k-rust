@@ -74,12 +74,18 @@ pub fn Entries(log: Term<List>, bonus: Term<Int>) -> Term<Int> {
 const OBSERVER: &str = r"//! Views of the `ends` definition built from the helper's functions alone.
 
 use k::Term;
-use k::builtin::{Int, List};
+use k::builtin::{Bool, Int, List};
 
 /// The helper's count of a log's entries, with a bonus of 10.
 #[k::function(total, internal)]
 pub fn HelperEntries(log: Term<List>) -> Term<Int> {
     helper::Entries(log, 10)
+}
+
+/// Whether the helper counts any entry of a log: a stop condition.
+#[k::function(total, internal)]
+pub fn HelperCounts(log: Term<List>) -> Term<Bool> {
+    helper::Entries(log, 0) > 0
 }
 ";
 
@@ -444,6 +450,74 @@ fn an_observer_dependency_is_named_and_composed_only_into_the_observer() {
         "{}",
         stderr(&output)
     );
+}
+
+/// The observer a case's stop condition names (`run.stop_when.observer`) composes the facets its
+/// closure holds, and is prepared before the case is run: a facet only it composes is used, in
+/// `krs compare` of the case, one pair or a batch, as in `krs run --case`.
+#[test]
+fn a_stop_condition_observer_composes_its_facets_in_compare() {
+    let workspace = workspace();
+    let helper = helper_dependency();
+    let case = json!({
+        "inputs": {
+            "pgm": {"Finish": {"value": 3}},
+            "regs": {"A": 1},
+            "f": {"Flags": {"zf": true, "cf": false}},
+            "pc": 256,
+            "bus": [{"Read": {"addr": 5}}],
+            "memory": {"5": 6},
+            "ime": true,
+            "w": 9,
+            "z": 4,
+        },
+        "run": {
+            "stop_before": ["crate::finish"],
+            "stop_when": {"function": "HelperCounts", "cells": ["bus"], "observer": observer()},
+        },
+    });
+    workspace.write("condition.json", case.to_string());
+    workspace.write(
+        "condition-pairs.toml",
+        "[[pair]]\nleft = \"condition.json\"\nright = \"condition.json\"\n",
+    );
+    let run = workspace.krs(
+        "run",
+        &[
+            "--case",
+            "condition.json",
+            "--output",
+            "none",
+            "--dependency",
+            &helper,
+        ],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        stderr(&run).contains("stopped after 0 steps, before `crate::finish`"),
+        "{}",
+        stderr(&run)
+    );
+    for arguments in [
+        &["condition.json", "condition.json"][..],
+        &["--pairs", "condition-pairs.toml"][..],
+    ] {
+        let mut arguments = arguments.to_vec();
+        arguments.extend(["--dependency", &helper]);
+        let output = workspace.krs("compare", &arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{arguments:?}: {}{}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert!(
+            !stderr(&output).contains("was not composed"),
+            "{arguments:?}: {}",
+            stderr(&output)
+        );
+    }
 }
 
 /// An observer that does not compile is refused with its diagnostics, each noting the observer,

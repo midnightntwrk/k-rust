@@ -256,8 +256,17 @@
 //!   unique suffix after a `.`;
 //!   and `stop_count`, a positive integer, the arrival at a stop the run ends at
 //!   ([`StopCriterion::Rules`](crate::StopCriterion::Rules)), the first by default,
-//!   which needs a stop rule to count arrivals at.
-//!   The count belongs to the case, beside its rules,
+//!   which needs a stop rule to count arrivals at;
+//!   and `stop_when`, a stop condition ([`StopWhen`](crate::StopWhen)),
+//!   a table `{ function, cells, observer }`:
+//!   `function` names a function of result sort `Bool` as a view names one,
+//!   `cells` the leaf cells it reads by Rust field path, in the order of its parameters,
+//!   and `observer`, optional, the definition it is evaluated in, `PACKAGE:DEFINITION`
+//!   as an expectation names its observer, the run's own definition by default;
+//!   an arrival is then a stop only where the condition holds of the state the run would end at,
+//!   and `stop_count` counts those.
+//!   The condition needs a stop rule, at whose arrivals it is asked.
+//!   The count and the condition belong to the case, beside its rules,
 //!   since where a run is observed depends on the program it runs.
 //! - `instances`: the instances the run starts with, of the optional and repeated cells it names
 //!   ("Instances", below).
@@ -674,6 +683,9 @@ pub struct CaseRun {
     /// `stop_count`: the arrival at a stop the run ends at ([`crate::StopCriterion::Rules`]);
     /// `None` for the first. Only given with stop rules.
     pub stop_count: Option<NonZeroU64>,
+    /// `stop_when`: the condition an arrival's stop state must satisfy to be a stop
+    /// ([`crate::StopWhen`]); `None` for none. Only given with stop rules.
+    pub stop_when: Option<Box<crate::StopWhen>>,
 }
 
 impl CaseRun {
@@ -685,9 +697,13 @@ impl CaseRun {
             before: self.stop_before.clone(),
             after: self.stop_after.clone(),
         };
-        match self.stop_count {
-            Some(count) if !rules.is_empty() => crate::StopCriterion::Rules { rules, count },
-            _ => rules.into(),
+        if rules.is_empty() {
+            return rules.into();
+        }
+        crate::StopCriterion::Rules {
+            rules,
+            count: self.stop_count.unwrap_or(NonZeroU64::MIN),
+            when: self.stop_when.as_deref().cloned(),
         }
     }
 }
@@ -991,7 +1007,7 @@ fn case_table(
 
 /// The `run` table `document` at `position`.
 fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
-    const KEYS: &str = "`depth`, `stop_before`, `stop_after` and `stop_count`";
+    const KEYS: &str = "`depth`, `stop_before`, `stop_after`, `stop_count` and `stop_when`";
     let Json::Object(table) = document else {
         return Err(at(position, format!("`run` is a table of {KEYS}")));
     };
@@ -1038,6 +1054,7 @@ fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
                     )
                     })?);
             }
+            "stop_when" => run.stop_when = Some(Box::new(stop_when(value, position)?)),
             _ => {
                 return Err(at(
                     position,
@@ -1045,6 +1062,13 @@ fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
                 ));
             }
         }
+    }
+    if run.stop_when.is_some() && run.stop_before.is_empty() && run.stop_after.is_empty() {
+        return Err(at(
+            position,
+            "`stop_when` needs `stop_before` or `stop_after`: it is asked at the arrivals at their rules"
+                .to_owned(),
+        ));
     }
     if run.stop_count.is_some() && run.stop_before.is_empty() && run.stop_after.is_empty() {
         return Err(at(
@@ -1054,6 +1078,51 @@ fn case_run(document: &Json, position: &str) -> Result<CaseRun, InputError> {
         ));
     }
     Ok(run)
+}
+
+/// A `run`'s `stop_when` table: `function`, `cells` and an optional `observer`.
+fn stop_when(document: &Json, position: &str) -> Result<crate::StopWhen, InputError> {
+    const SHAPE: &str = "`stop_when` is a table of `function` (a function's path), `cells` (the cells it reads, an array of Rust field paths) and an optional `observer` (`PACKAGE:DEFINITION`)";
+    let Json::Object(table) = document else {
+        return Err(at(position, SHAPE.to_owned()));
+    };
+    let mut function = None;
+    let mut cells = None;
+    let mut observer = None;
+    for (key, value) in table {
+        match key.as_str() {
+            "function" => function = value.as_str().map(str::to_owned),
+            "cells" => {
+                cells = match value {
+                    Json::Array(items) => items
+                        .iter()
+                        .map(|item| item.as_str().map(str::to_owned))
+                        .collect::<Option<Vec<_>>>(),
+                    _ => None,
+                };
+            }
+            "observer" => observer = Some(value.as_str().map(str::to_owned)),
+            _ => {
+                return Err(at(
+                    position,
+                    format!("unknown key `{key}` in `stop_when`; {SHAPE}"),
+                ));
+            }
+        }
+    }
+    match (function, cells, observer) {
+        (Some(function), Some(cells), None) => Ok(crate::StopWhen {
+            function,
+            cells,
+            observer: None,
+        }),
+        (Some(function), Some(cells), Some(Some(observer))) => Ok(crate::StopWhen {
+            function,
+            cells,
+            observer: Some(observer),
+        }),
+        _ => Err(at(position, SHAPE.to_owned())),
+    }
 }
 
 /// One leaf cell's content that a case's `instances` states, read at the cell's declared type
@@ -3269,6 +3338,7 @@ mod tests {
                     stop_before: Vec::new(),
                     stop_after: vec!["boundary".to_owned()],
                     stop_count: NonZeroU64::new(2),
+                    stop_when: None,
                 }),
                 instances: None,
                 expect: Some(serde_json::json!({"halt": "stuck"})),
@@ -3318,7 +3388,7 @@ mod tests {
         );
         assert_eq!(
             refusal("[run]\ntrace = true\n"),
-            "at `run`: unknown key `trace` in `run`; it has the keys `depth`, `stop_before`, `stop_after` and `stop_count`"
+            "at `run`: unknown key `trace` in `run`; it has the keys `depth`, `stop_before`, `stop_after`, `stop_count` and `stop_when`"
         );
         assert_eq!(
             refusal("[[case]]\nname = \"a\"\n[[case]]\nname = \"b\"\n"),

@@ -145,6 +145,10 @@ fn ticker() -> Arc<Project> {
             ("kink", "[stop]\nafter = [\"crate::tick\"]\ncount = 3\n"),
             ("corpora/before", "[stop]\nbefore = [\"crate::tick\"]\n"),
             ("corpora/unknown", "[stop]\nafter = [\"crate::nothing\"]\n"),
+            (
+                "corpora/when",
+                "[stop]\nafter = [\"crate::tick\"]\nwhen = { function = \"Even\", cells = [\"k\"] }\n",
+            ),
         ] {
             files.push((format!("{corpus}/FLOW.toml"), ticker_flow(stop)));
             files.push((format!("{corpus}/cases/t0.tick"), b"tick(0)\n".to_vec()));
@@ -3177,6 +3181,23 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
     assert_eq!(refused["spec"]["reason"], "stop-unresolved", "{refused:#}");
     let detail = refused["spec"]["detail"].as_str().unwrap();
     assert!(detail.contains("after `crate::nothing`"), "{detail}");
+}
+
+/// A stop condition (`[stop] when`) is refused, with the reason that kink asks none yet: a run
+/// that ignored it would end at another arrival than `krs run --stop-when` does.
+#[test]
+fn a_stop_condition_is_refused_until_kink_asks_one() {
+    let project = ticker();
+    for verb in ["check", "results"] {
+        let output = project.kink(verb, &["--corpus", "corpora/when"]);
+        assert_status(&output, 2);
+        let text = String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr);
+        assert!(
+            text.contains("a stop condition is not supported by kink yet"),
+            "{verb}: {text}"
+        );
+    }
 }
 
 /// A stop names a configuration rule of the root package, an item of a dependency crate and an

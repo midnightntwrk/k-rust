@@ -828,10 +828,29 @@ fn execute_compare(
         .transpose()
         .map_err(|failure| failure.into_error(sources))?
         .flatten();
-    let composed = observer
+    let mut composed = observer
         .as_ref()
-        .map_or(&[][..], |observer| &observer.composed);
-    refuse_unused_observer_dependencies(request, observer_dependencies, composed)?;
+        .map_or_else(Vec::new, |observer| observer.composed.clone());
+    // The observers case sides' stop conditions name, prepared before the sides are run, as
+    // the views' observer is: a facet only such an observer composes is used. One that cannot
+    // be prepared refuses the run that asks it, saying why.
+    let conditions = compare::condition_observers(&read)
+        .into_iter()
+        .map(|name| {
+            let observer = match prepare_observer(request, &name, workspace_root) {
+                Ok(observer) => Ok(observer.map(|observer| {
+                    composed.extend(observer.composed);
+                    observer.definition
+                })),
+                Err(failure) => {
+                    composed.extend(failure.composed.iter().cloned());
+                    Err(failure.render(sources))
+                }
+            };
+            (name, observer)
+        })
+        .collect();
+    refuse_unused_observer_dependencies(request, observer_dependencies, &composed)?;
     compare::execute(
         prepared,
         compare,
@@ -839,6 +858,7 @@ fn execute_compare(
         stage_reuse,
         read,
         observer.map(|observer| observer.definition),
+        conditions,
         measurement,
     )
 }
@@ -954,21 +974,39 @@ fn read_case(
     };
     // A case that cannot be read is read again by the run, which reports what is wrong with it
     // before anything else is judged.
-    let Some(case) = path.and_then(|path| exec::readable_case(path, name)) else {
-        return Ok(exec::ReadCase::default());
+    let case = path.and_then(|path| exec::readable_case(path, name));
+    // The stop condition of a run, from its flags or its case, and the observer it names.
+    let condition = match &request.command {
+        Command::Run(run) => exec::run_condition(&run.stop, case.as_ref().map(|case| &case.case))
+            .map(|when| when.observer.clone()),
+        _ => None,
     };
-    let observer = match exec::named_observer(&case.case) {
+    let condition_observer = match condition.as_ref().and_then(Option::as_deref) {
+        Some(name) => prepare_observer(request, name, workspace_root)
+            .map_err(|failure| failure.into_error(sources))?,
+        None => None,
+    };
+    let observer = match case
+        .as_ref()
+        .and_then(|case| exec::named_observer(&case.case))
+    {
         Some(observer) => prepare_observer(request, observer, workspace_root)
             .map_err(|failure| failure.into_error(sources))?,
         None => None,
     };
     let composed = observer
-        .as_ref()
-        .map_or(&[][..], |observer| &observer.composed);
-    refuse_unused_observer_dependencies(request, observer_dependencies, composed)?;
+        .iter()
+        .chain(&condition_observer)
+        .flat_map(|observer| observer.composed.iter().cloned())
+        .collect::<Vec<_>>();
+    refuse_unused_observer_dependencies(request, observer_dependencies, &composed)?;
     Ok(exec::ReadCase {
-        case: Some(case),
+        case,
         observer: observer.map(|observer| observer.definition),
+        condition: condition.map(|_| match condition_observer {
+            Some(observer) => exec::ConditionSource::Named(observer.definition),
+            None => exec::ConditionSource::Own,
+        }),
     })
 }
 

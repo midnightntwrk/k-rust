@@ -155,9 +155,9 @@ fn stop_decoding_refuses_what_it_cannot_read() {
     let program = "[[program]]\nid = \"a\"\ntext = \"1\"\n";
     for (stop, key, message) in [
         (
-            "[stop]\nafter = [\"X.a\"]\nwhen = 1\n",
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = [\"n\"] }\n",
             "stop.when",
-            "unknown key",
+            "a stop condition is not supported by kink yet",
         ),
         ("[stop]\n", "stop", "names no rule"),
         ("[stop]\nbefore = []\nafter = []\n", "stop", "names no rule"),

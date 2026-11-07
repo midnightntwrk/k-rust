@@ -336,6 +336,10 @@ fn read_side(file: &SideFile) -> Result<SideDocument, Failure> {
 
 /// Compare the sides of `request` on the prepared definition, its stage restored or compiled
 /// once, the views evaluated in `observer` when it is given.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The comparison takes exec_command's prepared definition, request and observers' inputs."
+)]
 pub(super) fn execute(
     prepared: &PreparedDefinition,
     request: &CompareRequest,
@@ -343,9 +347,11 @@ pub(super) fn execute(
     reuse: StageReuse<'_>,
     read: ReadSides,
     observer: Option<ObserverDefinition>,
+    conditions: NamedConditions<ObserverDefinition>,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
     let sources = sources.clone();
+    let conditions_named = conditions;
     let timings = &mut measurement.timings;
     let definition = prepared.lowered.definition();
     let mut reused = false;
@@ -359,6 +365,8 @@ pub(super) fn execute(
                 let (stage, restored) =
                     exec::compiled_stage(definition, reuse, timings).map_err(Failure::Exec)?;
                 *reused_flag = restored;
+                // The compared definition's stage, kept for a case side's stop condition.
+                let own = stage.clone();
                 let mut semantics = Semantics::from_stage_with_solver(
                     definition,
                     stage,
@@ -367,6 +375,21 @@ pub(super) fn execute(
                     timings,
                 )
                 .map_err(Failure::Exec)?;
+                let mut conditions = Conditions::new(
+                    request.view_budget,
+                    definition,
+                    &own,
+                    request.solver,
+                    reuse.restore,
+                );
+                for (name, observer) in conditions_named {
+                    conditions.name(
+                        name,
+                        observer.map(|observer| {
+                            observer.map(|observer| ConditionObserver::Prepared(Box::new(observer)))
+                        }),
+                    );
+                }
                 let mut observer = observer
                     .map(|observer| {
                         exec::load_observer(&observer, reuse.restore, request.solver, timings)
@@ -377,6 +400,7 @@ pub(super) fn execute(
                 let verdict = compare(
                     &mut semantics,
                     observer.as_mut(),
+                    &mut conditions,
                     request,
                     read,
                     &runs,
@@ -598,6 +622,7 @@ impl CaseRuns {
     fn get(
         &self,
         semantics: &mut Semantics,
+        conditions: &mut Conditions<'_>,
         case: &SelectedCase,
         timings: &mut Timings,
     ) -> Result<Arc<CaseRun>, Failure> {
@@ -614,10 +639,136 @@ impl CaseRuns {
         );
         once(&slot, || {
             timings.span("compare.run", |_| {
-                CaseRun::run(semantics, case).map(Arc::new)
+                CaseRun::run(semantics, conditions, case).map(Arc::new)
             })
         })
         .map(Arc::clone)
+    }
+}
+
+/// The observers the stop conditions of a comparison's case sides name, each prepared before any
+/// run asks: by name, `None` for one that names the compared definition itself, or why it could
+/// not be prepared.
+pub(super) type NamedConditions<O> = Vec<(String, Result<Option<O>, String>)>;
+
+/// The observers the stop conditions of `read`'s case sides name, each once, in the order of
+/// the sides: each is prepared before the sides are run, as a views' observer is, so that the
+/// dependency facets it composes are known before the comparison.
+pub(super) fn condition_observers(read: &ReadSides) -> Vec<String> {
+    let mut names = Vec::new();
+    for side in [&read.first, &read.second] {
+        let SideDocument::Case(case) = side else {
+            continue;
+        };
+        // A case whose stops cannot be read is refused when it is run.
+        let Ok(stop) = case.stop(&StopCriterion::None) else {
+            continue;
+        };
+        if let Some(name) = stop.when().and_then(|when| when.observer.clone())
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// An observer a case side's stop condition names, prepared: its Definition IR, compiled when a
+/// run first asks (a single comparison), or compiled already (a batch, which compiles each
+/// observer once).
+enum ConditionObserver {
+    Prepared(Box<ObserverDefinition>),
+    Compiled(Arc<Observer>),
+}
+
+/// The definitions the stop conditions of case sides' runs are evaluated in, each loaded the
+/// first time a run asks one: another semantics of the compared definition, or an observer it
+/// names, prepared beforehand ([`Self::name`]). They are loaded apart from the views' observer,
+/// which a comparison reads at the same time.
+pub(super) struct Conditions<'a> {
+    /// The polls each evaluation of a condition may spend (`--view-budget`), as `krs run --case`
+    /// spends them.
+    budget: u64,
+    definition: &'a DefinitionIr,
+    /// The compared definition's stage, for its own conditions.
+    stage: &'a CompiledStage,
+    solver: BackendOptions,
+    restore: bool,
+    /// The observers conditions name, prepared, by name ([`NamedConditions`]).
+    named: HashMap<String, Result<Option<ConditionObserver>, String>>,
+    /// By observer name, `None` for the compared definition's own.
+    loaded: Vec<(Option<String>, Result<Semantics, String>)>,
+}
+
+impl<'a> Conditions<'a> {
+    fn new(
+        budget: u64,
+        definition: &'a DefinitionIr,
+        stage: &'a CompiledStage,
+        solver: BackendOptions,
+        restore: bool,
+    ) -> Self {
+        Self {
+            budget,
+            definition,
+            stage,
+            solver,
+            restore,
+            named: HashMap::new(),
+            loaded: Vec::new(),
+        }
+    }
+
+    /// Record the observer `name`, prepared, unless it is recorded already.
+    fn name(&mut self, name: String, observer: Result<Option<ConditionObserver>, String>) {
+        self.named.entry(name).or_insert(observer);
+    }
+
+    /// The definition the condition of `criterion` is evaluated in; `None` without one.
+    fn of(&mut self, criterion: &StopCriterion) -> Result<Option<&mut Semantics>, Failure> {
+        let Some(when) = criterion.when() else {
+            return Ok(None);
+        };
+        let key = when.observer.clone();
+        let position = if let Some(position) =
+            self.loaded.iter().position(|(loaded, _)| *loaded == key)
+        {
+            position
+        } else {
+            let timings = &mut Timings::disabled();
+            let own = |timings: &mut Timings| {
+                exec::load_condition(self.definition, self.stage, None, self.solver, timings)
+                    .map_err(|error| error.to_string())
+            };
+            let loaded = match &key {
+                None => own(timings),
+                Some(name) => match self.named.get(name) {
+                    None => Err(format!("the observer `{name}` was not prepared")),
+                    Some(Err(reason)) => Err(reason.clone()),
+                    Some(Ok(None)) => own(timings),
+                    Some(Ok(Some(ConditionObserver::Prepared(observer)))) => {
+                        exec::load_observer(observer, self.restore, self.solver, timings)
+                            .map_err(|error| error.to_string())
+                    }
+                    Some(Ok(Some(ConditionObserver::Compiled(observer)))) => exec::load_condition(
+                        self.definition,
+                        self.stage,
+                        Some((&observer.definition, &observer.stage)),
+                        self.solver,
+                        timings,
+                    )
+                    .map_err(|error| error.to_string()),
+                },
+            }
+            .map_err(|error| format!("krs cannot load the stop condition's definition: {error}"));
+            self.loaded.push((key, loaded));
+            self.loaded.len() - 1
+        };
+        self.loaded[position]
+            .1
+            .as_mut()
+            .map(Some)
+            .map_err(|reason| Failure::Exec(ExecError::StopWhen(reason.clone())))
     }
 }
 
@@ -642,16 +793,22 @@ struct RunOf {
 impl CaseRun {
     /// The end of `case`'s run, as `krs run --case` runs it: its inputs bound, its `run` table's
     /// depth and stops.
-    fn run(semantics: &mut Semantics, case: &SelectedCase) -> Result<Self, Failure> {
+    fn run(
+        semantics: &mut Semantics,
+        conditions: &mut Conditions<'_>,
+        case: &SelectedCase,
+    ) -> Result<Self, Failure> {
         let stop = case.stop(&StopCriterion::None)?;
         let depth = case.depth(None)?;
         let state = exec::configure(semantics, Inputs::of_case(case), false)?;
         let options = RunOptions {
             depth,
             stop,
+            condition_budget: Some(conditions.budget),
             ..RunOptions::default()
         };
-        let report = match semantics.run(&state, options.clone()) {
+        let condition = conditions.of(&options.stop)?;
+        let report = match semantics.run_observed(&state, options.clone(), condition) {
             Ok(report) => report,
             // A run that cannot decide which of several states it reaches has no one end.
             Err(error @ ExecError::Undecided { .. }) => {
@@ -681,13 +838,18 @@ impl CaseRun {
 
     /// Follow the run again, once, for whether its end is its case's only one: the ends with
     /// why they are incomplete when it is not.
-    fn follow(&self, semantics: &mut Semantics) -> Result<Option<&Ends>, Failure> {
+    fn follow(
+        &self,
+        semantics: &mut Semantics,
+        conditions: &mut Conditions<'_>,
+    ) -> Result<Option<&Ends>, Failure> {
         let Some(run) = &self.run else {
             return Ok(None);
         };
         let followed = once(&self.followed, || {
+            let condition = conditions.of(&run.options.stop)?;
             Ok(semantics
-                .other_ends(&run.state, &run.options, &run.report)?
+                .other_ends_observed(&run.state, &run.options, &run.report, condition)?
                 .map(|reason| Ends {
                     incomplete: Some(reason),
                     ..self.ends.clone()
@@ -756,6 +918,7 @@ impl Produced {
     fn run(
         runs: &CaseRuns,
         semantics: &mut Semantics,
+        conditions: &mut Conditions<'_>,
         name: &'static str,
         case: &SelectedCase,
         timings: &mut Timings,
@@ -763,7 +926,7 @@ impl Produced {
         Ok(Self {
             name,
             source: Source::Run {
-                run: runs.get(semantics, case, timings)?,
+                run: runs.get(semantics, conditions, case, timings)?,
                 followed: false,
             },
         })
@@ -772,7 +935,11 @@ impl Produced {
     /// Follow the side's run again for whether its end is its case's only one; true when it is
     /// not, which makes the side's set incomplete. Each comparison follows a run at most once,
     /// and a batch follows each case's run at most once.
-    fn settle(&mut self, semantics: &mut Semantics) -> Result<bool, Failure> {
+    fn settle(
+        &mut self,
+        semantics: &mut Semantics,
+        conditions: &mut Conditions<'_>,
+    ) -> Result<bool, Failure> {
         let Source::Run { run, followed } = &mut self.source else {
             return Ok(false);
         };
@@ -780,7 +947,7 @@ impl Produced {
             return Ok(false);
         }
         *followed = true;
-        Ok(run.follow(semantics)?.is_some())
+        Ok(run.follow(semantics, conditions)?.is_some())
     }
 }
 
@@ -789,19 +956,21 @@ impl Produced {
 fn compare(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
+    conditions: &mut Conditions<'_>,
     request: &CompareRequest,
     read: ReadSides,
     runs: &CaseRuns,
     timings: &mut Timings,
 ) -> Result<Verdict, Failure> {
     match &request.sides {
-        CompareSides::Ends { .. } => {
-            compare_ends(semantics, observer, request, read, runs, timings).map(Verdict::Ends)
-        }
-        CompareSides::Expectation { .. } => {
-            check_expectation(semantics, observer, request, read, runs, timings)
-                .map(Verdict::Expectation)
-        }
+        CompareSides::Ends { .. } => compare_ends(
+            semantics, observer, conditions, request, read, runs, timings,
+        )
+        .map(Verdict::Ends),
+        CompareSides::Expectation { .. } => check_expectation(
+            semantics, observer, conditions, request, read, runs, timings,
+        )
+        .map(Verdict::Expectation),
         CompareSides::Pairs { .. } => unreachable!("a batch compares each of its pairs"),
     }
 }
@@ -817,6 +986,7 @@ fn refuse_comparison(error: &EndError) -> Failure {
 fn compare_ends(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
+    conditions: &mut Conditions<'_>,
     request: &CompareRequest,
     read: ReadSides,
     runs: &CaseRuns,
@@ -853,7 +1023,9 @@ fn compare_ends(
     let right = read_end("right", &second)?;
     let mut produce = |name, end: Option<Produced>, document: &SideDocument| match (end, document) {
         (Some(end), _) => Ok(end),
-        (None, SideDocument::Case(case)) => Produced::run(runs, semantics, name, case, timings),
+        (None, SideDocument::Case(case)) => {
+            Produced::run(runs, semantics, conditions, name, case, timings)
+        }
         (None, SideDocument::End { .. }) => unreachable!("an end document is read before"),
     };
     let mut left = produce("left", left, &first)?;
@@ -889,10 +1061,10 @@ fn compare_ends(
         };
         let mut changed = false;
         if on_left {
-            changed |= left.settle(semantics)?;
+            changed |= left.settle(semantics, conditions)?;
         }
         if on_right {
-            changed |= right.settle(semantics)?;
+            changed |= right.settle(semantics, conditions)?;
         }
         if !changed {
             return Ok(verdict(compared));
@@ -906,6 +1078,7 @@ fn compare_ends(
 fn check_expectation(
     semantics: &mut Semantics,
     mut observer: Option<&mut Semantics>,
+    conditions: &mut Conditions<'_>,
     request: &CompareRequest,
     read: ReadSides,
     runs: &CaseRuns,
@@ -930,7 +1103,9 @@ fn check_expectation(
             (file, document, base.clone()),
             &expectation.comparison,
         )?,
-        SideDocument::Case(actual) => Produced::run(runs, semantics, "actual", actual, timings)?,
+        SideDocument::Case(actual) => {
+            Produced::run(runs, semantics, conditions, "actual", actual, timings)?
+        }
     };
     let budget = request.view_budget;
     let checked = exec::check(
@@ -943,7 +1118,7 @@ fn check_expectation(
     )?;
     // One end that differs is unmet; one that agrees meets the expectation only where it is the
     // actual side's only end.
-    if matches!(checked.verdict, Compared::Equal) && actual.settle(semantics)? {
+    if matches!(checked.verdict, Compared::Equal) && actual.settle(semantics, conditions)? {
         return exec::check(
             semantics,
             observer,
@@ -1380,6 +1555,8 @@ struct Job {
     request: CompareRequest,
     read: ReadSides,
     observer: Option<Arc<Observer>>,
+    /// The observers its case sides' stop conditions name, prepared and compiled once a batch.
+    conditions: NamedConditions<Arc<Observer>>,
 }
 
 /// Compare the pairs of the document `request` names (`--pairs`) on the prepared definition, its
@@ -1412,6 +1589,7 @@ pub(super) fn execute_pairs(
                     exec::compiled_stage(definition, reuse, timings).map_err(Failure::Exec)?;
                 *reused_flag = restored;
                 let batch = Batch {
+                    view_budget: request.view_budget,
                     definition,
                     stage: &stage,
                     sources,
@@ -1441,6 +1619,9 @@ pub(super) fn execute_pairs(
 /// The batch: the definition and its compiled stage, which every worker loads once, and the
 /// case runs every worker shares.
 struct Batch<'a> {
+    /// The polls each evaluation of a case side's stop condition may spend; every pair's
+    /// request carries the same (`--view-budget`).
+    view_budget: u64,
     definition: &'a DefinitionIr,
     stage: &'a CompiledStage,
     sources: &'a DiagnosticSources,
@@ -1600,6 +1781,13 @@ impl Feed<'_, '_> {
                 },
                 None => None,
             };
+            let conditions = condition_observers(&read)
+                .into_iter()
+                .map(|name| {
+                    let observer = self.observer(&name);
+                    (name, observer)
+                })
+                .collect();
             self.wait_for_room()?;
             let job = Job {
                 index: self.dispatched,
@@ -1608,6 +1796,7 @@ impl Feed<'_, '_> {
                 request,
                 read,
                 observer,
+                conditions,
             };
             self.jobs.send(job).map_err(|_| {
                 Failure::Read(
@@ -1679,6 +1868,8 @@ struct Worker<'a> {
     subject: Option<Result<Semantics, String>>,
     /// The observers loaded, by the prepared observer they were loaded from.
     observers: Vec<(Arc<Observer>, Result<Semantics, String>)>,
+    /// The definitions case sides' stop conditions are evaluated in.
+    conditions: Conditions<'a>,
     timings: Timings,
 }
 
@@ -1688,6 +1879,13 @@ impl<'a> Worker<'a> {
             batch,
             subject: None,
             observers: Vec::new(),
+            conditions: Conditions::new(
+                batch.view_budget,
+                batch.definition,
+                batch.stage,
+                batch.solver,
+                batch.restore,
+            ),
             timings: if measured {
                 Timings::enabled()
             } else {
@@ -1707,6 +1905,7 @@ impl<'a> Worker<'a> {
             Err(_) => {
                 self.subject = None;
                 self.observers.clear();
+                self.conditions.loaded.clear();
                 Outcome::Refused("krs panicked while comparing the pair".to_owned())
             }
         };
@@ -1722,6 +1921,7 @@ impl<'a> Worker<'a> {
             batch,
             subject,
             observers,
+            conditions,
             timings,
         } = self;
         let subject = subject
@@ -1773,9 +1973,16 @@ impl<'a> Worker<'a> {
                 )
             }
         };
+        for (name, observer) in job.conditions {
+            conditions.name(
+                name,
+                observer.map(|observer| observer.map(ConditionObserver::Compiled)),
+            );
+        }
         compare(
             subject,
             observer,
+            conditions,
             &job.request,
             job.read,
             &batch.runs,

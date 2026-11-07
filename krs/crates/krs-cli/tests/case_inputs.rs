@@ -937,7 +937,7 @@ fn a_case_names_its_rules_as_the_stop_flags_do() {
     assert_eq!(twice.status.code(), Some(2), "{}", stderr(&twice));
     assert!(
         stderr(&twice).contains(
-            "--stop-before, --stop-after and --stop-count, and the `run` stops of the case `cases/stops.json`, both say where the run ends; give one"
+            "--stop-before, --stop-after, --stop-count and --stop-when, and the `run` stops of the case `cases/stops.json`, both say where the run ends; give one"
         ),
         "{}",
         stderr(&twice)

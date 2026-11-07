@@ -1,7 +1,8 @@
 //! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
 //!
-//! A run document is `krs-exec/4` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
-//! their item with its package; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
+//! A run document is `krs-exec/5` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
+//! their item with its package, and which may end `stop-undecided` and count its arrivals beside
+//! its stop events; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
 //! document is `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and
 //! `timeout` and which names the solver its claims were proved with ([`SolverReport`]).
 //!
@@ -27,7 +28,14 @@ use serde::{Deserialize, Serialize, Serializer};
 /// either would read `crate::boundary` in a coverage row as a path through a module `crate`, and
 /// could not tell a dependency's `step` from the main package's, so a run document is a format
 /// of its own version.
-pub const RUN_REPORT_SCHEMA: &str = "krs-exec/4";
+///
+/// A run under a stop condition ([`crate::StopWhen`]) may end `stop-undecided`
+/// ([`Halt::StopUndecided`]), a halt a `krs-exec/4` reader does not know, where it says where
+/// and why (`undecided`, [`RunReport::undecided`]), and reports every
+/// arrival it passed (`arrivals`) beside the stop events it counted (`stops`), which a
+/// `krs-exec/4` reader would read as all its arrivals: a run document with a condition is a
+/// format of its own version, `krs-exec/5`.
+pub const RUN_REPORT_SCHEMA: &str = "krs-exec/5";
 
 /// The schema name a serialized search envelope carries (`krs search`; [report
 /// versions](crate#report-versions)).
@@ -241,6 +249,10 @@ pub enum Halt {
     /// The backend stopped for a reason a run does not request (branch, breadth or work bound,
     /// cancellation).
     Interrupted,
+    /// The run's stop condition was left undecided at an arrival ([`crate::StopWhen`]): its
+    /// evaluation spent its budget, met another stop, or ended short of a value after the
+    /// solver answered `Unknown`, so whether the run ends there is not known.
+    StopUndecided,
 }
 
 impl Halt {
@@ -254,12 +266,11 @@ impl Halt {
             HaltReasonOutput::SimplificationError => Self::SimplificationError,
             HaltReasonOutput::Timeout => Self::Timeout,
             HaltReasonOutput::CutPoint | HaltReasonOutput::Terminal => Self::Stopped,
-            // A run asks no stop condition, which alone yields `stop-undecided`.
+            HaltReasonOutput::StopUndecided => Self::StopUndecided,
             HaltReasonOutput::Cancelled
             | HaltReasonOutput::Branch
             | HaltReasonOutput::BreadthBound
-            | HaltReasonOutput::WorkBound
-            | HaltReasonOutput::StopUndecided => Self::Interrupted,
+            | HaltReasonOutput::WorkBound => Self::Interrupted,
         }
     }
 
@@ -276,6 +287,7 @@ impl Halt {
             Self::Timeout => "timeout",
             Self::Stopped => "stopped",
             Self::Interrupted => "interrupted",
+            Self::StopUndecided => "stop-undecided",
         }
     }
 
@@ -462,6 +474,20 @@ pub enum StopAt {
     After,
 }
 
+/// The arrival a run's stop condition was left undecided at, which ended the run
+/// ([`RunReport::undecided`], [`Halt::StopUndecided`]).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Undecided {
+    /// Whether the stop state is the state before the rule's step or its successor.
+    pub at: StopAt,
+    /// The stop rule.
+    pub rule: NamedRule,
+    /// Why whether the condition holds there is not known: its evaluation spent its budget of
+    /// polls or met another stop, or ended short of a value after the solver answered
+    /// `Unknown`. A larger budget can decide the first, never the others.
+    pub reason: String,
+}
+
 /// A rule, by its identities and origin.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct NamedRule {
@@ -563,9 +589,19 @@ pub struct RunReport {
     pub stop: Option<Stop>,
     /// How many arrivals at a stop the run counted, the one that ended it included
     /// ([`crate::StopCriterion::Rules`]): the count it was asked for when it ended at a stop,
-    /// fewer when it ended on its own first. Omitted when 0.
+    /// fewer when it ended on its own first. Under a stop condition ([`crate::StopWhen`]) it
+    /// counts the stop events, the arrivals where the condition held. Omitted when 0.
     #[serde(skip_serializing_if = "is_zero")]
     pub stops: u64,
+    /// Under a stop condition, every arrival at a stop the run passed, whatever the condition
+    /// answered there, the one that ended it included; `None` (omitted) without a condition,
+    /// where every arrival is an event and [`Self::stops`] counts them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arrivals: Option<u64>,
+    /// Where and why the stop condition was left undecided, when it was
+    /// ([`Halt::StopUndecided`]); omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undecided: Option<Undecided>,
     /// The state a later run goes on from, when it is not `state`'s own pattern
     /// ([`Self::resume`]).
     #[serde(skip)]
