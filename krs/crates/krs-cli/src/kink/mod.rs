@@ -37,9 +37,9 @@
 //! corpus's own mutation list: the front end gives kink-flow `--lock <corpus>/verdicts.lock`
 //! unless the command names a lock or another list (`--mutations`), since the lock describes the
 //! corpus with its own list, and one corpus is also run with other lists. A run of the whole list
-//! rewrites it; under `--locked` the run writes nothing, kink-flow's `--locked` compares the lock
-//! it would write with the file, and a difference is a finding (exit 1). So a CI runs `krs kink
-//! emit --check` and `krs kink run --locked`.
+//! rewrites it; under `--locked` the run leaves it unwritten, kink-flow's `--locked` compares the
+//! lock it would write with the file, and a difference is a finding (exit 1). So a CI runs `krs
+//! kink emit --check` and `krs kink run --locked`.
 //!
 //! `report` builds nothing. The stored run document is a file of the corpus's cache, whose place
 //! depends on the corpus directory and `--cache` alone, so `report` reads the corpus manifest and
@@ -543,9 +543,7 @@ fn run_flow(
     let annotate = |document: &mut Value| {
         annotator.annotate(document);
         document["definition"] = definition.clone();
-        if document["lock"]["path"] == lock.0.as_str() {
-            document["lock"]["path"] = json!(lock.1);
-        }
+        shown_lock(document, &lock);
     };
     let front = FrontEnd {
         spelling,
@@ -587,6 +585,22 @@ fn naming_guards(
         &emitted.ir,
         move |file| read.source_text(file),
     ))
+}
+
+/// `document`'s lock named by its path as documents show it, `lock.1`, where kink-flow named it
+/// `lock.0`: its `path`, and a refused lock's `detail`, which starts with the path, so that the
+/// document spells the file one way, relative to the root package.
+fn shown_lock(document: &mut Value, lock: &(String, String)) {
+    if document["lock"]["path"] != lock.0.as_str() {
+        return;
+    }
+    document["lock"]["path"] = json!(lock.1);
+    if let Some(rest) = document["lock"]["detail"]
+        .as_str()
+        .and_then(|detail| detail.strip_prefix(lock.0.as_str()))
+    {
+        document["lock"]["detail"] = json!(format!("{}{rest}", lock.1));
+    }
 }
 
 /// The mutations of the list `command` runs (`run`, a `fuzz` kill job) that the front end's
@@ -1034,8 +1048,31 @@ fn finish(
 
 #[cfg(test)]
 mod tests {
-    use super::{Verb, command_files};
+    use super::{Verb, command_files, shown_lock};
+    use serde_json::json;
     use std::path::{Path, PathBuf};
+
+    /// A lock kink-flow named by its own path is shown by the root-relative one, in its `path`
+    /// and at the head of a refused lock's `detail`; a lock of another path is left alone.
+    #[test]
+    fn a_lock_is_shown_by_its_root_relative_path() {
+        let lock = (
+            "/abs/root/verdicts.lock".to_owned(),
+            "verdicts.lock".to_owned(),
+        );
+        let mut document = json!({"lock": {
+            "path": "/abs/root/verdicts.lock",
+            "status": "refused",
+            "detail": "/abs/root/verdicts.lock: is not TOML",
+        }});
+        shown_lock(&mut document, &lock);
+        assert_eq!(document["lock"]["path"], "verdicts.lock");
+        assert_eq!(document["lock"]["detail"], "verdicts.lock: is not TOML");
+        let mut other = json!({"lock": {"path": "elsewhere.lock", "detail": "elsewhere.lock: x"}});
+        let before = other.clone();
+        shown_lock(&mut other, &lock);
+        assert_eq!(other, before);
+    }
 
     fn strings(list: &[&str]) -> Vec<String> {
         list.iter().map(|arg| (*arg).to_owned()).collect()

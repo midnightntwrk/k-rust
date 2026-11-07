@@ -164,7 +164,7 @@ A later run tries the recorded killer first and keeps it while it still kills, s
 When the recorded killer no longer kills, or leaves the corpus, the first killing case in the search's order replaces it, and the lock's diff shows the move.
 The lock only orders the work and names the killer: every status still comes from runs.
 A run with `--mutations` judges another list and uses no lock.
-Under `--locked` the run writes nothing and compares the lock it would write with the file; for the guide's corpus it prints exactly the lock's bytes:
+Under `--locked` the run leaves `definition.k` and the lock unwritten (its cache is written as in any run) and compares the lock it would write with the file; for the guide's corpus it prints exactly the lock's bytes:
 
 ```console [recorded with krs]
 // [!include ~/snippets/outputs/mutation-testing-run-locked.txt]

@@ -215,8 +215,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `stop-condition`, a mutant whose declarations of the read cells' sorts are not the
 /// specification's is `not-admitted`, reason `stop-condition-incompatible`, and a survivor's
 /// `stop_hides_edit` is read, under a condition, from the comparable programs' coverage: no
-/// comparable program took the stop rule's step.
-pub const RUN_VERSION: u64 = 30;
+/// comparable program took the stop rule's step; 31 since a lock compared with its rendering
+/// names the first line in which the file differs (`lock.difference`, [`crate::lock`]), and a run
+/// refused before its lock is read (a manifest or a mutation list that does not decode) carries
+/// the lock it left unwritten.
+pub const RUN_VERSION: u64 = 31;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

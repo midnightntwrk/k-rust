@@ -364,7 +364,7 @@ const RUN_OPTIONS: &[VerbOption] = &[
     ),
     option(
         "--locked",
-        "with --lock: write nothing, and exit 1 when the run would change FILE",
+        "with --lock: leave FILE unwritten, and exit 1 when the run would change it",
     ),
     option(
         "--compile-workers N",
@@ -928,6 +928,7 @@ impl FlowCommand {
         if let Self::Run { options, .. } = self {
             document["schedule"] = json!(crate::search::schedule_name(options.schedule));
             document["matrix"] = Value::Null;
+            document["lock"] = refused_lock(options);
         }
         document
     }
@@ -1084,10 +1085,11 @@ pub fn run_command(
         } => {
             // `run_front` annotates every document it writes and returns.
             return match MutationList::read(mutations) {
-                Err(error) => (
-                    front.annotated(mutation_list_refused(&error.to_string(), options.schedule)),
-                    EXIT_UNASKED,
-                ),
+                Err(error) => {
+                    let mut document = mutation_list_refused(&error.to_string(), options.schedule);
+                    document["lock"] = refused_lock(options);
+                    (front.annotated(document), EXIT_UNASKED)
+                }
                 Ok(list) => {
                     let (document, ok) =
                         crate::search::run_front(manifest, &list, options, *mode, front);
@@ -1408,6 +1410,15 @@ fn stop_unsupported(command: &FlowCommand) -> Value {
         spec.insert("detail".into(), json!(detail));
     }
     document
+}
+
+/// The `lock` of a run refused before its lock was read (its manifest or its mutation list does
+/// not decode): null without `--lock`, else the lock left unwritten for reason `refused`, as a
+/// run whose specification is refused gives it.
+fn refused_lock(options: &RunOptions) -> Value {
+    options.lock.as_deref().map_or(Value::Null, |path| {
+        crate::lock::not_written(path, "refused")
+    })
 }
 
 /// `fuzz` on a decoded manifest.

@@ -139,8 +139,10 @@ The cold run's peak memory comes from the mutants that loop until `time_ms` (6.8
 12.7 GiB in the F-14 table above): it depends on how far they get in 10 s on a loaded host, not on the baseline runs.
 
 A rebuilt `kink-flow` starts a new outcome context (the cache key includes the executable's digest),
-so the first run after a rebuild re-proves each killed mutation with one call over its last killer,
-and runs every baseline again, since the result key names the build too.
+so the first run after a rebuild runs every baseline again, since the result key names the build too,
+and searches each mutation again up to its first kill: these runs keep no killer record.
+With `run --lock verdicts.lock` it would re-prove each killed mutation with one call over its recorded killer (kink-flow README, "The killer record").
+The tables above that name a last killer or a hint were measured with the hint store, which the killer record replaced.
 
 ## The full matrix (`--full`)
 

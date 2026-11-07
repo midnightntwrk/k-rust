@@ -231,6 +231,39 @@ fn the_lock_options_parse() {
     assert_eq!(parse(&["--lock"]).unwrap_err(), "--lock needs a file");
 }
 
+/// A run refused before its lock is read, its manifest or its mutation list not decoding, still
+/// names the lock it left unwritten (reason `refused`), and leaves the file as it was; without
+/// `--lock` its `lock` is null.
+#[test]
+fn a_run_refused_before_its_lock_names_the_lock_it_left_unwritten() {
+    let manifest = calc("refused-inputs", &CALC);
+    let lock = lock_of(&manifest);
+    fs::write(&lock, "# kept\n").unwrap();
+    let list = manifest.with_file_name("BROKEN.toml");
+    fs::write(&list, "[[mutation]\n").unwrap();
+    let broken = manifest.with_file_name("BROKEN-FLOW.toml");
+    fs::write(&broken, "[spec\n").unwrap();
+    let expected = json!({
+        "path": lock.display().to_string(),
+        "status": "not-written",
+        "reason": "refused",
+        "header": false,
+        "changes": [],
+        "difference": null,
+    });
+    for (flow, mutations) in [
+        (&manifest, &list),
+        (&broken, &manifest.with_file_name("MUTATIONS.toml")),
+    ] {
+        let (document, status) = kink_flow::cli::run(flow, mutations, &options(Some(&lock)));
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
+        assert_eq!(document["lock"], expected, "{document:#}");
+        let (document, _) = kink_flow::cli::run(flow, mutations, &options(None));
+        assert_eq!(document["lock"], Value::Null, "{document:#}");
+    }
+    assert_eq!(fs::read_to_string(&lock).unwrap(), "# kept\n");
+}
+
 /// A lock that does not decode refuses the run before admission: not TOML, another schema or
 /// document, a repeated id, or a killer that is not a string. Exit 2, `lock.outcome` refused, the
 /// rendering's `[lock]` section, no row, and the file is left as it was.

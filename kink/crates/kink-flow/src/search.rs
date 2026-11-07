@@ -333,8 +333,8 @@ pub struct RunOptions {
     /// tried first, and rewritten after a run that judged every mutation of the list. `None`: no
     /// record, and nothing is written outside the cache.
     pub lock: Option<PathBuf>,
-    /// `--locked`: compare the lock the run would write with the file and write nothing; a
-    /// difference is a finding (exit 1).
+    /// `--locked`: compare the lock the run would write with the file and leave the lock
+    /// unwritten (the cache is written as in any run); a difference is a finding (exit 1).
     pub locked: bool,
 }
 

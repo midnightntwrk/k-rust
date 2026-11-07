@@ -5297,7 +5297,7 @@ fn row_statuses(document: &Value) -> Vec<(String, String)> {
 /// FB-32 acceptance 4 on the corpus `corpus` (`[]` for `kink/`) in its current state: the
 /// statuses of a first-kill run equal a `--full` run's, and the lock a `--full` run would write is
 /// the first-kill run's (`--locked` finds it unchanged). Both runs leave the lock as it was.
-fn assert_full_agrees(project: &Project, corpus: &[&str]) {
+fn assert_full_agrees(project: &Project, corpus: &[&str]) -> Value {
     let lock = corpus.get(1).map_or_else(
         || "kink/verdicts.lock".to_owned(),
         |dir| format!("{dir}/verdicts.lock"),
@@ -5319,6 +5319,7 @@ fn assert_full_agrees(project: &Project, corpus: &[&str]) {
     );
     assert_eq!(row_statuses(&json(&first)), row_statuses(&json(&full)));
     assert_eq!(project.read(&lock), before);
+    json(&full)
 }
 
 /// FB-32 acceptance 1: a fresh checkout with a committed lock and no cache runs each killed
@@ -5430,7 +5431,16 @@ fn prepending_a_killing_case_moves_no_killer() {
         assert_eq!(row_calls(&cold, id), [[killer.clone()]], "{id}: {cold:#}");
     }
     assert_eq!(project.read("guide/verdicts.lock"), lock);
-    assert_full_agrees(&project, &guide);
+    // The premise: t0 kills `survivors/one`, so the unchanged lock is the record's choice and not
+    // a corpus in which the prepended case kills nothing.
+    let full = assert_full_agrees(&project, &guide);
+    let one = full["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "survivors/one")
+        .unwrap();
+    assert!(strings(&one["killed_by"]).contains(&"t0"), "{one:#}");
 }
 
 /// FB-32 acceptance 3: a recorded killer that leaves the corpus (a) or no longer kills (b) is
