@@ -4,7 +4,8 @@
 //!
 //! The fixture (`fixtures/guard-mutations`) is a small machine whose `boundary` step is four
 //! transitions kept apart by complementary conditions, with an `if`/`else` chain, a 4-bit
-//! `k::bits!` decode, two transitions kept apart by a `k::matches!` test, and a transition whose
+//! `k::bits!` decode, two transitions kept apart by a `k::matches!` test, two transitions that
+//! share a `k::matches!` test and are kept apart by `ime` beside it, and a transition whose
 //! condition reads a looked-up value. The introduction's story package has no guarded sentence.
 
 #![cfg(feature = "kink")]
@@ -253,8 +254,9 @@ fn a_bit_pair_flip_and_a_chain_flip_are_judged() {
             ),
         ])
     );
-    // Every flip of the fixture but the two the next test names is admitted: the generator and
-    // KRS's admission agree.
+    // Every flip of the fixture but the two the next test names, and the flips of the `mark`
+    // transitions' shared `k::matches!` test, is admitted: the generator and KRS's admission
+    // agree.
     let refused = flips
         .flips
         .iter()
@@ -264,6 +266,8 @@ fn a_bit_pair_flip_and_a_chain_flip_are_judged() {
     assert_eq!(
         refused,
         [
+            "flip--mark_held--matches",
+            "flip--mark_raise--matches",
             "flip--peek--IntGreater",
             "flip--tag_other+tag_raise--matches"
         ],
@@ -320,6 +324,38 @@ fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
     assert!(detail.contains("does not read a new `:=K`"), "{detail}");
 }
 
+/// A condition that conjoins a `k::matches!` test with another atom is flipped in that atom, the
+/// test left as written: the `mark` transitions share the test and are kept apart by `ime`, and
+/// the flip of `ime` is a definition KRS admits (`k::matches!(next, Raise { .. }) && !ime` and
+/// `... && ime` exchanged). In `mark_raise` the edit's `find` holds the rendered test, since
+/// `Ime:Bool` alone also occurs in the sentence's `<ime>` cell. The shared test is flipped in each
+/// transition alone, and, as the `tag` pair's, is not judged.
+#[test]
+fn a_flip_beside_a_matches_test_is_admitted() {
+    let (_, flips) = fixture();
+    let ime = flip(flips, "flip--mark_held+mark_raise--ime");
+    assert!(admitted(ime), "{:#}", flips.value());
+    assert!(ime.whole);
+    assert_eq!(
+        edits(ime),
+        triples(&[
+            ("mark-held", "notBool Ime:Bool", "Ime:Bool"),
+            (
+                "mark-raise",
+                "( raise _ :=K Next:Cmd ) andThenBool Ime:Bool",
+                "( raise _ :=K Next:Cmd ) andThenBool (notBool (Ime:Bool))"
+            ),
+        ])
+    );
+    for id in ["flip--mark_held--matches", "flip--mark_raise--matches"] {
+        let FlipStatus::Refused { reason, detail, .. } = &flip(flips, id).status else {
+            panic!("{:#}", flips.value());
+        };
+        assert_eq!(reason, "not-judged");
+        assert!(detail.contains("does not read a new `:=K`"), "{detail}");
+    }
+}
+
 /// Generation and judgement are functions of the definition: a second copy of the package, built
 /// and judged with a cache of its own, gives byte-identical flips.
 #[test]
@@ -330,8 +366,8 @@ fn generation_is_byte_stable() {
         serde_json::to_string(&again.value()).unwrap(),
         serde_json::to_string(&flips.value()).unwrap()
     );
-    assert_eq!(flips.families, 5, "{:#}", flips.value());
-    assert_eq!(flips.flips.len(), 10, "{:#}", flips.value());
+    assert_eq!(flips.families, 6, "{:#}", flips.value());
+    assert_eq!(flips.flips.len(), 13, "{:#}", flips.value());
 }
 
 /// The front end's judgements are read back from the corpus's judge cache, by the flips and by
@@ -353,8 +389,10 @@ fn judgements_come_from_the_judge_cache() {
         }
         changed
     };
-    // The flips: one entry per judged flip, and the refused one read back as stored.
+    // The flips: one entry per judged flip, read back as the judge gave it, and the refused one
+    // read back as stored.
     assert_eq!(package.cache_entries().len(), flips.flips.len());
+    assert_eq!(package.flips().value(), flips.value());
     assert_eq!(tamper("a stored lookup guard"), 1);
     let again = package.flips();
     let FlipStatus::Refused { detail, .. } = &flip(&again, "flip--peek--IntGreater").status else {

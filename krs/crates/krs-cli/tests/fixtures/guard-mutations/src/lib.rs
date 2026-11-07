@@ -3,7 +3,8 @@
 //! (`boundary_dispatch`/`boundary_step` on `!halted && [!]Dispatches(ime, pending)`,
 //! `boundary_wake`/`boundary_halted` on `[!]Requested(pending) && halted`), and no rule ever sets
 //! `halted`; an `if`/`else` chain (`VectorOf`); a 4-bit `k::bits!` decode whose `inc` and `dec`
-//! arms differ in bit 0; two transitions kept apart by a `k::matches!` test; and a transition whose
+//! arms differ in bit 0; two transitions kept apart by a `k::matches!` test; two transitions that
+//! share a `k::matches!` test and are kept apart by `ime` beside it; and a transition whose
 //! condition reads a looked-up value.
 
 use k::builtin::{map, Bool, Int, KSequence, Map};
@@ -14,7 +15,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Cmd, result = KResult)]
-#[k::precedence((Boundary, Raise, Exec, Vector, Tag, Peek) > (Seq))]
+#[k::precedence((Boundary, Raise, Exec, Vector, Tag, Mark, Peek) > (Seq))]
 pub enum CmdSyntax {
     #[k::syntax("{first} ; {rest}")]
     Seq { first: Cmd, rest: Cmd },
@@ -28,6 +29,8 @@ pub enum CmdSyntax {
     Vector(),
     #[k::syntax("tag {next}")]
     Tag { next: Cmd },
+    #[k::syntax("mark {next}")]
+    Mark { next: Cmd },
     #[k::syntax("peek {a}")]
     Peek { a: Int },
 }
@@ -97,6 +100,10 @@ k::rules! {
     tag_raise: { k: [Tag(next), ..], acc: _ } => { k: [next, ..], acc: 7 };
     #[k::requires(!k::matches!(next, Raise { .. }))]
     tag_other: { k: [Tag(next), ..], acc: _ } => { k: [..], acc: 8 };
+    #[k::requires(k::matches!(next, Raise { .. }) && ime)]
+    mark_raise: { k: [Mark(next), ..], ime: ime, acc: _ } => { k: [next, ..], acc: 9 };
+    #[k::requires(k::matches!(next, Raise { .. }) && !ime)]
+    mark_held: { k: [Mark(next), ..], ime: ime, acc: _ } => { k: [..], acc: 10 };
     #[k::requires(v > 3)]
     peek: { k: [Peek(a), ..], idx: ix, mem: { ix[a] -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
 }
