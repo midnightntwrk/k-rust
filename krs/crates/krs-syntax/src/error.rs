@@ -428,14 +428,6 @@ pub enum SyntaxErrorKind {
         /// What the sentence is, and why it has no result state.
         reason: &'static str,
     },
-    /// An instance list item that is only a name or `_`, a whole instance, in braces, where the
-    /// macro reads an instance only as its record: the cell-entry limit
-    /// [`crate::cell_entries::Refusal::InstanceBinder`], whose code it carries, so the same
-    /// entry has the same code whether the macro or the collector meets it.
-    InstanceBinder {
-        /// The refusal's reason and what to write instead.
-        reason: String,
-    },
     /// An instance record's child written as a `?` cell's presence or absence, `Some(..)` or
     /// `None`: an instance record does not name a `?` or `*` child yet, a stated limitation
     /// ([`crate::INSTANCE_CHILD_MULTIPLICITY`]) whose code is the compiler's for the same child.
@@ -590,7 +582,6 @@ impl SyntaxErrorKind {
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
             Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
-            Self::InstanceBinder { .. } => crate::cell_entries::Refusal::InstanceBinder.code(),
             Self::InstanceChildMultiplicity { .. } => codes::analysis::COLLECTION_ENTRY,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
@@ -942,7 +933,6 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidListNotation { reason }
             | SyntaxErrorKind::InvalidConsList { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason }
-            | SyntaxErrorKind::InstanceBinder { reason }
             | SyntaxErrorKind::InstanceChildMultiplicity { reason } => formatter.write_str(reason),
         }
     }

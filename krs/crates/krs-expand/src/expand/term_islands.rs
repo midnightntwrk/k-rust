@@ -100,14 +100,15 @@ pub(crate) fn cells(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
 }
 
 /// The terms of one `cells!` result state and the cell structs its
-/// collection instances name (KF-023).
+/// collection instances name (KF-023); an item that is one name or `_`
+/// names none, its group being the collection's declared one.
 fn collect_state_expressions<'a>(
     state: &'a StateTerm,
     expressions: &mut Vec<&'a TermExpression>,
     owners: &mut Vec<&'a syn::Path>,
 ) {
     if let StateTerm::Instances(list) = state {
-        owners.extend(list.instances().map(krs_syntax::InstanceItem::owner));
+        owners.extend(list.instances().filter_map(krs_syntax::InstanceItem::owner));
     }
     match state {
         StateTerm::Present(_) | StateTerm::Instances(_) => {

@@ -181,13 +181,6 @@ pub enum Refusal {
     /// limitation of the readable record's top-level route; inside an instance record the value
     /// is matched, P5).
     MapReadValueBinder,
-    /// An instance list item that is only a name or `_`, which stands for a whole instance of
-    /// the collection (its front or back one in a List, any one in a Set or Map), as an instance
-    /// record labelled with the name, `x @ Decl { .. }`, names it. It has that meaning, and no
-    /// lowering yet (a stated limitation): no admission returns it. The readable route raises it
-    /// where it meets such an item, in the collector for a List collection's brackets, and in the
-    /// macro for braces, whose instance items the macro reads only as records.
-    InstanceBinder,
 }
 
 impl Refusal {
@@ -227,7 +220,6 @@ impl Refusal {
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
-            Self::InstanceBinder => "instance-binder",
         }
     }
 }
@@ -273,8 +265,7 @@ impl Refusal {
             | Self::ListBothEnds
             | Self::ListBackKept
             | Self::CollectionWithoutInstances
-            | Self::BelowCollectionAncestor
-            | Self::InstanceBinder => analysis::COLLECTION_ENTRY,
+            | Self::BelowCollectionAncestor => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
             Self::CellWrapper => analysis::CELL_WRAPPER,
             Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
@@ -294,7 +285,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 30] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -325,7 +316,6 @@ impl Refusal {
         Self::MapReadInResult,
         Self::MapCollectionKey,
         Self::MapReadValueBinder,
-        Self::InstanceBinder,
     ];
 
     /// Why the entry of the cell `cell`, of the kind `kind` (a leaf of the sort `sort`, where
@@ -464,45 +454,7 @@ impl Refusal {
             Self::MapReadValueBinder => format!(
                 "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level the value names what the entry maps to (a stated limitation; inside an instance record the value is matched)"
             ),
-            Self::InstanceBinder => {
-                let holder = match own.first() {
-                    Some(Layer::Instances(order)) => {
-                        format!("the {} collection `{cell}`", order_name(*order))
-                    }
-                    // The macro, which reads braces as instances, knows no declaration.
-                    _ => format!("the braces on `{cell}`, a Set or Map collection's instances,"),
-                };
-                let which = match own.first() {
-                    Some(Layer::Instances(Order::List)) => {
-                        "its front one before `..` and its back one after it"
-                    }
-                    _ => "any one the collection holds",
-                };
-                format!(
-                    "an item of {holder} is only a name or `_`, which stands for a whole instance, {which}; naming a whole instance by an item alone is not supported yet"
-                )
-            }
         }
-    }
-}
-
-/// What an author writes in place of an instance item that is only a name or `_`
-/// ([`Refusal::InstanceBinder`]): the instance record of the collection's group `group` (`Decl`
-/// where the declaration is unknown). A pattern labels it with the item's name `name`, which then
-/// names the same instance; a result names an instance by its record alone, which creates it, or
-/// updates the instance its `..label` names.
-#[must_use]
-pub fn instance_binder_advice(side: EntrySide, group: &str, name: Option<&str>) -> String {
-    match (side, name) {
-        (EntrySide::Result, _) => {
-            format!("a result names an instance by its record, `{group} {{ .. }}`")
-        }
-        (_, Some(name)) => format!(
-            "label an instance record with the name instead, `{name} @ {group} {{ .. }}`, which names the same instance"
-        ),
-        (_, None) => format!(
-            "an instance record that leaves every child open, `{group} {{ .. }}`, matches any one instance as `_` does"
-        ),
     }
 }
 
@@ -2414,7 +2366,7 @@ mod tests {
         }
         assert_eq!(
             Refusal::ALL.len(),
-            Refusal::InstanceBinder as usize + 1,
+            Refusal::MapReadValueBinder as usize + 1,
             "the last refusal ends the list"
         );
         let group = GroupKind {

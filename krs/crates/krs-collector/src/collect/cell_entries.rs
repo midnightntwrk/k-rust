@@ -354,7 +354,6 @@ pub(super) fn judge_readable(
                 &result,
             )?;
         }
-        whole_instances(authored.form, &subject, &result)?;
         instance_child_multiplicity(&subject, &result)?;
     }
     match judged {
@@ -475,93 +474,6 @@ fn overwritten_collection(entry: &Entry<'_>) -> CollectionError {
         ),
     );
     match &entry.field.range {
-        Some(range) => error.with_source_range(range.clone()),
-        None => error,
-    }
-}
-
-/// Refuses the first admitted entry, of the subject's then the result's, that names a whole
-/// instance of a List collection by an item alone ([`whole_instance_item`]).
-fn whole_instances(
-    form: EntryForm,
-    subject: &[Entry<'_>],
-    result: &[Entry<'_>],
-) -> Result<(), CollectionError> {
-    let sides = subject
-        .iter()
-        .map(|entry| (EntrySide::Subject, entry))
-        .chain(result.iter().map(|entry| (EntrySide::Result, entry)));
-    for (side, entry) in sides {
-        if let Some((at, name)) = whole_instance_item(entry) {
-            return Err(instance_binder(form, entry, side, at, name));
-        }
-    }
-    Ok(())
-}
-
-/// The first item of a List collection's entry that is only a name or `_`, with its index and
-/// the name: a whole instance, its front one before the rest or its back one after it, which
-/// the table admits ([`Refusal::InstanceBinder`]) and the readable route does not lower, since
-/// it reads a List collection's brackets as instances only where every item is an instance
-/// record. A Set or Map collection's braces holding one never reach the collector: the macro,
-/// which reads a braced item only as a record, refuses it.
-fn whole_instance_item<'e>(entry: &'e Entry<'_>) -> Option<(usize, Option<&'e str>)> {
-    if !matches!(
-        entry.kind.own.layers.first(),
-        Some(Layer::Instances(Order::List))
-    ) {
-        return None;
-    }
-    let Some(EntrySpelling::Brackets(seq)) = &entry.field.spelling else {
-        return None;
-    };
-    seq.items
-        .iter()
-        .enumerate()
-        .find_map(|(at, item)| match item {
-            EntrySpelling::Binder(name) => Some((at, Some(name.as_str()))),
-            EntrySpelling::Wild => Some((at, None)),
-            _ => None,
-        })
-}
-
-/// The refusal of the admitted entry `entry` on the side `side`, whose item `at` (the name
-/// `name`, or `_`) is a whole instance of its List collection ([`whole_instance_item`]): the
-/// limit's reason, and the instance record of the collection's group to write in its place, at
-/// the item.
-fn instance_binder(
-    form: EntryForm,
-    entry: &Entry<'_>,
-    side: EntrySide,
-    at: usize,
-    name: Option<&str>,
-) -> CollectionError {
-    let group = match entry.kind.own.layers.get(1) {
-        Some(Layer::Group(group)) => group.name.as_str(),
-        _ => "Decl",
-    };
-    let detail = format!(
-        "{}; {}",
-        Refusal::InstanceBinder.reason(
-            form,
-            unraw(&entry.cell.field),
-            &entry.kind,
-            entry.sort.as_deref()
-        ),
-        cell_entries::instance_binder_advice(side, group, name),
-    );
-    let error = CollectionError::new(
-        CollectionErrorKind::CellEntry(Refusal::InstanceBinder),
-        detail,
-    );
-    let range = entry
-        .field
-        .located
-        .iter()
-        .find(|(path, _)| path[..] == [at])
-        .map(|(_, range)| range)
-        .or(entry.field.range.as_ref());
-    match range {
         Some(range) => error.with_source_range(range.clone()),
         None => error,
     }

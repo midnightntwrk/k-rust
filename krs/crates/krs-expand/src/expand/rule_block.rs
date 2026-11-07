@@ -1026,11 +1026,11 @@ fn bracket_alternative_wire(
     let children = |terms: &[&krs_ir::wire::WireTerm]| {
         terms
             .iter()
-            .map(|term| record_children(term).ok_or_else(mismatch))
-            .collect::<crate::Result<Vec<_>>>()
+            .map(|term| record_children(term))
+            .collect::<Vec<_>>()
     };
-    let subject = (children(&records.subject.0)?, children(&records.subject.1)?);
-    let results = (children(&records.result.0)?, children(&records.result.1)?);
+    let subject = (children(&records.subject.0), children(&records.subject.1));
+    let results = (children(&records.result.0), children(&records.result.1));
     let before =
         alternative_instances(ledger, alternative.before(), subject)?.ok_or_else(mismatch)?;
     let (result_key, after) = match alternative.after() {
@@ -1083,16 +1083,20 @@ fn record_children(term: &krs_ir::wire::WireTerm) -> Option<Vec<krs_ir::wire::Wi
     }
 }
 
+/// The children of the other reading's terms at one end of a bracket alternative, in order:
+/// each term's named children, `None` where it is no record.
+type AlternativeChildren = Vec<Option<Vec<krs_ir::wire::WireTerm>>>;
+
 /// One side's instance list of a bracket alternative, whose records before
-/// and after its rest take their children from `records` in order; `None`
-/// when the list's shape does not match the records.
+/// and after its rest take their children from `records` in order (`None`
+/// where the other reading's term is no record); `None` when the list's
+/// shape does not match the records. An item that is one name or `_` is a
+/// whole instance, which writes no child, read beside the other reading's
+/// term at its place, whatever that term is.
 fn alternative_instances(
     ledger: &KeyLedger<'_>,
     state: &krs_syntax::StateTerm,
-    records: (
-        Vec<Vec<krs_ir::wire::WireTerm>>,
-        Vec<Vec<krs_ir::wire::WireTerm>>,
-    ),
+    records: (AlternativeChildren, AlternativeChildren),
 ) -> crate::Result<Option<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>>> {
     use krs_syntax::{StateMacroRemainder, StateTerm};
     let StateTerm::Instances(list) = state else {
@@ -1118,16 +1122,25 @@ fn alternative_instances(
             .iter()
             .zip(&front_records)
             .chain(list.back().iter().zip(&back_records))
-            .any(|(item, children)| item.fields().len() != children.len())
+            .any(|(item, children)| {
+                item.owner().is_some()
+                    && children
+                        .as_ref()
+                        .is_none_or(|children| item.fields().len() != children.len())
+            })
     {
         return Ok(None);
     }
-    let instances = |items: &[krs_syntax::InstanceItem],
-                     records: Vec<Vec<krs_ir::wire::WireTerm>>| {
+    let instances = |items: &[krs_syntax::InstanceItem], records: AlternativeChildren| {
         items
             .iter()
             .zip(records)
             .map(|(item, children)| {
+                let children = if item.owner().is_some() {
+                    children.unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 let fields = item
                     .fields()
                     .iter()

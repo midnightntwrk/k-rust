@@ -506,51 +506,150 @@ fn a_lone_wildcard_is_no_shorthand_instance_child() {
     );
 }
 
-/// A name or `_` alone in braces is one whole instance of a Set or Map
-/// collection, which the macro, reading a braced item only as an instance
-/// record, cannot carry: readable and `cells!` stop at the item with the
-/// cell-entry limit's code, in a pattern and in a result.
+/// A whole-instance item: one record labelled `label` (or none), writing no child, with the rest
+/// `rest`, whose group the collection's declaration gives.
+fn is_whole(item: &krs_syntax::InstanceItem, label: Option<&str>, rest: &str) -> bool {
+    item.owner().is_none()
+        && item.fields().is_empty()
+        && item.label().map(ToString::to_string).as_deref() == label
+        && match item.rest() {
+            InstanceRest::Open(_) => rest == "..",
+            InstanceRest::Update { label, .. } => rest == format!("..{label}"),
+            InstanceRest::Exact => false,
+        }
+}
+
+/// An instance-list item that is one name `x` or `_` is the whole instance `x @ Decl { .. }`
+/// (`Decl { .. }`) in a pattern, and in a result the instance the pattern bound to `x`, kept as
+/// matched, `Decl { ..x }`: readable braces and `cells!` braces and brackets read it so. A
+/// keyword or a literal is no name, and stays no instance.
 #[test]
-fn a_braced_name_or_wildcard_item_is_the_instance_binder_limit() {
-    let refused = |error: krs_syntax::SyntaxError, source: &str| {
-        assert!(
-            matches!(
-                error.kind(),
-                krs_syntax::SyntaxErrorKind::InstanceBinder { .. }
-            ),
-            "{source}: {:?}",
-            error.kind()
-        );
-        assert_eq!(
-            error.kind().code().as_str(),
-            "krs::analysis::collection-entry",
-            "{source}"
-        );
-        assert!(
-            error.to_string().contains("not supported yet") && error.to_string().contains("`acct`"),
-            "{source}: {error}"
-        );
-        error.to_string()
+fn a_name_or_wildcard_item_is_the_whole_instance_it_labels() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        "for Machine;
+        read: { k: [Go(), ..], acct: { x, .. } } => { k: [..], acct: { x, .. } };
+        any: { k: [Go(), ..], acct: { _, A { id: 1, .. }, .. } } => { k: [..] };",
+    )
+    .unwrap();
+    let state = |clause: usize, result: bool| {
+        block.clauses()[clause]
+            .extras()
+            .iter()
+            .find_map(|extra| match extra {
+                RuleExtra::RewriteState { before, after, .. } => {
+                    if result {
+                        after.as_deref()
+                    } else {
+                        Some(&**before)
+                    }
+                }
+                _ => None,
+            })
+            .cloned()
+            .unwrap()
     };
-    for source in [
-        "for Machine; read: { k: [Go(), ..], acct: { x, .. } } => { k: [..] };",
-        "for Machine; read: { k: [Go(), ..], acct: { _, .. } } => { k: [..] };",
-        "for Machine; read: { k: [Go(), ..], acct: { A { id: 1, .. }, .. } } => { k: [..], acct: { x, .. } };",
-    ] {
-        refused(
-            krs_syntax::RuleBlock::parse_source(source).unwrap_err(),
-            source,
-        );
-    }
-    let labelled = refused(
-        parse_cells_pattern(
-            krs_syntax::parse::tokens_from_source("Accts::acct: { x, rest @ .. }, state @ ..")
-                .unwrap(),
-        )
-        .unwrap_err(),
-        "cells! pattern",
+    let front = |state: &StateTerm| {
+        let StateTerm::Instances(list) = state else {
+            panic!("expected an instance list");
+        };
+        list.front().to_vec()
+    };
+    assert!(is_whole(&front(&state(0, false))[0], Some("x"), ".."));
+    assert!(is_whole(&front(&state(0, true))[0], None, "..x"));
+    let any = front(&state(1, false));
+    assert!(is_whole(&any[0], None, ".."));
+    assert_eq!(
+        any[1]
+            .owner()
+            .map(krs_syntax::surface::path_text)
+            .as_deref(),
+        Some("A")
     );
-    assert!(labelled.contains("`x @ Decl { .. }`"), "{labelled}");
+
+    let subject = pattern("Accts::acct: { x, rest @ .. }, Jobs::job: [_, y, ..], state @ ..");
+    assert!(is_whole(
+        &front(subject.entries()[0].value())[0],
+        Some("x"),
+        ".."
+    ));
+    let jobs = front(subject.entries()[1].value());
+    assert!(is_whole(&jobs[0], None, ".."));
+    assert!(is_whole(&jobs[1], Some("y"), ".."));
+    let result = expression("Accts::acct: { x, ..rest }, ..state");
+    assert!(is_whole(
+        &front(result.entries()[0].value())[0],
+        None,
+        "..x"
+    ));
+
+    for source in [
+        "for Machine; read: { k: [Go(), ..], acct: { true, .. } } => { k: [..] };",
+        "for Machine; read: { k: [Go(), ..], acct: { 0, .. } } => { k: [..] };",
+    ] {
+        krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+    }
+}
+
+/// A List collection's front name, `job: [x, ..]`, reads as a head's item or a list's element
+/// as well, so the clause takes that reading and carries the List reading beside it, the whole
+/// instance `x @ Decl { .. }`, for the collector to choose by the cell's declaration. A value of
+/// instance records keeps its place as the reading carried, and an item-less `[..]` keeps its
+/// own.
+#[test]
+fn a_bracketed_name_carries_its_whole_instance_reading() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+        use Cmd::*;
+
+        alone: { job: [x, ..] } => { job: [x, ..] };
+
+        beside: { k: [Go(), ..], job: [x, ..] } => { k: [..] };
+
+        back: { k: [Go(), ..], job: [.., x] } => { k: [..] };
+
+        records: { k: [Go(), ..], stack: [x, ..], job: [.., Job { payload: p }] } => { k: [..] };
+
+        item_less: { k: [x, ..], job: [..] } => { k: [..] };
+        ",
+    )
+    .unwrap();
+    let clauses = block.clauses();
+    let reading = |clause: usize| {
+        let alternative = clauses[clause].bracket_alternative().unwrap();
+        let StateTerm::Instances(before) = alternative.before() else {
+            panic!("expected a List reading");
+        };
+        (
+            alternative.cell().to_string(),
+            before.clone(),
+            alternative.after().cloned(),
+        )
+    };
+
+    let (cell, before, after) = reading(0);
+    assert_eq!(clauses[0].computation_cell().unwrap(), "job");
+    assert_eq!(cell, "job");
+    assert!(is_whole(&before.front()[0], Some("x"), ".."));
+    let Some(StateTerm::Instances(after)) = after else {
+        panic!("expected a List result");
+    };
+    assert!(is_whole(&after.front()[0], None, "..x"));
+
+    let (cell, before, _) = reading(1);
+    assert_eq!(clauses[1].computation_cell().unwrap(), "k");
+    assert_eq!(cell, "job");
+    assert!(is_whole(&before.front()[0], Some("x"), ".."));
+
+    let (cell, before, _) = reading(2);
+    assert_eq!(cell, "job");
+    assert!(is_whole(&before.back()[0], Some("x"), ".."));
+
+    assert_eq!(reading(3).0, "job");
+    assert_eq!(reading(4).0, "job");
+    for clause in clauses {
+        clause.provenance().unwrap();
+    }
 }
 
 /// `Some(..)` or `None` as an instance child is a `?` cell's presence or absence inside one

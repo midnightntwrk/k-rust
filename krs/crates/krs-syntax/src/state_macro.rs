@@ -887,12 +887,13 @@ pub const INSTANCE_CHILD_MULTIPLICITY: &str =
     "an instance record does not name a `?` or `*` child yet";
 
 /// One instance record of a collection entry: `label @ Decl { .. }` or
-/// `k::fragment![Decl { .. }]` (KF-023).
+/// `k::fragment![Decl { .. }]` (KF-023), or an item that is one name or `_`,
+/// the whole instance that record names ([`InstanceItem::whole`]).
 #[derive(Clone, Debug)]
 pub struct InstanceItem {
     range: TokenRange,
     label: Option<Ident>,
-    owner: Path,
+    owner: Option<Path>,
     fields: Vec<InstanceField>,
     rest: InstanceRest,
     fragment: bool,
@@ -927,12 +928,58 @@ impl InstanceItem {
         Self {
             range,
             label,
-            owner,
+            owner: Some(owner),
             fields,
             rest,
             fragment: false,
             key: None,
         }
+    }
+
+    /// The instance an instance-list item that is exactly one name `x` or `_` stands for, read
+    /// in `context`; `None` for any other item. In a pattern it is the instance record
+    /// `x @ Decl { .. }` (`Decl { .. }` for `_`): one whole instance, any child, labelled with
+    /// the name, where `Decl` is the collection's declared instance group, which the collector
+    /// knows, so the item names none. In a result it is the instance the pattern bound to `x`,
+    /// kept as matched: the update `Decl { ..x }`, which writes no child. A keyword or literal
+    /// (`true`, `0`) is no name, and is read as any other item is.
+    pub(crate) fn whole(
+        tokens: &TokenStream,
+        context: StateMacroContext,
+    ) -> Result<Option<Self>, SyntaxError> {
+        let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+        let [TokenTree::Ident(name)] = trees.as_slice() else {
+            return Ok(None);
+        };
+        let wildcard = name == "_";
+        if !wildcard && syn::parse2::<Ident>(tokens.clone()).is_err() {
+            return Ok(None);
+        }
+        let range = TokenRange::for_tokens(tokens)?;
+        let (label, rest) = match context {
+            StateMacroContext::Pattern => {
+                if !wildcard {
+                    crate::parse::validate_authored_binder(&name.to_string(), name.span())?;
+                }
+                ((!wildcard).then(|| name.clone()), InstanceRest::Open(range))
+            }
+            StateMacroContext::Expression => (
+                None,
+                InstanceRest::Update {
+                    label: name.clone(),
+                    range,
+                },
+            ),
+        };
+        Ok(Some(Self {
+            range,
+            label,
+            owner: None,
+            fields: Vec::new(),
+            rest,
+            fragment: false,
+            key: None,
+        }))
     }
 
     /// The key of the instance record, given by the rule side that anchors
@@ -954,10 +1001,12 @@ impl InstanceItem {
         self.label.as_ref()
     }
 
-    /// The instance's `#[k::cell]` struct path.
+    /// The instance's `#[k::cell]` struct path, as the record writes it; `None` for an item
+    /// that is one name or `_`, whose group is the collection's declared one
+    /// ([`Self::whole`]).
     #[must_use]
-    pub const fn owner(&self) -> &Path {
-        &self.owner
+    pub const fn owner(&self) -> Option<&Path> {
+        self.owner.as_ref()
     }
 
     /// The named children in source order.
@@ -1847,7 +1896,7 @@ fn parse_unkeyed_cells(
                     ));
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
-                let (wrapper, value) = parse_entry_value(input, &name, context, looks_up)?;
+                let (wrapper, value) = parse_entry_value(input, context, looks_up)?;
                 entries.push(CellsEntry {
                     name,
                     owner,
@@ -1896,7 +1945,6 @@ fn parse_unkeyed_cells(
 /// group entry, an instance list, a wrapped leaf, or a group entry.
 fn parse_entry_value(
     input: ParseStream<'_>,
-    cell: &Ident,
     context: StateMacroContext,
     looks_up: bool,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
@@ -1910,7 +1958,7 @@ fn parse_entry_value(
         let (wrapper, value) = structured_with(
             inner,
             move |inner| {
-                let parsed = parse_entry_value(inner, cell, context, looks_up)?;
+                let parsed = parse_entry_value(inner, context, looks_up)?;
                 if !inner.is_empty() {
                     return Err(state_error(
                         "cells",
@@ -1936,11 +1984,6 @@ fn parse_entry_value(
     }
     if input.peek(syn::token::Brace) || input.peek(syn::token::Bracket) {
         let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
-        if let Some(error) =
-            instance_binder_error(cell, &group, crate::cell_entry::EntryForm::Cells, context)
-        {
-            return Err(error);
-        }
         return Ok((
             None,
             StateTerm::Instances(parse_instance_list(&group, context, looks_up)?),
@@ -2140,9 +2183,9 @@ fn parse_instance_list(
                             input.span(),
                         ));
                     }
-                    back.push(parse_instance_item(input, context, keys)?);
+                    back.push(parse_instance_list_item(input, context, keys)?);
                 } else {
-                    front.push(parse_instance_item(input, context, keys)?);
+                    front.push(parse_instance_list_item(input, context, keys)?);
                 }
                 if input.is_empty() {
                     break;
@@ -2181,6 +2224,25 @@ fn parse_instance_list_rest(
         }
     }
     parse_remainder(input, context, "cells")
+}
+
+/// Parses one item of an instance list: one name or `_`, the whole instance it stands for
+/// ([`InstanceItem::whole`]), or an instance record ([`parse_instance_item`]).
+fn parse_instance_list_item(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+    keys: bool,
+) -> Result<InstanceItem, SyntaxError> {
+    let fork = input.fork();
+    if let Ok(name) = fork.parse::<TokenTree>()
+        && matches!(name, TokenTree::Ident(_))
+        && (fork.is_empty() || fork.peek(Token![,]))
+        && let Some(item) = InstanceItem::whole(&TokenStream::from(name), context)?
+    {
+        input.parse::<TokenTree>().map_err(SyntaxError::from)?;
+        return Ok(item);
+    }
+    parse_instance_item(input, context, keys)
 }
 
 /// Parses one instance record: `[label @] Decl { .. }` or
@@ -2266,7 +2328,7 @@ fn parse_instance_item(
     Ok(InstanceItem {
         range: TokenRange::for_tokens(&tokens)?,
         label,
-        owner,
+        owner: Some(owner),
         fields,
         rest,
         fragment,
@@ -2866,51 +2928,6 @@ fn macro_payload(tokens: &TokenStream) -> Option<(String, TokenStream)> {
         return None;
     };
     (bang.as_char() == '!').then(|| (name.to_string(), group.stream()))
-}
-
-/// The refusal of the first item of the braced instance list `group`, the entry of the cell
-/// `cell` written in `form`, that is only a name or `_`: a whole instance of a Set or Map
-/// collection, any one it holds ([`crate::cell_entries::Refusal::InstanceBinder`]). The macro
-/// reads a braced item only as an instance record, and an instance list carries records only,
-/// so the entry stops here, at the item, with the limit's code and reason; `None` where no item
-/// is one, or `group` is no braced list.
-pub(crate) fn instance_binder_error(
-    cell: &Ident,
-    group: &proc_macro2::Group,
-    form: crate::cell_entry::EntryForm,
-    context: StateMacroContext,
-) -> Option<SyntaxError> {
-    use crate::cell_entries::{EntryKind, EntrySide, Refusal, instance_binder_advice};
-    use syn::ext::IdentExt;
-    if group.delimiter() != Delimiter::Brace {
-        return None;
-    }
-    let trees = group.stream().into_iter().collect::<Vec<_>>();
-    let item = trees
-        .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ','))
-        .find_map(|part| match part {
-            [TokenTree::Ident(name)] => Some(name.clone()),
-            _ => None,
-        })?;
-    let side = match context {
-        StateMacroContext::Expression => EntrySide::Result,
-        StateMacroContext::Pattern => EntrySide::Subject,
-    };
-    let name = (item != "_").then(|| item.unraw().to_string());
-    let reason = format!(
-        "{}; {}",
-        Refusal::InstanceBinder.reason(
-            form,
-            &cell.unraw().to_string(),
-            &EntryKind::default(),
-            None
-        ),
-        instance_binder_advice(side, "Decl", name.as_deref()),
-    );
-    Some(SyntaxError::new(
-        SyntaxErrorKind::InstanceBinder { reason },
-        item.span(),
-    ))
 }
 
 fn state_error(macro_name: &'static str, reason: &'static str, span: Span) -> SyntaxError {

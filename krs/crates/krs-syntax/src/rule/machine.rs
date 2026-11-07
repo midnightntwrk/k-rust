@@ -112,13 +112,11 @@ fn readable_error(span: proc_macro2::Span, reason: &'static str) -> ParseError {
     .into()
 }
 
-/// Parses the cell `cell`'s subject-record value that is `None`, `Some(p)`,
-/// or an instance list (KF-023), or returns `None` for every other value; a
-/// rule's braced list reads its cells as keys when `looks_up`
-/// ([`parse_readable_instances`]).
+/// Parses a subject-record value that is `None`, `Some(p)`, or an instance
+/// list (KF-023), or returns `None` for every other value; a rule's braced
+/// list reads its cells as keys when `looks_up` ([`parse_readable_instances`]).
 fn parse_readable_pattern_state(
     input: ParseStream<'_>,
-    cell: &Ident,
     looks_up: bool,
 ) -> Result<Option<StateTerm>, ParseError> {
     let fork = input.fork();
@@ -154,14 +152,6 @@ fn parse_readable_pattern_state(
         let group: proc_macro2::Group = input.fork().parse()?;
         if !contains_top_level_arrow(&group) {
             let group: proc_macro2::Group = input.parse()?;
-            if let Some(error) = crate::state_macro::instance_binder_error(
-                cell,
-                &group,
-                crate::cell_entry::EntryForm::Readable,
-                StateMacroContext::Pattern,
-            ) {
-                return Err(error.into());
-            }
             return Ok(Some(StateTerm::Instances(
                 parse_readable_instances_reading(&group, StateMacroContext::Pattern, looks_up)?,
             )));
@@ -170,11 +160,10 @@ fn parse_readable_pattern_state(
     Ok(None)
 }
 
-/// Parses the result-record value of the cell `cell`, whose subject value was
-/// an optional or collection state.
+/// Parses the result-record value of a cell whose subject value was an
+/// optional or collection state.
 fn parse_readable_result_state(
     input: ParseStream<'_>,
-    cell: &Ident,
     family: StateFamily,
 ) -> Result<StateTerm, ParseError> {
     match family {
@@ -215,14 +204,6 @@ fn parse_readable_result_state(
                 ));
             }
             let group: proc_macro2::Group = input.parse()?;
-            if let Some(error) = crate::state_macro::instance_binder_error(
-                cell,
-                &group,
-                crate::cell_entry::EntryForm::Readable,
-                StateMacroContext::Expression,
-            ) {
-                return Err(error.into());
-            }
             Ok(StateTerm::Instances(parse_readable_instances(
                 &group,
                 StateMacroContext::Expression,
@@ -287,8 +268,28 @@ fn is_dots(tokens: &TokenStream) -> bool {
 /// error. A value that also reads as a head, `[Run { n }, ..]`, reports the
 /// k-pattern error on a cell named `k` ([`read_machine_clause`]).
 fn readable_bracket_is_list(group: &proc_macro2::Group) -> bool {
-    parse_readable_instances(group, StateMacroContext::Pattern)
-        .is_ok_and(|instances| !instances.front().is_empty() || !instances.back().is_empty())
+    parse_readable_records(group, StateMacroContext::Pattern)
+        .is_some_and(|instances| !instances.front().is_empty() || !instances.back().is_empty())
+}
+
+/// The instance list a bracketed value reads as in `context` when every item
+/// is an instance record. An item that is one name or `_` reads as a whole
+/// instance ([`InstanceItem::whole`]), and as a computation cell's item or a
+/// list's element alike, so a value holding one is never read as instances by
+/// its shape: its List reading is carried beside the reading the clause takes
+/// ([`BracketReadings::whole_instances`]).
+fn parse_readable_records(
+    group: &proc_macro2::Group,
+    context: StateMacroContext,
+) -> Option<InstanceList> {
+    parse_readable_instances(group, context)
+        .ok()
+        .filter(|list| {
+            list.front()
+                .iter()
+                .chain(list.back())
+                .all(|item| item.owner().is_some())
+        })
 }
 
 /// Whether a braced value is a map pattern `{ key -> value, .. }` (or a
@@ -302,7 +303,9 @@ fn contains_top_level_arrow(group: &proc_macro2::Group) -> bool {
 }
 
 /// Parses a readable instance list `{ .. }` or `[ .. ]` (KF-023): records
-/// `[label @] Decl { child: value, .., }` and one `..` rest.
+/// `[label @] Decl { child: value, .., }`, items that are one name or `_`
+/// (the whole instance `x @ Decl { .. }`, [`InstanceItem::whole`]), and one
+/// `..` rest.
 ///
 /// A List collection's brackets are matched, read as any pattern is
 /// ([`parse_readable_instances_reading`] for a rule's braces).
@@ -347,11 +350,14 @@ fn parse_readable_instances_reading(
             )?));
             continue;
         }
-        let parsed = parse_readable_instance(
-            item,
-            context,
-            looks_up && delimiter == InstanceListDelimiter::Brace,
-        )?;
+        let parsed = match InstanceItem::whole(&item, context)? {
+            Some(whole) => whole,
+            None => parse_readable_instance(
+                item,
+                context,
+                looks_up && delimiter == InstanceListDelimiter::Brace,
+            )?,
+        };
         if rest.is_some() {
             if delimiter == InstanceListDelimiter::Brace {
                 return Err(readable_error(
@@ -657,7 +663,7 @@ fn parse_machine_pattern_record(
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
         let looks_up = sentence == ReadableSentence::Rule;
-        let value = if let Some(state) = parse_readable_pattern_state(&content, &cell, looks_up)? {
+        let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
@@ -893,9 +899,7 @@ fn parse_machine_result_record(
         };
         let value =
             if let Some(family) = family.or(unmatched_presence.then_some(StateFamily::Optional)) {
-                MachineResultCell::State(Box::new(parse_readable_result_state(
-                    &content, &cell, family,
-                )?))
+                MachineResultCell::State(Box::new(parse_readable_result_state(&content, family)?))
             } else if content.peek(syn::token::Bracket) {
                 MachineResultCell::Bracket(content.parse()?)
             } else {
@@ -1177,8 +1181,24 @@ struct MachineClause<'a> {
 /// instances, and a list's elements (F6).
 struct BracketReadings {
     computation: bool,
-    collection: bool,
+    instances: InstanceReading,
     elements: bool,
+}
+
+/// How a bracketed value with its result reads as a List collection's
+/// instances.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InstanceReading {
+    /// It does not.
+    None,
+    /// Every item is an instance record.
+    Records,
+    /// Some item is one name or `_`, a whole instance
+    /// ([`InstanceItem::whole`]). Such an item reads as a head's item or a
+    /// list's element too, so the value's shape picks no reading by it: the
+    /// clause takes its head or elements reading, and carries this one beside
+    /// it, as it carries an ambiguous value's.
+    Whole,
 }
 
 impl BracketReadings {
@@ -1190,14 +1210,30 @@ impl BracketReadings {
                 Some(MachineResultCell::Bracket(result)) => bracket_items(result).is_ok(),
                 Some(_) => false,
             };
-        let collection = parse_readable_instances(group, StateMacroContext::Pattern).is_ok()
-            && match result {
-                None => true,
-                Some(MachineResultCell::Bracket(result)) => {
-                    parse_readable_instances(result, StateMacroContext::Expression).is_ok()
+        let instances = |records: bool| {
+            let reads = |group: &proc_macro2::Group, context: StateMacroContext| {
+                if records {
+                    parse_readable_records(group, context).is_some()
+                } else {
+                    parse_readable_instances(group, context).is_ok()
                 }
-                Some(_) => false,
             };
+            reads(group, StateMacroContext::Pattern)
+                && match result {
+                    None => true,
+                    Some(MachineResultCell::Bracket(result)) => {
+                        reads(result, StateMacroContext::Expression)
+                    }
+                    Some(_) => false,
+                }
+        };
+        let instances = if instances(true) {
+            InstanceReading::Records
+        } else if instances(false) {
+            InstanceReading::Whole
+        } else {
+            InstanceReading::None
+        };
         // A list's result may also be one term, the whole new list; the
         // anonymous `..` is one rest, on both sides or neither.
         let elements = list_pattern(group).is_ok_and(|pattern| match result {
@@ -1209,9 +1245,14 @@ impl BracketReadings {
         });
         Self {
             computation,
-            collection,
+            instances,
             elements,
         }
+    }
+
+    /// Whether the value reads as instance records.
+    fn collection(&self) -> bool {
+        self.instances == InstanceReading::Records
     }
 }
 
@@ -1225,13 +1266,15 @@ impl BracketReadings {
 /// first such value is read as `_`, and its instance list is carried beside
 /// it for the collector to keep on every cell but a leaf. When another
 /// value's reading is carried already, the clause keeps its instance list,
-/// as every later item-less value does.
+/// as every later item-less value does. A value holding a whole instance
+/// carries its List reading only where no item-less value does
+/// ([`read_machine_readings`]).
 fn read_machine_clause(
     clause: &MachineClause<'_>,
     subject_cells: &[(Ident, MachinePatternCell)],
     result_cells: &[(Ident, MachineResultCell)],
 ) -> Result<RuleClause, ParseError> {
-    let instances = read_machine_readings(clause, subject_cells, result_cells);
+    let instances = read_machine_readings(clause, subject_cells, result_cells, true);
     let item_less = subject_cells.iter().find_map(|(cell, pattern)| {
         let MachinePatternCell::Bracket(group) = pattern else {
             return None;
@@ -1272,7 +1315,7 @@ fn read_machine_clause(
         .filter(|(name, _)| name.unraw() != cell.unraw())
         .cloned()
         .collect::<Vec<_>>();
-    match read_machine_readings(clause, &subject, &result) {
+    match read_machine_readings(clause, &subject, &result, false) {
         Ok(mut primary) if primary.bracket_alternative.is_none() => {
             match BracketAlternative::from_list_reading(list.clone(), cell) {
                 Some(alternative) => {
@@ -1300,17 +1343,22 @@ fn read_machine_clause(
 /// value that reads as a list's elements and as instances, such as
 /// `job: [.., Job { payload: p }]`, and is not read as the computation cell,
 /// is read as elements and carries its List reading beside it, when no head
-/// carries one.
+/// carries one. A value holding a whole instance, such as `job: [x, ..]`
+/// (`x @ Job { .. }` on a List collection), reads as a head or as elements
+/// by the same items, so it is read as those and carries its List reading
+/// beside it, with `whole`, when no value of instance records does.
 fn read_machine_readings(
     clause: &MachineClause<'_>,
     subject_cells: &[(Ident, MachinePatternCell)],
     result_cells: &[(Ident, MachineResultCell)],
+    whole: bool,
 ) -> Result<RuleClause, ParseError> {
     let mut definite = Vec::new();
     let mut ambiguous = Vec::new();
     let mut unreadable = Vec::new();
     let mut lists = Vec::new();
     let mut elements_or_instances = Vec::new();
+    let mut whole_instances = Vec::new();
     for (cell, pattern) in subject_cells {
         let MachinePatternCell::Bracket(group) = pattern else {
             continue;
@@ -1320,19 +1368,25 @@ fn read_machine_readings(
             .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
             .map(|(_, result)| result);
         let readings = BracketReadings::of(group, result);
-        match (readings.computation, readings.collection) {
+        match (readings.computation, readings.collection()) {
             (true, false) => definite.push(cell),
             (true, true) => ambiguous.push(cell),
             (false, true) => {}
             (false, false) if readings.elements => {}
             (false, false) => unreadable.push((cell, group)),
         }
-        if readings.collection && readings.elements {
+        if readings.collection() && readings.elements {
             elements_or_instances.push(cell.clone());
+        }
+        if whole
+            && readings.instances == InstanceReading::Whole
+            && (readings.computation || readings.elements)
+        {
+            whole_instances.push(cell.clone());
         }
         // Any value but instances only that is not read as the computation
         // cell is read as a list's elements, or reports why it is none.
-        if (!readings.collection || readings.elements)
+        if (!readings.collection() || readings.elements)
             && (readings.elements || readings.computation || !readable_bracket_is_list(group))
         {
             lists.push(cell.clone());
@@ -1350,16 +1404,28 @@ fn read_machine_readings(
             .collect::<Vec<_>>()
     };
     // A value read as elements that also reads as instances carries that
-    // reading beside it, when no head carries one.
+    // reading beside it, when no head carries one. Failing that, the first
+    // value holding a whole instance whose List reading reads carries it,
+    // the computation cell's own among them.
     let with_instances = |mut primary: RuleClause, computation: Option<&Ident>| {
+        let is_computation = |cell: &Ident| {
+            computation.is_some_and(|computation| computation.unraw() == cell.unraw())
+        };
         let elements = elements_or_instances
             .iter()
-            .find(|cell| computation.is_none_or(|computation| computation.unraw() != cell.unraw()));
+            .find(|cell| !is_computation(cell));
         if primary.bracket_alternative.is_none()
             && let Some(cell) = elements
             && let Ok(instances) = read(computation, &without(cell))
         {
             primary.bracket_alternative = BracketAlternative::from_list_reading(instances, cell);
+        }
+        if primary.bracket_alternative.is_none() && elements.is_none() {
+            primary.bracket_alternative = whole_instances.iter().find_map(|cell| {
+                let computation = computation.filter(|_| !is_computation(cell));
+                let instances = read(computation, &without(cell)).ok()?;
+                BracketAlternative::from_list_reading(instances, cell)
+            });
         }
         primary
     };
