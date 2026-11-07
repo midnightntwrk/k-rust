@@ -275,7 +275,7 @@ match = 'readable-run/result/job/[x\, ..]'
 finding = "S0-16"
 kind = "diagnostic"
 
-# S0-9, diagnostic: 1601 reds
+# S0-9, diagnostic: 1625 reds
 
 # init: 1
 [[family]]
@@ -307,9 +307,9 @@ match = 'claim/result/kinds/code/{G \{ a: x\, .. \},x}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# readable: 2
+# readable: 3
 [[family]]
-match = 'claim/result/kinds/job/{Job \{ payload: x\, .. \},x}'
+match = 'claim/result/kinds/job/{Job \{ payload: x\, .. \},[x\, ..],x}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -355,9 +355,9 @@ match = 'readable/result/kinds/code/{G \{ a: x\, .. \},x}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# readable: 2
+# readable: 3
 [[family]]
-match = 'readable/result/kinds/job/{Job \{ payload: x\, .. \},x}'
+match = 'readable/result/kinds/job/{Job \{ payload: x\, .. \},[x\, ..],x}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -487,9 +487,9 @@ match = 'sweep/*/result/frame/{Some(G \{ .. \}),Some([..]),Some(x),[..\, x]}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 16
+# sweep: 18
 [[family]]
-match = 'sweep/*/result/job/{0,Gl \{ la: x \},Gl \{ la: x\, .. \},Gl \{ la: x\, lb: y\, .. \},Some(Gl \{ .. \}),Some([..]),Some(x),\{ Gl \{ la: x\, lb: y \} \}}'
+match = 'sweep/*/result/job/{0,Gl \{ la: x \},Gl \{ la: x\, .. \},Gl \{ la: x\, lb: y\, .. \},Some(Gl \{ .. \}),Some([..]),Some(x),[x\, ..],\{ Gl \{ la: x\, lb: y \} \}}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -523,9 +523,9 @@ match = 'sweep/*/result/set/{Some(G \{ .. \}),Some([..]),Some(x),[..\, x],[..],[
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 12
+# sweep: 16
 [[family]]
-match = 'sweep/*/result/{acct,bag}/{[x\, ..],[x],\{ y -> x\, .. \}}'
+match = 'sweep/*/result/{acct,bag}/{[x\, ..],[x],\{ x\, .. \},\{ y -> x\, .. \}}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -658,6 +658,12 @@ kind = "diagnostic"
 # sweep: 4
 [[family]]
 match = 'sweep/*/written/{omap,pc}/\{ G \{ a: x\, b: y \} \}'
+finding = "S0-9"
+kind = "diagnostic"
+
+# sweep: 16
+[[family]]
+match = 'sweep/*/written/{counter,env,frame,ogroup,olist,omap,pc,set}/\{ x\, .. \}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -1282,20 +1288,6 @@ finding = "S5-K1"
 kind = "diagnostic"
 
 # S5-Q1, diagnostic: 4 reds
-
-# S5-Q2, diagnostic: 2 reds
-
-# readable: 1
-[[family]]
-match = 'claim/result/kinds/job/[x\, ..]'
-finding = "S5-Q2"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'readable/result/kinds/job/[x\, ..]'
-finding = "S5-Q2"
-kind = "diagnostic"
 
 # S5-S1, diagnostic: 291 reds
 
@@ -1947,6 +1939,22 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 # refusal, where readable answers `group-and-descendant`.
 # S5.0g item 3a: the compiled sweep's reds (shard `sweep`), each owned by the finding whose `what` covers its
 # pattern (the progress log's "Part (b), item 3a" lists the patterns and their kinds).
+
+["sweep/claim/subject/job/[x, r @ ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/claim/written/job/[x, r @ ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/subject/job/[x, r @ ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/written/job/[x, r @ ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S5-B1"

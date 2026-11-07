@@ -107,7 +107,7 @@ what = "a `cells!` subject's map holding only a rest, `Cell(k::map![..])`, is a 
 ["S5-Q2"]
 owner = "S5"
 kind = "feature"
-what = "`job: [x, ..]` on a List collection binds its front instance and `job: [.., x]` its back instance (decision Q2), and `acct: { x, .. }` one instance of a Set or Map: not supported yet, refused as the limit instance-binder (TRI-A5). Residue: a readable result `job: [x, ..]` whose `x` is no instance of the List (the command's `Int`) is refused instance-binder by the collector, before the compiler's sort check reaches its binder-sort"
+what = "a readable List collection's brackets name no rest: `job: [x, r @ ..]`, its front instance `x @ Gl { .. }` with the other instances bound to `r` (decision Q2, admitted), reads as a list's elements and is refused as no list (`invalid-list-notation`), as `[x @ Gl { .. }, r @ ..]` is; the readable route reads a collection's `..` anonymous only (TRI-L2: `job: [x, ..]` and `acct: { x, .. }` are lowered as `x @ Decl { .. }`)"
 
 ["S5-S1"]
 owner = "S5"
