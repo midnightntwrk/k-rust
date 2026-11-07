@@ -2876,6 +2876,7 @@ pub fn run_front(
     ));
     let mut rows = Vec::new();
     let mut stopped = None;
+    let stop_coverage = crate::check::rows_coverage(&update.rows);
     let selected = list
         .mutations
         .iter()
@@ -2971,6 +2972,7 @@ pub fn run_front(
                 stop: manifest.stop.as_ref().map(|_| manifest),
                 // Nothing is written to the lock before the run ends.
                 lock: lock.as_ref().map_or(Value::Null, Lock::pending),
+                coverage: Some(&stop_coverage),
             },
         ));
         match store.write_json(&report_path, &document) {
@@ -3015,6 +3017,7 @@ pub fn run_front(
             execution: update.execution.value(),
             stop: manifest.stop.as_ref().map(|_| manifest),
             lock: Value::Null,
+            coverage: Some(&stop_coverage),
         },
     );
     // The lock, compared and written once the run's rows are final (README, "The killer
@@ -3632,6 +3635,10 @@ struct Accounting<'m> {
     stop: Option<&'m FlowManifest>,
     /// The document's `lock`: null without a lock ([`crate::lock`]).
     lock: Value,
+    /// The coverage of the programs' current records (`crate::check::rows_coverage`), from which a
+    /// survivor's `stop_hides_edit` is read under a stop condition; `None` where no run judged
+    /// the programs.
+    coverage: Option<&'m crate::check::CorpusCoverage>,
 }
 
 impl Accounting<'_> {
@@ -3647,6 +3654,7 @@ impl Accounting<'_> {
         execution: Value::Null,
         stop: None,
         lock: Value::Null,
+        coverage: None,
     };
 }
 
@@ -3671,7 +3679,10 @@ fn document(
 ) -> Value {
     let refusal = record.refusal.as_ref();
     let mut mutations = mutations;
-    if let Some(hides) = accounting.stop.and_then(crate::check::StopHides::of) {
+    if let Some(hides) = accounting
+        .stop
+        .and_then(|manifest| crate::check::StopHides::of(manifest, accounting.coverage))
+    {
         for row in &mut mutations {
             hides.annotate_survivor(row);
         }

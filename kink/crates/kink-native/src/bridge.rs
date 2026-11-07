@@ -503,8 +503,10 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         HaltClass::WorkBound => PathStop::BackendLimit,
         // Every request answers a cancellation with an error (`cancelled_result: error`, re-pin
         // L1-1, finding A-03), and no request stops at a branch, so a cancelled or branch leaf is
-        // outside the contract, as the adapter says. No request asks a stop condition, so a
-        // stop-undecided leaf is outside it too.
+        // outside the contract, as the adapter says. A stop-undecided leaf is admitted only for a
+        // run with a stop condition, which its caller judges before it bridges the run (a path
+        // that ends undecided makes it no evidence, kink-campaign's `stop-condition`), so a
+        // bridge given one was given a run outside that contract.
         HaltClass::Branch
         | HaltClass::Timeout
         | HaltClass::Cancelled

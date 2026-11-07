@@ -77,9 +77,11 @@ pub use cli::{
 };
 pub use evidence::{EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
+/// A stop condition a front end states for `[stop] when` ([`FlowManifest::with_stop_when`]).
+pub use kink_campaign::{StopOracle, StopWhen};
 pub use manifest::{
     Budget, Decoder, FlowManifest, KrsSpec, ManifestError, ManifestFile, Program, ResultSection,
-    SpecDecl, SpecSection, StopSection,
+    SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,

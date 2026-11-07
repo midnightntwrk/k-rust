@@ -13,10 +13,12 @@
 
 mod campaign;
 mod cells;
+pub mod condition;
 pub use cells::{
     CellLayout, CellLayoutRefusal, CellProjection, Collection, CollectionKind, LaidOutCell,
     Through, UnobservedPosition,
 };
+pub use condition::{StopOracle, StopWhen};
 pub mod identity;
 pub use identity::{
     KINK_IDENTITY, RESULT_SCHEMA_VERSION, identity_difference, kink_build, kink_identity,

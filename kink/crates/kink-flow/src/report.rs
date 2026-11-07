@@ -209,8 +209,14 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// the first killing program in the search's order, under both schedules, its `killer_source` is
 /// `outcome-cache`, `record` (the recorded killer's one-program call) or `search` (`hint` and
 /// `stale_killer` leave with the hint store), each row carries `recorded_killer` and
-/// `killer_change`, and the document carries `lock`.
-pub const RUN_VERSION: u64 = 29;
+/// `killer_change`, and the document carries `lock`; 30 since `[stop] when`: a stop with a
+/// condition names it (`stop.when`, the condition's identity), an executed program whose run's
+/// condition was left undecided at an arrival, or refused at one, is `unknown` with the cause
+/// `stop-condition`, a mutant whose declarations of the read cells' sorts are not the
+/// specification's is `not-admitted`, reason `stop-condition-incompatible`, and a survivor's
+/// `stop_hides_edit` is read, under a condition, from the comparable programs' coverage: no
+/// comparable program took the stop rule's step.
+pub const RUN_VERSION: u64 = 30;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -464,6 +470,12 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              rule of [stop] names, or turns that rule into an equation, so the observation the \
              stop states is not defined on the mutant; edit the rule's sides instead, or name \
              another rule in [stop]"
+        }
+        "not-admitted" if reason == Some("stop-condition-incompatible") => {
+            "keep the declarations of the stop condition's cells: the edit declares otherwise a \
+             sort or symbol the cells [stop] when reads reach, or adds a subsort of one, and the \
+             condition reads every side's cells as the specification declares them, so the \
+             mutant could be asked another question; edit rules instead, or read other cells"
         }
         "not-admitted" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
@@ -955,6 +967,13 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
              states"
                 .into()
         }
+        ExecutionFailureKind::StopCondition => {
+            "stop-condition: the stop condition ([stop] when) was left undecided at an arrival of \
+             the mutant's run of this program (its evaluation ran out of its budget, or the \
+             solver answered unknown), or had no value there, so whether the run ended where the \
+             condition says is not known"
+                .into()
+        }
         ExecutionFailureKind::EqualsCondition => {
             "equals-condition: a rule or equation condition of the mutant equates two terms \
              ({ A #Equals B }), which k-rust may decide wrongly when they may be undefined"
@@ -1349,5 +1368,27 @@ mod tests {
             None,
             &edited
         ));
+    }
+
+    /// A mutant the stop condition cannot read is `not-admitted` under the reason its
+    /// mutant-scope failure is named by, `stop-condition-incompatible`, and the action says what
+    /// to keep, not that the mutant does not compile; a run whose condition gave no answer is
+    /// `unknown` with the cause `stop-condition`.
+    #[test]
+    fn a_stop_condition_names_its_reason_its_action_and_its_cause() {
+        let reason = crate::results::kebab(&format!(
+            "{:?}",
+            kink_campaign::MutantScopeFailure::StopConditionIncompatible
+        ));
+        assert_eq!(reason, "stop-condition-incompatible");
+        assert_eq!(
+            kink_campaign::MutantScopeFailure::StopConditionIncompatible.status(),
+            kink_campaign::MutantStatus::NotAdmitted
+        );
+        let given = action("not-admitted", Some(&reason)).unwrap();
+        assert!(given.contains("stop condition's cells"), "{given}");
+        assert_ne!(Some(given), action("not-admitted", None));
+        let cause = failure_cause(ExecutionFailureKind::StopCondition, Budget::default());
+        assert!(cause.starts_with("stop-condition: "), "{cause}");
     }
 }

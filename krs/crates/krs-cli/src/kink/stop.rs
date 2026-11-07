@@ -13,13 +13,19 @@
 //! maps to every one of their labels. The labels are the native compile's; kink-flow checks each
 //! against the K it loads, so a label the two compiles named differently would refuse the corpus
 //! at stage `stop` rather than stop anywhere else.
+//!
+//! `[stop] when` names a stop condition with KRS's spellings, which the `condition` submodule
+//! resolves and hands kink as the condition kink-campaign asks at each arrival.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use kink_flow::FlowManifest;
 use serde_json::{Value, json};
 
+use super::condition::{self, KrsCondition};
 use super::inputs::KrsInputs;
+use super::render::Observers;
 
 /// Why a corpus's `[stop]` cannot be bound: the reason and detail of its refusal at stage
 /// `stop`.
@@ -32,19 +38,25 @@ pub(crate) struct Unbound {
 /// selects none.
 type Selection = (&'static str, String, Result<Vec<String>, String>);
 
-/// `manifest` with its `[stop]` names mapped to exact K labels, and the mapping the documents
-/// name (`stop.krs.items`: each name as written to the labels it selects); `manifest` unchanged,
-/// no mapping and no compile without `[stop]`. The names resolve over `decoder`'s native compile,
-/// made here on first need and kept for the decoder's later use on this thread.
+/// `manifest` with its `[stop]` names mapped to exact K labels and its condition, when it states
+/// one, resolved and set ([`FlowManifest::with_stop_when`]), and the `krs` object the documents'
+/// `stop` gains: `items`, each name as written to the labels it selects, and `when`, the
+/// condition as written, when there is one; `manifest` unchanged, no object and no compile
+/// without `[stop]`. The names resolve over `decoder`'s native compile, made here on first need
+/// and kept for the decoder's later use on this thread; the condition's observer is the one
+/// `observers` holds by its name, else `definition`, the corpus's own.
 ///
 /// # Errors
 ///
 /// `stop-unresolved` with why a name selects no rewrite rule, why a selected rule has no label to
 /// name it by, or why the mapped stop names one rule on both sides; `native-compile` when the
-/// definition does not compile natively, which resolving a name needs.
+/// definition does not compile natively, which resolving a name needs;
+/// `stop-condition-unresolved` with krs's refusal of the condition or of its observer.
 pub(crate) fn bind(
     mut manifest: FlowManifest,
-    decoder: &KrsInputs,
+    decoder: &Arc<KrsInputs>,
+    observers: &Observers,
+    definition: &krs_ir_levels::DefinitionIr,
 ) -> Result<(FlowManifest, Option<Value>), Unbound> {
     let Some(stop) = manifest.stop.as_mut() else {
         return Ok((manifest, None));
@@ -115,5 +127,24 @@ pub(crate) fn bind(
     }
     stop.before = before;
     stop.after = after;
-    Ok((manifest, Some(json!(items))))
+    let mut krs = json!({ "items": items });
+    if let Some(when) = stop.when.clone() {
+        krs["when"] = condition::written(&when);
+        let asked = KrsCondition::bind(
+            krs_exec::StopWhen {
+                function: when.function,
+                cells: when.cells,
+                observer: when.observer,
+            },
+            definition,
+            decoder,
+            observers,
+        )
+        .map_err(|unbound| Unbound {
+            reason: unbound.reason,
+            detail: unbound.detail,
+        })?;
+        manifest = manifest.with_stop_when(asked);
+    }
+    Ok((manifest, Some(krs)))
 }

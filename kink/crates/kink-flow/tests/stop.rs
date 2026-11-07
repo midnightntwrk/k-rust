@@ -154,9 +154,54 @@ fn stop_decoding_refuses_what_it_cannot_read() {
     let program = "[[program]]\nid = \"a\"\ntext = \"1\"\n";
     for (stop, key, message) in [
         (
-            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = [\"n\"] }\n",
+            "[stop]\nafter = [\"X.a\"]\nstop_when = { function = \"F\", cells = [\"n\"] }\n",
+            "stop.stop_when",
+            "names its condition `when`",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = 3\n",
             "stop.when",
-            "a stop condition is not supported by kink yet",
+            "expected a table",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { cells = [\"n\"] }\n",
+            "stop.when.function",
+            "missing required key",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"\", cells = [\"n\"] }\n",
+            "stop.when.function",
+            "must not be empty",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\" }\n",
+            "stop.when.cells",
+            "missing required key",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = [] }\n",
+            "stop.when.cells",
+            "names no cell",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = \"n\" }\n",
+            "stop.when.cells",
+            "expected an array",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = [\"n\", 1] }\n",
+            "stop.when.cells[1]",
+            "expected a string",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = [\"n\"], observer = \"\" }\n",
+            "stop.when.observer",
+            "must not be empty",
+        ),
+        (
+            "[stop]\nafter = [\"X.a\"]\nwhen = { function = \"F\", cells = [\"n\"], view = \"V\" }\n",
+            "stop.when.view",
+            "unknown key",
         ),
         ("[stop]\n", "stop", "names no rule"),
         ("[stop]\nbefore = []\nafter = []\n", "stop", "names no rule"),
@@ -214,6 +259,112 @@ fn stop_decoding_refuses_what_it_cannot_read() {
         ),
         "program \"a\".stop_count",
         "must be positive",
+    );
+}
+
+/// A front end's stop condition, for the tests that bind one: it is never asked here.
+struct Unasked;
+
+impl kink_flow::StopOracle for Unasked {
+    fn cells(&self) -> &[Vec<String>] {
+        &[]
+    }
+
+    fn with_condition(
+        &self,
+        _: &mut dyn FnMut(&mut dyn k_rust::backend::StopCondition),
+    ) -> Result<(), String> {
+        Err("not asked in this test".to_owned())
+    }
+}
+
+/// `[stop] when` decodes as written, the front end's names kept for it to resolve. A decoded
+/// manifest states no condition anywhere until a front end binds one: then every document's
+/// stop and the program's key name it by its identity (`when`), and the campaign's stop carries
+/// it; a stop without a condition keeps the value it had before conditions existed.
+#[test]
+fn a_stop_condition_decodes_and_is_named_once_bound() {
+    let text = format!(
+        "{SPEC}[stop]\nbefore = [\"CLOCK.frame\"]\n\
+         when = {{ function = \"Breakpoint\", cells = [\"pc\", \"rom\"], observer = \"views:main\" }}\n\n\
+         [[program]]\nid = \"a\"\ntext = \"clock(0, 0)\"\n"
+    );
+    let manifest = decode(&text).unwrap();
+    let when = manifest.stop.as_ref().unwrap().when.clone().unwrap();
+    assert_eq!(
+        when,
+        kink_flow::StopWhenSection {
+            function: "Breakpoint".into(),
+            cells: vec!["pc".into(), "rom".into()],
+            observer: Some("views:main".into()),
+        }
+    );
+    let unbound = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
+    assert_eq!(manifest.stop_value(), Some(unbound.clone()));
+    assert_eq!(manifest.program_stop(&manifest.programs[0]), Some(unbound));
+    assert!(manifest.campaign_stop().when().is_none());
+    let identity = json!({"observer": {"definition": "views:main", "definition_ir": "d"}});
+    let bound = manifest.with_stop_when(kink_flow::StopWhen::new(
+        identity.clone(),
+        std::sync::Arc::new(Unasked),
+    ));
+    assert_eq!(bound.stop_value().unwrap()["when"], identity);
+    assert_eq!(
+        bound.program_stop(&bound.programs[0]).unwrap()["when"],
+        identity
+    );
+    assert_eq!(bound.campaign_stop().when().unwrap().identity(), &identity);
+    // Without `when`, a bound condition is not asked and names nothing.
+    let plain = decode(&format!(
+        "{SPEC}[stop]\nbefore = [\"CLOCK.frame\"]\n[[program]]\nid = \"a\"\ntext = \"1\"\n"
+    ))
+    .unwrap()
+    .with_stop_when(kink_flow::StopWhen::new(
+        identity,
+        std::sync::Arc::new(Unasked),
+    ));
+    assert!(plain.stop.as_ref().unwrap().when.is_none());
+    assert_eq!(
+        plain.stop_value(),
+        Some(json!({"before": ["CLOCK.frame"], "after": [], "count": 1}))
+    );
+}
+
+/// kink-flow's own front end reads terms of a K definition and has no observer to evaluate a
+/// condition in: a corpus with `[stop] when` is refused at stage `stop`, reason
+/// `unsupported-front-end`, by `check` and `results` alike, never run without its condition.
+#[test]
+fn the_k_front_end_refuses_a_stop_condition() {
+    let dir = fixture(
+        "when",
+        &[(
+            "when",
+            &stopped(
+                "[stop]\nbefore = [\"CLOCK.frame\"]\nwhen = { function = \"Third\", cells = [\"k\"] }\n",
+            ),
+        )],
+    );
+    let path = dir.join("FLOW-when.toml");
+    let (document, status) = check(&path);
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        (&document["spec"]["stage"], &document["spec"]["reason"]),
+        (&json!("stop"), &json!("unsupported-front-end")),
+        "{document:#}"
+    );
+    let detail = document["spec"]["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("`Third`") && detail.contains("krs kink"),
+        "{detail}"
+    );
+    let (document, ok) = results(
+        &FlowManifest::read(&path).unwrap(),
+        &ResultsOptions::default(),
+    );
+    assert!(!ok, "{document:#}");
+    assert_eq!(
+        document["spec"]["reason"], "unsupported-front-end",
+        "{document:#}"
     );
 }
 

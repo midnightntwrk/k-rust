@@ -1041,6 +1041,7 @@ fn admit_definition(
     .map_err(|e| input_gate_refusal(e.to_string()))?;
     if let Some(stop) = &manifest.stop {
         stop_resolved(stop, &mut backend)?;
+        stop_condition_bound(stop, &manifest.stop_when)?;
     }
     let (data, exclusions) = baseline_data(
         &mut backend,
@@ -1101,6 +1102,34 @@ fn stop_resolved(
             unresolved.iter().map(side).collect::<Vec<_>>().join(", ")
         ),
     })
+}
+
+/// `[stop] when` has a front end that asks it ([`FlowManifest::with_stop_when`]), or the
+/// specification is refused at stage `stop`, reason `unsupported-front-end`. A condition is a
+/// function of the values of named cells, evaluated in an observer definition; kink-flow's own
+/// front end reads a K definition's terms, not values of a definition that declares them, and
+/// has no observer to evaluate a function in, so a run would end at other arrivals than the
+/// condition names. A K-level condition (a function symbol of a K observer definition applied to
+/// cells by label) would be sound by the same argument, but no front end states one.
+fn stop_condition_bound(
+    stop: &crate::manifest::StopSection,
+    slot: &crate::manifest::StopWhenSlot,
+) -> Result<(), AdmissionRefusal> {
+    match (&stop.when, &slot.0) {
+        (Some(when), None) => Err(AdmissionRefusal {
+            stage: "stop".into(),
+            reason: "unsupported-front-end".into(),
+            detail: format!(
+                "[stop] when `{}`: a stop condition is a function of the values of the cells it \
+                 reads, evaluated in an observer definition, and kink-flow's K front end reads \
+                 terms of a K definition with no observer to evaluate it in; run the corpus \
+                 through a front end that states the condition's values (`krs kink`), or remove \
+                 `when`",
+                when.function
+            ),
+        }),
+        _ => Ok(()),
+    }
 }
 
 fn input_gate_refusal(detail: String) -> AdmissionRefusal {

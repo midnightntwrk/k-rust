@@ -114,8 +114,12 @@ use std::{path::Path, sync::OnceLock};
 /// `decider_smt_unknowns`, the undecided solver answers of kink's own questions about the baseline
 /// run (its leaf feasibility and observation decider), beside k-rust's `smt_unknowns`, outside the
 /// key and the run digest; and records are written under the Z3 profile too, where the solver is
-/// resource-bounded and the key's budget names its units and Z3 build.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v14";
+/// resource-bounded and the key's budget names its units and Z3 build. v15: a program run with a
+/// stop condition (kink-flow `[stop] when`) is keyed by the condition (the key's `stop.when`), and
+/// one whose condition was left undecided at an arrival, or refused at one, is `unknown`, cause
+/// `stop-condition`, and never written; a record of a program run without a condition is
+/// unchanged.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v15";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

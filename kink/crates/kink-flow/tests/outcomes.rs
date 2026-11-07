@@ -635,8 +635,10 @@ fn the_outcome_file_keeps_the_compiled_edit() {
 /// outcome key. A host-bound cause is never cacheable: a slot the clock stopped (`timeout`), an
 /// untrustworthy backend result (`error`), a run the watchdog stopped (`TimeLimit`), a host
 /// exclusion (stack stop, load stack stop, allowance refusal), an infrastructure failure, and a
-/// judgement the backend refused; nor is an `incomparable` slot (status `error`) or a failed run
-/// excluded for a fact of the definition or the run, whose row's reason a live call gives.
+/// judgement the backend refused, a stop condition without an answer at an arrival (an undecided
+/// answer can be its evaluation's budget); nor is an `incomparable` slot (status `error`) or a
+/// failed run excluded for a fact of the definition or the run, whose row's reason a live call
+/// gives.
 #[test]
 fn an_unknown_is_cacheable_only_when_the_run_was_judged() {
     use kink_campaign::{ExecutionFailureKind as F, OracleOutcome as O, RunNotes, TestRun};
@@ -690,6 +692,9 @@ fn an_unknown_is_cacheable_only_when_the_run_was_judged() {
         F::ImplementationChosenValue,
         F::Indeterminate,
         F::ResourceLimit,
+        // A stop condition left undecided at an arrival, possibly by its evaluation's budget,
+        // or refused there: the run is not a function of the key.
+        F::StopCondition,
     ] {
         assert_eq!(
             outcome(&TestRun::Failed(kind), Some(&judged)),

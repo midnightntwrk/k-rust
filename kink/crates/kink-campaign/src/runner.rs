@@ -183,6 +183,8 @@ use kink_native::execution::{
     HaltClass, ResultModality, ResultRun, SolverProfile, StepRunFailure, SteppedExecution,
     StopRules,
 };
+
+use crate::condition::{KoreSignature, StopWhen};
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
 use kink_native::signature::{DefinitionFacts, definition_facts};
@@ -443,6 +445,10 @@ pub struct RunNotes {
     /// edited function only when every such leaf holds one, [`LeafCensus::leaf_open`]). It decides
     /// no status here.
     pub incomplete_leaves: BTreeSet<usize>,
+    /// Why the run's stop condition ([`Stop::with_when`]) left it no evidence
+    /// ([`ExecutionFailureKind::StopCondition`]): the last arrival the condition was left
+    /// undecided at, with its reason, or the condition's refusal. `None` for every other run.
+    pub stop_condition: Option<String>,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -601,8 +607,14 @@ impl RunOptions {
 /// stop, a work budget reaches the states of k-rust's one exploration of the run (depth first)
 /// rather than the stages' starts in the order of their patterns, and a leaf's depth is its
 /// path's from the initial state; so a run that a bound stops, and the depths a census reports,
-/// can differ from v1's.
-pub const STOP_VERSION: &str = "kink-campaign/stop/v2";
+/// can differ from v1's. v3: a stop may carry a stop condition ([`Stop::with_when`],
+/// [`crate::condition`]), asked at each arrival within the one request: the count counts the
+/// arrivals where it holds, every other arrival is taken as a step; a run with an arrival where it
+/// was left undecided, or a refusal, is no evidence on either side (`stop-condition`); and a
+/// mutant whose declarations of the read cells' sorts are not the baseline's is not admitted
+/// (`stop-condition-incompatible`). A stop without a condition makes every request, judges every
+/// run and admits every mutant as v2 does.
+pub const STOP_VERSION: &str = "kink-campaign/stop/v3";
 
 /// Where a campaign's result runs end besides their own end (the observer's choice for a
 /// definition that never terminates): rewrite rules named by exact K label, to stop before
@@ -612,6 +624,10 @@ pub const STOP_VERSION: &str = "kink-campaign/stop/v2";
 /// definition's own run ends, whichever comes first. A test may have its own count
 /// ([`Self::with_test_count`]): the count is a property of the observation of one program, while
 /// the rules are the campaign's.
+///
+/// A stop may carry a condition ([`Self::with_when`], [`crate::condition`]): a function of named
+/// cells of each arrival's stop state, evaluated in one fixed observer, so that the count counts
+/// the arrivals where it holds.
 ///
 /// [`RunOptions`] is `Copy`, so a stop is held interned: equal stops are one value, which lives
 /// as long as the process. [`Stop::NONE`] names no rule.
@@ -632,6 +648,7 @@ pub(crate) struct CountedStop {
     rules: StopRules,
     count: std::num::NonZeroU64,
     counts: BTreeMap<String, std::num::NonZeroU64>,
+    when: Option<StopWhen>,
 }
 
 impl Stop {
@@ -647,6 +664,7 @@ impl Stop {
                 rules,
                 count,
                 counts: BTreeMap::new(),
+                when: None,
             })
         })
     }
@@ -663,6 +681,27 @@ impl Stop {
                 Self::interned(counted)
             }
         }
+    }
+
+    /// This stop with the condition `when` ([`crate::condition`]): every test's run counts only
+    /// the arrivals where it holds. [`Self::NONE`] stays as it is, since a condition is asked only
+    /// at arrivals at a stop's rules.
+    #[must_use]
+    pub fn with_when(self, when: StopWhen) -> Self {
+        match self.0 {
+            None => self,
+            Some(counted) => {
+                let mut counted = counted.clone();
+                counted.when = Some(when);
+                Self::interned(counted)
+            }
+        }
+    }
+
+    /// The condition; `None` for a stop without one and for [`Self::NONE`].
+    #[must_use]
+    pub fn when(self) -> Option<&'static StopWhen> {
+        self.0.and_then(|counted| counted.when.as_ref())
     }
 
     fn interned(counted: CountedStop) -> Self {
@@ -758,21 +797,77 @@ impl Stop {
         budget: ExecutionBudget,
         run: ResultRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        self.execute_asking(adapter, backend, tables, test_id, initial, budget, run)
+            .0
+    }
+
+    /// [`Self::execute_result_with`], and the reason of the last arrival the stop's condition
+    /// was left undecided at, when it was. With a condition the request asks it at each arrival
+    /// (kink-native `ExecutionAdapter::execute_result_counted`); a condition its oracle cannot
+    /// give fails the run as the condition's refusal does
+    /// ([`ExecutionAdapterFailure::StopCondition`]).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Self::execute_result_with's inputs"
+    )]
+    fn execute_asking(
+        self,
+        adapter: &ExecutionAdapter,
+        backend: &mut Backend,
+        tables: &mut DefinitionTables,
+        test_id: &str,
+        initial: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+    ) -> (
+        Result<AdaptedExecution, ExecutionAdapterFailure>,
+        Option<String>,
+    ) {
         let (rules, count) = self
             .of_test(test_id)
             .unwrap_or((&NO_STOP, std::num::NonZeroU64::MIN));
-        adapter.execute_result_counted(backend, tables, initial, budget, run, rules, count)
+        let Some(when) = self.when() else {
+            return (
+                adapter.execute_result_counted(
+                    backend, tables, initial, budget, run, rules, count, None,
+                ),
+                None,
+            );
+        };
+        match when.asking(|condition| {
+            adapter.execute_result_counted(
+                backend,
+                tables,
+                initial,
+                budget,
+                run,
+                rules,
+                count,
+                Some(condition),
+            )
+        }) {
+            Ok((execution, undecided)) => (execution, undecided),
+            Err(reason) => (
+                Err(ExecutionAdapterFailure::StopCondition(format!(
+                    "no stop condition could be asked: {reason}"
+                ))),
+                None,
+            ),
+        }
     }
 
     /// The stop as a JSON object, `{before, after, count}`, with `counts` (`{test_id: count}`)
-    /// when a test has its own count; `None` for [`Self::NONE`]. Every field is destructured, so a
-    /// new one does not compile until it is recorded here.
+    /// when a test has its own count, and `when`, the condition's identity
+    /// ([`StopWhen::identity`]), when it has one; `None` for [`Self::NONE`]. A stop without a
+    /// condition has the value it had before conditions existed. Every field is destructured, so
+    /// a new one does not compile until it is recorded here.
     #[must_use]
     pub fn value(self) -> Option<Value> {
         let CountedStop {
             rules: StopRules { before, after },
             count,
             counts,
+            when,
         } = self.0?;
         let mut value = json!({"before": before, "after": after, "count": count.get()});
         if !counts.is_empty() {
@@ -781,6 +876,9 @@ impl Stop {
                 .map(|(test, count)| (test.clone(), json!(count.get())))
                 .collect::<serde_json::Map<_, _>>()
                 .into();
+        }
+        if let Some(when) = when {
+            value["when"] = when.identity().clone();
         }
         Some(value)
     }
@@ -810,8 +908,14 @@ impl Stop {
 /// v5: the cell projection leaves out cells inside `?` and `*` cells, in each instance, and
 /// compares a Map's or a Set's instances as a multiset ([`crate::CellLayout::position`]); it is
 /// still defined on every configuration, so the rule reads it as before, over projections that
-/// v4 never made (a slot leaving out such a cell was refused).
-pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v5";
+/// v4 never made (a slot leaving out such a cell was refused). v6: a run with a stop condition
+/// ([`Stop::with_when`]) gives one-sided evidence: its clean ground stop leaf ends its path at
+/// an arrival where the condition was decided to hold, every earlier arrival of that path was
+/// decided to fail or was an earlier event, and each decision is a fact of the observer and that
+/// state, so the leaf is final in the truncated system by a fact of its own path, as under v5. A
+/// run with a `stop-undecided` leaf (a path that ended at an arrival the condition left
+/// undecided) gives none: it is no evidence (`stop-condition`) before it is judged into sides.
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v6";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
@@ -1686,8 +1790,13 @@ fn run_campaign_session(
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
     };
-    let mut runtime = Runtime::prepare_with(campaign, &baseline, options.run.backend_options())
-        .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    let mut runtime = Runtime::prepare_with(
+        campaign,
+        &baseline,
+        options.run.backend_options(),
+        options.run.stop.when().is_some(),
+    )
+    .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
     runtime.baseline_max_work = options.run.baseline_max_work;
@@ -1712,6 +1821,19 @@ fn run_campaign_session(
             .map_err(|_| admission_failure(BaselineAdmission::Error))?;
         if !unresolved.is_empty() {
             return Err(CampaignFailure::stop_unresolved(unresolved));
+        }
+        // The condition's cells are read on the baseline with its declarations; cells it has no
+        // leaf cell symbol for state no observation of it.
+        if let Some(when) = options.run.stop.when()
+            && let Some(Err(reason)) = runtime
+                .signature
+                .as_ref()
+                .map(|signature| signature.reads(when.cells()))
+        {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::InvalidDeclaration,
+                format!("stop-condition: {reason} on the baseline"),
+            ));
         }
     }
     // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
@@ -1750,6 +1872,7 @@ fn run_campaign_session(
         solver: options.run.backend_options(),
         assume_joined: session.assume_joined.clone(),
         data,
+        signature: runtime.signature.clone(),
     };
     // Refuse unsafe input through the existing declaration admission gate, before any baseline
     // or mutant execution (TV-01, R2-F1). Its definedness refusals of test-written predicates
@@ -1822,6 +1945,20 @@ fn run_campaign_session(
             }
         }
         let admission = admit(campaign.tests, &baseline_evidence);
+        if admission == BaselineAdmission::OracleFailed
+            && let Some(evidence) = baseline_evidence.iter().find(|evidence| {
+                evidence.run == SideRun::Failed(ExecutionFailureKind::StopCondition)
+            })
+        {
+            return Err(CampaignFailure::stop_condition_refused(
+                &evidence.test_id,
+                evidence
+                    .notes
+                    .stop_condition
+                    .as_deref()
+                    .unwrap_or("no answer"),
+            ));
+        }
         if admission == BaselineAdmission::OracleFailed
             && let Some((test_id, exclusion)) = baseline_exclusion(&baseline_evidence)
         {
@@ -2073,7 +2210,9 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
             {
                 continue;
             }
-            SideRun::Failed(kind) if kind.exclusion().is_some() => {
+            SideRun::Failed(kind)
+                if kind.exclusion().is_some() || *kind == ExecutionFailureKind::StopCondition =>
+            {
                 admission = BaselineAdmission::OracleFailed;
                 continue;
             }
@@ -2212,7 +2351,13 @@ fn run_mutant(
             MutantScopeFailure::BaselineFindings,
             Withdrawal::default(),
         )),
-        _ => prepare_mutant(campaign, patch, compiled_baseline, admission),
+        _ => prepare_mutant(
+            campaign,
+            patch,
+            compiled_baseline,
+            admission,
+            options.run.stop,
+        ),
     };
     match gated {
         Err(refusal) => {
@@ -2240,7 +2385,10 @@ fn run_mutant(
             // rule of the claim-free mutant leaves it undefined there, and the mutant is not run
             // without it.
             let failure = match resolve_stop(options.run.stop, &mut sides.runtime.backend) {
-                Ok(unresolved) if unresolved.is_empty() => None,
+                Ok(unresolved) if unresolved.is_empty() => {
+                    condition_incompatible(options.run.stop, admission, &sides.runtime)
+                        .then_some(MutantScopeFailure::StopConditionIncompatible)
+                }
                 Ok(_) => Some(MutantScopeFailure::StopUnresolved),
                 Err(_) => Some(MutantScopeFailure::Infrastructure),
             };
@@ -2371,12 +2519,14 @@ fn mutant_selection(
 
 /// Builds the mutant every test runs on ([`claim_free_mutant`]) and its runtime, or its
 /// mutant-scope failure with the claims its patch leaves unbacked. A preparation failure after
-/// the claim-free mutant is built is the mutant side's (`Infrastructure`).
+/// the claim-free mutant is built is the mutant side's (`Infrastructure`). The runtime holds the
+/// mutant's declarations only when `stop` has a condition, whose admission reads them.
 fn prepare_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
     admission: &MutantAdmission,
+    stop: Stop,
 ) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
     let ClaimFreeMutant {
         side,
@@ -2399,7 +2549,7 @@ fn prepare_mutant(
     let ground_witness = ground_witness.unwrap_or_else(|| edit.clone());
     // The claim-free mutant's backend was loaded once, for its facts, and runs its tests; its
     // facts judge its ends and, in each pair, the baseline's (KINK-OVERLOAD-VALUE).
-    let mut runtime = Runtime::from_loaded(campaign, &side, loaded)
+    let mut runtime = Runtime::from_loaded(campaign, &side, loaded, stop.when().is_some())
         .map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
     runtime.data = Some(data);
     Ok((
@@ -2646,6 +2796,11 @@ pub struct MutantAdmission {
     solver: BackendOptions,
     assume_joined: Vec<String>,
     data: Result<DataFacts, String>,
+    /// The baseline's declarations, which a mutant's read signature is compared with under a
+    /// stop condition ([`crate::condition`]); `None` when the campaign has none, and on an
+    /// admission [`Self::new`] builds, which checks claim-free mutants and runs none, so that a
+    /// mutant run under a condition against it is never admitted.
+    signature: Option<KoreSignature>,
 }
 
 impl MutantAdmission {
@@ -2666,7 +2821,8 @@ impl MutantAdmission {
         module: &str,
         assume_joined: &[String],
     ) -> Self {
-        let data = LoadedSide::load(compiled, module, kink_native::BACKEND_OPTIONS)
+        let loaded = LoadedSide::load(compiled, module, kink_native::BACKEND_OPTIONS);
+        let data = loaded
             .map(|loaded| DataFacts::of(&loaded.selected, assume_joined))
             .map_err(|_| format!("the baseline does not load for {module}"));
         Self {
@@ -2676,6 +2832,7 @@ impl MutantAdmission {
             solver: kink_native::BACKEND_OPTIONS,
             assume_joined: assume_joined.to_vec(),
             data,
+            signature: None,
         }
     }
 
@@ -2914,6 +3071,9 @@ struct Executed {
     execution: Result<AdaptedExecution, ExecutionAdapterFailure>,
     pattern_failure: OracleSide,
     cache: RunCache,
+    /// The last arrival the stop's condition was left undecided at, with its reason, when the
+    /// run asked a condition and it was ([`Stop::with_when`]).
+    undecided: Option<String>,
 }
 
 /// Stepped evidence retained from the primary run, its rule coverage when the side records
@@ -3431,6 +3591,10 @@ struct Runtime {
     functions: BTreeSet<String>,
     /// The solver options of `backend` ([`LoadedSide::solver`]).
     solver: BackendOptions,
+    /// The declarations a stop condition's read signature is read from
+    /// ([`crate::condition`], "Reading a mutant's cells"); `None` on a side loaded for a
+    /// campaign without a stop condition.
+    signature: Option<KoreSignature>,
 }
 
 /// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
@@ -3473,27 +3637,30 @@ impl Runtime {
     /// its options).
     #[cfg(test)]
     fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
-        Self::prepare_with(campaign, side, kink_native::BACKEND_OPTIONS)
+        Self::prepare_with(campaign, side, kink_native::BACKEND_OPTIONS, false)
     }
 
     /// The runtime of `side`, loaded for the campaign's module on a backend with the solver
-    /// options `solver`.
+    /// options `solver`, with its declarations when `signature` ([`Self::from_loaded`]).
     fn prepare_with(
         campaign: &Campaign<'_>,
         side: &ValidatedDefinition,
         solver: BackendOptions,
+        signature: bool,
     ) -> Result<Self, Preparation> {
         stage_log::note(campaign, stage_log::Stage::Backend);
         let loaded = LoadedSide::load(side, campaign.module, solver)?;
-        Self::from_loaded(campaign, side, loaded)
+        Self::from_loaded(campaign, side, loaded, signature)
     }
 
     /// The runtime of `side` on its load `loaded` ([`LoadedSide::load`] for the campaign's
-    /// module).
+    /// module). Its declarations, which only a stop condition reads (its `signature`),
+    /// are read from the load when `signature`, and not otherwise.
     fn from_loaded(
         campaign: &Campaign<'_>,
         side: &ValidatedDefinition,
         loaded: LoadedSide,
+        signature: bool,
     ) -> Result<Self, Preparation> {
         let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
         let LoadedSide {
@@ -3503,6 +3670,7 @@ impl Runtime {
             solver,
         } = loaded;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
+        let signature = signature.then(|| KoreSignature::of(&parsed));
         let functions = parsed
             .modules
             .iter()
@@ -3551,6 +3719,7 @@ impl Runtime {
             data: None,
             functions,
             solver,
+            signature,
         })
     }
 
@@ -3637,6 +3806,7 @@ impl Runtime {
             .iter()
             .any(|declaration| matches!(declaration.projection(), Projection::Pattern { .. }));
         let mut pattern_failure = OracleSide::Unknown;
+        let mut undecided = None;
         let execution = if has_pattern {
             match self.adapter.execute_steps(
                 &mut self.backend,
@@ -3661,6 +3831,7 @@ impl Runtime {
                         },
                         &NO_STOP,
                         std::num::NonZeroU64::MIN,
+                        None,
                     )
                 }
                 Err(failure) => Err(failure),
@@ -3670,7 +3841,7 @@ impl Runtime {
                 modality: self.modality,
                 max_work,
             };
-            self.stop.execute_result_with(
+            let (execution, asked) = self.stop.execute_asking(
                 &self.adapter,
                 &mut self.backend,
                 &mut self.tables,
@@ -3678,7 +3849,9 @@ impl Runtime {
                 &test.initial_state,
                 campaign.budget,
                 run,
-            )
+            );
+            undecided = asked;
+            execution
         };
         cache.coverage = self.coverage.as_ref().map(|authors| match &execution {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
@@ -3693,6 +3866,7 @@ impl Runtime {
             execution,
             pattern_failure,
             cache,
+            undecided,
         }
     }
 
@@ -3765,6 +3939,7 @@ impl Runtime {
                 across: Vec::new(),
                 unjudged: false,
                 incomplete_leaves: BTreeSet::new(),
+                stop_condition: None,
             },
             _ => RunNotes::default(),
         };
@@ -3780,9 +3955,28 @@ impl Runtime {
         // unjudged below.
         let mut stack_stopped = false;
         let run = match &executed.execution {
-            Err(failure) => SideRun::Failed(failure.into()),
+            Err(failure) => {
+                if let ExecutionAdapterFailure::StopCondition(reason) = failure {
+                    notes.stop_condition = Some(reason.clone());
+                }
+                SideRun::Failed(failure.into())
+            }
             Ok(execution) if execution.timed_out() => {
                 SideRun::Failed(ExecutionFailureKind::TimeLimit)
+            }
+            // A path that ended at an arrival the stop's condition left undecided: whether that
+            // arrival is a stop event is not known, so neither is the path's end, and the run is
+            // no evidence on either side, before its leaves are read for anything else.
+            Ok(execution)
+                if execution
+                    .leaves()
+                    .iter()
+                    .any(|leaf| leaf.halt == HaltClass::StopUndecided) =>
+            {
+                notes.stop_condition = Some(executed.undecided.clone().unwrap_or_else(|| {
+                    "a path ended at an arrival the stop condition left undecided".to_owned()
+                }));
+                SideRun::Failed(ExecutionFailureKind::StopCondition)
             }
             Ok(execution) => match judgement(
                 &mut self.backend,
@@ -4157,6 +4351,24 @@ impl Runtime {
         // A stack stop the judgement met ([`judgement`]) marks it unjudged too.
         (judged, smt_unknowns, refused_judgement || stack_stopped)
     }
+}
+
+/// Whether a stop condition of `stop` could read the mutant `mutant`'s cells as other terms than
+/// they are (a sort or symbol the read cells reach declared otherwise than in the baseline's
+/// declarations in `admission`, [`KoreSignature::incompatibility`], or either side's
+/// declarations not read or its cells not readable): the condition's front end reads every
+/// side's cells with the baseline's declarations, so such a mutant would be asked another
+/// question than the baseline. `false` without a condition.
+fn condition_incompatible(stop: Stop, admission: &MutantAdmission, mutant: &Runtime) -> bool {
+    let Some(when) = stop.when() else {
+        return false;
+    };
+    let (Some(baseline), Some(mutant)) = (&admission.signature, &mutant.signature) else {
+        return true;
+    };
+    mutant
+        .incompatibility(baseline, when.cells())
+        .map_or(true, |incompatibility| incompatibility.is_some())
 }
 
 /// Whether the stop of a campaign is defined on a side whose backend is `backend`: every name
@@ -4543,6 +4755,7 @@ impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
             | ExecutionAdapterFailure::Backend(_)
             | ExecutionAdapterFailure::ContractViolation(_)
             | ExecutionAdapterFailure::UninhabitedVariable(_) => Self::Infrastructure,
+            ExecutionAdapterFailure::StopCondition(_) => Self::StopCondition,
         }
     }
 }
@@ -4915,6 +5128,7 @@ mod tests {
                         .unwrap()),
                         pattern_failure: OracleSide::Unknown,
                         cache: RunCache::default(),
+                        undecided: None,
                     }
                 };
                 let mut stopped = raw();
@@ -5214,6 +5428,7 @@ mod tests {
                         .unwrap()),
                         pattern_failure: OracleSide::Unknown,
                         cache: RunCache::default(),
+                        undecided: None,
                     }
                 };
                 let ground = RecordedRun {
@@ -5563,6 +5778,7 @@ mod tests {
                     .unwrap()),
                     pattern_failure: OracleSide::Unknown,
                     cache: RunCache::default(),
+                    undecided: None,
                 };
                 assert_eq!(
                     runtime.judge_with(campaign, test, &executed(raw()), None),
@@ -6796,9 +7012,9 @@ mod tests {
                             evidence: Some(BTreeMap::new()),
                         };
                         let (mut sides_a, claims_a) =
-                            prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
+                            prepare_mutant(&campaign, &a, &compiled, &support, Stop::NONE).unwrap();
                         let (mut sides_b, claims_b) =
-                            prepare_mutant(&campaign, &b, &compiled, &support).unwrap();
+                            prepare_mutant(&campaign, &b, &compiled, &support, Stop::NONE).unwrap();
                         assert!(claims_a.withdrawn.is_empty());
                         assert_eq!(claims_b.withdrawn.len(), 2);
                         assert!(claims_b.patch().is_some());
@@ -6836,7 +7052,7 @@ mod tests {
                             .unwrap();
                         cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
                         let (mut repeated, _) =
-                            prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
+                            prepare_mutant(&campaign, &a, &compiled, &support, Stop::NONE).unwrap();
                         let (_, hit, _) = run_tests(
                             &campaign,
                             &mut repeated,

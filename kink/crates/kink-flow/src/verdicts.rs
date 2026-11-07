@@ -10,7 +10,7 @@
 //! version = 6
 //! document = "results"
 //! profile = "no-z3"
-//! krs_annotation = 2
+//! krs_annotation = 3
 //!
 //! [spec]
 //! outcome = "admitted"
@@ -23,15 +23,16 @@
 //! ```
 //!
 //! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
-//! class, a status and a cell can move between `killed`, `unknown` and `survived` with the
-//! solver's answers, so a diff of two renderings across profiles shows why. A `results` document
-//! the KRS front end annotated also has `krs_annotation`, the version of that annotation (the
-//! document's `krs.version`), since a rule's KRS item is spelled as the annotation spells it: from
-//! version 2 as a stop reads it (`crate::plus_zero`, `lang::step`), before it as the `// KRS` line
-//! names it (`plus_zero`). Two renderings of the same verdicts under different annotation versions
-//! differ in that line and in the names, not in a class, a rule set or a status. A run rendering
-//! names no rule, so it has no `krs_annotation` line, which could only move a lock without any
-//! verdict moving.
+//! class, a status and a cell can move between `killed`, `unknown` and `survived` with the solver's
+//! answers, so a diff of two renderings across profiles shows why. A `results` document the KRS
+//! front end annotated also has `krs_annotation`, the version of that annotation (the document's
+//! `krs.version`), since a rule's KRS item is spelled as the annotation spells it: from version 2
+//! as a stop reads it (`crate::plus_zero`, `lang::step`), before it as the `// KRS` line names it
+//! (`plus_zero`); version 3 adds the stop condition as the corpus wrote it and spells items as
+//! version 2 does. Two renderings of the same verdicts under different annotation versions differ
+//! in that line and in the names, not in a class, a rule set or a status. A run rendering names no
+//! rule, so it has no `krs_annotation` line, which could only move a lock without any verdict
+//! moving.
 //!
 //! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
 //! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`), each

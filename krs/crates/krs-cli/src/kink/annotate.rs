@@ -45,14 +45,18 @@
 //!
 //! A corpus's `[stop]` names rules by KRS item or label, which the front end maps to K labels
 //! before kink-flow reads them, so every document's `stop` names the labels; the front end adds
-//! `krs = {items}` to it, each name as the corpus wrote it with the labels it selects.
+//! `krs = {items, when}` to it: each name as the corpus wrote it with the labels it selects, and,
+//! under `[stop] when`, the condition as the corpus wrote it (`{function, cells, observer}`),
+//! beside `stop.when`, the identity the front end resolved it to.
 //! Likewise its `[result] cells` names cells by Rust path or K name, mapped to K names, and every
 //! document's `result` gains the cells by path (`result.krs`, [`super::cells`]).
 //!
 //! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
 //! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
 //! names an item as above, while the annotation before it, which carried no version, named it as
-//! the `// KRS` line does (`plus_zero`, `Clamp, branch 3`), now `source_item`.
+//! the `// KRS` line does (`plus_zero`, `Clamp, branch 3`), now `source_item`; version 3 adds
+//! `stop.krs.when`, the condition as the corpus wrote it, which a reader of version 2 would not
+//! know to read beside `stop.when`.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -94,7 +98,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 2;
+pub(crate) const ANNOTATION_VERSION: u64 = 3;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -140,8 +144,9 @@ pub(crate) struct Annotator {
     /// The anchors of the command's mutation list, read on first need: a row of a mutation the
     /// command refused, which names its offending edit.
     anchors: OnceLock<Anchors>,
-    /// Each `[stop]` name as the corpus wrote it, with the labels it selects; `None` without a
-    /// stop.
+    /// The `krs` object of the documents' `stop`: each `[stop]` name as the corpus wrote it, with
+    /// the labels it selects (`items`), and the condition as written (`when`), when it has one;
+    /// `None` without a stop.
     stop_items: Option<Value>,
     /// The cells by Rust path that every document's `result` gains ([`super::cells`]).
     result_names: Option<super::cells::ResultNames>,
@@ -223,8 +228,9 @@ impl Annotator {
         }
     }
 
-    /// This annotator naming the corpus's stop: `items`, each `[stop]` name as written with the
-    /// labels it selects, is added to every document's `stop` as `krs.items`.
+    /// This annotator naming the corpus's stop: `items`, the `krs` object of its `stop` (each
+    /// `[stop]` name as written with the labels it selects, and the condition as written), is
+    /// added to every document's `stop` as `krs`.
     pub(crate) fn naming_stop(mut self, items: Option<Value>) -> Self {
         self.stop_items = items;
         self
@@ -312,7 +318,7 @@ impl Annotator {
             &self.stop_items,
             document.get_mut("stop").and_then(Value::as_object_mut),
         ) {
-            stop.insert("krs".into(), json!({ "items": items }));
+            stop.insert("krs".into(), items.clone());
         }
         if let Some(names) = &self.result_names {
             names.annotate(document);

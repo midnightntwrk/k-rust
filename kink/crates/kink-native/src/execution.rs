@@ -22,7 +22,12 @@
 //! ([`crate::exclusion`]), with what the adapter knows of the recording ([`RecordedRun`]).
 //! A result run may also carry stop rules ([`StopRules`]): its paths then end at a step of a
 //! selected rule that is its state's one successor, and its facts list each selected rule it went
-//! on past because the step had another successor ([`RunFacts::passed_stops`]).
+//! on past because the step had another successor ([`RunFacts::passed_stops`]). Such a run may
+//! also carry an in-process stop condition ([`StopCondition`], k-rust
+//! `Backend::execute_kore_with_condition`), which k-rust asks at each arrival at a stop: a path
+//! then ends at its `count`th arrival where the condition holds, a leaf where it was left
+//! undecided is `stop-undecided`, and a refusal fails the run
+//! ([`ExecutionAdapterFailure::StopCondition`]).
 
 use std::{
     cell::Cell,
@@ -37,6 +42,7 @@ use std::{
     time::Duration,
 };
 
+use k_rust::backend::BackendErrorKind;
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendCapabilities, BackendDiagnosticOutput, BackendError,
     CancelledResultOutput, ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput,
@@ -46,6 +52,7 @@ use k_rust::backend::{
     ShortCircuitReadingOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
     UnevaluatedHookOutput,
 };
+pub use k_rust::backend::{StopArrival, StopCondition, StopDecision, StopSide};
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
 use kink_pattern::ExecutionBounds;
@@ -73,9 +80,11 @@ pub enum HaltClass {
     /// unexpanded and unnormalised, and the pending states dropped. The adapter admits it only
     /// for a request that set `max_work` ([`HaltClass::admitted_by`]); it never completes a run.
     WorkBound,
-    /// k-rust's `stop-undecided` halt: a stop condition was left undecided at an arrival. Only
-    /// an in-process request with a stop condition has it, and the adapter asks none, so it
-    /// admits the halt never ([`HaltClass::admitted_by`]).
+    /// k-rust's `stop-undecided` halt: a stop condition was left undecided at an arrival, and
+    /// the path ends there, its state the arrival's stop state. Only an in-process request with
+    /// a stop condition has it ([`ExecutionAdapter::execute_result_counted`]): the adapter admits
+    /// it exactly for such a request ([`Requested::admits`]), never by [`HaltClass::admitted_by`],
+    /// which judges the wire request alone. It never completes a run.
     StopUndecided,
 }
 
@@ -327,14 +336,16 @@ impl StopRules {
 static NO_STOP_RULES: StopRules = StopRules::NONE;
 
 /// What one request asks for besides its [`ExecutionBudget`]: `run`'s modality and work budget,
-/// the stop rules `stop`, and the arrival at a stop at which a path ends, `count`. The request is
-/// built from it ([`request`]), and the halts its result may hold and the arrivals each leaf
-/// reports are read from it ([`HaltClass::admitted_by`], [`Self::admits_arrivals`]).
+/// the stop rules `stop`, the arrival at a stop at which a path ends, `count`, and whether an
+/// in-process stop condition is asked at the arrivals (`conditioned`). The request is built from
+/// it ([`request`]; the condition is no field of it), and the halts its result may hold and the
+/// arrivals each leaf reports are read from it ([`Self::admits`], [`Self::admits_arrivals`]).
 #[derive(Clone, Copy, Debug)]
 struct Requested<'a> {
     run: ResultRun,
     stop: &'a StopRules,
     count: NonZeroU64,
+    conditioned: bool,
 }
 
 impl Requested<'static> {
@@ -344,6 +355,7 @@ impl Requested<'static> {
             run,
             stop: &NO_STOP_RULES,
             count: NonZeroU64::MIN,
+            conditioned: false,
         }
     }
 }
@@ -357,14 +369,37 @@ impl Requested<'_> {
         (self.count > NonZeroU64::MIN && !self.stop.is_none()).then_some(self.count)
     }
 
+    /// Whether the request can yield a leaf of halt `halt` under `budget`: as
+    /// [`HaltClass::admitted_by`] judges the wire request, and a `stop-undecided` leaf exactly
+    /// when a stop condition was asked, which only that halt reveals.
+    const fn admits(self, halt: HaltClass, budget: &ExecutionBudget) -> bool {
+        match halt {
+            HaltClass::StopUndecided => self.conditioned && !self.stop.is_none(),
+            _ => halt.admitted_by(budget, self.run.max_work, self.stop),
+        }
+    }
+
     /// Whether a leaf of halt `halt` that reports `stops` arrivals at a stop (k-rust
     /// `ExecutionLeaf::stops`) is one the request can yield. Without a count k-rust reports
     /// none. With one, a `cut-point` or `terminal` leaf ends its path at the count's arrival, so
     /// it reports the count, and any other leaf ended its path before it, so it reports fewer.
     /// A stop leaf short of the count would otherwise be read as an end of the truncated system
     /// that its path has not reached.
-    fn admits_arrivals(self, halt: HaltClass, stops: Option<u64>) -> bool {
-        match (self.stop_count(), stops) {
+    ///
+    /// With a stop condition k-rust reports each leaf's events (`stops`) whatever the count,
+    /// the first included, and every arrival its path passed (`ExecutionLeaf::arrivals`),
+    /// whatever the condition answered there; a leaf that reports arrivals where no condition was
+    /// asked, or none where one was, is not the answer to this request. A `stop-undecided` leaf
+    /// ends its path at an arrival that is no event, so it reports fewer events than the count,
+    /// as any other leaf that is not a stop leaf.
+    fn admits_arrivals(self, halt: HaltClass, stops: Option<u64>, arrivals: Option<u64>) -> bool {
+        if arrivals.is_some() != self.conditioned {
+            return false;
+        }
+        let counted = self
+            .stop_count()
+            .or_else(|| (self.conditioned && !self.stop.is_none()).then_some(self.count));
+        match (counted, stops) {
             (None, None) => true,
             (None, Some(_)) | (Some(_), None) => false,
             (Some(count), Some(stops)) => match halt {
@@ -815,6 +850,12 @@ pub enum ExecutionAdapterFailure {
     /// A free element variable of the initial state has a sort with no value shown by the
     /// definition, so the state may have no instance.
     UninhabitedVariable(k_rust::kore::ast::Variable),
+    /// The run's stop condition ([`StopCondition`]) gave no answer the run can rest on: it
+    /// refused at an arrival (the observation has no value at that stop state, k-rust
+    /// `StopConditionRefused`, which names the rule, the depth and the reason), or the caller
+    /// could not give the run its condition. The stop criterion is not defined on this run, so it
+    /// has no result.
+    StopCondition(String),
 }
 
 /// The bounded request of one run. Strategy `all` is what makes the leaves the whole path set (or,
@@ -919,8 +960,14 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// ([`ExecutionAdapter::execute_result_counted`]), which the request sends as `stop_count` and
 /// whose leaves must report their arrivals accordingly; only kink-campaign's counted stop asks for
 /// one, and its version (kink-campaign `STOP_VERSION` v2) names that change, since every request
-/// of v3 is sent and adapted as it was.
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v3";
+/// of v3 is sent and adapted as it was. v4: a result run with stop rules may carry an in-process
+/// stop condition ([`StopCondition`], [`ExecutionAdapter::execute_result_counted`]), which k-rust
+/// asks at each arrival (`Backend::execute_kore_with_condition`; the wire request is unchanged):
+/// its paths count the arrivals where the condition holds, each leaf reports every arrival its
+/// path passed, a `stop-undecided` leaf is admitted exactly then, and a refusal of the condition
+/// fails the run as [`ExecutionAdapterFailure::StopCondition`]. A run without a condition sends
+/// and adapts the request of v3, field for field.
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v4";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
 const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
@@ -1065,6 +1112,7 @@ impl ExecutionAdapter {
             run,
             stop,
             NonZeroU64::MIN,
+            None,
         )
     }
 
@@ -1090,10 +1138,19 @@ impl ExecutionAdapter {
     /// A backend that does not count arrivals (its `stop_count` capability off) cannot be asked
     /// for a count past the first: it would end every path at its first arrival, which is another
     /// observation, so the adapter answers [`ExecutionAdapterFailure::Backend`] and runs nothing.
+    ///
+    /// With a stop condition `condition` (and stop rules), an arrival counts only where the
+    /// condition holds of its stop state (k-rust `Backend::execute_kore_with_condition`): the
+    /// state before a cut-point rule's step, the successor of a terminal rule's. An arrival where
+    /// it fails is taken as any other step; one where it is left undecided ends its path as a
+    /// `stop-undecided` leaf, which completes nothing; a refusal fails the run
+    /// ([`ExecutionAdapterFailure::StopCondition`]). Every leaf then reports the arrivals its path
+    /// passed beside the events it counted. The request sent is the one without a condition,
+    /// field for field. Without stop rules a condition is asked nowhere, and is not passed.
     #[expect(
         clippy::too_many_arguments,
         reason = "one request's inputs: the backend and its tables, the start, the budget, the run, \
-                  the stop rules and their count, none of which belong to another"
+                  the stop rules, their count and their condition, none of which belong to another"
     )]
     pub fn execute_result_counted(
         &self,
@@ -1104,9 +1161,16 @@ impl ExecutionAdapter {
         run: ResultRun,
         stop: &StopRules,
         count: NonZeroU64,
+        condition: Option<&mut dyn StopCondition>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
-        let requested = Requested { run, stop, count };
+        let condition = condition.filter(|_| !stop.is_none());
+        let requested = Requested {
+            run,
+            stop,
+            count,
+            conditioned: condition.is_some(),
+        };
         stops_listed(requested, backend.capabilities())?;
         let built = tables.of(backend)?;
         with_definition(backend, |definition| {
@@ -1121,28 +1185,43 @@ impl ExecutionAdapter {
             state,
             budget,
             requested,
+            condition,
             &built.inhabitation,
             &built.rewrites,
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Self::execute_result_counted's request with the definition's tables it read"
+    )]
     fn result_once(
         &self,
         backend: &mut Backend,
         state: &Pattern,
         budget: ExecutionBudget,
         requested: Requested<'_>,
+        condition: Option<&mut dyn StopCondition>,
         inhabitation: &Inhabitation,
         rewrites: &BTreeSet<String>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let recorded = RecordedRun::of(backend, state);
-        let (result, timed_out) = execute_with_watchdog(
-            backend,
-            state.clone(),
-            budget,
-            requested,
-            Backend::execute_kore,
-        )?;
+        let (result, timed_out) = match condition {
+            None => execute_with_watchdog(
+                backend,
+                state.clone(),
+                budget,
+                requested,
+                Backend::execute_kore,
+            )?,
+            Some(condition) => execute_with_watchdog(
+                backend,
+                state.clone(),
+                budget,
+                requested,
+                |backend, request| backend.execute_kore_with_condition(request, condition),
+            )?,
+        };
         let undecided = Cell::new(0);
         let feasibility = if timed_out {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
@@ -1350,8 +1429,8 @@ impl ExecutionAdapter {
             .zip(feasibility)
             .map(|(leaf, feasibility)| {
                 let halt = HaltClass::from_output(leaf.reason);
-                if !halt.admitted_by(budget, requested.run.max_work, requested.stop)
-                    || !requested.admits_arrivals(halt, leaf.stops)
+                if !requested.admits(halt, budget)
+                    || !requested.admits_arrivals(halt, leaf.stops, leaf.arrivals)
                 {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
                 }
@@ -1507,8 +1586,10 @@ fn execute_with_watchdog(
 /// portable build answers a token already cancelled at entry that way, section_2_2_summary
 /// (5)), or an `Ok` result with a `Cancelled` leaf (which the request excludes; the adapter then
 /// refuses the leaf, [`HaltClass::admitted_by`]). A timed-out run publishes no completed state:
-/// after an error it has no leaves, and its leaves are never read. Every other error, a stack
-/// or deadline stop included, is an infrastructure failure, never a timeout.
+/// after an error it has no leaves, and its leaves are never read. A refusal of the run's stop
+/// condition (k-rust `StopConditionRefused`) is [`ExecutionAdapterFailure::StopCondition`].
+/// Every other error, a stack or deadline stop included, is an infrastructure failure, never a
+/// timeout.
 fn settle(
     outcome: Result<KoreExecutionResult, BackendError>,
     fired: bool,
@@ -1545,6 +1626,9 @@ fn settle(
             },
             true,
         )),
+        Err(error) if error.kind() == Some(BackendErrorKind::StopConditionRefused) => {
+            Err(ExecutionAdapterFailure::StopCondition(error.to_string()))
+        }
         Err(error) => Err(ExecutionAdapterFailure::Backend(error.to_string())),
     }
 }
@@ -2097,7 +2181,16 @@ mod tests {
                     Some(three),
                 ),
             ] {
-                let request = request(state.clone(), budget, Requested { run, stop, count });
+                let request = request(
+                    state.clone(),
+                    budget,
+                    Requested {
+                        run,
+                        stop,
+                        count,
+                        conditioned: false,
+                    },
+                );
                 assert_eq!(request.stop_count, sent);
                 assert_eq!(request.result_modality, run.modality.output());
                 assert_eq!(request.max_work, run.max_work);
@@ -2153,6 +2246,7 @@ mod tests {
             run: ResultRun::default(),
             stop,
             count: NonZeroU64::new(count).unwrap(),
+            conditioned: false,
         };
         assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
         assert_eq!(stops_listed(requested(&stop, 1), listing), Ok(()));
@@ -2274,6 +2368,7 @@ mod tests {
                     run: ResultRun::default(),
                     stop,
                     count: NonZeroU64::MIN,
+                    conditioned: false,
                 },
                 vec![LeafFeasibility::Syntactic],
                 &BTreeSet::new(),
@@ -2526,6 +2621,7 @@ mod tests {
                     ResultRun::default(),
                     &stop,
                     NonZeroU64::new(count).unwrap(),
+                    None,
                 )
                 .expect("the run is adapted")
         };
@@ -2568,14 +2664,40 @@ mod tests {
             run: ResultRun::default(),
             stop,
             count: NonZeroU64::new(count).unwrap(),
+            conditioned: false,
         };
         for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
             for request in [requested(&NO_STOP_RULES, 3), requested(&stop, 1)] {
-                assert!(request.admits_arrivals(halt, None));
-                assert!(!request.admits_arrivals(halt, Some(1)));
+                assert!(request.admits_arrivals(halt, None, None));
+                assert!(!request.admits_arrivals(halt, Some(1), None));
+                // Arrivals are reported exactly when a condition was asked.
+                assert!(!request.admits_arrivals(halt, None, Some(1)));
             }
-            assert!(!requested(&stop, 3).admits_arrivals(halt, None));
+            assert!(!requested(&stop, 3).admits_arrivals(halt, None, None));
         }
+        let conditioned = Requested {
+            conditioned: true,
+            ..requested(&stop, 3)
+        };
+        assert!(conditioned.admits_arrivals(HaltClass::StopUndecided, Some(2), Some(5)));
+        assert!(!conditioned.admits_arrivals(HaltClass::StopUndecided, Some(3), Some(5)));
+        assert!(!conditioned.admits_arrivals(HaltClass::CutPoint, Some(3), None));
+        // With a condition the events are reported at the count 1 too.
+        let first = Requested {
+            conditioned: true,
+            ..requested(&stop, 1)
+        };
+        assert!(first.admits_arrivals(HaltClass::CutPoint, Some(1), Some(4)));
+        assert!(first.admits_arrivals(HaltClass::StopUndecided, Some(0), Some(4)));
+        assert!(!first.admits_arrivals(HaltClass::CutPoint, None, Some(4)));
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(1),
+            max_simplification_iterations: 1,
+            max_depth: None,
+            max_breadth: None,
+        };
+        assert!(conditioned.admits(HaltClass::StopUndecided, &budget));
+        assert!(!requested(&stop, 3).admits(HaltClass::StopUndecided, &budget));
         let three = requested(&stop, 3);
         for (halt, admitted) in [
             (HaltClass::CutPoint, [false, false, false, true, false]),
@@ -2585,7 +2707,7 @@ mod tests {
         ] {
             for (stops, admitted) in admitted.into_iter().enumerate() {
                 assert_eq!(
-                    three.admits_arrivals(halt, Some(stops as u64)),
+                    three.admits_arrivals(halt, Some(stops as u64), None),
                     admitted,
                     "{halt:?} {stops}"
                 );

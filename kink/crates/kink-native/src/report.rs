@@ -31,6 +31,7 @@ impl ReportError {
             ExecutionAdapterFailure::Backend(_) => "Backend",
             ExecutionAdapterFailure::ContractViolation(_) => "ContractViolation",
             ExecutionAdapterFailure::UninhabitedVariable(_) => "UninhabitedVariable",
+            ExecutionAdapterFailure::StopCondition(_) => "StopCondition",
         };
         Self {
             stage: "adapter",

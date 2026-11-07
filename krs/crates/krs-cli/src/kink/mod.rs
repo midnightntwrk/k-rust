@@ -14,7 +14,10 @@
 //! the exact K labels of the rules `[stop]` names by KRS item or label as
 //! `krs run --stop-before` does (the `stop` submodule, over the native compile the `inputs`
 //! submodule makes; a name that selects no rewrite rule refuses the corpus at stage `stop`,
-//! reason `stop-unresolved`), and the mutations its own checks refuse (`checks`); on the way
+//! reason `stop-unresolved`), the stop condition `[stop] when` names with KRS's spellings,
+//! resolved as `krs run --stop-when` resolves one and handed to kink as the condition it asks at
+//! each arrival (the `condition` submodule; reason `stop-condition-unresolved`), and the
+//! mutations its own checks refuse (`checks`); on the way
 //! out, the labels each `[stop]` name selects (`stop.krs.items`), the compared cells by Rust path
 //! (`result.krs`), to every rule a document names, the KRS item and the Rust position the
 //! sentence was emitted from (`annotate`), and next steps spelled as `krs kink` commands
@@ -51,6 +54,7 @@
 mod annotate;
 mod cells;
 mod checks;
+mod condition;
 mod emit;
 mod inputs;
 mod render;
@@ -633,9 +637,12 @@ fn bound_manifest(
     // parameter; it compiles nothing until one needs it, and the stop's names resolve over the
     // same compile.
     let decoder = Arc::new(inputs::KrsInputs::new(emitted.ir.clone()));
+    let observers = Arc::new(observers);
     let (manifest, stop_items) = stop::bind(
-        with_front_end_facts(manifest, emitted, decoder.clone(), observers),
+        with_front_end_facts(manifest, emitted, decoder.clone(), Arc::clone(&observers)),
         &decoder,
+        &observers,
+        &emitted.ir,
     )
     .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
     Ok((manifest, stop_items, result_names))
@@ -651,7 +658,7 @@ fn with_front_end_facts(
     manifest: kink_flow::FlowManifest,
     emitted: &EmittedDefinition,
     decoder: Arc<inputs::KrsInputs>,
-    observers: render::Observers,
+    observers: Arc<render::Observers>,
 ) -> kink_flow::FlowManifest {
     manifest
         .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone(), observers)))

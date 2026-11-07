@@ -87,8 +87,7 @@ use krs_k_rust::{
 use krs_unparse::ListSpelling;
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
-use condition::ConditionOracle;
-pub use condition::{ArrivalObservation, ObservationError, ResolvedCondition};
+pub use condition::{ArrivalObservation, ConditionOracle, ObservationError, ResolvedCondition};
 pub use configuration::Configuration;
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use ends::{

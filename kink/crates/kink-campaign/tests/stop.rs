@@ -14,7 +14,7 @@ use std::num::NonZeroU64;
 use std::path::Path;
 use std::time::Duration;
 
-use k_rust::definition::AttributeKey;
+use k_rust::definition::{AttributeKey, Attributes, Sentence};
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::Pattern;
@@ -22,11 +22,14 @@ use kink_campaign::{
     BaselineSession, Campaign, CampaignFailureKind, CampaignOptions, CampaignRun, CrashPolicy,
     ExecutionFailureKind, ManifestError, MultiManifestInput, MutantScopeFailure, MutantStatus,
     OneSided, OracleDeclaration, OracleOutcome, OracleSide, Projection, RunOptions, RunStop,
-    ScheduleMode, SelectionPolicy as Sel, SideRun, StateProjection, Stop, TestCase, TestRun,
-    WorkBudget, campaign_manifest_multi_with_options, run_campaign_multi_with, run_campaign_with,
+    ScheduleMode, SelectionPolicy as Sel, SideRun, StateProjection, Stop, StopOracle, StopWhen,
+    TestCase, TestRun, WorkBudget, campaign_manifest_multi_with_options, run_campaign_multi_with,
+    run_campaign_with,
 };
 use kink_native::NativeValidator;
-use kink_native::execution::{ExecutionBudget, ResultModality, StopRules};
+use kink_native::execution::{
+    ExecutionBudget, ResultModality, StopArrival, StopCondition, StopDecision, StopRules,
+};
 use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_patch::{
     Baseline, CandidateGeneration, Edit, InsertPosition, Patch, SelectionPolicy, SiteSelector,
@@ -296,6 +299,79 @@ fn early_halt(baseline: &Baseline) -> CandidateGeneration<'_> {
             "2",
         ),
     )
+}
+
+/// `halted` is no constructor: a rule `halted(N) => clock(N, 0) [anywhere]` is inserted at the
+/// module's end, so the compiled mutant declares `Lblhalted` without `constructor` (an `anywhere`
+/// rule heads it) where the baseline declares a constructor. No run of `clock(0, 0)` reaches
+/// `halted`, so the rule changes no end. The site is halt's, whose right-hand side applies it.
+fn halted_anywhere(baseline: &Baseline) -> CandidateGeneration<'_> {
+    fn find<'t>(term: &'t Term, label: &str) -> Option<&'t Term> {
+        match term.unannotated() {
+            Term::Apply {
+                label: head,
+                arguments,
+            } => (head.name == label)
+                .then_some(term)
+                .or_else(|| arguments.iter().find_map(|argument| find(argument, label))),
+            Term::Rewrite { left, right } => find(left, label).or_else(|| find(right, label)),
+            _ => None,
+        }
+    }
+    let halt = support::rule(baseline, "CLOCK.halt");
+    let Some(Sentence::Rule { body, .. }) = baseline.sentence(&halt) else {
+        panic!("halt is a rule");
+    };
+    let halted = find(body, "halted").expect("halt applies halted").clone();
+    let Term::Apply { label, arguments } = find(body, "clock")
+        .expect("halt matches clock")
+        .unannotated()
+    else {
+        unreachable!("find gives applications");
+    };
+    let clock = Term::Apply {
+        label: label.clone(),
+        arguments: vec![
+            arguments[0].clone(),
+            Term::Token {
+                token: "0".into(),
+                sort: Sort::new("Int"),
+            },
+        ],
+    };
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    // `anywhere` takes no value, as `function` does: the value `later`'s production gives it.
+    let (_, later) = baseline
+        .authored_sentences()
+        .find(|(_, sentence)| sentence.attributes().has(AttributeKey::Function))
+        .expect("later's production");
+    let mut attributes = Attributes::default();
+    attributes.set(
+        AttributeKey::Anywhere,
+        later
+            .attributes()
+            .value(AttributeKey::Function)
+            .unwrap()
+            .clone(),
+    );
+    let patch = Patch::new(vec![Edit::InsertSentence {
+        position: InsertPosition::ModuleEnd("CLOCK".into()),
+        ordinal: 0,
+        sentence: Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(halted),
+                right: Box::new(clock),
+            },
+            requires: truth(),
+            ensures: truth(),
+            attributes,
+        },
+    }])
+    .unwrap();
+    generation(baseline, (TermRef::new(halt, [0]), patch))
 }
 
 /// warp's -1 becomes 0: the first step branches into tick's way to the first frame (the
@@ -716,6 +792,350 @@ fn a_manifest_for_runs_with_a_stop_is_refused() {
             &options(after_frame(1)),
         );
         assert!(matches!(refused, Err(ManifestError::Stopped)));
+    });
+}
+
+/// A stop condition of the clock's count, as a front end would state one: the closure `decide`
+/// of the count `N` of the `clock(N, P)` the `<k>` cell of each arrival's stop state holds,
+/// asked at each arrival (`Stop::with_when`). The identity names the closure, as a front end's
+/// names its observer, function and cells.
+struct ClockCondition {
+    cells: Vec<Vec<String>>,
+    decide: fn(i64) -> StopDecision,
+}
+
+const TOP: &str = "Lbl'-LT-'generatedTop'-GT-'";
+const K: &str = "Lbl'-LT-'k'-GT-'";
+
+/// The count of the `clock(N, P)` a `<k>` cell holds first.
+fn count_of(cell: &Pattern) -> Option<i64> {
+    let mut pending = vec![cell];
+    while let Some(pattern) = pending.pop() {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if symbol.name == "Lblclock" {
+                return match arguments.first() {
+                    Some(Pattern::DomainValue { value, .. }) => value.as_utf8().ok()?.parse().ok(),
+                    _ => None,
+                };
+            }
+            pending.extend(arguments.iter().rev());
+        }
+    }
+    None
+}
+
+impl StopOracle for ClockCondition {
+    fn cells(&self) -> &[Vec<String>] {
+        &self.cells
+    }
+
+    fn with_condition(&self, body: &mut dyn FnMut(&mut dyn StopCondition)) -> Result<(), String> {
+        let decide = self.decide;
+        let mut condition = move |arrival: &StopArrival<'_>| match arrival
+            .cell(&[TOP, K])
+            .as_ref()
+            .and_then(count_of)
+        {
+            Some(count) => decide(count),
+            None => StopDecision::Refused("the <k> cell holds no clock".to_owned()),
+        };
+        body(&mut condition);
+        Ok(())
+    }
+}
+
+/// `stop` with the condition `decide` named `name`.
+fn when(stop: Stop, name: &str, decide: fn(i64) -> StopDecision) -> Stop {
+    stop.with_when(StopWhen::new(
+        serde_json::json!({ "condition": name }),
+        std::sync::Arc::new(ClockCondition {
+            cells: vec![vec![TOP.to_owned(), K.to_owned()]],
+            decide,
+        }),
+    ))
+}
+
+const fn decided(holds: bool) -> StopDecision {
+    if holds {
+        StopDecision::Holds
+    } else {
+        StopDecision::Fails
+    }
+}
+
+/// The condition's identity is part of the stop: two conditions of one identity are one stop, a
+/// stop's value names the identity under `when`, and a stop without a condition keeps the value
+/// it had before conditions existed.
+#[test]
+fn a_stop_names_its_condition_by_identity() {
+    let plain = before_frame(1);
+    let past = when(plain, "past three", |n| decided(n > 3));
+    assert_eq!(past, when(plain, "past three", |n| decided(n > 3)));
+    assert_ne!(past, plain);
+    assert_ne!(past, when(plain, "even", |n| decided(n % 2 == 0)));
+    assert_eq!(
+        past.value().unwrap()["when"],
+        serde_json::json!({"condition": "past three"})
+    );
+    assert!(plain.value().unwrap().get("when").is_none());
+    assert!(plain.when().is_none());
+    assert_eq!(
+        Stop::NONE.with_when(past.when().unwrap().clone()),
+        Stop::NONE
+    );
+}
+
+/// Stopped before `frame` with the count 1, an edit of only frame's right-hand side survives:
+/// the run ends before its step. Under a condition that fails at the first arrival (the count is
+/// 3 there, not past 3), the run takes frame's step there and ends at the next arrival, so the
+/// edit moves the condition's state and the mutant is killed: the baseline ends at `clock(7,
+/// 3)`, the mutant, whose frame adds 5, at `clock(11, 3)`. The count counts the arrivals where the
+/// condition holds.
+#[test]
+fn a_mutant_that_moves_the_conditions_state_is_killed() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("clock")];
+        let campaign = campaign(&validator, &tests);
+        let generation = frame_rhs(validator.baseline());
+        let stop = when(before_frame(1), "past three", |n| decided(n > 3));
+        let killed = run(&campaign, &generation, options(stop));
+        assert_eq!(baseline_ends(&killed), [vec![clock(7, 3)]]);
+        assert_eq!(mutant_ends(&killed), [vec![clock(11, 3)]]);
+        assert_eq!(killed.mutants[0].report.status, MutantStatus::Killed);
+        // A condition that holds everywhere is the stop without one: the edit is hidden again.
+        let always = when(before_frame(1), "always", |_| StopDecision::Holds);
+        let hidden = run(&campaign, &generation, options(always));
+        assert_eq!(baseline_ends(&hidden), [vec![clock(3, 3)]]);
+        assert_eq!(hidden.mutants[0].report.status, MutantStatus::Survived);
+        // The second arrival where it holds: past three twice, at 7 and 11.
+        let second = when(before_frame(2), "past three", |n| decided(n > 3));
+        let run = run(&campaign, &generation, options(second));
+        assert_eq!(baseline_ends(&run), [vec![clock(11, 3)]]);
+    });
+}
+
+/// A condition left undecided at an arrival of the mutant's run (tick adds 2, so its first frame
+/// comes at the odd count 7), or refused there, makes the program `unknown` with the cause
+/// `stop-condition`, never a kill; the baseline's arrivals (at even counts) are decided. Left
+/// undecided or refused on the baseline's run, the campaign is refused, naming why: the program
+/// is not judged.
+#[test]
+fn an_undecided_or_refused_condition_is_unknown_on_either_side() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("clock")];
+        let campaign = campaign(&validator, &tests);
+        let generation = faster_tick(validator.baseline());
+        let undecided = when(after_frame(1), "even or undecided", |n| {
+            if n % 2 == 0 {
+                StopDecision::Holds
+            } else {
+                StopDecision::Undecided("a test's budget".to_owned())
+            }
+        });
+        let refused = when(after_frame(1), "even or refused", |n| {
+            if n % 2 == 0 {
+                StopDecision::Holds
+            } else {
+                StopDecision::Refused("a test's refusal".to_owned())
+            }
+        });
+        for stop in [undecided, refused] {
+            let run = run(&campaign, &generation, options(stop));
+            assert_eq!(baseline_ends(&run), [vec![clock(4, 0)]], "{stop:?}");
+            let mutant = &run.mutants[0];
+            assert_eq!(mutant.report.status, MutantStatus::Unknown, "{stop:?}");
+            assert_eq!(
+                *outcomes(&run),
+                TestRun::Failed(ExecutionFailureKind::StopCondition),
+                "{stop:?}"
+            );
+            assert!(
+                mutant.evidence[0].notes.stop_condition.is_some(),
+                "{stop:?}"
+            );
+        }
+        for (name, decide) in [
+            (
+                "undecided",
+                (|_| StopDecision::Undecided("a test's budget".to_owned()))
+                    as fn(i64) -> StopDecision,
+            ),
+            ("refused", |_| {
+                StopDecision::Refused("a test's refusal".to_owned())
+            }),
+        ] {
+            let refused = run_campaign_with(
+                &campaign,
+                &generation,
+                &CampaignOptions {
+                    schedule: ScheduleMode::Full,
+                    selection: Sel::None,
+                    share_evidence: true,
+                    run: options(when(after_frame(1), name, decide)),
+                    compile_workers: 1,
+                },
+            )
+            .expect_err(name);
+            assert_eq!(
+                refused.kind(),
+                CampaignFailureKind::BaselineOracleFailed,
+                "{name}"
+            );
+            let reason = refused.stop_condition().expect(name);
+            assert!(reason.contains("a test's"), "{name}: {reason}");
+        }
+    });
+}
+
+/// warp's -1 becomes 0: from `clock(0, 5)` the mutant's run explores warp's way first
+/// (`clock(100, 3)`), whose first arrival, at 101, the condition fails, and whose second, at 105,
+/// it holds; then skip's way, the baseline's, whose first arrival, at 5, it holds. Under a work
+/// budget too small for both ways the run ends at the budget on skip's way, so its side is
+/// unknown, but its stop leaf `clock(105, 0)`, reached past an arrival decided to fail, is a
+/// final configuration of every completion of the run outside the baseline's ends: a one-sided
+/// kill. Without a budget both runs complete and the kill is two-sided.
+#[test]
+fn a_work_bound_mutant_is_killed_one_sidedly_at_a_condition_stop() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let five = [TestCase {
+            initial_state: clock(0, 5),
+            ..test("five")
+        }];
+        let campaign = campaign(&validator, &five);
+        let generation = warp(validator.baseline());
+        let stop = when(after_frame(1), "not 101", |n| decided(n != 101));
+        let unbounded = run(&campaign, &generation, options(stop));
+        assert_eq!(baseline_ends(&unbounded), [vec![clock(5, 0)]]);
+        assert_eq!(mutant_ends(&unbounded), [vec![clock(105, 0), clock(5, 0)]]);
+        assert_eq!(unbounded.mutants[0].report.status, MutantStatus::Killed);
+        let one_sided = (0..12)
+            .map(|floor| {
+                run(
+                    &campaign,
+                    &generation,
+                    RunOptions {
+                        work: WorkBudget::Calibrated { factor: 1, floor },
+                        one_sided: OneSided::NoCrashClassifier,
+                        ..options(stop)
+                    },
+                )
+            })
+            .find(|run| {
+                run.mutants[0].report.status == MutantStatus::Killed
+                    && run.mutants[0].evidence[0].run
+                        == SideRun::Sides {
+                            sides: vec![OracleSide::Unknown],
+                        }
+            })
+            .expect("a budget that ends the mutant's run on skip's way, past warp's stop leaf");
+        let mutant = &one_sided.mutants[0];
+        assert_eq!(mutant.report.status, MutantStatus::Killed);
+        assert_eq!(
+            *outcomes(&one_sided),
+            TestRun::Compared(vec![OracleOutcome::Distinguish])
+        );
+        assert_eq!(
+            mutant.evidence[0].one_sided_ends.iter().collect::<Vec<_>>(),
+            [&clock(105, 0)]
+        );
+    });
+}
+
+/// From `clock(-16, 0)`, `split` branches off each frame's first tick, so each frame is reached
+/// two ways, by ticks to phase 3, where `frame` steps, and by `split` to phase 5, where `skip`
+/// steps, both to the same next state: a state set merges the two ways, a path set follows each.
+/// Stopping before either rule under a condition that fails at the first arrivals
+/// (`clock(-13, 3)` and `clock(-13, 5)`) and holds from `clock(-9, _)` on, both modalities give
+/// the same ends on the baseline and the same verdict on the mutant: the condition is a function
+/// of the stop state, so a merge never joins a state whose arrival it decided with one whose
+/// arrival it decided otherwise, and the merge key counts events and arrivals alike.
+#[test]
+fn a_state_set_with_a_condition_equals_the_path_set() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let negative = [TestCase {
+            initial_state: clock(-16, 0),
+            ..test("split")
+        }];
+        let campaign = campaign(&validator, &negative);
+        let generation = faster_tick(validator.baseline());
+        let both = |count| {
+            Stop::new(
+                StopRules {
+                    before: vec![FRAME.into(), SKIP.into()],
+                    after: Vec::new(),
+                },
+                self::count(count),
+            )
+            .unwrap()
+        };
+        for stop in [
+            when(both(1), "past -12", |n| decided(n > -12)),
+            when(both(2), "past -12", |n| decided(n > -12)),
+        ] {
+            let runs = [ResultModality::PathSet, ResultModality::StateSet].map(|modality| {
+                run(
+                    &campaign,
+                    &generation,
+                    RunOptions {
+                        result_modality: modality,
+                        ..options(stop)
+                    },
+                )
+            });
+            let sorted = |ends: Vec<Vec<Pattern>>| {
+                ends.into_iter()
+                    .map(|mut ends| {
+                        ends.sort();
+                        ends
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                sorted(baseline_ends(&runs[0])),
+                sorted(baseline_ends(&runs[1])),
+                "{stop:?}"
+            );
+            assert!(!baseline_ends(&runs[0])[0].is_empty(), "{stop:?}");
+            assert_eq!(
+                runs[0].mutants[0].report.status, runs[1].mutants[0].report.status,
+                "{stop:?}"
+            );
+        }
+    });
+}
+
+/// `halted` is no constructor: an inserted `anywhere` rule heads it, so the mutant declares the
+/// symbol `Lblhalted`, a constructor of the sort `Clock` that the `<k>` cell reaches through
+/// `KItem`, otherwise than the baseline. A front end reads every side's cells with the
+/// baseline's declarations, and would read an application `halted(N)` in the mutant's state as
+/// the baseline's constructor, which the mutant's rule rewrites; under a condition that reads
+/// `<k>` the mutant is not admitted (`stop-condition-incompatible`), before any test runs. Under
+/// the stop without a condition, which reads no cell, the same mutant is run, and survives: no
+/// run of `clock(0, 0)` reaches `halted`.
+#[test]
+fn a_mutant_declaring_a_read_constructor_otherwise_is_not_admitted() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("clock")];
+        let campaign = campaign(&validator, &tests);
+        let generation = halted_anywhere(validator.baseline());
+        let read = when(before_frame(1), "past three", |n| decided(n > 3));
+        let refused = run(&campaign, &generation, options(read));
+        let mutant = &refused.mutants[0];
+        assert_eq!(
+            mutant.plan.mutant_failure,
+            Some(MutantScopeFailure::StopConditionIncompatible)
+        );
+        assert_eq!(mutant.report.status, MutantStatus::NotAdmitted);
+        assert!(mutant.plan.tests.is_empty());
+        assert!(mutant.evidence.is_empty());
+        let plain = run(&campaign, &generation, options(before_frame(1)));
+        assert_eq!(plain.mutants[0].plan.mutant_failure, None);
+        assert_eq!(plain.mutants[0].report.status, MutantStatus::Survived);
     });
 }
 

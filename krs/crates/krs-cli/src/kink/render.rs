@@ -121,11 +121,11 @@ pub(crate) struct KrsEnds {
     /// profiles; a run with tier 1 off never asks).
     identity: OnceLock<Result<Value, String>>,
     /// The observers the corpus's expectations name.
-    observers: Observers,
+    observers: Arc<Observers>,
 }
 
 impl KrsEnds {
-    pub(crate) const fn new(inputs: Arc<KrsInputs>, observers: Observers) -> Self {
+    pub(crate) const fn new(inputs: Arc<KrsInputs>, observers: Arc<Observers>) -> Self {
         Self {
             inputs,
             identity: OnceLock::new(),
@@ -179,7 +179,7 @@ pub(crate) struct Observers {
 
 /// An observer named by a corpus: compiled, `None` for the definition itself, or why it cannot be
 /// prepared.
-type Prepared = Result<Option<Arc<Observer>>, String>;
+pub(crate) type Prepared = Result<Option<Arc<Observer>>, String>;
 
 impl Observers {
     pub(crate) fn new(request: CommandRequest, sources: DiagnosticSources) -> Self {
@@ -192,7 +192,7 @@ impl Observers {
 
     /// The observer `name`, prepared and compiled the first time an expectation names it;
     /// `None` when it names the definition the cases run on.
-    fn get(&self, name: &str) -> Prepared {
+    pub(crate) fn get(&self, name: &str) -> Prepared {
         // The map's lock is held only to find the observer's slot, not while it is prepared.
         let slot = Arc::clone(
             self.prepared
@@ -215,7 +215,7 @@ impl Observers {
 }
 
 /// An observer definition and its compiled stage.
-struct Observer {
+pub(crate) struct Observer {
     /// Tells this observer's load apart from another's in a thread's cache.
     id: u64,
     name: String,
@@ -224,7 +224,12 @@ struct Observer {
 }
 
 impl Observer {
-    fn compile(name: &str, definition: DefinitionIr) -> Result<Self, String> {
+    /// The observer's Definition IR.
+    pub(crate) const fn definition(&self) -> &DefinitionIr {
+        &self.definition
+    }
+
+    pub(crate) fn compile(name: &str, definition: DefinitionIr) -> Result<Self, String> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let stage = CompiledStage::compile(&definition, &mut Timings::disabled())
             .map_err(|error| format!("the observer `{name}` cannot be compiled: {error}"))?;
@@ -238,7 +243,7 @@ impl Observer {
 
     /// `body` with this observer's semantics on this thread, loaded on first use under the
     /// solver options the definition's own compile has.
-    fn with_loaded<T>(
+    pub(crate) fn with_loaded<T>(
         &self,
         body: impl FnOnce(&mut Semantics) -> Result<T, String>,
     ) -> Result<T, String> {
@@ -709,7 +714,9 @@ fn difference(
 
 /// The SHA-256 of `definition`'s JSON without its provenance tables (module documentation), in
 /// lowercase hexadecimal.
-fn definition_digest(definition: &krs_ir_levels::DefinitionIr) -> Result<String, String> {
+pub(crate) fn definition_digest(
+    definition: &krs_ir_levels::DefinitionIr,
+) -> Result<String, String> {
     let mut value = serde_json::to_value(definition)
         .map_err(|error| format!("the Definition IR does not serialize: {error}"))?;
     if let Some(root) = value.as_object_mut() {

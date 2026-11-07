@@ -2144,8 +2144,12 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// 11 since `result` may name cells inside `?` and `*` cells, each left out (or compared) in
 /// every instance, and a narrowing's `compared` names the key of each Map that encloses a named
 /// cell; the refusals `unobservable-cell-position` and `result-cell-position` are gone, and a
-/// Map's key left out is refused (`map-key-left-out`) ([`crate::observed`]).
-pub const CHECK_VERSION: u64 = 11;
+/// Map's key left out is refused (`map-key-left-out`) ([`crate::observed`]); 12 since `[stop]
+/// when`: a stop with a condition names it in `stop` (`when`, the condition's identity as the
+/// front end resolved it), a specification whose front end states no condition is refused at
+/// stage `stop` (`unsupported-front-end`), and under a condition `stop-hides-edit` is given for
+/// a rule no comparable program's run took the step of, read from coverage that decides.
+pub const CHECK_VERSION: u64 = 12;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({

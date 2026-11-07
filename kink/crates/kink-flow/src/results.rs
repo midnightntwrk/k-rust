@@ -271,6 +271,11 @@ pub enum HostDependence {
     Failure,
     /// The run is excluded for a reason of the host ([`host_exclusion`]).
     Exclusion(Exclusion),
+    /// The run's stop condition (`[stop] when`) was left undecided at an arrival, or refused at
+    /// one (kink-campaign `ExecutionFailureKind::StopCondition`). An undecided answer can be its
+    /// evaluation's budget, which the answer does not tell from a fact of the definition, so no
+    /// such result is kept, as a timeout is not.
+    StopCondition,
 }
 
 impl HostDependence {
@@ -290,6 +295,10 @@ impl HostDependence {
                  the program",
                 exclusion.name()
             ),
+            Self::StopCondition => "the stop condition was left undecided or had no value at an \
+                                    arrival of the run, and an undecided answer can be its \
+                                    evaluation's budget rather than a fact of the definition"
+                .to_owned(),
         };
         format!(
             "{}: {why}, so the next command runs this program again",
@@ -871,6 +880,29 @@ impl<'a> BaselineRunner<'a> {
                     host: None,
                 }
             }
+            // A baseline whose stop condition was left undecided at an arrival, or refused at
+            // one: whether the run ended where the condition says is not known, so the program is
+            // not judged; the cause names the arrival and the condition's reason, and the result
+            // is never kept ([`HostDependence::StopCondition`]). No diagnostic run: it would ask
+            // the same condition at the same arrivals.
+            Err(failure) if failure.stop_condition().is_some() => ProgramResult {
+                class: ResultClass::Unknown,
+                cause: Some(format!(
+                    "stop-condition: the stop condition ([stop] when) of this program's run gave \
+                     no answer the run can rest on: {}",
+                    failure.stop_condition().unwrap_or_default()
+                )),
+                baseline: None,
+                final_configuration: None,
+                ends: None,
+                coverage: live.and_then(|live| live.coverage.clone()),
+                wall_ms: None,
+                specification_diagnostics: json!([]),
+                smt_unknowns: 0,
+                decider_smt_unknowns: 0,
+                short_circuit_readings: json!([]),
+                host: Some(HostDependence::StopCondition),
+            },
             Err(failure) => self.diagnose(
                 &test,
                 failure.kind(),

@@ -89,6 +89,19 @@ impl ResolvedCondition {
     pub fn function(&self) -> &str {
         &self.function
     }
+
+    /// The observer's function the name resolved to, by its full KRS path.
+    #[must_use]
+    pub fn function_path(&self) -> &str {
+        self.decl.path()
+    }
+
+    /// Each cell the condition reads, in parameter order, as the cell symbols from the
+    /// configuration's top down to it: the path [`StopArrival::cell`] follows to convert that
+    /// cell alone.
+    pub fn cell_symbols(&self) -> impl Iterator<Item = &[String]> {
+        self.cells.iter().map(|cell| cell.symbols.as_slice())
+    }
 }
 
 /// Why an observation at an arrival has no value.
@@ -237,8 +250,10 @@ pub(crate) struct UndecidedArrival {
 }
 
 /// The backend's stop condition of a run ([`StopCondition`]): the observation's `Bool`, an
-/// undecided observation undecided, any other observation without a value refused.
-pub(crate) struct ConditionOracle<'o> {
+/// undecided observation undecided, any other observation without a value refused. A caller
+/// that runs another backend under the condition (kink's runs of a definition and its mutants)
+/// asks it as the backend's own runs do.
+pub struct ConditionOracle<'o> {
     observation: ArrivalObservation<'o>,
     /// The refusal that failed the request, once one did.
     pub(crate) refusal: Option<Refusal>,
@@ -247,7 +262,9 @@ pub(crate) struct ConditionOracle<'o> {
 }
 
 impl<'o> ConditionOracle<'o> {
-    pub(crate) const fn new(observation: ArrivalObservation<'o>) -> Self {
+    /// The stop condition that answers by `observation`.
+    #[must_use]
+    pub const fn new(observation: ArrivalObservation<'o>) -> Self {
         Self {
             observation,
             refusal: None,

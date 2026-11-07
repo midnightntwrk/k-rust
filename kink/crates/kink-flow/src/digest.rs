@@ -376,9 +376,11 @@ pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> Executi
 /// there are any. The execution digest already holds every `unobservable` declaration and
 /// `[result] cells`; the cells left out are named here too, so that the context says on its face
 /// which projection an outcome was decided for. `stop` is the manifest's stop
-/// (`FlowManifest::stop_value`: its rules, its count and each program's own count), on which every
-/// end a run reaches depends; absent without one, so a context without a stop is the context it
-/// was before stops existed. `evidence` is a front end's kill evidence's format and further
+/// (`FlowManifest::stop_value`: its rules, its count, each program's own count and, under
+/// `[stop] when`, the condition's identity: its observer's Definition IR digest, the function and
+/// the cells), on which every end a run reaches depends; absent without one, so a context without
+/// a stop is the context it was before stops existed, and a stop without a condition names no
+/// `when`, so its context is the one it was before conditions existed. `evidence` is a front end's kill evidence's format and further
 /// inputs (`Renderer::evidence`, `{format, identity}`), on which the evidence a `killed` record
 /// stores depends: absent for kink's own evidence, so a store written with one renderer, or with
 /// one renderer over other names, never serves another's evidence, and a context without a front

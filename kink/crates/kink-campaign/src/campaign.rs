@@ -110,6 +110,14 @@ pub enum MutantScopeFailure {
     /// without its stop, which would compare ends of two different observations.
     /// [`MutantStatus::NotAdmitted`]: outside the score, never killed or survived.
     StopUnresolved,
+    /// The campaign's stop condition reads cells whose sorts the claim-free mutant declares
+    /// otherwise than the baseline (`stop-condition-incompatible`; [`crate::Stop::with_when`]):
+    /// a sort or symbol those cells reach, which both declare, is declared otherwise, or a
+    /// subsort of a reached sort is new (`crate::condition`, "Reading a mutant's cells"). The
+    /// condition's front end reads every side's cells with the baseline's declarations, so the
+    /// mutant could be asked another question; it is not run under it.
+    /// [`MutantStatus::NotAdmitted`]: outside the score, never killed or survived.
+    StopConditionIncompatible,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -124,7 +132,8 @@ impl MutantScopeFailure {
             Self::Rejected
             | Self::LoweringNontermination
             | Self::InconsistentMutant
-            | Self::StopUnresolved => MutantStatus::NotAdmitted,
+            | Self::StopUnresolved
+            | Self::StopConditionIncompatible => MutantStatus::NotAdmitted,
             Self::LoweringTimeLimit => MutantStatus::Timeout,
             Self::LoweringResourceLimit
             | Self::RepresentationRefused
@@ -200,6 +209,11 @@ pub enum ExecutionFailureKind {
     /// k-rust's `passedStops` list, so its leaves need not be the ends of the truncated system
     /// its stop states ([`kink_native::exclusion::Exclusion::PassedStop`]).
     PassedStop,
+    /// The run's stop condition ([`crate::Stop::with_when`]) was left undecided at an arrival,
+    /// where a path then ended, or refused at one (its observation has no value at that stop
+    /// state), or could not be asked: whether the run ended where the condition says is not
+    /// known, so it is no evidence for any slot, on the mutant's side or the baseline's.
+    StopCondition,
 }
 
 impl ExecutionFailureKind {
@@ -218,7 +232,8 @@ impl ExecutionFailureKind {
             | Self::EqualsCondition
             | Self::ImplementationChosenValue
             | Self::UnsupportedHook
-            | Self::PassedStop => MutantStatus::Unknown,
+            | Self::PassedStop
+            | Self::StopCondition => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }
@@ -240,7 +255,11 @@ impl ExecutionFailureKind {
             Self::ImplementationChosenValue => Exclusion::ImplementationChosenValue,
             Self::UnsupportedHook => Exclusion::UnsupportedHook,
             Self::PassedStop => Exclusion::PassedStop,
-            Self::Indeterminate | Self::ResourceLimit | Self::TimeLimit | Self::Infrastructure => {
+            Self::Indeterminate
+            | Self::ResourceLimit
+            | Self::TimeLimit
+            | Self::Infrastructure
+            | Self::StopCondition => {
                 return None;
             }
         })
@@ -704,6 +723,7 @@ pub struct CampaignFailure {
     detail: String,
     exclusion: Option<kink_native::exclusion::Exclusion>,
     unresolved_stop: Vec<String>,
+    stop_condition: Option<String>,
 }
 
 impl CampaignFailure {
@@ -713,6 +733,23 @@ impl CampaignFailure {
             detail: detail.into(),
             exclusion: None,
             unresolved_stop: Vec::new(),
+            stop_condition: None,
+        }
+    }
+
+    /// A refusal of the campaign because the stop condition left the baseline run of test
+    /// `test_id` no evidence (`reason`: the arrival it was undecided at, or its refusal;
+    /// [`ExecutionFailureKind::StopCondition`]): a [`CampaignFailureKind::BaselineOracleFailed`],
+    /// as an excluded baseline run is.
+    pub(crate) fn stop_condition_refused(test_id: &str, reason: &str) -> Self {
+        Self {
+            stop_condition: Some(reason.to_owned()),
+            ..Self::new(
+                CampaignFailureKind::BaselineOracleFailed,
+                format!(
+                    "stop-condition: the baseline run of test {test_id} is no evidence: {reason}"
+                ),
+            )
         }
     }
 
@@ -768,6 +805,13 @@ impl CampaignFailure {
     #[must_use]
     pub fn unresolved_stop(&self) -> &[String] {
         &self.unresolved_stop
+    }
+
+    /// Why the stop condition left a baseline run no evidence, when that refused the campaign
+    /// (the arrival it was undecided at, or its refusal); `None` otherwise.
+    #[must_use]
+    pub fn stop_condition(&self) -> Option<&str> {
+        self.stop_condition.as_deref()
     }
 }
 

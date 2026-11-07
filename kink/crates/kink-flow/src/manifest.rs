@@ -24,7 +24,9 @@
 //! `[stop]` names where every program's run ends besides its own end ([`StopSection`]): rules to
 //! stop before or after, and a count, which a program may override (`stop_count`). A K corpus
 //! names each rule by its exact K label; a KRS corpus by KRS item or label, which the krs front
-//! end maps to the exact labels before kink-flow reads them.
+//! end maps to the exact labels before kink-flow reads them. `[stop] when` names a stop condition
+//! ([`StopWhenSection`]), which only a front end that reads the definition's values states
+//! ([`FlowManifest::with_stop_when`]); kink-flow's own K front end refuses it at stage `stop`.
 //!
 //! One schema serves both front ends. `[spec]` declares the specification in one of two ways
 //! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
@@ -76,6 +78,11 @@ pub struct FlowManifest {
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
     pub stop: Option<StopSection>,
+    /// The front end's stop condition, which asks `[stop] when` at each arrival
+    /// ([`Self::with_stop_when`]). A decoded `FLOW.toml` has none: kink-flow reads no values of
+    /// the definition, so admission refuses a `when` without it (stage `stop`,
+    /// `unsupported-front-end`).
+    pub stop_when: StopWhenSlot,
     /// The front end's reading of typed inputs (a program's `inputs`), which the front end that
     /// knows the inputs' declared types sets ([`Self::with_input_decoder`]). A decoded `FLOW.toml`
     /// has none: kink reads K text only, and admission refuses a program with `inputs` without
@@ -95,6 +102,11 @@ pub struct FlowManifest {
     /// `claim-helper`, outside the program-coverage denominator.
     pub claim_helpers: BTreeSet<(String, String)>,
 }
+
+/// A front end's stop condition ([`kink_campaign::StopWhen`]), or none. Two slots are equal when
+/// both are empty or both hold conditions of one identity.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct StopWhenSlot(pub Option<kink_campaign::StopWhen>);
 
 /// A front end's [`InputDecoder`], or none. Two manifests' decoders are equal when both are
 /// absent or both are the same decoder value.
@@ -172,6 +184,28 @@ pub struct StopSection {
     /// `count`: the stop event a path ends at, for every program without its own `stop_count`;
     /// default 1.
     pub count: std::num::NonZeroU64,
+    /// `when`: a stop condition, when the manifest states one: a stop event is then an arrival
+    /// whose stop state the condition holds of ([`StopWhenSection`]).
+    pub when: Option<StopWhenSection>,
+}
+
+/// `[stop] when = { function, cells, observer? }`: a stop condition, as written. A stop event is
+/// an arrival (a step by a stop rule that is its state's one successor) whose stop state (the
+/// state before a `before` rule's step, the successor of an `after` rule's) satisfies `function`
+/// applied to the values of `cells`, in order, evaluated in `observer`, a definition other than
+/// the one run (by default the baseline), for the baseline and every mutant alike (kink-campaign
+/// `StopWhen`). The names are the front end's: a KRS corpus names the function by KRS path, the
+/// cells by Rust field path and the observer as `PACKAGE:DEFINITION`. kink-flow reads none of
+/// them; a front end that reads the definition's values resolves them
+/// ([`FlowManifest::with_stop_when`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StopWhenSection {
+    /// `function`: the condition, a function of the cells of result `Bool`.
+    pub function: String,
+    /// `cells`: the cells it reads, one per parameter, in order; nonempty.
+    pub cells: Vec<String>,
+    /// `observer`: the definition the condition is evaluated in; `None`: the baseline.
+    pub observer: Option<String>,
 }
 
 impl StopSection {
@@ -467,6 +501,7 @@ impl ManifestFile {
             programs: self.programs,
             result: self.result,
             stop: self.stop,
+            stop_when: StopWhenSlot::default(),
             input_decoder: Decoder::default(),
             end_renderer: Renderer::default(),
             claim_helpers: BTreeSet::new(),
@@ -506,7 +541,8 @@ impl FlowManifest {
     }
 
     /// The campaign stop of every program's run (kink-campaign `Stop`): `[stop]`'s rules and
-    /// count, with each program's own `stop_count` as its test's count; [`kink_campaign::Stop::NONE`]
+    /// count, with each program's own `stop_count` as its test's count, and the front end's
+    /// condition when `[stop] when` states one ([`Self::stop_when`]); [`kink_campaign::Stop::NONE`]
     /// without `[stop]`.
     #[must_use]
     pub fn campaign_stop(&self) -> kink_campaign::Stop {
@@ -516,6 +552,9 @@ impl FlowManifest {
         let Some(mut stop) = kink_campaign::Stop::new(section.rules(), section.count) else {
             return kink_campaign::Stop::NONE;
         };
+        if let (Some(_), Some(when)) = (&section.when, &self.stop_when.0) {
+            stop = stop.with_when(when.clone());
+        }
         for program in &self.programs {
             if let Some(count) = program.stop_count {
                 stop = stop.with_test_count(&program.id, count);
@@ -525,23 +564,39 @@ impl FlowManifest {
     }
 
     /// The stop every document names (`stop`): `{before, after, count}`, with `counts`, each
-    /// program's own count by id, when a program has one ([`kink_campaign::Stop::value`]); `None`
-    /// without `[stop]`, and then no document has the key.
+    /// program's own count by id, when a program has one, and `when`, the condition's identity,
+    /// when it has one ([`kink_campaign::Stop::value`]); `None` without `[stop]`, and then no
+    /// document has the key.
     #[must_use]
     pub fn stop_value(&self) -> Option<serde_json::Value> {
         self.campaign_stop().value()
     }
 
     /// The stop of the run of `program`, as its result key names it: `{before, after, count}`
-    /// with the program's own count; `None` without `[stop]`, and then the key has no `stop`.
+    /// with the program's own count, and `when`, the condition's identity, when the stop has one
+    /// (a key without a condition keeps its bytes); `None` without `[stop]`, and then the key has
+    /// no `stop`.
     #[must_use]
     pub fn program_stop(&self, program: &Program) -> Option<serde_json::Value> {
         let section = self.stop.as_ref()?;
-        Some(serde_json::json!({
+        let mut stop = serde_json::json!({
             "before": section.before,
             "after": section.after,
             "count": program.stop_count.unwrap_or(section.count).get(),
-        }))
+        });
+        if let Some(when) = self.campaign_stop().when() {
+            stop["when"] = when.identity().clone();
+        }
+        Some(stop)
+    }
+
+    /// This manifest with `when` asking its `[stop] when` at each arrival: a front end that reads
+    /// the definition's values (the krs front end) resolves the condition and sets it on the
+    /// manifest it decoded.
+    #[must_use]
+    pub fn with_stop_when(mut self, when: kink_campaign::StopWhen) -> Self {
+        self.stop_when = StopWhenSlot(Some(when));
+        self
     }
 
     /// This manifest with `decoder` reading its programs' typed inputs: a front end that knows
@@ -846,18 +901,16 @@ fn result(value: &Value) -> Result<ResultSection, ManifestError> {
 /// at least one name in all and none in both; `count`, a positive integer, default 1.
 fn stop(value: &Value) -> Result<StopSection, ManifestError> {
     let section = table(value, "stop")?;
-    // A stop condition (`krs run --stop-when`, a case's `run.stop_when`) decides which arrivals
-    // end a run. kink does not ask one yet, so a run here would end at another arrival than the
-    // condition names and compare other ends than krs reaches: refused, never ignored.
-    if section.contains_key("when") {
+    // A case document names its condition `run.stop_when`; in the corpus's own `[stop]` it is
+    // `when`, beside the rules it filters.
+    if section.contains_key("stop_when") {
         return Err(ManifestError::new(
-            "stop.when",
-            "a stop condition is not supported by kink yet: kink asks no condition at the \
-             arrivals, so its runs would end elsewhere than the condition says; remove `when`, or \
-             check the cases that need it with `krs cases`",
+            "stop.stop_when",
+            "unknown key: [stop] names its condition `when` (`when = { function = .., cells = \
+             [..] }`), as a case document's `run.stop_when`",
         ));
     }
-    known_keys(section, "stop", &["before", "after", "count"])?;
+    known_keys(section, "stop", &["before", "after", "count", "when"])?;
     let names = |name: &str| -> Result<Vec<String>, ManifestError> {
         let key = join("stop", name);
         let entries = match section.get(name) {
@@ -908,10 +961,48 @@ fn stop(value: &Value) -> Result<StopSection, ManifestError> {
         ));
     }
     let count = positive(section, "stop", "count", 1)?;
+    let when = section.get("when").map(stop_when).transpose()?;
     Ok(StopSection {
         before,
         after,
         count: std::num::NonZeroU64::new(count).expect("positive"),
+        when,
+    })
+}
+
+/// `[stop] when`: a table of `function`, a nonempty string, `cells`, a nonempty array of nonempty
+/// strings, and `observer`, a nonempty string when given.
+fn stop_when(value: &Value) -> Result<StopWhenSection, ManifestError> {
+    const KEY: &str = "stop.when";
+    let section = table(value, KEY)?;
+    known_keys(section, KEY, &["function", "cells", "observer"])?;
+    let function = string(
+        section
+            .get("function")
+            .ok_or_else(|| missing(&join(KEY, "function")))?,
+        &join(KEY, "function"),
+    )?;
+    let key = join(KEY, "cells");
+    let cells = match section.get("cells") {
+        None => return Err(missing(&key)),
+        Some(Value::Array(entries)) if !entries.is_empty() => entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| string(entry, &format!("{key}[{index}]")))
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(Value::Array(_)) => {
+            return Err(ManifestError::new(
+                key,
+                "names no cell: a condition reads the cells its function takes, one per parameter",
+            ));
+        }
+        Some(_) => return Err(ManifestError::new(key, "expected an array of cell names")),
+    };
+    let observer = optional_string(section, KEY, "observer")?;
+    Ok(StopWhenSection {
+        function,
+        cells,
+        observer,
     })
 }
 

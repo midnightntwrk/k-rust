@@ -1307,7 +1307,8 @@ fn exhaustive_adapter_failure(failure: &ExecutionAdapterFailure) {
         | ExecutionAdapterFailure::InvalidState(_)
         | ExecutionAdapterFailure::Backend(_)
         | ExecutionAdapterFailure::ContractViolation(_)
-        | ExecutionAdapterFailure::UninhabitedVariable(_) => {}
+        | ExecutionAdapterFailure::UninhabitedVariable(_)
+        | ExecutionAdapterFailure::StopCondition(_) => {}
     }
 }
 
@@ -1444,6 +1445,14 @@ fn runner_mapping_is_exhaustive() {
             "{failure:?}"
         );
     }
+    // A stop condition that refused, or could not be asked, leaves the run no evidence: the
+    // program is unknown, never an infrastructure error.
+    let refused = ExecutionAdapterFailure::StopCondition(String::new());
+    exhaustive_adapter_failure(&refused);
+    assert_eq!(
+        ExecutionFailureKind::from(&refused),
+        ExecutionFailureKind::StopCondition
+    );
     let bridge = [
         BridgeFailure::NoLeaves,
         BridgeFailure::ContractViolation(H::Branch),

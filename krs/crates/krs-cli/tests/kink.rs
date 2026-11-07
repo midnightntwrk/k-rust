@@ -145,10 +145,6 @@ fn ticker() -> Arc<Project> {
             ("kink", "[stop]\nafter = [\"crate::tick\"]\ncount = 3\n"),
             ("corpora/before", "[stop]\nbefore = [\"crate::tick\"]\n"),
             ("corpora/unknown", "[stop]\nafter = [\"crate::nothing\"]\n"),
-            (
-                "corpora/when",
-                "[stop]\nafter = [\"crate::tick\"]\nwhen = { function = \"Even\", cells = [\"k\"] }\n",
-            ),
         ] {
             files.push((format!("{corpus}/FLOW.toml"), ticker_flow(stop)));
             files.push((format!("{corpus}/cases/t0.tick"), b"tick(0)\n".to_vec()));
@@ -2035,6 +2031,26 @@ fn run_refuses_what_check_refuses() {
     assert_eq!(rows[0]["status"], "invalid-mutation", "{document:#}");
 }
 
+/// Every file under `directory`, none when it does not exist.
+fn walk_files(directory: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut directories = vec![directory.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                directories.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
 /// The mutation ids the cache at `cache` holds an outcome file or a hint for.
 fn cached_mutations(cache: &Path) -> std::collections::BTreeSet<String> {
     let mut ids = std::collections::BTreeSet::new();
@@ -3195,21 +3211,336 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
     assert!(detail.contains("after `crate::nothing`"), "{detail}");
 }
 
-/// A stop condition (`[stop] when`) is refused, with the reason that kink asks none yet: a run
-/// that ignored it would end at another arrival than `krs run --stop-when` does.
+/// A free-running counter: `tick` adds 1 to `n` and ticks again, so a run never ends on its own,
+/// and `Third` holds where `n` is a multiple of 3: a stop condition of the one cell `n`.
+const STOPWATCH: &str = r##"use k::builtin::{Bool, Int, KSequence};
+use k::{KItem, Term};
+
+k::sorts! {
+    Op: KItem;
+}
+
+#[k::constructors(sort = Op, result = k::KResult)]
+pub enum Step {
+    #[k::syntax("#tick")]
+    Tick,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub n: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(start: Int) -> Self {
+        Self {
+            k: k::k![Step::Tick],
+            n: start,
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+
+    tick: { k: [Step::Tick, ..], n } => { k: [Step::Tick, ..], n: n + 1 };
+}
+
+/// Whether `n` is a multiple of 3.
+#[k::function(total, internal)]
+pub fn Third(n: Term<Int>) -> Term<Bool> {
+    n % 3 == 0
+}
+"##;
+
+/// The package of [`STOPWATCH`].
+const STOPWATCH_PACKAGE: &str = "krs-cli-kink-stopwatch";
+
+/// The observer of [`STOPWATCH`], a second package of its workspace that depends on it.
+const STOPWATCH_OBSERVER_PACKAGE: &str = "krs-cli-kink-stopwatch-observe";
+
+/// The observer's source: two conditions of `n` that no definition imports, one total and one
+/// partial.
+const STOPWATCH_OBSERVER: &str = r"//! An observer of the stopwatch, imported by no definition.
+
+use k::Term;
+use k::builtin::{Bool, Int};
+
+/// Whether `n` is a multiple of 5.
+#[k::function(total, internal)]
+pub fn Fifth(n: Term<Int>) -> Term<Bool> {
+    n % 5 == 0
+}
+
+/// A condition with no value from 2 on: partial, defined by its equation alone.
+#[k::function(partial, internal)]
+#[k::requires(n < 2)]
+pub fn Small(n: Term<Int>) -> Term<Bool> {
+    n >= 5
+}
+";
+
+/// [`STOPWATCH`] and its observer, with corpora that stop after `tick` where `Third` holds of
+/// `n` (`kink`), name a function the definition does not hold (`corpora/unknown`), stop before
+/// `tick` where `Third` holds, from 0, where the first arrival is a stop (`corpora/hidden`), and
+/// from 1, where the run takes `tick`'s step at the arrivals at 1 and 2 (`corpora/taken`), and
+/// stop after `tick` where the observer's `Fifth` holds (`corpora/observed`) or where its partial
+/// `Small` does, which has no value at the second arrival (`corpora/partial`).
+fn stopwatch() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../krs")
+            .canonicalize()
+            .unwrap();
+        let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+        let manifest = |name: &str, namespace: &str, dependencies: &str, workspace: &str| {
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n{workspace}"
+            )
+            .into_bytes()
+        };
+        let mut files = vec![
+            (
+                "Cargo.toml".to_owned(),
+                manifest(
+                    STOPWATCH_PACKAGE,
+                    "STOPWATCH",
+                    "",
+                    "\n[workspace]\nmembers = [\"observe\"]\nresolver = \"3\"\n",
+                ),
+            ),
+            ("src/lib.rs".to_owned(), STOPWATCH.as_bytes().to_vec()),
+            (
+                "observe/Cargo.toml".to_owned(),
+                manifest(
+                    STOPWATCH_OBSERVER_PACKAGE,
+                    "STOPWATCH-OBSERVE",
+                    &format!(
+                        "stopwatch = {{ package = \"{STOPWATCH_PACKAGE}\", path = \"..\" }}\n"
+                    ),
+                    "",
+                ),
+            ),
+            (
+                "observe/src/lib.rs".to_owned(),
+                STOPWATCH_OBSERVER.as_bytes().to_vec(),
+            ),
+        ];
+        let observer = format!(", observer = \"{STOPWATCH_OBSERVER_PACKAGE}:main\"");
+        for (corpus, side, function, observer, start) in [
+            ("kink", "after", "Third", "", 0),
+            ("corpora/unknown", "after", "Nothing", "", 0),
+            ("corpora/hidden", "before", "Third", "", 0),
+            ("corpora/taken", "before", "Third", "", 1),
+            ("corpora/observed", "after", "Fifth", observer.as_str(), 0),
+            ("corpora/partial", "after", "Small", observer.as_str(), 0),
+        ] {
+            files.push((
+                format!("{corpus}/FLOW.toml"),
+                format!(
+                    "[spec]\nkrs = {{ definition = \"main\" }}\n\n[stop]\n{side} = [\"crate::tick\"]\nwhen = {{ function = \"{function}\", cells = [\"n\"]{observer} }}\n\n[[program]]\ncases = \"cases/*.toml\"\n"
+                )
+                .into_bytes(),
+            ));
+            files.push((
+                format!("{corpus}/cases/start.toml"),
+                format!("[inputs]\nstart = {start}\n").into_bytes(),
+            ));
+        }
+        files.push((
+            "kink/mutations/tick.toml".to_owned(),
+            b"[[mutation]]\nid = \"twice\"\nmisunderstanding = \"a tick adds two\"\n\n  [[mutation.edit]]\n  rule = \"tick\"\n  find = \"+Int 1\"\n  replace = \"+Int 2\"\n"
+                .to_vec(),
+        ));
+        project_of(STOPWATCH_PACKAGE, "STOPWATCH", &files)
+    })
+}
+
+/// A stop condition (`[stop] when`) named with KRS's spellings, as `krs run --stop-when` names
+/// one: the front end resolves the function in the observer (here the definition itself) and
+/// the cell by Rust path, and every document names the condition, by the identity it resolved
+/// (`stop.when`: the observer's Definition IR digest, the function's path and the cells) and as
+/// the corpus wrote it (`stop.krs.when`). The run of `start = 0` ends after the tick that
+/// reaches 3, the first arrival where `Third` holds; a tick that adds two reaches 2, 4 and then
+/// 6, so the condition's state moves and the mutation is killed relative to the condition. A
+/// function the definition does not hold refuses the corpus at stage `stop` before anything runs.
 #[test]
-fn a_stop_condition_is_refused_until_kink_asks_one() {
-    let project = ticker();
-    for verb in ["check", "results"] {
-        let output = project.kink(verb, &["--corpus", "corpora/when"]);
-        assert_status(&output, 2);
-        let text = String::from_utf8_lossy(&output.stdout).into_owned()
-            + &String::from_utf8_lossy(&output.stderr);
-        assert!(
-            text.contains("a stop condition is not supported by kink yet"),
-            "{verb}: {text}"
+fn a_stop_condition_names_where_the_runs_of_a_corpus_end() {
+    let project = stopwatch();
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let stop = &document["stop"];
+    assert_eq!(stop["when"]["cells"], serde_json::json!(["n"]), "{stop:#}");
+    assert!(
+        stop["when"]["function"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("Third")),
+        "{stop:#}"
+    );
+    assert_eq!(
+        stop["when"]["observer"]["definition"],
+        serde_json::Value::Null,
+        "{stop:#}"
+    );
+    assert!(
+        stop["when"]["observer"]["definition_ir"].is_string(),
+        "{stop:#}"
+    );
+    assert_eq!(
+        stop["krs"]["when"],
+        serde_json::json!({"function": "Third", "cells": ["n"], "observer": null}),
+        "{stop:#}"
+    );
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "comparable", "{program:#}");
+    assert_eq!(program["ends"][0]["halt"], "stop", "{program:#}");
+
+    let output = project.kink("run", &[]);
+    let run = json(&output);
+    assert_eq!(run["stop"]["when"], stop["when"], "{run:#}");
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    // The baseline stops at 3, the mutant at 6: the first counts where the condition holds.
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["path"], "n", "{difference:#}");
+    assert_eq!(difference["left"]["value"]["document"], 3, "{difference:#}");
+    assert_eq!(
+        difference["right"]["value"]["document"], 6,
+        "{difference:#}"
+    );
+
+    let output = project.kink("results", &["--corpus", "corpora/unknown"]);
+    assert_status(&output, 2);
+    let refused = json(&output);
+    assert_eq!(refused["spec"]["stage"], "stop", "{refused:#}");
+    assert_eq!(
+        refused["spec"]["reason"], "stop-condition-unresolved",
+        "{refused:#}"
+    );
+    let detail = refused["spec"]["detail"].as_str().unwrap();
+    assert!(detail.contains("`Nothing`"), "{detail}");
+
+    // Stopped before `tick` under the condition, the count alone does not say whether the step
+    // is taken: from 0 the first arrival is a stop and no case takes the step, so `check` warns
+    // that an edit of only its right-hand side changes no end; from 1 the run takes the step at
+    // the arrivals where the condition fails, and it does not.
+    for (corpus, hidden) in [("corpora/hidden", true), ("corpora/taken", false)] {
+        assert_status(&project.kink("results", &["--corpus", corpus]), 0);
+        let output = project.kink(
+            "check",
+            &[
+                "--corpus",
+                corpus,
+                "--mutations",
+                "kink/mutations/tick.toml",
+            ],
+        );
+        let check = json(&output);
+        assert_eq!(check["coverage"]["decides"], true, "{corpus}: {check:#}");
+        let warnings = check["mutations"][0]["warnings"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{check:#}"))
+            .iter()
+            .map(|warning| warning["reason"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            warnings.contains(&"stop-hides-edit"),
+            hidden,
+            "{corpus}: {check:#}"
         );
     }
+}
+
+/// A stop condition evaluated in a named observer (`observer = "PACKAGE:DEFINITION"`): the
+/// front end decodes each run's cells with the definition's declarations and evaluates the
+/// observer's function, which the definition does not hold, on them; the identity names the
+/// observer as written and its own Definition IR digest, not the definition's. The run of
+/// `start = 0` ends after the tick that reaches 5, the first arrival where `Fifth` holds; a tick
+/// that adds two reaches 10 first, so the mutation is killed.
+#[test]
+fn a_stop_condition_is_evaluated_in_its_named_observer() {
+    let project = stopwatch();
+    let observer = format!("{STOPWATCH_OBSERVER_PACKAGE}:main");
+    let output = project.kink("results", &["--corpus", "corpora/observed"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let when = &document["stop"]["when"];
+    assert_eq!(
+        when["observer"]["definition"],
+        observer.as_str(),
+        "{when:#}"
+    );
+    assert!(
+        when["function"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("Fifth")),
+        "{when:#}"
+    );
+    assert_eq!(
+        document["stop"]["krs"]["when"],
+        serde_json::json!({"function": "Fifth", "cells": ["n"], "observer": observer}),
+        "{document:#}"
+    );
+    // The observer's digest, not the definition's, which a condition the definition itself
+    // evaluates names.
+    let baseline = json(&project.kink("results", &[]));
+    let digest = &when["observer"]["definition_ir"];
+    assert!(digest.is_string(), "{when:#}");
+    assert_ne!(
+        *digest, baseline["stop"]["when"]["observer"]["definition_ir"],
+        "{when:#}"
+    );
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "comparable", "{program:#}");
+
+    let output = project.kink(
+        "run",
+        &[
+            "--corpus",
+            "corpora/observed",
+            "--mutations",
+            "kink/mutations/tick.toml",
+        ],
+    );
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["left"]["value"]["document"], 5, "{difference:#}");
+    assert_eq!(
+        difference["right"]["value"]["document"], 10,
+        "{difference:#}"
+    );
+}
+
+/// A condition with no value at an arrival of the baseline's run (`Small` of 2) leaves the run
+/// no evidence: the program is not judged, class `unknown` with the cause `stop-condition`, which
+/// names the condition's refusal, and its result is not cached, so the next command runs it
+/// again.
+#[test]
+fn a_baseline_run_whose_condition_has_no_value_is_not_judged_and_not_cached() {
+    let project = stopwatch();
+    for _ in 0..2 {
+        let output = project.kink("results", &["--corpus", "corpora/partial"]);
+        let document = json(&output);
+        let program = &document["programs"][0];
+        assert_eq!(program["class"], "unknown", "{program:#}");
+        assert_eq!(program["cached"], false, "{program:#}");
+        let cause = program["cause"].as_str().unwrap_or_default();
+        assert!(cause.starts_with("stop-condition: "), "{program:#}");
+        assert!(cause.contains("`Small` has no value"), "{program:#}");
+        let not_cached = program["not_cached"].as_str().unwrap_or_default();
+        assert!(not_cached.contains("stop condition"), "{program:#}");
+    }
+    let records = project.path().join("corpora/partial/.kink-flow/results");
+    let written = walk_files(&records);
+    assert!(written.is_empty(), "{written:?}");
 }
 
 /// A stop names a configuration rule of the root package, an item of a dependency crate and an
