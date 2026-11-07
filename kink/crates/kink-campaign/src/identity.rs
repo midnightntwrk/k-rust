@@ -253,7 +253,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 38] = [
+pub const OUTSIDE_IDENTITY: [Outside; 36] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -365,12 +365,6 @@ pub const OUTSIDE_IDENTITY: [Outside; 38] = [
                  `kink_build`",
     },
     Outside {
-        krate: "kink-flow",
-        constant: "HINT_DOMAIN",
-        reason: "the domain of a killer-hint key; a hint only orders the kill search, which proves \
-                 every status live or from tier 1",
-    },
-    Outside {
         krate: "kink-campaign",
         constant: "CAMPAIGN_REPORT_VERSION",
         reason: "the campaign report's format: replay, kink-corpus resume and its summary refuse \
@@ -411,12 +405,6 @@ pub const OUTSIDE_IDENTITY: [Outside; 38] = [
                  object: evidence is printed for a reader of a kill the slot already proved and \
                  decides no status; a `killed` outcome record stores it inside its digest, in an \
                  outcome file whose version its reader requires (outcomes.rs)",
-    },
-    Outside {
-        krate: "kink-flow",
-        constant: "HINTS_VERSION",
-        reason: "the killer-hints file's format; a hint only orders the kill search, which proves \
-                 every status live or from tier 1",
     },
     Outside {
         krate: "kink-flow",

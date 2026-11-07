@@ -51,11 +51,6 @@ success-output = "final"
 # below names kink packages, binaries and test paths only; `kink/scripts/kink-tier.py lint` fails
 # when one of them stops matching a test.
 #
-# kink-flow: the slow program's recorded wall time must exceed the fast one's.
-[[profile.default.overrides]]
-filter = 'package(kink-flow) & binary(usability) & test(=kink_tier::the_cheaper_killer_is_found_and_hinted_first)'
-test-group = "wall-clock"
-
 # kink's heavy tests that take longer than the default ten minutes on a quiet host: the one-sided
 # differential over IMP and its mutants takes about 21 minutes alone.
 [[profile.default.overrides]]
