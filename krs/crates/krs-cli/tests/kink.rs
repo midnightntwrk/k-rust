@@ -1933,6 +1933,8 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
 /// the rest, and exits non-zero.
 #[test]
 fn run_refuses_what_check_refuses() {
+    // A lock of this test's own, outside the shared corpus.
+    const LOCK: [&str; 2] = ["--lock", "target/locks/run-refuses.lock"];
     let project = checked();
     // `run` reads the layout's list; the check test of this shared project reads another.
     project.write(
@@ -1962,13 +1964,7 @@ fn run_refuses_what_check_refuses() {
     ];
     let output = project.kink(
         "run",
-        &[
-            "--full",
-            "--cache",
-            "kink/run-cache",
-            "--lock",
-            "target/locks/run-refuses.lock",
-        ],
+        &[&["--full", "--cache", "kink/run-cache"][..], &LOCK].concat(),
     );
     assert_status(&output, 2);
     let document = json(&output);
@@ -2001,17 +1997,8 @@ fn run_refuses_what_check_refuses() {
         "{document:#}"
     );
     // `--only` judges the mutations it runs, and refuses them as the whole list does.
-    let output = project.kink(
-        "run",
-        &[
-            "--only",
-            "overlap",
-            "--cache",
-            "kink/only-cache",
-            "--lock",
-            "target/locks/run-refuses.lock",
-        ],
-    );
+    let only = ["--only", "overlap", "--cache", "kink/only-cache"];
+    let output = project.kink("run", &[&only[..], &LOCK].concat());
     assert_status(&output, 2);
     let document = json(&output);
     let rows = document["mutations"].as_array().unwrap();
@@ -4314,13 +4301,15 @@ fn locked_story(package: &'static str) -> Project {
 /// bytes `krs kink run` writes: the run's verdicts rendering without `killed_by`, under the Z3
 /// profile krs links.
 fn story_lock(killers: [&str; 3]) -> String {
+    use std::fmt::Write as _;
     let mut text = "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\nprofile = \
                     \"z3\"\n\n[spec]\noutcome = \"admitted\"\n"
         .to_owned();
     for (id, killer) in ["plus/a", "plus/b", "plus/c"].into_iter().zip(killers) {
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
-        ));
+        );
     }
     text
 }
@@ -4512,7 +4501,7 @@ fn a_killer_that_stops_killing_or_leaves_is_replaced() {
         ("story-plus-lock-agrees", "no-longer-kills"),
     ] {
         let project = locked_story(package);
-        project.write("kink/verdicts.lock", &story_lock(["t4", "t4", "t4"]));
+        project.write("kink/verdicts.lock", story_lock(["t4", "t4", "t4"]));
         match how {
             "not-in-corpus" => project.write(
                 "kink/FLOW.toml",
