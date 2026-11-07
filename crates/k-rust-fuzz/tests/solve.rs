@@ -54,7 +54,7 @@ const CI_BUDGET: u64 = 600;
 /// moves (its parameters, its trigger, the condition records it reads, the Z3 library), as
 /// `tests/golden.rs`'s solve fingerprint does.
 #[cfg(feature = "z3")]
-const PINNED_ISOLATED_C7: [Option<u64>; 5] = [Some(32), Some(12), Some(17), Some(17), Some(57)];
+const PINNED_ISOLATED_C7: [Option<u64>; 5] = [Some(32), Some(21), Some(17), Some(17), Some(23)];
 #[cfg(feature = "z3")]
 const PINNED_MAZE_C7: [Option<u64>; 5] = [Some(64), Some(65), Some(66), Some(79), Some(65)];
 
