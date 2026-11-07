@@ -44,13 +44,13 @@ use std::{
 
 use k_rust::backend::BackendErrorKind;
 use k_rust::backend::{
-    BACKEND_SCHEMA_VERSION, Backend, BackendCapabilities, BackendDiagnosticOutput, BackendError,
-    CancelledResultOutput, ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput,
-    EffectOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput, KoreExecutionLeaf,
-    KoreExecutionResult, ObservationEventOutput, ObservedInOutput, ObservedRequest,
-    PassedStopOutput, ResultModalityOutput, RunCoverageOutput, SearchFailureOutput,
-    ShortCircuitReadingOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
-    UnevaluatedHookOutput,
+    AxiomGuardOutput, BACKEND_SCHEMA_VERSION, Backend, BackendCapabilities,
+    BackendDiagnosticOutput, BackendError, CancelledResultOutput, ChosenValueOutput,
+    ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput, ExecuteRequest,
+    ExecutionStrategy, GuardCollection, HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult,
+    ObservationEventOutput, ObservedInOutput, ObservedRequest, PassedStopOutput,
+    ResultModalityOutput, RunCoverageOutput, SearchFailureOutput, ShortCircuitReadingOutput,
+    TraceEntry, TransitionClassOutput, TransitionIdOutput, UnevaluatedHookOutput,
 };
 pub use k_rust::backend::{StopArrival, StopCondition, StopDecision, StopSide};
 use k_rust::kore::ast::Pattern;
@@ -281,13 +281,21 @@ impl ResultModality {
     }
 }
 
-/// How a result run is requested besides its [`ExecutionBudget`]: its modality and its work
-/// budget (k-rust `max_work`: the most states the run may visit across all its paths). The
-/// default is a state set without a work budget.
+/// How a result run is requested besides its [`ExecutionBudget`]: its modality, its work
+/// budget (k-rust `max_work`: the most states the run may visit across all its paths), and
+/// whether its coverage collects guard outcomes (`guards`). The default is a state set without a
+/// work budget or guard outcomes.
+///
+/// With `guards`, the request names every rewrite rule and function equation of the definition
+/// whose `requires` is not empty (k-rust `collect_guards`), and the run's coverage carries their
+/// guard outcomes ([`RunCoverage::guards`]). k-rust states that asking changes no other field of
+/// the result (docs/compatibility.md, "Run coverage"), so no leaf, list, set, verdict or
+/// schedule differs from a run without it.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ResultRun {
     pub modality: ResultModality,
     pub max_work: Option<u64>,
+    pub guards: bool,
 }
 
 /// The stop rules of a result run (k-rust `cut_point_rules` and `terminal_rules`), each rule
@@ -346,6 +354,8 @@ struct Requested<'a> {
     stop: &'a StopRules,
     count: NonZeroU64,
     conditioned: bool,
+    /// The axioms whose guard outcomes the request collects, when `run.guards` asks for them.
+    guards: Option<&'a BTreeSet<String>>,
 }
 
 impl Requested<'static> {
@@ -356,6 +366,7 @@ impl Requested<'static> {
             stop: &NO_STOP_RULES,
             count: NonZeroU64::MIN,
             conditioned: false,
+            guards: None,
         }
     }
 }
@@ -428,6 +439,9 @@ pub struct RunCoverage {
     pub applied_rewrites: BTreeSet<String>,
     /// Empty when the run's coverage did not report it (every run [`request`] builds asks).
     pub committed: BTreeSet<String>,
+    /// The guard outcomes of the axioms the request named ([`ResultRun::guards`]), by id;
+    /// empty when the run did not collect them.
+    pub guards: Vec<AxiomGuardOutput<Pattern>>,
 }
 
 impl RunCoverage {
@@ -439,6 +453,7 @@ impl RunCoverage {
             matched: output.matched.into_iter().collect(),
             applied_rewrites,
             committed: output.committed.into_iter().flatten().collect(),
+            guards: output.guards.unwrap_or_default(),
         }
     }
 }
@@ -905,7 +920,9 @@ pub enum ExecutionAdapterFailure {
 /// not be (finding A-03).
 fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) -> ExecuteRequest {
     let stop_count = requested.stop_count();
-    let Requested { run, stop, .. } = requested;
+    let Requested {
+        run, stop, guards, ..
+    } = requested;
     ExecuteRequest {
         state,
         module_name: None,
@@ -925,7 +942,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         collect_offered: false,
         collect_counts: false,
         collect_conditions: None,
-        collect_guards: None,
+        collect_guards: guards.map(|axioms| GuardCollection::new(axioms.iter().cloned())),
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
@@ -967,13 +984,19 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// its paths count the arrivals where the condition holds, each leaf reports every arrival its
 /// path passed, a `stop-undecided` leaf is admitted exactly then, and a refusal of the condition
 /// fails the run as [`ExecutionAdapterFailure::StopCondition`]. A run without a condition sends
-/// and adapts the request of v3, field for field.
+/// and adapts the request of v3, field for field. Within v4, a baseline's result run also asks
+/// for the guard outcomes of the definition's guarded rewrite rules and function equations
+/// (`collect_guards`, [`ResultRun::guards`]): k-rust states that asking changes no other field of
+/// the result, as for the committed transitions, nothing that decides a verdict or a schedule
+/// reads them, and a mutant's run and a stepped run ask for none; the one store that holds them,
+/// kink-flow's result records, moved its `RESULT_SCHEMA_VERSION`.
 pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v4";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
 const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
     modality: ResultModality::PathSet,
     max_work: None,
+    guards: false,
 });
 
 /// The tables a result run reads from its backend's definition, built once per backend and
@@ -996,6 +1019,8 @@ pub struct DefinitionTables {
 struct BuiltTables {
     inhabitation: Inhabitation,
     rewrites: BTreeSet<String>,
+    /// The axioms a run that collects guard outcomes names ([`guarded_unique_ids`]).
+    guarded: BTreeSet<String>,
 }
 
 impl DefinitionTables {
@@ -1012,6 +1037,7 @@ impl DefinitionTables {
                 Ok(BuiltTables {
                     inhabitation: Inhabitation::of(definition),
                     rewrites: rewrite_unique_ids(definition),
+                    guarded: guarded_unique_ids(definition),
                 })
             })?;
             self.built = Some(built);
@@ -1166,14 +1192,15 @@ impl ExecutionAdapter {
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let condition = condition.filter(|_| !stop.is_none());
+        let built = tables.of(backend)?;
         let requested = Requested {
             run,
             stop,
             count,
             conditioned: condition.is_some(),
+            guards: run.guards.then_some(&built.guarded),
         };
         stops_listed(requested, backend.capabilities())?;
-        let built = tables.of(backend)?;
         with_definition(backend, |definition| {
             match uninhabited_variable(definition, &built.inhabitation, state) {
                 Ok(None) => Ok(()),
@@ -1632,6 +1659,32 @@ fn settle(
         }
         Err(error) => Err(ExecutionAdapterFailure::Backend(error.to_string())),
     }
+}
+
+/// The `UNIQUE_ID`s of the definition's rewrite rules and function equations whose `requires`
+/// is not empty: the axioms whose guard outcomes a run that collects them names
+/// ([`ResultRun::guards`]). Simplifications, ceil and predicate equations are no sentence of the
+/// definition's runs in coverage's sense, so they are not named.
+fn guarded_unique_ids(
+    definition: &k_rust_backend::definition::BackendDefinition,
+) -> BTreeSet<String> {
+    let rewrites = definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| rule.rule.as_ref());
+    let equations = definition
+        .function_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| rule.as_ref());
+    rewrites
+        .chain(equations)
+        .filter(|rule| !rule.requires.is_empty())
+        .map(|rule| rule.attributes.unique_id.clone())
+        .collect()
 }
 
 /// The `UNIQUE_ID`s of the definition's rewrite rules: the ids [`RunCoverage::applied_rewrites`]
@@ -2145,6 +2198,7 @@ mod tests {
             ResultRun::default(),
             STEPPED.run,
             ResultRun {
+                guards: false,
                 modality: ResultModality::StateSet,
                 max_work: Some(11),
             },
@@ -2190,6 +2244,7 @@ mod tests {
                         stop,
                         count,
                         conditioned: false,
+                        guards: None,
                     },
                 );
                 assert_eq!(request.stop_count, sent);
@@ -2248,6 +2303,7 @@ mod tests {
             stop,
             count: NonZeroU64::new(count).unwrap(),
             conditioned: false,
+            guards: None,
         };
         assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
         assert_eq!(stops_listed(requested(&stop, 1), listing), Ok(()));
@@ -2370,6 +2426,7 @@ mod tests {
                     stop,
                     count: NonZeroU64::MIN,
                     conditioned: false,
+                    guards: None,
                 },
                 vec![LeafFeasibility::Syntactic],
                 &BTreeSet::new(),
@@ -2666,6 +2723,7 @@ mod tests {
             stop,
             count: NonZeroU64::new(count).unwrap(),
             conditioned: false,
+            guards: None,
         };
         for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
             for request in [requested(&NO_STOP_RULES, 3), requested(&stop, 1)] {

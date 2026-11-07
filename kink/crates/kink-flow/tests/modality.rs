@@ -284,6 +284,7 @@ fn compare_side(
                 state,
                 budget,
                 ResultRun {
+                    guards: false,
                     modality,
                     max_work: None,
                 },

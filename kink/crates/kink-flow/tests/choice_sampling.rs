@@ -216,6 +216,7 @@ fn side(manifest: &Path, seed: Option<u64>) -> Side {
                         &test.initial_state,
                         budget,
                         ResultRun {
+                            guards: false,
                             modality: ResultModality::StateSet,
                             max_work: None,
                         },

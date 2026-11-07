@@ -3828,6 +3828,7 @@ impl Runtime {
                         ResultRun {
                             modality: ResultModality::PathSet,
                             max_work,
+                            guards: self.coverage.is_some(),
                         },
                         &NO_STOP,
                         std::num::NonZeroU64::MIN,
@@ -3837,9 +3838,12 @@ impl Runtime {
                 Err(failure) => Err(failure),
             }
         } else {
+            // The baseline's runs (the runtime that reads coverage) collect guard outcomes,
+            // which a program's result records; a mutant's runs never do.
             let run = ResultRun {
                 modality: self.modality,
                 max_work,
+                guards: self.coverage.is_some(),
             };
             let (execution, asked) = self.stop.execute_asking(
                 &self.adapter,

@@ -50,6 +50,7 @@ pub mod exclusion;
 pub mod expect;
 pub mod fuzz;
 pub mod fuzz_filter;
+pub mod guards;
 pub mod lock;
 pub mod manifest;
 pub mod memo;

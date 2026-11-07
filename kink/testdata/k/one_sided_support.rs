@@ -105,6 +105,7 @@ pub fn explain_one_sided_kill(
                 initial,
                 budget,
                 ResultRun {
+                    guards: false,
                     modality: ResultModality::StateSet,
                     max_work,
                 },

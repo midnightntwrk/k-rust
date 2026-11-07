@@ -118,8 +118,11 @@ use std::{path::Path, sync::OnceLock};
 /// stop condition (kink-flow `[stop] when`) is keyed by the condition (the key's `stop.when`), and
 /// one whose condition was left undecided at an arrival, or refused at one, is `unknown`, cause
 /// `stop-condition`, and never written; a record of a program run without a condition is
-/// unchanged.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v15";
+/// unchanged. v16: a record's coverage holds `guards`, the guard outcomes of the guarded sentences
+/// the baseline run entered (each node's outcomes where it was reached, the guard outcomes, the
+/// valuation combinations), which `results` reports; a v15 record has none, so its rows would
+/// report no guard outcome.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v16";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

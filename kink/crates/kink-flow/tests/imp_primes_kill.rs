@@ -172,6 +172,7 @@ fn confirm() {
                 &primes,
                 long,
                 ResultRun {
+                    guards: false,
                     modality,
                     max_work: None,
                 },

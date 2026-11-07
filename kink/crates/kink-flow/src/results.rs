@@ -1573,7 +1573,8 @@ fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 /// applied (`applied`: a step built a successor or found the step undefined, which orders a run's
 /// programs), and `fired_sentences` (result schema v6, KINK-R4) those it fired, which a rule's
 /// `fired_by` lists: a rewrite rule whose step some explored path takes (k-rust `committed`), an
-/// equation whose instance gave a result (`applied`).
+/// equation whose instance gave a result (`applied`); and `guards` (result schema v15) the guard
+/// outcomes of the guarded sentences it entered ([`crate::guards`]).
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
@@ -1586,6 +1587,7 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
         "sentences": sentences(&coverage.sentences),
         "applied_sentences": sentences(&coverage.applied_sentences),
         "fired_sentences": sentences(&coverage.fired_sentences),
+        "guards": crate::guards::record_value(coverage),
     })
 }
 

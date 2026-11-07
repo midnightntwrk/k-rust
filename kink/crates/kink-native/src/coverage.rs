@@ -52,7 +52,7 @@
 //! not move, and a stopped run is told from an unstopped one by its request
 //! (`kink-native/execution-request/v3`).
 //! Before L2-1 (`kink/coverage/v1`) the rule ids were the rewrite rules among `applied` only, so
-//! an equation edit was never covered (ticket CS-T09), and an execution without run coverage was
+//! an equation edit was never in a run's coverage (ticket CS-T09), and an execution without run coverage was
 //! read from its leaves' branch identities and traces. Such an execution (only a hand-built
 //! result has one) now has no coverage signal: it is incomplete and lists nothing.
 //!
@@ -60,7 +60,7 @@
 //! axioms, `non-executable` axioms (k-rust internalizes executable axioms only; re-pin
 //! L2-1-tail), macro and alias rules (`macros_kore`), and claims; builtin hooks are not axioms at
 //! all (k-rust `coverage::RunCoverage`). [`coverage_domain`] is the set of ids that do have one. A
-//! rule none of whose ids is in it has no coverage signal and is never reported as uncovered.
+//! rule none of whose ids is in it has no coverage signal and is never reported as unmatched.
 //!
 //! The sets are no over-approximation of what can affect a result: a higher-priority rule or
 //! equation whose left-hand side did not match is absent, though its failure is what lets a lower
@@ -71,7 +71,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust::backend::BackendDiagnosticOutput;
+use k_rust::backend::{AxiomGuardOutput, BackendDiagnosticOutput};
 use k_rust::kore::{
     ast::{Pattern, Sentence},
     parser::parse_definition,
@@ -274,6 +274,10 @@ pub struct TestCoverage {
     /// The ids of `rule_ids` with no baseline sentence, with the reason (generating pass or an
     /// `UNMAPPED_*` value).
     pub unmapped: BTreeMap<String, String>,
+    /// The guard outcomes the run collected (k-rust `coverage.guards`, asked for by a baseline
+    /// result run, `ResultRun::guards`), by the baseline sentence behind each axiom; an axiom
+    /// with no baseline sentence is left out. Not in [`Self::value`]: no schedule reads them.
+    pub guards: BTreeMap<SentenceRef, Vec<AxiomGuardOutput<Pattern>>>,
 }
 
 /// Whether one leaf leaves its run complete, for observed and unobserved leaves alike.
@@ -361,6 +365,17 @@ impl TestCoverage {
         let mut applied_sentences = BTreeSet::new();
         let mut fired_sentences = BTreeSet::new();
         let mut unmapped = BTreeMap::new();
+        let mut guards = BTreeMap::<SentenceRef, Vec<AxiomGuardOutput<Pattern>>>::new();
+        for guard in &coverage.guards {
+            if let Some(Authorship::Sentences(authors)) = authors.get(&guard.axiom) {
+                for author in authors {
+                    guards
+                        .entry(author.clone())
+                        .or_default()
+                        .push(guard.clone());
+                }
+            }
+        }
         for id in &coverage.matched {
             match authors.get(id) {
                 Some(Authorship::Sentences(authors)) => {
@@ -396,11 +411,12 @@ impl TestCoverage {
             applied_sentences,
             fired_sentences,
             unmapped,
+            guards,
         }
     }
 
     /// A run that produced no execution (an adapter failure), or no coverage signal: incomplete,
-    /// nothing covered.
+    /// no sentence listed.
     #[must_use]
     pub fn failed(test_id: &str) -> Self {
         Self {
@@ -412,6 +428,7 @@ impl TestCoverage {
             applied_sentences: BTreeSet::new(),
             fired_sentences: BTreeSet::new(),
             unmapped: BTreeMap::new(),
+            guards: BTreeMap::new(),
         }
     }
 
@@ -448,7 +465,7 @@ impl TestCoverage {
 /// and a `non-executable` axiom have no recording site (k-rust `coverage::RunCoverage`; k-rust
 /// internalizes only executable axioms, so no run matches or applies a `non-executable` one;
 /// re-pin L2-1-tail). Unparsable KORE gives the empty set, so every rule then has no coverage
-/// signal rather than being uncovered.
+/// signal rather than being unmatched.
 #[must_use]
 pub fn coverage_domain(validated: &ValidatedDefinition) -> BTreeSet<String> {
     axiom_ids(validated, |attributes| {

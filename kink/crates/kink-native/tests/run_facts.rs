@@ -183,6 +183,7 @@ fn every_adapted_run_carries_the_run_level_facts() {
                 &initial,
                 budget(),
                 ResultRun {
+                    guards: false,
                     modality: ResultModality::PathSet,
                     max_work: None,
                 },
@@ -478,6 +479,7 @@ fn the_run_facts_carry_the_short_circuit_readings_as_recorded() {
                 &initial,
                 budget(),
                 ResultRun {
+                    guards: false,
                     modality: ResultModality::PathSet,
                     max_work: None,
                 },
@@ -710,6 +712,7 @@ mod kink_tier {
             let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
             let initial = state(call("s", 0));
             let bounded = |modality| ResultRun {
+                guards: false,
                 modality,
                 max_work: Some(13),
             };

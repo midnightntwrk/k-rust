@@ -128,6 +128,7 @@ fn a_state_set_with_an_undefined_step_stays_a_state_set() {
                     &initial,
                     budget(),
                     ResultRun {
+                        guards: false,
                         modality: ResultModality::PathSet,
                         max_work: None,
                     },
@@ -198,6 +199,7 @@ fn an_undefined_step_after_converging_diamonds_is_one_leaf_of_a_complete_state_s
                     &initial,
                     budget(),
                     ResultRun {
+                        guards: false,
                         modality,
                         max_work: Some(max_work),
                     },
@@ -348,7 +350,11 @@ mod kink_tier {
                             backend,
                             &initial,
                             budget(),
-                            ResultRun { modality, max_work },
+                            ResultRun {
+                                modality,
+                                max_work,
+                                guards: false,
+                            },
                         )
                         .unwrap()
                 };

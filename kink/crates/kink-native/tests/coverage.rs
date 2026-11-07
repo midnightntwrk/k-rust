@@ -17,7 +17,7 @@ use kink_native::coverage::{
     Authorship, COVERAGE_DOMAIN, RuleAuthors, TestCoverage, UNMAPPED_INSERTED, coverage_digest,
     coverage_text,
 };
-use kink_native::execution::{ExecutionAdapter, ExecutionBudget, SolverProfile};
+use kink_native::execution::{ExecutionAdapter, ExecutionBudget, ResultRun, SolverProfile};
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{Edit, InsertPosition, Patch, SentenceRef, TermRef};
 use serde_json::json;
@@ -154,6 +154,56 @@ fn refs(module: &str, indices: &[u32]) -> BTreeSet<SentenceRef> {
 
 fn ids_of(authors: &RuleAuthors, at: &SentenceRef) -> BTreeSet<String> {
     authors.ids_of(at).map(str::to_owned).collect()
+}
+
+/// A result run that collects guard outcomes maps each guarded axiom's outcomes to the
+/// baseline sentence behind it through [`RuleAuthors`]: `branch` (`requires B`) on `choose(false)`
+/// is refuted by its one atom, and on `choose(true)` holds. A run that does not ask has none, and
+/// asking changes no other part of the coverage.
+#[test]
+fn guard_outcomes_map_to_their_sentences() {
+    with_stack(|| {
+        let (validator, counter) = compile("counter.k");
+        let authors = RuleAuthors::of(&counter);
+        let branch = support::rule(validator.baseline(), "COUNTER.branch");
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let coverage = |value: &str, guards: bool| {
+            let execution = adapter
+                .execute_result(
+                    &mut backend(&counter, "COUNTER"),
+                    &choose_state(bool_value(value)),
+                    BUDGET,
+                    ResultRun {
+                        guards,
+                        ..ResultRun::default()
+                    },
+                )
+                .expect("result run");
+            TestCoverage::of_execution("t", &execution, &authors)
+        };
+        for (value, outcome) in [("false", "refuted-false"), ("true", "held")] {
+            let with = coverage(value, true);
+            let without = coverage(value, false);
+            assert!(without.guards.is_empty(), "{value}");
+            assert_eq!(with.value(), without.value(), "{value}");
+            assert_eq!(
+                with.guards.keys().cloned().collect::<BTreeSet<_>>(),
+                BTreeSet::from([branch.clone()]),
+                "{value}"
+            );
+            let guards = &with.guards[&branch];
+            assert_eq!(guards.len(), 1, "{value}");
+            assert!(
+                ids_of(&authors, &branch).contains(&guards[0].axiom),
+                "{value}"
+            );
+            assert_eq!(
+                serde_json::to_value(&guards[0].outcomes).unwrap(),
+                json!([outcome]),
+                "{value}"
+            );
+        }
+    });
 }
 
 /// README section 9, CS-03 rows (scout-coverage M-C3), in both profiles; M-C4 for each run.
