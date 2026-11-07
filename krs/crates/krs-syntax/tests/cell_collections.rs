@@ -553,6 +553,69 @@ fn a_braced_name_or_wildcard_item_is_the_instance_binder_limit() {
     assert!(labelled.contains("`x @ Decl { .. }`"), "{labelled}");
 }
 
+/// `Some(..)` or `None` in an instance child is a `?` cell's presence or absence inside one
+/// instance, which an instance record does not name yet: `cells!` stops at the child with the
+/// limit's code, in a pattern and in a result, before `None` would be read as a binder or
+/// `Some(..)` as Rust's `Option`. A child that is only a name is a binder as before.
+#[test]
+fn an_optional_instance_child_is_the_instance_child_multiplicity_limit() {
+    let refused = |error: krs_syntax::SyntaxError, source: &str, written: &str| {
+        assert!(
+            matches!(
+                error.kind(),
+                krs_syntax::SyntaxErrorKind::InstanceChildMultiplicity { .. }
+            ),
+            "{source}: {:?}",
+            error.kind()
+        );
+        assert_eq!(
+            error.kind().code().as_str(),
+            "krs::analysis::collection-entry",
+            "{source}"
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the instance child `acounter` is written {written}: {}",
+                krs_syntax::INSTANCE_CHILD_MULTIPLICITY
+            ),
+            "{source}"
+        );
+    };
+    for (source, written) in [
+        (
+            "account: { k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }, state @ ..",
+            "`Some(..)`, a `?` cell's presence",
+        ),
+        (
+            "account: { Acct { id: z, acounter: None, .. }, .. }, state @ ..",
+            "`None`, a `?` cell's absence",
+        ),
+    ] {
+        refused(
+            parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+                .unwrap_err(),
+            source,
+            written,
+        );
+    }
+    let result =
+        "account: { k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }, ..state";
+    refused(
+        krs_syntax::parse_cells_expression(krs_syntax::parse::tokens_from_source(result).unwrap())
+            .unwrap_err(),
+        result,
+        "`Some(..)`, a `?` cell's presence",
+    );
+    parse_cells_pattern(
+        krs_syntax::parse::tokens_from_source(
+            "account: { k::fragment![crate::Acct { id: z, acounter, .. }], .. }, state @ ..",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+}
+
 /// A keyword is no binder and no variable, so it is no shorthand instance
 /// child: readable refuses it as `cells!` does, with the same message (a raw
 /// identifier such as `r#type` is a name, above).

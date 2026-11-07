@@ -872,6 +872,12 @@ impl<'a> StateRuleBuilder<'a> {
         let key = ledger.define(item.key())?;
         let mut fields = Vec::new();
         for field in item.fields() {
+            // A readable claim's instance children reach no macro reader that refuses a `?`
+            // cell's `Some(..)` or `None` there, so the limit is said here, before rustc reads
+            // the child as Rust's `Option`.
+            if let Some(limit) = field.multiplicity_limit() {
+                return Err(limit.into());
+            }
             fields.push(krs_ir::ProtocolRuleInstanceField {
                 key: ledger.define(field.name_key())?,
                 field: field.name().to_string(),

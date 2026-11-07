@@ -2950,10 +2950,14 @@ impl StructuredTermBuilder<'_> {
                         }
                         DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. } => None,
                         _ => {
-                            return Err(self.invalid_term(format!(
-                                "the group child {:?} is a group record, `k::fragment!`, a binder, or `_`",
-                                declared.rust_field
-                            )));
+                            return Err(self.repeated_child(owner, declared, field).unwrap_or_else(
+                                || {
+                                    self.invalid_term(format!(
+                                        "the group child {:?} is a group record, `k::fragment!`, a binder, or `_`",
+                                        declared.rust_field
+                                    ))
+                                },
+                            ));
                         }
                     };
                     if let Some(declaration) = record {
@@ -2975,6 +2979,33 @@ impl StructuredTermBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    /// The refusal of a cell term's group child `declared` that is a `?` or `*` cell, written as
+    /// `field` holds it, neither a record, a binder nor `_`: its presence or its instances would
+    /// say whether, or which, cells the record holds there, which no lowering writes yet. `None`
+    /// for a child that is neither.
+    fn repeated_child(
+        &self,
+        owner: &StableItemId,
+        declared: &krs_ir::DescriptorCellField,
+        field: &krs_ir::DescriptorCellTermField,
+    ) -> Option<DescriptorLoweringError> {
+        (super::references::declared_multiplicity(declared, self.declarations)
+            != krs_ir::cell_kind::Multiplicity::One)
+            .then(|| {
+                super::cell_states::collection_error(
+                    self.descriptor,
+                    krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                    &field.key,
+                    format!(
+                        "the child `{}` of `{}` is a `?` or `*` cell, which a group record does not name yet, as {}",
+                        declared.rust_field,
+                        owner.item_name(),
+                        krs_syntax::INSTANCE_CHILD_MULTIPLICITY
+                    ),
+                )
+            })
     }
 
     fn lower_cell_term(

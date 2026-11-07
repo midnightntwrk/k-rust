@@ -748,7 +748,51 @@ impl InstanceField {
     pub const fn value(&self) -> &StateTerm {
         &self.value
     }
+
+    /// The refusal of the child when it is written `Some(..)` or `None`, a `?` cell's presence
+    /// or absence, as a cell entry writes them: inside one instance it would mean whether that
+    /// instance holds the cell, and an instance record does not name a `?` or `*` child yet
+    /// ([`INSTANCE_CHILD_MULTIPLICITY`]). `Some(..)` and `None` are read by their spelling, as a
+    /// cell entry's are, so no declaration is needed and the child stops here, before its term
+    /// would be read as Rust's `Option`; `None` for every other child.
+    #[must_use]
+    pub fn multiplicity_limit(&self) -> Option<SyntaxError> {
+        use syn::ext::IdentExt;
+        let StateTerm::Term(term) = &self.value else {
+            return None;
+        };
+        let (written, span) = match term.tree() {
+            TermTree::Application(application)
+                if application.head().is_ident("Some")
+                    && application.arguments().positional().is_some() =>
+            {
+                (
+                    "`Some(..)`, a `?` cell's presence",
+                    application.head().span(),
+                )
+            }
+            TermTree::Reference(path) if path.is_ident("None") => {
+                ("`None`, a `?` cell's absence", path.span())
+            }
+            _ => return None,
+        };
+        let reason = format!(
+            "the instance child `{}` is written {written}: {INSTANCE_CHILD_MULTIPLICITY}",
+            self.name.unraw()
+        );
+        Some(SyntaxError::new(
+            SyntaxErrorKind::InstanceChildMultiplicity { reason },
+            span,
+        ))
+    }
 }
+
+/// What an instance record meets at a child that is a `?` cell or a collection of its own: what
+/// the child would mean is whether, or which, cells that one instance holds, and no lowering
+/// writes that yet, a stated limitation. The macros say it where `Some(..)` or `None` stand in an
+/// instance child, and the compiler where the child's declaration shows it.
+pub const INSTANCE_CHILD_MULTIPLICITY: &str =
+    "an instance record does not name a `?` or `*` child yet";
 
 /// One instance record of a collection entry: `label @ Decl { .. }` or
 /// `k::fragment![Decl { .. }]` (KF-023).
@@ -2205,10 +2249,11 @@ fn parse_instance_record(
                         name.span(),
                     ));
                 }
-                fields.push(InstanceField::new(
-                    name,
-                    parse_instance_child(tokens, context, keys)?,
-                ));
+                let field = InstanceField::new(name, parse_instance_child(tokens, context, keys)?);
+                if let Some(limit) = field.multiplicity_limit() {
+                    return Err(limit);
+                }
+                fields.push(field);
                 if input.is_empty() {
                     break;
                 }
@@ -2317,7 +2362,19 @@ fn parse_group_entry(
     {
         return Err(refusal);
     }
-    let term = state_term_tokens(tokens, context).map_err(|_| invalid(span))?;
+    let fragment = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment");
+    let term = state_term_tokens(tokens, context).map_err(|error| match error.kind() {
+        // A fragment's children are read as terms: a result's anonymous `..` in a child's list
+        // keeps no rest, a stated limitation the term reader names, and a map read there, which
+        // the term reader refuses as a literal's notation, is not supported either.
+        SyntaxErrorKind::InvalidListNotation { .. } if fragment => error,
+        SyntaxErrorKind::InvalidExpressionNotation { .. } if fragment => state_error(
+            "cells",
+            "a `k::fragment!` child is a binder, `_`, a `k::fragment!`, or a term, and this child reads as none of them; a map read in a fragment child, `k::map![k -> v, ..]`, is not supported yet",
+            span,
+        ),
+        _ => invalid(span),
+    })?;
     match term.tree() {
         TermTree::Reference(path) if path.get_ident().is_some() => Ok(StateTerm::Group(term)),
         TermTree::Wildcard(_) if context == StateMacroContext::Pattern => {

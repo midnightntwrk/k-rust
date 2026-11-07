@@ -436,6 +436,13 @@ pub enum SyntaxErrorKind {
         /// The refusal's reason and what to write instead.
         reason: String,
     },
+    /// An instance record's child written as a `?` cell's presence or absence, `Some(..)` or
+    /// `None`: an instance record does not name a `?` or `*` child yet, a stated limitation
+    /// ([`crate::INSTANCE_CHILD_MULTIPLICITY`]) whose code is the compiler's for the same child.
+    InstanceChildMultiplicity {
+        /// The refusal's reason, naming the child.
+        reason: String,
+    },
     /// A function's `smtlib` or `smt_hook` metadata was malformed (KF-044).
     InvalidSmtMetadata {
         /// Complete explanation, naming the fix.
@@ -584,6 +591,7 @@ impl SyntaxErrorKind {
             Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
             Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
             Self::InstanceBinder { .. } => crate::cell_entries::Refusal::InstanceBinder.code(),
+            Self::InstanceChildMultiplicity { .. } => codes::analysis::COLLECTION_ENTRY,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidSkippedOperand { .. } => codes::syntax::INVALID_SKIPPED_OPERAND,
@@ -934,7 +942,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidListNotation { reason }
             | SyntaxErrorKind::InvalidConsList { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason }
-            | SyntaxErrorKind::InstanceBinder { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InstanceBinder { reason }
+            | SyntaxErrorKind::InstanceChildMultiplicity { reason } => formatter.write_str(reason),
         }
     }
 }

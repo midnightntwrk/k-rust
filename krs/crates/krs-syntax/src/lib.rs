@@ -104,10 +104,10 @@ pub use rule::{
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{
-    CellsEntry, CellsExpression, InstanceField, InstanceItem, InstanceList, InstanceListDelimiter,
-    InstanceRest, KSequence, KSequenceNotation, MapBody, MapExpression, MapItem, StateMacroContext,
-    StateMacroRemainder, StateTerm, parse_cells_expression,
-    parse_cells_expression_source_with_trivia, parse_cells_pattern,
+    CellsEntry, CellsExpression, INSTANCE_CHILD_MULTIPLICITY, InstanceField, InstanceItem,
+    InstanceList, InstanceListDelimiter, InstanceRest, KSequence, KSequenceNotation, MapBody,
+    MapExpression, MapItem, StateMacroContext, StateMacroRemainder, StateTerm,
+    parse_cells_expression, parse_cells_expression_source_with_trivia, parse_cells_pattern,
     parse_cells_pattern_source_with_trivia, parse_k_sequence_expression, parse_k_sequence_pattern,
     parse_map_expression, parse_map_expression_source_with_trivia, parse_map_pattern,
     parse_map_pattern_source_with_trivia,

@@ -545,8 +545,8 @@ fn a_readable_clause_keys_each_nested_literal_once_at_its_token() {
     for source in [
         // Depth 1: a literal under `Some(..)`.
         "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], counter: Some(k::id!(\"$a\")), other: k::id!(\"$b\") } => { k: [..], counter: Some(k::id!(\"$c\")), other: k::id!(\"$d\") };\n}\n",
-        // Depth 2: a literal under `Some(..)` in a collection instance.
-        "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], thread: { Thread { name: k::id!(\"$a\"), slot: Some(k::id!(\"$b\")) }, .. } } => { k: [..], thread: { Thread { name: k::id!(\"$c\"), slot: Some(k::id!(\"$d\")) }, .. } };\n}\n",
+        // Depth 2: a literal under a constructor in a collection instance.
+        "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], thread: { Thread { name: k::id!(\"$a\"), slot: Held(k::id!(\"$b\")) }, .. } } => { k: [..], thread: { Thread { name: k::id!(\"$c\"), slot: Held(k::id!(\"$d\")) }, .. } };\n}\n",
     ] {
         let expansion = expand(source).expect("a readable claim expands");
         let text = &expansion.generated.text;
@@ -595,6 +595,26 @@ fn a_readable_clause_keys_each_nested_literal_once_at_its_token() {
             );
         }
     }
+}
+
+/// `Some(..)` in a readable claim's instance child is a `?` cell's presence inside one instance,
+/// which an instance record does not name yet: the expansion stops at the child with the limit's
+/// code, before rustc would read it as Rust's `Option`.
+#[test]
+fn a_readable_claim_s_optional_instance_child_is_the_instance_child_multiplicity_limit() {
+    let source = "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], thread: { Thread { name: k::id!(\"$a\"), slot: Some(k::id!(\"$b\")) }, .. } } => { k: [..] };\n}\n";
+    let diagnostics = expand(source).expect_err("an optional instance child is refused");
+    assert_eq!(
+        diagnostics[0].code,
+        krs_diagnostic::codes::analysis::COLLECTION_ENTRY
+    );
+    assert_eq!(
+        diagnostics[0].message,
+        format!(
+            "the instance child `slot` is written `Some(..)`, a `?` cell's presence: {}",
+            krs_syntax::INSTANCE_CHILD_MULTIPLICITY
+        )
+    );
 }
 
 /// A readable instance child's empty `[]` is keyed at its brackets, and its

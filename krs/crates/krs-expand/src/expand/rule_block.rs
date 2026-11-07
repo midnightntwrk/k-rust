@@ -895,6 +895,12 @@ fn readable_state_wire(
                 let key = ledger.define(item.key())?;
                 let mut fields = Vec::new();
                 for field in item.fields() {
+                    // `Some(..)` or `None` in an instance child is a `?` cell's presence inside
+                    // one instance, which an instance record does not name yet: said here,
+                    // before rustc would read the child as Rust's `Option`.
+                    if let Some(limit) = field.multiplicity_limit() {
+                        return Err(limit.into());
+                    }
                     let key = ledger.define(field.name_key())?;
                     fields.push(krs_ir::ProtocolRuleInstanceField {
                         key,

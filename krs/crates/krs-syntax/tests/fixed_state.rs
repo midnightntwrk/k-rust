@@ -1505,3 +1505,43 @@ fn an_anonymous_rest_in_a_built_collection_is_the_literal_s_mistake() {
         );
     }
 }
+
+/// A `cells!` fragment's children are read as terms: a result's anonymous `..` in a child's list
+/// is the term reader's refusal, and a child's map read is no term, said as not supported yet. A
+/// fragment whose own record is no term keeps the whole entry's message.
+#[test]
+fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
+    let group_entry = SyntaxErrorKind::InvalidStateMacro {
+        macro_name: "cells",
+        reason: "nested cell entries are a binder, `_`, or fragment!",
+    };
+    let list_rest = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source(
+            "hcell: k::fragment![crate::H { hl: [x, ..], hb: 0 }]",
+        )
+        .unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            list_rest.kind(),
+            SyntaxErrorKind::InvalidListNotation { .. }
+        ),
+        "{:?}",
+        list_rest.kind()
+    );
+    let map_read = SyntaxErrorKind::InvalidStateMacro {
+        macro_name: "cells",
+        reason: "a `k::fragment!` child is a binder, `_`, a `k::fragment!`, or a term, and this child reads as none of them; a map read in a fragment child, `k::map![k -> v, ..]`, is not supported yet",
+    };
+    let source = "mcell: k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]";
+    let error =
+        krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+            .unwrap_err();
+    assert_eq!(error.kind(), &map_read, "{source}");
+    let source = "outer: k::fragment![Outer { flag: 0, .. } | Outer { flag: 1, .. }]";
+    let error =
+        krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+            .unwrap_err();
+    assert_eq!(error.kind(), &group_entry, "{source}");
+}

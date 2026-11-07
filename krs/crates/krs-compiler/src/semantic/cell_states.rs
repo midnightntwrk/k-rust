@@ -817,8 +817,10 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 codes::analysis::COLLECTION_ENTRY,
                 &field.key,
                 format!(
-                    "the child `{}` of `{}` is itself optional or a collection, which an instance record cannot name yet",
-                    field.field, self.declaration.name
+                    "the child `{}` of `{}` is a `?` or `*` cell: {}",
+                    field.field,
+                    self.declaration.name,
+                    krs_syntax::INSTANCE_CHILD_MULTIPLICITY
                 ),
             ));
         }
