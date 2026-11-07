@@ -58,11 +58,6 @@ kind = "diagnostic"
 what = "a readable map read's key at depth 2, below `@` or `|` (`map-key/as-body`, `map-key/or-branch`, `beside-fresh`), is answered by a true reason met before the table's (a function in a pattern before notation in a pattern), and its advice by that reason's; `@` and `|` in a map key are accepted as documented (TRI, 2026-11-07)"
 by_test = { k8 = "S5" }
 
-["S0-15"]
-owner = "S5"
-kind = "bug"
-what = "`job: []`, a List collection with no instance, is refused in a subject, though the reference documents it"
-
 ["S0-16"]
 owner = "S5"
 kind = "diagnostic"
@@ -83,11 +78,6 @@ what = "a readable map read below an entry's head (a group record's Map child `M
 owner = "S5"
 kind = "bug"
 what = "a second computation cell (`code: [x, ..]` below a plain group) is refused bracket notation as `invalid-list-notation` (\"the cell `code` holds `K`, which is not a list\"), though brackets are a computation's mark wherever it is declared (P1: a cell's name and role play no part; P2); S5.2's; S5-LOW (S5.3 part 2, ruling 4): the table admits it and the compiler cannot lower it yet, product feature work after S5.2, not routing"
-
-["S5-E1"]
-owner = "S5"
-kind = "bug"
-what = "a subject's exact empty instance list on a List collection (`job: []`, readable and `cells!`) is refused (\"the collection entry `job` names no instance\", `collection-entry`): P2 and P6 read it as the collection holding no instance, a constraint K matches, so the subject is admitted (R9: no lint, it constrains): S5.2's readable, S5.3's `cells!` (S5.0g item 3b); S5-LOW (S5.3 part 2, ruling 4): the table admits it and the compiler cannot lower it yet, product feature work after S5.2, not routing"
 
 ["S5-F2"]
 owner = "S5"
@@ -122,7 +112,7 @@ what = "a `cells!` subject's map holding only a rest, `Cell(k::map![..])`, is a 
 ["S5-Q1"]
 owner = "S5"
 kind = "bug"
-what = "decision Q1, both halves: a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal (readable and `cells!` warn since S5.2 parts a and b; `[..]` on a List collection or the computation is still refused `collection-entry` by the compiler); and a result over a cell the subject does not match is the overwrite, which readable lowers since S5.2 part a (4) and `cells!` refuses under the internal `krs::analysis::unsupported-shape` (\"the result selects a fixed cell absent from the subject\"). An internal code an author reaches is a KRS bug, hence `bug`"
+what = "decision Q1: a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal. Since TRI-A an item-less `[..]` is read by the cell's kind (a leaf or computation cell's entry is the cell left out, a collection's keeps every instance, `Some([..])` is `Some(_)`), but on a list leaf the dropped entry no longer carries the `no-effect-entry` lint (`stack: [..]`, `seq: [..]`), and a result `Some([..])` restating the subject's is refused as list notation"
 
 ["S5-Q2"]
 owner = "S5"

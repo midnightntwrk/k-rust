@@ -2385,6 +2385,7 @@ fn readable_list_reading(
     let has_list = rule.extras.iter().any(|extra| {
         matches!(extra, krs_ir::ProtocolHeadRuleExtra::RewriteList { .. })
             || empty_brackets(extra).is_some()
+            || item_less_brackets(extra).is_some()
     });
     if rule.configuration.is_none() || (rule.computation_cell.is_none() && !has_list) {
         return Ok(rule);
@@ -2460,7 +2461,47 @@ fn readable_list_reading(
             };
         }
     }
+    // `[..]` names no item, element or instance, so it matches whatever the
+    // cell holds and keeps it: the macro reads it as instances, which is
+    // what it means on a collection. On a leaf cell, a list or a computation,
+    // it constrains and binds nothing, so the rule is the rule that leaves
+    // the cell out, as it would be with `_` there.
+    rule.extras.retain(|extra| {
+        item_less_brackets(extra).is_none_or(|cell| {
+            !matches!(
+                wrapper(&cell.name),
+                Some(krs_ir::CellWrapper::Cell | krs_ir::CellWrapper::KCell)
+            )
+        })
+    });
     Ok(rule)
+}
+
+/// The cell of a state extra that matches the bracketed instance list `[..]`,
+/// which names nothing but its anonymous rest, and leaves the cell out of the
+/// result or writes `[..]` again.
+fn item_less_brackets(
+    extra: &krs_ir::HostHeadRuleExtra,
+) -> Option<&krs_ir::HostHeadRuleCellReference> {
+    let is_item_less = |state: &krs_ir::ProtocolRuleStateTerm<krs_ir::HostTerm>| {
+        matches!(
+            state,
+            krs_ir::ProtocolRuleStateTerm::Instances(instances)
+                if instances.delimiter == krs_ir::InstanceDelimiter::Bracket
+                    && instances.front.is_empty()
+                    && instances.back.is_empty()
+                    && matches!(instances.rest, krs_ir::ProtocolRuleFrame::Anonymous { .. })
+        )
+    };
+    match extra {
+        krs_ir::ProtocolHeadRuleExtra::RewriteState {
+            cell,
+            before,
+            after,
+            ..
+        } if is_item_less(before) && after.as_ref().is_none_or(is_item_less) => Some(cell),
+        _ => None,
+    }
 }
 
 /// The cell of a state extra that matches the empty bracketed instance

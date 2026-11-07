@@ -7923,6 +7923,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/job/[..]"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag ...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/job/[Job { payload: x, .. }, ..]"]
 k = """
@@ -7940,11 +7949,24 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."claim/subject/job/[]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/job/[x, ..]"]
 
 [accept."claim/subject/k/[..]"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<pc> _ => 1 </pc>
+"""
 
 [accept."claim/subject/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -8056,6 +8078,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/stack/[..]"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/stack/[Job { payload: x, .. }, ..]"]
 k = """
@@ -11094,6 +11122,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable-run/subject/job/[..]"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag ...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/job/[x, ..]"]
 
@@ -11110,6 +11147,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable-run/subject/stack/[..]"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/stack/_"]
 lint = "no-effect-entry"
@@ -11587,6 +11630,15 @@ same_k_as = ["cells/subject/frame/x"]
 
 [accept."readable/subject/job/[..]"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag ...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/job/[Job { payload: x, .. }, ..]"]
 k = """
@@ -11605,6 +11657,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]"]
 
 [accept."readable/subject/job/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/job/[x, ..]"]
 
@@ -11724,6 +11785,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable/subject/stack/[..]"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/stack/[Job { payload: x, .. }, ..]"]
 k = """
@@ -12735,6 +12802,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable-run/subject/job/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -14125,6 +14201,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/subject/olist/Some([..])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/olist/Some(_)"]
 k = """
@@ -14159,6 +14242,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."sweep/claim/subject/seq/[..]"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/seq/[x, ..]"]
 k = """
@@ -14411,6 +14500,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/written/job/[.., x]"]
 
 [accept."sweep/claim/written/job/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag ...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/written/job/[Gl { la: x, .. }, ..]"]
 k = """
@@ -14553,6 +14651,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/written/prog/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/written/prog/[G { a: x, .. }, ..]"]
 
@@ -14561,6 +14665,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/written/prog/[x]"]
 
 [accept."sweep/claim/written/seq/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/written/seq/[x, ..]"]
 k = """
@@ -14635,6 +14745,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/written/stack/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/written/stack/[G { a: x, .. }, ..]"]
 k = """
@@ -15889,6 +16005,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/subject/olist/Some([..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/olist/Some(_)"]
 k = """
@@ -15923,6 +16046,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."sweep/readable/subject/seq/[..]"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/seq/[x, ..]"]
 k = """
@@ -16175,6 +16304,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/readable/written/job/[.., x]"]
 
 [accept."sweep/readable/written/job/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag ...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/written/job/[Gl { la: x, .. }, ..]"]
 k = """
@@ -16317,6 +16455,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/written/prog/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/written/prog/[G { a: x, .. }, ..]"]
 
@@ -16325,6 +16469,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/readable/written/prog/[x]"]
 
 [accept."sweep/readable/written/seq/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/written/seq/[x, ..]"]
 k = """
@@ -16399,6 +16549,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/written/stack/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/written/stack/[G { a: x, .. }, ..]"]
 k = """
@@ -16687,6 +16843,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells/lint/kinds/job/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/lint/kinds/prog/k::configuration::KCell(..)"]
 lint = "no-effect-entry"
@@ -16838,6 +17003,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."claim/lint/kinds/job/[]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/shorthand/kinds/account/{ Acct { id, .. }, .. }"]
 k = """
@@ -16989,6 +17163,15 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable/lint/kinds/job/[]"]
 same_k_as = ["cells/lint/kinds/job/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+.Bag
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/shorthand/kinds/account/{ Acct { id, .. }, .. }"]
 same_k_as = ["cells/shorthand/kinds/account/{ k::fragment![crate::Acct { id, .. }], .. }"]

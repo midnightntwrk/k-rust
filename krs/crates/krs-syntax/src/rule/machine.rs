@@ -132,6 +132,17 @@ fn parse_readable_pattern_state(
                 syn::parenthesized!(inner in input);
                 inner.parse::<TokenStream>()
             })?;
+            // `Some(..)` holds the cell's content as a record value does, so an item-less
+            // `[..]` there is whatever the present cell holds, its `_`.
+            let tokens = match tokens.clone().into_iter().collect::<Vec<_>>().as_slice() {
+                [TokenTree::Group(group)]
+                    if group.delimiter() == proc_macro2::Delimiter::Bracket
+                        && is_dots(&group.stream()) =>
+                {
+                    quote_spanned!(group.span()=> _)
+                }
+                _ => tokens,
+            };
             return Ok(Some(StateTerm::Present(Box::new(StateTerm::Term(
                 TermExpression::parse_pattern_tokens(tokens)?,
             )))));

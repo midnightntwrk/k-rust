@@ -1635,25 +1635,13 @@ kind = "diagnostic"
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
-["claim/subject/job/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["claim/subject/k/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["claim/subject/stack/[..]"]
 finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["readable/subject/job/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "accepted, without the lint no-effect-entry"
 
 ["readable/subject/stack/[..]"]
 finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "accepted, without the lint no-effect-entry"
 
 # K-1, K-2 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
 ["terms/readable/map-key/as-body/!(x < 1)"]
@@ -1729,16 +1717,6 @@ deviation = "krs::syntax::invalid-pattern-or @ entry"
 # `_`, `@` or alternatives below its root, and reads `x | 1` as the operator.
 
 # NT-6: the collection literals and the calls they denote, at the same openers as NT-5's notation.
-
-# S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
-
-["claim/subject/job/[]"]
-finding = "S0-15"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["readable/subject/job/[]"]
-finding = "S0-15"
-deviation = "krs::analysis::collection-entry @ entry"
 
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
 # The two left: S5 reads `job: [x, ..]` results by declared kind
@@ -2005,17 +1983,9 @@ deviation = "krs::analysis::collection-entry @ entry"
 # on the run base, which K7 runs. A twin of a pending machine-base case deviates exactly as its twin
 # does (checked when these entries were made), under its twin's finding and step.
 
-["readable-run/subject/job/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["readable-run/subject/job/[]"]
-finding = "S0-15"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["readable-run/subject/stack/[..]"]
 finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "accepted, without the lint no-effect-entry"
 
 # NT-35-1 (K7, the printed state): the printer reverses the case's alias, whose subject writes
 # `k::builtin::set::item(x)`, so the `<k>` head prints `SetItem ( .. )`, which the program grammar,
@@ -2145,10 +2115,6 @@ deviation = "krs::analysis::invalid-function-context @ entry"
 finding = "S5-P1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["cells/lint/kinds/job/[]"]
-finding = "S5-E1"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["claim/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ spelling"
@@ -2176,10 +2142,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 finding = "S5-H2"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["claim/lint/kinds/job/[]"]
-finding = "S5-E1"
-deviation = "krs::analysis::collection-entry @ entry"
 
 ["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
@@ -2224,10 +2186,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 finding = "S5-H2"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["readable/lint/kinds/job/[]"]
-finding = "S5-E1"
-deviation = "krs::analysis::collection-entry @ entry"
 
 # S5.3 part 2: readable and claim reds the sentence-order rulings move (a readable route is S5.2's):
 # a result case on a cell below a marked ancestor whose subject now matches the cell through the ancestor
@@ -2408,65 +2366,25 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-V2"
 deviation = "krs::analysis::invalid-term @ spelling"
 
-["sweep/claim/subject/olist/Some([..])"]
-finding = "S5-Q1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
 ["sweep/claim/subject/seq/[..]"]
 finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/claim/written/job/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "accepted, without the lint no-effect-entry"
 
 ["sweep/claim/written/olist/Some([..])"]
 finding = "S5-Q1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/written/prog/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/claim/written/seq/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/claim/written/stack/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "krs::syntax::invalid-list-notation @ item"
 
 ["sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
 finding = "S5-V2"
 deviation = "krs::analysis::invalid-term @ spelling"
 
-["sweep/readable/subject/olist/Some([..])"]
-finding = "S5-Q1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
 ["sweep/readable/subject/seq/[..]"]
 finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/readable/written/job/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "accepted, without the lint no-effect-entry"
 
 ["sweep/readable/written/olist/Some([..])"]
 finding = "S5-Q1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/written/prog/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/readable/written/seq/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/readable/written/stack/[..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ entry"
+deviation = "krs::syntax::invalid-list-notation @ item"
 
 ["sweep/claim/result/job/[x, ..]"]
 finding = "S5-Q2"

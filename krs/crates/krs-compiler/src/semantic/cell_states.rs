@@ -681,12 +681,8 @@ pub(super) fn lower_instances_clause(
     }
     let back = segments.pop().unwrap_or_default();
     let front = segments.pop().unwrap_or_default();
-    if front.is_empty() && back.is_empty() {
-        return Err(entry_error(
-            &cell.key,
-            format!("the collection entry `{name}` names no instance"),
-        ));
-    }
+    // An entry that names no instance is about the collection as a whole: `[]` or `{}` is the
+    // parent holding no instance, and `[..]` or `{ .. }` matches whatever instances it holds.
     if !subject_open {
         // An exact entry spells out the parent cell; it must hold only the
         // collection.

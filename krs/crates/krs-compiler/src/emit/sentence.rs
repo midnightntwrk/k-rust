@@ -1144,6 +1144,9 @@ fn emit_instances_clause(
     let start = writer.source.len();
     let layout = instances_layout(clause);
     let wrapped = layout.in_parent;
+    // An open entry that names no instance is its parent cell's content `.Bag ...`: K's cell
+    // grammar has no `<c> ... </c>`.
+    let names_none = clause.front().is_empty() && clause.back().is_empty();
     let item_indent = if wrapped { indent + 4 } else { indent };
     let parent = if wrapped {
         let parent = context.parent_cell(clause.cell()).ok_or_else(|| {
@@ -1171,11 +1174,15 @@ fn emit_instances_clause(
             }
             InstancesItem::Others => {
                 writer.push(&" ".repeat(item_indent));
-                writer.push("...");
+                writer.push(if names_none { ".Bag ..." } else { "..." });
             }
             InstancesItem::Rest => {
                 writer.push(&" ".repeat(item_indent));
                 writer.push(&format!("_Instances{index}:Bag"));
+            }
+            InstancesItem::Empty => {
+                writer.push(&" ".repeat(item_indent));
+                writer.push(".Bag");
             }
         }
     }

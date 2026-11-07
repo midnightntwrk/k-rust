@@ -315,12 +315,16 @@ pub enum InstancesItem<'c, C, T> {
     Others,
     /// A variable naming the other instances, before the back instances.
     Rest,
+    /// `.Bag`: an exact clause that names no instance, whose parent cell holds none.
+    Empty,
 }
 
 /// How a collection (`*`) clause is written: an open Set or Map clause as its instances, beside
 /// the other cells of its level, leaving the collection's parent cell to cell completion; an
 /// exact clause and a List clause inside the parent cell, a List clause's back instances after
-/// the other instances, which a variable names.
+/// the other instances, which a variable names. A clause that names no instance is the
+/// collection as a whole, so it is written inside the parent cell too, as the parent's content:
+/// `.Bag` when exact, the other instances when open.
 #[derive(Debug)]
 pub struct InstancesLayout<'c, C, T> {
     /// Whether the items are written inside the collection's parent cell.
@@ -342,7 +346,9 @@ impl<C, T> InstancesLayout<'_, C, T> {
 /// How the collection clause `clause` is written ([`InstancesLayout`]).
 #[must_use]
 pub fn instances_layout<C, T>(clause: &krs_ir::InstancesClause<C, T>) -> InstancesLayout<'_, C, T> {
-    let in_parent = clause.ordering() == krs_ir::InstanceOrdering::List || !clause.is_open();
+    let names_none = clause.front().is_empty() && clause.back().is_empty();
+    let in_parent =
+        clause.ordering() == krs_ir::InstanceOrdering::List || !clause.is_open() || names_none;
     let mut items = clause
         .front()
         .iter()
@@ -356,6 +362,9 @@ pub fn instances_layout<C, T>(clause: &krs_ir::InstancesClause<C, T>) -> Instanc
         }
     }
     items.extend(clause.back().iter().map(InstancesItem::Instance));
+    if items.is_empty() {
+        items.push(InstancesItem::Empty);
+    }
     InstancesLayout { in_parent, items }
 }
 
