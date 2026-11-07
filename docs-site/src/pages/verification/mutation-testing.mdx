@@ -19,7 +19,7 @@ The [workflow reference](/reference/workflow#the-corpus-loop) states every verb,
 
 - A kill is a proved difference: for some admitted, comparable case, the mutant's ends differ from the specification's on the compared cells (every cell but the unobservable ones, or those `[result] cells` names).
 - A survivor is not a bug in the specification. It says that no case of the corpus tells the mutant apart: write a case that does, or argue that none can.
-- "No case found" is not "no case exists". Only an argument shows that no case exists, or the mutant compiling to the specification's own K, the one mutant whose status is `equivalent`.
+- "No case found" is not "no case exists". Only an argument shows that no case exists, or kink showing the mutant to be the specification, the one mutant whose status is `equivalent`.
 - `unknown` is an honest non-answer: the run could not be judged, and its `cause` says why ([Unknowns and budgets](#unknowns-and-budgets)).
 - Cached outcomes rest on the determinism of compilation and execution, and on cache keys that name every input of an outcome; `--verify` re-proves every cached outcome against a live run.
 
@@ -136,7 +136,7 @@ In your own package, add the case to the corpus you ran: a run again then reuses
 
 `survivors/swap` swaps the arguments of the recursive call.
 `plus` is commutative, so the mutant computes the same sum on every input, and no case can kill it.
-Its status stays `survived`: the status `equivalent` is only that of a mutant that compiles to the specification's own executable definition, and this one does not.
+Its status stays `survived`: the status `equivalent` is only that of a mutant kink shows to be the specification, by its compiling to the specification's own executable definition or by its edits adding only conditions that hold of every value, and kink shows neither here.
 Drop it, or keep it with that argument written in its `misunderstanding`, as the guide's file does.
 
 ### 5. Commit, and check in CI
@@ -221,8 +221,11 @@ A constant used in several places means every sentence that uses it is edited.
 One misunderstanding can have more than one K text, for example swapping two patterns or swapping their results.
 kink judges behavior, so either form is right.
 A mutation that no case can kill, such as `survivors/swap`, survives every case, and its status stays `survived`: say why in its `misunderstanding`, or drop it.
-The status `equivalent` is narrower: it is that of a mutant that compiles to the specification's own executable definition.
-krs's and kink's `no-change` refuse most such mutations at `check` (a renamed variable, added brackets, a `requires true`), so `run` rarely shows it.
+The status `equivalent` is narrower: it is that of a mutant kink shows to be the specification.
+krs's and kink's `no-change` refuse at `check` an edit whose rule loads to the same sentence (a renamed variable, added brackets, a literal `requires true`).
+A `requires` that holds of every value but is written otherwise loads to another sentence, so `check` accepts it.
+When it is the sort predicate of a variable of that sort, such as `requires isNat ( N:Nat )` on `plus_succ`, true of every `Nat`, the edited equation is the specification's own, and `run` reports the mutation `equivalent` with reason `valid-condition`.
+kink shows no other condition to hold everywhere: it reads any other added condition as a narrowing, `unkillable`, which is sound, since no case can kill a mutant that narrows nothing either.
 
 ### What `check` refuses, and what to do
 
@@ -259,7 +262,7 @@ kink-flow's README states each, in ["`MUTATIONS.toml`"](https://github.com/midni
 | --- | --- | --- | --- |
 | `killed` | some case's result differs on the mutant | nothing | 0 |
 | `survived` | every case ran to a comparable result and agreed | write a case that reaches the edited rule and whose result the edit changes (the row's `witnesses` are the cases whose coverage reaches a rule the mutation edits, whatever the mutant then does; a definedness claim kink drops from the mutant, such as `plus`'s `total` in `removed_claims`, adds none through coverage; an edit of an equation's pattern or of one of its attributes is witnessed by every case, and `witnesses_global` says so, since a changed pattern can match terms no case's run tried), or argue that no case can kill it, which leaves it `survived` | 0 |
-| `equivalent` | the mutant compiles to the specification's own executable definition | drop or change the mutation | 0 |
+| `equivalent` | kink shows the mutant to be the specification: it compiles to the specification's own executable definition, or each edit only adds to an equation's `requires` a condition that holds of every value, such as `isNat ( N:Nat )` (reason `valid-condition`) | drop or change the mutation | 0 |
 | `unkillable` | the edit only weakens the specification: it deletes equations, or narrows an equation's pattern or `requires`, such as `plus ( s ( M:Nat ) , s ( N:Nat ) ) => s ( plus ( M:Nat , s ( N:Nat ) ) )` for `plus_succ` | nothing is run; to test the misunderstanding, write what it gives on the inputs the narrowed equation no longer covers, as a replacement | 0 |
 | `invalid-mutation` | the mutation does not resolve, or krs refuses it (in `check`'s document, `outcome` `refused`) | `check` names the reason and the next step | 2 |
 | `not-admitted` | kink cannot judge the mutant: it does not compile, or its equations are inconsistent (`inconsistent-mutant`) | fix the edit | 2 |

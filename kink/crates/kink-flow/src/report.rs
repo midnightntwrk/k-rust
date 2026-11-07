@@ -59,7 +59,10 @@
 //! deletes equations of functions or lemmas, or replaces one by an instance of itself: a narrower
 //! pattern or `requires`) has the status `unkillable` with reason `weakening`, runs nothing, and
 //! its row's `weakening` names each edited equation or lemma (null on every other row); a mutant run's cause names the function whose
-//! application an indeterminate leaf holds unreduced ([`executed_cause`]).
+//! application an indeterminate leaf holds unreduced ([`executed_cause`]). Since version 28 an
+//! edit whose `requires` adds only conditions that hold under every valuation of their variables
+//! keeps its equation (kind `valid-condition`), and a mutation of only such edits is `equivalent`
+//! with reason `valid-condition`.
 //!
 //! CF-03 (version 15): a run of a definition whose short-circuit analysis flags a rule is judged
 //! by k-rust's `shortCircuitReadings` list of that run, so `spec.exclusion` no longer names the
@@ -185,8 +188,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// stuck leaf, an undefined step or a stop's end holds, not only an indeterminate leaf, with the application and its
 /// arguments, an `unknown` row every undecided program of which, live or cached, is undecided by
 /// such applications carries the reason `open-application` ([`OPEN_APPLICATION_REASON`]), and a
-/// program's `mismatches` entry names each side's `open_application`.
-pub const RUN_VERSION: u64 = 27;
+/// program's `mismatches` entry names each side's `open_application`; 28 since a row's
+/// `weakening` kind can be `valid-condition` (an edited equation's `requires` adds only conjuncts
+/// that hold under every valuation of their variables, so the equation is the specification's
+/// own), and a row every edited sentence of which has that kind is `equivalent` with the reason
+/// `valid-condition` ([`crate::search::VALID_CONDITION_REASON`]), not `unkillable`.
+pub const RUN_VERSION: u64 = 28;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -405,6 +412,13 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         "unknown" => {
             "write a program whose final configuration under the mutant kink can compare: the \
              cause of each executed program says what stopped the comparison"
+        }
+        "equivalent" if reason == Some(crate::search::VALID_CONDITION_REASON) => {
+            "nothing can kill it: the edit only adds to a requires conditions that hold of every \
+             value of their variables' sorts, such as the sort predicate of a variable of that \
+             sort, so each edited equation is the specification's own and the mutant has exactly \
+             the specification's models (weakening, kind valid-condition); drop or change the \
+             mutation"
         }
         "equivalent" => {
             "nothing can kill it: the mutant compiles to the baseline's definition; drop or \

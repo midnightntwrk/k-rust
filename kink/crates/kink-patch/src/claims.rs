@@ -100,7 +100,10 @@ pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
 /// [`ClaimSupport::weakening`]) is a narrowing, and a lemma may be narrowed. v4: the instance
 /// test reads each variable's sort from the loaded sentence, the sort written for it or the one
 /// sort inference gave it, so a narrowing whose variables are written without their sorts is
-/// one, and two mutations that load to one sentence get one verdict.
+/// one, and two mutations that load to one sentence get one verdict; and a replacement whose
+/// `requires` adds only conjuncts that hold under every valuation of their variables (the sort
+/// predicate of a variable of that sort) is the same axiom, kind
+/// [`WeakeningKind::ValidCondition`], not a narrowing.
 pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v4";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 0068938b1
@@ -330,6 +333,21 @@ pub enum WeakeningKind {
     /// The equation or lemma is replaced by an instance of itself: a narrower pattern or
     /// `requires`, with the same value on every instance it still covers.
     Narrowed,
+    /// The equation or lemma is replaced by itself with a `requires` whose added conjuncts each
+    /// hold under every valuation of their variables ([`ClaimSupport::weakening`]): the same
+    /// axiom, which weakens nothing.
+    ValidCondition,
+}
+
+impl Weakening {
+    /// Whether every edited sentence keeps its axiom ([`WeakeningKind::ValidCondition`]): the
+    /// mutant's axioms are then the baseline's, so it has exactly the baseline's models.
+    #[must_use]
+    pub fn keeps_every_axiom(&self) -> bool {
+        self.equations
+            .iter()
+            .all(|weakened| weakened.kind == WeakeningKind::ValidCondition)
+    }
 }
 
 /// How a rule sentence takes part in the equational theory.
@@ -694,6 +712,12 @@ impl ClaimSupport {
     /// claim of the mutant is one of the baseline's or entailed by one, and every model of the
     /// baseline is a model of the mutant: no program can kill it.
     ///
+    /// A replacement that narrows the `requires` only by conjuncts that hold under every
+    /// valuation of their variables ([`Self::adds_only_valid`]) is
+    /// [`WeakeningKind::ValidCondition`]: its `requires` is the original's under every valuation,
+    /// so the replaced axiom is the original itself, and when every edit is one
+    /// ([`Weakening::keeps_every_axiom`]) the mutant has exactly the baseline's models.
+    ///
     /// Fail closed: a rule with `anywhere` or a macro-like attribute (deleting the last
     /// `anywhere` rule of a symbol makes it a constructor, whose no-confusion the baseline need
     /// not satisfy; a macro rule is expanded into other sentences), a head of an `overload`
@@ -714,10 +738,14 @@ impl ClaimSupport {
             let head = self.weakenable(sentence)?;
             let kind = match replacement {
                 None => WeakeningKind::Deleted,
-                Some(replacement)
-                    if self.narrows(sentence, replacement)
-                        || self.instance(sentence, replacement) =>
-                {
+                Some(replacement) if self.narrows(sentence, replacement) => {
+                    if self.adds_only_valid(sentence, replacement) {
+                        WeakeningKind::ValidCondition
+                    } else {
+                        WeakeningKind::Narrowed
+                    }
+                }
+                Some(replacement) if self.instance(sentence, replacement) => {
                     WeakeningKind::Narrowed
                 }
                 Some(_) => return None,
@@ -834,6 +862,60 @@ impl ClaimSupport {
         self.conjuncts(requires)
             .iter()
             .all(|conjunct| narrower.contains(conjunct))
+    }
+
+    /// Whether every conjunct of `replacement`'s `requires` that is not one of `original`'s holds
+    /// under every valuation of its variables, for a replacement that [`Self::narrows`] the
+    /// original: the conjunction is then the original's, so the replacement is the same axiom.
+    /// The only conjunct read as valid is the sort predicate `isS` of a variable whose sort in
+    /// the loaded sentence is S ([`variable_sorts`], written or inferred: `isNat ( N:Nat )`, or
+    /// `isNat ( N )` where N is inferred `Nat`): the predicate is the membership test of S, true
+    /// exactly on the elements of S, and the axiom quantifies the variable over the elements of
+    /// S. Fail closed when a production of the definition declares the label (a user's `isS`,
+    /// with equations of its own), on a variable no occurrence gives a sort, two occurrences give
+    /// two, or whose sort is another, on an anonymous variable, and on every other conjunct,
+    /// `I >=Int 0` of a variable of a subsort of the naturals included.
+    fn adds_only_valid(&self, original: &Sentence, replacement: &Sentence) -> bool {
+        let (
+            Sentence::Rule { requires, .. },
+            Sentence::Rule {
+                requires: new_requires,
+                ..
+            },
+        ) = (original, replacement)
+        else {
+            return false;
+        };
+        let Some(sorts) = variable_sorts(replacement) else {
+            return false;
+        };
+        let kept = self.conjuncts(requires);
+        self.conjuncts(new_requires)
+            .into_iter()
+            .all(|conjunct| kept.contains(&conjunct) || self.valid_conjunct(conjunct, &sorts))
+    }
+
+    /// Whether `conjunct` is the sort predicate of a variable of that sort
+    /// ([`Self::adds_only_valid`]).
+    fn valid_conjunct(&self, conjunct: &Term, sorts: &VariableSorts) -> bool {
+        let Term::Apply { label, arguments } = conjunct.unannotated() else {
+            return false;
+        };
+        let [argument] = arguments.as_slice() else {
+            return false;
+        };
+        let Some(found) = occurrence(argument) else {
+            return false;
+        };
+        if anonymous(found.name) {
+            return false;
+        }
+        let Some(sort) = sorts.sort(found.name) else {
+            return false;
+        };
+        found.sort.as_ref() == Some(sort)
+            && *label == Label::sort_predicate(sort)
+            && !self.instances.labels.contains_key(&label.name)
     }
 
     /// Whether `replacement` is an instance of the rule `original` under a substitution σ,

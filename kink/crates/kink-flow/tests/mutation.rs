@@ -1401,7 +1401,9 @@ module CONJ
 /// is an axiom about it that the hook need not satisfy, so conjoining a term through it does not
 /// narrow a `requires` in every model. `&&&` here is not macro-like, so only its rule can refuse
 /// it; a user lemma headed by `_andBool_` refuses `andBool` the same way. The label without a
-/// user rule is a conjunction (the control): appending ` <label> true` narrows both guards of `s`.
+/// user rule is a conjunction (the control): appending ` <label> true` conjoins `true` to both
+/// guards of `s`, which keeps each guard, so each equation is the specification's own (kind
+/// `valid-condition`, weakening v4).
 #[test]
 fn a_conjunction_label_heading_a_user_rule_is_no_conjunction() {
     use kink_patch::{ClaimSupport, WeakeningKind};
@@ -1452,16 +1454,16 @@ fn a_conjunction_label_heading_a_user_rule_is_no_conjunction() {
                         )
                     })
                     .collect::<Vec<_>>();
-                let narrowed = |rule: &str| {
+                let kept = |rule: &str| {
                     (
                         format!("CONJ.{rule}"),
-                        WeakeningKind::Narrowed,
+                        WeakeningKind::ValidCondition,
                         Some("s".to_owned()),
                     )
                 };
                 assert_eq!(
                     found,
-                    [narrowed("s-big"), narrowed("s-small")],
+                    [kept("s-big"), kept("s-small")],
                     "{test} {label}"
                 );
             } else {
@@ -2041,4 +2043,97 @@ fn an_edit_that_writes_the_text_it_finds_changes_nothing() {
         Some(1),
         InvalidReason::NoChange,
     );
+}
+
+/// The introduction's story as `krs emit-k` writes it, less its header: `plus`, declared
+/// `total`, defined by `plus_zero` and `plus_succ` over the constructors of `Nat`.
+const STORY_K: &str = r#"
+module KRS-FRAMEWORK
+  syntax KItem
+  syntax KResult
+  syntax KItem ::= KResult
+endmodule
+module NAT-SYNTAX
+  imports KRS-FRAMEWORK
+  syntax Nat
+  syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), format(%1%2%3%4)]
+  syntax Nat ::= "zero" [symbol(natSyntaxZero), format(%1)]
+  syntax Nat ::= "plus" "(" Nat "," Nat ")" [symbol(plus), function, total]
+endmodule
+module NAT
+  imports KRS-FRAMEWORK
+  imports NAT-SYNTAX
+  syntax KItem ::= Nat
+  configuration
+    <k> $PGM:Nat </k>
+  rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) ) [label(nat--plus_succ)]
+  rule plus ( zero , N:Nat ) => N:Nat [label(nat--plus_zero)]
+endmodule
+"#;
+
+/// A `requires` that holds under every valuation of its variables keeps the equation's axiom:
+/// `isNat ( N:Nat )` is the membership test of `Nat` applied to a variable that ranges over
+/// `Nat`, so the conjunction is the original's (`true`) and the replacement is `plus_succ`
+/// itself (kind `valid-condition`, every axiom kept). The sort predicate of a variable written
+/// with its sort elsewhere in the rule is valid too, since one variable has one sort, and so is
+/// that of a variable the rule writes without any sort, whose loaded sort sort inference gives
+/// (`N` in `plus ( s ( M ) , N )` is a `Nat`). Mixed with a deletion the mutant only weakens
+/// the specification; `requires false` narrows it; and a predicate of another sort than the
+/// variable's is not read as valid (fail closed), so it narrows.
+#[test]
+fn a_requires_that_holds_everywhere_keeps_the_axiom() {
+    use kink_patch::{ClaimSupport, WeakeningKind};
+    let dir = scratch("valid-condition");
+    write(&dir.join("story.k"), STORY_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"story.k\"\nmain_module = \"NAT\"\nsyntax_module = \"NAT-SYNTAX\"\n",
+    );
+    let spec = Spec::at(&dir.join("FLOW.toml"));
+    let baseline = &spec.loaded.baseline;
+    let support = ClaimSupport::new(baseline);
+    let requiring = |condition: &str| {
+        format!(
+            "[[mutation.edit]]\nrule = \"plus_succ\"\nfind = \"s ( plus ( M:Nat , N:Nat ) )\"\n\
+             replace = \"s ( plus ( M:Nat , N:Nat ) ) requires {condition}\"\n"
+        )
+    };
+    let delete_zero = "[[mutation.edit]]\nrule = \"plus_zero\"\ndelete = true\n";
+    let cases = [
+        (requiring("isNat ( N:Nat )"), vec![WeakeningKind::ValidCondition]),
+        (requiring("isNat ( N )"), vec![WeakeningKind::ValidCondition]),
+        (requiring("isNat ( M:Nat )"), vec![WeakeningKind::ValidCondition]),
+        (
+            "[[mutation.edit]]\nrule = \"plus_succ\"\n\
+             find = \"plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )\"\n\
+             replace = \"plus ( s ( M ) , N ) => s ( plus ( M , N ) ) requires isNat ( N )\"\n"
+                .to_owned(),
+            vec![WeakeningKind::ValidCondition],
+        ),
+        (
+            format!("{}{delete_zero}", requiring("isNat ( N:Nat )")),
+            vec![WeakeningKind::ValidCondition, WeakeningKind::Deleted],
+        ),
+        (requiring("false"), vec![WeakeningKind::Narrowed]),
+        (requiring("isKResult ( N:Nat )"), vec![WeakeningKind::Narrowed]),
+    ];
+    for (edits, kinds) in cases {
+        let resolved = spec
+            .resolve_edits(&edits)
+            .unwrap_or_else(|e| panic!("{edits}: {e}"));
+        let weakening = support
+            .weakening(baseline, &resolved.patch)
+            .unwrap_or_else(|| panic!("{edits} weakens nothing it keeps"));
+        let found = weakening
+            .equations
+            .iter()
+            .map(|weakened| weakened.kind)
+            .collect::<Vec<_>>();
+        assert_eq!(found, kinds, "{edits}");
+        assert_eq!(
+            weakening.keeps_every_axiom(),
+            kinds.iter().all(|kind| *kind == WeakeningKind::ValidCondition),
+            "{edits}"
+        );
+    }
 }

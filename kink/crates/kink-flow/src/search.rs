@@ -11,7 +11,11 @@
 //!    mutant, so no program can kill it, and nothing runs (kink27 R5-WEAKENING). It is decided
 //!    after the `baseline-findings` check (before tier 1, a baseline with a finding no
 //!    `[spec] assume_joined` name assumes makes every mutation with a program in O `unknown`),
-//!    since the argument reads the baseline's normal forms as a model (fix round 1).
+//!    since the argument reads the baseline's normal forms as a model (fix round 1). When every
+//!    edited sentence keeps its axiom (kind `valid-condition`: its `requires` adds only
+//!    conjuncts that hold under every valuation of their variables, such as `isNat ( N:Nat )`),
+//!    the mutant has exactly the specification's models, and the mutation is `equivalent` with
+//!    reason [`VALID_CONDITION_REASON`] instead.
 //! 2. Choose the programs O: the comparable programs of the up-to-date result cache, cheapest
 //!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). Every
 //!    live call then runs first the programs of the call whose cached coverage witnesses the
@@ -252,6 +256,11 @@ pub const SOURCE_SEARCH: &str = "search";
 pub const UNKILLABLE: &str = "unkillable";
 /// The reason of an [`UNKILLABLE`] mutation.
 pub const WEAKENING_REASON: &str = "weakening";
+/// The reason of an `equivalent` mutation every edited sentence of which keeps its axiom
+/// (kink-patch `WeakeningKind::ValidCondition`): its `requires` adds only conjuncts that hold
+/// under every valuation of their variables, so the mutant has exactly the specification's
+/// models. kink-flow decides it at resolution, as it decides [`UNKILLABLE`].
+pub const VALID_CONDITION_REASON: &str = "valid-condition";
 
 /// Every status a mutation can have, in the order the counts list them: the runner's
 /// mutant statuses with kink-flow's `unkillable`, then the flow's own `invalid-mutation`.
@@ -1324,8 +1333,9 @@ impl Search<'_, '_> {
         // baseline's normal forms as a model, which an unassumed finding puts in doubt, and the
         // specification's own findings are what the author has to fix first.
         if !facts.weakening.is_null() {
-            row.insert("status".into(), json!(UNKILLABLE));
-            row.insert("reason".into(), json!(WEAKENING_REASON));
+            let (status, reason) = weakening_status(&facts.weakening);
+            row.insert("status".into(), json!(status));
+            row.insert("reason".into(), json!(reason));
             if self.mode == RunMode::Search {
                 self.hints.remove(key);
             }
@@ -2898,10 +2908,37 @@ fn resolution_mismatch(mut row: Value) -> Value {
     row
 }
 
+/// The status and reason of a mutation whose row's `weakening` ([`weakening_value`]) is not null:
+/// `equivalent` with [`VALID_CONDITION_REASON`] when every edited sentence keeps its axiom (kind
+/// `valid-condition`), since the mutant then has exactly the specification's models;
+/// [`UNKILLABLE`] with [`WEAKENING_REASON`] otherwise.
+pub(crate) fn weakening_status(weakening: &Value) -> (&'static str, &'static str) {
+    let kept = weakening.as_array().is_some_and(|sentences| {
+        !sentences.is_empty()
+            && sentences
+                .iter()
+                .all(|sentence| sentence["kind"] == WEAKENING_VALID_CONDITION)
+    });
+    if kept {
+        ("equivalent", VALID_CONDITION_REASON)
+    } else {
+        (UNKILLABLE, WEAKENING_REASON)
+    }
+}
+
+/// The `kind` of a sentence a weakening patch replaces by itself with conditions that hold
+/// everywhere (kink-patch `WeakeningKind::ValidCondition`).
+const WEAKENING_VALID_CONDITION: &str = "valid-condition";
+
 /// The row's `weakening`: null, or for each sentence a weakening patch edits `{module, index,
 /// label, head, kind}`, `label` the baseline sentence's (null without one), `head` the K label of
-/// the function (null for a lemma), `kind` `deleted` or `narrowed` (kink27 R5-WEAKENING).
-fn weakening_value(baseline: &kink_patch::Baseline, weakening: Option<&Weakening>) -> Value {
+/// the function (null for a lemma), `kind` `deleted`, `narrowed` or `valid-condition` (the same
+/// axiom: its `requires` adds only conjuncts that hold under every valuation of their variables;
+/// kink27 R5-WEAKENING).
+pub(crate) fn weakening_value(
+    baseline: &kink_patch::Baseline,
+    weakening: Option<&Weakening>,
+) -> Value {
     weakening.map_or(Value::Null, |weakening| {
         Value::Array(
             weakening
@@ -2918,6 +2955,7 @@ fn weakening_value(baseline: &kink_patch::Baseline, weakening: Option<&Weakening
                         "kind": match weakened.kind {
                             WeakeningKind::Deleted => "deleted",
                             WeakeningKind::Narrowed => "narrowed",
+                            WeakeningKind::ValidCondition => WEAKENING_VALID_CONDITION,
                         },
                     })
                 })
