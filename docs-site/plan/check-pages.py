@@ -194,11 +194,12 @@ def main() -> None:
     browser_lessons = ledger.rows("browser_lesson")
     topics = ledger.rows("topic")
     pages_by_route = documentation_pages()
-    # The /k-rust section mirrors k-rust's documentation (docs-site/scripts/sync-k-rust.py) and is
-    # no part of the tour curriculum; links into it are still checked.
+    # The /k-rust section mirrors k-rust's documentation (docs-site/scripts/sync-k-rust.py), and the
+    # /lean series is a lesson series of its own; neither is part of the tour curriculum. Links into
+    # them are still checked.
     other_pages = {
         route: page for route, page in pages_by_route.items()
-        if route == "/k-rust" or route.startswith("/k-rust/")
+        if any(route == section or route.startswith(f"{section}/") for section in ("/k-rust", "/lean"))
     }
     pages_by_route = {route: page for route, page in pages_by_route.items() if route not in other_pages}
     declared_routes = (

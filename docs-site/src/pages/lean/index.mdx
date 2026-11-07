@@ -1,0 +1,87 @@
+---
+title: A K definition in Lean
+description: A lesson series on stating and proving properties of a K definition in Lean, on one running example, with what is checked by the kernel and what a reader must read.
+---
+
+import { Provenance } from '../../components/lean/Provenance'
+import { diffNumbers, numbers } from '../../components/lean/numbers'
+
+# A K definition in Lean
+
+You wrote a K definition and ran a program with it.
+The run shows one path through the definition.
+A property such as "a configuration has at most one successor" or "every step keeps the counter cell" speaks about every configuration, and only a proof can establish it.
+A proof needs a precise meaning of "a step", stated once, that a proof checker can work with.
+
+This series builds that meaning in Lean, proves properties of a small definition with it, and shows what a skeptical reader has to read to believe that the proved statements are about the definition they wrote.
+
+## The running example
+
+Every lesson uses the same definition, `peano.k`: natural numbers built from `z` and `s`, a function `pred`, and a machine state that counts down.
+
+```text
+module PEANO
+  syntax Nat ::= "z" [symbol(z)]
+               | s(Nat) [symbol(s)]
+  syntax Nat ::= pred(Nat) [function, symbol(pred)]
+  rule pred(s(N)) => N
+  rule pred(_) => z [owise]
+
+  syntax Val ::= Nat
+  syntax State ::= run(Nat) [symbol(run)]
+                 | done(Val) [symbol(done)]
+
+  configuration <k> $PGM:State </k>
+
+  rule <k> run(s(N)) => run(pred(s(N))) </k>
+  rule <k> run(z) => done(z) </k>
+endmodule
+```
+
+Started on `run(s(z))`, it steps to `run(z)` and then to `done(z)`, where no rule applies.
+
+## The lessons
+
+| # | Lesson | State |
+|---|---|---|
+| 1 | [A definition and its steps](/lean/a-definition-and-its-steps) | in review |
+| 2 | [Matching logic from scratch](/lean/matching-logic) | in review |
+| 3 | [The definition as a Lean value](/lean/the-definition-as-a-value) | in review |
+| 4 | [What a step means in Lean](/lean/what-a-step-means) | in review |
+| 5 | [Proving a property](/lean/proving-a-property) | in review |
+| 6 | [What you have to read](/lean/what-you-have-to-read) | in review |
+| 7 | [Making proofs cheap](/lean/making-proofs-cheap) | in review |
+| 8 | [Theorem A](/lean/theorem-a) | in review |
+| 9 | KRS | planned |
+| 10 | Other functionality | planned |
+
+Read in order, the lessons build from the problem (1) to K's official meaning (2), the Lean definitions and proofs (3 to 5), what a reader must check (6), how proofs get cheaper without review (7), and the theorem that would tie the two meanings together (8).
+Lessons 4 to 6 also stand on their own for a reader who knows what a K rewrite rule is.
+Each has scenes you can play or step through: with a scene focused, ← and → move one step and Space plays or pauses.
+Each scene ends with questions to check yourself, and each lesson ends with the commands that reproduce what it shows.
+
+## What is machine-checked today
+
+Checked by the Lean kernel, with the axioms `propext`, `Classical.choice` and `Quot.sound` only:
+
+- five properties of peano (determinism, the two equations of `pred`, two invariants) and four witnesses that they are not true for an empty reason (lesson 5);
+- that the executable step lists exactly the successors of the step relation, for every definition that passes a check on its data (`step_iff`), and that every well-formed definition passes it (lesson 4);
+- that the KORE the Lean data generates is, symbol for symbol, the KORE kompile produced for `peano.k`, and that peano is in the fragment F0; and that {numbers.f0Rejections} mutated or adversarial KORE texts are not (lesson 3);
+- that reordering the sentences of a module does not change the models of its theory (`reordered_sameModels`, lesson 3).
+
+Evidence, not proof:
+
+- the executable step agrees with krust's execution of the same KORE on {diffNumbers.configs} configurations of {diffNumbers.subjects} definitions, with {diffNumbers.differences} differences, and with the reference K backend on a sample of {diffNumbers.refSampled} (lesson 6);
+- the reference K kompile and krust's give the same step for peano (lesson 6).
+
+Not proved yet:
+
+- Theorem A, which ties the executable step, read through the KORE encoding, to the matching-logic theory of the KORE text (stated, its proof is `sorry`; lesson 8);
+- the matching-logic statements about peano's own steps (stated, `sorry`; lesson 2);
+- that every rule of a well-formed definition rewrites a configuration to a configuration (subject reduction);
+- in this package, a property of a definition other than `peano.k`: the generic theorems hold for every definition, and the loop run of lesson 7 proved properties of two synthetic definitions, but outside the package.
+
+Trusted, not checked: the Lean kernel, Lean's `Init` library, kompile's translation of `peano.k` into KORE, the KORE reader, and the tool that lists what the statements depend on.
+[What you have to read](/lean/what-you-have-to-read) goes through each.
+
+<Provenance />

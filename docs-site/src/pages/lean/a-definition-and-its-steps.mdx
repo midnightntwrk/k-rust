@@ -1,0 +1,64 @@
+---
+title: A definition and its steps
+description: peano.k, the KORE kompile writes for it, a run of it with krust, and the configurations no run reaches, as the problem the rest of the series solves.
+---
+
+import { Provenance } from '../../components/lean/Provenance'
+import { BeyondRunScene, KompileScene, RunScene } from '../../components/lean/IntroScenes'
+import { diffNumbers, peanoLines } from '../../components/lean/numbers'
+
+# A definition and its steps
+
+Lesson 1 of [A K definition in Lean](/lean).
+
+You wrote a K definition, compiled it, and ran a program with it.
+The run printed a sequence of configurations, and they were the ones you expected.
+This lesson looks at what that shows, and at what it cannot show: the gap a proof has to fill, and the question every later lesson answers.
+
+The running example is `peano.k`, {peanoLines} lines: natural numbers built from `z` and `s`, a function `pred`, and a machine state that counts down.
+
+## From the source to KORE
+
+A K definition is not run as written.
+kompile translates it into KORE, a small logical language: sort and symbol declarations, and axioms.
+A K rule becomes a rewrite axiom over the whole configuration, and a function's equations become implications whose premises say when each one applies.
+
+<KompileScene />
+
+Everything after this point reads KORE, not the source: the backends that run programs, the matching-logic meaning of lesson 2, and the Lean definitions of lesson 3 onward.
+Whether kompile translated the source faithfully is a separate question, which lesson 6 returns to.
+
+## A run
+
+<RunScene />
+
+## What a run cannot show
+
+<BeyondRunScene />
+
+Two questions follow, and the rest of the series answers them.
+
+1. What is a step, precisely enough that a proof can quantify over all of them?
+   K's own answer is matching logic ([lesson 2](/lean/matching-logic)); the answer the proofs use is a Lean definition ([lessons 3](/lean/the-definition-as-a-value) and [4](/lean/what-a-step-means)).
+2. Why should anyone believe a proof about that definition is a proof about `peano.k`?
+   [Lesson 6](/lean/what-you-have-to-read) lists what a reader has to read, and [lesson 8](/lean/theorem-a) connects the two answers to question 1.
+
+## What is checked here
+
+- The KORE in the first scene is kompile's output for `peano.k`, as krust's kompile wrote it. Lesson 3 shows that the package's Lean data generates exactly this KORE, a fact the Lean kernel checks.
+- The run is krust's output for this program, captured when the page's data was generated; the binary's hash is in the scene.
+- The next configurations in the last scene were computed by the package's executable step function. Lesson 4 proves it equal to the step relation the proofs use; lesson 6 compares it with krust on {diffNumbers.configs} configurations.
+- Not checked: that kompile's KORE means what `peano.k` means. kompile is trusted, and lesson 6 says so.
+
+## Reproduce
+
+From a checkout of the k-rust repository, with krust built (`cargo build --release -p k-rust`), in a directory holding `peano.k`:
+
+```sh
+krust krun -m PEANO -s State -e 'run(s(s(z)))' --depth 3 peano.k   # done(z)
+krust kcompile peano.k --main-module PEANO -o kore                 # the KORE of the first scene
+```
+
+<Provenance />
+
+Next: [Matching logic from scratch](/lean/matching-logic).

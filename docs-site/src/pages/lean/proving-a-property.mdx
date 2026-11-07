@@ -1,0 +1,85 @@
+---
+title: Proving a property
+description: Determinism, the equations of pred, two invariants and four witnesses for peano, each from a theorem proved once and one kernel decision on the data, with Lean's real goal states and costs.
+---
+
+import { Provenance } from '../../components/lean/Provenance'
+import { numbers } from '../../components/lean/numbers'
+import { ChecksScene, CostScene, DeterminismScene, EquationsScene, InvariantScene, StatementsScene, WitnessScene } from '../../components/lean/ProofScenes'
+
+# Proving a property
+
+Lesson 5 of [A K definition in Lean](/lean).
+
+A run of `peano.k` from `run(s(z))` shows one path.
+"A configuration has at most one successor" and "every step keeps the counter cell" are claims about every configuration, including ones no test will reach.
+This lesson states such properties over the step relation of [lesson 4](/lean/what-a-step-means) and proves them, showing the goals exactly as Lean prints them while the proofs run.
+
+Every proof on this page has the same shape:
+
+- a theorem proved once, for every definition, that reduces the property to a computation on the definition's data;
+- one kernel decision that runs those computations on peano's data;
+- an application of the theorem to the decided facts.
+
+The proofs are not the first ones written for these statements.
+An unattended loop rewrote them, judged only by the kernel, and made them much cheaper than the first version; [lesson 7](/lean/making-proofs-cheap) tells that story with its numbers.
+
+## The statements
+
+<StatementsScene />
+
+A statement is fixed before any proof is written.
+Lesson 6 shows that these {numbers.module('PeanoProperties')} lines, with the definitions they use, are what a reader has to read.
+
+## One decision on the data
+
+<ChecksScene />
+
+## Determinism
+
+<DeterminismScene />
+
+## The equations of `pred`
+
+<EquationsScene />
+
+## Invariants
+
+<InvariantScene />
+
+## Witnesses
+
+An invariant `∀ x y, Step x y → P x → P y` is true for every `P` if `Step` relates nothing, and true for a given `P` if `P` holds of every configuration.
+Determinism is true if `Step` relates nothing.
+Four witnesses rule these out: `Step` relates `run(s(z))` to `run(z)` and `run(z)` to `done(z)`, it relates `done(z)` to nothing, and `done(s(z))` does not satisfy `doneHoldsZero`.
+
+<WitnessScene />
+
+## Costs
+
+<CostScene />
+
+The numbers are thousands of heartbeats, Lean's count of small allocations on the elaborating thread, including kernel checking; they do not depend on the machine's speed.
+They were measured when this page's data was generated, by elaborating the proof file once.
+
+## What is machine-checked here
+
+- All nine theorems on this page (five properties and four witnesses) are checked by the kernel and use only `propext`, `Classical.choice` and `Quot.sound`; the build pins each one's axiom list, so a new axiom or a `sorry` fails it.
+- The generic theorems they use (`deterministic_of`, `counter_preserved_of`, `step_of`, `stuck_of`, `valueAt_spec`, `Eval.det`) are kernel-checked once, for every definition.
+- None of the proofs is reviewed: the kernel checks each against its statement.
+
+## Reproduce
+
+In the kcore-spec package directory:
+
+```sh
+lake build                                      # includes PeanoProofs and LibraryChecks
+lake env lean KcoreSpec/LibraryChecks.lean      # prints nothing when every axiom list is as pinned
+```
+
+To see a goal state, open `KcoreSpec/PeanoProofs.lean` in an editor with the Lean extension and place the cursor after a tactic; or add `trace_state` after it and run `lake env lean KcoreSpec/PeanoProofs.lean`.
+The goals on this page were printed by Lean's own pretty printer, from the elaborator's info trees, without editing the file.
+
+<Provenance />
+
+Next: [What you have to read](/lean/what-you-have-to-read).

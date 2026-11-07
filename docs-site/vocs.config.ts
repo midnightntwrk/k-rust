@@ -78,6 +78,21 @@ export default defineConfig({
       ],
     },
     {
+      text: 'A K definition in Lean',
+      collapsed: false,
+      items: [
+        { text: 'Overview', link: '/lean' },
+        { text: '1. A definition and its steps', link: '/lean/a-definition-and-its-steps' },
+        { text: '2. Matching logic from scratch', link: '/lean/matching-logic' },
+        { text: '3. The definition as a Lean value', link: '/lean/the-definition-as-a-value' },
+        { text: '4. What a step means in Lean', link: '/lean/what-a-step-means' },
+        { text: '5. Proving a property', link: '/lean/proving-a-property' },
+        { text: '6. What you have to read', link: '/lean/what-you-have-to-read' },
+        { text: '7. Making proofs cheap', link: '/lean/making-proofs-cheap' },
+        { text: '8. Theorem A', link: '/lean/theorem-a' },
+      ],
+    },
+    {
       text: 'Try it',
       collapsed: false,
       items: [{ text: 'Compile in the browser', link: '/lessons/tour-minimal' }],
