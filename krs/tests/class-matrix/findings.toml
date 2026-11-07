@@ -94,11 +94,6 @@ owner = "S5"
 kind = "feature"
 what = "a result on a Map leaf whose subject entry matched the map with a readable map read (`env: { z -> y, .. }`) is refused for that match (\"a preserved map-item cell is omitted from the machine-rule result\"): the subject's map read is a frame the result may not replace, the stated M3 limitation (design:M3), so the result entry's own answer is never reached (S5.0g item 3a fixes, F-6)"
 
-["S5-H2"]
-owner = "S5"
-kind = "diagnostic"
-what = "a readable result writing an updated instance's Map child with a map read and a rest (`{ Acct { aenv: { v -> x, .. }, ..me }, .. }`) is refused as the table says, `map-read-in-result`, by the admission (`cell_entries`, TRI-C), but the macro's term walker meets the child's lowered `map![v -> x, ..]` first and answers `invalid-expression-notation` (\"in a term, `map![..]` is a literal\"): the readable macro's form step judges no instance child's kind, so the collector's refusal never comes first"
-
 ["S5-K1"]
 owner = "S5"
 kind = "diagnostic"
@@ -128,11 +123,6 @@ what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable
 owner = "S5"
 kind = "diagnostic"
 what = "an initializer's record update on a leaf stack (`env`, `pc`, `seq`, `set`, `stack`: `G { a: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\") where the lattice's sort class is the answer: a struct literal names no leaf's sort. On a group cell and a `*` collection's instance template the same refusal is the limit class `template-record-update` (TRI-C2, ruling R6: not supported yet, as the docs say); its rows moved there. The leaf half needs the initializer reader (krs-syntax `initializer.rs`) to know the cell's kind before refusing"
-
-["S5-V2"]
-owner = "S5"
-kind = "bug"
-what = "a readable instance record's List child written with brackets, in a result or a subject (`acc: { A { aid: 5, al: [x] }, .. }`, the subject `al: [y, ..]` of `c19-acc`) is refused \"a `[..]` sequence occurs in a cell that is not the computation cell\": the compiler misreads the child's kind, reading the brackets of a List leaf as a K sequence, though P2 gives brackets inside a List leaf as its mark and the `cells!` twin is accepted with `<al> ListItem(V0:Int) </al>` (P7)"
 
 ["S5-Z1"]
 owner = "S5"

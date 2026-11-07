@@ -13854,10 +13854,41 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<acc>
+<aid> V1:Int </aid>
+<al> _ => ListItem(V0:Int) </al>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<acc>
+<aid> V1:Int </aid>
+<al> ListItem(V2:KItem) V3:List => ListItem(V0:Int) V3:List </al>
+</acc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> ListItem(V0:Int) </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/result/c23-acc/{ A { aid: 5, .. }, .. }"]
 k = """
@@ -15658,10 +15689,41 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<acc>
+<aid> V1:Int </aid>
+<al> _ => ListItem(V0:Int) </al>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<acc>
+<aid> V1:Int </aid>
+<al> ListItem(V2:KItem) V3:List => ListItem(V0:Int) V3:List </al>
+</acc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> ListItem(V0:Int) </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/result/c23-acc/{ A { aid: 5, .. }, .. }"]
 k = """

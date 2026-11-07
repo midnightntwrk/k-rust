@@ -2499,6 +2499,7 @@ fn render_rule(
                         descriptor_index,
                         reserved: &mut reserved,
                         tails: &mut instance_tails,
+                        parameters: &mut parameters,
                         rests: ordinal,
                     },
                 )?;
@@ -3060,8 +3061,10 @@ struct StateRendering<'a> {
     /// The bundle's index, built once per expansion.
     descriptor_index: &'a DescriptorIndex<'a>,
     reserved: &'a mut BTreeSet<String>,
-    /// Instance `k` tails named so far (`tail0`, `tail1`, ..).
+    /// Instance tails named so far (`tail0`, `tail1`, ..), of a `k` child or a list child.
     tails: &'a mut usize,
+    /// The rule's typed parameters, which a list child's tail joins.
+    parameters: &'a mut Vec<(String, TokenStream)>,
     /// The extra's ordinal, which numbers its collection rest.
     rests: usize,
 }
@@ -3104,9 +3107,16 @@ fn render_readable_state(
             let rest = fresh_ident(&format!("instances{}", rendering.rests), rendering.reserved)?;
             let declaration = collection_declaration(&cell.cell, rendering.descriptor_index)
                 .ok_or(ReferenceExpansionError::UnsupportedState)?;
-            let owner = render_declared_path(&declaration, rendering.package)?;
-            // Each matched instance's `k` tail, by label, reused by the
-            // instance that updates it.
+            let owner = Owner {
+                path: render_declared_path(&declaration, rendering.package)?,
+                children: &rendering
+                    .descriptor_index
+                    .cell(&declaration)
+                    .map_err(|_| ReferenceExpansionError::UnsupportedState)?
+                    .fields,
+            };
+            // Each matched instance's tails, by label and child, reused by
+            // the instance that updates it.
             let mut tails = BTreeMap::new();
             let left = render_instances(before, true, &rest, &owner, &mut tails, rendering)?;
             let right = after
@@ -3151,12 +3161,45 @@ fn collection_declaration(
     }
 }
 
+/// An instance's declaration: its path and its children.
+struct Owner<'a> {
+    path: TokenStream,
+    children: &'a [krs_ir::DescriptorCellField],
+}
+
+impl Owner<'_> {
+    /// The sort of the child `field` when it is a list leaf, whose brackets hold its elements.
+    fn list_sort(&self, field: &str) -> Option<&krs_ir::DescriptorSortRef> {
+        self.children.iter().find_map(|child| match &child.content {
+            krs_ir::ProtocolCellContent::Leaf {
+                wrapper: krs_ir::CellWrapper::Cell,
+                sort,
+                ..
+            } if child.rust_field == field => Some(&sort.sort),
+            _ => None,
+        })
+    }
+}
+
+/// The parameter type of a binder of a leaf's declared sort.
+fn render_leaf_sort_type(
+    sort: &krs_ir::DescriptorSortRef,
+    package: PathScope<'_>,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    match sort {
+        krs_ir::DescriptorSortRef::Builtin(sort) => {
+            render_sort_type(&SemanticSortRef::Builtin(*sort), package)
+        }
+        sort => render_descriptor_sort(sort, package),
+    }
+}
+
 fn render_instances(
     instances: &krs_ir::ProtocolRuleInstances<krs_ir::DescriptorTerm>,
     pattern: bool,
     rest: &Ident,
-    owner: &TokenStream,
-    tails: &mut BTreeMap<String, Ident>,
+    owner: &Owner<'_>,
+    tails: &mut BTreeMap<(String, String), Ident>,
     rendering: &mut StateRendering<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let mut items = Vec::new();
@@ -3182,15 +3225,15 @@ fn render_instances(
 fn render_instance(
     instance: &krs_ir::ProtocolRuleInstance<krs_ir::DescriptorTerm>,
     pattern: bool,
-    owner: &TokenStream,
-    tails: &mut BTreeMap<String, Ident>,
+    owner: &Owner<'_>,
+    tails: &mut BTreeMap<(String, String), Ident>,
     rendering: &mut StateRendering<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     use krs_ir::ProtocolRuleStateTerm as State;
     let mut fields = Vec::new();
-    // The tail of a matched instance's `k`, which its update reuses.
-    let reused = match &instance.rest {
-        krs_ir::ProtocolInstanceRest::Update { label } => tails.get(label).cloned(),
+    // The instance whose tails this one's update reuses.
+    let updated = match &instance.rest {
+        krs_ir::ProtocolInstanceRest::Update { label } => Some(label),
         _ => None,
     };
     for field in &instance.fields {
@@ -3207,6 +3250,10 @@ fn render_instance(
                         render_term(&item.value, pattern, rendering.package, rendering.bundle)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                // Brackets on a list leaf child hold its elements, the list `cells!` writes in
+                // brackets, whose rest is a term of the leaf's sort; on the computation cell they
+                // are its items, whose rest is a frame.
+                let list = owner.list_sort(&field.field);
                 let tail = match (&sequence.tail, pattern) {
                     (krs_ir::ProtocolRuleFrame::Exact, _) => None,
                     (_, true) => {
@@ -3214,19 +3261,30 @@ fn render_instance(
                             fresh_ident(&format!("tail{}", *rendering.tails), rendering.reserved)?;
                         *rendering.tails += 1;
                         if let Some(label) = &instance.label {
-                            tails.insert(label.clone(), tail.clone());
+                            tails.insert((label.clone(), field.field.clone()), tail.clone());
+                        }
+                        if let Some(sort) = list {
+                            let ty = render_leaf_sort_type(sort, rendering.package)?;
+                            rendering
+                                .parameters
+                                .push((tail.to_string(), quote!(#tail: #ty)));
                         }
                         Some(quote!(#tail @ ..))
                     }
                     (_, false) => {
-                        let tail = reused
-                            .clone()
+                        let tail = updated
+                            .and_then(|label| tails.get(&(label.clone(), field.field.clone())))
+                            .cloned()
                             .ok_or(ReferenceExpansionError::UnsupportedState)?;
                         Some(quote!(..#tail))
                     }
                 };
                 let items = items.into_iter().chain(tail);
-                quote!(k::k![#(#items),*])
+                if list.is_some() {
+                    quote!([#(#items),*])
+                } else {
+                    quote!(k::k![#(#items),*])
+                }
             }
             // A map cell's entries, its other entries open where the record leaves them so.
             State::Map(krs_ir::ProtocolRuleMap {
@@ -3263,7 +3321,8 @@ fn render_instance(
             fields.push(quote!(..#label));
         }
     }
-    let record = quote!(k::fragment![#owner { #(#fields),* }]);
+    let path = &owner.path;
+    let record = quote!(k::fragment![#path { #(#fields),* }]);
     Ok(match &instance.label {
         Some(label) => {
             let label = rust_ident(label)?;

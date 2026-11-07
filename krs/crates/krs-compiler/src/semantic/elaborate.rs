@@ -619,7 +619,17 @@ impl Elaborator<'_> {
                     Some(ProtocolRuleStateTerm::Instances(after)) => Some(after),
                     Some(_) => return Err(Unelaborated("an instance list rewritten to no list")),
                 };
-                let (before, after) = instances(before, after, ordinal, names)?;
+                let declared = require_cell_field(&field.cell, self.declarations)
+                    .map_err(|_| Unelaborated("a cell the declarations lack"))?;
+                let ProtocolCellContent::Nested { declaration } = &declared.content else {
+                    return Err(Unelaborated("an instance list in a leaf cell"));
+                };
+                let children = &self
+                    .declarations
+                    .cell(&declaration.declaration)
+                    .map_err(|_| Unelaborated("a cell the declarations lack"))?
+                    .fields;
+                let (before, after) = instances(before, after, children, ordinal, names, keys)?;
                 Ok((
                     cell(field, ProtocolRuleStateTerm::Instances(before))?,
                     after
@@ -672,10 +682,18 @@ impl Elaborator<'_> {
                 after,
                 ..
             } => Ok((
-                cell(field, content(field, &list_notation(field, before, keys))?)?,
+                cell(
+                    field,
+                    content(field, &list_notation(&field.key, before, keys))?,
+                )?,
                 after
                     .as_ref()
-                    .map(|after| cell(field, content(field, &list_notation(field, after, keys))?))
+                    .map(|after| {
+                        cell(
+                            field,
+                            content(field, &list_notation(&field.key, after, keys))?,
+                        )
+                    })
                     .transpose()?,
             )),
         }
@@ -771,13 +789,17 @@ fn first_in<'t>(term: &'t DescriptorTerm, name: &str) -> Option<&'t ProvenanceKe
 /// A readable collection entry as `cells!` writes it: the other instances, `..` on both sides, are
 /// one instances frame the subject binds (`instances<ordinal> @ ..`) and the result keeps
 /// (`..instances<ordinal>`); an instance's open `k` is a sequence frame its pattern binds
-/// (`tail<n> @ ..`), which the result instance updating it (`..label`) keeps. Every other part
-/// of an instance is written as the readable entry writes it.
+/// (`tail<n> @ ..`), which the result instance updating it (`..label`) keeps. Brackets on a list
+/// leaf child hold the list's elements, as on a list leaf cell; an open list's rest is bound and
+/// kept the same way. Every other part of an instance is written as the readable entry writes
+/// it.
 fn instances(
     before: &ProtocolRuleInstances<DescriptorTerm>,
     after: Option<&ProtocolRuleInstances<DescriptorTerm>>,
+    children: &[krs_ir::DescriptorCellField],
     ordinal: usize,
     names: &mut Names,
+    keys: &mut NodeKeys<'_>,
 ) -> Elaborated<(
     ProtocolRuleInstances<DescriptorTerm>,
     Option<ProtocolRuleInstances<DescriptorTerm>>,
@@ -788,15 +810,19 @@ fn instances(
             ProtocolRuleBindingKind::InstancesFrame,
         )
     });
-    // Each labelled subject instance's `k` tail, which the result instance updating it reuses.
+    // Each labelled subject instance's tails, by child, which the result instance updating it
+    // reuses.
     let mut tails = BTreeMap::new();
     let mut side = |instances: &ProtocolRuleInstances<DescriptorTerm>,
                     pattern: bool,
-                    tails: &mut BTreeMap<String, String>|
+                    tails: &mut BTreeMap<(String, String), String>|
      -> Elaborated<ProtocolRuleInstances<DescriptorTerm>> {
         let mut instance = |instance: &krs_ir::ProtocolRuleInstance<DescriptorTerm>| {
-            let reused = match &instance.rest {
-                ProtocolInstanceRest::Update { label } => tails.get(label).cloned(),
+            // A pattern's instance binds tails under its label; a result's reuses those of the
+            // instance it updates.
+            let label = match (&instance.rest, pattern) {
+                (_, true) => instance.label.clone(),
+                (ProtocolInstanceRest::Update { label }, false) => Some(label.clone()),
                 _ => None,
             };
             let mut instance = instance.clone();
@@ -804,29 +830,37 @@ fn instances(
                 let ProtocolRuleStateTerm::KSequence(sequence) = &mut field.value else {
                     continue;
                 };
-                sequence.notation = DescriptorKSequenceNotation::Comma;
+                let list = list_leaf_sort(children, &field.field);
                 let key = match &sequence.tail {
-                    ProtocolRuleFrame::Exact => continue,
+                    ProtocolRuleFrame::Exact => None,
                     ProtocolRuleFrame::Anonymous { key }
                     | ProtocolRuleFrame::Bind { key, .. }
-                    | ProtocolRuleFrame::Reuse { key, .. } => key.clone(),
+                    | ProtocolRuleFrame::Reuse { key, .. } => Some(key.clone()),
                 };
-                sequence.tail = if pattern {
-                    let tail = names.frame(
-                        &format!("tail{}", names.tails),
-                        ProtocolRuleBindingKind::KSequenceFrame,
-                    );
-                    names.tails += 1;
-                    if let Some(label) = &instance.label {
-                        tails.insert(label.clone(), tail.clone());
-                    }
-                    ProtocolRuleFrame::Bind { key, binding: tail }
-                } else {
-                    let tail = reused.clone().ok_or(Unelaborated(
-                        "an open instance `k` no updated instance keeps",
-                    ))?;
-                    ProtocolRuleFrame::Reuse { key, binding: tail }
-                };
+                // An open list's rest is a term of the leaf's sort; an open `k`'s is a frame.
+                let binding = key
+                    .as_ref()
+                    .map(|_| {
+                        let kind = list.map_or(ProtocolRuleBindingKind::KSequenceFrame, |sort| {
+                            ProtocolRuleBindingKind::Term { sort: sort.clone() }
+                        });
+                        let child = (label.as_deref(), field.field.as_str());
+                        instance_tail(names, tails, pattern, child, kind)
+                    })
+                    .transpose()?;
+                if list.is_some() {
+                    let term = list_child(sequence, key.zip(binding), keys);
+                    field.value = ProtocolRuleStateTerm::Term(term);
+                    continue;
+                }
+                sequence.notation = DescriptorKSequenceNotation::Comma;
+                if let (Some(key), Some(binding)) = (key, binding) {
+                    sequence.tail = if pattern {
+                        ProtocolRuleFrame::Bind { key, binding }
+                    } else {
+                        ProtocolRuleFrame::Reuse { key, binding }
+                    };
+                }
             }
             Ok(instance)
         };
@@ -878,20 +912,90 @@ fn instances(
     Ok((before, after))
 }
 
+/// The tail of an open instance child `(label, field)`: a pattern's `..` binds a fresh one, kept
+/// under its instance's label, and a result's `..` reuses the tail of the same child of the
+/// instance it updates, the one `label` names.
+fn instance_tail(
+    names: &mut Names,
+    tails: &mut BTreeMap<(String, String), String>,
+    pattern: bool,
+    (label, field): (Option<&str>, &str),
+    kind: ProtocolRuleBindingKind<DescriptorSortReference>,
+) -> Elaborated<String> {
+    if pattern {
+        let tail = names.frame(&format!("tail{}", names.tails), kind);
+        names.tails += 1;
+        if let Some(label) = label {
+            tails.insert((label.to_owned(), field.to_owned()), tail.clone());
+        }
+        return Ok(tail);
+    }
+    label
+        .and_then(|label| tails.get(&(label.to_owned(), field.to_owned())))
+        .cloned()
+        .ok_or(Unelaborated(
+            "an open instance child no updated instance keeps",
+        ))
+}
+
+/// The sort of the instance child `field` when it is a list leaf, whose brackets hold its
+/// elements; `None` for the computation cell, whose brackets hold its items, and for a group.
+fn list_leaf_sort<'a>(
+    children: &'a [krs_ir::DescriptorCellField],
+    field: &str,
+) -> Option<&'a DescriptorSortReference> {
+    children
+        .iter()
+        .find(|child| child.rust_field == field)
+        .and_then(|child| match &child.content {
+            ProtocolCellContent::Leaf {
+                wrapper: CellWrapper::Cell,
+                sort,
+                ..
+            } => Some(sort),
+            _ => None,
+        })
+}
+
+/// An instance's list leaf child as the `cells!` term its brackets are ([`list_notation`]): its
+/// items are the list's elements, and an open list ends in the variable `rest` names, located at
+/// its `..`.
+fn list_child(
+    sequence: &ProtocolRuleKSequence<DescriptorTerm>,
+    rest: Option<(ProvenanceKey, String)>,
+    keys: &mut NodeKeys<'_>,
+) -> DescriptorTerm {
+    let rest = match rest {
+        None => krs_ir::ProtocolHeadRuleListRest::Exact,
+        Some((key, name)) => krs_ir::ProtocolHeadRuleListRest::Term(keys.variable(&key, &name)),
+    };
+    let list = krs_ir::ProtocolHeadRuleList {
+        items: sequence
+            .items
+            .iter()
+            .map(|item| item.value.clone())
+            .collect(),
+        rest,
+        back: Vec::new(),
+    };
+    list_notation(&sequence.payload_key, &list, keys)
+}
+
 /// One side of a readable list cell as the `cells!` term its brackets are: the list-notation
 /// levels `cells!` writes (`[a, b, ..r, z]` is `Cons(a, Cons(b, Snoc(r, z)))`), which the `cells!`
 /// lowering types at the cell's list, a cons list's constructors or the builtin `List`. An
 /// anonymous `..` is the list's unnamed rest ([`DescriptorTerm::KeptRest`]), the one rest the
 /// subject matches and the result keeps; exact brackets end in the empty list. Each level is
-/// located at the cell entry, where the readable lowering locates the terms it builds.
+/// located at `at`, the cell entry or an instance child's brackets, where the readable lowering
+/// locates the terms it builds.
 fn list_notation(
-    field: &krs_ir::DescriptorCellReference,
+    at: &ProvenanceKey,
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     keys: &mut NodeKeys<'_>,
 ) -> DescriptorTerm {
     let level = |keys: &mut NodeKeys<'_>, notation, arguments: Vec<DescriptorTerm>| {
-        let mut key = field.key.clone();
-        let mut path_key = field.key.clone();
+        let mut key = at.clone();
+        let mut path_key = at.clone();
         keys.key("application", &mut key);
         keys.key("application-path", &mut path_key);
         DescriptorTerm::Application {
@@ -912,7 +1016,7 @@ fn list_notation(
             level(keys, krs_ir::ListNotation::Empty, Vec::new())
         }
         krs_ir::ProtocolHeadRuleListRest::Shared(key) => {
-            let mut key = key.clone().unwrap_or_else(|| field.key.clone());
+            let mut key = key.clone().unwrap_or_else(|| at.clone());
             keys.key("kept-rest", &mut key);
             DescriptorTerm::KeptRest { key }
         }

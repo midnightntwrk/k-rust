@@ -2139,10 +2139,6 @@ deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declarati
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-term @ spelling"
 
-["claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
-finding = "S5-H2"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
 deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
@@ -2182,10 +2178,6 @@ deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declarati
 ["readable/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-term @ spelling"
-
-["readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
-finding = "S5-H2"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 # S5.3 part 2: readable and claim reds the sentence-order rulings move (a readable route is S5.2's):
 # a result case on a cell below a marked ancestor whose subject now matches the cell through the ancestor
@@ -2362,10 +2354,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
 
-["sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ spelling"
-
 ["sweep/claim/subject/seq/[..]"]
 finding = "S5-Q1"
 deviation = "accepted, without the lint no-effect-entry"
@@ -2373,10 +2361,6 @@ deviation = "accepted, without the lint no-effect-entry"
 ["sweep/claim/written/olist/Some([..])"]
 finding = "S5-Q1"
 deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/readable/subject/seq/[..]"]
 finding = "S5-Q1"
@@ -2433,22 +2417,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/readable/written/job/[x]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
-finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
-finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
-finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
-finding = "S5-V2"
-deviation = "krs::analysis::invalid-term @ spelling"
 
 # S5.3 part 5: the path sweep's reds (shard `sweep-paths`): a red takes its root twin's finding (the root sweep's case of the same
 # form, side, stack and spelling, pending with the same deviation), the `cells!` overwrite `Cell([..])` of a List

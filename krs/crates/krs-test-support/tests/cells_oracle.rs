@@ -7199,7 +7199,16 @@ fn record_frames_agree(
             // Ruling 1 (c): on a subject, a child the record does not name written `_` as its
             // whole content matches that child unconstrained; a record whose every unnamed child
             // is so written (none, where it names every child) keeps the rest it does not name.
+            // On a result, an update keeps a child it does not name unchanged: where the subject
+            // names every child of the instance it updates, K writes each such child as it was,
+            // with no rewrite, and has no rest to frame.
             let has_frame = top_level_frame(content)
+                || (keeps
+                    && entry.entry.side == Side::Result
+                    && unnamed.iter().all(|child| {
+                        let found = k_cells(content, child);
+                        found.len() == 1 && !found[0].contains("=>")
+                    }))
                 || (keeps
                     && entry.entry.side == Side::Subject
                     && unnamed.iter().all(|child| {

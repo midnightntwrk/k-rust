@@ -457,16 +457,17 @@ fn parse_readable_instance(
         }
         fields.push(InstanceField::new(
             name.clone(),
-            parse_readable_child(value, context, braced)?,
+            parse_readable_child(name, value, context, braced)?,
         ));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest))
 }
 
-/// One readable instance child: `[items.., ..]` for a computation cell, a
-/// map cell's entries `{ k -> v, .. }`, or a term; a braced list's child in a
-/// pattern is read as a key is ([`parse_readable_instances`]).
+/// One readable instance child `name`: `[items.., ..]` for a computation cell
+/// or a list, a map cell's entries `{ k -> v, .. }`, or a term; a braced
+/// list's child in a pattern is read as a key is ([`parse_readable_instances`]).
 fn parse_readable_child(
+    name: &Ident,
     tokens: TokenStream,
     context: StateMacroContext,
     braced: bool,
@@ -485,6 +486,21 @@ fn parse_readable_child(
         && contains_top_level_arrow(group)
         && top_level_items(group.stream()).last().is_some_and(is_dots)
     {
+        // A map read is a pattern: in a result it is refused as at a record's top-level cell,
+        // since a readable record has no spelling for the frame write it would be.
+        if context == StateMacroContext::Expression {
+            let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
+                crate::cell_entry::EntryForm::Readable,
+                &name.unraw().to_string(),
+                &crate::cell_entries::EntryKind::default(),
+                None,
+            );
+            return Err(crate::SyntaxError::new(
+                crate::SyntaxErrorKind::RustSyntax(reason),
+                group.span(),
+            )
+            .into());
+        }
         return Ok(StateTerm::Map(crate::state_macro::parse_map(
             group.stream(),
             context,
