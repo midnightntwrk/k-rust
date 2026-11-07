@@ -60,6 +60,20 @@
 //! priority, which leaves only that difference).
 //! Each state-slot path has a `leaf:<ordinal>` key in raw response order.
 //!
+//! A probe's leaf (`ProbeDifference`, `ProbeDone`) of a run with an in-process probe
+//! ([`crate::execution::ExecutionAdapter::execute_result_probed`]) is a path the probe cut at a
+//! point: its state is the point's observed state, a state the path reached (the state before a
+//! taken step, or that step's normalized and defined successor), and the leaf carries the point
+//! and the probe's answer ([`crate::execution::AdaptedLeaf::probe`]). It is never an end of the
+//! system: `ProbeDone` says the probe needed nothing more of the path, `ProbeDifference` that it
+//! found what ends the request, and neither says that the configuration is final. So the path is
+//! incomplete, its stop [`PathStop::ResultLimit`] (the path's consumer stopped it), which keeps
+//! a real prefix under the depth bound's condition: a decided or feasible state, and otherwise
+//! `SolverUnknown` ([`probed_halt_stop`]). It is never discarded, so a run a probe cut never
+//! reads as an exhausted search. Only the probe's own leaf carries an answer, and only a request
+//! with a probe yields one, so a probe halt without an answer, or an answer on another halt, is
+//! outside the contract.
+//!
 //! An `Indeterminate` leaf whose step needed an SMT solver that the build lacks
 //! (`SearchFailureOutput::solver_unavailable` of its cause) is `SolverUnknown`; any other
 //! indeterminate leaf is `BackendLimit`. Either way the path is incomplete.
@@ -506,8 +520,9 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         // outside the contract, as the adapter says. A stop-undecided leaf is admitted only for a
         // run with a stop condition, which its caller judges before it bridges the run (a path
         // that ends undecided makes it no evidence, kink-campaign's `stop-condition`), so a
-        // bridge given one was given a run outside that contract. No request asks a probe, so a
-        // probe's leaf is outside it too.
+        // bridge given one was given a run outside that contract. A probe's leaf is outside the
+        // contract of a request without a probe; one with a probe reads it by
+        // [`probed_halt_stop`].
         HaltClass::Branch
         | HaltClass::Timeout
         | HaltClass::Cancelled
@@ -517,6 +532,36 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
+}
+
+/// The stop of a leaf of halt `halt` before its state is read, or the contract violation it is,
+/// for a leaf that carries a probe's answer exactly when `probed`
+/// ([`crate::execution::AdaptedLeaf::probe`]): a `ProbeDifference` or `ProbeDone` leaf that
+/// carries one is a path the probe cut, [`PathStop::ResultLimit`], never an end of the system
+/// (see the module documentation); every other leaf is as [`halt_stop`] says. Only a request with
+/// a probe yields a probe's leaf, and the adapter records the answer on it, so [`leaf_stop`]
+/// takes `probed` from the leaf.
+pub const fn probed_halt_stop(
+    halt: HaltClass,
+    probed: bool,
+) -> Result<Option<PathStop>, BridgeFailure> {
+    match halt {
+        HaltClass::ProbeDifference | HaltClass::ProbeDone if probed => {
+            Ok(Some(PathStop::ResultLimit))
+        }
+        _ => halt_stop(halt),
+    }
+}
+
+/// The stop of `leaf` before its state is read, or the contract violation it is: as
+/// [`probed_halt_stop`] says, with the leaf's own probe answer, which a probe's halt must carry
+/// and no other halt may.
+pub fn leaf_stop(leaf: &AdaptedLeaf) -> Result<Option<PathStop>, BridgeFailure> {
+    let probed = leaf.probe.is_some();
+    if probed != leaf.halt.is_probe() {
+        return Err(BridgeFailure::ContractViolation(leaf.halt));
+    }
+    probed_halt_stop(leaf.halt, probed)
 }
 
 /// The stop of an `Indeterminate` leaf with `cause`: `SolverUnknown` when the stopped step needed
@@ -541,7 +586,8 @@ pub(crate) const fn decided_stop(stop: PathStop, feasible: bool) -> PathStop {
     }
 }
 
-/// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `decided` is the
+/// The path of a leaf, or the contract violation it is (see [`probed_halt_stop`], whose `probed`
+/// says whether the leaf carries a probe's answer). `decided` is the
 /// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck, stop or trivial
 /// leaf that is its terminal term. `feasible` says the adapter showed the state feasible; it
 /// keeps a limit stop real. `complete_term` is the term of a stuck, stop or trivial leaf that is
@@ -551,12 +597,14 @@ pub(crate) const fn decided_stop(stop: PathStop, feasible: bool) -> PathStop {
 /// stuck or stop leaf's terminal is classified by `classify`; a trivial one is an undefined step.
 pub(crate) fn leaf_path(
     halt: HaltClass,
+    probed: bool,
     decided: Option<Pattern>,
     feasible: bool,
     complete_term: Option<Pattern>,
     classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Result<LeafPath, BridgeFailure> {
-    Ok(match (halt_stop(halt)?, decided.or(complete_term)) {
+    let stop = probed_halt_stop(halt, probed)?;
+    Ok(match (stop, decided.or(complete_term)) {
         (Some(stop), decided) => {
             LeafPath::Incomplete(decided_stop(stop, decided.is_some() || feasible))
         }
@@ -882,7 +930,7 @@ pub fn leaf_terms(
     leaves
         .iter()
         .map(|leaf| {
-            halt_stop(leaf.halt)?;
+            leaf_stop(leaf)?;
             if discarded(leaf).is_some() {
                 return Ok(LeafTerm::Discarded);
             }
@@ -960,7 +1008,7 @@ impl<'a, 'e> PathSet<'a, 'e> {
         let branch = &leaf.branch;
         let halt = leaf.halt;
         // Check the contract before anything is dropped.
-        halt_stop(halt)?;
+        leaf_stop(leaf)?;
         if discarded(leaf).is_some() {
             return Ok(());
         }
@@ -969,6 +1017,7 @@ impl<'a, 'e> PathSet<'a, 'e> {
         let completed = complete_term(halt, &split, feasible, value, exists);
         let mapped = match leaf_path(
             halt,
+            leaf.probe.is_some(),
             split.decided_term(value),
             feasible,
             completed,
@@ -1296,8 +1345,10 @@ fn paths_from_judged_steps(
             &|term| decider.terminal_value(term),
             &|term| decider.configuration_exists(term),
         );
+        // A stepped run carries no probe, so no leaf of it is a probe's (`halt_stop` above).
         let mapped = match leaf_path(
             leaf.halt,
+            false,
             split.decided_term(&|term| decider.terminal_value(term)),
             feasible,
             completed,
@@ -1513,8 +1564,10 @@ fn tree_from_judged_steps(
             &|term| decider.terminal_value(term),
             &|term| decider.configuration_exists(term),
         );
+        // A stepped run carries no probe, so no leaf of it is a probe's (`halt_stop` above).
         let mapped = match leaf_path(
             leaf.halt,
+            false,
             split.decided_term(&|term| decider.terminal_value(term)),
             feasible,
             completed,
@@ -2016,6 +2069,7 @@ mod tests {
             undefined_rule: None,
             contradicted_total: None,
             proposal: None,
+            probe: None,
         }
     }
 
@@ -2205,7 +2259,8 @@ mod tests {
             (H::Branch, BOTTOM, U, 0, Violation),
             // No request asks a stop condition, so a stop-undecided leaf is outside the contract.
             (H::StopUndecided, CONSTRAINED, N, 0, Violation),
-            // No request asks a probe, so a probe's leaf is outside the contract.
+            // A probe's leaf without the probe's answer is of a request without a probe, outside
+            // the contract (`a_probe_leaf_is_a_path_the_probe_cut` reads one with its answer).
             (H::ProbeDifference, CONSTRAINED, N, 0, Violation),
             (H::ProbeDone, CONSTRAINED, N, 0, Violation),
         ];
@@ -2230,16 +2285,109 @@ mod tests {
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
     }
 
+    /// KINK-observation-traces T3a: a probe's leaf, which only a request with a probe yields and
+    /// which then carries the probe's answer, is a path the probe cut: incomplete, its stop
+    /// `ResultLimit` with a real prefix for a decided or feasible state and `SolverUnknown`
+    /// otherwise, never discarded (a run a probe cut is no exhausted search), and `BackendLimit`
+    /// when diagnosed, as every leaf. A probe's halt without an answer is outside the contract
+    /// (the request carried no probe), and so is an answer on another halt; every other halt
+    /// maps as without an answer.
+    #[test]
+    fn a_probe_leaf_is_a_path_the_probe_cut() {
+        use Expected::{Incomplete, Violation};
+        use LeafFeasibility::{Solver as Z, Unsat as N};
+        let answer = |reason: Option<&str>| crate::execution::ProbeEnd {
+            rule: "r".to_owned(),
+            side: crate::execution::StopSide::After,
+            reason: reason.map(str::to_owned),
+        };
+        let sorts = sorts();
+        let bridge = |execution: &AdaptedExecution| {
+            paths_from_execution(execution, &bridge_context(&sorts), &independent)
+        };
+        for (halt, reason) in [(H::ProbeDifference, Some("differs")), (H::ProbeDone, None)] {
+            #[rustfmt::skip]
+            let rows: [Row; 6] = [
+                (halt, GROUND, U, 2, Incomplete(P::ResultLimit)),
+                (halt, CRASH, U, 2, Incomplete(P::ResultLimit)),
+                (halt, SYMBOLIC, U, 2, Incomplete(P::SolverUnknown)),
+                (halt, SYMBOLIC, F, 2, Incomplete(P::ResultLimit)),
+                (halt, CONSTRAINED, Z, 2, Incomplete(P::ResultLimit)),
+                // Refuted, yet kept: never an empty search.
+                (halt, CONSTRAINED, N, 2, Incomplete(P::SolverUnknown)),
+            ];
+            for row in rows {
+                check_probed_row(row, Some(answer(reason)), &bridge);
+            }
+            // Without the answer the request carried no probe.
+            check_row((halt, GROUND, U, 2, Violation), &bridge);
+            assert_eq!(probed_halt_stop(halt, false), halt_stop(halt));
+            assert_eq!(probed_halt_stop(halt, true), Ok(Some(P::ResultLimit)));
+            // A diagnosed probe leaf is incomplete without a real prefix.
+            let mut diagnosed = leaf(halt, GROUND, U, 2);
+            diagnosed.probe = Some(answer(reason));
+            diagnosed.diagnostics.push(
+                k_rust::backend::BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+                    hook: "TEST.hook".into(),
+                    reason: "unavailable".into(),
+                },
+            );
+            assert_eq!(discarded(&diagnosed), None);
+            let execution = AdaptedExecution {
+                leaves: vec![diagnosed],
+                effects: Vec::new(),
+                timed_out: false,
+                stack_stops: 0,
+                modality: crate::execution::ResultModality::PathSet,
+                work: 0,
+                coverage: None,
+                facts: crate::execution::RunFacts::default(),
+            };
+            let bridged = bridge(&execution).expect("bridged");
+            assert_eq!(bridged.paths[0].stop, P::BackendLimit);
+        }
+        for halt in HaltClass::ALL {
+            if halt.is_probe() {
+                continue;
+            }
+            // An answer on another halt is outside the contract; without one, as before.
+            let mut answered = leaf(halt, GROUND, U, 1);
+            answered.probe = Some(answer(None));
+            assert_eq!(
+                leaf_stop(&answered),
+                Err(BridgeFailure::ContractViolation(halt)),
+                "{halt:?}"
+            );
+            assert_eq!(
+                leaf_stop(&leaf(halt, GROUND, U, 1)),
+                halt_stop(halt),
+                "{halt:?}"
+            );
+            assert_eq!(probed_halt_stop(halt, true), halt_stop(halt), "{halt:?}");
+        }
+    }
+
     /// Checks that `bridge` maps the one leaf of `row` as the row expects.
     fn check_row(
+        row: Row,
+        bridge: &dyn Fn(&AdaptedExecution) -> Result<BridgedPaths, BridgeFailure>,
+    ) {
+        check_probed_row(row, None, bridge);
+    }
+
+    /// [`check_row`] with a leaf that carries the probe answer `probe`.
+    fn check_probed_row(
         (halt, state, feasibility, depth, expected): Row,
+        probe: Option<crate::execution::ProbeEnd>,
         bridge: &dyn Fn(&AdaptedExecution) -> Result<BridgedPaths, BridgeFailure>,
     ) {
         use ExecutionTerminalKind::UndefinedStep;
         use Expected::{Complete, Discarded, Incomplete, Violation};
-        let id = format!("{halt:?} {state} {feasibility:?} depth={depth}");
+        let id = format!("{halt:?} {state} {feasibility:?} depth={depth} probe={probe:?}");
+        let mut leaf = leaf(halt, state, feasibility, depth);
+        leaf.probe = probe;
         let execution = AdaptedExecution {
-            leaves: vec![leaf(halt, state, feasibility, depth)],
+            leaves: vec![leaf],
             effects: Vec::new(),
             timed_out: false,
             stack_stops: 0,
@@ -2307,7 +2455,10 @@ mod tests {
                 assert_eq!(path.stop, stop, "{id}");
                 assert_eq!(bridged.collection.stop, collection_stop(stop), "{id}");
                 assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
-                let real = matches!(stop, P::DepthLimit | P::BranchLimit | P::TimeLimit);
+                let real = matches!(
+                    stop,
+                    P::DepthLimit | P::BranchLimit | P::TimeLimit | P::ResultLimit
+                );
                 assert_eq!(
                     presence(&bridged),
                     if real {
@@ -2563,8 +2714,9 @@ mod tests {
             before: vec!["r".to_owned()],
             after: vec!["s".to_owned()],
         };
-        // No request asks a stop condition or a probe, so no budget or stop rule admits a
-        // stop-undecided leaf or a probe's leaf.
+        // No wire request asks a stop condition or a probe, so no budget or stop rule admits a
+        // stop-undecided leaf or a probe's leaf; only the in-process request that asks one does
+        // (kink-native `Requested::admits`), and a request without one refuses them.
         let always_excluded = [
             H::Branch,
             H::Timeout,
@@ -2632,6 +2784,7 @@ mod tests {
             undefined_rule: None,
             contradicted_total: None,
             proposal: None,
+            probe: None,
         };
         let diagnostic = BackendDiagnosticOutput::UnsupportedHookUnevaluated {
             hook: "TEST.hook".into(),
@@ -2747,6 +2900,7 @@ mod tests {
                     undefined_rule: None,
                     contradicted_total: None,
                     proposal: None,
+                    probe: None,
                 },
                 AdaptedLeaf {
                     halt: H::Stuck,
@@ -2759,6 +2913,7 @@ mod tests {
                     undefined_rule: None,
                     contradicted_total: None,
                     proposal: None,
+                    probe: None,
                 },
             ],
             effects: Vec::new(),

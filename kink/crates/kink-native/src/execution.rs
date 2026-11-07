@@ -28,6 +28,12 @@
 //! then ends at its `count`th arrival where the condition holds, a leaf where it was left
 //! undecided is `stop-undecided`, and a refusal fails the run
 //! ([`ExecutionAdapterFailure::StopCondition`]).
+//! A result run may also carry an in-process probe ([`RequestProbe`], k-rust
+//! `Backend::execute_kore_with_probe`), which k-rust asks at each point, a taken step of a rule
+//! the probe selects whose successor is defined, while the run is one path: its `Differs`
+//! answer ends the request at the point's observed state as a `probe-difference` leaf, its
+//! `Done` answer ends the path there as a `probe-done` leaf, and the adapter records on that
+//! leaf the point and the answer ([`AdaptedLeaf::probe`], [`ProbeEnd`]).
 
 use std::{
     cell::Cell,
@@ -47,12 +53,16 @@ use k_rust::backend::{
     AxiomGuardOutput, BACKEND_SCHEMA_VERSION, Backend, BackendCapabilities,
     BackendDiagnosticOutput, BackendError, CancelledResultOutput, ChosenValueOutput,
     ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput, ExecuteRequest,
-    ExecutionStrategy, GuardCollection, HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult,
-    ObservationEventOutput, ObservedInOutput, ObservedRequest, PassedStopOutput,
-    ResultModalityOutput, RunCoverageOutput, SearchFailureOutput, ShortCircuitReadingOutput,
-    TraceEntry, TransitionClassOutput, TransitionIdOutput, UnevaluatedHookOutput,
+    ExecutionStrategy, GuardCollection, HaltReasonOutput, InProcess, KoreExecutionLeaf,
+    KoreExecutionResult, ObservationEventOutput, ObservedInOutput, ObservedRequest,
+    PassedStopOutput, ResultModalityOutput, RunCoverageOutput, SearchFailureOutput,
+    ShortCircuitReadingOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
+    UnevaluatedHookOutput,
 };
-pub use k_rust::backend::{StopArrival, StopCondition, StopDecision, StopSide};
+pub use k_rust::backend::{
+    CellHandle, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival,
+    StopCondition, StopDecision, StopSide,
+};
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
 use kink_pattern::ExecutionBounds;
@@ -87,12 +97,16 @@ pub enum HaltClass {
     /// which judges the wire request alone. It never completes a run.
     StopUndecided,
     /// k-rust's `probe-difference` halt: an in-process probe found a difference at a point and
-    /// the request ended there. Only a request with a probe has it, and the adapter asks none,
-    /// so no request admits it. It never completes a run.
+    /// the request ended there, the leaf's state the point's observed state. Only a request with
+    /// a probe has it ([`ExecutionAdapter::execute_result_probed`]): the adapter admits it
+    /// exactly for such a request ([`Requested::admits`]), never by [`HaltClass::admitted_by`],
+    /// and records the point and the reason on the leaf ([`AdaptedLeaf::probe`]). It is no end
+    /// of the system and never completes a run.
     ProbeDifference,
     /// k-rust's `probe-done` halt: an in-process probe needed nothing more of the path at a
-    /// point and the path ended there. Only a request with a probe has it, and the adapter asks
-    /// none, so no request admits it. It never completes a run.
+    /// point and the path ended there, the leaf's state the point's observed state. Admitted and
+    /// recorded as [`Self::ProbeDifference`] is. It is the probe's own end of the path, no end
+    /// of the system, and never completes a run.
     ProbeDone,
 }
 
@@ -158,6 +172,13 @@ impl HaltClass {
             | Self::ProbeDifference
             | Self::ProbeDone => false,
         }
+    }
+
+    /// Whether this is one of a probe's halts ([`Self::ProbeDifference`], [`Self::ProbeDone`]):
+    /// the halts only a request with a probe has, each a leaf the probe's answer made.
+    #[must_use]
+    pub const fn is_probe(self) -> bool {
+        matches!(self, Self::ProbeDifference | Self::ProbeDone)
     }
 
     /// Convert the public backend enum exhaustively.
@@ -360,16 +381,19 @@ impl StopRules {
 static NO_STOP_RULES: StopRules = StopRules::NONE;
 
 /// What one request asks for besides its [`ExecutionBudget`]: `run`'s modality and work budget,
-/// the stop rules `stop`, the arrival at a stop at which a path ends, `count`, and whether an
-/// in-process stop condition is asked at the arrivals (`conditioned`). The request is built from
-/// it ([`request`]; the condition is no field of it), and the halts its result may hold and the
-/// arrivals each leaf reports are read from it ([`Self::admits`], [`Self::admits_arrivals`]).
+/// the stop rules `stop`, the arrival at a stop at which a path ends, `count`, whether an
+/// in-process stop condition is asked at the arrivals (`conditioned`), and whether an in-process
+/// probe is asked at the points of some selected rule (`probed`). The request is built from it
+/// ([`request`]; neither the condition nor the probe is a field of it), and the halts its result
+/// may hold and the arrivals each leaf reports are read from it ([`Self::admits`],
+/// [`Self::admits_arrivals`]).
 #[derive(Clone, Copy, Debug)]
 struct Requested<'a> {
     run: ResultRun,
     stop: &'a StopRules,
     count: NonZeroU64,
     conditioned: bool,
+    probed: bool,
     /// The axioms whose guard outcomes the request collects, when `run.guards` asks for them.
     guards: Option<&'a BTreeSet<String>>,
 }
@@ -382,6 +406,7 @@ impl Requested<'static> {
             stop: &NO_STOP_RULES,
             count: NonZeroU64::MIN,
             conditioned: false,
+            probed: false,
             guards: None,
         }
     }
@@ -397,11 +422,14 @@ impl Requested<'_> {
     }
 
     /// Whether the request can yield a leaf of halt `halt` under `budget`: as
-    /// [`HaltClass::admitted_by`] judges the wire request, and a `stop-undecided` leaf exactly
-    /// when a stop condition was asked, which only that halt reveals.
+    /// [`HaltClass::admitted_by`] judges the wire request, a `stop-undecided` leaf exactly when a
+    /// stop condition was asked, which only that halt reveals, and a `probe-difference` or
+    /// `probe-done` leaf exactly when a probe was asked at some selected rule's points, the only
+    /// place its answer can end a path.
     const fn admits(self, halt: HaltClass, budget: &ExecutionBudget) -> bool {
         match halt {
             HaltClass::StopUndecided => self.conditioned && !self.stop.is_none(),
+            HaltClass::ProbeDifference | HaltClass::ProbeDone => self.probed,
             _ => halt.admitted_by(budget, self.run.max_work, self.stop),
         }
     }
@@ -612,6 +640,93 @@ pub struct AdaptedLeaf {
     pub contradicted_total: Option<ContradictedTotalOutput<Pattern>>,
     /// The step a `CutPoint` leaf stopped before, exactly for that halt ([`StopRules::before`]).
     pub proposal: Option<StopProposal>,
+    /// The point and answer of the probe that ended a `ProbeDifference` or `ProbeDone` leaf,
+    /// exactly for those halts ([`ExecutionAdapter::execute_result_probed`]); the leaf's state is
+    /// the point's observed state.
+    pub probe: Option<ProbeEnd>,
+}
+
+/// The point at which a probe's answer ended a path ([`AdaptedLeaf::probe`]), as the probe was
+/// asked about it and answered: the rule, by the name the request selected it by, its side, and,
+/// for a `probe-difference` leaf, the reason the probe gave. The leaf's state is the point's
+/// observed state (the state before the step for a before point, the normalized successor for an
+/// after point) and its depth the point's depth.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProbeEnd {
+    /// The rule of the point, by the name the request selected it by.
+    pub rule: String,
+    /// Whether the observed state is before the rule's step or its normalized successor.
+    pub side: StopSide,
+    /// The probe's reason for a difference: present exactly on a `probe-difference` leaf.
+    pub reason: Option<String>,
+}
+
+/// An in-process probe a result run carries ([`ExecutionAdapter::execute_result_probed`]): the
+/// rules whose points it observes, by label or `UNIQUE_ID` on each side of the step, and the
+/// probe k-rust asks at each point (k-rust `Backend::execute_kore_with_probe`).
+pub struct RequestProbe<'a> {
+    /// The rules whose steps are points, and on which side.
+    pub rules: ProbeRules,
+    /// The probe asked at each point, told where the path splits or ends.
+    pub probe: &'a mut dyn Probe,
+}
+
+impl std::fmt::Debug for RequestProbe<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RequestProbe")
+            .field("rules", &self.rules)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What a run's probe answered that ended a path, recorded beside the probe as it is asked
+/// ([`Recording`]): the point's rule, side and depth, and the reason of a difference.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ProbeAnswer {
+    halt: HaltClass,
+    depth: u64,
+    end: ProbeEnd,
+}
+
+/// The caller's probe, asked through this wrapper so that the adapter learns which answer ended a
+/// path: k-rust's leaf names the halt and the observed state, and the point and the reason are
+/// the probe's own answer, which the wrapper keeps. Every question is passed on unchanged and
+/// every answer returned unchanged, so the run is the run the caller's probe alone would give.
+struct Recording<'p> {
+    probe: &'p mut dyn Probe,
+    answers: Vec<ProbeAnswer>,
+}
+
+impl Probe for Recording<'_> {
+    fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+        let decision = self.probe.observe(point);
+        let ended = match &decision {
+            ProbeDecision::Continue => None,
+            ProbeDecision::Differs(reason) => Some((HaltClass::ProbeDifference, Some(reason))),
+            ProbeDecision::Done => Some((HaltClass::ProbeDone, None)),
+        };
+        if let Some((halt, reason)) = ended {
+            self.answers.push(ProbeAnswer {
+                halt,
+                depth: point.depth(),
+                end: ProbeEnd {
+                    rule: point.rule().to_owned(),
+                    side: point.side(),
+                    reason: reason.cloned(),
+                },
+            });
+        }
+        decision
+    }
+
+    fn branched(&mut self, depth: u64) {
+        self.probe.branched(depth);
+    }
+
+    fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+        self.probe.ended(leaf);
+    }
 }
 
 /// The step a `cut-point` leaf stopped before: its one successor, by a rule the request selected
@@ -1006,8 +1121,15 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// (`collect_guards`, [`ResultRun::guards`]): k-rust states that asking changes no other field of
 /// the result, as for the committed transitions, nothing that decides a verdict or a schedule
 /// reads them, and a mutant's run and a stepped run ask for none; the one store that holds them,
-/// kink-flow's result records, moved its `RESULT_SCHEMA_VERSION`.
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v4";
+/// kink-flow's result records, moved its `RESULT_SCHEMA_VERSION`. v5: a result run may carry an
+/// in-process probe ([`RequestProbe`], [`ExecutionAdapter::execute_result_probed`]), which k-rust
+/// asks at each point of the rules it selects (`Backend::execute_kore_with_probe`; the wire
+/// request is unchanged): a `probe-difference` or `probe-done` leaf is admitted exactly then,
+/// carries the probe's point and answer ([`AdaptedLeaf::probe`]) and must be the run's only leaf,
+/// at the point's depth; the bridge reads it as a path the probe cut, never as an end of the
+/// system (`bridge::probed_halt_stop`). A run without a probe sends and adapts the request of v4,
+/// field for field, and its leaves are bridged as under v4.
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v5";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
 const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
@@ -1207,6 +1329,55 @@ impl ExecutionAdapter {
         count: NonZeroU64,
         condition: Option<&mut dyn StopCondition>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        self.execute_result_probed(
+            backend, tables, state, budget, run, stop, count, condition, None,
+        )
+    }
+
+    /// [`Self::execute_result_counted`] with an in-process probe `probe` ([`RequestProbe`]),
+    /// which k-rust asks at each point of the rules `probe.rules` selects (k-rust
+    /// `Backend::execute_kore_with_probe`, docs/compatibility.md "Probes (in-process)"): a
+    /// taken step of such a rule whose successor is defined, observed in the state before the
+    /// step for a before point and in the normalized successor for an after point. The probe is
+    /// asked only while the run is one path; it is told once where the path splits, or else of
+    /// the leaf the path ended at. It composes with the stop condition: both are asked within
+    /// the one request, each where it is asked.
+    ///
+    /// Its answer at a point decides what follows there:
+    /// - `Continue`: nothing; the run goes on as without the probe.
+    /// - `Differs`: the request ends with a `probe-difference` leaf at the observed state.
+    /// - `Done`: the path ends with a `probe-done` leaf at the observed state: the probe's own end
+    ///   of the path, never an end of the system.
+    ///
+    /// Each such leaf carries the point and the answer ([`AdaptedLeaf::probe`]). A run that
+    /// answers either is one path up to the point, so its leaf is the run's only leaf; a result
+    /// with a probe's leaf beside another leaf, without the probe having answered so, or at
+    /// another depth than the point's, is outside k-rust's contract
+    /// ([`ExecutionAdapterFailure::ContractViolation`]). The two halts are admitted exactly when
+    /// `probe` selects some rule; a probe that selects none is never asked about a point, only
+    /// told where the path splits or ends.
+    ///
+    /// The request sent is the one without a probe, field for field, and without a probe (`None`)
+    /// this is [`Self::execute_result_counted`], call for call. A probe that always continues
+    /// leaves the leaves, coverage, facts and work as they are without it.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one request's inputs: the backend and its tables, the start, the budget, the run, \
+                  the stop rules, their count and their condition, and the probe, none of which \
+                  belong to another"
+    )]
+    pub fn execute_result_probed(
+        &self,
+        backend: &mut Backend,
+        tables: &mut DefinitionTables,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+        stop: &StopRules,
+        count: NonZeroU64,
+        condition: Option<&mut dyn StopCondition>,
+        probe: Option<RequestProbe<'_>>,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let condition = condition.filter(|_| !stop.is_none());
         let built = tables.of(backend)?;
@@ -1215,6 +1386,7 @@ impl ExecutionAdapter {
             stop,
             count,
             conditioned: condition.is_some(),
+            probed: probe.as_ref().is_some_and(|probe| !probe.rules.is_empty()),
             guards: run.guards.then_some(&built.guarded),
         };
         stops_listed(requested, backend.capabilities())?;
@@ -1231,6 +1403,7 @@ impl ExecutionAdapter {
             budget,
             requested,
             condition,
+            probe,
             &built.inhabitation,
             &built.rewrites,
         )
@@ -1247,25 +1420,53 @@ impl ExecutionAdapter {
         budget: ExecutionBudget,
         requested: Requested<'_>,
         condition: Option<&mut dyn StopCondition>,
+        probe: Option<RequestProbe<'_>>,
         inhabitation: &Inhabitation,
         rewrites: &BTreeSet<String>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let recorded = RecordedRun::of(backend, state);
-        let (result, timed_out) = match condition {
-            None => execute_with_watchdog(
+        let mut answers = None;
+        let (result, timed_out) = match (condition, probe) {
+            (None, None) => execute_with_watchdog(
                 backend,
                 state.clone(),
                 budget,
                 requested,
                 Backend::execute_kore,
             )?,
-            Some(condition) => execute_with_watchdog(
+            (Some(condition), None) => execute_with_watchdog(
                 backend,
                 state.clone(),
                 budget,
                 requested,
                 |backend, request| backend.execute_kore_with_condition(request, condition),
             )?,
+            (condition, Some(RequestProbe { rules, probe })) => {
+                let mut recording = Recording {
+                    probe,
+                    answers: Vec::new(),
+                };
+                let outcome = execute_with_watchdog(
+                    backend,
+                    state.clone(),
+                    budget,
+                    requested,
+                    |backend, request| {
+                        backend.execute_kore_with_probe(
+                            request,
+                            rules,
+                            InProcess {
+                                condition: condition
+                                    .map(|condition| condition as &mut dyn StopCondition),
+                                reading: None,
+                                probe: Some(&mut recording),
+                            },
+                        )
+                    },
+                )?;
+                answers = Some(recording.answers);
+                outcome
+            }
         };
         let undecided = Cell::new(0);
         let feasibility = if timed_out {
@@ -1291,6 +1492,9 @@ impl ExecutionAdapter {
             rewrites,
             recorded,
         )?;
+        if let Some(answers) = answers {
+            attach_probe_ends(&mut adapted, answers)?;
+        }
         adapted.facts.decider_smt_unknowns = undecided.get();
         Ok(adapted)
     }
@@ -1484,6 +1688,9 @@ impl ExecutionAdapter {
                     halt,
                     feasibility,
                     proposal,
+                    // A probe's leaf gets its point from the probe's own answer
+                    // ([`attach_probe_ends`]); the result does not carry it.
+                    probe: None,
                     undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
                     contradicted_total: leaf.contradicted_total,
                     cause: leaf.cause,
@@ -1562,6 +1769,44 @@ impl ExecutionAdapter {
             &BTreeSet::new(),
             recorded,
         )
+    }
+}
+
+/// Records on each probe leaf of `adapted` the point and answer `answers` holds, the answers the
+/// run's probe gave that ended a path, in the order it gave them ([`Recording`]).
+///
+/// The probe is asked only while the run is one path, and an answer other than `Continue` ends
+/// that path (`Done`) or the whole request (`Differs`), so it answers so at most once, and then
+/// the run's only leaf is that answer's, of its halt, at its point's depth. Anything else is a
+/// result outside k-rust's contract: a probe leaf beside another leaf, a probe leaf with no
+/// answer or of another halt or depth than the answer's, an answer with no probe leaf in a run
+/// that did not time out (a timed-out run reads no leaf), or more than one answer.
+fn attach_probe_ends(
+    adapted: &mut AdaptedExecution,
+    answers: Vec<ProbeAnswer>,
+) -> Result<(), ExecutionAdapterFailure> {
+    let probed = adapted
+        .leaves
+        .iter()
+        .find(|leaf| leaf.halt.is_probe())
+        .map(|leaf| leaf.halt);
+    let mut answers = answers.into_iter();
+    let (first, second) = (answers.next(), answers.next());
+    if let Some(extra) = second {
+        return Err(ExecutionAdapterFailure::ContractViolation(extra.halt));
+    }
+    if adapted.timed_out {
+        return Ok(());
+    }
+    match (adapted.leaves.as_mut_slice(), first) {
+        ([leaf], Some(answer)) if leaf.halt == answer.halt && leaf.branch.depth == answer.depth => {
+            leaf.probe = Some(answer.end);
+            Ok(())
+        }
+        (_, Some(answer)) => Err(ExecutionAdapterFailure::ContractViolation(answer.halt)),
+        (_, None) => probed.map_or(Ok(()), |halt| {
+            Err(ExecutionAdapterFailure::ContractViolation(halt))
+        }),
     }
 }
 
@@ -2261,6 +2506,7 @@ mod tests {
                         stop,
                         count,
                         conditioned: false,
+                        probed: false,
                         guards: None,
                     },
                 );
@@ -2320,6 +2566,7 @@ mod tests {
             stop,
             count: NonZeroU64::new(count).unwrap(),
             conditioned: false,
+            probed: false,
             guards: None,
         };
         assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
@@ -2443,6 +2690,7 @@ mod tests {
                     stop,
                     count: NonZeroU64::MIN,
                     conditioned: false,
+                    probed: false,
                     guards: None,
                 },
                 vec![LeafFeasibility::Syntactic],
@@ -2740,6 +2988,7 @@ mod tests {
             stop,
             count: NonZeroU64::new(count).unwrap(),
             conditioned: false,
+            probed: false,
             guards: None,
         };
         for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
@@ -2919,6 +3168,556 @@ mod tests {
                         admitted.leaves().last().map(|leaf| leaf.halt),
                         Some(HaltClass::WorkBound)
                     );
+                }
+            }
+        }
+    }
+
+    /// The chain `a -> b -> c` and the choice `x -> y | x -> z`, each rule labelled `from-to`,
+    /// as a backend with its KORE.
+    fn probe_fixture() -> (Backend, k_rust::kore::ast::Definition) {
+        use k_rust::backend::BackendOptions;
+        let constructor = |name: &str| {
+            format!(
+                "symbol Lbl{name}{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+            )
+        };
+        let rule = |from: &str, to: &str| {
+            format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(\and{{SortS{{}}}}(Lbl{from}{{}}(), \top{{SortS{{}}}}()), Lbl{to}{{}}()) [label{{}}("{from}-{to}"), UNIQUE'Unds'ID{{}}("id-{from}-{to}")]"#
+            )
+        };
+        let source = format!(
+            "[]\nmodule MAIN\n    sort SortS{{}} []\n    {}\n    {}\nendmodule []",
+            ["a", "b", "c", "x", "y", "z"]
+                .map(constructor)
+                .join("\n    "),
+            [
+                rule("a", "b"),
+                rule("b", "c"),
+                rule("x", "y"),
+                rule("x", "z")
+            ]
+            .join("\n    "),
+        );
+        let kore = k_rust::kore::parser::parse_definition(&source).expect("KORE");
+        let backend = Backend::from_definition(kore.clone(), "MAIN", BackendOptions::default())
+            .expect("backend");
+        (backend, kore)
+    }
+
+    fn constant(name: &str) -> Pattern {
+        Pattern::Application {
+            symbol: Symbol {
+                name: format!("Lbl{name}"),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        }
+    }
+
+    /// A probe that answers `answer` at the point whose observed state is `at` and continues
+    /// elsewhere, and records what it was asked and told.
+    struct Answering {
+        at: Option<Pattern>,
+        answer: ProbeDecision,
+        asked: Vec<(String, StopSide, u64, Pattern)>,
+        branched: Vec<u64>,
+        ended: Vec<Pattern>,
+    }
+
+    impl Answering {
+        fn new(at: Option<&str>, answer: ProbeDecision) -> Self {
+            Self {
+                at: at.map(constant),
+                answer,
+                asked: Vec::new(),
+                branched: Vec::new(),
+                ended: Vec::new(),
+            }
+        }
+    }
+
+    impl Probe for Answering {
+        fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+            let state = point.configuration();
+            self.asked.push((
+                point.rule().to_owned(),
+                point.side(),
+                point.depth(),
+                state.clone(),
+            ));
+            if self.at.as_ref() == Some(&state) {
+                self.answer.clone()
+            } else {
+                ProbeDecision::Continue
+            }
+        }
+
+        fn branched(&mut self, depth: u64) {
+            self.branched.push(depth);
+        }
+
+        fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+            self.ended.push(leaf.configuration());
+        }
+    }
+
+    fn probe_rules(before: &[&str], after: &[&str]) -> ProbeRules {
+        ProbeRules {
+            before: before.iter().map(|name| (*name).to_owned()).collect(),
+            after: after.iter().map(|name| (*name).to_owned()).collect(),
+        }
+    }
+
+    /// KINK-observation-traces T3a, end to end on k-rust: a request with a probe receives each
+    /// of the probe's halts with its observed state and the point and answer that made it
+    /// (`AdaptedLeaf::probe`), as the run's only leaf; the bridge reads it as a path the probe
+    /// cut, never an end. A probe that always continues, one that selects no rule, and one whose
+    /// path splits before any point leave the run as it is without a probe, leaves, coverage,
+    /// facts and work alike. The probe composes with stop rules and with a stop condition.
+    #[test]
+    fn a_probed_request_receives_each_halt_and_its_state() {
+        use crate::bridge::{BridgeContext, paths_from_execution};
+        use kink_pattern::{CollectionStop, ExecutionTerminalKind, PathStop, SymbolSorts};
+        let (mut backend, kore) = probe_fixture();
+        let sorts = SymbolSorts::from_definition(&kore);
+        let context = BridgeContext {
+            test_id: "t",
+            classify: &|_| ExecutionTerminalKind::Normal,
+            sorts: &sorts,
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(30),
+            max_simplification_iterations: 100,
+            max_depth: None,
+            max_breadth: None,
+        };
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let mut tables = DefinitionTables::new();
+        let mut run = |start: &str,
+                       stop: &StopRules,
+                       condition: Option<&mut dyn StopCondition>,
+                       probe: Option<RequestProbe<'_>>| {
+            adapter
+                .execute_result_probed(
+                    &mut backend,
+                    &mut tables,
+                    &constant(start),
+                    budget,
+                    ResultRun::default(),
+                    stop,
+                    NonZeroU64::MIN,
+                    condition,
+                    probe,
+                )
+                .expect("the run is adapted")
+        };
+        let summary = |execution: &AdaptedExecution| {
+            execution
+                .leaves()
+                .iter()
+                .map(|leaf| {
+                    (
+                        leaf.halt,
+                        leaf.branch.state.clone(),
+                        leaf.branch.depth,
+                        leaf.probe.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let end = |rule: &str, side, reason: Option<&str>| {
+            Some(ProbeEnd {
+                rule: rule.to_owned(),
+                side,
+                reason: reason.map(str::to_owned),
+            })
+        };
+
+        // A probe that continues at a before point of `a-b` and an after point of `b-c`: asked
+        // at each in path order, told of the end at `c`, and the run is the run without it.
+        let plain = run("a", &StopRules::NONE, None, None);
+        let mut continuing = Answering::new(None, ProbeDecision::Continue);
+        let continued = run(
+            "a",
+            &StopRules::NONE,
+            None,
+            Some(RequestProbe {
+                rules: probe_rules(&["a-b"], &["b-c"]),
+                probe: &mut continuing,
+            }),
+        );
+        assert_eq!(continued, plain);
+        assert_eq!(
+            continuing.asked,
+            [
+                ("a-b".to_owned(), StopSide::Before, 0, constant("a")),
+                ("b-c".to_owned(), StopSide::After, 2, constant("c")),
+            ]
+        );
+        assert_eq!(continuing.ended, [constant("c")]);
+        assert!(continuing.branched.is_empty());
+
+        // `Differs` at the after point of `b-c`: the request ends there, at `c`.
+        let mut differing = Answering::new(Some("c"), ProbeDecision::Differs("seen c".to_owned()));
+        let differs = run(
+            "a",
+            &StopRules::NONE,
+            None,
+            Some(RequestProbe {
+                rules: probe_rules(&["a-b"], &["b-c"]),
+                probe: &mut differing,
+            }),
+        );
+        assert_eq!(
+            summary(&differs),
+            [(
+                HaltClass::ProbeDifference,
+                constant("c"),
+                2,
+                end("b-c", StopSide::After, Some("seen c")),
+            )]
+        );
+        assert!(differing.ended.is_empty());
+        let bridged = paths_from_execution(&differs, &context, &|_| true).expect("bridged");
+        let [path] = bridged.paths.as_slice() else {
+            panic!("one path");
+        };
+        assert!(!path.complete);
+        assert_eq!(path.stop, PathStop::ResultLimit);
+        assert_eq!(path.execution_terminal, None);
+        assert_eq!(bridged.collection.stop, CollectionStop::ResultLimit);
+
+        // `Done` at the before point of `a-b`: the path ends at `a`, the probe's own end.
+        let mut done = Answering::new(Some("a"), ProbeDecision::Done);
+        let finished = run(
+            "a",
+            &StopRules::NONE,
+            None,
+            Some(RequestProbe {
+                rules: probe_rules(&["a-b"], &[]),
+                probe: &mut done,
+            }),
+        );
+        assert_eq!(
+            summary(&finished),
+            [(
+                HaltClass::ProbeDone,
+                constant("a"),
+                0,
+                end("a-b", StopSide::Before, None),
+            )]
+        );
+        let bridged = paths_from_execution(&finished, &context, &|_| true).expect("bridged");
+        assert_eq!(bridged.paths[0].stop, PathStop::ResultLimit);
+        assert!(!bridged.paths[0].complete);
+
+        // A probe that selects no rule is never asked about a point, and admits no probe halt.
+        let mut idle = Answering::new(Some("a"), ProbeDecision::Done);
+        let unselected = run(
+            "a",
+            &StopRules::NONE,
+            None,
+            Some(RequestProbe {
+                rules: ProbeRules::default(),
+                probe: &mut idle,
+            }),
+        );
+        assert_eq!(unselected, plain);
+        assert!(idle.asked.is_empty());
+        assert_eq!(idle.ended, [constant("c")]);
+
+        // A split before any point: told once, asked nothing, the run unchanged.
+        let split_plain = run("x", &StopRules::NONE, None, None);
+        let mut split = Answering::new(Some("y"), ProbeDecision::Done);
+        let splitting = run(
+            "x",
+            &StopRules::NONE,
+            None,
+            Some(RequestProbe {
+                rules: probe_rules(&[], &["x-y"]),
+                probe: &mut split,
+            }),
+        );
+        assert_eq!(splitting, split_plain);
+        assert!(split.asked.is_empty());
+        assert_eq!(split.branched, [0]);
+
+        // With stop rules and a condition that holds: the probe's `Done` at `b`, before the
+        // terminal arrival at `c`, ends the path there; its leaf reports the arrivals it passed
+        // (none) and the condition is asked nowhere before it.
+        let after_c = StopRules {
+            before: Vec::new(),
+            after: vec!["b-c".to_owned()],
+        };
+        let mut asked = 0_u32;
+        let mut holds = |_: &StopArrival<'_>| {
+            asked += 1;
+            StopDecision::Holds
+        };
+        let mut done_at_b = Answering::new(Some("b"), ProbeDecision::Done);
+        let composed = run(
+            "a",
+            &after_c,
+            Some(&mut holds),
+            Some(RequestProbe {
+                rules: probe_rules(&[], &["a-b"]),
+                probe: &mut done_at_b,
+            }),
+        );
+        assert_eq!(
+            summary(&composed),
+            [(
+                HaltClass::ProbeDone,
+                constant("b"),
+                1,
+                end("a-b", StopSide::After, None),
+            )]
+        );
+        assert_eq!(asked, 0);
+        // Where the probe continues, the condition's stop ends the path as without the probe.
+        let mut holds_again = |_: &StopArrival<'_>| StopDecision::Holds;
+        let mut passing = Answering::new(None, ProbeDecision::Continue);
+        let stopped = run(
+            "a",
+            &after_c,
+            Some(&mut holds_again),
+            Some(RequestProbe {
+                rules: probe_rules(&[], &["a-b"]),
+                probe: &mut passing,
+            }),
+        );
+        let mut holds_alone = |_: &StopArrival<'_>| StopDecision::Holds;
+        assert_eq!(stopped, run("a", &after_c, Some(&mut holds_alone), None));
+        assert_eq!(
+            summary(&stopped),
+            [(HaltClass::TerminalRule, constant("c"), 2, None)]
+        );
+    }
+
+    /// KINK-observation-traces T3a: a probe's halt is admitted exactly for a request that asked
+    /// a probe at some selected rule's points; any other request refuses either as a contract
+    /// violation, whatever its stop rules, condition or budgets. Its adaptation pairs the leaf
+    /// with the probe's answer and refuses every result k-rust's contract excludes.
+    #[test]
+    fn a_request_without_a_probe_refuses_its_halts() {
+        let stop = StopRules {
+            before: vec!["r".to_owned()],
+            after: vec!["s".to_owned()],
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(1),
+            max_simplification_iterations: 1,
+            max_depth: Some(4),
+            max_breadth: NonZeroUsize::new(4),
+        };
+        let requested = |stop, conditioned, probed| Requested {
+            run: ResultRun {
+                max_work: Some(9),
+                ..ResultRun::default()
+            },
+            stop,
+            count: NonZeroU64::MIN,
+            conditioned,
+            probed,
+            guards: None,
+        };
+        for halt in [HaltClass::ProbeDifference, HaltClass::ProbeDone] {
+            assert!(halt.is_probe());
+            assert!(!halt.admitted_by(&budget, Some(9), &stop));
+            for stop in [&NO_STOP_RULES, &stop] {
+                for conditioned in [false, true] {
+                    assert!(!requested(stop, conditioned, false).admits(halt, &budget));
+                    assert!(requested(stop, conditioned, true).admits(halt, &budget));
+                }
+            }
+        }
+        // A probe admits nothing else that the request without it does not.
+        for halt in HaltClass::ALL.into_iter().filter(|halt| !halt.is_probe()) {
+            assert!(!halt.is_probe());
+            for stop in [&NO_STOP_RULES, &stop] {
+                for conditioned in [false, true] {
+                    assert_eq!(
+                        requested(stop, conditioned, true).admits(halt, &budget),
+                        requested(stop, conditioned, false).admits(halt, &budget),
+                        "{halt:?}"
+                    );
+                }
+            }
+        }
+
+        // A result of a request without a probe that holds a probe's halt is refused.
+        let (mut backend, _) = probe_fixture();
+        let complete = backend
+            .execute_kore(request(
+                constant("a"),
+                budget,
+                Requested::unstopped(ResultRun::default()),
+            ))
+            .unwrap();
+        for (reason, halt) in [
+            (
+                HaltReasonOutput::ProbeDifference,
+                HaltClass::ProbeDifference,
+            ),
+            (HaltReasonOutput::ProbeDone, HaltClass::ProbeDone),
+        ] {
+            let mut probed = complete.clone();
+            probed.leaves[0].reason = reason;
+            assert_eq!(
+                ExecutionAdapter::adapt_result(
+                    probed,
+                    false,
+                    &budget,
+                    vec![LeafFeasibility::Unknown],
+                    RecordedRun {
+                        short_circuit_readings: true,
+                        ground: true,
+                    },
+                ),
+                Err(ExecutionAdapterFailure::ContractViolation(halt))
+            );
+        }
+
+        // The pairing of a probed run's leaves with its probe's answers.
+        let adapted = |halts: &[(HaltClass, u64)]| AdaptedExecution {
+            leaves: halts
+                .iter()
+                .map(|&(halt, depth)| AdaptedLeaf {
+                    halt,
+                    branch: AdaptedBranch {
+                        identity: Vec::new(),
+                        state: constant("a"),
+                        depth,
+                        trace: Vec::new(),
+                    },
+                    feasibility: LeafFeasibility::Unknown,
+                    cause: None,
+                    diagnostics: Vec::new(),
+                    candidate_diagnostics: Vec::new(),
+                    remainder_diagnostics: Vec::new(),
+                    undefined_rule: None,
+                    contradicted_total: None,
+                    proposal: None,
+                    probe: None,
+                })
+                .collect(),
+            effects: Vec::new(),
+            timed_out: false,
+            stack_stops: 0,
+            modality: ResultModality::StateSet,
+            work: 0,
+            coverage: None,
+            facts: RunFacts::default(),
+        };
+        let answer = |halt, depth| ProbeAnswer {
+            halt,
+            depth,
+            end: ProbeEnd {
+                rule: "r".to_owned(),
+                side: StopSide::Before,
+                reason: (halt == HaltClass::ProbeDifference).then(|| "why".to_owned()),
+            },
+        };
+        let (d, n, s) = (
+            HaltClass::ProbeDifference,
+            HaltClass::ProbeDone,
+            HaltClass::Stuck,
+        );
+        // Leaves (halt and depth), answers, whether they are paired, and a halt.
+        type PairingRow<'a> = (&'a [(HaltClass, u64)], Vec<ProbeAnswer>, bool, HaltClass);
+        let (accepted, violation) = (true, false);
+        // Leaves, answers, whether they are paired, and the halt of the leaf read or refused.
+        #[rustfmt::skip]
+        let rows: [PairingRow<'_>; 9] = [
+            // The answer's leaf, alone, of its halt and depth.
+            (&[(d, 3)], vec![answer(d, 3)], accepted, d),
+            (&[(n, 0)], vec![answer(n, 0)], accepted, n),
+            // No answer and no probe leaf: the probe continued throughout.
+            (&[(s, 2)], vec![], accepted, s),
+            // A probe leaf the probe did not answer, or of another halt or depth.
+            (&[(d, 3)], vec![], violation, d),
+            (&[(d, 3)], vec![answer(n, 3)], violation, n),
+            (&[(n, 3)], vec![answer(n, 2)], violation, n),
+            // An answer whose leaf is missing, or beside another leaf.
+            (&[(s, 2)], vec![answer(d, 2)], violation, d),
+            (&[(d, 2), (s, 2)], vec![answer(d, 2)], violation, d),
+            // Two answers.
+            (&[(d, 2)], vec![answer(n, 1), answer(d, 2)], violation, d),
+        ];
+        for (halts, answers, expected, halt) in rows {
+            let id = format!("{halts:?} {answers:?}");
+            let mut execution = adapted(halts);
+            let attached = attach_probe_ends(&mut execution, answers.clone());
+            if expected {
+                assert_eq!(attached, Ok(()), "{id}");
+                let probes = execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| leaf.probe.clone())
+                    .collect::<Vec<_>>();
+                let paired = halts
+                    .iter()
+                    .map(|&(leaf, _)| leaf.is_probe().then(|| answers[0].end.clone()))
+                    .collect::<Vec<_>>();
+                assert_eq!(probes, paired, "{id}");
+                assert_eq!(execution.leaves()[0].halt, halt, "{id}");
+            } else {
+                assert_eq!(
+                    attached,
+                    Err(ExecutionAdapterFailure::ContractViolation(halt)),
+                    "{id}"
+                );
+            }
+        }
+        // A timed-out run reads no leaf, whatever the probe answered before the watchdog fired.
+        let mut timed_out = adapted(&[]);
+        timed_out.timed_out = true;
+        assert_eq!(
+            attach_probe_ends(&mut timed_out, vec![answer(d, 2)]),
+            Ok(())
+        );
+    }
+
+    /// KINK-observation-traces T3a pin: the request a probe's run sends is the request without
+    /// a probe, field for field (the probe is an in-process callback no wire request carries),
+    /// for every run and stop shape, so a run without a probe sends what it sent before probes.
+    #[test]
+    fn a_probe_leaves_the_request_unchanged() {
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(1),
+            max_simplification_iterations: 7,
+            max_depth: Some(3),
+            max_breadth: None,
+        };
+        let stop = StopRules {
+            before: vec!["r".to_owned()],
+            after: vec!["s".to_owned()],
+        };
+        for run in [
+            ResultRun::default(),
+            ResultRun {
+                max_work: Some(11),
+                ..ResultRun::default()
+            },
+        ] {
+            for stop in [&NO_STOP_RULES, &stop] {
+                for count in [1, 3] {
+                    for conditioned in [false, true] {
+                        let requested = |probed| Requested {
+                            run,
+                            stop,
+                            count: NonZeroU64::new(count).unwrap(),
+                            conditioned,
+                            probed,
+                            guards: None,
+                        };
+                        assert_eq!(
+                            format!("{:?}", request(constant("a"), budget, requested(true))),
+                            format!("{:?}", request(constant("a"), budget, requested(false))),
+                        );
+                    }
                 }
             }
         }

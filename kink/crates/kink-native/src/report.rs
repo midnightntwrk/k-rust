@@ -411,6 +411,7 @@ mod tests {
             undefined_rule: None,
             contradicted_total: None,
             proposal: None,
+            probe: None,
         };
         let event = Event {
             index: 0,
