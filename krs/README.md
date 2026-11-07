@@ -148,6 +148,10 @@ An entry unused for `KRS_REFERENCE_CACHE_MAX_UNUSED_DAYS` (default 30) days is d
   The live result must reproduce the pinned digest, so a different or nondeterministic K installation fails instead of replacing the evidence, and it is stored only after every step of the gate passed.
 - A cached entry whose key or invocations differ from what the gate runs fails closed.
   After an intended change to a reference input, such as what KRS emits, run the gate with `--refresh-reference --record` and the pinned K tools.
+- A change to an input that leaves its meaning alone, such as a comment of an emitted `.k` file, is still a new key, and the new snapshot need not be the old one's bytes:
+  Java K's KORE may list the competitors of an `owise` equation, the disjuncts its negated condition names, in another order (seen on the patterns-functions gate's `bits` and `sugar` after a comment-only edit).
+  Its `reference_sha256` then moves on `--refresh-reference --record`, which is expected.
+  The comparison does not move: `krs-gate kore-compare` flattens each such negated disjunction and orders its disjuncts by shape before comparing (`canonicalize_owise_competitors` in `crates/krs-gate/src/kore_compare.rs`, pinned by its `owise_competitor_order_is_normalized` test), so a pass rests on no disjunct order.
 
 `--refresh-reference` runs Java K live whatever the cache holds; `--record` rewrites output pins, including `reference_sha256`.
 CI runs none of these gates, so it needs neither K nor the cache.
