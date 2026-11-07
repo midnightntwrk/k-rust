@@ -677,12 +677,28 @@ impl StructuredTermBuilder<'_> {
     /// # Errors
     ///
     /// Returns [`DescriptorLoweringError::InvalidListNotation`] at the cell
-    /// when it is not a leaf of a list sort.
+    /// when it is not a leaf of a list sort. A `KSequence` cell reaches here
+    /// only beside another computation cell the rule's brackets read: the
+    /// collector gives a computation cell's list reading the head when no
+    /// other cell holds it, and a rule has one head, so the second
+    /// computation cell's brackets are a limit, not a list mistake.
     pub(super) fn list_cell(
         &self,
         cell: &DescriptorCellReference,
         sort: Option<&SemanticSortRef>,
     ) -> Result<ConsListConstructors, DescriptorLoweringError> {
+        if matches!(
+            sort,
+            Some(SemanticSortRef::Builtin(krs_ir::BuiltinSort::KSequence))
+        ) {
+            return Err(self.invalid_list_notation(
+                &cell.key,
+                format!(
+                    "the cell `{}` is a computation cell beside the one this rule's brackets read, and brackets read one computation cell per rule, so a second one's brackets are not supported yet; a `k::cells!` rule matches both with `KCell(..)`, and a rule that brackets only this cell reads it as its computation cell",
+                    cell.cell.field
+                ),
+            ));
+        }
         sort.and_then(|sort| self.cons_list_of(sort)).ok_or_else(|| {
             let held = sort.map_or_else(
                 || "a nested cell group".to_owned(),

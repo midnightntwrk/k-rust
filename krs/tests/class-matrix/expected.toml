@@ -205,6 +205,11 @@ doc = "an item after the rest of the computation cell, in any form, the spelling
 examples = ["readable ; subject ; - ; computation ; [.., x] ; -", "readable ; result ; - ; computation ; [x, .., y] ; [y, ..]", "cells ; subject ; - ; computation ; k::configuration::KCell(.., x) ; -", "cells ; result ; - ; computation ; k::configuration::KCell(x, .., y) ; k::configuration::KCell(y, ..)", "cells ; subject ; ? ; computation ; k::configuration::KCell(.., x) ; -"]
 advice = "none"
 
+[class.computation-brackets-per-rule]
+code = "krs::analysis::invalid-list-notation"
+doc = "brackets on a second computation cell of a readable record, beside the computation cell whose items the rule's brackets read (`k: [Go(), ..]` and `code: [x, ..]`): a rule reads one computation cell's items, so the second one's are not supported yet; a `k::cells!` rule matches both with `KCell(..)`, and a rule that brackets only the other cell reads it as its computation cell"
+advice = "none"
+
 [class.cons-list-back-item]
 code = "krs::analysis::invalid-list-notation"
 doc = "an item after a cons list's rest (`[.., x]`, `[x, .., y]`, a result's `[..rest, x]`) on a cell whose sort is a cons list, in any form: a cons list is a constructor term built from its front, `x : rest`, so its back is no constructor pattern and, with no append declared, builds no term (P0, P2); the leaf mark's own shape, so it is refused before pairing and stands under a path"
@@ -1232,6 +1237,13 @@ at = "spelling"
 match = '{claim,readable}/result/kinds/job/[x\, ..]'
 class = "binder-sort"
 at = "spelling"
+
+# computation-brackets-per-rule (TRI-A5): the rule's brackets read `k`, the main computation, so
+# the second computation cell's brackets are a limit
+[[refuse]]
+match = '{claim,readable}/result/kinds/code/[x\, ..]'
+class = "computation-brackets-per-rule"
+at = "item"
 
 [[refuse]]
 match = 'cells/result/kinds/{set,stack}/k::configuration::Cell(x)'
@@ -3795,6 +3807,23 @@ at = "spelling"
 match = 'sweep/{claim,readable}/result/job/[x\, ..]'
 class = "instance-binder"
 at = "spelling"
+
+# computation-brackets-per-rule (TRI-A5): every sweep rule's brackets read `k`, so `prog`'s are a
+# second computation cell's
+[[refuse]]
+match = 'sweep/{claim,readable}/{subject,written}/prog/{[G \{ a: x\, .. \}\, ..],[x]}'
+class = "computation-brackets-per-rule"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/[x\, ..]'
+class = "computation-brackets-per-rule"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/prog/{[..],[x\, ..]}'
+class = "computation-brackets-per-rule"
+at = "item"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/{result,subject,written}/{acct,bag}/\{ x\, .. \}'
@@ -7618,8 +7647,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."claim/result/kinds/code/[x, ..]"]
-
 [accept."claim/result/kinds/frame/G { a: x, b: y }"]
 k = """
 claim [case-TAG]:
@@ -11314,8 +11341,6 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 same_k_as = ["cells/result/k/rest/k::configuration::KCell(x, ..)"]
 
-[accept."readable/result/kinds/code/[x, ..]"]
-
 [accept."readable/result/kinds/frame/G { a: x, b: y }"]
 k = """
 rule [case-TAG]:
@@ -14054,10 +14079,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."sweep/claim/result/omap/None"]
 
-[accept."sweep/claim/result/prog/[..]"]
-
-[accept."sweep/claim/result/prog/[x, ..]"]
-
 [accept."sweep/claim/result/seq/[..]"]
 k = """
 claim [case-TAG]:
@@ -14309,10 +14330,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/subject/prog/[G { a: x, .. }, ..]"]
-
-[accept."sweep/claim/subject/prog/[x]"]
 
 [accept."sweep/claim/subject/seq/[..]"]
 lint = "no-effect-entry"
@@ -14731,12 +14748,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/written/prog/[G { a: x, .. }, ..]"]
-
-[accept."sweep/claim/written/prog/[x, ..]"]
-
-[accept."sweep/claim/written/prog/[x]"]
 
 [accept."sweep/claim/written/seq/[..]"]
 k = """
@@ -15885,10 +15896,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."sweep/readable/result/omap/None"]
 
-[accept."sweep/readable/result/prog/[..]"]
-
-[accept."sweep/readable/result/prog/[x, ..]"]
-
 [accept."sweep/readable/result/seq/[..]"]
 k = """
 rule [case-TAG]:
@@ -16140,10 +16147,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/readable/subject/prog/[G { a: x, .. }, ..]"]
-
-[accept."sweep/readable/subject/prog/[x]"]
 
 [accept."sweep/readable/subject/seq/[..]"]
 lint = "no-effect-entry"
@@ -16562,12 +16565,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/readable/written/prog/[G { a: x, .. }, ..]"]
-
-[accept."sweep/readable/written/prog/[x, ..]"]
-
-[accept."sweep/readable/written/prog/[x]"]
 
 [accept."sweep/readable/written/seq/[..]"]
 k = """
@@ -17399,6 +17396,11 @@ principle = "C-lim: a map read has no result side until M3; an instance record's
 code = "krs::analysis::collection-entry"
 docs = "A collection's overwrite replaces every instance it holds"
 findings = ["S5-A1"]
+
+[limit.computation-brackets-per-rule]
+code = "krs::analysis::invalid-list-notation"
+docs = "brackets read one computation cell per rule"
+findings = ["S5-C2"]
 
 [limit.instance-binder]
 code = "krs::analysis::collection-entry"

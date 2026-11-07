@@ -1974,14 +1974,6 @@ deviation = "krs::syntax::invalid-pattern-or @ entry"
 # refused with another code, S5-S1 (its K3, S6's); the overwrite and the subject lint, S5-Q1; the second
 # computation's brackets, S5-C2; own-level wrong codes S0-9 (cells! wrappers S5-A, `job: [x, ..]` S5-Q2,
 # initializers B1 and B2); K8 advice S0-9.
-["claim/result/kinds/code/[x, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["readable/result/kinds/code/[x, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
 # S5.0g, L4: a readable record naming one of the 2-child group's two children. In a subject it is
 # accepted (S5-L4); in a result it is refused with the descriptor term's code (S0-9).
 # S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
@@ -2166,14 +2158,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
 
-["sweep/claim/result/prog/[..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/claim/result/prog/[x, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
 ["sweep/claim/subject/f14-ccell/C { cc: [y, ..], .. }"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
@@ -2182,35 +2166,7 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
 
-["sweep/claim/subject/prog/[G { a: x, .. }, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/subject/prog/[x]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/written/prog/[G { a: x, .. }, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/written/prog/[x, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/written/prog/[x]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
 ["sweep/readable/result/f19-ccell/C { cc: [x], cn: 0 }"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/readable/result/prog/[..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/readable/result/prog/[x, ..]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
 
@@ -2221,26 +2177,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 ["sweep/readable/subject/f15-ccell/C { cc: [y], .. }"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
-
-["sweep/readable/subject/prog/[G { a: x, .. }, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/subject/prog/[x]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/written/prog/[G { a: x, .. }, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/written/prog/[x, ..]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/written/prog/[x]"]
-finding = "S5-C2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
 finding = "S5-F2"
