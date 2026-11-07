@@ -8,8 +8,6 @@ summarize="$workspace/scripts/conformance/summarize.py"
 driver=${CONFORMANCE_DRIVER:-"$workspace/scripts/conformance/run.py"}
 value_contract_gate=${CONFORMANCE_VALUE_CONTRACT_GATE:-"$workspace/scripts/value-contract-corpus.sh"}
 expectations="$workspace/scripts/conformance/expectations.toml"
-backlog=${CONFORMANCE_BACKLOG-"$workspace/draft/conformance-backlog/tickets.toml"}
-backlog_explicit=false
 log=${CONFORMANCE_RATCHET_LOG:-}
 runs_dir=${CONFORMANCE_RATCHET_RUNS_DIR:-}
 jobs=2
@@ -30,7 +28,7 @@ usage() {
 usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | --stage STAGE) [OPTIONS]
        scripts/conformance-ratchet.sh --seed RESULTS --label LABEL [OPTIONS]
        scripts/conformance-ratchet.sh --seed-acceptance --label LABEL --log PATH
-       scripts/conformance-ratchet.sh --audit [--sequence N] [--log PATH] [--backlog PATH]
+       scripts/conformance-ratchet.sh --audit [--sequence N] [--log PATH]
 
 Measure selected K regression-new cases, append their per-case ranks to the
 standing ratchet, and fail with status 3 if a non-excluded rank decreases
@@ -42,17 +40,14 @@ The versioned accepted_verdict is also a floor, even for a fresh log or driver.
 A measurement then runs the critical-pair corpus gate (scripts/value-contract-corpus.sh) on the
 cases of its manifest that it compiled, and fails with that gate's status when it differs.
 --seed-acceptance initializes a local log from those recorded verdicts without running tools.
---audit reads the log and expectations and lists every case below its required floor.
-With a backlog it also lists every non-excluded case whose latest verdict is not match
-and that no open [[ticket]] names, and fails with status 3 when one exists.
+--audit reads the log and expectations, lists every case below its required floor,
+and fails with status 3 when one of them is not excluded.
 
 Options:
   --jobs N
   --log PATH          required; standing ratchet log (or CONFORMANCE_RATCHET_LOG)
   --runs-dir PATH     required when measuring (or CONFORMANCE_RATCHET_RUNS_DIR)
   --expectations PATH
-  --backlog PATH      audit only; [[ticket]] ledger (or CONFORMANCE_BACKLOG)
-                      defaults to the repository's backlog when present
   --force
   --dry-run
 EOF
@@ -131,12 +126,6 @@ while (($#)); do
       expectations=$2
       shift 2
       ;;
-    --backlog)
-      require_value "$@"
-      backlog=$2
-      backlog_explicit=true
-      shift 2
-      ;;
     --force)
       force=true
       shift
@@ -167,12 +156,6 @@ if [[ "$audit" == true ]]; then
   if [[ -n "$audit_sequence" ]]; then
     [[ "$audit_sequence" =~ ^[0-9]+$ ]] || die "--sequence must be a non-negative integer"
     audit_args+=(--sequence "$audit_sequence")
-  fi
-  if [[ "$backlog_explicit" == true ]]; then
-    [[ -f "$backlog" ]] || die "missing backlog: $backlog"
-  fi
-  if [[ -n "$backlog" && -f "$backlog" ]]; then
-    audit_args+=(--backlog "$backlog")
   fi
   exec python3 "$helper" audit "${audit_args[@]}"
 fi

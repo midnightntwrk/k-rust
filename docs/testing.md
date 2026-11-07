@@ -270,10 +270,8 @@ The pinned `kore-exec` and `kore-rpc` executables accept the threaded-runtime `G
 The conformance driver therefore clears `GHCRTS` for parser calls and for `krun --pattern`, which delegates to `kore-match-disjunction`, and gives the other reference calls `-N1`, or `REFERENCE_GHCRTS` when it is set.
 A caller's `GHCRTS` reaches no reference call: the gates' guard removes it (README, "Compatibility evidence").
 
-Every accepted non-`match` verdict is either justified by an exclusion category with an inline reason or is pending work with an empty exclusion and a measured reason ([compatibility.md](compatibility.md#driver-scope)).
-The tracked conformance backlog is a TOML file of `[[ticket]]` rows, each with `id`, `title`, `state` (`open` or `closed`), and `cases`, the expectation case names it covers.
-When the repository backlog is present, `scripts/conformance-ratchet.sh --audit` checks it by default; `--backlog PATH` or `CONFORMANCE_BACKLOG=PATH` selects a different ledger, and an empty `CONFORMANCE_BACKLOG` disables this check.
-With a backlog, the audit lists every non-excluded case whose latest measurement is not `match` and that no open ticket names, exits 3 when one exists, and lists tickets whose cases all match so that they can be closed.
+Every accepted non-`match` verdict is either justified by an exclusion category with an inline reason or is pending work with an empty exclusion and a measured reason ([compatibility.md](compatibility.md#driver-scope)); `crates/k-rust/tests/conformance_ratchet.rs` fails when a committed accepted non-`match` verdict has neither.
+That reason is the whole justification for a pending case, so judging one needs nothing beyond the log and the expectations file: a non-excluded case measured below `match` is either at or above an accepted non-`match` verdict, whose reason states the pending work, or below its required floor, which `--audit` lists and fails on with status 3.
 Ticket identifiers never appear in the expectations file.
 
 Update accepted verdicts only after inspecting the measured result and its reference evidence.
