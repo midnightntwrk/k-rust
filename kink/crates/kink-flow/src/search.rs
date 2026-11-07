@@ -2357,6 +2357,12 @@ pub fn run_front(
         _ => None,
     };
     let mut census_mismatch = None;
+    let announce = |line: &str| {
+        if let Some(progress) = front.progress {
+            progress(line);
+        }
+    };
+    announce("run: admitting the specification (its load, compile and checks)");
     let (mut record, admitted) = admit_spec_with(manifest, &mut |loaded, side| {
         let Some(build) = memo_build else {
             return declaration_census(side);
@@ -2393,6 +2399,7 @@ pub fn run_front(
         return refused(&record, &census_mismatch);
     };
     let mut inputs = inputs.session(&spec);
+    announce("run: preparing the baseline runner");
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
         Err(e) => {

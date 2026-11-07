@@ -279,9 +279,9 @@ line, column, kind, claim_helper}`. --locked refuses a stale definition.k instea
 it, and emit --check exits 2 when it is stale: the gate a CI runs. report builds nothing: it
 prints the last run's stored document (or its verdicts) as that run printed it, exits as
 that run did, and takes no --locked. run --progress prints a line on stderr as each phase
-starts (the build, the binding, the checks of the list), as each case's baseline and
-each mutation is decided (also without the flag when stderr is a terminal); stdout stays
-the document.
+starts (the build, the binding, the checks of the list, the specification's admission, the
+baseline runner's preparation), as each case's baseline and each mutation is decided (also
+without the flag when stderr is a terminal); stdout stays the document.
 
 Exit status, by what the caller does next, as krs run's (krs --help):
   0  yes: every case is comparable and meets its expectation (results), every mutation

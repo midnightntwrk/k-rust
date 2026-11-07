@@ -1039,6 +1039,8 @@ fn result_cells_are_named_by_rust_path() {
         "krs kink: run: binding the corpus to the emitted K\n",
         "krs kink: run: checking the list's 1 mutation against the lowering\n",
         "krs kink: run: 1 mutation on 1 program, after the baseline results\n",
+        "krs kink: run: admitting the specification (its load, compile and checks)\n",
+        "krs kink: run: preparing the baseline runner\n",
         "krs kink: run: baseline of program 1 of 1, `t1`: comparable\n",
         "krs kink: run: resolving the list's 1 mutation\n",
         "krs kink: run: mutation 1 of 1, `finish/twice`: killed\n",

@@ -609,7 +609,8 @@ fn a_refused_run_document_names_its_schedule() {
 }
 
 /// `--progress` (once) reports a run on stderr: a line before the baseline results naming how many
-/// mutations and programs the run has, a line as each program's baseline row is decided, with its
+/// mutations and programs the run has, a line as the specification's admission starts and one as
+/// the baseline runner's preparation starts, a line as each program's baseline row is decided, with its
 /// place, its id and its class, one before the list is resolved, then a line as each mutation's
 /// row is decided, with its place, its id and its status, in list order. stdout stays the document, whose rows are those
 /// of the same run without the flag; without it (and with stderr no terminal) stderr is empty.
@@ -641,11 +642,15 @@ fn a_run_reports_its_progress_on_stderr() {
     let programs = document["programs"].as_array().unwrap();
     let plural =
         |count: usize, noun: &str| format!("{count} {noun}{}", if count == 1 { "" } else { "s" });
-    let mut expected = vec![format!(
-        "kink-flow: run: {} on {}, after the baseline results",
-        plural(rows.len(), "mutation"),
-        plural(programs.len(), "program")
-    )];
+    let mut expected = vec![
+        format!(
+            "kink-flow: run: {} on {}, after the baseline results",
+            plural(rows.len(), "mutation"),
+            plural(programs.len(), "program")
+        ),
+        "kink-flow: run: admitting the specification (its load, compile and checks)".to_owned(),
+        "kink-flow: run: preparing the baseline runner".to_owned(),
+    ];
     // The cold run stores no record before it runs a program: no line says `stored`.
     for (index, program) in programs.iter().enumerate() {
         assert_eq!(program["cached"], false, "{program:#}");

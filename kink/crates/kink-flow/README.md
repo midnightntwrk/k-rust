@@ -730,6 +730,7 @@ Runs the kill search: for each mutation of the list (in file order; with `--only
 is there a program of the corpus whose result the mutation changes?
 
 `--progress` prints a line on stderr before the result cache is brought up to date, naming how many mutations and programs the run has;
+one as the specification's admission starts (its load, compile and checks, `kink-flow: run: admitting the specification (its load, compile and checks)`), and one as the baseline runner's preparation starts (`kink-flow: run: preparing the baseline runner`), the two phases before the first program;
 one as each program gets its baseline row, with its place, its id, its class and `stored` when its record was already in the cache (``kink-flow: run: baseline of program 2 of 20, `t2`: comparable, stored``);
 one before the list's mutations are resolved;
 and one as each mutation gets its row, with its place, its id and its status (``kink-flow: run: mutation 3 of 81, `calc/add-sub`: killed``);

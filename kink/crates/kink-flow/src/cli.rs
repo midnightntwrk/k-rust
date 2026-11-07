@@ -594,7 +594,8 @@ pub struct FrontEnd<'a> {
     /// applies it again to the document `run` stored.
     pub annotate: Option<&'a (dyn Fn(&mut Value) + Sync)>,
     /// Where `run` reports its progress, one line at a time, without a trailing newline: before
-    /// the baseline update, how many programs and mutations the run has; as each program's
+    /// the baseline update, how many programs and mutations the run has; as the specification's
+    /// admission starts, and as the baseline runner's preparation starts; as each program's
     /// baseline row is decided, its place, its id, its class and whether its record was stored
     /// ([`crate::results::update_results`]); before the list is resolved, how many mutations it
     /// has; then, as each selected mutation's row is decided, its place, its id and its status
