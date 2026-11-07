@@ -2226,7 +2226,7 @@ fn dropped_definedness_condition_is_not_a_witness() {
 /// the symbolic result is `unknown` in both profiles, never the wrong `match`. The ground
 /// instance `X = 0` stops at `halflet` after the write: `no-match`.
 ///
-/// GAP K31 (`draft/kink27/gap`): k-rust's builtin hook now decides a comparison of a term with
+/// GAP K31 (kink27's gap round): k-rust's builtin hook now decides a comparison of a term with
 /// itself to its value at equal operands under the term's definedness, so the condition is
 /// `X =/=Int 0` and the remainder `X = 0`, as for `half`: both leaves are exactly feasible and
 /// complete, the `halt` path comes first (as `half`'s), and the decider refutes the only

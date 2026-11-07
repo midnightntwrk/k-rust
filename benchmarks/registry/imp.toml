@@ -889,7 +889,7 @@ semantics = "imp"
 operation = "execute"
 title = "Run the tutorial's sum loop for small n, paired with the reference Haskell backend"
 stresses = "Concrete execution through strict operators, compared interpreter to interpreter: the reference Haskell backend's krun takes 3 s at n = 5, 76 s at n = 10 and does not finish n = 20 in 300 s on 2026-10-16, so only small sizes pair."
-origin = "draft-personal/perf/wave1/measure.md, Haskell-backend pairings (the findings note's step 3)"
+origin = "the first performance wave's Haskell-backend pairings (2026-10-16)"
 tier = "quick"
 timeout_seconds = 600
 pins = ["k"]

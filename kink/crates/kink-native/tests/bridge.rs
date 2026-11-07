@@ -698,8 +698,8 @@ mod kink_tier {
                         .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
                 );
                 assert!(!rows.is_empty());
-                // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14;
-                // k-rust's draft answers-add3 section 2.1 "New marks of open values"): the mutant's
+                // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14,
+                // which adds marks of open values): the mutant's
                 // `+Float` of a binary32 and a binary64 operand rounds to a destination format no text
                 // names, so every mutant leaf now carries an `implementation-chosen-value` mark
                 // (`FLOAT.add`, class `float-destination`), and kink reads a diagnosed leaf as

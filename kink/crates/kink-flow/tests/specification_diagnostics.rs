@@ -1,4 +1,4 @@
-//! Re-pin adoption A-1 (`draft/tasks/repin-58720d2e/ADOPTION.md` section 2.2, deliverable 3):
+//! Re-pin adoption A-1, which adopts the run-level facts k-rust 58720d2e5 added:
 //! k-rust's contradicted-claim records are reported as specification diagnostics, on a program's
 //! baseline in the results document and the run document (`programs`, from the result record),
 //! and on a mutant in its row's executed entry. Each record excludes its run; none is evidence.

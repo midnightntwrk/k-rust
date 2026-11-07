@@ -35,7 +35,7 @@ semantics = "kool"
 operation = "compile"
 title = "Compile KOOL (untyped) from the K tutorial"
 stresses = "A mid-sized definition whose rule bubbles go through type inference, a few of them to Z3 (22 bubbles to Z3 and 212 to the portable engine at 934d29e7)."
-origin = "draft/open-issues-2026-10/tickets/repro/perf/kool-load-and-typing.sh (FOLLOWUPS 2.3, the light stand-in for WASM's Z3 rule typing)"
+origin = "the kool-load-and-typing reproducer of the 2026-10 open-issues round's performance follow-ups (the light stand-in for WASM's Z3 rule typing)"
 tier = "quick"
 pins = ["k"]
 [workload.krust]
@@ -70,7 +70,7 @@ semantics = "kool"
 operation = "execute"
 title = "Load KOOL and run an empty main class"
 stresses = "Loading the prepared KOOL definition (rule internalization and its relevance analysis) with almost no execution after it."
-origin = "draft/open-issues-2026-10/tickets/repro/perf/kool-load-and-typing.sh (FOLLOWUPS 2.3, the relevance pass cloning a BTreeSet per variable)"
+origin = "the kool-load-and-typing reproducer of the 2026-10 open-issues round's performance follow-ups (the relevance pass cloning a BTreeSet per variable)"
 tier = "quick"
 pins = ["k"]
 [workload.krust]

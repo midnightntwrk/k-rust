@@ -1,7 +1,6 @@
 #![cfg(feature = "cli")]
-//! Class tests of the definedness cluster that need the K frontend or the solver
-//! (`draft/open-issues-2026-10/tickets/definedness-tickets.md`; the backend ones are in
-//! `crates/k-rust-backend/tests/backend/definedness_classes.rs`).
+//! Class tests of the definedness cluster that need the K frontend or the solver (the backend
+//! ones are in `crates/k-rust-backend/tests/backend/definedness_classes.rs`).
 //!
 //! Each test states one invariant that follows from what the construct means and checks krust
 //! against itself. Each failed on `934d29e7`; none is ignored now that the tickets fixing their

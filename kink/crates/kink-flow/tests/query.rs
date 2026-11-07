@@ -1380,9 +1380,9 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
-        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14; k-rust's
-        // draft answers-add3 section 2.1 "New marks of open values", which reach the four search
-        // responses too): the match's path read `keys_list` of two keys, so it carries an
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14, which
+        // adds marks of open values, and they reach the four search responses too): the match's
+        // path read `keys_list` of two keys, so it carries an
         // `implementation-chosen-value` mark (class `order`), and a hit needs a match without any
         // backend diagnostic, so the would-be hit is `unknown` and is not cached. Fail-closed (hit ->
         // unknown); adopting the marks (probe P-1 deliverable 5) decides whether a marked witness

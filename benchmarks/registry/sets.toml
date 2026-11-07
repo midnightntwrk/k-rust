@@ -4,7 +4,7 @@
 # `ladder_max` caps a ladder for `kbench compare` only, so a compare of the set fits its time
 # budget at the default five runs per binary; `kbench run --set` and `compare --full-ladders`
 # run every registry value. The budgets are wall time on a host at load 5-10, measured with
-# the release krust of 2026-10-16 (draft-personal/perf/wave1/measure.md).
+# the release krust of 2026-10-16.
 
 version = 1
 
@@ -42,7 +42,7 @@ workloads = [
 ladder_max = { "imp/search-kink-sum" = 1000, "imp/search-strict-heating" = 2048, "imp/search-kink-wide8" = 256, "simple/search-collatz-input" = 20, "imp/search-sum" = 3000 }
 # Search runs allocate gigabytes per second and their CPU time varies by 20-40 % with the load
 # of other jobs on the host; at five runs, two identical binaries got two false verdicts on
-# 2026-10-16, at eight none (draft-personal/perf/wave1/measure.md).
+# 2026-10-16, at eight none.
 runs = 8
 
 [[set]]

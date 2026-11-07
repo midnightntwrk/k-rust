@@ -1,4 +1,4 @@
-//! Re-pin R0b (`draft/tasks/repin-501f18b9`): the exclusions of kink-native's `exclusion` module
+//! Re-pin R0b (to k-rust 501f18b9): the exclusions of kink-native's `exclusion` module
 //! on real k-rust runs and loads, the implementation-chosen hook list pinned against k-rust's
 //! source, and the testdata definitions each definition-level exclusion affects.
 
@@ -170,7 +170,7 @@ fn k_rust_backend() -> PathBuf {
 /// further fallthrough helper or a widened helper condition, so the source text of the
 /// functions is pinned by digest as well.
 ///
-/// Re-pin L-1 (`draft/tasks/repin-58720d2e`, k-rust 8f8ad57c5): KINK-17/2 (k-rust 1691bf61c,
+/// Re-pin L-1 (k-rust 8f8ad57c5): KINK-17/2 (k-rust 1691bf61c,
 /// review 25fa4ccc9, merge 978d30070) replaced `implementation_chosen_in` with `chosen_value`,
 /// which adds the arms `STRING.base2string`, `SUBSTITUTION.substOne` and `IO.read` and the
 /// fallthrough `float::signed_zeros` (`FLOAT.min`, `FLOAT.max`); KINK-17/1 (375710b23, merge
@@ -181,7 +181,7 @@ fn k_rust_backend() -> PathBuf {
 /// set of 88 hooks as at 501f18b9: none left it and none joined it, so no status moves. The
 /// three other helpers' texts are unchanged since 501f18b9.
 ///
-/// GAP K1 (`draft/kink27/gap`, ticket K1): `chosen_value` takes the evaluator's outcome and the
+/// GAP K1 (kink27's gap round, ticket K1): `chosen_value` takes the evaluator's outcome and the
 /// symbol's totality, and gains the arms of the classes `curve` (the five BN128 hooks, every
 /// outcome, `\bottom` included), `byte-encoding` (`String2Bytes`, `Bytes2String`), `hex-case` (the
 /// hex digests and `ecdsaPubKey`), `outside-domain` (the ECDSA failure values, `rootFloat`,
@@ -241,7 +241,7 @@ fn k_rust_backend() -> PathBuf {
 /// so no definition-level status moves; a run that read one of their values was marked and
 /// excluded by its list, and now is not, its value being determined.
 ///
-/// GAP A1 (`draft/kink27/gap`, ticket A1; k-rust `docs/amendments.md` AM-1, AM-2, AM-3, AM-7):
+/// GAP A1 (kink27's gap round, ticket A1; k-rust `docs/amendments.md` AM-1, AM-2, AM-3, AM-7):
 /// `chosen_value` loses the arms of the classes `read-count` (`IO.read`), `byte-encoding`
 /// (`String2Bytes`, `Bytes2String`), `hex-case` (the eight hex digest spellings; `ecdsaPubKey`
 /// keeps its `outside-domain` arm, now merged into the ECDSA one) and `curve` (both
@@ -3763,7 +3763,7 @@ fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
 /// the contradiction, or kink deciding it) shows up here; it is a gap to close, not a guarantee.
 /// Z3-only: the `Stuck` remainder needs a solver.
 ///
-/// GAP K18 (`draft/kink27/gap`, K18 C6 bcec7f4dd, the revert of fb8d4d58a's rule): the gap is
+/// GAP K18 (kink27's gap round, K18 C6 bcec7f4dd, the revert of fb8d4d58a's rule): the gap is
 /// not closed (no record, no exclusion), but RPD-LATER's `Trivial` leaf naming `pz` is gone, and
 /// its one leaf is the `Stuck` `p(X, h(X))` with no constraint. `pz` binds `Y` to `h(X)`, so
 /// its applicability is `⌈h(X)⌉ ∧ X = 0`; a top-level `\ceil` conjunct is now simplified under

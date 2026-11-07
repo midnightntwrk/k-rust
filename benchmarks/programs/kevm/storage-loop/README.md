@@ -1,7 +1,7 @@
 # KEVM storage loop (VMTests)
 
-Origin: the storage-loop measurements of the open-issues 2026-10 round in the main checkout: `draft/open-issues-2026-10/units/w2-collections.md` ("KEVM storage loop", `measure.md` item K22), generator `units/w4-k22m-tools/gen.py`, run scripts `units/w8-tree-*/sl.sh`.
-`gen.py` is copied verbatim.
+Origin: the KEVM storage-loop measurements of the 2026-10 open-issues round.
+`gen.py` is that round's generator, copied verbatim.
 
 `python3 gen.py N` prints a VMTests JSON test whose code runs `SSTORE(i, i + 1)` for `i < N` (`PUSH2 N; PUSH1 0; JUMPDEST; DUP1; PUSH1 1; ADD; DUP2; SSTORE; PUSH1 1; ADD; DUP2; DUP2; LT; PUSH1 5; JUMPI; STOP`) and whose `post` state lists the N expected slots.
 `python3 gen.py N control` replaces the key `DUP2` by `PUSH1 0`, so one slot is rewritten N times and the `post` state is `{0x00: N}`.

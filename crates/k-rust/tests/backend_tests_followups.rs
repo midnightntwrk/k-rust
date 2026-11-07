@@ -1,6 +1,6 @@
 #![cfg(feature = "cli")]
-//! Tests of the "Backend behaviour, diagnostics and test adequacy" follow-ups
-//! (`draft/open-issues-2026-10/FOLLOWUPS.md` §2.2). The one ignored test states a behaviour krust
+//! Tests of the "Backend behaviour, diagnostics and test adequacy" follow-ups of the 2026-10
+//! open-issues round. The one ignored test states a behaviour krust
 //! deliberately does not have; its `ignore` names the documented deviation it would contradict.
 
 use std::{

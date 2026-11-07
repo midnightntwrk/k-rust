@@ -1,5 +1,5 @@
 //! Mutant consistency: a mutant is only meaningful as a theory that has models (re-pin
-//! R0c-fix-3, `draft/tasks/repin-501f18b9`; decisions log 2026-10-17, "inconsistent mutants").
+//! R0c-fix-3, to k-rust 501f18b9; Sebastien's decision of 2026-10-17, "inconsistent mutants").
 //!
 //! Claim removal (kink-patch `ClaimSupport::withdraw`) makes a mutant's claims backed. It cannot
 //! make a mutant's equations agree: `function` is part of the symbol, and a function has at most

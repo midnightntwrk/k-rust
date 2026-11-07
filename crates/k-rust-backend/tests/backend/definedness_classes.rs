@@ -1,4 +1,4 @@
-//! Class tests of the definedness cluster (`draft/open-issues-2026-10/tickets/definedness-tickets.md`).
+//! Class tests of the definedness cluster.
 //!
 //! Each test states one invariant that follows from what the construct means, and checks krust
 //! against itself on small definitions; none compares with another implementation. The class
@@ -802,7 +802,7 @@ fn every_precondition_row_seeds_the_closure() {
 /// so its seed withdraws every equation head that a root overlap with it could constrain, which
 /// is what classifying the pair as not joined would withdraw. This test therefore keeps failing.
 #[test]
-#[ignore = "a record, not an acceptance test: a check that pairs these equations refutes the overlap and reports nothing (draft/open-issues-2026-10/tickets/definedness-stepback.md, DF-3)"]
+#[ignore = "a record, not an acceptance test: a check that pairs these equations refutes the overlap and reports nothing"]
 fn the_check_pairs_every_two_equations_offered_at_one_subject() {
     let definition = definition(
         &format!("{G_HEAD} symbol foo{{}}(SortInt{{}}) : SortList{{}} [function{{}}()]"),

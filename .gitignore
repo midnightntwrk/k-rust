@@ -36,9 +36,8 @@ crates/k-rust-wasm/generated/
 AGENTS.local.md
 CLAUDE.local.md
 
-# local working notes: draft/ (and KRS's krs/draft/) holds untracked notes and ledgers, and
-# draft-personal/ is the local scratchpad k-rust-bench writes run history to by default;
-# none of them is part of the repository
+# local scratchpads for working notes and ledgers; none of them is part of the repository, and
+# no tracked file reads or cites them
 /draft/
 /draft-personal/
 /krs/draft/

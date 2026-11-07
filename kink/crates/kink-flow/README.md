@@ -1,6 +1,6 @@
 # kink-flow
 
-The primary usage flow of kink (`draft/tasks/flow/README.md`, section 5):
+The primary usage flow of kink:
 a K specification, a concrete corpus of programs an LLM writes for it,
 cached results, a mutation list, a kill search and a survivor report.
 The root README's "Using kink-flow" section is the walkthrough; this file is the reference.

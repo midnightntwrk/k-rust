@@ -126,7 +126,7 @@ semantics = "simple"
 operation = "execute"
 title = "Run SIMPLE's collatz.simple on every number up to m"
 stresses = "Function calls, a growing store of locals and console output in a loop whose step count grows faster than m (0.8 s at m = 20, 7.6 s at m = 80 on 2026-10-16)."
-origin = "RUNTIME-01 (draft/compiler-optimization/follow-ups/implementation/runtime/, collatz.simple timed out at the 60 s guard until plain krun followed one successor)"
+origin = "RUNTIME-01 (collatz.simple timed out at the 60 s guard until plain krun followed one successor)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -163,7 +163,7 @@ semantics = "simple"
 operation = "search"
 title = "Search every final output of SIMPLE's collatz.simple up to m"
 stresses = "Exploring every successor of collatz.simple, which RUNTIME-01 recorded branching on an unmatched `anywhere` application before main was called; the search ends in one final output, but its cost grows steeply with m (2.3 s at m = 20, 26.5 s at m = 40, over 300 s at m = 80 on 2026-10-16, against 3.2 s for the reference at m = 80)."
-origin = "RUNTIME-01 (draft/compiler-optimization/follow-ups/implementation/runtime/status.toml: the all-paths run reached the 60 s guard at depth 5)"
+origin = "RUNTIME-01 (the all-paths run reached the 60 s guard at depth 5)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -204,7 +204,7 @@ semantics = "simple"
 operation = "search"
 title = "Search every final output of SIMPLE's collatz.simple at m = 60 and 80"
 stresses = "The large end of the collatz.simple search, which did not finish within 300 s at m = 80 on 2026-10-16 (the reference takes 3.2 s)."
-origin = "RUNTIME-01 (draft/compiler-optimization/follow-ups/implementation/runtime/status.toml: the all-paths run reached the 60 s guard at depth 5)"
+origin = "RUNTIME-01 (the all-paths run reached the 60 s guard at depth 5)"
 tier = "heavy"
 timeout_seconds = 3600
 pins = ["k"]

@@ -2,9 +2,6 @@
 //! itself. Each test compares spellings of a rule that denote the same thing, or a rule with its
 //! mirror, and requires that they compile alike: both rejected, or both accepted with the same
 //! compiled body up to the names of variables.
-//!
-//! These are the class tests of `draft/open-issues-2026-10/tickets/cells-tickets.md`. They fail
-//! on `934d29e7` and are ignored until the tickets are implemented.
 
 use k_rust::{
     definition::Sentence,

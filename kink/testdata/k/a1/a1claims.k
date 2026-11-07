@@ -1,4 +1,4 @@
-// Re-pin adoption A-1 (draft/tasks/repin-58720d2e/ADOPTION.md section 2.2): contradicted claims
+// Re-pin adoption A-1, which adopts the run-level facts k-rust 58720d2e5 added: contradicted claims
 // that show on k-rust's run-level `contradictedClaims` list. `td` is declared total but divides by
 // its argument, so the claim is false at 0 (k-rust docs/compatibility.md, "A contradicted `total`
 // attribute is named, not repaired", the `sib`, `r` and `tdiv` examples).

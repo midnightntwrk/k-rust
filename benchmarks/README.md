@@ -120,7 +120,7 @@ Pooling a ladder's four or five sizes gives 20 to 40 pairs, so one run that coll
 The workload's pooled verdict is the one to decide on; the per-point verdicts show where along a ladder the change acts.
 The report's Noise band section gives, per workload, the widest interval half-width: a change larger than it plus the threshold gets a verdict.
 
-Validation (2026-10-16, load 5 to 10; `draft-personal/perf/wave1/measure.md` has the reports): the release krust compared with a copy of itself got no better or worse verdict on any of the 60 workloads of `slowness` and `regression`, pooled, nor per point except two short points (0.3 and 0.8 s) of `slowness-frontend` and `slowness-simplifier`.
+Validation (2026-10-16, load 5 to 10): the release krust compared with a copy of itself got no better or worse verdict on any of the 60 workloads of `slowness` and `regression`, pooled, nor per point except two short points (0.3 and 0.8 s) of `slowness-frontend` and `slowness-simplifier`.
 The pooled CPU interval of a `slowness` workload has a half-width of 0.7 to 4 % (9.4 % for `toy/shared-rpc-simplify`), so a 10 % change is decided; a copy made 10 % slower (it burns a tenth of krust's CPU time after krust exits) got a pooled CPU B/A of 1.096 to 1.112 and **worse** on all 7 `slowness-concrete` workloads.
 Search CPU time varies by 20 to 40 % with the load of other jobs at equal work (every counter but the allocation ones identical); at five runs two identical binaries still got two false pooled verdicts there, at eight none, hence `runs = 8` for `slowness-search`.
 `regression` workloads are single points of five pairs with half-widths of 1 to 27 %: it catches a large slowdown; check a **worse** there with `--only ID --runs 10` before believing or dismissing it.

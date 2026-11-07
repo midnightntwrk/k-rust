@@ -40,8 +40,8 @@ pub struct Explanation {
 }
 
 fn diagnosed(leaf: &AdaptedLeaf) -> bool {
-    // Re-pin probe P-1 (k-rust 58720d2e5; KINK-18/2, head 16e88a6d4, merge 7d4c588f9; k-rust's
-    // draft answers-add3 section 2.1 "Contradicted claims"): a leaf whose step is undefined
+    // Re-pin probe P-1 (k-rust 58720d2e5; KINK-18/2, head 16e88a6d4, merge 7d4c588f9, which
+    // reports contradicted claims): a leaf whose step is undefined
     // through a contradicted `total` claim now also carries that claim's `contradicted-claim`
     // record as a diagnostic. The record restates the leaf's own `contradicted_total`, which the
     // explanation reads as that leaf's offence, so it is not read as another diagnosis; any other

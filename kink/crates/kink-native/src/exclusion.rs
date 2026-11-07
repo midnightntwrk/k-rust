@@ -1,5 +1,5 @@
 //! Exclusions: the conditions under which a run is no evidence for any comparison, whatever its
-//! leaves say (re-pin R0b, `draft/tasks/repin-501f18b9`). Each makes the whole side of a test
+//! leaves say (re-pin R0b, to k-rust 501f18b9). Each makes the whole side of a test
 //! Unknown, every oracle slot at once, so no other slot of the same test can still distinguish and
 //! no outcome record is written for it. kink-campaign applies them when it judges a run
 //! (`Runtime::judge`), on the baseline and on every mutant side, on a live run and on a stored
@@ -291,7 +291,7 @@ pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion
 /// Pinned against the k-rust source, and the source text of those functions by digest, by the
 /// kink-native test `implementation_chosen_hooks_are_k_rusts`.
 ///
-/// Re-pin L-1 (`draft/tasks/repin-58720d2e`): at 501f18b9 the classifier was
+/// Re-pin L-1: at 501f18b9 the classifier was
 /// `implementation_chosen_in`, with the first five arms and the Float helpers. KINK-17/2 (k-rust
 /// 1691bf61c, review 25fa4ccc9, merge 978d30070) added `STRING.base2string` (letter case),
 /// `SUBSTITUTION.substOne` (fresh names) and `IO.read` (read count). The census held all three

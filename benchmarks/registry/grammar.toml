@@ -1,5 +1,5 @@
-# Parser and compile stress shapes rescued from the deep-inputs, fu-compile-scaling, perf-wave-3
-# and w8-oom units of the main checkout's draft/. Generators and definitions:
+# Parser and compile stress shapes rescued from the measurements of the deep-inputs,
+# fu-compile-scaling, perf-wave-3 and w8-oom units. Generators and definitions:
 # benchmarks/programs/toy/compile-shapes/ (README.md there names each origin).
 # Compile workloads pair with `kompile --backend haskell`, whose artifact (KORE without native code)
 # is the comparable output of `kcompile`.
@@ -17,7 +17,7 @@ semantics = "toy"
 operation = "compile"
 title = "Compile a rule whose left side is a flat `~>` sequence of N items"
 stresses = "Every `~>` can begin a sequence, so each completion meets a waiting caller for every item before it; the callers must be decided once per production and dot (925 billion instructions at 1,000 items before 1c78e912)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 1 (owner question P5; fix 1c78e912); shape reconstructed in gen4.py"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 1 (owner question P5; fix 1c78e912); shape reconstructed in gen4.py"
 tier = "quick"
 pins = ["k"]
 [workload.ladder]
@@ -39,7 +39,7 @@ semantics = "toy"
 operation = "compile"
 title = "Parse a rule whose left side is a `+Int` chain of N operands beside a second `~>`"
 stresses = "A chain written against a rewrite next to a second sequence keeps doomed readings alive during recognition; the compile then refuses the rule (a function on the left-hand side), so the measured work is the parse (367 billion instructions at 1,000 operands before 1c78e912)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 1 and fu-compile-scaling-review-1.md; shape reconstructed in gen4.py"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 1 and its first review; shape reconstructed in gen4.py"
 tier = "quick"
 pins = ["k"]
 [workload.ladder]
@@ -61,7 +61,7 @@ semantics = "toy"
 operation = "compile"
 title = "Compile a rule with an N-element `List{Int, \",\"}` literal argument"
 stresses = "The generic application syntax also reads every way of cutting the literal into elements, a real ambiguity resolved after parsing; a documented cost (5.2 s and 1.5 GB at 200 elements on 2026-10-16)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 2 (fix ed339867); shape reconstructed in gen4.py"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 2 (fix ed339867); shape reconstructed in gen4.py"
 tier = "standard"
 memory_gib = 8
 pins = ["k"]
@@ -87,7 +87,7 @@ semantics = "toy"
 operation = "compile"
 title = "Compile a rule whose right side nests N levels, each through a subsort injection"
 stresses = "Sort injection at every level of a deep term; each level once copied the whole subterm below it per wrapper tried (174 s and 11.4 GB at 16,000 before 6705e983, 3.4 s on 2026-10-16)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 5 (deep-inputs review 4 F5; fix 6705e983); shape as in crates/k-rust/tests/kompile_depth.rs"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 5 (deep-inputs review 4 F5; fix 6705e983); shape as in crates/k-rust/tests/kompile_depth.rs"
 tier = "quick"
 pins = ["k"]
 [workload.ladder]
@@ -109,7 +109,7 @@ semantics = "toy"
 operation = "compile"
 title = "Compile a definition whose main module sits atop a chain of N imports"
 stresses = "Each module's view of the visible sentences is built per module; transitive imports must be derived once (10.5 s at 4,000 modules on 2026-10-16, about n^1.6, a documented cost)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 4 (fix d21ab66f); gen3.py modchain from units/stack-cases-probes"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 4 (fix d21ab66f); gen3.py modchain from the stack-case probes"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -134,7 +134,7 @@ semantics = "toy"
 operation = "compile"
 title = "Compile a chain of N subsorts"
 stresses = "Each sort's no-junk axiom lists every strict subsort, quadratic for a chain; a documented cost (9.6 s at 1,000 sorts on 2026-10-16)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 7; gen3.py subsorts from units/stack-cases-probes"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 7; gen3.py subsorts from the stack-case probes"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -159,7 +159,7 @@ semantics = "toy"
 operation = "compile"
 title = "Compile a configuration of N flat cells"
 stresses = "The no-junk axiom and injection witnesses scan every production per sort, and sentence generation once rebuilt its equivalence index per sentence (10.9 s at 2,000 cells on 2026-10-16)."
-origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 3 (fix 7ea4872a); gen3.py cells from units/stack-cases-probes"
+origin = "fu-compile-scaling unit of the 2026-10 open-issues round, decision 3 (fix 7ea4872a); gen3.py cells from the stack-case probes"
 tier = "standard"
 memory_gib = 8
 pins = ["k"]
@@ -182,7 +182,7 @@ semantics = "toy"
 operation = "compile"
 title = "Refuse a rule over a grammar whose sort derives itself through empty items"
 stresses = "`Exp ::= Opt Exp Opt` with a nullable `Opt` makes every span an infinite forest; recognition must detect the cycle and stop (it never terminated before 51b179ea)."
-origin = "draft/perf-wave-3/repro/null1.k.slow (perf/w3-parser-nullable, fix 51b179ea; report reports/parser-nullable.md)"
+origin = "the third performance wave's nullable-parser reproducer (fix 51b179ea)"
 tier = "quick"
 pins = ["k"]
 [workload.krust]
@@ -200,7 +200,7 @@ semantics = "toy"
 operation = "parse"
 title = "Parse and refuse `d d ... d` (n tokens) in a grammar with exponentially many trees"
 stresses = "`S ::= S S | S \"d\" | \"d\"` with nothing ordering the two binary productions has exponentially many trees for d^n; the packed forest and its ambiguity report must stay polynomial (8.7 s and 1.9 GB at n = 60 on 2026-10-16)."
-origin = "draft/open-issues-2026-10/units/w8-oom.md (the parser property test that reached 40 GB at c4c420ef) and units/w8-forest.md"
+origin = "w8-oom unit of the 2026-10 open-issues round: the parser property test that reached 40 GB at c4c420ef"
 tier = "standard"
 memory_gib = 8
 pins = ["k"]

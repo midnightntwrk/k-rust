@@ -500,8 +500,8 @@ fn trusted_claims_are_pinned() {
 /// Re-pin probe P-1 (k-rust 58720d2e5): sixteen passages are byte-identical and only moved (the
 /// docs grew by k-rust's KINK-17..KINK-22 and MLP sections), so only their lines are re-pinned.
 /// The `total` passage (501f18b9 lines 1376-1384, now 1477-1487) changed (KINK-18/2, head
-/// 16e88a6d4, merge 7d4c588f9; KINK-18/3, head a009ea6fc, merge 4561f7820; k-rust's draft
-/// answers-add3 section 2.1 "Contradicted claims" and "Contradicted `preserves-definedness`"):
+/// 16e88a6d4, merge 7d4c588f9; KINK-18/3, head a009ea6fc, merge 4561f7820, which report
+/// contradicted claims, `preserves-definedness` among them):
 /// krun's warning names the observing rule and says when a record is not ground, and a
 /// contradiction is also found where an equation's result is `\bottom` with no undefined builtin
 /// (a `#Bottom` right-hand side, a refuted `ensures`). The attribute is still the author's
@@ -517,9 +517,9 @@ fn trusted_claims_are_pinned() {
 /// (MLP/4b, MLP/9). backend-port.md and k-rust-backend smt.rs did not change. Only the line
 /// numbers are re-pinned.
 ///
-/// Re-pin P-1 (`draft/tasks/repin-0068938b`, k-rust 0068938b1): sixteen passages are
+/// Re-pin P-1 (k-rust 0068938b1): sixteen passages are
 /// byte-identical to 8f8ad57c5's and only moved. compatibility.md grew by round D's text and the
-/// correctness sweep's (UNDEF/1-2, MLP/10, FU-27; k-rust draft/k-in-k/answers-2026-10b.md), so
+/// correctness sweep's (UNDEF/1-2, MLP/10, FU-27), so
 /// its passages moved down 8 to 124 lines; smt.rs's second passage moved down 90 lines (the
 /// sweep's 7a9558e96, cbbc530ac and 0bfac13fa, and 4a34be746), and module_to_kore.rs's two up 27
 /// (the sweep's 27e0f03ae and 7355b8699, FU-27's 2f841146a, ks3's d0a7c8daf); backend-port.md
@@ -528,9 +528,7 @@ fn trusted_claims_are_pinned() {
 /// refuted was "a vacuous state rather than an undefined result", and is now a successor that
 /// "denotes no state, as an undefined result does, so the step is undefined there alike", whose
 /// halt still has no `contradictedTotal`, so only the record names the contradiction. Cause:
-/// UNDEF/1 (k-rust e3d260c4c, merge dec70ffd1; worker report
-/// draft/kink-handoff-2026-10-15/workers/UNDEF-1-report.md; result changes RC-73 to RC-76 of
-/// draft/k-in-k/answers-2026-10b.toml), reading R of FU-42: a `\bottom` successor is no
+/// UNDEF/1 (k-rust e3d260c4c, merge dec70ffd1), reading R of FU-42: a `\bottom` successor is no
 /// successor on every route. The `total` attribute is still the author's claim, trusted and
 /// named by a record when evaluation observes it contradicted, which is all the `total` row
 /// cites; such a run carries the record on its `contradictedClaims` list, which excludes it
@@ -544,7 +542,7 @@ fn trusted_claims_are_pinned() {
 /// translation of `bitRangeInt`, `>>Int` and low-bit masks of `&Int` by literal amounts, which
 /// precedes it in the file. Only its lines are re-pinned.
 ///
-/// Re-pin GAP K3 (`draft/kink27/gap`, ticket K3): `smt_lemmas` no longer gives the solver a lemma
+/// Re-pin GAP K3 (kink27's gap round, ticket K3): `smt_lemmas` no longer gives the solver a lemma
 /// holding a literal whose element the definition leaves open (class `literal`), a fact of one
 /// model only; the function grows from 12 to 18 lines. The solver is given a subset of the
 /// lemmas it was given, each still the author's trusted axiom, so the trust the `smt-lemma` row

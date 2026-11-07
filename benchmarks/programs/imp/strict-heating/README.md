@@ -1,6 +1,6 @@
 # Strict heating (IMP, `imp-llvm/imp.k`)
 
-Origin: `draft/fable51-review/conformance-host/fixtures/collatz-memory/` of the main checkout (2026-09-06, head `8be7af0`), the guarded characterization of the collatz memory growth.
+Origin: the guarded characterization of the collatz memory growth (2026-09-06, head `8be7af0`).
 At that head plain `krun` explored every successor, so a `strict` `+` with two unevaluated identifier operands doubled the pending states per expression; `strict2-16.imp` took 85 s and 2.6 GiB, and `strict2-20.imp` was killed at 8 GiB.
 The fix made plain `krun` follow one successor (`--strategy any`); searches still explore both heating orders.
 

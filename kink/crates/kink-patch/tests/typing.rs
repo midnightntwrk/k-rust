@@ -408,8 +408,8 @@ fn a_sort_error_compilation_accepts_refuses_nothing() {
         let baseline = load_with_syntax(main, Some(syntax), text);
         support::compile(baseline.loaded()).expect("the baseline compiles");
         let ab = support::rule(&baseline, label);
-        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-21/1, head e7b166360, merge 79fa4c823; k-rust's
-        // draft answers-add3 section 2.4 "KINK-21/1"): compilation's typing view now types a rule
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-21/1, head e7b166360, merge 79fa4c823):
+        // compilation's typing view now types a rule
         // that compilation wraps in the computation cell at `K`, so `a(X) => b(X)` asks no least
         // upper bound of `A` and `B`: the view gives a typing (it gave a `Sort` error at
         // 501f18b9), the rule is sorted in both modules, its sites are found exhaustively, and an

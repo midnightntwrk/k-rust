@@ -1,4 +1,4 @@
-//! Re-pin R0c-fix-4 (`draft/tasks/repin-501f18b9`, R0c-fix-3 review 1): what an edit changes is
+//! Re-pin R0c-fix-4 (to k-rust 501f18b9, R0c-fix-3 review 1): what an edit changes is
 //! read from the compiled definitions, which k-rust executes, and kink-patch's source reading is
 //! a fail-closed cross-check (kink-native `consistency::admit_mutant`). The fixtures are the
 //! review's probes: a generated `#fun` lambda (`r0c/lamrule.k`, `r0c/lamfun.k`, control
@@ -374,10 +374,10 @@ mod kink_tier {
     /// narrowed pair `I >=Int 5` / `I <Int 0` is not refuted without a solver, so that mutant is
     /// refused too, as `nomatch.k`'s.
     ///
-    /// Re-pin P-2 (k-rust KINK-20/3, head 0749cd518, merge 879fce1cc, on main since 58720d2e5;
-    /// k-rust's draft answers-add3 section 2.1 "Fewer withdrawn claims / more refutations at load";
-    /// Sebastien's decision draft/tasks/flow/decisions/human-decisions-2026-10-14.md, "2026-10-20:
-    /// admit mutants whose guards k-rust's KINK-20/3 refutes as disjoint", accepting P-1's STOP 1):
+    /// Re-pin P-2 (k-rust KINK-20/3, head 0749cd518, merge 879fce1cc, on main since 58720d2e5,
+    /// which withdraws fewer claims and refutes more at load; Sebastien's decision of 2026-10-20,
+    /// "admit mutants whose guards k-rust's KINK-20/3 refutes as disjoint", accepting P-1's
+    /// STOP 1):
     /// k-rust now refutes one-term integer bounds exactly, so `I >=Int 5` beside `I <Int 0` is
     /// refuted, the pair is disjoint, and the narrowing `fpos` 0 -> 5 is admitted: it runs, `f` is
     /// partial on 0..4 with its `total` withdrawn, and both of its tests are Unknown, so the mutant

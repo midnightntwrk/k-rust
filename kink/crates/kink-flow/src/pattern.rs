@@ -2,7 +2,7 @@
 //! a state that matches a pattern written in K? The LLM proposes a pattern it thinks a test should
 //! hit and writes a program meant to hit it; kink validates the claim (an anti-hallucination check)
 //! and caches the answer ([`crate::query`]). The initial state, every reached state and the final
-//! states all count. "Every path hits" is not asked (`draft/goal/README.md`, "Pattern queries").
+//! states all count. "Every path hits" is not asked.
 //!
 //! **`PATTERNS.toml`** ([`PatternList`]): `[[pattern]]` entries with a unique non-empty `id`, a
 //! `pattern` and optional `programs` (the corpus programs the author claims hit it: the per-input

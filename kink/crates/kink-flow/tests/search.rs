@@ -1080,8 +1080,8 @@ note = "right-hand side"
                 ]),
                 "{name}: {document:#}"
             );
-            // Re-pin probe P-1 (k-rust 58720d2e5; KINK-21/1, head e7b166360, merge 79fa4c823; k-rust's
-            // draft answers-add3 section 2.4 "KINK-21/1"): the typing view now types a rule that
+            // Re-pin probe P-1 (k-rust 58720d2e5; KINK-21/1, head e7b166360, merge 79fa4c823): the
+            // typing view now types a rule that
             // compilation wraps in the computation cell at `K`, as compilation does, so `a(X) => b(X)`
             // asks no least upper bound of `A` and `B` and has no typing error in any of the three
             // shapes. The verdicts above are unchanged; only the row's diagnostic is gone.

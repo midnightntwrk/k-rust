@@ -2082,16 +2082,16 @@ provenance = "declared"
     #[test]
     fn receipt_directory_is_never_absolute() {
         let root = fixture();
-        let inside = root.join("draft/evidence/imp-prove/working-tree");
+        let inside = root.join("evidence/imp-prove/working-tree");
         fs::create_dir_all(&inside).unwrap();
         assert_eq!(
             workspace_relative(&root, &inside, 2),
-            "draft/evidence/imp-prove/working-tree"
+            "evidence/imp-prove/working-tree"
         );
         let outside = fixture().join("imp-prove/working-tree");
         fs::create_dir_all(&outside).unwrap();
         assert_eq!(
-            workspace_relative(&root.join("draft"), &outside, 2),
+            workspace_relative(&root.join("evidence"), &outside, 2),
             "imp-prove/working-tree"
         );
         fs::remove_dir_all(root).unwrap();

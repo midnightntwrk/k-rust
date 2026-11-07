@@ -283,7 +283,7 @@ fn nonzero(divisor: &Pattern) -> Pattern {
     }
 }
 
-/// GAP K15 (`draft/kink27/gap`, K15 C2 4e9f5b833): whether `conjunct` is an equality one of whose
+/// GAP K15 (kink27's gap round, K15 C2 4e9f5b833): whether `conjunct` is an equality one of whose
 /// sides is a domain value or an element variable, which is defined, and whose other side is a
 /// term (applications over domain values and element variables) applying `/Int` to `divisor`.
 /// Every symbol is strict, so that term is `\bottom` where `divisor` is 0, and the equality is
@@ -445,7 +445,7 @@ fn row(
 /// the relation query is empty after eliminating the binding, so both columns are `Sat`, and no
 /// `Unsat` occurs anywhere.
 ///
-/// GAP K31 (`draft/kink27/gap`): k-rust's builtin hook now decides a comparison of a term with
+/// GAP K31 (kink27's gap round): k-rust's builtin hook now decides a comparison of a term with
 /// itself to its value at equal operands under the term's definedness, so `same`'s condition is
 /// `Y =/=Int 0` and its remainder `Y = 0`: both are `Solver` with the instance `Sat`, and no
 /// conjunction of `same` applies `/Int`. `pos`'s remainder is now the discriminating row.

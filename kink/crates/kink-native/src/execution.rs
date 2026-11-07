@@ -178,8 +178,7 @@ const _: () = assert!(
 );
 
 /// The solver profile of a backend. k-rust chooses its solver at compile time, so one build is
-/// one profile: `NoZ3` without the `z3` feature of this crate, `Z3` with it (README section 9 of
-/// `draft/tasks/symbolic-branching`).
+/// one profile: `NoZ3` without the `z3` feature of this crate, `Z3` with it.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SolverProfile {
     /// k-rust's `NoSolver`: every SMT query is unavailable. The qualified profile.
@@ -458,7 +457,7 @@ impl RunCoverage {
     }
 }
 
-/// The run-level facts of one run (re-pin adoption A-1, `draft/tasks/repin-58720d2e/ADOPTION.md`):
+/// The run-level facts of one run (re-pin adoption A-1):
 /// the lists and the count k-rust 58720d2e5 added to `ExecutionResult` (KINK-17/1, KINK-18/2,
 /// KINK-19/1), as k-rust answers them, for every run kink judges: a result run, a stepped run and
 /// an unobserved run. Each list holds what the run's leaves
@@ -903,7 +902,7 @@ pub enum ExecutionAdapterFailure {
 ///
 /// - `collect_offered: false` (k-rust 58720d2e5, KINK-04/3): no offered coverage is asked for,
 ///   which is the behaviour before that field existed; asking changes no other field of the
-///   result, and adopting it is for the round-D re-pin (probe P-1, draft/tasks/repin-58720d2e).
+///   result, and adopting it is for the round-D re-pin (probe P-1).
 /// - `collect_counts: false`: no applied counts are asked for (they are part of the coverage
 ///   k-rust reports only when asked, and asking changes no other field of the result).
 /// - `collect_conditions: None`: no condition records are asked for (they are part of the

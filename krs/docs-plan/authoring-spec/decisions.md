@@ -489,7 +489,7 @@ bug — report it, don't guess.
   equations cover every argument after all
   (`krs::analysis::stale-underspecified`).
 - **E11 — `k::bits!` templates are `Int` patterns, pure sugar** (2026-10,
-  SM83 feedback, `draft-personal/krs-sm83-feedback/designs/bit-patterns.md`).
+  from feedback on writing an SM83 definition).
   `k::bits!("00 yyy 100")` stands in an `Int` argument of a rule's,
   equation's, or table row's left-hand side, never in a result, a guard, a
   cell pattern, a context, or an alternative of `|`. A template is a string

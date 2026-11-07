@@ -1,5 +1,5 @@
-//! Re-pin R0c-fix-2 (`draft/tasks/repin-501f18b9`; Sebastien 2026-10-17, decisions log "false
-//! claims in mutants: remove unbacked claims"): kink builds every mutant without the trusted
+//! Re-pin R0c-fix-2 (to k-rust 501f18b9; Sebastien's decision of 2026-10-17, "false claims in
+//! mutants: remove unbacked claims"): kink builds every mutant without the trusted
 //! claims its edit leaves unbacked (kink-patch `ClaimSupport::withdraw`), so the mutant is a
 //! consistent theory k-rust executes without trusting them, and every test runs on it. The
 //! baseline keeps its claims, a trusted premise, and the per-test contradicted-claim guard stays

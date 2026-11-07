@@ -1,4 +1,4 @@
-//! Re-pin R0c-fix-3 (`draft/tasks/repin-501f18b9`; decisions log 2026-10-17, "inconsistent
+//! Re-pin R0c-fix-3 (to k-rust 501f18b9; Sebastien's decision of 2026-10-17, "inconsistent
 //! mutants"): kink-native's mutant consistency check (`consistency`), on k-rust's critical-pair
 //! check, and the k-rust passages and source it rests on, pinned at 501f18b9. Re-pin R0c-fix-4:
 //! the effect of an edit read from the compiled definitions, the source reading as a fail-closed
@@ -220,8 +220,8 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
         assert_eq!(affected, Some(BTreeSet::from(["f".to_owned()])));
         let plain = kink_native::census::internalize(&side).unwrap();
         let claims = plain.value_claims_in_scope(CheckScope::All);
-        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-20/1, head d9e62128f, merge 879fce1cc; k-rust's
-        // draft answers-add3 section 2.1 "Load of head-free definitions"): `CheckScope::All` now
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-20/1, head d9e62128f, merge 879fce1cc, which
+        // loads head-free definitions): `CheckScope::All` now
         // classifies every pair of a definition with nothing withdrawable, so without the probe
         // head it pairs 11 (0 at 501f18b9) and reports the pair the edit breaks itself; the probe
         // head stays and gives the same verdict below.
@@ -251,11 +251,10 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// documentation (`definition.rs` 2905-2920).
 ///
 /// Re-pin P-2 (k-rust 8f8ad57c5; KINK-20/1-3, heads d9e62128f and 0749cd518, merge 879fce1cc,
-/// on main since 58720d2e5; k-rust's draft answers-add3 section 2.1 "Load of head-free
-/// definitions" and "Fewer withdrawn claims / more refutations at load"; Sebastien's decision
-/// draft/tasks/flow/decisions/human-decisions-2026-10-14.md, "2026-10-20: admit mutants whose
-/// guards k-rust's KINK-20/3 refutes as disjoint", which accepts P-1's STOP 1 and names this pin
-/// as its tripwire). The same passages, read again at 8f8ad57c5 (unchanged since 58720d2e5, only
+/// on main since 58720d2e5, which loads head-free definitions, withdraws fewer claims and
+/// refutes more at load; Sebastien's decision of 2026-10-20, "admit mutants whose guards
+/// k-rust's KINK-20/3 refutes as disjoint", which accepts P-1's STOP 1 and names this pin as its
+/// tripwire). The same passages, read again at 8f8ad57c5 (unchanged since 58720d2e5, only
 /// moved by rounds 26-28's docs):
 /// - 1061-1063: `M_NF` is a model, now read with the priority antecedent (an equation holds
 ///   only where no higher-priority group applies), which the emitted axioms leave implicit and
@@ -273,7 +272,7 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 ///   `CheckScope::All` every candidate pair is classified (`counts().skipped == 0`), which pairs
 ///   are formed, and that `separated`, `refuted` and `joined` are sound.
 ///
-/// Re-pin P-1 (`draft/tasks/repin-0068938b`, k-rust 0068938b1): the four passages are
+/// Re-pin P-1 (k-rust 0068938b1): the four passages are
 /// byte-identical to 8f8ad57c5's and only moved, compatibility.md's down 8 lines (round D's text
 /// above them) and `definition.rs`'s down 32 (MLP/10's 7fec17247, FU-27, the sweep and the ks3
 /// engine work); only the line numbers are re-pinned.
@@ -462,14 +461,13 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// 501f18b9 -> e84044b7 since 58720d2e5 (CheckScope::All pairs head-free definitions,
 /// `GroupCounts`/`group_counts`, the integer-bound refutation); unchanged by rounds 26-28.
 ///
-/// Re-pin P-1 (`draft/tasks/repin-0068938b`, k-rust 0068938b1): e84044b7 -> b68ae7c7. One
+/// Re-pin P-1 (k-rust 0068938b1): e84044b7 -> b68ae7c7. One
 /// change, in `classify_inner`'s injected inner position: a subsort question that depends on a
 /// sort variable (`check_subsort` answers `Err`) was read as "no overlap" (`Classified::Fine`)
 /// and is now a pair not joined, `Unresolved(SortVariable)`; a decided `Ok(false)` is still fine
 /// and the `drop_injected_inner` switch still drops the pair. Cause: the correctness sweep's
 /// e988794ee, "Report an undecided match apart from a refutation" (CS-09-1; main fd3f80fe5,
-/// merged into k-rust's round 33 at c51305fd4; result change RC-115 of k-rust
-/// draft/k-in-k/answers-2026-10b.toml). It only turns a pair the check passed into one it
+/// merged into k-rust's round 33 at c51305fd4). It only turns a pair the check passed into one it
 /// reports not joined, which kink reads as `inconsistent-mutant`: it can refuse a mutant, never
 /// admit one, and closed sorts, the only ones kink's definitions have, never give the `Err`
 /// (the commit message). No test's verdict moved.
@@ -572,7 +570,7 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// `60e618a0`.
 /// Algorithm-card refresh 8ff88a783 adds only the `produces` metadata line naming
 /// `ValueClaims`; removing that line recovers the previous pinned bytes exactly.
-/// GAP K3 (`draft/kink27/gap`, ticket K3): 7fb6bdb4 -> d8b337c0. An equation holding a literal
+/// GAP K3 (kink27's gap round, ticket K3): 7fb6bdb4 -> d8b337c0. An equation holding a literal
 /// whose element the definition leaves open is reported on its own (`UnjoinedReason::OpenLiteral`,
 /// a per-equation report like `UnboundResultVariables`) and seeded into the taint closure, and
 /// every evaluation of the check withholds it, so the check joins or refutes no overlap on that
@@ -600,7 +598,7 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// k-rust's element of an open literal is `f(h(256p8))` against `h(255p8)`, where it was
 /// `f(h(1.0e400))` against `h(MAX)` (every Float literal names one element, `docs/amendments.md`
 /// AM-8). No code changed, so the seeds, the closure and the counts kink reads are unchanged.
-/// GAP K18 (`draft/kink27/gap`, K18 C1 a6657972e): fb873f52 -> 6c867ace, documentation only:
+/// GAP K18 (kink27's gap round, K18 C1 a6657972e): fb873f52 -> 6c867ace, documentation only:
 /// `CONDITION_POLLS` states that the path condition's walks of a simplification inside the
 /// check are charged to its poll budget (`stop::charge`, in `stop.rs` and `simplify.rs`), and
 /// that the 29-poll measurement predates the charge. No code of this file changed: the stages,
@@ -664,8 +662,8 @@ fn the_probe_head_makes_k_rust_classify_self_pairs() {
         let plain = kink_native::census::internalize(&compiled)
             .unwrap()
             .value_claims_in_scope(CheckScope::All);
-        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-20/1, head d9e62128f, merge 879fce1cc; k-rust's
-        // draft answers-add3 section 2.1 "Load of head-free definitions"): without the probe head
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-20/1, head d9e62128f, merge 879fce1cc, which
+        // loads head-free definitions): without the probe head
         // `CheckScope::All` now pairs 10 (0 at 501f18b9), counts the self pair's several matches
         // and reports it; the probe head stays and gives the same verdict below.
         assert_eq!(plain.counts().pairs, 10);

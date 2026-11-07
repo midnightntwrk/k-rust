@@ -715,7 +715,7 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// arithmetic (the `Float` paragraph of Backend scope, and `rootFloat`'s NaN). A change of any of
 /// them fails here, and the admission is read again against it.
 ///
-/// GAP K1 re-pin (`draft/kink27/gap`, ticket K1): four passages changed, and each change narrows
+/// GAP K1 re-pin (kink27's gap round, ticket K1): four passages changed, and each change narrows
 /// what admission takes on, so it is read again and re-pinned without a change to admission.
 /// (1) The roundTiesToEven passage of Backend scope is split: `Int2Float`, `roundFloat`, a
 /// `Float2Int` tie and an inexact `rootFloat` are now open (class `float-rounding`), taken only

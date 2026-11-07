@@ -475,7 +475,7 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// `value_production_ceil_equations`, a route pinned above. No route gains a `\top` it did not
 /// have, so `ground_defined` stays one-sided and it is re-pinned.
 ///
-/// GAP K2 (`draft/kink27/gap`, ticket K2; re-pinned at integration C, which K2's own checks did
+/// GAP K2 (kink27's gap round, ticket K2; re-pinned at integration C, which K2's own checks did
 /// not run): `range` past the end of its list is class `outside-domain` (`\bottom` in some models,
 /// a list in others), so `observation::lists::domain` no longer states `size(L) >= k` as the
 /// whole domain of `range(L, k, 0)`: it states `size(L) >= k OR \ceil(range(L, k, 0))`, the
@@ -485,7 +485,7 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// stays one-sided; the element-index branch (`L[I]`, determined `\bottom` past the end) is
 /// unchanged. `list_domain` is re-pinned; the rest is byte-identical.
 ///
-/// GAP K3 (`draft/kink27/gap`, ticket K3, with its fix round 1): an equation or a source row
+/// GAP K3 (kink27's gap round, ticket K3, with its fix round 1): an equation or a source row
 /// holding a literal whose element the definition leaves open (`k_rust_backend::literal`) is read
 /// by none of these routes, as each would decide a match, an image or a condition on k-rust's
 /// element. `value_production_ceil_equations` returns `None` at such a ceil equation (the

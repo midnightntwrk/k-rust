@@ -1,9 +1,10 @@
-//! Re-pin R0b (`draft/tasks/repin-501f18b9`): campaigns over runs that are no evidence
+//! Re-pin R0b (to k-rust 501f18b9): campaigns over runs that are no evidence
 //! (kink-native `exclusion`). A mutant whose run is excluded is `Unknown`, never killed, in both
 //! schedules; a baseline whose run is excluded is refused before any mutant runs, except one
 //! that contradicts a claim, which makes only its own test unknown (re-pin R0c-fix-1). Re-pin
-//! adoption A-1 (`draft/tasks/repin-58720d2e/ADOPTION.md`): k-rust's run-level lists exclude a run
-//! whose leaves are clean, and a baseline excluded by a record on its list alone is refused.
+//! adoption A-1, which adopts the run-level facts k-rust 58720d2e5 added: k-rust's run-level
+//! lists exclude a run whose leaves are clean, and a baseline excluded by a record on its list
+//! alone is refused.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;

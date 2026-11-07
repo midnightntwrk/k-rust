@@ -1,4 +1,4 @@
-# IMP scaling workloads rescued from draft-only measurements: strict heating, kink's IMP corpus,
+# IMP scaling workloads rescued from uncommitted measurements: strict heating, kink's IMP corpus,
 # and IMP++ thread interleavings. Programs and generators: benchmarks/programs/imp/.
 version = 1
 
@@ -73,7 +73,7 @@ semantics = "imp"
 operation = "execute"
 title = "Run N copies of `s = s + a;` (two unevaluated operands per `+`)"
 stresses = "Plain execution of a strict production with two heating orders, which once doubled the pending states per statement and must stay linear in N."
-origin = "draft/fable51-review/conformance-host/fixtures/collatz-memory/ (strict2-K.imp at 8be7af0: 85 s and 2.6 GiB at K = 16, where K is the copy count); fixed by plain krun following one successor"
+origin = "the collatz memory characterization (strict2-K.imp at 8be7af0: 85 s and 2.6 GiB at K = 16, where K is the copy count); fixed by plain krun following one successor"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -103,7 +103,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of N copies of `s = s + a;`"
 stresses = "A search explores both heating orders of every strict `+`; the orders rejoin into one final state, and the cost of keeping or rejoining them grows faster than the statement count (0.7 s at 1,024, 21 s at 4,096 on 2026-10-16)."
-origin = "draft/fable51-review/conformance-host/fixtures/collatz-memory/ (strict2-K.imp); search variant added when the plain-krun case became linear"
+origin = "the collatz memory characterization (strict2-K.imp); search variant added when the plain-krun case became linear"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -133,7 +133,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of N copies of `s = s + 1;` (control)"
 stresses = "The same search with one unevaluated operand per `+`, so one heating order: the baseline the two-order search is compared with."
-origin = "draft/fable51-review/conformance-host/fixtures/collatz-memory/strict1-16.imp (the control of strict2-K.imp)"
+origin = "the collatz memory characterization's strict1-16.imp (the control of strict2-K.imp)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -165,7 +165,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of the tutorial's sum.imp, summing 1..n"
 stresses = "Every iteration evaluates `sum + n` and `n + -1` through strict heating in both orders; the explored states grow faster than n (5.9 s at n = 1,000, 31 s at 2,000, 124 s at 3,000 on 2026-10-16)."
-origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/sum.imp; raw data /var/tmp/kink26-measure-16-2/)"
+origin = "the KINK-16/2 measurement (kink examples/imp/programs/sum.imp)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -203,7 +203,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of sum.imp at large n"
 stresses = "The large end of the sum.imp search ladder, where the growth is steepest (124 s at n = 3,000 on 2026-10-16)."
-origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/sum.imp)"
+origin = "the KINK-16/2 measurement (kink examples/imp/programs/sum.imp)"
 tier = "heavy"
 pins = ["k"]
 [workload.ladder]
@@ -242,7 +242,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of the tutorial's primes.imp, counting primes up to m"
 stresses = "Nested loops of strict divisions, additions and comparisons, all heated in every order (0.8 s at m = 40, 101 s at m = 150 on 2026-10-16)."
-origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/primes.imp)"
+origin = "the KINK-16/2 measurement (kink examples/imp/programs/primes.imp)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -294,7 +294,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of the tutorial's collatz.imp, for all numbers up to m"
 stresses = "Collatz steps through strict `+` and `/` heated in every order; the work per number varies, so growth in m is irregular (12.8 s at m = 40 on 2026-10-16)."
-origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/collatz.imp)"
+origin = "the KINK-16/2 measurement (kink examples/imp/programs/collatz.imp)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]
@@ -341,7 +341,7 @@ semantics = "imp"
 operation = "search"
 title = "Search the final states of r copies of an eight-operand strict sum"
 stresses = "Each statement heats seven `+` in every order, so many explored states rejoin; growth in r is superlinear (1.5 s at r = 128, 44 s at r = 512 on 2026-10-16)."
-origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (synthetic wide8r*.imp in /var/tmp/kink26-measure-16-2/synth/)"
+origin = "the KINK-16/2 measurement (its synthetic wide8r*.imp programs, which gen-wide.py reproduces)"
 tier = "standard"
 pins = ["k"]
 [workload.ladder]

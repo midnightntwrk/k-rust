@@ -1,4 +1,4 @@
-//! Re-pin adoption A-1 (`draft/tasks/repin-58720d2e/ADOPTION.md`, sections 2.1-2.3 and 2.8): every
+//! Re-pin adoption A-1, which adopts the run-level facts k-rust 58720d2e5 added: every
 //! adapted run carries k-rust's run-level facts (`RunFacts`: the lists of open values read,
 //! contradicted claims, allowance refusals and unsupported hooks, and the count of undecided
 //! solver answers), and each non-empty list excludes the run, fail-closed, where no leaf shows
@@ -225,8 +225,8 @@ fn every_adapted_run_carries_the_run_level_facts() {
     });
 }
 
-/// The k-rust passages A-1's exclusions rest on (ADOPTION.md A-1 deliverable 7), by digest, at
-/// `0068938b1` (`docs/compatibility.md`; re-pin P-1 of `draft/tasks/repin-0068938b`: the seven
+/// The k-rust passages A-1's exclusions rest on, by digest, at
+/// `0068938b1` (`docs/compatibility.md`; re-pin P-1: the seven
 /// passages are byte-identical to 8f8ad57c5's, and every one but 92 moved down 6 to 124 lines,
 /// with round D's text and the correctness sweep's above them, so only the lines are re-pinned;
 /// fz26 FZ-G7 then added 22 lines to "Run coverage", above two of them, which only moved again, and
@@ -279,7 +279,7 @@ fn every_adapted_run_carries_the_run_level_facts() {
 ///
 /// Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
 ///
-/// GAP K1 re-pin of the mark passage (`draft/kink27/gap`, ticket K1): two sentences changed, and each only adds marks. A mark is noted where the evaluator takes the value or, for class `curve`, its `\bottom`; and the definedness check of a classified application no longer drops the mark of a `curve` or `outside-domain` application of a partial symbol, whose definedness is the pick. The list only grows, so A-1's exclusion of a run with a non-empty list excludes at least what it did, and the guarantee for a run whose list is empty (the passage's last sentence) is unchanged.
+/// GAP K1 re-pin of the mark passage (kink27's gap round, ticket K1): two sentences changed, and each only adds marks. A mark is noted where the evaluator takes the value or, for class `curve`, its `\bottom`; and the definedness check of a classified application no longer drops the mark of a `curve` or `outside-domain` application of a partial symbol, whose definedness is the pick. The list only grows, so A-1's exclusion of a run with a non-empty list excludes at least what it did, and the guarantee for a run whose list is empty (the passage's last sentence) is unchanged.
 ///
 /// GAP K2 re-pin of the mark passage (ticket K2): only the guarantee sentence changed. The models it quantifies over no longer need to agree with k-rust's `\bottom` of a partial hook outside the inputs its description covers, which is now class `outside-domain`, taken only by an execution and marked there (the step that writes it, a condition or a discarded operand that reads its definedness, a list-update pattern whose match it refutes); they still agree with the two readings k-rust keeps (a literal's value where the literal rule leaves it open, the order of console effects of operands none of which is irrelevant). So the guarantee holds over more models, and the marks that make it hold only grow: A-1's exclusion of a run with a non-empty list excludes at least what it did, and a run whose list is empty has the same leaves in every model the guarantee named before, and in more.
 ///
@@ -294,7 +294,7 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// excludes at least what it did, and the guarantee for a run whose list is empty is the K2
 /// sentence, unchanged.
 ///
-/// GAP integration C re-pin of the mark passage (K2 composed with K3, `draft/kink27/gap`): only
+/// GAP integration C re-pin of the mark passage (K2 composed with K3, kink27's gap round): only
 /// the guarantee sentence changed. K2 wrote it while a literal's value where the literal rules
 /// leave it open was still a reading k-rust kept; K3 made that element class `literal`, which an
 /// execution marks on every attempt of a rule or an equation holding such a literal and on every
@@ -313,7 +313,7 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// the models it quantifies over are the same (those that agree with the request's inputs and
 /// with that order), and so are the marks, so A-1's exclusions read the same.
 ///
-/// GAP A1 re-pin of the mark passage (`draft/kink27/gap`, ticket A1): two sentences changed, both
+/// GAP A1 re-pin of the mark passage (kink27's gap round, ticket A1): two sentences changed, both
 /// by dropping classes k-rust no longer has. The first now names `outside-domain` alone as the
 /// class whose `\bottom` is noted (the BN128 `\bottom` of a non-point, which was `curve`, is
 /// `outside-domain` now) and no longer names `read-count` in a backend execution with default
