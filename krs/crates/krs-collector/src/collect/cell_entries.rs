@@ -338,18 +338,22 @@ pub(super) fn judge_readable(
     {
         return Err(overwritten_collection(entry));
     }
-    if judged.is_ok()
-        && let Some((cells, holder, group)) = target.instance_key()
-    {
-        kept_key(
-            &InstanceKey {
-                cells: cells.to_vec(),
-                holder: holder.to_owned(),
-                group: group.to_owned(),
-            },
-            &subject,
-            &result,
-        )?;
+    if judged.is_ok() {
+        for (cells, holder, group) in target
+            .instance_key()
+            .into_iter()
+            .chain(target.nested_instance_keys())
+        {
+            kept_key(
+                &InstanceKey {
+                    cells: cells.to_vec(),
+                    holder: holder.to_owned(),
+                    group: group.to_owned(),
+                },
+                &subject,
+                &result,
+            )?;
+        }
     }
     match judged {
         Ok(lints) => Ok(lints
@@ -618,11 +622,11 @@ fn judge_sentence(
             .nth(at)
             .expect("a judged entry is the sentence's")
     };
-    if judged.is_ok()
-        && let Some(key) = &tree.key
-    {
-        kept_key(key, &subject, &result)?;
-        kept_key_in_place(key, subject_cells, &subject)?;
+    if judged.is_ok() {
+        for key in &tree.keys {
+            kept_key(key, &subject, &result)?;
+            kept_key_in_place(key, subject_cells, &subject)?;
+        }
     }
     match judged {
         Ok(lints) => Ok(lints
@@ -817,8 +821,9 @@ struct Tree<'i, 'a> {
     groups: Vec<GroupKind>,
     /// Where the sentence is about a cell group, the cell that holds it ([`Self::scoped`]).
     anchor: Option<usize>,
-    /// Where that cell is a Map collection, its instance's key ([`Self::scoped`]).
-    key: Option<InstanceKey>,
+    /// Where that cell is a Map collection, its instance's key, then the key of each Map
+    /// collection's instance inside it ([`Self::scoped`]).
+    keys: Vec<InstanceKey>,
 }
 
 impl<'i, 'a> Tree<'i, 'a> {
@@ -832,7 +837,7 @@ impl<'i, 'a> Tree<'i, 'a> {
             parents: Vec::new(),
             groups: Vec::new(),
             anchor: None,
-            key: None,
+            keys: Vec::new(),
         };
         tree.walk(owner, declaration, index, (&[], None), &[owner]);
         let mut groups = Vec::new();
@@ -883,22 +888,37 @@ impl<'i, 'a> Tree<'i, 'a> {
             return self;
         };
         self.anchor = Some(anchor);
-        let key = (0..cells.len())
-            .filter(|&index| {
-                krs_ir::subject::keys_on_path(&cells, index)
-                    .iter()
-                    .any(|&(holder, _)| holder == anchor)
-            })
-            .map(|index| cells[index].identity.clone())
-            .collect::<Vec<_>>();
-        if let (false, Some(krs_ir::DescriptorSubject::Group { declaration })) =
-            (key.is_empty(), subject)
-        {
-            self.key = Some(InstanceKey {
-                cells: key,
-                holder: cells[anchor].identity.field.clone(),
-                group: declaration.item_name().to_owned(),
-            });
+        // The instance the sentence is about, and each instance of a Map collection inside it
+        // whose cells it may name ([`Self::judged_ancestors`]): each of their keys is written
+        // only as matched.
+        let own = match subject {
+            Some(krs_ir::DescriptorSubject::Group { declaration }) => {
+                Some((anchor, declaration.item_name().to_owned()))
+            }
+            _ => None,
+        };
+        let nested = (anchor + 1..cells.len()).filter_map(|holder| {
+            let group = cells[holder].group.as_ref()?;
+            (cells[holder].multiplicity == Multiplicity::Many(Order::Map)
+                && dropped(&self.parents, Some(anchor), holder) > 0)
+                .then(|| (holder, group.item_name().to_owned()))
+        });
+        for (holder, group) in own.into_iter().chain(nested) {
+            let key = (0..cells.len())
+                .filter(|&index| {
+                    krs_ir::subject::keys_on_path(&cells, index)
+                        .iter()
+                        .any(|&(on, _)| on == holder)
+                })
+                .map(|index| cells[index].identity.clone())
+                .collect::<Vec<_>>();
+            if !key.is_empty() {
+                self.keys.push(InstanceKey {
+                    cells: key,
+                    holder: cells[holder].identity.field.clone(),
+                    group,
+                });
+            }
         }
         self
     }
@@ -906,12 +926,33 @@ impl<'i, 'a> Tree<'i, 'a> {
     /// The ancestors of the cell at `index` an entry naming it is judged against: those
     /// strictly below the anchor, where the cell is inside the group the sentence is about, else
     /// all of them.
+    ///
+    /// Inside the group, the Map collections the cell lies in below the anchor, outermost first
+    /// up to the first other `?` or `*`, are not judged either: the sentence's cells lie in one
+    /// instance of each holder on their deepest chain, so naming a cell of a nested instance
+    /// matches one instance of each such collection, the one whose cell matches, as naming a
+    /// cell of the group matches one instance of the group. Its key is matched where the
+    /// sentence names it and written only as matched ([`Self::scoped`]). A Set or List
+    /// collection, or an optional cell, keeps its mark.
     fn judged_ancestors<'t>(
         &'t self,
         index: usize,
         ancestors: &'t [DescriptorCell<'i, 'a>],
     ) -> &'t [DescriptorCell<'i, 'a>] {
-        &ancestors[dropped(&self.parents, self.anchor, index).min(ancestors.len())..]
+        let dropped = dropped(&self.parents, self.anchor, index).min(ancestors.len());
+        let below = &ancestors[dropped..];
+        if dropped == 0 {
+            return below;
+        }
+        let mut nested = 0;
+        for (at, ancestor) in below.iter().enumerate() {
+            match ancestor.kind().multiplicity() {
+                Multiplicity::One => {}
+                Multiplicity::Many(Order::Map) => nested = at + 1,
+                _ => break,
+            }
+        }
+        &below[nested..]
     }
 
     fn walk(

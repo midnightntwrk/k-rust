@@ -753,10 +753,11 @@ fn rule_path(
                 .subject
                 .as_ref()
                 .map(|subject| subject_path(tree, Some(subject)));
-            // A rule typed by a group runs in the group's instance, and a rule typed by the
-            // configuration where the cells it matches are, one whose cells lie off one chain
-            // having been refused first ([`check_rule_instances`]); either is a step of the
-            // instance an entry of its steps. A group's own cells lie in its instance.
+            // A rule runs where the cells it matches are, one whose cells lie off one chain
+            // having been refused first ([`check_rule_instances`]), and is a step of the
+            // instance an entry of its steps. A rule typed by a group runs in the group's
+            // instance, where its own cells lie, and in the instance of a Map collection inside
+            // it whose cell it names.
             let matched = matched_paths(sentence, tree)
                 .into_iter()
                 .map(|(cell, path, holder)| {
@@ -764,9 +765,6 @@ fn rule_path(
                         && semantic_cell_id(&cell.field.cell)
                             .is_ok_and(|cell| stepped.contains(&cell));
                     (path, holder.filter(|_| steps))
-                })
-                .filter(|(_, stepped)| {
-                    sentence.subject_configuration.subject.is_none() || stepped.is_some()
                 });
             crate::instance_keys::entry_instances(
                 subject.map(|path| (path, None)).into_iter().chain(matched),
@@ -835,8 +833,11 @@ fn matched_paths<'s>(
         .collect()
 }
 
-/// Refuses each rule typed by the configuration whose matched cells no one nesting of instance
-/// cells holds, whether or not the definition has instance contexts.
+/// Refuses each configuration rule whose matched cells no one nesting of instance cells holds,
+/// whether or not the definition has instance contexts. A rule typed by a group matches its own
+/// cells in its one instance, and may name cells of the Map collections' instances inside it,
+/// so it is judged as well: two such collections neither of which holds the other, or a group at
+/// a fixed position beside an instance inside it, have no one nesting either.
 ///
 /// The emitted rule writes each clause inside the cells of the instances it lies in, one nesting
 /// for the whole rule ([`crate::instance_keys::rule_instances`]). Two shapes have no such
@@ -868,11 +869,6 @@ fn check_rule_instances(
         let DescriptorPayload::ConfigurationRule(sentence) = descriptor.payload() else {
             continue;
         };
-        // A rule about a group names only cells of the group's scope ([`check_part`]), which
-        // its one instance holds.
-        if sentence.subject_configuration.subject.is_some() {
-            continue;
-        }
         let tree = match &tree {
             Some(tree) => tree,
             None => match configuration_tree(

@@ -796,6 +796,9 @@ struct TargetSubject {
     /// the instance's identity, which a sentence about the instance reads and never writes
     /// another of ([`krs_syntax::cell_entries::keeps_key`]). Empty for any other subject.
     key: Vec<krs_ir::DescriptorCellIdentity>,
+    /// The same of each Map collection inside the group whose instance's cells the sentence
+    /// names directly ([`HeadRuleTarget::scoped`]), with the collection's name and its group's.
+    nested_keys: Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)>,
 }
 
 /// Where a cell a sentence about a cell group names sits, outside the group.
@@ -1034,8 +1037,16 @@ impl HeadRuleTarget {
     /// A sentence about the group is a local step of one instance of each optional cell and
     /// collection on the anchor's path, the anchor included, so its entries are judged from the
     /// instance's level: each cell's `path` and `ancestor` keep only the marks strictly below the
-    /// anchor. A cell below a further `?` or `*` inside the instance keeps that mark, so it is
-    /// still written inside that inner holder's record.
+    /// anchor.
+    ///
+    /// The Map collections a cell lies in inside the instance, outermost first up to the first
+    /// other `?` or `*`, drop their marks too: a sentence's cells lie in one instance of each
+    /// holder on their deepest chain, so naming a cell of a nested instance matches one instance
+    /// of each such collection, the one whose cell matches, as naming a cell of the group matches
+    /// one instance of the group. Each such instance's key is written only as matched
+    /// ([`Self::nested_instance_keys`]). A cell below a Set or List collection, or an optional
+    /// cell, inside the instance keeps that mark, so it is still written inside that inner
+    /// holder's record.
     fn scoped(
         &self,
         subject: krs_ir::DescriptorSubject,
@@ -1071,13 +1082,22 @@ impl HeadRuleTarget {
             .into_iter()
             .map(|(index, cell)| {
                 let mut cell = cell.clone();
-                let kept = cell.path.layers.len().saturating_sub(dropped);
-                cell.path.layers.drain(..cell.path.layers.len() - kept);
-                // The outermost marked group strictly between the anchor and the cell.
+                // The marked holders strictly between the anchor and the cell, outermost first,
+                // and how many of them lead as Map collections.
                 let between = above(index)
                     .take_while(|&ancestor| ancestor != anchor)
+                    .filter(|&ancestor| marked(ancestor))
                     .collect::<Vec<_>>();
-                cell.ancestor = between.iter().rev().find_map(|&ancestor| {
+                let nested = between
+                    .iter()
+                    .rev()
+                    .take_while(|&&ancestor| self.is_map_collection(ancestor))
+                    .count();
+                let kept = cell.path.layers.len().saturating_sub(dropped + nested);
+                cell.path.layers.drain(..cell.path.layers.len() - kept);
+                // The outermost marked group strictly between the anchor and the cell, after
+                // those.
+                cell.ancestor = between.iter().rev().skip(nested).find_map(|&ancestor| {
                     let holder = &self.cells[ancestor];
                     match holder.kind.layers.as_slice() {
                         [
@@ -1105,6 +1125,7 @@ impl HeadRuleTarget {
             })
             .map(|index| self.cells[index].identity.clone())
             .collect();
+        let nested_keys = self.nested_map_keys(anchor, tree);
         Self {
             configuration: self.configuration.clone(),
             cells,
@@ -1117,10 +1138,71 @@ impl HeadRuleTarget {
                 holder: self.cells[anchor].clone(),
                 outside: outside.into_iter().map(|(_, cell)| cell.clone()).collect(),
                 key,
+                nested_keys,
                 subject,
             }),
             subjects: Vec::new(),
         }
+    }
+
+    /// Whether the cell at `index` is a Map collection.
+    fn is_map_collection(&self, index: usize) -> bool {
+        matches!(
+            self.cells[index].kind.layers.first(),
+            Some(Layer::Instances(Order::Map))
+        )
+    }
+
+    /// The key of each Map collection's instance below the cell at `anchor`, as
+    /// [`TargetSubject::nested_keys`] holds them.
+    fn nested_map_keys(
+        &self,
+        anchor: usize,
+        tree: &[krs_ir::TreeCell],
+    ) -> Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)> {
+        let below = |index: usize| {
+            std::iter::successors(self.cells[index].parent, |&parent| {
+                self.cells[parent].parent.filter(|&above| above < parent)
+            })
+            .any(|ancestor| ancestor == anchor)
+        };
+        (0..self.cells.len())
+            .filter(|&holder| below(holder) && self.is_map_collection(holder))
+            .filter_map(|holder| {
+                let Some(Layer::Group(group)) = self.cells[holder].kind.layers.get(1) else {
+                    return None;
+                };
+                let cells = (0..self.cells.len())
+                    .filter(|&index| {
+                        krs_ir::subject::keys_on_path(tree, index)
+                            .iter()
+                            .any(|&(on, _)| on == holder)
+                    })
+                    .map(|index| self.cells[index].identity.clone())
+                    .collect::<Vec<_>>();
+                (!cells.is_empty()).then(|| {
+                    (
+                        cells,
+                        self.cells[holder].names[0].clone(),
+                        group.name.clone(),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// Where the target is scoped to a group, the key cells of each Map collection's instance
+    /// inside it whose cells its sentences name directly ([`Self::scoped`]), each with the
+    /// collection cell's name and the group's: a sentence writes each only as it matched it.
+    pub(super) fn nested_instance_keys(
+        &self,
+    ) -> impl Iterator<Item = (&[krs_ir::DescriptorCellIdentity], &str, &str)> {
+        self.subject.iter().flat_map(|subject| {
+            subject
+                .nested_keys
+                .iter()
+                .map(|(cells, holder, group)| (cells.as_slice(), holder.as_str(), group.as_str()))
+        })
     }
 
     /// Where the target is scoped to the instance type of a Map collection, the instance's key
@@ -4527,11 +4609,31 @@ mod tests {
             "{}",
             job.detail()
         );
-        // The group holding the collection is at a fixed position: the hart's cells keep the
-        // collection's mark.
+        // The group holding the collection is at a fixed position: a hart's cell names one
+        // instance of the Map collection inside the group, so it is at the instance's level, and
+        // the sentence writes that instance's key only as matched. The hart's own List
+        // collection keeps its mark.
         let harts = group_target(&cell_id("Harts"), targets).unwrap();
-        assert_eq!(entry(harts, "pc").0, vec![Layer::Instances(Order::Map)]);
+        assert_eq!(entry(harts, "pc"), (Vec::new(), None));
+        assert_eq!(
+            entry(harts, "payload"),
+            (
+                vec![Layer::Instances(Order::List)],
+                Some(("jobs".to_owned(), Layer::Instances(Order::List), true))
+            )
+        );
         assert!(harts.instance_key().is_none());
+        assert_eq!(
+            harts.nested_instance_keys().collect::<Vec<_>>(),
+            vec![(
+                &[krs_ir::DescriptorCellIdentity {
+                    owner: cell_id("Hart"),
+                    field: "id".to_owned(),
+                }][..],
+                "hart",
+                "Hart"
+            )]
+        );
     }
 
     /// The target of the configuration `configuration` whose cells are `cells`, with no group
