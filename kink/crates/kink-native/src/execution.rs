@@ -925,6 +925,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         collect_offered: false,
         collect_counts: false,
         collect_conditions: None,
+        collect_guards: None,
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,

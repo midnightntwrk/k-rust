@@ -2307,6 +2307,54 @@ fn run_coverage_output<K: WireKore>(
         committed: coverage
             .committed
             .map(|committed| committed.into_iter().collect()),
+        guards: coverage
+            .guards
+            .map(|axioms| axioms.into_iter().map(axiom_guard_output).collect())
+            .transpose()?,
+    })
+}
+
+fn axiom_guard_output<K: WireKore>(
+    guard: k_rust_backend::coverage::AxiomGuard,
+) -> Result<super::AxiomGuardOutput<K>, BackendError> {
+    use k_rust_backend::coverage::GuardShape;
+    // A predicate atom is printed as a pattern of one fixed sort: a predicate denotes the same
+    // in every sort.
+    let predicate_sort = Sort::simple("SortBool");
+    Ok(super::AxiomGuardOutput {
+        axiom: guard.axiom,
+        nodes: guard
+            .nodes
+            .into_iter()
+            .map(|node| {
+                Ok(super::GuardNodeOutput {
+                    path: node.path,
+                    shape: match node.shape {
+                        GuardShape::Connective(connective) => super::GuardShapeOutput::Connective {
+                            connective: connective.into(),
+                        },
+                        GuardShape::Equals(literal) => super::GuardShapeOutput::Equals { literal },
+                        GuardShape::Term(term) => super::GuardShapeOutput::Term {
+                            term: encode_term(&term)?,
+                        },
+                        GuardShape::Predicate(predicate) => super::GuardShapeOutput::Predicate {
+                            term: encode_predicate(&predicate, &predicate_sort)?,
+                        },
+                    },
+                    reached: node.reached.into_iter().map(Into::into).collect(),
+                })
+            })
+            .collect::<Result<_, BackendError>>()?,
+        outcomes: guard.outcomes.into_iter().map(Into::into).collect(),
+        combinations: guard
+            .combinations
+            .into_iter()
+            .map(|combination| super::CombinationOutput {
+                atoms: combination.atoms.into_iter().map(Into::into).collect(),
+                outcome: combination.outcome.into(),
+            })
+            .collect(),
+        combinations_truncated: guard.combinations_truncated,
     })
 }
 

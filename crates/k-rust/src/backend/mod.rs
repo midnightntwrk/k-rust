@@ -537,6 +537,10 @@ pub struct BackendCapabilities {
     /// ([`RunCoverageOutput::conditions`]) when the request sets `collect_conditions` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_conditions`]).
     pub coverage_conditions: bool,
+    /// An execution also reports the guard outcomes of the run's coverage
+    /// ([`RunCoverageOutput::guards`]) when the request sets `collect_guards` beside
+    /// `collect_coverage` ([`ExecuteRequest::collect_guards`]).
+    pub coverage_guards: bool,
     /// An execution accepts `collect_committed` beside `collect_coverage`
     /// ([`RunCoverageOutput::committed`]).
     pub coverage_committed: bool,
@@ -675,6 +679,17 @@ pub struct ExecuteRequest {
     /// per new entry, in wall time (docs/compatibility.md, "Run coverage").
     #[serde(default)]
     pub collect_conditions: Option<ConditionCollection>,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::guards`] (wire
+    /// `collectGuards`): for each rule and equation it names whose `requires` the run entered,
+    /// the outcomes each node of the written `requires` took on the entries where it was
+    /// reached, the entries' guard outcomes and their valuation combinations, within its bounds
+    /// ([`GuardCollection`]). Off by default; a request that sets it without `collect_coverage`
+    /// is refused. Asking changes no other field of the result: each entry is evaluated off the
+    /// run's clock, isolated and without a solver, bounded by its own budget of polls, and an
+    /// entry the bounded cache recognizes costs a lookup (docs/compatibility.md, "Run
+    /// coverage").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collect_guards: Option<GuardCollection>,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
     /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
     /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
@@ -802,6 +817,7 @@ impl ExecuteRequest {
             collect_offered: false,
             collect_counts: false,
             collect_conditions: None,
+            collect_guards: None,
             max_work: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
@@ -1184,6 +1200,206 @@ pub struct RunCoverageOutput<K = Value> {
     pub applied_counts: Option<BTreeMap<String, u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub committed: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guards: Option<Vec<AxiomGuardOutput<K>>>,
+}
+
+/// Which rules' and equations' guard outcomes an execute request collects (wire
+/// `collectGuards`), and its bounds ([`ExecuteRequest::collect_guards`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GuardCollection {
+    /// The rules and equations whose entries are folded, each named by its `UNIQUE_ID` or its
+    /// label. A name that is neither, or an axiom with an empty `requires`, collects nothing.
+    pub axioms: Vec<String>,
+    /// The largest entry, in term nodes, the run's cache of entries keeps (default 256): a
+    /// larger one is evaluated every time the run makes it.
+    #[serde(default = "default_max_value_size")]
+    pub max_value_size: usize,
+    /// The most polls one entry's evaluation may make (default 1,000,000): its work bound,
+    /// since it runs off the run's clock. A node the bound stops is `undecided-stopped`.
+    #[serde(default = "default_record_polls")]
+    pub record_polls: u64,
+    /// The most entries the run's cache recognizes before it is cleared (default 4,096); a miss
+    /// costs one more evaluation, never a changed outcome.
+    #[serde(default = "default_guard_cache_keys")]
+    pub cache_keys: usize,
+    /// The most valuation combinations kept per axiom (default 256): the least ones in their
+    /// order, so the kept set is a function of the full set.
+    #[serde(default = "default_combination_limit")]
+    pub combination_limit: usize,
+}
+
+impl GuardCollection {
+    /// The axioms `axioms`, with the default bounds.
+    pub fn new<S: Into<String>>(axioms: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            axioms: axioms.into_iter().map(Into::into).collect(),
+            max_value_size: default_max_value_size(),
+            record_polls: default_record_polls(),
+            cache_keys: default_guard_cache_keys(),
+            combination_limit: default_combination_limit(),
+        }
+    }
+}
+
+fn default_guard_cache_keys() -> usize {
+    k_rust_backend::coverage::DEFAULT_GUARD_CACHE_KEYS
+}
+
+fn default_combination_limit() -> usize {
+    k_rust_backend::coverage::DEFAULT_COMBINATION_LIMIT
+}
+
+impl From<GuardCollection> for k_rust_backend::coverage::GuardCollection {
+    fn from(collection: GuardCollection) -> Self {
+        let mut converted = Self::new(collection.axioms);
+        converted.max_value_size = collection.max_value_size;
+        converted.record_polls = collection.record_polls;
+        converted.cache_keys = collection.cache_keys;
+        converted.combination_limit = collection.combination_limit;
+        converted
+    }
+}
+
+/// The guard outcomes of one rule or equation over a run's entries into its `requires`.
+///
+/// A node's outcome counts only where the node is reached, in written order, the same way for
+/// every connective: an operand of a conjunction (`andBool`, `andThenBool`, `\and`, and the
+/// conjuncts of the `requires`) is reached where every operand before it is `true`, an operand of
+/// a disjunction (`orBool`, `orElseBool`, `\or`) where every one before it is `false`, the right
+/// operand of `impliesBool` and `\implies` where the left one is `true`, and the operands of
+/// `xorBool`, `\iff`, `notBool`, `\not` and `\equals(b, literal)` where their node is. So for
+/// `A andThenBool B` the short-circuit classes "A false", "A true and B false" and "both true"
+/// are A's `false`, B's `false` and the conjunction's `true`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct AxiomGuardOutput<K = Value> {
+    /// The axiom's `UNIQUE_ID`.
+    pub axiom: String,
+    /// The nodes of the written `requires`, in preorder.
+    pub nodes: Vec<GuardNodeOutput<K>>,
+    /// The guard outcomes of the entries: the attempt's verdict, with the run's solver.
+    pub outcomes: Vec<GuardOutcomeOutput>,
+    /// The distinct valuations of the guard's atoms (nodes `term` and `predicate`, in preorder)
+    /// with the entry's guard outcome; an atom's truth here is the strict reading's, also where
+    /// the short-circuit reading did not reach it.
+    pub combinations: Vec<CombinationOutput>,
+    /// Whether the run made a further combination that the request's limit left out (wire:
+    /// present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub combinations_truncated: bool,
+}
+
+/// A node of a written `requires` with the outcomes it took where it was reached.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct GuardNodeOutput<K = Value> {
+    /// The conjunct's index, then the operand's index at each level down.
+    pub path: Vec<u32>,
+    pub shape: GuardShapeOutput<K>,
+    pub reached: Vec<NodeOutcomeOutput>,
+}
+
+/// What a guard node is, as written (wire: `node` names it).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "node", rename_all = "kebab-case")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum GuardShapeOutput<K = Value> {
+    /// A connective; its operands are the next nodes whose path extends this one's by one.
+    Connective { connective: ConnectiveOutput },
+    /// `\equals(b, literal)` of a Boolean term `b`.
+    Equals { literal: bool },
+    /// A Boolean term that is no connective, with the variables the axiom writes.
+    Term { term: K },
+    /// A predicate that is no connective and no `\equals(b, literal)`.
+    Predicate { term: K },
+}
+
+/// An outcome of a reached node.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeOutcomeOutput {
+    True,
+    False,
+    /// A Boolean node denoted no value.
+    Undefined,
+    /// Left undecided by the solver-free evaluation: the instance has variables.
+    UndecidedSymbolic,
+    /// Left undecided: the instance holds an application no equation evaluated.
+    UndecidedUnevaluated,
+    /// Left undecided: the evaluation's own budget or stack ran out.
+    UndecidedStopped,
+}
+
+impl From<k_rust_backend::coverage::NodeOutcome> for NodeOutcomeOutput {
+    fn from(outcome: k_rust_backend::coverage::NodeOutcome) -> Self {
+        use k_rust_backend::coverage::{NodeOutcome, OperandCause};
+        match outcome {
+            NodeOutcome::True => Self::True,
+            NodeOutcome::False => Self::False,
+            NodeOutcome::Undefined => Self::Undefined,
+            NodeOutcome::Undecided(OperandCause::Symbolic) => Self::UndecidedSymbolic,
+            NodeOutcome::Undecided(OperandCause::Unevaluated) => Self::UndecidedUnevaluated,
+            NodeOutcome::Undecided(OperandCause::Stopped) => Self::UndecidedStopped,
+        }
+    }
+}
+
+/// The guard outcome of one entry.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GuardOutcomeOutput {
+    Held,
+    /// Refuted, and the entry's evaluation found its first reached false conjunct false.
+    RefutedFalse,
+    /// Refuted, the first reached false conjunct being `\equals(b, literal)` of an undefined `b`.
+    RefutedUndefined,
+    /// Refuted by the attempt's solver or path condition only: the evaluation found no conjunct
+    /// false.
+    RefutedDecided,
+    UndecidedNoSolver,
+    UndecidedSolverUnknown,
+    UndecidedUntranslatable,
+    UndecidedInconsistentPath,
+    UndecidedSolverError,
+    UndecidedSimplification,
+    /// The attempt went on under the condition left open, or a decision that only evaluates
+    /// left it open.
+    UndecidedOpen,
+    Stopped,
+}
+
+impl From<k_rust_backend::coverage::GuardOutcome> for GuardOutcomeOutput {
+    fn from(outcome: k_rust_backend::coverage::GuardOutcome) -> Self {
+        use k_rust_backend::coverage::{AttemptCause, GuardOutcome, Refutation};
+        match outcome {
+            GuardOutcome::Held => Self::Held,
+            GuardOutcome::Refuted(Refutation::False) => Self::RefutedFalse,
+            GuardOutcome::Refuted(Refutation::Undefined) => Self::RefutedUndefined,
+            GuardOutcome::Refuted(Refutation::Decided) => Self::RefutedDecided,
+            GuardOutcome::Undecided(AttemptCause::NoSolver) => Self::UndecidedNoSolver,
+            GuardOutcome::Undecided(AttemptCause::SolverUnknown) => Self::UndecidedSolverUnknown,
+            GuardOutcome::Undecided(AttemptCause::Untranslatable) => Self::UndecidedUntranslatable,
+            GuardOutcome::Undecided(AttemptCause::InconsistentPath) => {
+                Self::UndecidedInconsistentPath
+            }
+            GuardOutcome::Undecided(AttemptCause::SolverError) => Self::UndecidedSolverError,
+            GuardOutcome::Undecided(AttemptCause::Simplification) => Self::UndecidedSimplification,
+            GuardOutcome::Undecided(AttemptCause::Open) => Self::UndecidedOpen,
+            GuardOutcome::Stopped => Self::Stopped,
+        }
+    }
+}
+
+/// One valuation of a guard's atoms with its entry's guard outcome.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CombinationOutput {
+    pub atoms: Vec<TruthOutput>,
+    pub outcome: GuardOutcomeOutput,
 }
 
 /// Which rules' condition entries an execute request records (wire `collectConditions`), and
@@ -2244,6 +2460,7 @@ impl Backend {
             coverage_offered: true,
             coverage_counts: true,
             coverage_conditions: true,
+            coverage_guards: true,
             coverage_committed: true,
             state_matches: true,
             stack_stops: true,
@@ -2460,6 +2677,11 @@ impl Backend {
                 "collectConditions requires collectCoverage: the condition records are part of the run's coverage",
             ));
         }
+        if request.collect_guards.is_some() && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectGuards requires collectCoverage: the guard outcomes are part of the run's coverage",
+            ));
+        }
         if request.collect_committed && !request.collect_coverage {
             return Err(BackendError::new(
                 "collectCommitted requires collectCoverage: the committed transitions are part of the run's coverage",
@@ -2553,7 +2775,7 @@ impl Backend {
                 collect_offered: request.collect_offered,
                 collect_counts: request.collect_counts,
                 collect_conditions: request.collect_conditions.map(Into::into),
-                collect_guards: None,
+                collect_guards: request.collect_guards.map(Into::into),
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
                 match_states,

@@ -212,6 +212,8 @@ export interface BackendCapabilities {
   coverageCounts: boolean
   /** `execute` and `executeObserved` accept `collectConditions` beside `collectCoverage`. */
   coverageConditions: boolean
+  /** `execute` and `executeObserved` accept `collectGuards` beside `collectCoverage`. */
+  coverageGuards: boolean
   /** `execute` and `executeObserved` accept `collectCommitted` beside `collectCoverage`. */
   coverageCommitted: boolean
   /** `execute` and `executeObserved` accept `matchStates` and report `stateMatches`. */
@@ -295,6 +297,14 @@ export interface ExecuteOptions {
    * (docs/compatibility.md, "Run coverage").
    */
   collectConditions?: ConditionCollection
+  /**
+   * With `collectCoverage`, also report `coverage.guards`: for each named rule and equation whose
+   * `requires` the run entered, the outcomes each node of the written condition took where it was
+   * reached, the entries' guard outcomes and their valuation combinations. A request that sets it
+   * without `collectCoverage` is refused; asking changes no other field (docs/compatibility.md,
+   * "Run coverage").
+   */
+  collectGuards?: GuardCollection
   /**
    * The most states the run may visit across all its paths; absent: no bound. A run that
    * reaches it ends with one 'work-bound' leaf for the state it did not visit, the last leaf,
@@ -707,7 +717,74 @@ export interface RunCoverage {
    * undefined successor is left out, and a successor a `state-set` merge absorbed is in it.
    */
   committed?: string[]
+  /**
+   * Present exactly when the request set `collectGuards`: the guard outcomes of each named rule
+   * and equation whose `requires` the run entered, by id.
+   */
+  guards?: AxiomGuard[]
 }
+
+/** Which rules' and equations' guard outcomes an execute request collects (`collectGuards`). */
+export interface GuardCollection {
+  /** Rules and equations by `UNIQUE_ID` or label. */
+  axioms: string[]
+  /** The largest entry, in term nodes, the run's cache keeps (default 256). */
+  maxValueSize?: number
+  /** The most polls one entry's evaluation may make (default 1000000); what it stops is 'undecided-stopped'. */
+  recordPolls?: number
+  /** The most entries the run's cache recognizes before it is cleared (default 4096). */
+  cacheKeys?: number
+  /** The most valuation combinations kept per axiom, the least in their order (default 256). */
+  combinationLimit?: number
+}
+
+/**
+ * The guard outcomes of one rule or equation. A node's outcome counts only where it is reached in
+ * written order: an operand of a conjunction where every operand before it is 'true', of a
+ * disjunction where every one before it is 'false'.
+ */
+export interface AxiomGuard {
+  axiom: string
+  /** The nodes of the written `requires`, in preorder. */
+  nodes: GuardNode[]
+  outcomes: GuardOutcome[]
+  /** Distinct valuations of the atoms ('term' and 'predicate' nodes, in preorder) with the guard outcome. */
+  combinations: { atoms: ConditionTruth[]; outcome: GuardOutcome }[]
+  /** Present (true) when a further combination was left out by the limit. */
+  combinationsTruncated?: boolean
+}
+
+export interface GuardNode {
+  /** The conjunct's index, then the operand's index at each level down. */
+  path: number[]
+  shape:
+    | { node: 'connective'; connective: ConditionConnective }
+    | { node: 'equals'; literal: boolean }
+    | { node: 'term' | 'predicate'; term: Kore }
+  reached: GuardNodeOutcome[]
+}
+
+export type GuardNodeOutcome =
+  | 'true'
+  | 'false'
+  | 'undefined'
+  | 'undecided-symbolic'
+  | 'undecided-unevaluated'
+  | 'undecided-stopped'
+
+export type GuardOutcome =
+  | 'held'
+  | 'refuted-false'
+  | 'refuted-undefined'
+  | 'refuted-decided'
+  | 'undecided-no-solver'
+  | 'undecided-solver-unknown'
+  | 'undecided-untranslatable'
+  | 'undecided-inconsistent-path'
+  | 'undecided-solver-error'
+  | 'undecided-simplification'
+  | 'undecided-open'
+  | 'stopped'
 
 /** Which rules' condition entries an execute request records (`collectConditions`). */
 export interface ConditionCollection {
