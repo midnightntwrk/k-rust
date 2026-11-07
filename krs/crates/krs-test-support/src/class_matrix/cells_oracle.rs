@@ -409,9 +409,10 @@ pub const ENTRY_CLASSES: [&str; 24] = [
 ];
 
 /// The classes [`rule_outcome`] answers with: they judge the whole sentence.
-pub const RULE_CLASSES: [&str; 5] = [
+pub const RULE_CLASSES: [&str; 6] = [
     "always-enabled-rule",
     "group-and-descendant",
+    "main-cell-ambiguous",
     "main-cell-not-k",
     "rule-changes-no-cell",
     "unused-configuration-variable",
@@ -422,7 +423,7 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 30] = [
+pub const CODES: [(&str, &str); 31] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
@@ -461,6 +462,7 @@ pub const CODES: [(&str, &str); 30] = [
     ),
     ("instance-list-shape", "krs::analysis::collection-entry"),
     ("instances-on-plain-cell", "krs::analysis::collection-entry"),
+    ("main-cell-ambiguous", "krs::analysis::main-cell"),
     ("main-cell-not-k", "krs::analysis::main-cell"),
     ("map-collection-key", "krs::analysis::map-collection-key"),
     ("map-notation-at-non-map", "krs::analysis::invalid-term"),
@@ -1886,6 +1888,9 @@ fn restates(result: &Entry, subject: &Entry) -> bool {
 ///   its cell's subject entry (a kept `..t` for the rest `t @ ..` it names), so once enabled it
 ///   repeats forever and changes nothing, on either route; a claim is no step and is not judged;
 /// - `unused-configuration-variable`: no initializer value names a configuration variable;
+/// - `main-cell-ambiguous`: the program is placed in more than one computation cell, so none is
+///   the main cell: the main cell is the computation cell that reads the program, and a cell's
+///   name plays no part (P1);
 /// - `main-cell-not-k`: the program is placed in a computation cell, and not in the one named
 ///   `k`, which K takes as the computation cell by its name, whatever order the entries come in.
 #[must_use]
@@ -1929,6 +1934,14 @@ pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Opt
                     return Some("unused-configuration-variable");
                 }
                 // Which entries hold the program is a set: their order states nothing.
+                if *main
+                    && holders()
+                        .filter(|entry| computation(entry))
+                        .nth(1)
+                        .is_some()
+                {
+                    return Some("main-cell-ambiguous");
+                }
                 if *main && holders().any(computation) && !holders().any(k) && entries().any(k) {
                     return Some("main-cell-not-k");
                 }

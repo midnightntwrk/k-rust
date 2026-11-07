@@ -54,8 +54,8 @@ what = "a constant's whole value that rustc cannot parse gets no KRS answer, and
 
 ["S0-14"]
 owner = "S5"
-kind = "bug"
-what = "a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys: it is read as the term it looks its entry up by, which binds no alias's name"
+kind = "diagnostic"
+what = "a readable map read's key at depth 2, below `@` or `|` (`map-key/as-body`, `map-key/or-branch`, `beside-fresh`), is answered by a true reason met before the table's (a function in a pattern before notation in a pattern), and its advice by that reason's; `@` and `|` in a map key are accepted as documented (TRI, 2026-11-07)"
 by_test = { k8 = "S5" }
 
 ["S0-15"]
@@ -99,11 +99,6 @@ owner = "S5"
 kind = "bug"
 what = "a `cells!` group fragment's child content written bare (`hl: [x, ..]`, `mm: k::map![..]`) is refused (`invalid-state-macro`), though readable `G { a: x, .. }` abbreviates to that fragment (P7, design §2.3 `abbreviate`) and a field's value is its child's entry (P1, P6; F-1); S5.3's. The subject half (an open fragment's `..` in a subject, R-F1/S5-F2) landed in lane F (2026-11-05, `positions.rs` `Construct::OpenFragment`); the child half stays: a fragment's children are read as terms, so `mm: k::map![y -> x]` in a pattern is the literal's calls (`function-in-pattern`) and a nested group record's `..` (`wg: Gw { wa: x, .. }`) is refused"
 
-["S5-F3"]
-owner = "S5"
-kind = "bug"
-what = "a `cells!` result that writes the command's `Int` binder `x` over a plain group cell whose subject entry is the open fragment `k::fragment![crate::G { a: y, .. }]` (`sweep/cells/result/frame/x`) is accepted by the table, while its readable and claim twins and `cells/result/frame/x` are `binder-sort` at the spelling: no term is both an `Int` and a `GCell` (P4: sorts are the lattice's, after pairing). The product refuses it `incompatible-binder` at the item, where the table's binder-sort row would answer at the spelling. Unmasked by S5-F2's subject half (lane F, 2026-11-05), which admits the sweep's open group subject"
-
 ["S5-G1"]
 owner = "S5"
 kind = "bug"
@@ -121,8 +116,8 @@ what = "a result on a Map leaf whose subject entry matched the map with a readab
 
 ["S5-H2"]
 owner = "S5"
-kind = "feature"
-what = "a readable result writing an updated instance's Map child with a map read and a rest (`{ Acct { aenv: { v -> x, .. }, ..me }, .. }`) is refused (\"in a term, `map![..]` is a literal\"): P6 reads it as the child's frame write over the subject's `aenv: { v -> y, .. }`, which the M3 limitation refuses at the record's level (design:M3); `cell_entries` admits it at an instance's child, so no `[cell-exception]` can name it until both depart alike (S5.0g item 3b, G4)"
+kind = "diagnostic"
+what = "a readable result writing an updated instance's Map child with a map read and a rest (`{ Acct { aenv: { v -> x, .. }, ..me }, .. }`) is refused as the table says, `map-read-in-result`, by the admission (`cell_entries`, TRI-C), but the macro's term walker meets the child's lowered `map![v -> x, ..]` first and answers `invalid-expression-notation` (\"in a term, `map![..]` is a literal\"): the readable macro's form step judges no instance child's kind, so the collector's refusal never comes first"
 
 ["S5-K1"]
 owner = "S5"

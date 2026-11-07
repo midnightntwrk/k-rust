@@ -369,6 +369,11 @@ code = "krs::analysis::invalid-list-notation"
 doc = "list brackets at a position whose sort is no list (a `KItem` hole), so they name no list"
 advice = "none"
 
+[class.main-cell-ambiguous]
+code = "krs::analysis::main-cell"
+doc = "a configuration with several `KSequence` cells of which more than one reads the `main` variable (`prog: k::k![pgm]` beside `k: k::k![pgm]`): the main cell is the `KSequence` cell that reads it, and a cell's name plays no part (P1), so two readers do not say which one is the computation (S5-M1)"
+advice = "init/main-k/k/k::k![pgm]"
+
 [class.main-cell-not-k]
 code = "krs::analysis::main-cell"
 doc = "a cell named `k` that is not the configuration's main cell (the `KSequence` cell that holds the program): K takes the cell named `k` as the computation cell by its name, so the definition would run its cell-free sentences in another cell than its initializer states"
@@ -6980,6 +6985,23 @@ match = 'cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragmen
 class = "record-remainder-in-cells-term"
 at = "item"
 
+# TRI-C: two programs in two computation cells (S5-M1, ruling R5, as the docs state it), and two
+# refusals by their true class (S5-F3, S5-H2)
+[[refuse]]
+match = 'init/kinds/{code,prog}/k::k![pgm]'
+class = "main-cell-ambiguous"
+at = "item"
+
+[[refuse]]
+match = 'sweep/cells/result/frame/x'
+class = "binder-sort"
+at = "item"
+
+[[refuse]]
+match = '{claim,readable}/g4-d/kinds/account/\{ Acct \{ aenv: \{ v -> x\, .. \}\, ..me \}\, .. \}'
+class = "map-read-in-result"
+at = "spelling"
+
 [accept."cells/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -8681,8 +8703,6 @@ configuration
 </bank>
 """
 
-[accept."init/kinds/code/k::k![pgm]"]
-
 [accept."init/kinds/counter/Some(0)"]
 k = """
 configuration
@@ -10034,8 +10054,6 @@ configuration
 </account>
 </bank>
 """
-
-[accept."init/kinds/prog/k::k![pgm]"]
 
 [accept."init/kinds/seq/[0]"]
 k = """
@@ -12981,8 +12999,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/cells/result/frame/x"]
 
 [accept."sweep/cells/result/job/[k::fragment![crate::Gl { la: x, .. }], ..]"]
 k = """
@@ -16714,8 +16730,6 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 
 [accept."claim/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
 
-[accept."claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
-
 [accept."claim/g5-a/kinds/olist/Some([..r])"]
 k = """
 claim [case-TAG]:
@@ -16868,8 +16882,6 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 
 [accept."readable/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
 same_k_as = ["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
-
-[accept."readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 
 [accept."readable/g5-a/kinds/olist/Some([..r])"]
 same_k_as = ["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
@@ -17026,3 +17038,6 @@ principle = "C-lim: a `cells!` result's map literal with a rest is refused at th
 
 [cell-exception.'sweep-paths/{claim,readable}/{overwrite,result}/{lenv,lomap,qenv,qomap}/\{ y -> x\, .. \}']
 principle = "C-lim: a map read has no result side until M3, below a marked ancestor too; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, judged by its kind and then its path (S1 (b)), and the limitation, a refusal of the form, comes first"
+
+[cell-exception.'{claim,readable}/g4-d/kinds/account/\{ Acct \{ aenv: \{ v -> x\, .. \}\, ..me \}\, .. \}']
+principle = "C-lim: a map read has no result side until M3; an instance record's field value is its Map child's content root (S5.0g fixes review F-1), so P6 reads the updated instance's `aenv: { v -> x, .. }` as the frame write `Cell(k::map![v -> x, ..])`, as its `cells!` twin's fragment child, and the product refuses it as at a group record's child (TRI-C)"

@@ -2080,14 +2080,6 @@ deviation = "krs::analysis::invalid-list-notation @ item"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
 
-["init/kinds/code/k::k![pgm]"]
-finding = "S5-M1"
-deviation = "krs::analysis::main-cell @ item"
-
-["init/kinds/prog/k::k![pgm]"]
-finding = "S5-M1"
-deviation = "krs::analysis::main-cell @ item"
-
 # S5.0g, L4: a readable record naming one of the 2-child group's two children. In a subject it is
 # accepted (S5-L4); in a result it is refused with the descriptor term's code (S0-9).
 # S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
@@ -2423,10 +2415,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/f19-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/cells/result/frame/x"]
-finding = "S5-F3"
-deviation = "krs::analysis::incompatible-binder @ item"
 
 ["sweep/cells/subject/f00-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]"]
 finding = "S5-F2"

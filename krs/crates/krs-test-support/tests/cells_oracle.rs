@@ -4033,9 +4033,16 @@ fn the_main_cell_rule_reads_the_entries_as_a_set() {
         judged(&init(vec![prog_pgm.clone()]), &k_empty),
         Some("main-cell-not-k")
     );
-    // The program in `k` and in `prog`: `k` holds it, in either order.
-    assert_eq!(judged(&init(vec![k_pgm.clone()]), &prog_pgm), None);
-    assert_eq!(judged(&init(vec![prog_pgm.clone()]), &k_pgm), None);
+    // The program in `k` and in `prog`: two computation cells read it, so neither is the main
+    // cell (a cell's name plays no part, P1; ruling R5), in either order.
+    assert_eq!(
+        judged(&init(vec![k_pgm.clone()]), &prog_pgm),
+        Some("main-cell-ambiguous")
+    );
+    assert_eq!(
+        judged(&init(vec![prog_pgm.clone()]), &k_pgm),
+        Some("main-cell-ambiguous")
+    );
     // The program in `k` alone.
     assert_eq!(judged(&init(vec![prog_empty.clone()]), &k_pgm), None);
     assert_eq!(judged(&init(vec![k_pgm]), &prog_empty), None);

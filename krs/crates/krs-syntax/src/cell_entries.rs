@@ -795,8 +795,6 @@ struct Admission<'b> {
     bound: &'b dyn Fn(&str) -> Option<Bound>,
     groups: &'b [GroupKind],
     sorted: bool,
-    /// Whether the entry being judged is inside a collection's instance record.
-    in_instance: bool,
     /// Where the spelling being judged stands inside the entry ([`Located::at`]). A step is
     /// pushed before the spelling it leads to is judged and popped once that spelling is
     /// admitted, so a refusal leaves the path at the spelling it is raised at.
@@ -816,7 +814,6 @@ impl Admission<'_> {
             bound,
             groups,
             sorted: false,
-            in_instance: false,
             path: Vec::new(),
         }
     }
@@ -938,12 +935,13 @@ impl Admission<'_> {
             }
             (Layer::Instances(order), _) => self.instances(*order, below, spelling),
             (Layer::Leaf(_), EntrySpelling::MapRead(map)) => {
-                // Both limitations are the readable record's top-level route's; inside an
-                // instance record a map read is the child's own entry, lowered by its route. A
-                // group record's child is a content root its record's route lowers (a field's
-                // value is its child's content), so a map read with a rest there has the M3
-                // limitation its `cells!` twin `k::map![k -> v, ..]` has.
-                let child = !head && !self.in_instance && map.rest.is_some();
+                // Both limitations are the readable record's top-level route's. A group
+                // record's or an instance record's child is a content root its record's route
+                // lowers (a field's value is its child's content), so a map read with a rest
+                // there has the M3 limitation its `cells!` twin `k::map![k -> v, ..]` has: in a
+                // result it would be the frame write `Cell(k::map![k -> v, ..])`, which a
+                // readable record has no spelling for yet.
+                let child = !head && map.rest.is_some();
                 if (head || child) && self.form.is_readable() && self.side == EntrySide::Result {
                     return Err(Refusal::MapReadInResult);
                 }
@@ -1052,10 +1050,7 @@ impl Admission<'_> {
                         EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
                         Some(Layer::Group(group)),
                     ) => {
-                        let outer = std::mem::replace(&mut admission.in_instance, true);
-                        let judged = admission.group(group, item);
-                        admission.in_instance = outer;
-                        judged?;
+                        admission.group(group, item)?;
                     }
                     // One instance of an ordered collection is its front one.
                     _ if order == Order::List => admission.value(item)?,
@@ -3819,7 +3814,7 @@ mod tests {
     }
 
     #[test]
-    fn a_map_read_is_refused_in_a_result_outside_an_instance_record() {
+    fn a_map_read_with_a_rest_is_refused_in_a_result_at_every_content_root() {
         let readable = EntryForm::Readable;
         let map = [Layer::Leaf(Notation::Map)];
         assert_eq!(
@@ -3842,8 +3837,18 @@ mod tests {
             judge(
                 readable,
                 EntrySide::Result,
-                &[Layer::Instances(Order::Set), obj],
+                &[Layer::Instances(Order::Set), obj.clone()],
                 "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
+            ),
+            Err(Refusal::MapReadInResult)
+        );
+        // An instance record's child without a rest is the exact map, which a result builds.
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Result,
+                &[Layer::Instances(Order::Set), obj],
+                "{ Obj { key: 1, m: { 1 -> 2 } }, .. }"
             ),
             Ok(())
         );
