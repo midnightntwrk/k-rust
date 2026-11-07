@@ -977,15 +977,20 @@ impl<'a> KrsChecks<'a> {
                     edit,
                     format!("{named}: {refusal}"),
                 ),
+                // A registered code is the refusal's reason, which the row states beside the
+                // detail; only a code that is no reason is written in the detail.
                 Refusal::Krs(_) => {
                     let code = refusal.krs_code().unwrap_or_default();
-                    let detail = format!(
-                        "KRS refuses the Rust source this mutation stands for, at {named}: \
-                         {code}: {refusal}"
-                    );
+                    let at =
+                        format!("KRS refuses the Rust source this mutation stands for, at {named}");
                     match krs_diagnostic::codes::static_spelling(&code) {
-                        Some(code) => judged.refuse(code, krs_next(code, false), edit, detail),
-                        None => judged.not_judged(edit, detail),
+                        Some(code) => judged.refuse(
+                            code,
+                            krs_next(code, false),
+                            edit,
+                            format!("{at}: {refusal}"),
+                        ),
+                        None => judged.not_judged(edit, format!("{at}: {code}: {refusal}")),
                     }
                 }
                 _ => judged.not_judged(edit, format!("{named}: {refusal}")),
@@ -1090,8 +1095,9 @@ impl<'a> KrsChecks<'a> {
         judged.refuse(refusal.code, krs_next(refusal.code, listed), first, detail);
     }
 
-    /// The detail of KRS's refusal of the mutation's source: its code and message, the sentences
-    /// it names, and the renderings of the edited constructs the mutation leaves.
+    /// The detail of KRS's refusal of the mutation's source: its message (its code is the row's
+    /// reason), the sentences it names, and the renderings of the edited constructs the mutation
+    /// leaves.
     fn theory_detail(
         &self,
         refusal: &TheoryRefusal,
@@ -1101,8 +1107,7 @@ impl<'a> KrsChecks<'a> {
         siblings: &[Sibling],
     ) -> String {
         let mut detail = format!(
-            "KRS refuses the Rust source this mutation stands for: {}: {}. Sentences: {}",
-            refusal.code,
+            "KRS refuses the Rust source this mutation stands for: {}. Sentences: {}",
             refusal.message.trim_end_matches('.'),
             named
                 .iter()
