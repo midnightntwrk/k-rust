@@ -43,12 +43,14 @@ use super::{Authorship, RuleAuthors};
 /// rules.
 #[derive(Clone, Debug, Default)]
 pub struct MayFollow {
-    /// Per sentence, its rules' left-hand sides and right-hand side alternatives, in the
-    /// definition's order (`None`: a right-hand side that is no term, read as anything).
+    /// Per sentence, its rules' left-hand sides and right-hand side alternatives, in the rewrite
+    /// theory's order, by index then priority (`None`: a right-hand side that is no term, read
+    /// as anything).
     rules: BTreeMap<SentenceRef, Vec<Sides>>,
     edges: BTreeMap<SentenceRef, BTreeSet<SentenceRef>>,
     /// Per edge, the first right-hand side of the source and left-hand side of the target that
-    /// unify, in the definition's order: the pair [`MayFollow::unified`] builds the pattern of.
+    /// unify, in the rewrite theory's order: the pair [`MayFollow::unified`] builds the pattern
+    /// of.
     witnesses: BTreeMap<(SentenceRef, SentenceRef), (Option<Term>, Term)>,
 }
 
@@ -81,11 +83,11 @@ impl MayFollow {
 
     /// The configuration a step of `from` can leave that a rule of `to` can match, as a KORE
     /// pattern: the unifier of the first right-hand side of `from` and left-hand side of `to`
-    /// that unify ([`MayFollow::successors`]), with every abstracted subterm and every variable a
-    /// fresh variable of its sort (`VarW0`, `VarW1`, ... in the order written), so the pattern
-    /// holds free constructors, cells, injections and variables only. Where one side has a
-    /// constructor and the other a variable or an abstracted subterm, the constructor's side is
-    /// taken. `None` where `to` does not follow `from`.
+    /// that unify, in the rewrite theory's order ([`MayFollow::successors`]), with every
+    /// abstracted subterm and every variable a fresh variable of its sort (`VarW0`, `VarW1`, ...
+    /// in the order written), so the pattern holds free constructors, cells, injections and
+    /// variables only. Where one side has a constructor and the other a variable or an abstracted
+    /// subterm, the constructor's side is taken. `None` where `to` does not follow `from`.
     #[must_use]
     pub fn unified(
         &self,
