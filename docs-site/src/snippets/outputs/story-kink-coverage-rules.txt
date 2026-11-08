@@ -10,6 +10,7 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
     ],
     "id": "rule:crate::plus_succ",
     "index": 1,
+    "kind": "rule",
     "krs": {
       "claim_helper": false,
       "column": 4,
@@ -49,6 +50,7 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
     ],
     "id": "rule:crate::plus_zero",
     "index": 2,
+    "kind": "rule",
     "krs": {
       "claim_helper": false,
       "column": 4,
