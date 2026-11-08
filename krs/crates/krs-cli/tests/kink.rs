@@ -102,10 +102,10 @@ impl Machine {
 /// condition reads the looked-up value; and a decode function over `k::bits!` templates, one
 /// with a condition of its own, one without, and one no case matches.
 const GUARDED: &str = r#"use k::builtin::{map, Bool, Int, KSequence, Map};
-use k::{KItem, KResult, Term};
+use k::{KResult, Term};
 
 k::sorts! {
-    Cmd: KItem;
+    Cmd;
 }
 
 #[k::constructors(sort = Cmd, result = KResult)]
