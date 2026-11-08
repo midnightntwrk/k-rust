@@ -302,7 +302,7 @@ fn kink_flow_options_parse_with_the_front_end_files() {
         options.extend(jobs);
         assert_eq!(
             FlowCommand::parse("fuzz", templates.clone(), &strings(&options)).unwrap_err(),
-            "give one job: --kill, --matched, --fired or --pattern",
+            "give one job: --kill, --matched, --fired, --refuted, --cover or --pattern",
             "{jobs:?}"
         );
     }

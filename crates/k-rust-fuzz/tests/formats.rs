@@ -52,10 +52,13 @@ const REPORT_SHAPE: (u32, &str) = (
     "9932c14af0a770e772f07bd6ab04428bea4229f9fc25185400fea2d1116194bd",
 );
 
-/// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds.
+/// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds. Re-pinned
+/// within version 2 by CS-8: the campaign's `TargetKind` gained `coverage` (`CoverageTarget`,
+/// `CoverageFact`), which only a library caller builds and `krust-fuzz` never writes, so every
+/// witness file a target of the other kinds gives serializes as before.
 const WITNESS_SHAPE: (u32, &str) = (
     2,
-    "85a30636b81c3f81a42d7dcd7cbd5281bf63f7d85845041476ad631741dd3531",
+    "e53614d0f6bf7a5088f83904bfbcfab586f7ed18806f469fa273ebe393087959",
 );
 
 /// The witness file's version, as the `krust-fuzz` executable writes it (`replay.rs`): the

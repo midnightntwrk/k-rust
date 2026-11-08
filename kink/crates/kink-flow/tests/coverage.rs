@@ -1577,9 +1577,11 @@ text = 'h(opaque(1), 2)'
         // derives the flips; its fourth has the coverage lock and each flip's recorded killer; its
         // fifth names the observation channels; its sixth reads the argued obligations; its
         // seventh names each horizon's opening; its eighth reads the unique-cause selection; its
-        // ninth lists the heating rules in the rules family.
+        // ninth lists the heating rules in the rules family; its tenth gives a run with several
+        // paths its prefix sets' facts; its eleventh spells `fuzz --cover` in the targets of
+        // requirements, productions, field values, heating rules and equations.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 10);
+        assert_eq!(document["version"], 11);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1777,7 +1779,10 @@ text = 'h(opaque(1), 2)'
         assert!(text.contains("as its argument 2"), "{text}");
         assert!(text.contains("did not"), "{text}");
         assert_eq!(right["programs"], json!(["nested", "inline"]));
-        assert_eq!(right["fuzz"], json!(null));
+        assert_eq!(
+            right["fuzz"],
+            json!("kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --cover rule:mul:heat:2")
+        );
         let never = target("rule:neg:heat:1")["text"].as_str().unwrap();
         assert!(never.contains("brings neg to the front"), "{never}");
         assert!(never.contains("as its argument 1"), "{never}");

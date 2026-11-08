@@ -54,12 +54,16 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// refusal's stage and reason are arguments of `Refusal::new` and its `job.status` a constant,
 /// neither of which the reader takes. Version 12 adds `z3` under the Z3 profile, the Z3 build the
 /// confirmations were decided on; the digest is unchanged, since the member is written by
-/// `kink_flow::with_z3_build` in `src/lib.rs`, which the reader does not read.
+/// `kink_flow::with_z3_build` in `src/lib.rs`, which the reader does not read. Version 13 adds the
+/// coverage-gap jobs `--refuted` and `--cover`; the digest moved by the key `item` alone, since
+/// their job kinds are computed by `FuzzJob::kind`, their refusal's stage and reasons are
+/// arguments of `Refusal::new`, and their confirmation statuses are values of a `match` the
+/// reader does not take.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    12,
+    13,
     10,
     2,
-    "db1dcbf4eccef2f2914fdd247eb52717691720a05e85b25617e677bf04c62492",
+    "9048966198fe94b79a6bce603c65fcfa9bce7574fe41cec278d31de6e7ff12b4",
 );
 
 /// `source` without `//` comments, string literals kept whole.
