@@ -58,11 +58,11 @@
 //!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after its
 //!    work returns. [`Backend::prove_kore`] reports a cancellation as that `Err` unless the proof's
 //!    verdict no longer depends on the work the cancellation prevented (`ProofResult::settled`):
-//!    it keeps `Ok` when no state it left unexplored could add a leaf at most as deep as the
-//!    proof's horizon, the depth of its `max_counterexamples`-th shallowest leaf that is not
-//!    proven (any state, before it has that many), or when a certified refutation (`disproved`)
-//!    lies no deeper than every state it left. Any other cancelled proof could change status if
-//!    it went on, so it is the `Err`. A failed solver prelude is always an `Err`. So a cancelled
+//!    it keeps `Ok` when it found a certified refutation (`disproved`), or when no state it left
+//!    unexplored could add a leaf at most as deep as the proof's horizon, the depth of its
+//!    `max_counterexamples`-th shallowest leaf that is not proven (any state, before it has that
+//!    many), and no refinement of a leaf set the cancellation aside. Any other cancelled proof
+//!    could change status if it went on, so it is the `Err`. A failed solver prelude is always an `Err`. So a cancelled
 //!    operation answers `Err` with the `Cancelled` cause, except a cancellation observed during an
 //!    execution (under the default `cancelledResult: partial`) or search run, which is a
 //!    `cancelled` leaf or entry, and a proof whose verdict it could not change.
@@ -2207,9 +2207,11 @@ pub struct ProveRequest {
     pub min_depth: u64,
     pub breadth_limit: Option<usize>,
     /// How many leaves that are not proven the proof looks for, and at most how many it reports
-    /// (`ProofOptions::max_counterexamples`): it explores every state no deeper than the
-    /// shallowest depth holding that many, and its status is the strongest among the leaves down
-    /// to that depth, whatever order the search reaches them in.
+    /// (`ProofOptions::max_counterexamples`). Breadth-first, it explores every state no deeper
+    /// than the shallowest depth holding that many, and a status other than `disproved` (which a
+    /// certified refutation found anywhere gives) is the strongest among the leaves down to that
+    /// depth, whatever order the search reaches them in. Depth-first (`depth_first`), it ends at
+    /// the last of them, so its status depends on the order the rules are tried in.
     pub max_counterexamples: usize,
     /// Maximum simplifier iterations per proof step, counted as for
     /// `ExecuteRequest::max_simplification_iterations`: determined ground function evaluation

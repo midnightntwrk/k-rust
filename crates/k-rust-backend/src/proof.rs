@@ -2,7 +2,7 @@
 //! id = "backend.proof.search"
 //! name = "reachability-logic proof search"
 //! sites = ["prove_claim", "search_claim", "prepare_destinations", "extend_frontier", "finish_at_breadth_limit", "apply_claim", "stuck_leaf", "terminal_instance_leaf", "report_leaves", "ProofLeaf::proven_vacuously", "ProofLeaf::with_contradicted_total"]
-//! variable = "s = explored states: every state of the search tree no deeper than the depth of its max_counterexamples-th shallowest leaf that is not proven, or within the depth and breadth bounds when it has fewer such leaves; c = circularities; u = states still pending when the breadth limit is reached; l = leaves that are not proven"
+//! variable = "s = explored states: breadth-first, every state of the search tree no deeper than the depth of its max_counterexamples-th shallowest leaf that is not proven, or within the depth and breadth bounds when it has fewer such leaves; depth-first, the states taken until the max_counterexamples-th such leaf; c = circularities; u = states still pending when the breadth limit is reached; l = leaves that are not proven"
 //! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
 //! span = "per problem"
 //! consumes = [
@@ -32,11 +32,12 @@
 //! as a refutation by at most two more satisfiability queries and two more rewrite steps
 //! (`stuck_leaf`); the same refinement can find a terminal counterexample at a refuted
 //! current target before branching on a symbolic continuation (`terminal_instance_leaf` at a
-//! term mismatch). A leaf that is not proven does not end the search by itself: it explores
-//! every state no deeper than its `max_counterexamples`-th shallowest such leaf (the horizon),
-//! or the whole search tree within its bounds when it has fewer, so the claim's status and the
-//! leaves it reports are functions of that tree, not of the order the search took its states in
-//! (`report_leaves`).
+//! term mismatch). Breadth-first, a leaf that is not proven does not end the search by itself:
+//! it explores every state no deeper than its `max_counterexamples`-th shallowest such leaf (the
+//! horizon), or the whole search tree within its bounds when it has fewer, so a status other than
+//! `Disproved` and the leaves reported are functions of that tree, not of the order the search
+//! took its states in (`report_leaves`); a counterexample found anywhere disproves the claim.
+//! Depth-first, it ends at its `max_counterexamples`-th leaf that is not proven.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -95,12 +96,12 @@ pub struct ProofOptions {
     pub min_depth: u64,
     pub breadth_limit: Option<usize>,
     /// How many leaves that are not proven the search looks for, and at most how many the result
-    /// reports. The search ends once it has explored every state no deeper than the
-    /// `max_counterexamples`-th shallowest such leaf of its search tree (the horizon,
+    /// reports. Breadth-first, the search ends once it has explored every state no deeper than
+    /// the `max_counterexamples`-th shallowest such leaf of its search tree (the horizon,
     /// [`horizon`]), so it finishes the depth at which it found the last of them; with fewer such
     /// leaves it explores the whole search tree within the depth and breadth bounds, as a proof
-    /// of the claim does. The claim's status is the strongest among the leaves down to the
-    /// horizon ([`ProofStatus`]).
+    /// of the claim does. Depth-first, it ends at its `max_counterexamples`-th such leaf, so its
+    /// status depends on the order the rules are tried in ([`ProofStatus`]).
     pub max_counterexamples: usize,
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
@@ -109,10 +110,16 @@ pub struct ProofOptions {
     pub moving_average_timeout: bool,
 }
 
+/// The order the proof takes its pending states in.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProofSearchOrder {
+    /// The earliest queued first; the proof explores down to its horizon, so a status that is not
+    /// `Disproved` does not depend on the order of a step's successors ([`ProofStatus`]).
     #[default]
     BreadthFirst,
+    /// The latest queued first, a first-found strategy: the proof ends at its
+    /// `max_counterexamples`-th leaf that is not proven, so its status depends on the order the
+    /// rules are tried in.
     DepthFirst,
 }
 
@@ -141,17 +148,34 @@ impl Default for ProofOptions {
 /// false. Precedence when leaves disagree: `Disproved`, `Failed`, `Indeterminate`, `DepthBound`,
 /// `BreadthBound`.
 ///
-/// The status is the strongest among the leaves of the search tree down to the horizon, the
-/// depth of its `max_counterexamples`-th shallowest leaf that is not proven
-/// ([`ProofOptions::max_counterexamples`]), or among all its leaves when it has fewer: a
-/// function of the set of those leaves, which every order of exploration finds, not of the
-/// order it reaches them in, so not of the order in which a step lists its successors. A
-/// refutation is a fact about the claim, which no other leaf changes; each other status names
-/// why a branch did not reach a proof, and the precedence ranks them by how far the search
-/// settled that branch: followed to a state outside the destination that it did not continue,
-/// then stopped at a question the solver did not answer, then stopped by a spent budget. A
-/// one-path step that follows one of several rules, and a breadth limit, which ends the search
-/// when the frontier first grows past it, still depend on that order.
+/// Only `Proven` and `Disproved` are facts about the claim: every instance reaches the
+/// destination (under the trusted claims the proof assumes), or some instance does not. A
+/// counterexample the search found (a certified refutation) makes the claim `Disproved` however
+/// deep it lies, so which order the search took its states in decides at most whether a true
+/// certificate is found, never the status between two that prove nothing. Each other status is a
+/// function of the search tree, `max_counterexamples` and the bounds, and names why a branch did
+/// not reach a proof: breadth-first (the default), it is the strongest among the leaves no deeper
+/// than the horizon, the depth of the `max_counterexamples`-th shallowest leaf that is not proven
+/// ([`ProofOptions::max_counterexamples`]), or among all leaves when there are fewer. Every order
+/// of exploration finds those leaves, so the status does not depend on the order in which a step
+/// lists its successors. The precedence ranks the reasons by how far the search settled a branch:
+/// followed to a state outside the destination that it did not continue, then stopped at a
+/// question the solver did not answer, then stopped by a spent budget.
+///
+/// What still depends on that order, and on `max_counterexamples`:
+/// - depth-first ([`ProofSearchOrder::DepthFirst`]), the first-found strategy, the proof ends at
+///   its `max_counterexamples`-th leaf that is not proven wherever it lies, so its status is that
+///   of the leaves the order reaches first: a horizon would make it explore every state down to
+///   the horizon, exponentially many in the depth;
+/// - a one-path step follows the first of several rules that apply;
+/// - the breadth limit ends the search when the frontier first grows past it, and how far the
+///   frontier grows before that depends on the order and on the horizon, so on
+///   `max_counterexamples`;
+/// - the instances a step leaves without a successor are reported as `Trivial` leaves grouped by
+///   the step's undefined step, and a candidate counted defined whose successor then denotes no
+///   state takes its own decision against the candidates still counted defined
+///   (`StepUndefinedness`), so which `Trivial` leaves are reported depends on which sibling is
+///   found empty first.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProofStatus {
     Proven,
@@ -255,9 +279,10 @@ impl ProofLeaf {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProofResult {
     pub status: ProofStatus,
-    /// The leaves the result reports: every leaf of a proven claim; otherwise, no deeper than the
-    /// horizon, at most `max_counterexamples` leaves that are not proven, strongest status first,
-    /// then every proven leaf, each in a canonical order of the leaf (`report_leaves`).
+    /// The leaves the result reports: every leaf of a proven claim; otherwise, among every
+    /// counterexample found and the leaves no deeper than the horizon, at most
+    /// `max_counterexamples` leaves that are not proven, strongest status first, then every
+    /// proven leaf, each in a canonical order of the leaf (`report_leaves`).
     pub leaves: Vec<ProofLeaf>,
     pub explored_states: u64,
     pub unexplored_states: u64,
@@ -271,10 +296,11 @@ pub struct ProofResult {
     /// stop stands; `Proven` is not reachable, since states remain unexplored or a leaf that is
     /// not proven was being refined.
     pub stopped: Option<StopCause>,
-    /// Whether the status is the one the search gives without a stop: no stop left unexplored a
-    /// state that could still add a leaf at most as deep as the horizon (`horizon`), or a
-    /// counterexample lies no deeper than every state a stop left, so the status stays
-    /// `Disproved`. Always set when [`ProofResult::stopped`] is `None`.
+    /// Whether the status is the one the search gives without a stop: the search found a
+    /// counterexample, so the status is `Disproved` whatever remains; or no stop left unexplored a
+    /// state that could still add a leaf at most as deep as the horizon (`horizon`; any state
+    /// without one) and no refinement of a leaf forwent a stop. Always set when
+    /// [`ProofResult::stopped`] is `None`.
     pub settled: bool,
 }
 
@@ -381,12 +407,7 @@ pub fn prove_claim(
         fresh_counter,
         &mut unexplored,
     )?;
-    report_leaves(
-        &mut result,
-        &unexplored,
-        options.max_counterexamples,
-        &names,
-    );
+    report_leaves(&mut result, &unexplored, options, &names);
     Ok(result)
 }
 
@@ -397,6 +418,12 @@ struct Unexplored {
     beyond_horizon: u64,
     /// The least depth of a state a stop left unexplored, `None` when no stop left one.
     least_stopped_depth: Option<u64>,
+    /// Whether the search ended at a stop of its own (a step's, or one it polled), rather than
+    /// at the end of its exploration or a bound.
+    stop_exit: bool,
+    /// Whether a stop was observed and forgone while a decided leaf was refined before such a
+    /// stop: that leaf keeps an outcome its refinement might have changed.
+    forgone: bool,
 }
 
 /// The search of [`prove_claim`]: every leaf it found, those [`report_leaves`] does not keep
@@ -443,12 +470,28 @@ fn search_claim(
     let mut horizon_depth = None;
     let mut shallowest_unproven =
         std::collections::BinaryHeap::with_capacity(options.max_counterexamples + 1);
+    // The leaves that are not proven found so far, which end a depth-first search.
+    let mut unproven_found = 0;
     // Record a leaf. A leaf that is not proven may lower the horizon, and the states deeper than
     // it are set aside: no leaf below them is as shallow as the horizon.
     macro_rules! record_leaf {
         ($leaf:expr) => {{
             let leaf: ProofLeaf = $leaf;
-            if !is_proven(&leaf) {
+            let unproven = !is_proven(&leaf);
+            if unproven && options.search_order == ProofSearchOrder::DepthFirst {
+                // Depth-first, the first-found strategy: the proof ends at its
+                // `max_counterexamples`-th leaf that is not proven, wherever it is.
+                unproven_found += 1;
+                leaves.push(leaf);
+                if unproven_found >= options.max_counterexamples {
+                    return Ok(finish_explored(
+                        leaves,
+                        explored_states,
+                        pending.len() as u64,
+                        forgone_stop,
+                    ));
+                }
+            } else if unproven {
                 shallowest_unproven.push(leaf.depth);
                 if shallowest_unproven.len() > options.max_counterexamples {
                     shallowest_unproven.pop();
@@ -464,14 +507,18 @@ fn search_claim(
                     pending.retain(|state: &ProofState| state.depth <= depth);
                     unexplored.beyond_horizon += (before - pending.len()) as u64;
                 }
+                leaves.push(leaf);
+            } else {
+                leaves.push(leaf);
             }
-            leaves.push(leaf);
         }};
     }
     // Note, at a stop, the least depth of the states it leaves unexplored: `pending`, and the
     // state being explored when `$state` is given.
     macro_rules! note_stopped {
         ($($state:expr)?) => {{
+            unexplored.stop_exit = true;
+            unexplored.forgone = forgone_stop.is_some();
             unexplored.least_stopped_depth = pending
                 .iter()
                 .map(|state: &ProofState| state.depth)
@@ -1001,7 +1048,7 @@ fn search_claim(
             );
             match candidate {
                 Ok(Some(leaf)) if leaf.certified => {
-                    record_leaf!(leaf);
+                    record_refined_leaf!(Some(leaf));
                     continue;
                 }
                 Ok(_) => {}
@@ -1547,10 +1594,12 @@ enum TargetRefuted {
     ByTerm,
 }
 
-/// The certified `Stuck` leaf of `state`, a state the destination check showed wholly outside
-/// the destination and to which no claim applies, when its terminal instance
-/// ([`empty_computation_instance`]) refutes the claim: it is non-empty and has no successor.
-/// `None` when the state has no such instance or the instance does not refute it.
+/// The certified `Stuck` leaf of the terminal instance ([`empty_computation_instance`]) of
+/// `state`, a state the destination check showed wholly outside the destination and to which no
+/// claim applies, when that instance refutes the claim: it is non-empty and has no successor.
+/// The leaf is the instance, the configurations that refute the claim, not the state, most of
+/// whose configurations have successors. `None` when the state has no such instance or the
+/// instance does not refute it.
 ///
 /// This is [`stuck_leaf`]'s certification through the instance, conditions (a) and (d) shown of
 /// the instance and (b), (c) of the path (`ProofState::path_certifiable`, checked by the caller),
@@ -1584,9 +1633,13 @@ fn terminal_instance_leaf(
     {
         return Ok(None);
     }
+    let witness = ProofState {
+        pattern: instance,
+        ..state.clone()
+    };
     let Some(mut leaf) = externalise_leaf(
         definition,
-        state.clone(),
+        witness,
         ProofLeafOutcome::Stuck,
         options,
         solver,
@@ -1693,6 +1746,11 @@ fn has_no_successor(
         ),
     }?;
     Ok(matches!(rewritten, RewriteResult::Stuck(_)))
+}
+
+/// Whether `leaf` is a counterexample: a certified refutation of the claim ([`stuck_leaf`]).
+fn is_counterexample(leaf: &ProofLeaf) -> bool {
+    leaf.certified && leaf.outcome == ProofLeafOutcome::Stuck
 }
 
 /// The horizon: the depth of the `max_counterexamples`-th shallowest of the leaves that are not
@@ -2616,62 +2674,65 @@ fn finish(leaves: Vec<ProofLeaf>, explored_states: u64, unexplored_states: u64) 
     }
 }
 
-/// Settle `result`, the search's: its status among the leaves no deeper than the horizon
-/// ([`horizon`]), whether a stop could still change it ([`ProofResult::settled`]), and the leaves
-/// it reports: every leaf of a proven claim, in the order the search found them; otherwise,
-/// among the leaves no deeper than the horizon, the `max_counterexamples` first that are not
-/// proven, then every proven one, each in the order of [`LeafKey`].
+/// Settle `result`, the search's: its status, whether a stop could still change it
+/// ([`ProofResult::settled`]), and the leaves it reports: every leaf of a proven claim, in the
+/// order the search found them; otherwise the `max_counterexamples` first leaves that are not
+/// proven, then every proven one, each in the order of [`LeafKey`], among the leaves no deeper
+/// than the horizon ([`horizon`]) and every counterexample.
 ///
-/// The leaves the search found past the horizon are those the order of its states reached
-/// before it lowered the horizon, so they decide nothing and are not reported; so the status and
-/// the leaves reported are functions of the claim's search tree. Of the leaves that are not
-/// proven, the canonical key is built only for those whose status and depth tie with the last one
-/// kept.
+/// A counterexample (a certified refutation) is a fact about the claim: one the search found
+/// makes the claim `Disproved`, and is reported, however deep it lies. Without one, the status
+/// is the strongest among the leaves no deeper than the horizon. The other leaves the search
+/// found past the horizon are those the order of its states reached before it lowered the
+/// horizon, so they decide nothing and are not reported. A depth-first search has no horizon: it
+/// ended at its `max_counterexamples`-th leaf that is not proven, and its leaves stand as found.
+/// Of the leaves that are not proven, the canonical key is built only for those whose status and
+/// depth tie with the last one kept.
 ///
-/// A stop that left a state unexplored at most as deep as the horizon (any state, without one)
-/// leaves the status open, since that state may still have a leaf as deep: unless a
-/// counterexample lies no deeper than it, which keeps the status `Disproved` whatever the state
-/// adds.
+/// A found counterexample settles the status. Otherwise a stop leaves it open when it left a
+/// state unexplored at most as deep as the horizon (any state, without one), which may still add
+/// a leaf there, or when a stop was forgone while a leaf was refined, since the leaf keeps an
+/// outcome its refinement might have changed.
 fn report_leaves(
     result: &mut ProofResult,
     unexplored: &Unexplored,
-    max_counterexamples: usize,
+    options: ProofOptions,
     names: &RequestNames,
 ) {
+    let max_counterexamples = options.max_counterexamples;
     result.unexplored_states += unexplored.beyond_horizon;
-    let depths = result
-        .leaves
-        .iter()
-        .filter(|leaf| !is_proven(leaf))
-        .map(|leaf| leaf.depth)
-        .collect::<Vec<_>>();
-    let horizon = horizon(&depths, max_counterexamples);
-    result.settled = match unexplored.least_stopped_depth {
-        None => true,
-        Some(stopped) => {
-            horizon.is_some_and(|horizon| stopped > horizon)
-                || result.leaves.iter().any(|leaf| {
-                    leaf_status(leaf) == Some(ProofStatus::Disproved)
-                        && leaf.depth <= stopped.min(horizon.unwrap_or(u64::MAX))
-                })
-        }
+    let refuted = result.leaves.iter().any(is_counterexample);
+    let horizon = match options.search_order {
+        ProofSearchOrder::BreadthFirst => horizon(
+            &result
+                .leaves
+                .iter()
+                .filter(|leaf| !is_proven(leaf))
+                .map(|leaf| leaf.depth)
+                .collect::<Vec<_>>(),
+            max_counterexamples,
+        ),
+        ProofSearchOrder::DepthFirst => None,
     };
-    let Some(horizon) = horizon else {
-        // Fewer leaves that are not proven than the limit: the search ran to its end (or a
-        // stop), and its status stands.
-        if result.status != ProofStatus::Proven {
-            select_leaves(result, max_counterexamples, names);
-        }
-        return;
-    };
-    result.leaves.retain(|leaf| leaf.depth <= horizon);
-    result.status = result
-        .leaves
-        .iter()
-        .filter_map(leaf_status)
-        .min_by_key(|status| precedence(*status))
-        .expect("the horizon is the depth of a leaf that is not proven");
-    select_leaves(result, max_counterexamples, names);
+    let forgone = unexplored.forgone || (result.stopped.is_some() && !unexplored.stop_exit);
+    let left_open = unexplored
+        .least_stopped_depth
+        .is_some_and(|stopped| horizon.is_none_or(|horizon| stopped <= horizon));
+    result.settled = refuted || !(forgone || left_open);
+    if let Some(horizon) = horizon {
+        result
+            .leaves
+            .retain(|leaf| leaf.depth <= horizon || is_counterexample(leaf));
+        result.status = result
+            .leaves
+            .iter()
+            .filter_map(leaf_status)
+            .min_by_key(|status| precedence(*status))
+            .expect("the horizon is the depth of a leaf that is not proven");
+    }
+    if result.status != ProofStatus::Proven {
+        select_leaves(result, max_counterexamples, names);
+    }
 }
 
 /// Keep the `max_counterexamples` first leaves of `result` that are not proven, then every proven
@@ -3550,8 +3611,9 @@ mod tests {
         );
     }
 
-    /// A stop leaves the status settled exactly when the state it left unexplored cannot add a
-    /// leaf as deep as the horizon, or a counterexample lies no deeper than that state.
+    /// A found counterexample settles the status and is reported however deep it lies; without
+    /// one, a stop leaves the status settled exactly when the state it left unexplored cannot add
+    /// a leaf as deep as the horizon and no refinement forwent a stop.
     #[test]
     fn a_stopped_proof_is_settled_only_where_the_states_it_left_cannot_change_its_status() {
         let definition = definition("", "");
@@ -3567,55 +3629,69 @@ mod tests {
             contradicted_total: None,
         };
         let names = RequestNames::default();
-        let settle = |leaves: Vec<ProofLeaf>, stopped: Option<u64>, max_counterexamples| {
-            let mut result = finish(leaves, 1, u64::from(stopped.is_some()));
-            report_leaves(
-                &mut result,
-                &Unexplored {
-                    beyond_horizon: 0,
-                    least_stopped_depth: stopped,
-                },
-                max_counterexamples,
-                &names,
-            );
-            (result.status, result.settled)
-        };
+        let settle =
+            |leaves: Vec<ProofLeaf>, stopped: Option<u64>, forgone: bool, max_counterexamples| {
+                let mut result = finish(leaves, 1, u64::from(stopped.is_some()));
+                report_leaves(
+                    &mut result,
+                    &Unexplored {
+                        beyond_horizon: 0,
+                        least_stopped_depth: stopped,
+                        stop_exit: stopped.is_some(),
+                        forgone,
+                    },
+                    ProofOptions {
+                        max_counterexamples,
+                        ..ProofOptions::default()
+                    },
+                    &names,
+                );
+                (
+                    result.status,
+                    result.settled,
+                    result
+                        .leaves
+                        .iter()
+                        .map(|leaf| leaf.depth)
+                        .collect::<Vec<_>>(),
+                )
+            };
         let failed = |depth| leaf(ProofLeafOutcome::Stuck, false, depth);
         let refuted = |depth| leaf(ProofLeafOutcome::Stuck, true, depth);
 
         assert_eq!(
-            settle(vec![failed(1)], None, 1),
-            (ProofStatus::Failed, true)
+            settle(vec![failed(1)], None, false, 1),
+            (ProofStatus::Failed, true, vec![1])
         );
         // Deeper than the horizon (depth 1): no leaf it adds is reported.
         assert_eq!(
-            settle(vec![failed(1)], Some(2), 1),
-            (ProofStatus::Failed, true)
+            settle(vec![failed(1)], Some(2), false, 1),
+            (ProofStatus::Failed, true, vec![1])
         );
         // As deep as the horizon: it may add a stronger leaf there.
         assert_eq!(
-            settle(vec![failed(1)], Some(1), 1),
-            (ProofStatus::Failed, false)
+            settle(vec![failed(1)], Some(1), false, 1),
+            (ProofStatus::Failed, false, vec![1])
         );
         // No horizon yet (one leaf of two): any state may add a leaf.
         assert_eq!(
-            settle(vec![failed(1)], Some(5), 2),
-            (ProofStatus::Failed, false)
+            settle(vec![failed(1)], Some(5), false, 2),
+            (ProofStatus::Failed, false, vec![1])
         );
-        // A counterexample no deeper than the state left stands.
+        // A refinement forwent a stop: the leaf it refined might have come out otherwise.
         assert_eq!(
-            settle(vec![refuted(1)], Some(1), 2),
-            (ProofStatus::Disproved, true)
+            settle(vec![failed(1)], None, true, 1),
+            (ProofStatus::Failed, false, vec![1])
         );
-        // A deeper one may fall past a horizon the state left lowers.
+        // A counterexample stands, whatever the stop left or forwent.
         assert_eq!(
-            settle(vec![refuted(2)], Some(1), 2),
-            (ProofStatus::Disproved, false)
+            settle(vec![refuted(2)], Some(1), true, 2),
+            (ProofStatus::Disproved, true, vec![2])
         );
-        // Past the horizon a counterexample is not reported, and decides nothing.
+        // Past the horizon a counterexample still disproves the claim, and is reported first.
         assert_eq!(
-            settle(vec![failed(1), refuted(2)], None, 1),
-            (ProofStatus::Failed, true)
+            settle(vec![failed(1), refuted(2)], None, false, 1),
+            (ProofStatus::Disproved, true, vec![2])
         );
     }
 
@@ -7727,8 +7803,10 @@ mod tests {
 
     /// After `go`, the state `cfg(T, b())` mismatches the destination `cfg(T, c())` at the
     /// constructors `b` and `c`, under every instance of `T`: no instance is in the destination.
-    /// It still has successors (where `T` holds another `go`), but its terminal instance
-    /// `cfg(.K, b())` has none, so the claim is disproved at that state, depth 1.
+    /// It still has successors (where `T` holds another `go`), so it is no dead end, but its
+    /// terminal instance `cfg(.K, b())` has none: the claim is disproved at depth 1, with that
+    /// instance as the leaf. Without the certification at a term mismatch the claim is
+    /// indeterminate (the narrowing of `T` is undecided without a solver).
     #[test]
     fn a_term_mismatch_certifies_the_terminal_instance_of_a_symbolic_state() {
         let definition = definition(TERMINAL_INSTANCE, NEVER_C);
@@ -7747,7 +7825,7 @@ mod tests {
         assert_eq!(leaf.depth, 1, "{leaf:#?}");
         assert_eq!(
             leaf.pattern.term,
-            term(&definition, "cfg{}(T:SortK{}, b{}())"),
+            term(&definition, "cfg{}(dotk{}(), b{}())"),
             "{leaf:#?}"
         );
     }
@@ -7782,31 +7860,62 @@ mod tests {
         );
     }
 
-    /// The ground dead end `cfg(.K, b())`, which mismatches the destination `cfg(.K, c())` at a
-    /// constructor, is a certified refutation.
+    /// `start(N)` steps to `start(N - 1)` by either of two rules while `N > 0`, so its search tree
+    /// below `start(40)` has `2^40` states at depth 40, each the stuck `start(0)`, a certified
+    /// refutation of `start(40) => c()`. Depth-first, the first-found strategy, ends at its first
+    /// leaf that is not proven: 41 states, where a horizon of depth 40 would explore all of them.
     #[test]
-    fn a_ground_constructor_mismatch_dead_end_is_disproved() {
-        let definition = definition(
-            TERMINAL_INSTANCE,
-            r#"
+    fn a_depth_first_proof_ends_at_its_first_leaf_that_is_not_proven() {
+        let rules = r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+            symbol start{}(SortInt{}) : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    start{}(N:SortInt{}),
+                    \equals{SortBool{}, SortS{}}(
+                        gtInt{}(N:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \and{SortS{}}(start{}(subInt{}(N:SortInt{}, \dv{SortInt{}}("1"))), \top{SortS{}}())
+            ) [label{}("down-one")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    start{}(N:SortInt{}),
+                    \equals{SortBool{}, SortS{}}(
+                        gtInt{}(N:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \and{SortS{}}(start{}(subInt{}(N:SortInt{}, \dv{SortInt{}}("1"))), \top{SortS{}}())
+            ) [label{}("down-two")]
+        "#;
+        let claims = r#"
             claim{} \implies{SortS{}}(
-                \and{SortS{}}(\top{SortS{}}(), cfg{}(kseq{}(go{}(), dotk{}()), a{}())),
-                weakAlwaysFinally{SortS{}}(\and{SortS{}}(cfg{}(dotk{}(), c{}()), \top{SortS{}}()))
-            ) [label{}("ground-never-c")]
-            "#,
-        );
+                \and{SortS{}}(\top{SortS{}}(), start{}(\dv{SortInt{}}("40"))),
+                weakAlwaysFinally{SortS{}}(\and{SortS{}}(c{}(), \top{SortS{}}()))
+            ) [label{}("forty")]
+        "#;
+        let definition = definition(rules, claims);
         let result = prove_claim(
             &definition,
-            claim_with_label(&definition, "ground-never-c"),
-            ProofOptions::default(),
+            claim_with_label(&definition, "forty"),
+            ProofOptions {
+                search_order: ProofSearchOrder::DepthFirst,
+                ..ProofOptions::default()
+            },
             &NoSolver,
         )
         .unwrap();
         assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        assert_eq!(result.explored_states, 41, "{result:#?}");
         assert!(
-            matches!(result.leaves.as_slice(), [leaf]
-                if leaf.certified
-                    && leaf.pattern.term == term(&definition, "cfg{}(dotk{}(), b{}())")),
+            matches!(result.leaves.as_slice(), [leaf] if leaf.certified && leaf.depth == 40),
             "{result:#?}"
         );
     }

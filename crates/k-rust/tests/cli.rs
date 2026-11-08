@@ -24864,10 +24864,10 @@ endmodule
     };
     // .K can still move, so execution continues to halt at depth 3, which is terminal outside the
     // target. The part of the depth-2 state whose frame no rule takes is a dead end the proof
-    // does not certify, and it is shallower: with one leaf that is not proven asked for, the
-    // proof ends at depth 2, `failed`. With two, it goes on to depth 3, where halt certifies the
-    // refutation.
-    assert_eq!(leaves(&[]), [failed_stuck_leaf("frame-restarts")]);
+    // does not certify, and it is shallower, but the certified halt the search found refutes the
+    // claim however deep it lies: it is the leaf reported, and with two asked for, the
+    // uncertified dead end too.
+    assert_eq!(leaves(&[]), [refuted_leaf("frame-restarts")]);
     assert_eq!(
         leaves(&["--max-counterexamples", "2"]),
         [(

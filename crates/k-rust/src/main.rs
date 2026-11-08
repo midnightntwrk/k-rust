@@ -1098,7 +1098,8 @@ struct KproveArgs {
     breadth_limit: Option<usize>,
 
     /// End a proof once it has explored every state as deep as its COUNT-th shallowest leaf that
-    /// is not proven, and print at most COUNT such leaves.
+    /// is not proven (depth-first: at its COUNT-th such leaf), and print at most COUNT such
+    /// leaves.
     #[arg(long, default_value = "1", value_name = "COUNT")]
     max_counterexamples: NonZeroUsize,
 
@@ -1118,7 +1119,9 @@ struct KproveArgs {
     #[arg(long)]
     allow_vacuous: bool,
 
-    /// Select breadth-first or depth-first proof graph traversal.
+    /// Select breadth-first or depth-first proof graph traversal. Depth-first is a first-found
+    /// strategy: the proof ends at its first leaves that are not proven, so a status other than
+    /// proven or disproved depends on the order the rules are tried in.
     #[arg(long, value_enum, default_value_t = GraphSearchArg::BreadthFirst)]
     graph_search: GraphSearchArg,
 
