@@ -80,7 +80,44 @@ pub struct Mutation {
     /// mistake an author could make, and a reviewer judges it and a survivor's next program by
     /// what it says. It enters no digest and no key.
     pub misunderstanding: String,
+    /// The verdict the author claims the corpus gives the mutation (key `expect`), when the list
+    /// states one: [`Expect::Survive`] for a control, a mutation no program of the corpus should
+    /// distinguish from the specification, [`Expect::Kill`] for a mistake the corpus must catch.
+    /// `run` checks it against the row's status ([`crate::report::mutation_expectation`]); it
+    /// changes no verdict and enters no digest, key, memo or lock.
+    pub expect: Option<Expect>,
     pub edits: Vec<EditSpec>,
+}
+
+/// The verdict a mutation states it expects ([`Mutation::expect`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Expect {
+    /// `expect = "survive"`: no program of the corpus distinguishes the mutant from the
+    /// specification.
+    Survive,
+    /// `expect = "kill"`: some program of the corpus distinguishes it.
+    Kill,
+}
+
+impl Expect {
+    /// The value as the list and the run document write it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Survive => "survive",
+            Self::Kill => "kill",
+        }
+    }
+
+    /// The value the list writes as `text`, if it is one.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "survive" => Some(Self::Survive),
+            "kill" => Some(Self::Kill),
+            _ => None,
+        }
+    }
 }
 
 /// One `[[mutation.edit]]`.
@@ -256,7 +293,20 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
         &join(&position, "id"),
     )?;
     let key = mutation_key(&id);
-    known_keys(entry, &key, &["id", "misunderstanding", "note", "edit"])?;
+    known_keys(
+        entry,
+        &key,
+        &["id", "misunderstanding", "note", "expect", "edit"],
+    )?;
+    let expect = match entry.get("expect") {
+        None => None,
+        Some(value) => Some(value.as_str().and_then(Expect::parse).ok_or_else(|| {
+            ManifestError::new(
+                join(&key, "expect"),
+                "expected \"survive\" or \"kill\": the verdict the corpus gives the mutation",
+            )
+        })?),
+    };
     let edits = match entry.get("edit") {
         Some(Value::Array(edits)) if !edits.is_empty() => edits
             .iter()
@@ -296,6 +346,7 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
     Ok(Mutation {
         id,
         misunderstanding,
+        expect,
         edits,
     })
 }

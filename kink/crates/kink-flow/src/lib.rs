@@ -96,7 +96,7 @@ pub use manifest::{
     SpecSection, StopSection, StopWhenSection, StopWhenSlot,
 };
 pub use mutation::{
-    EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,
+    EditAction, EditSpec, EditedRule, Expect, InvalidMutation, InvalidReason, LabelMatch, Mutation,
     MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_rule, label_match, resolve,
     rule_texts,
 };

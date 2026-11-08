@@ -31,7 +31,7 @@ use kink_corpus::ProgramSource;
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_UNASKED, execute},
+    cli::{EXIT_NO, EXIT_UNASKED, execute},
     coverage::CoverageOptions,
     fuzz::{
         AssemblyCheck, FuzzJob, FuzzOptions, TemplateList, TemplateSource, check_assembly,
@@ -1588,6 +1588,55 @@ note = "narrows the pattern to a nonzero second argument"
         assert_eq!(confirmation["killer"], document["program"]["id"]);
         let fragment = document["program"]["fragment"].as_str().unwrap();
         assert!(fragment.contains("go(14, 0)"), "{fragment}");
+    }
+
+    /// A kill job of a mutation expected to survive is not refused: the search is an attempt to
+    /// refute the expectation, it says so up front, and the witness it finds is a finding (exit
+    /// status 1) whose action says what it shows. The job is the one above, whose witness kink
+    /// confirms, on a copy of the list in which the mutation expects to survive.
+    #[test]
+    #[ignore = "kink"]
+    fn a_witness_of_a_mutation_expected_to_survive_is_a_finding() {
+        let dir = scratch("expected-to-survive");
+        flow_support::copy_dir(&flow("diamonds"), &dir);
+        let list = dir.join("MUTATIONS.toml");
+        let text = fs::read_to_string(&list).unwrap().replacen(
+            "id = \"end-guard-dropped\"\n",
+            "id = \"end-guard-dropped\"\nexpect = \"survive\"\n",
+            1,
+        );
+        assert!(text.contains("expect = \"survive\""), "{text}");
+        fs::write(&list, text).unwrap();
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            None,
+            "divisor",
+            "end-guard-dropped",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(100)
+            },
+        );
+        assert!(ok, "{:#}", document["action"]);
+        assert_eq!(
+            document["job"]["expect"], "survive",
+            "{:#}",
+            document["job"]
+        );
+        assert!(
+            warning_kinds(&document).contains(&"expected-to-survive"),
+            "{:#}",
+            document["warnings"]
+        );
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        assert_eq!(document["attempts"][0]["confirmation"]["status"], "killed");
+        assert_eq!(kink_flow::cli::fuzz_status(&document), EXIT_NO);
+        let action = document["action"].as_str().unwrap();
+        assert!(
+            action.starts_with("the mutation expects to survive, and this program distinguishes"),
+            "{action}"
+        );
     }
 
     /// A mutation kink refuses ends the command with kink's status and reason; nothing is fuzzed.

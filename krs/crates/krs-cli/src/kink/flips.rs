@@ -191,6 +191,7 @@ impl DerivedFlip {
         Mutation {
             id: self.id.clone(),
             misunderstanding: String::new(),
+            expect: None,
             edits: self.edits.clone(),
         }
     }

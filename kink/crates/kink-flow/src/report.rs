@@ -23,6 +23,12 @@
 //!   neither `agree` nor `distinguish`, a `cause` read from the runner's evidence for that run;
 //! - `action`: what the status asks of the LLM.
 //!
+//! A mutation that states the verdict it expects (`expect`, [`crate::Expect`]) has its
+//! expectation checked against its row's status ([`mutation_expectation`]): `met`, `unmet` or
+//! `inconclusive`, in the row's `expectation` and the document's `expectations`. It changes no
+//! status, no digest, no key and no lock line: it is checked again from the row on every run,
+//! cached or live, and joins only the exit status (`crate::cli::run_status`).
+//!
 //! At the top level, `survivors` names the mutations no program killed that a new program could
 //! kill (status `survived`, `timeout` or `unknown`), `unusable_programs` lists once every
 //! program that cannot kill (its result class is not `comparable`), with its class and cause,
@@ -133,7 +139,7 @@ use kink_native::{bridge::OpenApplication, execution::SolverProfile};
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -244,8 +250,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `kink-k-sets/1` ([`crate::evidence::K_SET_EVIDENCE_VERSION`]); 36 since a program row's
 /// `observations` for a run with several paths gives its prefix sets' facts, `{paths, real,
 /// channels: [{name, complete_to}], horizon}`, where version 35 showed each channel open at 0 by
-/// `branch` whatever was explored.
-pub const RUN_VERSION: u64 = 36;
+/// `branch` whatever was explored; 37 since a mutation can state the verdict it expects
+/// (`expect`, [`crate::Expect`]): every row carries `expect` (`survive`, `kill` or null) and
+/// `expectation` (null without `expect`, else `{verdict, detail}`, [`mutation_expectation`]), a
+/// met control's `survived` row asks nothing ([`EXPECTED_SURVIVOR_ACTION`]), and the document
+/// carries `expectations`, the ids of the rows whose expectation is met, unmet and inconclusive.
+pub const RUN_VERSION: u64 = 37;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
@@ -1294,6 +1304,179 @@ fn slot_cause(outcome: OracleOutcome, mutant: Option<&OracleSide>, budget: Budge
             _ => "the comparison failed".into(),
         },
     }
+}
+
+/// The action of a `survived` row whose mutation expects to survive, met
+/// ([`mutation_expectation`]): the run asks nothing of a control the corpus does not kill.
+pub const EXPECTED_SURVIVOR_ACTION: &str = "nothing: it survived, as its expectation states";
+
+/// The `expectation` member of a mutation row whose mutation states `expect` (the row's own
+/// `expect`, [`crate::Expect`]): `{verdict, detail}`, `verdict` `met`, `unmet` or `inconclusive`
+/// as the row's `status` answers the claim, null for a row without `expect`. It is a function of
+/// the row's status, which does not depend on the schedule, so it is the same under `--full` and
+/// first-kill; `detail` names what the row says against the claim (the killers, the status, the
+/// programs left undecided), and says when a met control is vacuous.
+///
+/// - `killed`: a kill is a difference in every model, so a control's claim is false of the
+///   corpus (unmet) and a kill expectation's met.
+/// - `survived`: no program distinguished, so a control is met and a kill expectation unmet.
+/// - `equivalent`, `unkillable`: no program of any corpus can kill the mutant, which a control's
+///   claim follows from (met, but vacuous: it tests no observation) and a kill expectation's
+///   contradicts (unmet).
+/// - `timeout`, `unknown`: kink could not decide whether some program distinguishes, so the claim
+///   is neither confirmed nor refuted (inconclusive).
+/// - every other status (`invalid-mutation`, `not-admitted`, `error`): no verdict exists to check
+///   (inconclusive); the row's own status already fails the run.
+#[must_use]
+pub fn mutation_expectation(row: &Value) -> Value {
+    let Some(expect) = row["expect"].as_str().and_then(crate::Expect::parse) else {
+        return Value::Null;
+    };
+    let survive = expect == crate::Expect::Survive;
+    let expected = if survive {
+        "expected to survive"
+    } else {
+        "expected to be killed"
+    };
+    let status = row["status"].as_str().unwrap_or("no status");
+    let (verdict, detail) = match status {
+        "killed" if survive => (
+            "unmet",
+            Some(format!("{expected}, killed by {}", killers(row))),
+        ),
+        "killed" => ("met", None),
+        "survived" if survive => ("met", None),
+        "survived" => ("unmet", Some(format!("{expected}, survived"))),
+        "equivalent" | crate::search::UNKILLABLE if survive => (
+            "met",
+            Some(format!(
+                "vacuous: the mutant is {status}, so no program of any corpus can kill it, and the \
+                 expectation tests no observation"
+            )),
+        ),
+        "equivalent" | crate::search::UNKILLABLE => (
+            "unmet",
+            Some(format!(
+                "{expected}, {status}: no program of any corpus can kill it"
+            )),
+        ),
+        "timeout" | "unknown" => (
+            "inconclusive",
+            Some(format!(
+                "{expected}, {}: not confirmed",
+                undecided(row, status)
+            )),
+        ),
+        _ => (
+            "inconclusive",
+            Some(format!(
+                "{expected}, but it has no verdict: {}",
+                with_reason(row, status)
+            )),
+        ),
+    };
+    json!({"verdict": verdict, "detail": detail})
+}
+
+/// The programs that killed a row: its `killed_by` (`--full`), else its `killer`.
+fn killers(row: &Value) -> String {
+    let all = row["killed_by"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if all.is_empty() {
+        row["killer"].as_str().unwrap_or("a program").to_owned()
+    } else {
+        all.join(", ")
+    }
+}
+
+/// `status` with each program the row's search left undecided and its cause (`executed` entries
+/// whose outcome is neither `agree` nor `distinguish`), or with the row's reason when it names
+/// none.
+fn undecided(row: &Value, status: &str) -> String {
+    let programs = row["executed"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry["outcome"] != "agree" && entry["outcome"] != "distinguish")
+        .filter_map(|entry| {
+            let program = entry["program"].as_str()?;
+            let cause = entry["cause"]
+                .as_str()
+                .or_else(|| entry["outcome"].as_str())
+                .unwrap_or("undecided");
+            Some(format!("{program}: {cause}"))
+        })
+        .collect::<Vec<_>>();
+    if programs.is_empty() {
+        with_reason(row, status)
+    } else {
+        format!("{status} ({})", programs.join("; "))
+    }
+}
+
+/// `status`, with the row's reason in parentheses when it has one.
+fn with_reason(row: &Value, status: &str) -> String {
+    match row["reason"].as_str() {
+        Some(reason) => format!("{status} ({reason})"),
+        None => status.to_owned(),
+    }
+}
+
+/// Each row's `expectation` ([`mutation_expectation`]), and the `survived` row of a met control
+/// asks nothing ([`EXPECTED_SURVIVOR_ACTION`]); the run document's `expectations`: the ids of the
+/// rows whose expectation is `met`, `unmet` and `inconclusive`, in row order.
+pub fn check_expectations(mutations: &mut [Value]) -> Value {
+    let mut verdicts = BTreeMap::from([
+        ("met", Vec::new()),
+        ("unmet", Vec::new()),
+        ("inconclusive", Vec::new()),
+    ]);
+    for row in mutations {
+        let expectation = mutation_expectation(row);
+        if let Some(ids) = expectation["verdict"]
+            .as_str()
+            .and_then(|verdict| verdicts.get_mut(verdict))
+        {
+            ids.push(row["id"].clone());
+        }
+        if row["status"] == "survived"
+            && row["expect"] == crate::Expect::Survive.as_str()
+            && expectation["verdict"] == "met"
+        {
+            row["action"] = json!(EXPECTED_SURVIVOR_ACTION);
+        }
+        row["expectation"] = expectation;
+    }
+    json!(verdicts)
+}
+
+/// One line per mutation row of a run document whose expectation is unmet or inconclusive
+/// (`mutation ID: DETAIL`), in row order, which both front ends print on stderr whatever the
+/// output format: a run that fails on an expectation says which.
+#[must_use]
+pub fn expectation_lines(document: &Value) -> Vec<String> {
+    document["mutations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| {
+            matches!(
+                row["expectation"]["verdict"].as_str(),
+                Some("unmet" | "inconclusive")
+            )
+        })
+        .map(|row| {
+            format!(
+                "mutation {}: {}",
+                row["id"].as_str().unwrap_or("?"),
+                row["expectation"]["detail"].as_str().unwrap_or("no detail")
+            )
+        })
+        .collect()
 }
 
 /// The ids of the survivors among the document's mutation rows, in run order.

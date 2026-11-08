@@ -49,7 +49,7 @@ Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { d
    Every run report lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
    It reports the survivors: mutations no program kills.
-   For each survivor, write a program that kills it, or argue that no program can and drop the mutation, or keep it with the argument in its `misunderstanding`; then run again.
+   For each survivor, write a program that kills it, or argue that no program can and drop the mutation, or keep it with the argument in its `misunderstanding` and `expect = "survive"`, which makes `run` fail if a program ever kills it; then run again.
    An argued survivor stays `survived`: the status `equivalent` is only that of a mutant kink shows to be the specification: one that compiles to the baseline's definition, or whose every edit only adds to an equation's `requires` a condition that holds of every value of its variables' sorts (reason `valid-condition`).
    Each proved outcome of a mutation on a program is cached, so a later run with the same specification, budget and kink build
    re-checks a killed mutation with no run at all, and runs a survivor only on the programs added since.
@@ -438,7 +438,7 @@ for the whole final configuration it gives each side's number of final configura
 
 A survivor its author argues no program can kill stays `survived`: kink decides two such cases by itself, `equivalent` for a mutant it shows to be the specification (it compiles to the baseline's definition, or its edits only add conditions that hold everywhere) and `unkillable` for an edit that only weakens the specification, and an author's argument is neither.
 Swapping the operands of `+Int`, for example, changes no result, yet its mutant is another definition and its edit is no weakening, so it survives every program.
-Argue why, then drop it from `MUTATIONS.toml`, or keep it with the argument in its `misunderstanding`.
+Argue why, then drop it from `MUTATIONS.toml`, or keep it with the argument in its `misunderstanding` and `expect = "survive"`: the mutation is then a control, and `run` exits 1 naming it when a program kills it (kink-flow README, "`MUTATIONS.toml`").
 
 ### Reading the report
 

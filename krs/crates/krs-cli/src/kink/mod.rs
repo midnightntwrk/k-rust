@@ -1335,6 +1335,12 @@ fn finish(
             .into_iter()
             .map(|line| format!("krs kink: {line}")),
     );
+    // A mutation's expectation the run does not meet, or cannot confirm: one line each.
+    outcome.notes.extend(
+        kink_flow::report::expectation_lines(document)
+            .into_iter()
+            .map(|line| format!("krs kink: {line}")),
+    );
     match output {
         OutputFormat::Json => outcome.json(document, status),
         OutputFormat::Text => match kink_flow::coverage::text(document) {

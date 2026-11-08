@@ -1112,6 +1112,38 @@ fn the_resolution_key_pins_every_field_of_the_edits() {
     }
 }
 
+/// A mutation's expectation is checked against its row after the search and is no input of its
+/// resolution: the resolution key and the record path of a mutation do not move when it states
+/// one.
+#[test]
+fn the_resolution_key_does_not_name_the_expectation() {
+    let list = MutationList::decode(&field_list()).unwrap();
+    let spec = kink_patch::sha256(b"a specification");
+    let build = kink_patch::sha256(b"a build");
+    let cache = Path::new("/nonexistent");
+    for mutation in &list.mutations {
+        assert_eq!(mutation.expect, None, "{}", mutation.id);
+        for expect in [kink_flow::Expect::Survive, kink_flow::Expect::Kill] {
+            let expecting = Mutation {
+                expect: Some(expect),
+                ..mutation.clone()
+            };
+            assert_eq!(
+                memo::resolution_key(spec, build, budget(), &expecting),
+                memo::resolution_key(spec, build, budget(), mutation),
+                "{} {expect:?}",
+                mutation.id
+            );
+            assert_eq!(
+                memo::resolution_path(cache, spec, &expecting),
+                memo::resolution_path(cache, spec, mutation),
+                "{} {expect:?}",
+                mutation.id
+            );
+        }
+    }
+}
+
 /// Re-pin L1-4-tail (review L1-4-2 N1): both memo keys name every input, each as a member built
 /// here (`resolution_key_of`, `census_key_of`): the memo version, kink's build, kink's semantics
 /// identity (`kink_campaign::kink_identity`, a constant of this build, which no stale key made

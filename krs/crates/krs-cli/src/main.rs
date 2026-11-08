@@ -292,7 +292,8 @@ The loop:
   2. write mutations (mutations/<topic>.toml); krs kink check until it exits 0
   3. krs kink run; for each survivor write a case that kills it, or argue that no case
      can and drop the mutation, or keep it with the argument in its misunderstanding
-     (its status stays survived); run again (cached outcomes are not re-run)
+     and expect = \"survive\" (its status stays survived, and run fails if a case kills
+     it); run again (cached outcomes are not re-run)
   4. commit definition.k, verdicts.lock and coverage.lock with the corpus; CI runs krs kink
      emit --check, krs kink run --locked and krs kink coverage --locked
 
@@ -300,6 +301,7 @@ A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
   [[mutation]]
   id = \"drops-succ\"
   misunderstanding = \"loses one at every step\"   # required: the mistake it writes down
+  expect = \"kill\"                                # optional, \"kill\" or \"survive\": run fails when unmet
     [[mutation.edit]]                            # one or more, applied together
     rule = \"plus_succ\"                           # the label, or a suffix of its -- components;
                                                  # never line =, which moves with every emission

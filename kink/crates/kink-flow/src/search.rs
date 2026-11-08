@@ -182,7 +182,8 @@ use crate::{
     manifest::{Budget, FlowManifest},
     memo::{self, Facts, MemoUse},
     mutation::{
-        EditedRule, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve, rule_texts,
+        EditedRule, Expect, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve,
+        rule_texts,
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
@@ -1323,6 +1324,7 @@ impl Search<'_, '_> {
         row.insert("id".into(), json!(mutation.id));
         // The row's `note` is the mutation's misunderstanding (its key keeps the run schema).
         row.insert("note".into(), json!(mutation.misunderstanding));
+        row.insert("expect".into(), json!(mutation.expect.map(Expect::as_str)));
         let resolved = match resolution {
             Ok(resolved) => resolved,
             Err(e) => return (invalid(row, e.clone(), Value::Null), false),
@@ -1456,6 +1458,7 @@ impl Search<'_, '_> {
         row.insert("id".into(), json!(mutation.id));
         // The row's `note` is the mutation's misunderstanding (its key keeps the run schema).
         row.insert("note".into(), json!(mutation.misunderstanding));
+        row.insert("expect".into(), json!(mutation.expect.map(Expect::as_str)));
         row.insert("digest".into(), json!(facts.digest.to_string()));
         row.insert("rules".into(), rules_value(&facts.rules));
         self.search_facts(mutation, row, facts, None)
@@ -3977,6 +3980,8 @@ fn document(
             hides.annotate_survivor(row);
         }
     }
+    // Each row's expectation, from its status: the same on every run of the same verdicts.
+    let expectations = crate::report::check_expectations(&mut mutations);
     let survivors = survivors(&mutations);
     // The kill matrix of a full run, from its rows (`report::matrix`); null under first-kill, whose
     // rows hold only the cells up to the first kill, and when the specification is refused.
@@ -4021,6 +4026,7 @@ fn document(
         "mutations": mutations,
         "counts": counts,
         "survivors": survivors,
+        "expectations": expectations,
         "result": accounting.result,
         "stopped": stopped,
         "outcome_cache": accounting.outcome_cache,

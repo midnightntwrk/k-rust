@@ -103,7 +103,7 @@ use crate::{
     cli::{CommandSpelling, FrontEnd, Verb},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
-    mutation::{InvalidReason, MutationList, RuleText, resolve, rule_texts},
+    mutation::{Expect, InvalidReason, MutationList, RuleText, resolve, rule_texts},
     pattern::{INVALID_PATTERN, Lowering, PatternList, Searcher},
     report::claims_value,
     results::kebab,
@@ -210,8 +210,13 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// climb beside blind sampling, and has the confirmation statuses `covered` and `not-covered`
 /// (reason `listed`, `not-listed` or `unknown-item`) beside `not-comparable`. The other jobs'
 /// documents are version 12's.
+/// Version 14 adds `job.expect` to a kill job, the verdict its mutation states it expects
+/// (`survive`, `kill` or null, [`crate::Expect`]), and the warning `expected-to-survive`: the
+/// search of a mutation expected to survive is not refused, since it is the most direct attempt
+/// to refute the claim, and a witness it finds is a finding (`crate::cli::fuzz_status`), whose
+/// action says so. The other jobs' documents are version 13's.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 13;
+pub const FUZZ_VERSION: u32 = 14;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -1878,6 +1883,7 @@ pub fn fuzz_derived(
             },
             "mutation": mutation,
             "flip": entry.is_some(),
+            "expect": null,
         });
         if let Some(status) = status {
             document["job"]["status"] = json!(status);
@@ -2013,6 +2019,7 @@ pub fn fuzz_front(
     if let FuzzJob::Kill { mutation, flip, .. } = job {
         document["job"]["mutation"] = json!(mutation);
         document["job"]["flip"] = json!(flip);
+        document["job"]["expect"] = Value::Null;
     }
     // A pattern target reads no data end, so the campaign takes no assumed name (k-rust-fuzz
     // refuses names on such a target), not even the flow's.
@@ -2047,6 +2054,8 @@ pub fn fuzz_front(
                 );
                 return refuse(document, refusal, "name a mutation of MUTATIONS.toml");
             };
+            // The verdict the mutation expects: a witness of one expected to survive refutes it.
+            document["job"]["expect"] = json!(entry.expect.map(Expect::as_str));
             Some(entry)
         }
         FuzzJob::Rule { .. }
@@ -2054,6 +2063,8 @@ pub fn fuzz_front(
         | FuzzJob::Refuted { .. }
         | FuzzJob::Cover { .. } => None,
     };
+    let expects_survival =
+        mutation_entry.is_some_and(|entry| entry.expect == Some(Expect::Survive));
     let pattern_entry = match job {
         FuzzJob::Pattern { list, id } => {
             let Some(entry) = list.patterns.iter().find(|p| p.id == id) else {
@@ -2177,6 +2188,15 @@ pub fn fuzz_front(
             if flip { front.spelling } else { spelling },
             &mut warnings,
         );
+    }
+    if expects_survival {
+        warnings.push(warning(
+            "expected-to-survive",
+            "the mutation states expect = \"survive\": no program of the corpus should \
+             distinguish its mutant from the specification. This search is an attempt to refute \
+             that claim: a witness it finds is a finding (exit status 1), a program on which what \
+             the edit changes is observable",
+        ));
     }
     document["warnings"] = json!(warnings);
 
@@ -3061,6 +3081,16 @@ pub fn fuzz_front(
                     "; first add to [spec] assume_joined the premises FLOW.toml lacks: {}",
                     missing.join(", ")
                 ));
+            }
+            if expects_survival {
+                // The witness refutes the mutation's expectation: it is the finding, and the
+                // program what shows it.
+                action = format!(
+                    "the mutation expects to survive, and this program distinguishes its mutant \
+                     from the specification: what the edit changes is observable on it. Fix the \
+                     specification, or the mutation's expectation; to keep the program as a \
+                     test, {action}"
+                );
             }
             document["action"] = json!(action);
             true

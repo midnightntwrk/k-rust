@@ -213,6 +213,7 @@ impl DerivedEntry {
             Judged::Admitted { edits } => Some(Mutation {
                 id: self.id.clone(),
                 misunderstanding: String::new(),
+                expect: None,
                 edits: edits.clone(),
             }),
             Judged::Refused { .. } => None,

@@ -6,9 +6,9 @@ use kink_flow::{
     FlowManifest,
     admit::corpus_source,
     mutation::{
-        EditAction, EditSpec, InvalidMutation, InvalidReason, LabelMatch, MUTATION_OPERATOR,
-        Mutation, MutationList, ResolvedMutation, label_match, location_span, resolve,
-        sentence_span,
+        EditAction, EditSpec, Expect, InvalidMutation, InvalidReason, LabelMatch,
+        MUTATION_OPERATOR, Mutation, MutationList, ResolvedMutation, label_match, location_span,
+        resolve, sentence_span,
     },
 };
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -217,6 +217,21 @@ fn decoding_rejects_unknown_keys_and_malformed_edits() {
                 .into(),
             "mutation \"m\".edit[0].rule",
             "must not be empty",
+        ),
+        (
+            format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nexpect = \"maybe\"\n{edit}"),
+            "mutation \"m\".expect",
+            "expected \"survive\" or \"kill\"",
+        ),
+        (
+            format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nexpect = 1\n{edit}"),
+            "mutation \"m\".expect",
+            "expected \"survive\" or \"kill\"",
+        ),
+        (
+            format!("expect = \"survive\"\n[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n{edit}"),
+            "expect",
+            "unknown key",
         ),
         ("mutation = 3\n".into(), "mutation", "expected [[mutation]] tables"),
         ("[[mutation]\n".into(), "", "invalid TOML"),
@@ -470,6 +485,48 @@ fn a_correlated_mutation_is_one_patch_applied_all_or_none() {
         Some(1),
         InvalidReason::LabelChanged,
     );
+}
+
+/// `expect` is optional, `survive` or `kill`, per mutation; a list has no file-level default.
+#[test]
+fn decoding_reads_each_mutations_expectation() {
+    let edit = "[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\nreplace = \"b\"\n";
+    let list = MutationList::decode(&format!(
+        "[[mutation]]\nid = \"control\"\nmisunderstanding = \"a test mutation\"\nexpect = \"survive\"\n{edit}\
+         [[mutation]]\nid = \"caught\"\nmisunderstanding = \"a test mutation\"\nexpect = \"kill\"\n{edit}\
+         [[mutation]]\nid = \"open\"\nmisunderstanding = \"a test mutation\"\n{edit}"
+    ))
+    .unwrap();
+    assert_eq!(
+        list.mutations
+            .iter()
+            .map(|m| (m.id.as_str(), m.expect))
+            .collect::<Vec<_>>(),
+        [
+            ("control", Some(Expect::Survive)),
+            ("caught", Some(Expect::Kill)),
+            ("open", None),
+        ]
+    );
+}
+
+/// A mutation's expectation is a claim about its verdict, not an input of its resolution: the
+/// same edits with and without `expect` resolve to one patch and one digest.
+#[test]
+fn an_expectation_moves_no_patch_digest() {
+    let spec = Spec::fixture("calc");
+    let edits =
+        "[[mutation.edit]]\nrule = \"add\"\nfind = \"I1 +Int I2\"\nreplace = \"I1 -Int I2\"\n";
+    let plain = spec.resolve_edits(edits).unwrap();
+    for expect in ["survive", "kill"] {
+        let list = MutationList::decode(&format!(
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nexpect = \"{expect}\"\n{edits}"
+        ))
+        .unwrap();
+        let resolved = spec.resolve(&list.mutations[0]).unwrap();
+        assert_eq!(resolved.patch, plain.patch, "{expect}");
+        assert_eq!(resolved.digest, plain.digest, "{expect}");
+    }
 }
 
 #[test]

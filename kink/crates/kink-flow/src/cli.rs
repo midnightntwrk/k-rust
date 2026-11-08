@@ -104,13 +104,15 @@ The loop:
      kink-flow check FLOW.toml --mutations MUTATIONS until it exits 0
   3. kink-flow run FLOW.toml MUTATIONS: it reports the survivors, mutations no program kills
   4. for each survivor, write a program that kills it, or argue that no program can and
-     drop the mutation, or keep it with the argument in its misunderstanding (its status
-     stays survived); run again (cached outcomes are not re-run)
+     drop the mutation, or keep it with the argument in its misunderstanding and
+     expect = \"survive\" (its status stays survived, and run fails if a program kills
+     it); run again (cached outcomes are not re-run)
 
 A mutation (MUTATIONS.toml):
   [[mutation]]
   id = \"add-becomes-sub\"
   misunderstanding = \"addition evaluates as subtraction\"   # required: the mistake it writes down
+  expect = \"kill\"                   # optional, \"kill\" or \"survive\": run fails when unmet
     [[mutation.edit]]               # one or more, applied together
     rule = \"add\"                    # a rule label, or a unique suffix of its components
     find = \"I1 +Int I2\"             # exact text, exactly once in that rule
@@ -215,6 +217,10 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     };
     // A lock `--locked` found stale: what would change, one line each, whatever the output.
     for line in crate::lock::stale_lines(&document) {
+        eprintln!("kink-flow: {line}");
+    }
+    // A mutation's expectation the run does not meet, or cannot confirm: one line each.
+    for line in crate::report::expectation_lines(&document) {
         eprintln!("kink-flow: {line}");
     }
     let text = match output {
@@ -1320,9 +1326,11 @@ fn spec_refused(document: &Value) -> bool {
     document["spec"]["outcome"] == "refused"
 }
 
-/// The status of a case's expectation (`crate::expect`): met [`EXIT_YES`], unmet [`EXIT_NO`] (a
-/// finding about the specification against the reference the case was written from),
-/// inconclusive [`EXIT_UNANSWERED`]; [`EXIT_YES`] for a row without one.
+/// The status of a row's expectation: a case's (`crate::expect`) or a mutation's
+/// (`crate::report::mutation_expectation`). Met [`EXIT_YES`], unmet [`EXIT_NO`] (a finding: about
+/// the specification against the reference the case was written from, or about the corpus or the
+/// definition against what the mutation claims of them), inconclusive [`EXIT_UNANSWERED`];
+/// [`EXIT_YES`] for a row without one.
 fn expectation_status(row: &Value) -> u8 {
     match row["expectation"]["verdict"].as_str() {
         Some("unmet") => EXIT_NO,
@@ -1458,13 +1466,14 @@ fn mismatch_status(document: &Value) -> u8 {
 }
 
 /// The status of a mutation of a run document by its `status` and `reason`: `run` asks each
-/// mutation's verdict, and a mutation states no verdict it expects, so every verdict is an answer
-/// ([`EXIT_YES`]: `killed`, `survived`, `equivalent`, `unkillable`); `timeout` and `unknown` have
-/// none ([`EXIT_UNANSWERED`]); `invalid-mutation` and `not-admitted` name a mutation its author
-/// must fix before it is judged ([`EXIT_UNASKED`]); `error` is a finding ([`EXIT_NO`]) when it
-/// reports a stored record `--verify` found different from the live one (`outcome-mismatch`,
-/// `resolution-mismatch`), and otherwise a failure that left the mutation unjudged
-/// ([`EXIT_UNASKED`]: a corpus error, no comparable program, a failed run).
+/// mutation's verdict, so every verdict is an answer ([`EXIT_YES`]: `killed`, `survived`,
+/// `equivalent`, `unkillable`), whatever verdict the mutation expects, which [`run_status`] joins
+/// apart ([`expectation_status`]); `timeout` and `unknown` have none ([`EXIT_UNANSWERED`]);
+/// `invalid-mutation` and `not-admitted` name a mutation its author must fix before it is judged
+/// ([`EXIT_UNASKED`]); `error` is a finding ([`EXIT_NO`]) when it reports a stored record
+/// `--verify` found different from the live one (`outcome-mismatch`, `resolution-mismatch`), and
+/// otherwise a failure that left the mutation unjudged ([`EXIT_UNASKED`]: a corpus error, no
+/// comparable program, a failed run).
 #[must_use]
 pub fn mutation_exit_status(status: &str, reason: Option<&str>) -> u8 {
     match status {
@@ -1482,11 +1491,13 @@ pub fn mutation_exit_status(status: &str, reason: Option<&str>) -> u8 {
 }
 
 /// The exit status of a run document, which `run` prints and `report` prints again: the join of
-/// every mutation's ([`mutation_exit_status`]) and each program's baseline row's
-/// ([`baseline_status`]), [`EXIT_NO`] for a `--verify` mismatch and for a lock `--locked` found
-/// the run would change (`lock.status` `stale`: a stored record that differs from the live value,
-/// as `--verify` reports one), and [`EXIT_UNASKED`] for a refused specification or lock, or a
-/// record, report or lock the run could not write.
+/// every mutation's ([`mutation_exit_status`]) and its expectation's ([`expectation_status`]: an
+/// unmet one [`EXIT_NO`], an inconclusive one [`EXIT_UNANSWERED`], checked from the row on every
+/// run, with or without `--locked`) and each program's baseline row's ([`baseline_status`]),
+/// [`EXIT_NO`] for a `--verify` mismatch and for a lock `--locked` found the run would change
+/// (`lock.status` `stale`: a stored record that differs from the live value, as `--verify`
+/// reports one), and [`EXIT_UNASKED`] for a refused specification or lock, or a record, report or
+/// lock the run could not write.
 #[must_use]
 pub fn run_status(document: &Value) -> u8 {
     if spec_refused(document) || document["lock"]["outcome"] == "refused" {
@@ -1507,7 +1518,10 @@ pub fn run_status(document: &Value) -> u8 {
                 row["status"].as_str().unwrap_or_default(),
                 row["reason"].as_str(),
             );
-            exit_join(status, record_status(row))
+            exit_join(
+                exit_join(status, expectation_status(row)),
+                record_status(row),
+            )
         })
         .fold(EXIT_YES, exit_join);
     exit_join(
@@ -1568,10 +1582,13 @@ pub fn query_status(document: &Value) -> u8 {
 /// template's holes hold none. A job refused before any case (`refused`, `not-comparable`), a
 /// campaign that `aborted`, and one stopped `rejected-out`, whose generated hole values mostly do
 /// not read back or violate their sort, so that the template's holes must be fixed before cases
-/// can be asked and more cases cannot help, could not ask ([`EXIT_UNASKED`]).
+/// can be asked and more cases cannot help, could not ask ([`EXIT_UNASKED`]). A witness of a kill
+/// job whose mutation expects to survive (`job.expect` `survive`) refutes that expectation, a
+/// finding ([`EXIT_NO`]).
 #[must_use]
 pub fn fuzz_status(document: &Value) -> u8 {
     match document["stopped"].as_str() {
+        None if document["stopped"].is_null() && document["job"]["expect"] == "survive" => EXIT_NO,
         None if document["stopped"].is_null() => EXIT_YES,
         Some("equivalent") => EXIT_YES,
         Some(
@@ -2251,7 +2268,8 @@ fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), Stri
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
 /// MUTATIONS.toml | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) [options]
 /// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit status of
-/// its `stopped` ([`fuzz_status`]): [`EXIT_YES`] for a witness or `equivalent`;
+/// its `stopped` ([`fuzz_status`]): [`EXIT_YES`] for a witness or `equivalent`, [`EXIT_NO`] for a
+/// witness of a mutation expected to survive;
 /// [`EXIT_UNANSWERED`] when the search ended without a witness kink accepts; [`EXIT_UNASKED`]
 /// when an input, the template or the mutation is refused (`refused`), the campaign is
 /// `not-comparable`, or it `aborted` (the README's and the guide's table).

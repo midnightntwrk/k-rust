@@ -261,12 +261,13 @@ impl Facts {
 }
 
 /// Every input of a mutation that resolution reads (module docs): its edits in order, each with
-/// every field. The id only names the row, and the misunderstanding is prose resolution never
-/// reads.
+/// every field. The id only names the row, the misunderstanding is prose resolution never
+/// reads, and the expectation is checked against the row's status after the search.
 pub fn mutation_entry(mutation: &Mutation) -> Value {
     let Mutation {
         id: _,
         misunderstanding: _,
+        expect: _,
         edits,
     } = mutation;
     Value::Array(
