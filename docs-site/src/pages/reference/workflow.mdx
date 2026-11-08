@@ -190,6 +190,58 @@ A condition with no value at a stop state (a partial function outside its domain
 The status line names the condition and every arrival the run passed (``stopped after 5 steps, before `crate::tick` (stop 1 of 1, where `Apart` holds; 6 arrivals)``, or ``stuck after 9 steps, 0 of 1 stops reached (no arrival where `Apart` holds; 6 arrivals)`` for a run that ended first), and `--output json` reports them as `stops` and `arrivals` (`krs-exec/7`), `stops` whenever the run has stop rules, 0 included.
 A run that ends `stop-undecided` names the rule, the condition and why its evaluation has no answer (``before `crate::tick`, undecided whether `Climb` holds (0 of 1 stops reached; 1 arrival): its evaluation stopped before it ended (it spent its budget of 100 polls), so whether it has a value is not known``), and `--output json` reports them as `undecided` (`at`, `rule`, `reason`, `budget_spent`): a spent budget is decided by a larger `--view-budget`, an `Unknown` answer of the solver is not, which `budget_spent` and the status line say.
 A case's run that ends so has no end, and `krs cases` and `krs compare` give the same rule, reason and remedy as the reason it is inconclusive.
+
+`run --observe FILE` records *observations* along the run's path, beside its end: what the run shows at named places of its path, each a sequence of elements, a *channel*.
+FILE (`.toml` or `.json`) is a document whose one key is `observe`, the table a case document gives ([case documents](#case-documents), "Observations"), so a declaration moves between a file, a case and a document of named cases unchanged:
+
+```toml
+[observe]
+observer = "machine-views:views"            # only where a function is declared; default: the run's own definition
+
+[[observe.point]]
+name = "boundary"
+before = ["crate::interrupt::boundary_fetch", "crate::interrupt::boundary_halted"]
+stutter = "collapse"                         # or "count"; there is no default
+cells = ["pc", "sp", "halted"]
+views = { pc = "Bank" }                      # optional, per cell of `cells`
+components = [{ name = "gap", cells = ["pc", "sp"], function = "Gap" }]
+when = { function = "Mapped", cells = ["pc"] }
+
+[[observe.log]]
+name = "bus"
+cell = "bus"                                 # a List cell
+element = "Accesses"                         # optional: Item -> List<_>, applied to each appended item
+at = ["boundary"]                            # read at these classes' points, and at the path's end
+```
+
+A *point class* samples the run at the steps of the rules `before` and `after` name, each named as `--stop-before` names one; a *point* is such a step whose successor is defined, its observed state the state before the step for `before` and the successor for `after`, as a stop's stop state is.
+At each point the class emits its content, a component per cell of `cells` (the cell's value, or its view's) and per entry of `components`, where `when`, a `Bool` function of named cells, is decided true.
+Which rule of the class fired, and the order of two classes' points, are not observed: a point is a place to sample at, not content; to tell two rules apart, put them in two classes, or observe a cell they write.
+`stutter` says what two equal consecutive contents are: under `collapse` an element equal to the last one kept is dropped, so the number of points is not observed; under `count` every point is an element.
+Both are sound, and which one a specification promises is its author's statement, so a class must say it.
+A *log* reads a `List` cell at the points of the classes `at` names and at the path's end; its channel is the concatenation of `element`'s values over the items in append order (each item when there is no `element`), and a cell that does not only grow by appending refuses the run (`log-not-appended`).
+A read cell is a leaf cell, observable, and neither at nor below a repeated or optional cell.
+The functions are evaluated in one fixed definition, as a stop condition is: the observer `observer` names, else the run's own definition, loaded a second time apart from the stop condition's, since the run asks both at once.
+The run is still one request: the backend asks the observations at each point and at the end, and nowhere else ([probes](/k-rust/compatibility#probes-in-process)).
+A case's `observe` declares its run's observations in the same table; `--observe` beside a case whose document declares its own is refused, since each says what the run shows and a flag may not change a case's question.
+
+`run --output observations` prints the `krs-observations/1` document of the declaration, on one line and alone on standard output (a definition's console output goes to standard error, as with `--output end`):
+
+```json
+{"schema": "krs-observations/1", "channels": [
+  {"name": "boundary", "kind": "point",
+   "elements": [{"index": 0, "depth": 0, "rule": "crate::interrupt::boundary_fetch", "side": "before", "value": {"pc": 256, "sp": 65534, "halted": false}}],
+   "closed": null, "open": {"index": 1, "reason": "the run ended `depth-bound`, which is no end of its path"}}]}
+```
+
+Each element names the steps to its observed state (`depth`), its point's rule as a stop flag names it and its side (`null` for a log's items read at the path's end), and its `value`, the components by name as documents of the [encoding](#the-encoding).
+A channel is `closed` by the run's end, `end` where it ended on its own or at a stop, `undefined` where its last step is undefined; otherwise it is `open` at the index where the run stopped knowing it, with the reason: a depth bound, an inconclusive halt, or an undecided element.
+An element whose evaluation spends `--view-budget`'s polls, or that the solver leaves undecided, carries its reason as `undecided` in place of `value`: under `count` only that element is unknown, while under `collapse` and in a log the channel opens there (`"undecided": true`), since the index of a later element rests on the equalities before it.
+An element with no value (a cell holding an unevaluated application, a function with no value there) refuses the run with exit 2, whatever the output, naming the channel, the point's side and rule, the steps and the component (``the observation `small` has no value at the before point of `crate::tick` after 3 steps: the component `small`: ...``); so does a declaration the run cannot record, naming the channel and the cause, and an `--observe` file that is no declaration, naming the key and its position (`krs::exec::observation`, as every refusal of observations is; a case's `observe` that is no declaration refuses the case, `krs::exec::case`).
+`--output observations` needs a declaration, from `--observe` or the case: a usage error otherwise.
+`--output json` reports each channel's `name`, `kind`, number of `elements`, `closed` and `open` in the run document's `observations` (`krs-exec/7`).
+`krs search` takes no `--observe` and refuses a case that declares observations: they are sampled along one path, and a search's final states are no path.
+
 Each Z3 query of `run`, `search` and `prove` is bounded by Z3's own resource units, 370,000 for the first attempt and twice the previous for each of 3 retries, and by no clock, so whether a condition is decided does not depend on the host's speed or load; `--smt-resource-limit UNITS` and `--smt-retries N` change the bound, and `--smt-clock-ms MS` bounds each attempt by the clock instead.
 `prove --claim-timeout SECONDS` cancels a claim's proof still running after SECONDS of wall-clock time, with the verdict `timeout` ([proving a batch of claims](/verification/reachability-claims#proving-a-batch-of-claims)).
 A proof ends a path `indeterminate` at the first state whose term matches the claim's right-hand side but whose condition is not decided there, and reports that state; it does not step past it, so a claim whose right-hand side is decided only where it recurs later in the run is not proven ([proof verdicts](/k-rust/compatibility#proof-verdicts)).
@@ -234,6 +286,7 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
   With an expectation (`--case`), the run exits by its verdict instead, 0 met, 1 unmet and 3 inconclusive, and a refused case or expectation exits 2.
   A run that reaches its depth bound or exhausts another budget under an expectation is inconclusive (3), since it is not known to have ended: it takes no step from the state at the bound, so the definition may go on from there and end otherwise, and a state at the bound that has no successor is inconclusive too.
   With `--output end`, an end with no end document exits 2 whatever the run's own status: the end it was asked for cannot be written.
+  With `--output observations`, the observations' status replaces the run's own, exit cell included: 0 where every element is known and the run ended on its own, at a stop or at its depth bound, which ends only what is known, since each element is a function of a prefix of the path; 3 where an element is undecided or the run ended at an inconclusive halt; with an expectation, its verdict and that status join as a batch's statuses do.
 - `search` exits 0 when its set of final states is complete or it stopped at `--max-solutions`, and 3 when some path was not decided; with an expectation, it exits by its verdict, as `run` does.
 - `prove` is a batch of its claims: a claim `proven` or `trusted` counts 0 (a `trusted` claim is assumed, never proven, and the summary line counts it separately), `disproved` or `failed` 1, `indeterminate`, `depth-bound`, `breadth-bound` or `timeout` 3, and `crashed` 2, since the process proving it failed and gave no answer; a failure of the batch itself, such as a definition with no claims, a `--claim` that names none, or a crash after the last claim, which leaves the batch's own checks and output unfinished, exits 2.
 - `cases` is a batch of its cases: `met` counts 0, `unmet` 1, `inconclusive` 3, `refused` 2, and `ran` 0, or 3 when the case's run has no end (it halted `indeterminate`, `timeout` or another inconclusive halt, or has no one path); its JSON summary's `status` is the exit status.
@@ -292,7 +345,8 @@ id = 1
 pc = 0x2000
 ```
 
-A case may also say how it is run and what end it expects.
+A case may also say how it is run, what its run shows, and what end it expects.
+Its `observe` table declares the observations its run records, as `--observe FILE` does, and a document of named cases may give one to every case that has none of its own.
 Its `run` table gives the depth bound, the stop rules, the stop count and the stop condition (`depth`, `stop_before`, `stop_after`, `stop_count`, `stop_when`), each rule named as `--stop-before` names one, by KRS item (`crate::machine::boundary`) or K label; `--depth` with a case's `run.depth` is refused, since only one may bound the run, and so is every stop flag (`--stop-count` and `--stop-when` included) with a case's stops, since only one may say where it ends and a flag may not change a case's question.
 The count is the case's, beside its rules, since where a run is observed depends on the program it runs.
 In a document of named cases, a case's own `run` table replaces the document's `run` whole, stop rules and `stop_when` included: a case that gives only `stop_count` names no stop rule, and is refused for it.
@@ -623,7 +677,7 @@ so that it is byte-identical across runs and hosts.
 
 A *case document* is a TOML or a JSON document, by its file's extension,
 that states one case or several named cases (`CaseDocument`).
-A *case* is a table of four keys, each of which may be absent:
+A *case* is a table of five keys, each of which may be absent:
 
 - `inputs`: a value for each input, by name
   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -650,6 +704,8 @@ A *case* is a table of four keys, each of which may be absent:
   The condition needs a stop rule, at whose arrivals it is asked.
   The count and the condition belong to the case, beside its rules,
   since where a run is observed depends on the program it runs.
+- `observe`: the observations the case's run declares along its path
+  (`ObservationSpec`, "Observations", below).
 - `instances`: the instances the run starts with, of the optional and repeated cells it names
   ("Instances", below).
 - `expect`: the end the case expects of its run ("Expectations", below).
@@ -657,7 +713,8 @@ A *case* is a table of four keys, each of which may be absent:
 A document of one case holds these keys at its top, and no other.
 A document of named cases holds `case`, the *list* of its cases,
 and may hold `run`, the `run` of every case that has none of its own
-(a case's own `run` replaces it whole);
+(a case's own `run` replaces it whole),
+and `observe`, likewise the `observe` of every case that has none of its own;
 it holds no other key, so a document is of one kind or the other.
 A JSON document that is an array is a list, and a document of named cases.
 A list is an array (TOML's `[[case]]` tables) of named cases, each a case with a `name`,
@@ -675,6 +732,38 @@ the cases of included files included,
 so that the document and the name identify a case (`<document>#<name>`).
 A front end selects a case of a document of named cases by its name;
 the one case of a document has no name, and is selected by none.
+
+#### Observations
+
+`observe` declares what the case's run shows along its path, beside its end
+(`observations`): a table of three keys,
+`observer`, `point` and `log`, each of which may be absent.
+A declaration with no `point` and no `log` declares no channel, and the run is the run without it.
+
+- `observer`: the definition the declaration's functions are resolved and evaluated in,
+  `PACKAGE:DEFINITION` as an expectation names its observer, the run's own definition by default;
+  only a declaration with a function (a view, a component, a filter or an element function) names one.
+- `point`: an array of point classes (TOML's `[[observe.point]]` tables), each a table of
+  `name`, the channel's name, a non-empty string;
+  `before` and `after`, the rules on whose side of a step the class samples,
+  each an array of names of rules as `run`'s `stop_before` and `stop_after` name them;
+  `stutter`, which has no default: `collapse`, under which an element equal to the last one kept is dropped,
+  or `count`, under which every point is an element;
+  `cells`, the leaf cells whose values are components, by Rust field path;
+  `views`, a table of a function by cell of `cells`, whose value is that cell's component;
+  `components`, an array of tables `{ name, cells, function }`, each a function of the cells it names,
+  in the order of its parameters;
+  and `when`, a filter `{ function, cells }` of result sort `Bool`.
+- `log`: an array of logs (TOML's `[[observe.log]]` tables), each a table of
+  `name`, the channel's name;
+  `cell`, the `List` leaf cell, by Rust field path;
+  `element`, an optional element function, `Item -> List<_>`;
+  and `at`, the names of the point classes at whose points the log is read, besides the path's end.
+
+A function is named as a view names one: by its KRS path or a `::`-aligned suffix of it.
+Which rules, cells and functions a declaration may name is the run's to judge
+(`crate::Semantics::observations`); a case document refuses only what is no declaration,
+naming the key.
 
 #### Instances
 
@@ -815,6 +904,7 @@ krs cases --package my-semantics --definition main cases/steps.toml --name 'ld-*
 ```
 
 `krs cases` runs every case of the case documents it is given, in the order given and the cases of an included file at its place, and checks each against its expectation as `krs run --case` does: the same inputs, `run` table, views and verdict.
+A case that declares observations (`observe`) records them as `krs run --case` does, so a case whose observation has no value is refused in both; its record states no verdict on them, since an expectation states none (`krs run --case FILE#NAME --output observations` prints them).
 `krs run --case` starts a process, reads the package, restores the compiled stage and loads the definition into the backend for each case; `krs cases` does that once, then loads the definition once per worker and runs every case it is given on it, so a case costs its own run and check.
 `--jobs N` sets the workers (by default the available parallelism).
 Each worker holds its own copy of the definition, and of each observer it uses, so the memory a batch takes grows with N; on a large definition, choose N by the memory free, not by the processors.

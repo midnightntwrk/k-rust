@@ -300,7 +300,7 @@
 //! ## Observations
 //!
 //! `observe` declares what the case's run shows along its path, beside its end
-//! ([`crate::observations`]): a table of three keys,
+//! ([`observations`](crate::observations)): a table of three keys,
 //! `observer`, `point` and `log`, each of which may be absent.
 //! A declaration with no `point` and no `log` declares no channel, and the run is the run without it.
 //!
