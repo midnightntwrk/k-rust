@@ -2641,6 +2641,28 @@ A client that asks whether some path fired a rule reads `committed`, not `applie
 Collecting it costs one set insert per normalized successor, and asking changes no other field of the result (`committed_leaves_out_rolled_back_candidates_and_keeps_merged_ones` and `matching_and_committed_change_no_other_field` in [state_matches.rs](../crates/k-rust/tests/state_matches.rs)).
 The Rust structs gain public fields as for the counts above (`collect_committed`, `committed`, `coverage_committed`), with the same consequence for struct literals; the wire and the TypeScript declarations change additively and the backend schema version stays 1.
 
+#### Rule windows
+
+A request that also sets `collectWindows` to a positive integer `d` (`ExecuteRequest::collect_windows`, `ExecutionOptions::collect_windows` in the backend; absent by default) receives `windows`, a sorted list of rule windows, each a list of `UNIQUE_ID`s (`RunCoverageOutput::windows`, `RunCoverage::windows`); `collectWindows` without `collectCoverage` is a request error, `0` is not a length, `BackendCapabilities::coverage_windows` advertises the option, a server without it rejects the field as unknown, and without it the `coverage` object has no `windows` key.
+A window of length `n` is a sequence of `n` rewrite rules that some path of the run committed to as consecutive steps, a step being committed where `committed` records its rule ([Committed transitions](#committed-transitions)): equivalently, a path of `n` labelled transitions of the run's transition graph.
+The list holds every window of length `1` to `d`, so its windows of length 1 are `committed`, and a client that asks for windows up to `d` can read every shorter length from the same list.
+No equation is in a window: a function's value is shared through the run's memos across its callers, so before or within which step an equation's instance is evaluated rests on the evaluation history, not on the definition.
+Nor is a step that is not committed: a candidate rolled back for an undefined successor, an undefined-step entry, a cut-point rule's proposed step, and a successor that a stop or the work budget cut before its normalization finished.
+A remainder is not a step: a path through a remainder goes on from the state the remainder restricts.
+
+Each path carries its last `d - 1` committed steps, and each committed step records the window those steps and its own rule form; the windows that end at the step are its suffixes.
+Under `state-set` an arrival at a state equal at its depth to a recorded one is merged, so the steps of its continuation are not committed again.
+For each state the merge table records, the run therefore keeps, while windows are asked for, the set of rule sequences of length `1` to `d - 1` of committed steps that start there, and a merged arrival records each window formed by its own last steps followed by one of those sequences.
+Exploration is depth-first and a state merges only into a recorded state of its own depth, so the recorded state's subtree was explored to its end before the arrival and the set holds every such sequence, through the merges inside the subtree as well.
+Every window of the unmerged path tree either lies within the recorded state's subtree, where it was recorded, or begins on the arriving path and ends in that subtree, where the merge records it: a `state-set` run reports the windows of the `path-set` run of the same request wherever the two explore the same states (`state_set_windows_equal_path_set_windows_on_a_merging_diamond` in [tests/windows.rs](../crates/k-rust-backend/src/tests/windows.rs), `rule_windows_agree_across_modalities_and_hold_committed_steps_only` in [state_matches.rs](../crates/k-rust/tests/state_matches.rs)).
+Like the other lists, the windows depend on neither the order nor the multiplicity of the steps, and are a deterministic function of the definition, the request, the solver profile and the k-rust version.
+
+Without `collectWindows` the run does no work for windows: no path carries steps and the merge table keeps no sequence.
+With it, each committed step costs one lookup of its rule and one recorded window of at most `d` ids, and a forked path copies its last `d - 1` steps; under `state-set` with `d` at least 2, each committed step also adds a sequence of at most `d - 1` ids to the set of each of the path's last `d - 1` source states still in the merge table, and each merged arrival costs `O(d^2)` ids per sequence of the state it merges into.
+A state's set is kept only while the merge table records the state, and holds at most the distinct rule sequences shorter than `d` from it, at most `b^(d-1)` for a branching factor `b`.
+Asking changes no other field of the result (`collecting_windows_changes_nothing_else` in [tests/windows.rs](../crates/k-rust-backend/src/tests/windows.rs), `rule_windows_change_no_other_field` in [state_matches.rs](../crates/k-rust/tests/state_matches.rs)).
+The Rust structs gain public fields as for the counts above (`collect_windows`, `windows`, `coverage_windows`), with the same consequence for struct literals; the wire and the TypeScript declarations change additively and the backend schema version stays 1.
+
 ### Passed stops
 
 A cut-point rule (`cutPointRules`) or a terminal rule (`terminalRules`) stops a run only where its step is the state's one successor: the step built a candidate of the rule, no normalization within the step showed that candidate undefined, and the step has no other successor, neither another such candidate nor a remainder.
