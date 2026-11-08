@@ -4367,9 +4367,9 @@ fn bumper() -> Arc<Project> {
 /// cells by Rust field path: the front end resolves it through krs-exec's resolver to the K
 /// symbol and the KORE cell paths, its identity names the function's full path and the
 /// definition's Definition IR digest, and the connection holds (`low > high` has no model where
-/// `low <= high`). The item stays `unchecked`, since nothing shows the invariant holds of any
-/// state, so the command has no answer (exit 3). A function the definition does not hold refuses
-/// the corpus with krs-exec's message (`invariant-unresolved`).
+/// `low <= high`; without a solver it is undecided). The item stays `unchecked`, since nothing
+/// shows the invariant holds of any state, so the command has no answer (exit 3). A function the
+/// definition does not hold refuses the corpus with krs-exec's message (`invariant-unresolved`).
 #[test]
 fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     let project = bumper();
@@ -4377,9 +4377,17 @@ fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     assert_status(&output, 3);
     let document = json(&output);
     let check = &requirement_of(&document, "requirement:crate::bump:held")["argument_check"];
+    assert_eq!(check["standing"], "unchecked", "{check:#}");
+    // The solver decides the connection; a build without one leaves it undecided.
+    #[cfg(feature = "z3-inference")]
+    assert_eq!(check["connection"]["status"], "holds", "{check:#}");
+    #[cfg(not(feature = "z3-inference"))]
     assert_eq!(
-        (&check["standing"], &check["connection"]["status"]),
-        (&json!("unchecked"), &json!("holds")),
+        (&check["connection"]["status"], &check["connection"]["reason"]),
+        (
+            &json!("undecided"),
+            &json!("no solver decides the simplified predicate")
+        ),
         "{check:#}"
     );
     let identity = &document["settings"]["invariants"][0]["identity"];
