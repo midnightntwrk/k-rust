@@ -136,7 +136,7 @@ class NativeSummary:
     program_count: int
     evidence_sha256: str
     reports: Mapping[str, Mapping[str, Any]]
-    """The `krs-exec/6` run report of every complete execution case, by case name."""
+    """The `krs-exec/7` run report of every complete execution case, by case name."""
     chosen_values: Mapping[str, list[str]]
     """By execution case name, the sorted open values (`<hook> <class>`) k-rust marked in its runs and searches."""
 

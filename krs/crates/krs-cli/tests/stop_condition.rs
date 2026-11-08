@@ -111,7 +111,7 @@ impl Workspace {
         let (status, stdout, stderr) = self.krs("run", &all);
         assert!(matches!(status, Some(0 | 3)), "{stderr}");
         let report: Json = serde_json::from_str(&stdout).unwrap();
-        assert_eq!(report["schema"], "krs-exec/6", "{report}");
+        assert_eq!(report["schema"], "krs-exec/7", "{report}");
         report["run"].clone()
     }
 
