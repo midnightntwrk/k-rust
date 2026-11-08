@@ -98,7 +98,9 @@ pub use guards::{
     GuardCollection, GuardNode, GuardOutcome, GuardShape, NodeOutcome, OperandCause, Refutation,
     skeletons,
 };
-pub(crate) use guards::{Decided, GuardHandle};
+pub(crate) use guards::{
+    Decided, GuardHandle, collects_guard_of, enter_untried, untried_application,
+};
 pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 
 /// The axioms a run used, by `UNIQUE_ID`.
@@ -158,7 +160,9 @@ pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 /// the k-rust version. They depend on the backend's trial order and stopping rules (an equation
 /// group is scanned until one equation applies, a rewrite step stops at the first productive
 /// priority group), but not on the order or multiplicity of applications, and they do not grow
-/// with the number of leaves.
+/// with the number of leaves. The guard outcomes below do not depend on the trial order within
+/// an equation group: the equations of the group that applied after the one that applied get
+/// untried entries (`guards`).
 ///
 /// `offered`, present exactly when the collection offered (`collect_offering`), holds
 /// `matched`, plus the id of an axiom whose left-hand side matched a subject at a site where the
@@ -238,7 +242,9 @@ pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 /// `guards`, present exactly when the collection collected guards (`collect_recording`), holds
 /// for each axiom it names with a non-empty `requires` that some site entered (a rewrite rule's
 /// `requires` phase, an equation's condition evaluation, a definedness decision's one-step
-/// selection: the sites of `matched` that decide a condition), the outcomes of its guard
+/// selection: the sites of `matched` that decide a condition), or that a function scan gave an
+/// untried entry (an equation of the group that applied, after the one that applied, whose
+/// left-hand side matches the application: `guards`), the outcomes of its guard
 /// ([`AxiomGuard`]): per node of the written `requires`, the outcomes it took on the entries
 /// where it was reached; the guard outcomes of the entries; and their valuation combinations,
 /// bounded. Each is a union over the run's distinct entries, so like the sets they depend on

@@ -224,6 +224,8 @@ export interface BackendCapabilities {
   coverageConditions: boolean
   /** `execute` and `executeObserved` accept `collectGuards` beside `collectCoverage`. */
   coverageGuards: boolean
+  /** Guard outcomes are order free within a priority group: every function application gives an entry of each matching equation of the group that applied, tried or not ('undecided-untried'). */
+  coverageGuardsUntried: boolean
   /** `execute` and `executeObserved` accept `collectBindings` beside `collectCoverage`. */
   coverageBindings: boolean
   /** `execute` and `executeObserved` accept `collectCommitted` beside `collectCoverage`. */
@@ -865,6 +867,7 @@ export type GuardOutcome =
   | 'undecided-solver-error'
   | 'undecided-simplification'
   | 'undecided-open'
+  | 'undecided-untried'
   | 'stopped'
 
 /** Which rules' condition entries an execute request records (`collectConditions`). */

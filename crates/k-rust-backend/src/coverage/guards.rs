@@ -10,6 +10,37 @@
 //! entry. It folds each entry into per-node sets of reached outcomes, a set of guard outcomes,
 //! and a bounded set of valuation combinations, all per axiom ([`AxiomGuard`]).
 //!
+//! # Untried entries
+//!
+//! An equation states its value at the arguments its left-hand side matches where its
+//! `requires` holds and no equation of a higher priority group applies. So its guard decides
+//! something at exactly the applications its left-hand side matches whose deciding group (the
+//! first, in priority order, that applies or blocks) is its own. A function scan tries the
+//! equations of a group in an order the definition does not state and stops at the first that
+//! applies, so the tried entries alone would depend on that order: of two equations
+//! `f(A) = .. requires A <Int 32768` and `f(A) = .. requires A >=Int 32768`, the one tried
+//! second would never be seen false.
+//!
+//! Where a function scan applies an equation, each named equation of the same group after it
+//! therefore gets an untried entry for each instance whose matching is decided
+//! (`simplify::scan::enter_untried_guards`, [`enter_untried`]). The equations before it were
+//! tried, and a group that blocks was tried in full, so every equation of the deciding group
+//! whose left-hand side matches has an entry, whatever the order. A lower group, `owise`
+//! included, states nothing where a higher group applies, and gets none. An untried entry is
+//! evaluated as a tried one is, with the same bounds and the same cache, so an entry's outcomes
+//! do not depend on whether the run tried it first. Its guard outcome is read from that
+//! evaluation, since there is no attempt: the first conjunct that is not `true` decides it,
+//! `held` where there is none, refuted where it is `false` or undefined (whatever the later
+//! conjuncts are), and `undecided` with cause [`AttemptCause::Untried`] where it is undecided.
+//! No solver is asked: the evaluation shares no solver state with the run.
+//!
+//! A function applied inside an untried entry's evaluation is applied by the record, not by the
+//! run: the evaluation is isolated (`coverage::isolated`), so it reports to no coverage set and
+//! makes no entry of its own, as for a tried entry. The matching that finds the instances is
+//! isolated as a probe is (`coverage::offer`). Equations holding a literal whose element the
+//! definition leaves open are skipped, since their attempt rests on an element the run marks
+//! and an untried entry cannot.
+//!
 //! # Reached outcomes
 //!
 //! A node's outcome counts for an entry only where the node is reached, in written order, the
@@ -38,13 +69,13 @@
 //!
 //! # Guard outcomes
 //!
-//! The guard outcome of an entry is the verdict of the attempt, the run's own decision with
+//! The guard outcome of a tried entry is the verdict of the attempt, the run's own decision with
 //! the solver where it used one ([`GuardOutcome`]); a refutation is split by the record's root
-//! truth ([`Refutation`]). An entry adds its node outcomes, its guard outcome and its
-//! combination when the site reports its verdict, so an entry whose condition completed its
-//! match and re-entered the attempt adds nothing (it decided nothing: its re-entry, with the
-//! bindings the condition gave, is an entry of its own), and neither does an entry an unwinding
-//! leaves without a verdict.
+//! truth ([`Refutation`]). An untried entry's is read from its evaluation (above). An entry adds
+//! its node outcomes, its guard outcome and its combination when the site reports its verdict, so
+//! an entry whose condition completed its match and re-entered the attempt adds nothing (it decided
+//! nothing: its re-entry, with the bindings the condition gave, is an entry of its own), and
+//! neither does an entry an unwinding leaves without a verdict.
 //!
 //! # Valuation combinations
 //!
@@ -61,7 +92,11 @@
 //!
 //! The sets are a deterministic function of the same inputs as `matched`: each is a union over
 //! the run's distinct entries of a function of the entry, so it does not depend on an entry's
-//! multiplicity, the run's order, memo hits or state-set merges. Entries are recognized by a
+//! multiplicity, the run's order, memo hits or state-set merges. The untried entries are a
+//! function of the applications the run decides, the equations of their groups and the
+//! instances their left-hand sides give; an application whose untried entries were made is
+//! recognized by a bounded cache of its own ([`untried_application`]), which changes only the
+//! cost. Entries are recognized by a
 //! bounded per-run cache ([`GuardCollection::cache_keys`]): a repeated entry is not evaluated
 //! again, and a miss (the cache is cleared when full, and an entry whose key holds more than
 //! [`GuardCollection::max_value_size`] term nodes is never cached) costs one more evaluation,
@@ -76,18 +111,23 @@
 //! application on a smaller argument (`f(N) = .. requires f(N -Int 1) >Int 0`), a run that
 //! evaluates `f` to depth `n` makes `n` entries whose evaluations apply `f` about `n²/2` times,
 //! where the run applies it `n` times. The bound is per entry: the collection costs at most the
-//! run's distinct entries of the named axioms times `record_polls` polls.
+//! run's distinct entries of the named axioms times `record_polls` polls. An untried entry
+//! counts as any other: a decided application adds at most one per instance of each matching
+//! equation after the applied one in its group, and an untried guard whose evaluation diverges
+//! where an earlier equation applies (one that recurses on an argument an earlier conjunct
+//! guards against) costs its `record_polls` polls and reads `undecided: stopped` past the
+//! operands it decided.
 //!
 //! A verdict is reported by entry handle ([`GuardHandle`]), not through a thread-local slot:
 //! deciding one equation's condition applies other equations, so decisions nest.
 
 use std::{cell::Cell, cell::RefCell, collections::BTreeSet, num::NonZeroU32};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::conditions::{
     ConditionNode, Connective, EntryKey, Evaluation, RecordedValue, SharedEvaluation, Truth,
-    is_boolean, written,
+    is_boolean, nodes_up_to, written,
 };
 use crate::{
     definition::BackendDefinition,
@@ -261,6 +301,9 @@ pub enum AttemptCause {
     /// binding that is not functional, result variables the match does not bind), or a decision
     /// that only evaluates left it open.
     Open,
+    /// The run did not try the entry (an untried entry, see the module documentation) and its
+    /// solver-free evaluation left the condition open.
+    Untried,
 }
 
 /// What an attempt decided about its condition, as a site reports it ([`verdict`]).
@@ -311,8 +354,35 @@ pub(super) struct Sink {
     collection: GuardCollection,
     axioms: FxHashMap<String, Slot>,
     cache: FxHashMap<(String, EntryKey), Folded>,
+    /// The applications whose untried entries were made ([`untried_application`]).
+    applications: FxHashSet<ApplicationKey>,
     open: Vec<Option<(String, Folded)>>,
     free: Vec<usize>,
+}
+
+/// What the untried entries of a function application are a function of: the application, the
+/// path conditions, and the position in its group of the equation that applied.
+#[derive(Eq, Hash, PartialEq)]
+struct ApplicationKey {
+    term: Term,
+    knowledge: Vec<Predicate>,
+    applied: usize,
+}
+
+impl ApplicationKey {
+    /// Whether the key holds more than `cap` term nodes, counting the application and every
+    /// term of the path conditions, as an entry's key counts its own ([`EntryKey::exceeds`]).
+    fn exceeds(&self, cap: usize) -> bool {
+        let mut nodes = nodes_up_to(&self.term, cap);
+        for predicate in &self.knowledge {
+            predicate.visit_terms(&mut |term| {
+                if nodes <= cap {
+                    nodes += nodes_up_to(term, cap - nodes);
+                }
+            });
+        }
+        nodes > cap
+    }
 }
 
 /// What an axiom's entries gave so far.
@@ -332,6 +402,9 @@ struct Folded {
     reached: Vec<(usize, NodeOutcome)>,
     refutation: Refutation,
     atoms: Vec<Truth>,
+    /// The guard outcome of the entry where the run did not try it: read from the evaluation
+    /// alone ([`enter_untried`]).
+    untried: GuardOutcome,
 }
 
 impl Sink {
@@ -340,6 +413,7 @@ impl Sink {
             collection,
             axioms: FxHashMap::default(),
             cache: FxHashMap::default(),
+            applications: FxHashSet::default(),
             open: Vec::new(),
             free: Vec::new(),
         }
@@ -389,8 +463,13 @@ impl Sink {
             Decided::Stopped => GuardOutcome::Stopped,
             Decided::Reentered => return,
         };
+        self.add(&axiom, folded, outcome);
+    }
+
+    /// Fold an entry of `axiom` with the guard outcome `outcome` into its slot.
+    fn add(&mut self, axiom: &str, folded: Folded, outcome: GuardOutcome) {
         let limit = self.collection.combination_limit;
-        let Some(slot) = self.axioms.get_mut(&axiom) else {
+        let Some(slot) = self.axioms.get_mut(axiom) else {
             return;
         };
         for (index, reached) in folded.reached {
@@ -486,6 +565,29 @@ pub(super) fn enter(
     options: SimplificationOptions,
     shared: Option<SharedEvaluation>,
 ) -> Option<GuardHandle> {
+    let (axiom, folded) = entry(
+        definition,
+        attributes,
+        requires,
+        substitution,
+        knowledge,
+        options,
+        shared,
+    )?;
+    SINK.with_borrow_mut(|sink| sink.as_mut()?.open(axiom, folded))
+}
+
+/// The entry of [`enter`], evaluated or recognized by the cache, and its axiom's id; `None` when
+/// the open collection does not name the axiom or its `requires` is empty.
+fn entry(
+    definition: &BackendDefinition,
+    attributes: &RuleAttributes,
+    requires: &[Predicate],
+    substitution: &Substitution,
+    knowledge: &[Predicate],
+    options: SimplificationOptions,
+    shared: Option<SharedEvaluation>,
+) -> Option<(String, Folded)> {
     if requires.is_empty() {
         return None;
     }
@@ -512,7 +614,7 @@ pub(super) fn enter(
         });
         if let Some(folded) = cached {
             let (axiom, _) = cache_key;
-            return SINK.with_borrow_mut(|sink| sink.as_mut()?.open(axiom, folded));
+            return Some((axiom, folded));
         }
     }
     let (axiom, key) = cache_key;
@@ -547,7 +649,7 @@ pub(super) fn enter(
             }
             sink.cache.insert((axiom.clone(), key), folded.clone());
         }
-        sink.open(axiom, folded)
+        Some((axiom, folded))
     })
 }
 
@@ -557,6 +659,103 @@ pub(super) fn verdict(handle: GuardHandle, decided: Decided) {
     SINK.with_borrow_mut(|sink| {
         if let Some(sink) = sink.as_mut() {
             sink.close(handle, decided);
+        }
+    });
+}
+
+/// Whether the open collection names the axiom `attributes` names.
+pub(crate) fn collects_guard_of(attributes: &RuleAttributes) -> bool {
+    SINK.with_borrow(|sink| {
+        sink.as_ref()
+            .is_some_and(|sink| sink.collection.selects(attributes))
+    })
+}
+
+/// Make the untried entries of the function application `term`, decided under the path
+/// conditions `knowledge` by the equation at position `applied` of its group: `enter` makes
+/// them ([`enter_untried`]), isolated from the run as an offer probe is (`super::offer`), so
+/// that the matching it does reports to no coverage set, counts no work, emits no diagnostic,
+/// notes no path fact and leaves the counter of renamed-apart names as it was. `cacheable` says
+/// whether the entries are a function of the key alone; where they are, an application whose
+/// entries were made already is recognized by a bounded cache, as entries are, and makes none
+/// again: entering them again would fold the same entries into the same sets.
+pub(crate) fn untried_application(
+    term: &Term,
+    knowledge: &[Predicate],
+    applied: usize,
+    cacheable: bool,
+    enter: impl FnOnce(),
+) {
+    let caps = SINK.with_borrow(|sink| {
+        sink.as_ref()
+            .map(|sink| (sink.collection.max_value_size, sink.collection.cache_keys))
+    });
+    let Some((max_value_size, cache_keys)) = caps else {
+        return;
+    };
+    let key = cacheable
+        .then(|| ApplicationKey {
+            term: term.clone(),
+            knowledge: knowledge.to_vec(),
+            applied,
+        })
+        .filter(|key| !key.exceeds(max_value_size));
+    if let Some(key) = key {
+        let seen = SINK.with_borrow_mut(|sink| {
+            let Some(sink) = sink.as_mut() else {
+                return true;
+            };
+            if sink.applications.contains(&key) {
+                return true;
+            }
+            if sink.applications.len() >= cache_keys {
+                sink.applications.clear();
+            }
+            sink.applications.insert(key);
+            false
+        });
+        if seen {
+            return;
+        }
+    }
+    super::suspend(|| {
+        k_rust_kore::measure::without_counting(|| {
+            crate::diagnostic::discarded(|| {
+                crate::path_facts::discarded(|| crate::rule::with_apart_names_restored(enter))
+            })
+        })
+    });
+}
+
+/// Fold the entry of the axiom `attributes` names into `requires` under `substitution`, with
+/// the path and match conditions `knowledge`, as [`enter`] does, where the run did not try it:
+/// its guard outcome is the one its evaluation gives (the first conjunct that is not `true`
+/// decides it), with `undecided: untried` where that conjunct is undecided. One evaluation
+/// serves both kinds of entry, with the same bounds and the same cache, so an entry's outcomes
+/// do not depend on whether the run tried it first.
+pub(crate) fn enter_untried(
+    definition: &BackendDefinition,
+    attributes: &RuleAttributes,
+    requires: &[Predicate],
+    substitution: &Substitution,
+    knowledge: &[Predicate],
+    options: SimplificationOptions,
+) {
+    let Some((axiom, folded)) = entry(
+        definition,
+        attributes,
+        requires,
+        substitution,
+        knowledge,
+        options,
+        None,
+    ) else {
+        return;
+    };
+    SINK.with_borrow_mut(|sink| {
+        if let Some(sink) = sink.as_mut() {
+            let outcome = folded.untried;
+            sink.add(&axiom, folded, outcome);
         }
     });
 }
@@ -714,10 +913,24 @@ impl Slot {
                 }
                 _ => Refutation::False,
             });
+        // The first conjunct that is not `true` decides the condition where the run did not
+        // try it: none holds it, a `false` or `undefined` one refutes it whatever the later
+        // conjuncts are, and an undecided one leaves it open, the later conjuncts unreached.
+        let untried = match condition
+            .iter()
+            .find(|conjunct| conjunct.value() != Truth::True)
+            .map(ConditionNode::value)
+        {
+            None => GuardOutcome::Held,
+            Some(Truth::False) => GuardOutcome::Refuted(refutation),
+            Some(Truth::Undefined) => GuardOutcome::Refuted(Refutation::Undefined),
+            Some(Truth::True | Truth::Undecided) => GuardOutcome::Undecided(AttemptCause::Untried),
+        };
         Folded {
             reached: fold.reached,
             refutation,
             atoms: fold.atoms,
+            untried,
         }
     }
 }

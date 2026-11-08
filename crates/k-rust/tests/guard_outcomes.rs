@@ -241,4 +241,5 @@ fn guards_change_nothing_else_need_coverage_and_read_their_defaults() {
     assert_eq!(read, GuardCollection::new(["a"]));
     let capabilities = serde_json::to_value(definition.backend().capabilities()).unwrap();
     assert_eq!(capabilities["coverageGuards"], true);
+    assert_eq!(capabilities["coverageGuardsUntried"], true);
 }

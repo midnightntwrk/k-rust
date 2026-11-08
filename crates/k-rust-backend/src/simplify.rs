@@ -186,7 +186,8 @@ use result::{Accumulated, AccumulatedMark, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
     EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SetAsideRequires,
-    SimplificationTheory, TermTheory, TheoryScan, scan_group, scan_instances, scan_term_theory,
+    SimplificationTheory, TermTheory, TheoryScan, UntriedGuards, scan_group, scan_instances,
+    scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -9139,8 +9140,24 @@ fn unspecified_function_scan(
     };
     let diagnostics = diagnostic::mark();
     let mut opened = None;
-    let scan =
-        scan_term_theory::<FunctionTheory>(definition, term, indeterminate, |rule, set_aside| {
+    // The equations this scan does not try, read before the scan adds to them: those it adds
+    // are tried in it.
+    let excluded = if crate::coverage::records_guards() {
+        history.excluded.as_slice().into()
+    } else {
+        Box::default()
+    };
+    let untried = UntriedGuards {
+        known_predicates,
+        options,
+        excluded: &excluded,
+    };
+    let scan = scan_term_theory::<FunctionTheory>(
+        definition,
+        term,
+        indeterminate,
+        &untried,
+        |rule, set_aside| {
             // An equation whose attempt failed on this application is not tried again; it was
             // not refuted, so it keeps lower-priority equations from applying in its place.
             if history
@@ -9198,7 +9215,8 @@ fn unspecified_function_scan(
                     Ok(attempt)
                 }
             }
-        })?;
+        },
+    )?;
     if let TheoryScan::Applied(result, rule) = scan {
         let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
             RootStep::DeterminedFunctionStep
@@ -10536,18 +10554,29 @@ fn apply_theory<K: TermTheory>(
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<TheoryScan<K>> {
-    scan_term_theory::<K>(definition, term, indeterminate, |rule, set_aside| {
-        apply_equation(
-            definition,
-            rule,
-            term,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-            set_aside,
-        )
-    })
+    let untried = UntriedGuards {
+        known_predicates,
+        options,
+        excluded: &[],
+    };
+    scan_term_theory::<K>(
+        definition,
+        term,
+        indeterminate,
+        &untried,
+        |rule, set_aside| {
+            apply_equation(
+                definition,
+                rule,
+                term,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+                set_aside,
+            )
+        },
+    )
 }
 
 /// [`apply_theory`] at a root step while an `Unspecified` attempt is open, noting in `contingent`
@@ -10580,23 +10609,34 @@ fn apply_theory_noting_cuts<K: TermTheory>(
             indeterminate,
         );
     }
-    scan_term_theory::<K>(definition, term, indeterminate, |rule, set_aside| {
-        let watch = CutWatch::start();
-        let attempt = apply_equation(
-            definition,
-            rule,
-            term,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-            set_aside,
-        )?;
-        if let EquationAttempt::Indeterminate(_) = attempt {
-            *contingent = min_depth(*contingent, watch.lowest());
-        }
-        Ok(attempt)
-    })
+    let untried = UntriedGuards {
+        known_predicates,
+        options,
+        excluded: &[],
+    };
+    scan_term_theory::<K>(
+        definition,
+        term,
+        indeterminate,
+        &untried,
+        |rule, set_aside| {
+            let watch = CutWatch::start();
+            let attempt = apply_equation(
+                definition,
+                rule,
+                term,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+                set_aside,
+            )?;
+            if let EquationAttempt::Indeterminate(_) = attempt {
+                *contingent = min_depth(*contingent, watch.lowest());
+            }
+            Ok(attempt)
+        },
+    )
 }
 
 /// Decide the binding obligations of an equation instance whose `requires` holds

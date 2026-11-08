@@ -542,6 +542,11 @@ pub struct BackendCapabilities {
     /// ([`RunCoverageOutput::guards`]) when the request sets `collect_guards` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_guards`]).
     pub coverage_guards: bool,
+    /// The guard outcomes are order free within a priority group: every function application
+    /// gives an entry of each equation of the group that applied whose left-hand side matches,
+    /// tried or not, an untried entry left open being `undecided-untried`
+    /// ([`GuardOutcomeOutput::UndecidedUntried`]).
+    pub coverage_guards_untried: bool,
     /// An execution also reports the bindings of the run's fired instances
     /// ([`RunCoverageOutput::bindings`]) when the request sets `collect_bindings` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_bindings`]).
@@ -1579,6 +1584,8 @@ pub enum GuardOutcomeOutput {
     /// The attempt went on under the condition left open, or a decision that only evaluates
     /// left it open.
     UndecidedOpen,
+    /// The run did not try the entry, and its solver-free evaluation left the condition open.
+    UndecidedUntried,
     Stopped,
 }
 
@@ -1599,6 +1606,7 @@ impl From<k_rust_backend::coverage::GuardOutcome> for GuardOutcomeOutput {
             GuardOutcome::Undecided(AttemptCause::SolverError) => Self::UndecidedSolverError,
             GuardOutcome::Undecided(AttemptCause::Simplification) => Self::UndecidedSimplification,
             GuardOutcome::Undecided(AttemptCause::Open) => Self::UndecidedOpen,
+            GuardOutcome::Undecided(AttemptCause::Untried) => Self::UndecidedUntried,
             GuardOutcome::Stopped => Self::Stopped,
         }
     }
@@ -2689,6 +2697,7 @@ impl Backend {
             coverage_counts: true,
             coverage_conditions: true,
             coverage_guards: true,
+            coverage_guards_untried: true,
             coverage_bindings: true,
             coverage_committed: true,
             coverage_windows: true,
@@ -4577,6 +4586,44 @@ mod tests {
         let deep: BindingCollection =
             serde_json::from_value(serde_json::json!({"symbols": ["LblA"], "depth": 2})).unwrap();
         assert_eq!(deep.depth, std::num::NonZeroUsize::new(2));
+    }
+
+    /// Order-free guard outcomes are declared where the facade writes them: the guard outcome
+    /// `undecided-untried`, one line of each package's `GuardOutcome` union, and a capability
+    /// flag, true in every build.
+    #[test]
+    fn the_untried_guard_outcome_matches_typescript_declarations() {
+        assert_typescript_member("BackendCapabilities", "coverageGuardsUntried: boolean");
+        assert_eq!(
+            wire_names(&[GuardOutcomeOutput::UndecidedUntried]),
+            BTreeSet::from(["undecided-untried".to_owned()])
+        );
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let union = declaration
+                .split_once("export type GuardOutcome =\n")
+                .unwrap()
+                .1
+                .split_once("\n\n")
+                .unwrap()
+                .0;
+            assert!(
+                union.lines().any(|line| line == "  | 'undecided-untried'"),
+                "{path}"
+            );
+        }
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageGuardsUntried"], true);
     }
 
     /// Rule windows are declared where the facade reads and writes them: the request's option,

@@ -423,7 +423,7 @@ impl EntryKey {
 }
 
 /// The number of nodes of `term`, or `cap + 1` when it has more than `cap`.
-fn nodes_up_to(term: &Term, cap: usize) -> usize {
+pub(super) fn nodes_up_to(term: &Term, cap: usize) -> usize {
     let mut nodes = 0usize;
     let mut pending = vec![term];
     while let Some(next) = pending.pop() {

@@ -15,12 +15,13 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, Buffered, Subject},
     matching::MatchFailed,
-    rule::{RewriteRule, Theory, applicable_groups, term_index},
+    rule::{Predicate, RewriteRule, Theory, applicable_groups, term_index},
     term::Term,
 };
 
 use super::{
-    ConditionIndeterminacy, EquationInstances, Simplification, SimplifyResult, equation_instances,
+    ConditionIndeterminacy, EquationInstances, Instance, Simplification, SimplificationOptions,
+    SimplifyResult, equation_instances, subject_equalities,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -130,12 +131,17 @@ pub(super) enum TheoryScan<K> {
 /// ```
 /// Inlined: each instance has one caller (its `attempt` is a closure of that caller), and the
 /// scan is a frame of a recursion through an equation's `requires` (`tests::recursion_stack`).
+///
+/// In the function theory, when the run collects guards, the equations of the group that applied
+/// after the one that applied, which the scan does not try, get untried entries
+/// ([`enter_untried_guards`]), with what `untried` gives.
 #[deny(clippy::wildcard_enum_match_arm)]
 #[inline]
 pub(super) fn scan_term_theory<K: TermTheory>(
     definition: &BackendDefinition,
     term: &Term,
     indeterminate: &mut IndeterminateAttempts,
+    untried: &UntriedGuards<'_>,
     mut attempt: impl FnMut(
         &Arc<RewriteRule>,
         SetAsideRequires,
@@ -189,7 +195,16 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 EquationAttempt::Recurred => EquationAttempt::Recurred,
             })
         })? {
-            GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
+            GroupScan::Applied((result, rule)) => {
+                // A function application is decided by the first group that applies or blocks;
+                // a lemma states nothing about the lemmas after it.
+                if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block
+                    && crate::coverage::records_guards()
+                {
+                    enter_untried_guards(definition, term, groups[position].1, &rule, untried);
+                }
+                return Ok(TheoryScan::Applied(result, rule));
+            }
             GroupScan::Blocked if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
                 // A rule at this priority may apply after the symbolic subject becomes more
                 // concrete. Function evaluation must preserve the application and must not fall
@@ -216,6 +231,103 @@ pub(super) fn scan_term_theory<K: TermTheory>(
         // `GroupScan::NotApplicable`: each of its attempts was `NotApplicable(MatchFailed)`.
         TheoryScan::NotApplicable(NoOfferedEquationMatched(PhantomData))
     })
+}
+
+/// What a term scan's untried entries are made under ([`enter_untried_guards`]): the path
+/// conditions and options its attempts decide under, and the equations the scan does not try
+/// at this application (those whose attempt failed in an earlier evaluation of it,
+/// `simplify::UnspecifiedRetry`).
+pub(super) struct UntriedGuards<'a> {
+    pub(super) known_predicates: &'a [Predicate],
+    pub(super) options: SimplificationOptions,
+    pub(super) excluded: &'a [Arc<RewriteRule>],
+}
+
+/// The untried entries of the function application `term`, which the equation `applied` of
+/// `group` applied to (`coverage::guards`).
+///
+/// An equation states its value at the arguments its left-hand side matches where its
+/// `requires` holds and no equation of a higher group applies, so its guard decides something
+/// at every application its left-hand side matches whose deciding group is its own. Every
+/// equation of that group before `applied` was tried; each one after it the run collects the
+/// guard of gets an entry for each instance whose matching is decided, under the path
+/// conditions and the conditions its match holds under (a usable instance, one a `concrete` or
+/// `symbolic` attribute set aside, and one that matches under equalities of the subject's
+/// variables), with the outcome its evaluation gives (`coverage::enter_untried`). So the guard
+/// outcomes of a group's equations do not depend on the order in which the scan tries them.
+/// Lower groups, `owise` included, state nothing where this group applies, and get none.
+///
+/// None is made for an equation the scan does not try at this application
+/// ([`UntriedGuards::excluded`]), nor for one holding a literal whose element the definition
+/// leaves open (`crate::literal`): an attempt of it would rest on k-rust's element, which an
+/// untried entry cannot mark. An undecided matching makes none. Out of line, so that its work
+/// is no part of the frame of a scan, which a recursion through an equation's `requires` passes
+/// through once per level (`tests::recursion_stack`).
+#[inline(never)]
+fn enter_untried_guards(
+    definition: &BackendDefinition,
+    term: &Term,
+    group: &[Arc<RewriteRule>],
+    applied: &Arc<RewriteRule>,
+    untried: &UntriedGuards<'_>,
+) {
+    let Some(position) = group.iter().position(|rule| Arc::ptr_eq(rule, applied)) else {
+        return;
+    };
+    let after = group[position + 1..]
+        .iter()
+        .filter(|rule| {
+            !rule.requires.is_empty()
+                && rule.computed_attributes.open_literals.is_empty()
+                && !untried
+                    .excluded
+                    .iter()
+                    .any(|excluded| Arc::ptr_eq(excluded, rule))
+                && crate::coverage::collects_guard_of(&rule.attributes)
+        })
+        .collect::<Vec<_>>();
+    if after.is_empty() {
+        return;
+    }
+    let known_predicates = untried.known_predicates;
+    crate::coverage::untried_application(
+        term,
+        known_predicates,
+        position,
+        untried.excluded.is_empty(),
+        || {
+            for rule in after {
+                let (rule, instances) =
+                    equation_instances(definition, rule, term, known_predicates);
+                let EquationInstances::Matched(instances) = instances else {
+                    continue;
+                };
+                for instance in instances {
+                    let (substitution, match_conditions) = match instance {
+                        Instance::Usable(substitution) | Instance::SetAside(substitution) => {
+                            (substitution, Vec::new())
+                        }
+                        Instance::Conditional(substitution) => {
+                            subject_equalities(&rule, substitution)
+                        }
+                        Instance::Unused | Instance::NonFunctionalBinding | Instance::Undecided => {
+                            continue;
+                        }
+                    };
+                    let mut knowledge = known_predicates.to_vec();
+                    knowledge.extend(match_conditions);
+                    crate::coverage::enter_untried(
+                        definition,
+                        &rule.attributes,
+                        rule.requires.conjuncts(),
+                        &substitution,
+                        &knowledge,
+                        untried.options,
+                    );
+                }
+            }
+        },
+    );
 }
 
 /// The probe of an equation a selection site selected for `term` and never tried

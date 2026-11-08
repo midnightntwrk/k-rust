@@ -11,8 +11,8 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
     coverage::{
-        AxiomGuard, Connective, GuardCollection, GuardOutcome, GuardShape, NodeOutcome,
-        OperandCause, Refutation, Truth,
+        AttemptCause, AxiomGuard, Connective, GuardCollection, GuardOutcome, GuardShape,
+        NodeOutcome, OperandCause, Refutation, Truth,
     },
     definition::BackendDefinition,
     rewrite::{ExecutionOptions, ExecutionResult, Pattern, execute},
@@ -538,4 +538,475 @@ fn a_skeleton_is_the_nodes_a_run_reports() {
             .collect::<Vec<_>>()
     };
     assert_eq!(shape(skeleton), shape(ran));
+}
+
+/// `\equals(b, true)` of the conjunction of `conjuncts` by `andBool`, nested to the left as a
+/// chain of `&&` is, over the sort `R` of an equation.
+fn all_r(conjuncts: &[String]) -> String {
+    let mut conjunction = conjuncts[0].clone();
+    for conjunct in &conjuncts[1..] {
+        conjunction = format!("andBool{{}}({conjunction}, {conjunct})");
+    }
+    holds_r(&conjunction)
+}
+
+fn eq_x(value: i64) -> String {
+    format!("eqInt{{}}({X}, {})", int(value))
+}
+
+fn not(b: &str) -> String {
+    format!("notBool{{}}({b})")
+}
+
+/// A definition whose function groups have several equations whose guards are disjoint, each
+/// group declared in written order or, with `reversed`, in the reverse order:
+/// - `iv`, the equations an `if`/`else if`/`else` chain lowers to: branch `i` is guarded by the
+///   negations of the earlier conditions and its own, the `else` by every negation;
+/// - `w`, two hand-written complementary equations, `A <Int 32768` and `A >=Int 32768`;
+/// - `u`, an equation applying at 0 and two whose guards are open there: one reads a function
+///   with no equation (`k`), one divides by the argument;
+/// - `o`, an equation, an `owise` one and one of a lower priority, each with a guard;
+/// - `n`, an equation applying at 0 and one whose guard applies the helper `hl`, which nothing
+///   else applies;
+/// - `p`, `p(0) = 0` and an equation whose guard, at 0, recurses on `p(-1)` forever.
+///
+/// Each `cF(A)` rewrites to `val(F(A))`, and `two(A, B)` to `pair(iv(A), iv(B))`.
+fn untried_definition(reversed: bool) -> BackendDefinition {
+    let group = |mut equations: Vec<String>| {
+        if reversed {
+            equations.reverse();
+        }
+        equations
+    };
+    let chain = group(vec![
+        equation("iv1", "iv", &int(10), &all_r(&[eq_x(1)]), ""),
+        equation("iv2", "iv", &int(20), &all_r(&[not(&eq_x(1)), eq_x(2)]), ""),
+        equation(
+            "iv3",
+            "iv",
+            &int(30),
+            &all_r(&[not(&eq_x(1)), not(&eq_x(2)), eq_x(3)]),
+            "",
+        ),
+        equation(
+            "iv4",
+            "iv",
+            &int(0),
+            &all_r(&[not(&eq_x(1)), not(&eq_x(2)), not(&eq_x(3))]),
+            "",
+        ),
+    ]);
+    let bound = int(32768);
+    let complementary = group(vec![
+        equation(
+            "wLow",
+            "w",
+            &int(1),
+            &holds_r(&format!("ltInt{{}}({X}, {bound})")),
+            "",
+        ),
+        equation(
+            "wHigh",
+            "w",
+            &int(2),
+            &holds_r(&format!("geInt{{}}({X}, {bound})")),
+            "",
+        ),
+    ]);
+    let others = [
+        equation("uZero", "u", &int(0), &holds_r(&eq_x(0)), ""),
+        equation(
+            "uOpen",
+            "u",
+            &int(1),
+            &holds_r(&format!("eqInt{{}}(k{{}}({X}), {})", int(1))),
+            "",
+        ),
+        equation(
+            "uDivides",
+            "u",
+            &int(2),
+            &holds_r(&format!(
+                "eqInt{{}}(divInt{{}}({}, {X}), {})",
+                int(1),
+                int(1)
+            )),
+            "",
+        ),
+        equation(
+            "oHigh",
+            "o",
+            &int(1),
+            &holds_r(&format!("geInt{{}}({X}, {})", int(0))),
+            "",
+        ),
+        equation(
+            "oOwise",
+            "o",
+            &int(2),
+            &holds_r(&format!("ltInt{{}}({X}, {})", int(100))),
+            r#", owise{}()"#,
+        ),
+        equation(
+            "oLower",
+            "o",
+            &int(3),
+            &holds_r(&format!("ltInt{{}}({X}, {})", int(100))),
+            r#", priority{}("60")"#,
+        ),
+        equation("nZero", "n", &int(0), &holds_r(&eq_x(0)), ""),
+        equation(
+            "nHelped",
+            "n",
+            &int(1),
+            &holds_r(&format!("eqInt{{}}(hl{{}}({X}), {})", int(7))),
+            "",
+        ),
+        equation(
+            "hlEq",
+            "hl",
+            X,
+            &holds_r(&format!("geInt{{}}({X}, {})", int(0))),
+            "",
+        ),
+        equation("pZero", "p", &int(0), &holds_r(&eq_x(0)), ""),
+        equation(
+            "pDown",
+            "p",
+            &int(1),
+            &holds_r(&format!(
+                "andThenBool{{}}({}, geInt{{}}(p{{}}(subInt{{}}({X}, {})), {}))",
+                not(&eq_x(0)),
+                int(1),
+                int(0)
+            )),
+            "",
+        ),
+    ];
+    let calls = ["iv", "w", "u", "o", "n", "p"]
+        .iter()
+        .map(|function| {
+            rule(
+                &format!("call{function}"),
+                &format!("c{function}{{}}({A})"),
+                &format!("val{{}}({function}{{}}({A}))"),
+                "",
+                "",
+            )
+        })
+        .chain([rule(
+            "callTwo",
+            &format!("two{{}}({A}, {B})"),
+            &format!("pair{{}}(iv{{}}({A}), iv{{}}({B}))"),
+            "",
+            "",
+        )])
+        .collect::<Vec<_>>();
+    let constructors = ["iv", "w", "u", "o", "n", "p"]
+        .iter()
+        .map(|function| {
+            format!(
+                "symbol c{function}{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]\n"
+            )
+        })
+        .collect::<String>();
+    let functions = ["iv", "w", "u", "o", "n", "hl", "p"]
+        .iter()
+        .map(|function| {
+            format!(
+                "symbol {function}{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]\n"
+            )
+        })
+        .collect::<String>();
+    let source = format!(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            sort SortS{{}} []
+            hooked-symbol geInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.ge"), smt-hook{{}}(">=")]
+            hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
+            hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            hooked-symbol subInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.sub"), smt-hook{{}}("-")]
+            hooked-symbol divInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), hook{{}}("INT.tdiv"), smt-hook{{}}("div")]
+            hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.and"), smt-hook{{}}("and")]
+            hooked-symbol andThenBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.andThen"), smt-hook{{}}("and")]
+            hooked-symbol notBool{{}}(SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.not"), smt-hook{{}}("not")]
+            symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol two{{}}(SortInt{{}}, SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol pair{{}}(SortInt{{}}, SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol val{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            {constructors}
+            {functions}
+            {axioms}
+        endmodule []"#,
+        axioms = chain
+            .iter()
+            .chain(&complementary)
+            .chain(&others)
+            .chain(&calls)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+const CHAIN: [&str; 4] = ["iv1", "iv2", "iv3", "iv4"];
+
+/// `cF(argument)` of the untried fixture.
+fn call(definition: &BackendDefinition, function: &str, argument: i64) -> Pattern {
+    ground(definition, &format!("c{function}{{}}({})", int(argument)))
+}
+
+/// The `matched` set of a run of `initial` collecting the guards of `axioms`.
+fn matched_of(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    axioms: &[&str],
+) -> BTreeSet<String> {
+    execute(definition, initial, guarded(axioms))
+        .coverage
+        .expect("the run collected coverage")
+        .matched
+}
+
+/// An application taking the first branch of an `if` chain records the restated conditions of
+/// the later branches, which the scan does not try: each later branch reads its restated `!c1`
+/// false, with `c1` true below it, and is refuted.
+#[test]
+fn the_later_branches_of_a_chain_record_their_restated_conditions() {
+    let definition = untried_definition(false);
+    let initial = call(&definition, "iv", 1);
+    let matched = matched_of(&definition, initial.clone(), &CHAIN);
+    assert!(
+        matched.contains("iv1") && !matched.contains("iv2"),
+        "{matched:?}"
+    );
+    let guards = guards_of(&definition, initial, &CHAIN);
+    assert_eq!(guard(&guards, "iv1").outcomes, set(&[GuardOutcome::Held]));
+    // `notBool(c1) andBool c2`: the negation is the conjunction's first operand.
+    let second = guard(&guards, "iv2");
+    assert_eq!(reached(second, &[0, 0, 0]), set(&[NodeOutcome::False]));
+    assert_eq!(reached(second, &[0, 0, 0, 0]), set(&[NodeOutcome::True]));
+    assert_eq!(reached(second, &[0, 0, 1]), set(&[]));
+    assert_eq!(
+        second.outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::False)])
+    );
+    // `(notBool(c1) andBool notBool(c2)) andBool ..`: the first negation is the innermost
+    // conjunction's first operand.
+    for later in ["iv3", "iv4"] {
+        let later = guard(&guards, later);
+        assert_eq!(reached(later, &[0, 0, 0, 0]), set(&[NodeOutcome::False]));
+        assert_eq!(reached(later, &[0, 0, 0, 0, 0]), set(&[NodeOutcome::True]));
+        assert_eq!(reached(later, &[0, 0, 0, 1]), set(&[]));
+        assert_eq!(
+            later.outcomes,
+            set(&[GuardOutcome::Refuted(Refutation::False)])
+        );
+    }
+}
+
+/// The guard outcomes of a group do not depend on the order in which its equations are
+/// declared, which is the order the scan tries them in (the `matched` sets differ): the
+/// equations of an `if` chain, and two hand-written complementary equations, report the same
+/// outcomes declared either way, at every argument. Of the complementary pair, the one tried
+/// second is seen refuted where the first applies.
+#[test]
+fn guard_outcomes_do_not_depend_on_the_declaration_order_in_a_group() {
+    let forward = untried_definition(false);
+    let reverse = untried_definition(true);
+    let complementary = ["wLow", "wHigh"];
+    assert_ne!(
+        matched_of(&forward, call(&forward, "iv", 1), &CHAIN),
+        matched_of(&reverse, call(&reverse, "iv", 1), &CHAIN),
+        "the two orders try the chain's equations differently"
+    );
+    for argument in 0..=4 {
+        let ran = guards_of(&forward, call(&forward, "iv", argument), &CHAIN);
+        assert_eq!(ran.len(), CHAIN.len(), "{argument}: {ran:?}");
+        assert_eq!(
+            ran,
+            guards_of(&reverse, call(&reverse, "iv", argument), &CHAIN),
+            "{argument}"
+        );
+    }
+    for argument in [5, 40_000] {
+        let ran = guards_of(&forward, call(&forward, "w", argument), &complementary);
+        assert_eq!(
+            ran,
+            guards_of(&reverse, call(&reverse, "w", argument), &complementary),
+            "{argument}"
+        );
+        let (held, refuted) = if argument == 5 {
+            ("wLow", "wHigh")
+        } else {
+            ("wHigh", "wLow")
+        };
+        assert_eq!(guard(&ran, held).outcomes, set(&[GuardOutcome::Held]));
+        assert_eq!(
+            guard(&ran, refuted).outcomes,
+            set(&[GuardOutcome::Refuted(Refutation::False)])
+        );
+        assert_eq!(
+            reached(guard(&ran, refuted), &[0, 0]),
+            set(&[NodeOutcome::False])
+        );
+    }
+}
+
+/// An untried guard the solver-free evaluation leaves open is `undecided: untried`, its open
+/// atom `undecided: unevaluated` (`k` has no equation); one undefined at the arguments (`1 / 0`)
+/// is refuted, the refutation classed undefined.
+#[test]
+fn an_open_untried_guard_is_undecided_untried_and_an_undefined_one_refuted() {
+    let definition = untried_definition(false);
+    let axioms = ["uZero", "uOpen", "uDivides"];
+    let guards = guards_of(&definition, call(&definition, "u", 0), &axioms);
+    assert_eq!(guard(&guards, "uZero").outcomes, set(&[GuardOutcome::Held]));
+    let open = guard(&guards, "uOpen");
+    assert_eq!(
+        open.outcomes,
+        set(&[GuardOutcome::Undecided(AttemptCause::Untried)])
+    );
+    assert_eq!(
+        reached(open, &[0, 0]),
+        set(&[NodeOutcome::Undecided(OperandCause::Unevaluated)])
+    );
+    let divides = guard(&guards, "uDivides");
+    assert_eq!(
+        divides.outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::Undefined)])
+    );
+    assert_eq!(reached(divides, &[0, 0]), set(&[NodeOutcome::Undefined]));
+    assert_eq!(reached(divides, &[0]), set(&[NodeOutcome::False]));
+}
+
+/// The equations of a group below the one that applied, an `owise` one and one of a lower
+/// priority, state nothing where it applies and get no entry; where it does not apply they are
+/// tried, and reported as before.
+#[test]
+fn a_lower_group_gets_no_untried_entry() {
+    let definition = untried_definition(false);
+    let axioms = ["oHigh", "oOwise", "oLower"];
+    let guards = guards_of(&definition, call(&definition, "o", 5), &axioms);
+    let names = guards
+        .iter()
+        .map(|guard| guard.axiom.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["oHigh"]);
+    let below = guards_of(&definition, call(&definition, "o", -5), &axioms);
+    assert_eq!(
+        guard(&below, "oHigh").outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::False)])
+    );
+    let names = below
+        .iter()
+        .map(|guard| guard.axiom.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["oHigh", "oLower"]);
+    assert_eq!(guard(&below, "oLower").outcomes, set(&[GuardOutcome::Held]));
+}
+
+/// A function applied inside an untried guard's evaluation is applied by the record, not by the
+/// run: `hl`, applied only by `nHelped`'s guard, is in no coverage set and has no entry, while
+/// `nHelped` itself is reported.
+#[test]
+fn applications_inside_an_untried_evaluation_are_not_recorded() {
+    let definition = untried_definition(false);
+    let axioms = ["nZero", "nHelped", "hlEq"];
+    let initial = call(&definition, "n", 0);
+    let result = execute(&definition, initial.clone(), guarded(&axioms));
+    let coverage = result.coverage.expect("the run collected coverage");
+    assert!(!coverage.matched.contains("hlEq"), "{:?}", coverage.matched);
+    assert!(!coverage.applied.contains("hlEq"), "{:?}", coverage.applied);
+    assert!(
+        !coverage.matched.contains("nHelped"),
+        "{:?}",
+        coverage.matched
+    );
+    let guards = guards_of(&definition, initial, &axioms);
+    let names = guards
+        .iter()
+        .map(|guard| guard.axiom.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["nHelped", "nZero"]);
+    assert_eq!(
+        guard(&guards, "nHelped").outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::False)])
+    );
+}
+
+/// An untried guard whose evaluation recurses forever where an earlier equation applies stops at
+/// the entry's budget of polls: the operand it decided reads `false`, the conjunct `undecided:
+/// stopped`, the guard `undecided: untried`, and the run ends as it does without guards.
+#[test]
+fn a_diverging_untried_guard_stops_at_its_budget() {
+    let definition = untried_definition(false);
+    let axioms = ["pZero", "pDown"];
+    let mut options = guarded(&axioms);
+    options.collect_guards.as_mut().unwrap().record_polls = 2_000;
+    let initial = call(&definition, "p", 0);
+    let result = execute(&definition, initial.clone(), options.clone());
+    let without = execute(
+        &definition,
+        initial,
+        ExecutionOptions {
+            collect_guards: None,
+            ..options
+        },
+    );
+    let mut coverage = result.coverage.clone().expect("the run collected coverage");
+    let guards = coverage.guards.take().expect("the run collected guards");
+    assert_eq!(Some(coverage), without.coverage);
+    assert_eq!(result.leaves, without.leaves);
+    let down = guard(&guards, "pDown");
+    assert_eq!(
+        down.outcomes,
+        set(&[GuardOutcome::Undecided(AttemptCause::Untried)])
+    );
+    assert_eq!(
+        reached(down, &[0]),
+        set(&[NodeOutcome::Undecided(OperandCause::Stopped)])
+    );
+    assert_eq!(reached(down, &[0, 0, 0]), set(&[NodeOutcome::False]));
+    assert_eq!(reached(down, &[0, 0, 1]), set(&[]));
+}
+
+/// The cache of applications whose untried entries were made changes no outcome: a run that
+/// evaluates `iv(1)` twice and `iv(4)` reports the same guards with a cache of one key, which
+/// each new application clears, and with a size cap under which nothing is cached.
+#[test]
+fn the_application_cache_changes_no_outcome() {
+    let definition = untried_definition(false);
+    let initial = ground(&definition, &format!("two{{}}({}, {})", int(1), int(4)));
+    let expected = guards_of(&definition, initial.clone(), &CHAIN);
+    assert_eq!(
+        guard(&expected, "iv4").outcomes,
+        set(&[GuardOutcome::Held, GuardOutcome::Refuted(Refutation::False)])
+    );
+    let repeated = ground(&definition, &format!("two{{}}({}, {})", int(1), int(1)));
+    assert_eq!(
+        guards_of(&definition, repeated, &CHAIN),
+        guards_of(&definition, call(&definition, "iv", 1), &CHAIN)
+    );
+    for (cache_keys, max_value_size) in [(1, 64), (4_096, 0)] {
+        let mut options = guarded(&CHAIN);
+        let collection = options.collect_guards.as_mut().unwrap();
+        collection.cache_keys = cache_keys;
+        collection.max_value_size = max_value_size;
+        let result = execute(&definition, initial.clone(), options);
+        let guards = result.coverage.unwrap().guards.unwrap();
+        assert_eq!(guards, expected, "{cache_keys} keys, size {max_value_size}");
+    }
 }
