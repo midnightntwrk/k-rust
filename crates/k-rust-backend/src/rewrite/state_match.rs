@@ -10,7 +10,9 @@
 //! Which states are matched: every state of rewritable kind once its normalization (constraint
 //! and term simplification) left it defined and it was not merged into a recorded state of its
 //! depth: the initial configuration (after its definedness restriction), every state the run
-//! goes on to step, every state the depth bound stops, and every successor a terminal rule ends.
+//! goes on to step, every state the depth bound stops, every successor a terminal rule ends, and
+//! every successor of a step at whose before or after point a probe's answer ends the path (the
+//! step is taken, so its successor is reached; `probe`).
 //! Not matched: a remainder (its term is its parent's, which was matched, under more
 //! constraints), a state a stop or the work budget cut before its normalization finished (it is
 //! not a reached configuration in normal form), a cut-point rule's proposed successor (the rule

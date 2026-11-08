@@ -1757,6 +1757,70 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
     );
 }
 
+/// A probe observes one path (`probe`, "One path"): the step from `wrap(X)` leaves the
+/// `Trivial` leaf of its undefined instances beside the `fallback` successor, two paths, so the
+/// probe is told of a split at depth 0 and asked about no point of `fallback`, under both
+/// strategies; a probe that is asked nothing leaves the result as it is.
+#[test]
+fn a_successor_beside_the_leaf_of_its_steps_undefined_instances_is_a_split_for_a_probe() {
+    #[derive(Debug, PartialEq)]
+    enum Asked {
+        Point(StopSide, u64),
+        Branched(u64),
+        Ended(u64),
+    }
+    struct Recorder(Vec<Asked>);
+    impl Probe for Recorder {
+        fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+            self.0.push(Asked::Point(point.side(), point.depth()));
+            ProbeDecision::Continue
+        }
+
+        fn branched(&mut self, depth: u64) {
+            self.0.push(Asked::Branched(depth));
+        }
+
+        fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+            self.0.push(Asked::Ended(leaf.depth()));
+        }
+    }
+    let definition = symbolic_trivial_definition(true);
+    let solver = indeterminate_sat_solver();
+    let fallback: BTreeSet<String> = ["fallback".to_owned()].into();
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let options = ExecutionOptions {
+            mode,
+            probe_rules: ProbeRules {
+                before: fallback.clone(),
+                after: fallback.clone(),
+            },
+            ..ExecutionOptions::default()
+        };
+        let mut probe = Recorder(Vec::new());
+        let probed = execute_with_probe(
+            &definition,
+            symbolic_subject(&definition),
+            options.clone(),
+            &solver,
+            None,
+            None,
+            &mut probe,
+        )
+        .unwrap();
+        assert_eq!(probe.0, [Asked::Branched(0)], "{mode:?}");
+        let plain =
+            execute_with_solver(&definition, symbolic_subject(&definition), options, &solver);
+        assert_eq!(probed, plain, "{mode:?}");
+        assert!(
+            plain
+                .leaves
+                .iter()
+                .any(|leaf| matches!(leaf.halt_reason, HaltReason::Trivial { .. })),
+            "{mode:?}: {plain:#?}"
+        );
+    }
+}
+
 #[test]
 fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
     let definition = definition(

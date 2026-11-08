@@ -22,6 +22,12 @@
 //! the configuration is final. Neither is ever merged with another leaf, and only a request
 //! with a probe has them.
 //!
+//! A point exists only because its step's successor is defined, so the leaf an answer makes
+//! carries the successor's diagnostics: the path's up to the step and every one the step and
+//! the successor's normalization added (a simplification budget spent before an equation that
+//! would have shown the successor undefined, a path fact). At an after point they are the
+//! observed state's own; at a before point the leaf is otherwise the state before the step.
+//!
 //! Whether a step's successor is defined is shown by the successor's own normalization, so the
 //! points of a step are asked once that normalization shows it defined, before anything else
 //! is done with it (the depth bound, merging, the next step). A step whose successor is
@@ -40,8 +46,23 @@
 //! nothing: its callbacks name no path, so the points of several paths, in the order the run
 //! explores them, are no sequence of one path. Where the path ends first, at any leaf other than
 //! the probe's own, the probe is told once ([`Probe::ended`]) and reads the leaf's state.
-//! Under strategy `any` the run never takes more than one successor of a state, so it is told
-//! of a split only where a step's instances end apart from its successor.
+//! Under strategy `any` each instance of a state takes the successors of one rule at most, but
+//! a state still leaves several paths where its instances take different rules or a remainder
+//! (a symbolic state), or where the rule's right-hand side has several alternatives; the probe
+//! is told of a split there as under `all`.
+//!
+//! # What the run records of a step with a point
+//!
+//! A step whose points are asked is taken: its successor was built, normalized and shown
+//! defined. Where an answer ends the path at a before point, the run's own records count the
+//! step as they count every taken step: the rule is committed and its bindings recorded
+//! (coverage), and the successor is matched as a reached state
+//! ([`ExecutionOptions::match_states`](super::ExecutionOptions::match_states)); so is the
+//! successor at an after point, which takes part in no merging. The leaf is the observed state:
+//! its depth, trace, branch, observations, effects and counts end before the step, and only its
+//! diagnostics, as above, include the step's. A cut-point rule's last event differs: its step is
+//! not taken, so it is proposed and never committed, its successor is not matched, and the leaf
+//! carries it as a proposal.
 //!
 //! # Continue changes nothing
 //!

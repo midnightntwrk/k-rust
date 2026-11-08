@@ -1843,6 +1843,12 @@ impl<'a> Execution<'a> {
     /// normalization showed it defined: the before point, then the after point (`probe`). A
     /// `Differs` answer ends the request and a `Done` answer the path, each with a leaf of the
     /// point's observed state; otherwise `successor` goes on.
+    ///
+    /// Either point exists only because the step's successor is defined, so the leaf carries
+    /// the successor's diagnostics, which hold the state's own and every one the step and the
+    /// successor's normalization added (a spent simplification budget, a path fact): what the
+    /// point rests on. A before point's leaf is otherwise the state before the step. The
+    /// successor is reached either way, so it is matched (`state_match`) before the path ends.
     fn probe_step(
         &mut self,
         successor: ExecutionState,
@@ -1855,6 +1861,11 @@ impl<'a> Execution<'a> {
             let decision =
                 self.observe(&rule, StopSide::Before, before.depth, &before.pattern.term);
             if let Some(halt) = self.probe_end(rule, StopSide::Before, decision) {
+                self.match_reached(&successor);
+                let before = ExecutionState {
+                    diagnostics: successor.diagnostics,
+                    ..before
+                };
                 return Err(Box::new(before.leaf(halt, &self.observation_log)));
             }
         }
@@ -1866,10 +1877,19 @@ impl<'a> Execution<'a> {
                 &successor.pattern.term,
             );
             if let Some(halt) = self.probe_end(rule, StopSide::After, decision) {
+                self.match_reached(&successor);
                 return Err(Box::new(successor.leaf(halt, &self.observation_log)));
             }
         }
         Ok(successor)
+    }
+
+    /// Match `successor`, a step's normalized and defined successor at which a probe's answer
+    /// ends the path, which takes part in no merging (`state_match`).
+    fn match_reached(&mut self, successor: &ExecutionState) {
+        if let ExecutionStateKind::Rewritable = successor.kind {
+            self.match_state(successor);
+        }
     }
 
     /// Ask the probe about the point of `rule` on `side` whose observed state, at `depth`, has
@@ -7781,8 +7801,8 @@ mod tests {
         use super::stop_condition::{state, steps, steps_then};
         use super::*;
         use crate::rewrite::{
-            Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival,
-            StopDecision, StopSide,
+            Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
+            StateMatchOptions, StopArrival, StopDecision, StopSide,
         };
 
         /// What a probe was asked, in order.
@@ -8568,6 +8588,438 @@ mod tests {
                 Some(&point(StopSide::After, 3, "3", "tick-b"))
             );
             assert_eq!(ends(&probed), [("3".into(), 3, "probe-difference")]);
+        }
+
+        /// `tick-d` takes `6` to `g(7)`, which simplification equations rewrite to `g2(7)` and
+        /// that to `g3(7)`, where no equation applies. With a budget of one simplification the
+        /// successor's normalization spends it, and the successor, an application of total
+        /// functions, is defined, so the step has its points; the leaf an answer makes at either point carries that spent budget, the
+        /// point resting on the normalization that showed the successor defined. With the
+        /// default budget no leaf carries it.
+        #[test]
+        fn a_probe_leaf_carries_the_diagnostics_of_its_successors_normalization() {
+            let simplifies = |from: &str, to: &str| {
+                format!(
+                    r#"axiom{{R}} \implies{{R}}(
+                        \top{{R}}(),
+                        \equals{{SortS{{}}, R}}(
+                            {from}{{}}(X:SortS{{}}),
+                            \and{{SortS{{}}}}({to}{{}}(X:SortS{{}}), \top{{SortS{{}}}}())
+                        )
+                    ) [label{{}}("{from}"), simplification{{}}()]"#
+                )
+            };
+            let definition = steps_then(
+                false,
+                &format!(
+                    r#"symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+                    symbol g2{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+                    symbol g3{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+                    {g}
+                    {g2}
+                    axiom{{}} \rewrites{{SortS{{}}}}(
+                        \and{{SortS{{}}}}(\dv{{SortS{{}}}}("6"), \top{{SortS{{}}}}()),
+                        g{{}}(\dv{{SortS{{}}}}("7"))
+                    ) [label{{}}("tick-d")]"#,
+                    g = simplifies("g", "g2"),
+                    g2 = simplifies("g2", "g3"),
+                ),
+            );
+            let exhausted = BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: 1,
+                subject: crate::simplify::BudgetSubject::Term,
+            };
+            /// Answers `decision` at every point of `side`, recording what it is asked.
+            struct BySide<'p, 'l> {
+                inner: &'p mut Recorder<'l>,
+                side: StopSide,
+                decision: ProbeDecision,
+            }
+            impl Probe for BySide<'_, '_> {
+                fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+                    let _ = self.inner.observe(point);
+                    if point.side() == self.side {
+                        self.decision.clone()
+                    } else {
+                        ProbeDecision::Continue
+                    }
+                }
+
+                fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+                    self.inner.ended(leaf);
+                }
+            }
+            let default_budget = ExecutionOptions::default().max_simplification_iterations;
+            for (budget, side, decision, expected) in [
+                (
+                    1,
+                    StopSide::Before,
+                    ProbeDecision::Differs("six".to_owned()),
+                    "probe-difference",
+                ),
+                (1, StopSide::Before, ProbeDecision::Done, "probe-done"),
+                (1, StopSide::After, ProbeDecision::Done, "probe-done"),
+                (
+                    default_budget,
+                    StopSide::Before,
+                    ProbeDecision::Differs("six".to_owned()),
+                    "probe-difference",
+                ),
+            ] {
+                let context = format!("budget={budget} {side:?} {decision:?}");
+                let log = RefCell::new(Vec::new());
+                let mut probe = Recorder {
+                    log: &log,
+                    answers: Vec::new(),
+                };
+                let result = crate::rewrite::execute_with_probe(
+                    &definition,
+                    state(&definition, "0"),
+                    ExecutionOptions {
+                        max_simplification_iterations: budget,
+                        ..probing(&["tick-d"], &["tick-d"])
+                    },
+                    &crate::smt::NoSolver,
+                    None,
+                    None,
+                    &mut BySide {
+                        inner: &mut probe,
+                        side,
+                        decision,
+                    },
+                )
+                .unwrap();
+                let [leaf] = result.leaves.as_slice() else {
+                    panic!("{context}: one leaf: {result:#?}");
+                };
+                assert_eq!(halt(&leaf.halt_reason), expected, "{context}");
+                let depth = if side == StopSide::Before { 6 } else { 7 };
+                assert_eq!(leaf.depth, depth, "{context}");
+                if side == StopSide::Before {
+                    let observed = ProbeState {
+                        depth: leaf.depth,
+                        term: &leaf.pattern.term,
+                    };
+                    assert_eq!(value(&observed), "6", "{context}");
+                }
+                assert_eq!(
+                    leaf.diagnostics.contains(&exhausted),
+                    budget == 1,
+                    "{context}: {:#?}",
+                    leaf.diagnostics
+                );
+            }
+        }
+
+        /// The successor of a step at whose point a probe's answer ends the path is reached,
+        /// normalized and defined, so it is matched: at the after point it is the leaf, at the
+        /// before point the leaf is the state before the step. The target `3` is reached at
+        /// depth 3 by `tick-b`, at whose points the answer is `Done`.
+        #[test]
+        fn the_successor_where_a_probe_answer_ends_the_path_is_matched() {
+            let definition = steps(false);
+            let target = state(&definition, "3");
+            for (side, observed, depth) in [(StopSide::After, "3", 3), (StopSide::Before, "2", 2)] {
+                for result_modality in [ResultModality::PathSet, ResultModality::StateSet] {
+                    let options = ExecutionOptions {
+                        result_modality,
+                        match_states: Some(StateMatchOptions {
+                            target: target.clone(),
+                            proof_agreement: false,
+                        }),
+                        ..probing(&["tick-b"], &["tick-b"])
+                    };
+                    let (result, _) = run(
+                        &definition,
+                        options,
+                        &[(observed, side, ProbeDecision::Done)],
+                    );
+                    let context = format!("{side:?} {result_modality:?}");
+                    assert_eq!(
+                        ends(&result),
+                        [(observed.to_owned(), depth, "probe-done")],
+                        "{context}"
+                    );
+                    let matches = result.state_matches.as_ref().expect("matched");
+                    // `0`, `1` and `2` are expanded; `3` is the step's successor.
+                    assert_eq!(matches.matched, 4, "{context}");
+                    let reach = matches.first_clean_reach.as_ref().expect("a reach");
+                    assert_eq!(reach.depth, 3, "{context}");
+                    assert_eq!(reach.pattern, target, "{context}");
+                }
+            }
+        }
+
+        /// Under `StateSet` an answer ends the request or the path at its observed state as
+        /// under `PathSet`, and its leaf is never merged.
+        #[test]
+        fn differs_and_done_under_state_set() {
+            let definition = steps(false);
+            for result_modality in [ResultModality::StateSet, ResultModality::PathSet] {
+                let options = || ExecutionOptions {
+                    result_modality,
+                    ..probing(&["tick-b"], &["tick-b"])
+                };
+                let differs = ProbeDecision::Differs("two".to_owned());
+                let (result, asked) =
+                    run(&definition, options(), &[("2", StopSide::Before, differs)]);
+                assert_eq!(asked, [point(StopSide::Before, 2, "2", "tick-b")]);
+                assert_eq!(
+                    ends(&result),
+                    [("2".into(), 2, "probe-difference")],
+                    "{result_modality:?}"
+                );
+                let (result, asked) = run(
+                    &definition,
+                    options(),
+                    &[("3", StopSide::After, ProbeDecision::Done)],
+                );
+                assert_eq!(
+                    asked,
+                    [
+                        point(StopSide::Before, 2, "2", "tick-b"),
+                        point(StopSide::After, 3, "3", "tick-b"),
+                    ]
+                );
+                assert_eq!(
+                    ends(&result),
+                    [("3".into(), 3, "probe-done")],
+                    "{result_modality:?}"
+                );
+            }
+        }
+
+        /// Several initial states are several paths from the start: the probe is told once, at
+        /// depth 0, asked nothing after, and the result is the run's without it.
+        #[test]
+        fn several_initial_states_are_a_split_at_the_start() {
+            let definition = steps(false);
+            let options = ExecutionOptions {
+                result_modality: ResultModality::PathSet,
+                ..probing(&["tick-a", "tick-b", "tick-c"], &["work-a", "work-b"])
+            };
+            let initial = || vec![state(&definition, "0"), state(&definition, "3")];
+            let log = RefCell::new(Vec::new());
+            let mut probe = Recorder {
+                log: &log,
+                answers: Vec::new(),
+            };
+            let probed = execute_with_condition(
+                &definition,
+                initial(),
+                options.clone(),
+                &crate::smt::NoSolver,
+                None,
+                InProcess {
+                    condition: None,
+                    reading: None,
+                    probe: Some(&mut probe),
+                },
+            )
+            .unwrap();
+            assert_eq!(log.into_inner(), [Asked::Branched(0)]);
+            let plain = execute_with_condition(
+                &definition,
+                initial(),
+                options,
+                &crate::smt::NoSolver,
+                None,
+                InProcess::default(),
+            )
+            .unwrap();
+            assert_eq!(probed, plain);
+            assert_eq!(ends(&probed).len(), 2);
+        }
+
+        /// A path the work budget ends is ended at its `work-bound` leaf, the state the run took
+        /// from its worklist unexpanded, which the probe is told of.
+        #[test]
+        fn ended_is_told_of_a_work_bound_leaf() {
+            let definition = steps(false);
+            let options = ExecutionOptions {
+                max_work: Some(3),
+                ..probing(&["tick-a", "tick-b"], &[])
+            };
+            let (result, asked) = run(&definition, options, &[]);
+            // `tick-b`'s successor `3` is the work-bound leaf, never normalized, so that step
+            // has no point.
+            assert_eq!(
+                asked,
+                [
+                    point(StopSide::Before, 0, "0", "tick-a"),
+                    ended(3, "3", "work-bound"),
+                ]
+            );
+            assert_eq!(ends(&result), [("3".into(), 3, "work-bound")]);
+        }
+
+        /// `c(0)` counts up to `c(3)` by `count` (`N <Int 3`), and also by `again` while
+        /// `N <Int 1`, so `c(0)` has two equal successors, which a state-set run merges; `c(3)`
+        /// ends at `done(3)` by `finish` (`2 <Int N`).
+        fn counter() -> BackendDefinition {
+            let rule = |label: &str, rhs: &str, condition: &str| {
+                format!(
+                    r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                        \and{{SortS{{}}}}(
+                            c{{}}(N:SortInt{{}}),
+                            \equals{{SortBool{{}}, SortS{{}}}}({condition}, \dv{{SortBool{{}}}}("true"))
+                        ),
+                        \and{{SortS{{}}}}({rhs}, \top{{SortS{{}}}}())
+                    ) [label{{}}("{label}")]"#
+                )
+            };
+            let next = r#"c{}(addInt{}(N:SortInt{}, \dv{SortInt{}}("1")))"#;
+            let source = format!(
+                r#"[]
+                module MAIN
+                    hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                    hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                    sort SortS{{}} []
+                    symbol c{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol done{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                        [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
+                    hooked-symbol addInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                        [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+                    {count}
+                    {again}
+                    {finish}
+                endmodule []"#,
+                count = rule(
+                    "count",
+                    next,
+                    r#"ltInt{}(N:SortInt{}, \dv{SortInt{}}("3"))"#
+                ),
+                again = rule(
+                    "again",
+                    next,
+                    r#"ltInt{}(N:SortInt{}, \dv{SortInt{}}("1"))"#
+                ),
+                finish = rule(
+                    "finish",
+                    "done{}(N:SortInt{})",
+                    r#"ltInt{}(\dv{SortInt{}}("2"), N:SortInt{})"#
+                ),
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+        }
+
+        fn counter_state(definition: &BackendDefinition, source: &str) -> Pattern {
+            Pattern {
+                term: definition
+                    .internalize_term(&parse_pattern(source).unwrap(), &[])
+                    .unwrap(),
+                constraints: Vec::new(),
+            }
+        }
+
+        /// A probe that always continues is no probe with every collection on (guards,
+        /// conditions, bindings, offered axioms), state matching, and a stop condition, under
+        /// both strategies and modalities: the same result, coverage and matches included.
+        #[test]
+        fn a_continue_probe_leaves_collections_matches_and_a_stop_condition_unchanged() {
+            let definition = counter();
+            let rules = ["count", "again", "finish"];
+            let c = |n: u64| format!(r#"c{{}}(\dv{{SortInt{{}}}}("{n}"))"#);
+            let initial = || counter_state(&definition, &c(0));
+            let stop_at = crate::externalize::term(&counter_state(&definition, &c(2)).term);
+            for mode in [ExecutionMode::All, ExecutionMode::Any] {
+                for result_modality in [ResultModality::StateSet, ResultModality::PathSet] {
+                    for (cut, target) in [
+                        (false, r#"done{}(\dv{SortInt{}}("3"))"#.to_owned()),
+                        (true, c(2)),
+                    ] {
+                        let options = ExecutionOptions {
+                            mode,
+                            result_modality,
+                            cut_point_rules: if cut { names(&["count"]) } else { names(&[]) },
+                            retain_trace: true,
+                            collect_coverage: true,
+                            collect_counts: true,
+                            collect_committed: true,
+                            collect_offered: true,
+                            collect_guards: Some(crate::coverage::GuardCollection::new(rules)),
+                            collect_conditions: Some(crate::coverage::ConditionCollection::new(
+                                rules,
+                            )),
+                            collect_bindings: Some(
+                                crate::coverage::BindingCollection::new(["Lblc"])
+                                    .with_binder("count", "N", 8),
+                            ),
+                            match_states: Some(StateMatchOptions {
+                                target: counter_state(&definition, &target),
+                                proof_agreement: true,
+                            }),
+                            ..probing(&rules, &rules)
+                        };
+                        let context = format!("{mode:?} {result_modality:?} cut={cut}");
+                        let condition = |arrival: &StopArrival<'_>| {
+                            if arrival.configuration() == stop_at {
+                                StopDecision::Holds
+                            } else {
+                                StopDecision::Fails
+                            }
+                        };
+                        let log = RefCell::new(Vec::new());
+                        let mut probe = Recorder {
+                            log: &log,
+                            answers: Vec::new(),
+                        };
+                        let mut probed_condition = condition;
+                        let probed = crate::rewrite::execute_with_probe(
+                            &definition,
+                            initial(),
+                            options.clone(),
+                            &crate::smt::NoSolver,
+                            None,
+                            cut.then_some(
+                                &mut probed_condition as &mut dyn crate::rewrite::StopCondition,
+                            ),
+                            &mut probe,
+                        )
+                        .unwrap();
+                        let plain = if cut {
+                            let mut condition = condition;
+                            crate::rewrite::execute_with_stop_condition(
+                                &definition,
+                                initial(),
+                                options,
+                                &crate::smt::NoSolver,
+                                None,
+                                &mut condition,
+                            )
+                            .unwrap()
+                        } else {
+                            crate::rewrite::execute(&definition, initial(), options)
+                        };
+                        let coverage = plain.coverage.as_ref().expect("coverage");
+                        assert!(
+                            coverage
+                                .guards
+                                .as_ref()
+                                .is_some_and(|guards| !guards.is_empty()),
+                            "{context}"
+                        );
+                        assert!(
+                            coverage
+                                .conditions
+                                .as_ref()
+                                .is_some_and(|conditions| !conditions.is_empty()),
+                            "{context}"
+                        );
+                        assert!(
+                            plain
+                                .state_matches
+                                .as_ref()
+                                .is_some_and(|matches| matches.first_clean_reach.is_some()),
+                            "{context}"
+                        );
+                        assert!(!log.borrow().is_empty(), "{context}");
+                        assert_eq!(probed, plain, "{context}");
+                    }
+                }
+            }
         }
     }
 
