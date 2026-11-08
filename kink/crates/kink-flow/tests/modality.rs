@@ -811,7 +811,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 32] = [
+const CORPUS: [(&str, &[&str], Minimums); 34] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -832,6 +832,11 @@ const CORPUS: [(&str, &[&str], Minimums); 32] = [
         at_least(90, 81, 9, 0),
     ),
     ("compile-error", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    // The observed console (there for `tests/observation.rs`): its definition never ends on its
+    // own, but its manifest's depth bound ends every run, so both modalities stop at the same
+    // depth and are compared. Its mutations are the observation tests' own, in `mutations/`,
+    // not a list beside the manifest, so the differential compares the baseline alone.
+    ("console", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     // fz26 KINK-PATHSET-FALLBACK, S9 (no minimum: they are there for `tests/work_budget.rs` and
     // `tests/fuzz.rs`). Listed but not run by a differential test: their programs are 2^14
     // converging paths, whose path sets the work budget or (on the unguarded baseline) the 500 ms
@@ -855,6 +860,8 @@ const CORPUS: [(&str, &[&str], Minimums); 32] = [
     ("map-store", &["FLOW.toml"], at_least(5, 4, 4, 4)),
     ("markdown", &["FLOW.toml"], at_least(28, 24, 6, 6)),
     ("markdown", &["FLOW-view.toml"], at_least(28, 24, 6, 6)),
+    // The MC/DC fixture (there for `tests/coverage_mcdc.rs`), which has no mutations.
+    ("mcdc", &["FLOW.toml"], at_least(3, 0, 0, 0)),
     ("overlap", &["FLOW.toml"], at_least(3, 2, 2, 2)),
     ("register", &["FLOW.toml"], at_least(15, 12, 4, 4)),
     // fz26 KINK-BASELINE-FINDINGS: the seven repros whose baselines have findings (no minimum:
@@ -1053,6 +1060,12 @@ mod kink_tier {
 
     #[test]
     #[ignore = "kink"]
+    fn modality_on_console() {
+        corpus_specification("console", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
     fn modality_on_divide() {
         corpus_specification("divide", &["FLOW.toml"]);
     }
@@ -1100,6 +1113,12 @@ mod kink_tier {
     #[ignore = "kink"]
     fn modality_on_markdown_view() {
         corpus_specification("markdown", &["FLOW-view.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_mcdc() {
+        corpus_specification("mcdc", &["FLOW.toml"]);
     }
 
     #[test]
