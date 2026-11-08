@@ -26,7 +26,19 @@ and nowhere else. Each rule maps two K texts that mean the same thing to one tex
    whose content holds no rewrite, is read as `...` (with the `~>` before it, for a `K` rest).
    Such a variable is matched and never used, which is what K's anonymous `...` rest is. A
    rewrite in the cell is excluded, since `A => B R:Map` writes `R` on the right-hand side.
-4. The comments the emitter writes to name the Rust source rather than the K are left out: the
+4. Any other variable that occurs once in its sentence is read as K's anonymous variable of its
+   sort: `X:Int` is `_:Int`. A variable that occurs once is matched and never used: no other
+   occurrence equates it with another part of the term, and no right-hand side or condition
+   reads it, so it constrains the match by its sort alone, which is what `_:Int` does; a claim's
+   left-hand variable is quantified over its sort as `_` is. The emitted K holds no other
+   once-used variable: an existential `?X`, a fresh `!X` and a configuration variable `$X` are
+   none and are kept, as are a context's `HOLE` and an alias's `HERE`, which name the hole; a
+   variable only on a rule's right-hand side is refused before K is emitted, a claim writes
+   its unknowns `?X`, and a desugar clause lists its right-hand variable again in
+   `unboundVariables(X)`, so it occurs twice. Occurrences are counted outside sort positions
+   (after `:` or `:>`), so a variable named as its sort counts once per use. The printed long form names some matched-once items the readable clause
+   leaves anonymous (a `for Sort` head `_` is the binder `_stmt`, emitted `_Stmt:Stmt`).
+5. The comments the emitter writes to name the Rust source rather than the K are left out: the
    artifact's header (its unindented comment lines) and the `// KRS PACKAGE/FILE: ITEM` line
    above a sentence. K ignores a comment, and the printed source names some sentences by
    another item: `krs expand` prints a shorthand branch as the equation fn it stands for.
@@ -55,6 +67,10 @@ _SENTENCE = re.compile(
 )
 _VARIABLE = re.compile(r"\b([A-Z][A-Za-z0-9_']*):(?=[A-Za-z#])")
 _REST_SORTS = ("K", "Map", "Set", "List", "Bag")
+_ANY_VARIABLE = re.compile(r"(?<![\w?!$'])([A-Z_][A-Za-z0-9_']*):(?=[A-Za-z#])")
+"""A variable as rule 4 reads it, its name capitalized or starting with `_`, not after `?`, `!`
+or `$`."""
+_RESERVED_VARIABLES = frozenset({"HOLE", "HERE"})
 _HEADER = re.compile(r"\A(?://[^\n]*\n)+\n?")
 """The header of an emitted K artifact: the comment lines that open it and the blank line after
 them."""
@@ -143,17 +159,37 @@ def _rests(words: list[str]) -> list[str]:
     return words
 
 
-def normalized(sentence: str, cells: frozenset[str] = DEFAULT_COMPUTATION_CELLS) -> str:
-    """`sentence` under rules 1-3, with `cells` its definition's computation cells."""
+def _variable_occurrences(text: str, name: str) -> int:
+    """The occurrences of the variable `name` in `text`: the words spelling it outside a sort
+    position (after `:` or `:>`), where a sort of the same name is written, so that the count does
+    not change when the variables are renamed."""
 
-    words = _rests(_continuation(sentence.split(), cells))
+    return len(re.findall(rf"(?<![\w'])(?<!:)(?<!:>){re.escape(name)}(?![\w'])", text))
+
+
+def _once_used(words: list[str]) -> str:
+    """Rule 4."""
+
+    text = " ".join(words)
+    once = {
+        name
+        for name in _ANY_VARIABLE.findall(text)
+        if name != "_" and name not in _RESERVED_VARIABLES and _variable_occurrences(text, name) == 1
+    }
+    return _ANY_VARIABLE.sub(lambda match: "_:" if match.group(1) in once else match.group(0), text)
+
+
+def normalized(sentence: str, cells: frozenset[str] = DEFAULT_COMPUTATION_CELLS) -> str:
+    """`sentence` under rules 1-4, with `cells` its definition's computation cells."""
+
+    text = _once_used(_rests(_continuation(sentence.split(), cells)))
     names: dict[str, str] = {}
 
     def rename(match: re.Match[str]) -> str:
         names.setdefault(match.group(1), f"V{len(names)}")
         return names[match.group(1)] + ":"
 
-    return _VARIABLE.sub(rename, " ".join(words))
+    return _VARIABLE.sub(rename, text)
 
 
 def differences(authored: Path, printed: Path) -> list[str]:

@@ -100,6 +100,38 @@ class NormalizationTests(unittest.TestCase):
             normalized("rule <env> ... </env> <k> R:Map </k>"),
         )
 
+    def test_a_variable_used_once_is_the_anonymous_variable(self) -> None:
+        # A `for Stmt` head `_` and the binder of its sort its print writes.
+        self.assertEqual(
+            normalized("rule [drop]: <k> _Stmt:Stmt => .K ... </k>"),
+            normalized("rule [drop]: <k> _:Stmt => .K ... </k>"),
+        )
+        self.assertEqual(
+            normalized("rule f ( X:Int , Y:Int ) => Y:Int"),
+            "rule f ( _:Int , V0:Int ) => V0:Int",
+        )
+        # A claim's left-hand variable is quantified over its sort, as `_` is.
+        self.assertEqual(
+            normalized("claim <k> run ( N:Int ) => .K ... </k>"),
+            normalized("claim <k> run ( _:Int ) => .K ... </k>"),
+        )
+        # A variable named as its sort is counted where it is written, not where its sort is.
+        self.assertEqual(
+            normalized("rule <k> Stmt:Stmt => .K ... </k>"),
+            normalized("rule <k> X:Stmt => .K ... </k>"),
+        )
+        # Kept: an existential, a fresh variable, a configuration variable, a context's hole,
+        # and a variable used twice.
+        for kept, anonymous in [
+            ("rule <k> a => ?X:Int ... </k>", "_:Int"),
+            ("claim <k> a => b ... </k> ensures ?X:Int ==Int 1", "_:Int"),
+            ("rule <k> a => !X:Int ... </k>", "_:Int"),
+            ("configuration <k> $PGM:Stmt </k>", "_:Stmt"),
+            ("context f ( HOLE:Exp , _:Exp )", "( _:Exp , _:Exp )"),
+            ("rule <k> X:Int => X:Int ... </k>", "_:Int"),
+        ]:
+            self.assertNotIn(anonymous, normalized(kept), kept)
+
     def test_the_header_and_the_source_lines_are_left_out(self) -> None:
         self.assertEqual(
             sentences(

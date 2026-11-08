@@ -10,9 +10,14 @@
 //! - a generated sentence label, the item path `label(<namespace>--…--<item>)` or the digest
 //!   `label(krsRule_<digest>)`, is `label(krsRule_DIGEST)`, and a lifted local function's symbol,
 //!   `krsLocal_<digest>`, is `krsLocal_DIGEST`: both name the sentence's source, not its
-//!   meaning.
+//!   meaning;
+//! - a variable that occurs once in its sentence is the anonymous variable: `X:Int` ≡ `_:Int`
+//!   ([`once_used_as_anonymous`]).
+//!
+//! [`case_k`], the K the table records, is the emitted K under every rule but the last: it keeps
+//! each variable the emitter names, so a table entry shows the K as written.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What K3 found for one case.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -156,7 +161,7 @@ pub fn case_k(additions: &[String], tag: &str) -> String {
     let mut sentences = additions
         .iter()
         .map(|sentence| {
-            normalize(sentence)
+            recorded(sentence)
                 .replace(tag, "TAG")
                 .replace(&upper, "TAG")
                 .replace(&capitalized, "TAG")
@@ -217,6 +222,17 @@ fn variables<'a>(tokens: &[&'a str]) -> Vec<&'a str> {
 /// One sentence normalized as the module documentation says.
 #[must_use]
 pub fn normalize(sentence: &str) -> String {
+    renamed(&once_used_as_anonymous(&spelled(sentence)))
+}
+
+/// One sentence as [`case_k`] records it: [`normalize`] without its reading of a variable used
+/// once as `_`.
+fn recorded(sentence: &str) -> String {
+    renamed(&spelled(sentence))
+}
+
+/// The sentence with its frames and generated labels normalized, its variables as written.
+fn spelled(sentence: &str) -> String {
     let mut text = sentence.to_owned();
     let all = tokens(sentence);
     let occurrences = |name: &str| all.iter().filter(|token| **token == name).count();
@@ -254,8 +270,70 @@ pub fn normalize(sentence: &str) -> String {
         rest = &rest[index + " _ </".len()..];
     }
     framed.push_str(rest);
-    let text = generated_labels(&framed);
-    let all = tokens(&text);
+    generated_labels(&framed)
+}
+
+/// The variables K reserves, whose name is their meaning: a context's hole and a context alias's
+/// place.
+const RESERVED_VARIABLES: &[&str] = &["HOLE", "HERE"];
+
+/// `text` with each variable that occurs once in it written `_`, its sort kept: `X:Int` is
+/// `_:Int`.
+///
+/// A rule's variable that occurs once is matched and never used: no other occurrence equates it
+/// with another part of the subject, and nothing on the right-hand side or in a condition reads
+/// it. It constrains the match by its sort only, which is what the anonymous variable of that
+/// sort does, so the two spell one rule. A claim's or an equation's left-hand variable is the
+/// same: it is quantified over every term of its sort, as `_` is. The emitted K has no other
+/// once-used variable that this would change:
+/// - an existential `?X` (`#[k::exists]`, a claim's) and a fresh `!X` are no anonymous
+///   variables, so a variable written after `?` or `!` is kept, and so is a configuration
+///   variable `$X` ([`variables`]);
+/// - a context's `HOLE` and an alias's `HERE` name the hole by their name, and are kept;
+/// - a variable written only on a rule's right-hand side, which `_` would not mean, is refused
+///   before any K is emitted, and a claim's right-hand side writes its unknowns `?X`; a desugar
+///   clause's right-hand variable (KF-046) is listed again in its `unboundVariables(X)`, so it
+///   occurs twice, and a `_` there means what a variable used once there does.
+///
+/// A variable's occurrences are the tokens that spell it outside a sort position (after `:` or
+/// `:>`), where a sort of the same name is written, so the count does not change when the
+/// variables are renamed.
+fn once_used_as_anonymous(text: &str) -> String {
+    let all = tokens(text);
+    let sort_position = |index: usize| {
+        (index > 0 && all[index - 1] == ":")
+            || (index > 1 && all[index - 1] == ">" && all[index - 2] == ":")
+    };
+    let once = variables(&all)
+        .into_iter()
+        .filter(|name| !RESERVED_VARIABLES.contains(name))
+        .filter(|name| {
+            let mut at = all
+                .iter()
+                .enumerate()
+                .filter(|(index, token)| *token == name && !sort_position(*index))
+                .map(|(index, _)| index);
+            match (at.next(), at.next()) {
+                (Some(index), None) => index == 0 || !matches!(all[index - 1], "?" | "!" | "$"),
+                _ => false,
+            }
+        })
+        .collect::<BTreeSet<_>>();
+    all.iter()
+        .enumerate()
+        .map(|(index, token)| {
+            if once.contains(token) && !sort_position(index) {
+                "_"
+            } else {
+                token
+            }
+        })
+        .collect()
+}
+
+/// `text` with its variables renamed `V0`, `V1`, .. in order of first appearance.
+fn renamed(text: &str) -> String {
+    let all = tokens(text);
     let renamed = variables(&all)
         .into_iter()
         .enumerate()
@@ -349,8 +427,54 @@ mod tests {
     #[test]
     fn the_anonymous_variable_keeps_its_name_at_every_occurrence() {
         assert_eq!(
-            normalize("<k> _:KItem ~> c ( X:KItem , _ ) => .K ... </k>"),
-            "<k> _:KItem ~> c ( V0:KItem , _ ) => .K ... </k>"
+            normalize("<k> _:KItem ~> c ( X:KItem , _ ) => X:KItem ... </k>"),
+            "<k> _:KItem ~> c ( V0:KItem , _ ) => V0:KItem ... </k>"
+        );
+    }
+
+    #[test]
+    fn a_variable_used_once_is_the_anonymous_variable() {
+        // A head `_` of a `for Stmt` clause and the binder of its sort its print writes.
+        assert_eq!(
+            normalize("rule [drop]:\n<k> _Stmt:Stmt => .K ... </k>"),
+            normalize("rule [drop]:\n<k> _:Stmt => .K ... </k>")
+        );
+        assert_eq!(
+            normalize("rule f ( X:Int , Y:Int ) => Y:Int"),
+            "rule f ( _:Int , V0:Int ) => V0:Int"
+        );
+        // A claim's left-hand variable is quantified over its sort, as `_` is.
+        assert_eq!(
+            normalize("claim <k> run ( N:Int ) => .K ... </k>"),
+            normalize("claim <k> run ( _:Int ) => .K ... </k>")
+        );
+        // A variable named as its sort is counted where it is written, not where its sort is.
+        assert_eq!(
+            normalize("rule <k> Stmt:Stmt => .K ... </k>"),
+            normalize("rule <k> X:Stmt => .K ... </k>")
+        );
+        assert_eq!(
+            normalize("rule <k> Stmt:Stmt => .K ... </k>"),
+            "rule <k> _:Stmt => .K ... </k>"
+        );
+        // Kept: an existential, a fresh variable, a configuration variable, the hole of a
+        // context, and a variable used twice.
+        for kept in [
+            "rule <k> a => ?X:Int ... </k>",
+            "claim <k> a => b ... </k> ensures ?X:Int ==Int 1",
+            "rule <k> a => !X:Int ... </k>",
+            "configuration <k> $PGM:Stmt </k>",
+            "context f ( HOLE:Exp , _:Exp )",
+            "rule <k> X:Int => X:Int ... </k>",
+        ] {
+            assert!(!normalize(kept).contains("_:Int"), "{kept}");
+            assert!(!normalize(kept).contains("_:Stmt"), "{kept}");
+            assert!(!normalize(kept).contains("( _:Exp , _:Exp )"), "{kept}");
+        }
+        // The table records each variable as the emitter names it.
+        assert_eq!(
+            case_k(&["rule f ( X:Int ) => 0".to_owned()], "d3ff6113"),
+            "rule f ( V0:Int ) => 0\n"
         );
     }
 
