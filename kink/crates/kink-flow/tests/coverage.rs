@@ -2070,8 +2070,10 @@ endmodule
         // kink's own undecided solver answers and records are written under Z3 too. v15, because
         // a run with a stop condition is keyed by the condition. v16, because a record's coverage
         // holds the guard outcomes. v17, because a record's coverage holds the bindings. v18,
-        // because a run with an observation declaration may be a comparable prefix program.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v18");
+        // because a run with an observation declaration may be a comparable prefix program. v19,
+        // because a record's bindings hold the alternatives a fired instance took and only the
+        // operand heads of variables the axiom reads.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v19");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

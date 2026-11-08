@@ -129,8 +129,14 @@ use std::{path::Path, sync::OnceLock};
 /// observation declaration (kink-campaign `Observe`): a baseline run with one records its
 /// channels, and one that a deterministic bound cut and that is otherwise complete is a prefix
 /// program, comparable over its channels up to their horizons, where a v17 record of it was
-/// `unknown`; a record of a program run without a declaration is unchanged.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v18";
+/// `unknown`; a record of a program run without a declaration is unchanged. v19: a record's
+/// `bindings` hold `alternatives`, the alternatives of an axiom with several (a disjunctive
+/// left-hand side, a function equation's readings, a rewrite rule's disjunctive right-hand side)
+/// that a fired instance took, from which the syntax family credits what an alternative
+/// inspects and builds; and an operand head is recorded only for a variable the axiom reads
+/// beside its left-hand side, so a v18 record's heads include values a step only carried past or
+/// dropped.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v19";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

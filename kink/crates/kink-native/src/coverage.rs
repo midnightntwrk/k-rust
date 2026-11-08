@@ -41,10 +41,12 @@
 //! [`TestCoverage::bindings`] are what the run's fired instances bound (k-rust
 //! `coverage.bindings`, which a baseline result run that records coverage asks for,
 //! [`crate::execution::ResultRun::bindings`]), by the baseline sentence behind each axiom: the
-//! requested symbols that were the head of an operand, and the values of the selected template
-//! binders. [`syntax_facts`] gives, from the definition alone, the symbols each sentence's
-//! axioms inspect (a non-variable position of a left-hand side) and build (one of a right-hand
-//! side), and the constructors of the definition. Together they say which productions a fired
+//! requested symbols that were the head of an operand the axiom reads, the values of the
+//! selected template binders, and the alternatives of an axiom with several that a fired
+//! instance took. [`syntax_facts`] gives, from the definition alone, the symbols each sentence's
+//! axioms, and each alternative of an axiom with several, inspect (a non-variable position of a
+//! left-hand side) and build (one of a right-hand side), and the constructors of the
+//! definition. Together they say which productions a fired
 //! instance touched, which kink-flow's syntax family reads. Neither is part of the canonical
 //! value ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
 //!
@@ -378,6 +380,33 @@ pub struct SentenceBindings {
     /// Per selected binder bound at some fired instance, its values, with the sentences behind
     /// its axiom; in k-rust's order (axiom `UNIQUE_ID`, then variable).
     pub binders: Vec<SentenceBinder>,
+    /// The alternatives of an axiom with several that a fired instance took (k-rust
+    /// `bindings.alternatives`), with the sentences behind the axiom; in k-rust's order.
+    pub alternatives: Vec<SentenceAlternative>,
+}
+
+/// An alternative of an axiom with several that a fired instance took
+/// ([`SentenceBindings::alternatives`], [`AlternativeKey`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SentenceAlternative {
+    /// The alternative.
+    pub key: AlternativeKey,
+    /// The baseline sentences behind its axiom.
+    pub sentences: BTreeSet<SentenceRef>,
+}
+
+/// One alternative of an axiom with several: the axiom's `UNIQUE_ID`, its left-hand side
+/// alternative (a rewrite rule's disjunct or a function equation's reading, `None` when it has
+/// one), and a rewrite rule's right-hand side alternative (its position in the disjunction,
+/// `None` when it is none, and for an equation, whose instance gives its whole right-hand side).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AlternativeKey {
+    /// The axiom's `UNIQUE_ID`.
+    pub axiom: String,
+    /// The left-hand side alternative.
+    pub lhs: Option<usize>,
+    /// The right-hand side alternative.
+    pub rhs: Option<usize>,
 }
 
 /// The values one selected template binder took ([`SentenceBindings::binders`]).
@@ -428,7 +457,26 @@ impl SentenceBindings {
                 })
             })
             .collect();
-        Self { operands, binders }
+        let alternatives = output
+            .alternatives
+            .iter()
+            .filter_map(|alternative| {
+                let sentences = sentences(&alternative.axiom);
+                (!sentences.is_empty()).then(|| SentenceAlternative {
+                    key: AlternativeKey {
+                        axiom: alternative.axiom.clone(),
+                        lhs: alternative.lhs,
+                        rhs: alternative.rhs,
+                    },
+                    sentences,
+                })
+            })
+            .collect();
+        Self {
+            operands,
+            binders,
+            alternatives,
+        }
     }
 }
 
@@ -712,15 +760,27 @@ pub struct SyntaxFacts {
     pub constructors: BTreeSet<String>,
     /// Per baseline sentence behind a rewrite rule or a function equation of the definition (an
     /// `anywhere` or overload equation included, a simplification not), the symbols its axioms
-    /// inspect and build.
+    /// inspect and build: what the sentence can touch, whichever alternative fires.
     pub by_sentence: BTreeMap<SentenceRef, SentenceSymbols>,
+    /// Per such sentence, the symbols its axioms with one alternative of each side inspect and
+    /// build: what a fired instance of the sentence touched, since its axiom's one alternative
+    /// is the one it took. Empty for a sentence all of whose axioms have several.
+    pub single: BTreeMap<SentenceRef, SentenceSymbols>,
+    /// Per alternative of an axiom with several behind such a sentence, the symbols it inspects
+    /// (its left-hand side alternative's) and builds (its right-hand side alternative's, or the
+    /// whole right-hand side): what a fired instance that took it touched, which a run's
+    /// bindings name ([`SentenceBindings::alternatives`]).
+    pub by_alternative: BTreeMap<AlternativeKey, SentenceSymbols>,
 }
 
 /// The syntax facts of `definition` ([`SyntaxFacts`]), each axiom by the baseline sentences
 /// `authors` names for it. The axioms are the internalized ones a run applies: a function
 /// equation's left-hand side has its argument binders' patterns in place, so the symbols an
 /// equation inspects are those its instances match. A sentence's sets are the union over its
-/// axioms. A simplification states a fact of the definition's functions that the definition
+/// axioms. An axiom with several alternatives (k-rust loads one rule per disjunct of a
+/// rewrite rule's left-hand side, or reading of a function equation, under one `UNIQUE_ID`, and
+/// a rewrite rule with a disjunctive right-hand side builds one successor per alternative) has
+/// its alternatives listed apart, as k-rust names the one a fired instance took. A simplification states a fact of the definition's functions that the definition
 /// means the same without, so it is no step of the definition's meaning and is not listed.
 #[must_use]
 pub fn syntax_facts(
@@ -748,25 +808,68 @@ pub fn syntax_facts(
         });
     };
     let mut by_sentence = BTreeMap::<SentenceRef, SentenceSymbols>::new();
-    let mut add = |rule: &RewriteRule| {
+    let mut single = BTreeMap::<SentenceRef, SentenceSymbols>::new();
+    let mut by_alternative = BTreeMap::<AlternativeKey, SentenceSymbols>::new();
+    let extend = |into: &mut SentenceSymbols, symbols: &SentenceSymbols| {
+        into.inspected.extend(symbols.inspected.iter().cloned());
+        into.built.extend(symbols.built.iter().cloned());
+    };
+    // `rewrite`: whether the rule is a rewrite rule, whose disjunctive right-hand side builds one
+    // successor per alternative; an equation's instance gives its whole right-hand side.
+    let mut add = |rule: &RewriteRule, rewrite: bool| {
         let Some(Authorship::Sentences(sentences)) = authors.get(&rule.attributes.unique_id) else {
             return;
         };
-        let mut symbols = SentenceSymbols::default();
-        names(&rule.lhs, &mut symbols.inspected);
+        let mut inspected = BTreeSet::new();
+        names(&rule.lhs, &mut inspected);
+        // Each right-hand side alternative's built symbols, by its position when a rewrite
+        // rule's disjunction gives it one.
+        let mut built = Vec::<(Option<usize>, BTreeSet<String>)>::new();
         match &rule.rhs {
-            RuleRhs::Term(term) => names(term, &mut symbols.built),
+            RuleRhs::Term(term) => {
+                let mut symbols = BTreeSet::new();
+                names(term, &mut symbols);
+                built.push((None, symbols));
+            }
             RuleRhs::Disjunction(alternatives) => {
-                for alternative in alternatives {
-                    names(&alternative.term, &mut symbols.built);
+                let mut whole = BTreeSet::new();
+                for (index, alternative) in alternatives.iter().enumerate() {
+                    let mut symbols = BTreeSet::new();
+                    names(&alternative.term, &mut symbols);
+                    if rewrite {
+                        built.push((Some(index), symbols));
+                    } else {
+                        whole.extend(symbols);
+                    }
+                }
+                if !rewrite {
+                    built.push((None, whole));
                 }
             }
-            RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => {}
+            RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => {
+                built.push((None, BTreeSet::new()));
+            }
         }
-        for sentence in sentences {
-            let entry = by_sentence.entry(sentence.clone()).or_default();
-            entry.inspected.extend(symbols.inspected.iter().cloned());
-            entry.built.extend(symbols.built.iter().cloned());
+        for (rhs, built) in built {
+            let symbols = SentenceSymbols {
+                inspected: inspected.clone(),
+                built,
+            };
+            for sentence in sentences {
+                extend(by_sentence.entry(sentence.clone()).or_default(), &symbols);
+            }
+            if rule.lhs_alternative.is_none() && rhs.is_none() {
+                for sentence in sentences {
+                    extend(single.entry(sentence.clone()).or_default(), &symbols);
+                }
+            } else {
+                let key = AlternativeKey {
+                    axiom: rule.attributes.unique_id.clone(),
+                    lhs: rule.lhs_alternative,
+                    rhs,
+                };
+                extend(by_alternative.entry(key).or_default(), &symbols);
+            }
         }
     };
     for rule in definition
@@ -775,7 +878,7 @@ pub fn syntax_facts(
         .flat_map(|priorities| priorities.values())
         .flatten()
     {
-        add(&rule.rule);
+        add(&rule.rule, true);
     }
     for rule in definition
         .function_theory()
@@ -783,11 +886,13 @@ pub fn syntax_facts(
         .flat_map(|priorities| priorities.values())
         .flatten()
     {
-        add(rule);
+        add(rule, false);
     }
     SyntaxFacts {
         constructors,
         by_sentence,
+        single,
+        by_alternative,
     }
 }
 

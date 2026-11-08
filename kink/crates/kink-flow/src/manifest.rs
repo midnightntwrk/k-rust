@@ -722,10 +722,31 @@ impl FlowManifest {
     /// This manifest with `syntax` as its reading of the syntax family ([`Self::syntax`]): the
     /// front end that knows its authored sorts and its templates' binders (the krs front end)
     /// sets it on the manifest it decoded.
-    #[must_use]
-    pub fn with_syntax(mut self, syntax: SyntaxSelection) -> Self {
+    ///
+    /// # Errors
+    /// A binder (one variable of one axiom) selected twice under one axiom name, with two caps
+    /// (key `syntax.binders`): a binder is one set of values, so the selection must say once how
+    /// many of them a run keeps. Every baseline run would refuse the selection otherwise (k-rust
+    /// `collectBindings`). A binder selected under its axiom's `UNIQUE_ID` and under its label
+    /// is refused when the definition is loaded (`crate::admit`, stage `syntax`), where the two
+    /// names can be told to name one axiom.
+    pub fn with_syntax(mut self, syntax: SyntaxSelection) -> Result<Self, ManifestError> {
+        if let Some(((axiom, variable, first), (_, _, second))) = syntax
+            .binders
+            .iter()
+            .zip(syntax.binders.iter().skip(1))
+            .find(|((a, v, _), (b, w, _))| a == b && v == w)
+        {
+            return Err(ManifestError::new(
+                "syntax.binders",
+                format!(
+                    "the binder {variable} of {axiom} is selected twice, with caps {first} and \
+                     {second}; select each binder once"
+                ),
+            ));
+        }
         self.syntax = Some(syntax);
-        self
+        Ok(self)
     }
 }
 

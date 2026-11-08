@@ -1072,6 +1072,11 @@ fn admit_definition(
         .map_err(|error| {
             format!("the backend's definition could not be selected to read the skeleton: {error}")
         });
+    // A front end's binders name each binder once: one selected under its axiom's `UNIQUE_ID`
+    // and under its label would be refused by every baseline run's request.
+    if let (Some(selection), Ok(definition)) = (&manifest.syntax, &selected) {
+        binders_selected_once(selection, definition)?;
+    }
     // The definition's syntax, read from the same load: what a sentence inspects and builds.
     let syntax = selected
         .as_ref()
@@ -1094,6 +1099,34 @@ fn admit_definition(
         },
         backend,
     ))
+}
+
+/// Each binder of a front end's syntax selection (`FlowManifest::syntax`) is selected once, or
+/// the specification is refused at stage `syntax`, reason `binder-selected-twice`, naming the
+/// binder and its two selections: a binder is a variable of one axiom, which a selection may name
+/// by its `UNIQUE_ID` or its label, and two selections of it would state two caps for one set of
+/// values (k-rust `collectBindings` refuses them). The manifest refuses one name selected twice
+/// (`FlowManifest::with_syntax`); the two names of one axiom are told apart only by the loaded
+/// definition, so here, before any run.
+fn binders_selected_once(
+    selection: &crate::manifest::SyntaxSelection,
+    definition: &k_rust::k_rust_backend::definition::BackendDefinition,
+) -> Result<(), AdmissionRefusal> {
+    let collection = selection.binders.iter().fold(
+        k_rust::k_rust_backend::coverage::BindingCollection::default(),
+        |collection, (axiom, variable, cap)| collection.with_binder(axiom, variable, *cap),
+    );
+    match collection.selected_twice(definition) {
+        None => Ok(()),
+        Some((by_id, by_label)) => Err(AdmissionRefusal {
+            stage: "syntax".into(),
+            reason: "binder-selected-twice".into(),
+            detail: format!(
+                "the binder {} of {} is selected under its UNIQUE_ID and again under its label {}",
+                by_id.variable, by_id.axiom, by_label.axiom
+            ),
+        }),
+    }
 }
 
 /// Every name of `[stop]` labels a rewrite rule of the specification `backend` loads (kink-native

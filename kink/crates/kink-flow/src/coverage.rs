@@ -51,15 +51,19 @@
 //!   a sentence of the rules universe, in some comparable program's run, touched it: the
 //!   production is at a non-variable position of the sentence's left-hand side (inspected), it
 //!   is the head, through injections, of a value the instance bound to a left-hand-side variable
-//!   (an operand), or it is at a non-variable position of the right-hand side (built). A
-//!   production elsewhere in a state was carried, not touched: the initial state holds the whole
+//!   that the sentence reads elsewhere (an operand), or it is at a non-variable position of the
+//!   right-hand side (built). A production elsewhere in a state was carried, not touched, and so
+//!   was the value of a variable the sentence binds and never reads (`_` in a cell it
+//!   overwrites): the step is the same whatever it holds. The initial state holds the whole
 //!   program, so "anywhere in a reached state" would read every production of a branch no run
 //!   took as reached, and "at the head of `<k>`" would miss the values a step passes to a
 //!   function or keeps in a cell. Only the head of a bound value counts, so a continuation,
 //!   whose head is the sequence's, never counts the rest of a program. Inspected and built are
-//!   static per sentence (kink-native `syntax_facts`), joined with the run's fired sentences; the
-//!   operand heads are recorded by the backend at the fired instance (the result record's
-//!   `bindings`). The measure is reached / obligations, productions and field values counted
+//!   static per axiom alternative (kink-native `syntax_facts`), joined with the run's fired
+//!   sentences, and, for an axiom with several alternatives (a disjunctive left-hand side, a
+//!   function equation's readings, a rewrite rule's disjunctive right-hand side), with the
+//!   alternatives its fired instances took; the operand heads and those alternatives are
+//!   recorded by the backend at the fired instance (the result record's `bindings`). The measure is reached / obligations, productions and field values counted
 //!   together and each apart. kink-flow's K front end has no notion of a `k::bits!` template, so
 //!   it selects no template binder and builds no field-value item: a front end that has
 //!   templates selects their binders (`SyntaxSelection::binders`), whose values the records keep
@@ -1125,7 +1129,9 @@ fn own_sorts(spec: &crate::admit::AdmittedSpec) -> BTreeSet<String> {
 /// (`facts.constructors`), in sentence order. A function, a token, a bracket, a subsort, a macro
 /// and a cell build no constructor application of their own sort, so none is an obligation:
 /// a function's application is evaluated away, a token is a domain value, a bracket and a
-/// subsort are erased, and a cell is the configuration's, not the author's syntax.
+/// subsort are erased, and a cell is the configuration's, not the author's syntax. Two
+/// declarations of one label (a production two modules both declare) build terms of one
+/// symbol, so they are one production, listed at its first declaration.
 fn productions(
     spec: &crate::admit::AdmittedSpec,
     manifest: &FlowManifest,
@@ -1153,7 +1159,11 @@ fn productions(
                 continue;
             }
             let symbol = k_rust::kast::identifier::encode_label(&label.name);
-            if !facts.constructors.contains(&symbol) {
+            if !facts.constructors.contains(&symbol)
+                || universe
+                    .iter()
+                    .any(|production: &UniverseProduction| production.symbol == symbol)
+            {
                 continue;
             }
             let Ok(index) = u32::try_from(index) else {
@@ -1231,10 +1241,12 @@ fn at_of(value: &Value) -> Option<SentenceRef> {
 /// [`FIRED`], [`MATCHED`] or [`UNMATCHED`]) in some comparable program's baseline run touched it:
 /// the production is at a non-variable position of the sentence's left-hand side
 /// (`inspected_by`), it is the head of a value the instance bound to a left-hand-side variable
-/// (`operand_of`, k-rust's bindings as the record keeps them), or it is at a non-variable position
-/// of the right-hand side (`built_by`). The first and the last are static per sentence
-/// (kink-native `syntax_facts`), joined with the record's `fired_sentences`; the second is the
-/// record's. `inspecting` and `building` list the sentences of the rules universe that inspect
+/// that the sentence reads elsewhere (`operand_of`, k-rust's bindings as the record keeps them),
+/// or it is at a non-variable position of the right-hand side (`built_by`). The first and the
+/// last are static per axiom alternative (kink-native `syntax_facts`): an axiom with one
+/// alternative of each side is joined with the record's `fired_sentences`, and an alternative
+/// of an axiom with several with the record's `bindings.alternatives`, the ones its fired
+/// instances took; the second is the record's. `inspecting` and `building` list the sentences of the rules universe that inspect
 /// and build the production, a function of the definition: the sentences to make fire. The
 /// programs that are not comparable and touch it are listed under `uncounted`.
 fn syntax_family(
@@ -1286,9 +1298,40 @@ fn syntax_family(
             .filter_map(at_of)
             .filter(|at| counted.contains(at))
         {
-            if let Some(sentence) = facts.by_sentence.get(&at) {
+            if let Some(sentence) = facts.single.get(&at) {
                 seen[0].extend(sentence.inspected.iter().map(String::as_str));
                 seen[2].extend(sentence.built.iter().map(String::as_str));
+            }
+        }
+        // An axiom with several alternatives touched what the alternatives its fired instances
+        // took inspect and build, which the record's bindings name.
+        for alternative in coverage["bindings"]["alternatives"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let counted_sentence = alternative["sentences"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(at_of)
+                .any(|at| counted.contains(&at));
+            let index = |side: &str| {
+                alternative[side]
+                    .as_u64()
+                    .and_then(|index| usize::try_from(index).ok())
+            };
+            let Some(axiom) = alternative["axiom"].as_str().filter(|_| counted_sentence) else {
+                continue;
+            };
+            let key = kink_native::coverage::AlternativeKey {
+                axiom: axiom.to_owned(),
+                lhs: index("lhs"),
+                rhs: index("rhs"),
+            };
+            if let Some(symbols) = facts.by_alternative.get(&key) {
+                seen[0].extend(symbols.inspected.iter().map(String::as_str));
+                seen[2].extend(symbols.built.iter().map(String::as_str));
             }
         }
         for operand in coverage["bindings"]["operands"]
@@ -2295,7 +2338,10 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     summary["per_family"] = json!({
         "rules": per_family(fired, obligations),
         "requirements": per_family(requirement_covered, requirement_obligations),
-        "syntax": per_family(syntax_counts.0, syntax_counts.1),
+        "syntax": syntax_counts.map_or_else(
+            || json!({"obligations": null, "covered": null, "argued": 0, "open": null}),
+            |(covered, obligations)| per_family(covered, obligations),
+        ),
     });
     let family = &document["families"]["flips"];
     if family["run"] == true {
@@ -2312,7 +2358,9 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
 /// each rule by its sentence: each item's `id`, `obligation`, `covered` and `touched_only_by`,
 /// the sentences that inspect and build it by rule id (`inspecting_rules`, `building_rules`), the
 /// counts and the measure, productions and field values counted together and each apart. Returns
-/// `(covered, obligations)` and the family's targets, in item order.
+/// `(covered, obligations)` and the family's targets, in item order. A family whose syntax facts
+/// could not be read (its `reason`) has no universe to count: its counts and measure are null,
+/// and so is the `(covered, obligations)` returned.
 ///
 /// An item's name is its front end's (`krs.item`) where it gave one, else its K label. Every item
 /// is an obligation, covered when its status is [`REACHED`]; an item a front end added (kind
@@ -2321,10 +2369,16 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
 fn derive_syntax(
     family: &mut Value,
     rule_ids: &BTreeMap<SentenceRef, String>,
-) -> ((usize, usize), Vec<Value>) {
+) -> (Option<(usize, usize)>, Vec<Value>) {
     let mut targets = Vec::new();
+    if family["reason"].is_string() {
+        for key in ["obligations", "covered", "measure", "counts"] {
+            family[key] = Value::Null;
+        }
+        return (None, targets);
+    }
     let Some(items) = family.get_mut("items").and_then(Value::as_array_mut) else {
-        return ((0, 0), targets);
+        return (Some((0, 0)), targets);
     };
     let name_of = |item: &Value| {
         item["krs"]["item"]
@@ -2333,19 +2387,47 @@ fn derive_syntax(
             .unwrap_or_default()
             .to_owned()
     };
+    // An item's name, qualified by its sort where two items share a name, and further by its
+    // symbol where two share both (two front-end names of one sort): one id per item.
     let names = items.iter().map(name_of).collect::<Vec<_>>();
     let mut counts = BTreeMap::<&str, usize>::new();
     for name in &names {
         *counts.entry(name.as_str()).or_default() += 1;
     }
+    let qualified = items
+        .iter()
+        .zip(&names)
+        .map(|(item, name)| {
+            if counts[name.as_str()] > 1 {
+                format!("{name}@{}", item["sort"].as_str().unwrap_or_default())
+            } else {
+                name.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut qualified_counts = BTreeMap::<&str, usize>::new();
+    for name in &qualified {
+        *qualified_counts.entry(name.as_str()).or_default() += 1;
+    }
     // Per kind, (covered, obligations).
     let mut by_kind = BTreeMap::<String, (usize, usize)>::new();
-    for (item, name) in items.iter_mut().zip(&names) {
-        let name = if counts[name.as_str()] > 1 {
-            format!("{name}@{}", item["sort"].as_str().unwrap_or_default())
+    let mut unique = BTreeMap::<String, usize>::new();
+    for (item, qualified) in items.iter_mut().zip(&qualified) {
+        let mut name = if qualified_counts[qualified.as_str()] > 1 {
+            match item["symbol"].as_str() {
+                Some(symbol) => format!("{qualified}@{symbol}"),
+                None => qualified.clone(),
+            }
         } else {
-            name.clone()
+            qualified.clone()
         };
+        // A front end's items that share a name, a sort and a symbol (or have none) are told
+        // apart by their position among those that share it.
+        let seen = unique.entry(name.clone()).or_default();
+        *seen += 1;
+        if *seen > 1 {
+            name = format!("{name}#{seen}");
+        }
         let id = format!("syntax:{name}");
         let covered = item["status"] == REACHED;
         let kind = item["kind"].as_str().unwrap_or(PRODUCTION).to_owned();
@@ -2441,7 +2523,7 @@ fn derive_syntax(
         "productions": tally(PRODUCTION),
         "field_values": tally(FIELD_VALUE),
     });
-    ((covered, obligations), targets)
+    (Some((covered, obligations)), targets)
 }
 
 /// Fill the derived part of a flips family that ran ([`crate::flips`]): each item's
@@ -2687,7 +2769,9 @@ pub fn text(document: &Value) -> Result<String, String> {
         out.push('\n');
     }
     let syntax = &families["syntax"];
-    if syntax.is_object() {
+    if let Some(reason) = syntax["reason"].as_str() {
+        out.push_str(&format!("syntax: not read: {reason}\n"));
+    } else if syntax.is_object() {
         let counts = &syntax["counts"];
         out.push_str(&format!(
             "syntax: {} of {} reached ({}); productions {} of {}, field values {} of {}",
@@ -2699,9 +2783,6 @@ pub fn text(document: &Value) -> Result<String, String> {
             counts["field_values"]["covered"],
             counts["field_values"]["obligations"],
         ));
-        if let Some(reason) = syntax["reason"].as_str() {
-            out.push_str(&format!("; not read: {reason}"));
-        }
         out.push('\n');
     }
     for family in ["syntax", "rule_windows", "syntax_paths"] {
@@ -2812,4 +2893,72 @@ pub fn rule_item<'d>(document: &'d Value, at: &SentenceRef) -> Option<&'d Map<St
             item.get("module").and_then(Value::as_str) == Some(at.module.as_str())
                 && item.get("index").and_then(Value::as_u64) == Some(u64::from(at.index))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A family whose syntax facts could not be read counts nothing: its counts and measure are
+    /// null, not zero obligations with nothing open, and it gives no target.
+    #[test]
+    fn an_unread_syntax_family_counts_nothing() {
+        let mut family = json!({"tier": 1, "items": [], "binders": [], "reason": "unreadable"});
+        let (counts, targets) = derive_syntax(&mut family, &BTreeMap::new());
+        assert_eq!(counts, None);
+        assert!(targets.is_empty());
+        for key in ["obligations", "covered", "measure", "counts"] {
+            assert_eq!(family[key], Value::Null, "{key}: {family:#}");
+        }
+        assert_eq!(family["reason"], "unreadable");
+    }
+
+    /// Every item has its own id: two items of one name are told apart by their sorts, two of
+    /// one name and one sort by their symbols, and two that share all three by their position.
+    #[test]
+    fn every_syntax_item_has_its_own_id() {
+        let item = |name: &str, sort: &str, symbol: &str| {
+            json!({
+                "kind": PRODUCTION,
+                "production": name,
+                "sort": sort,
+                "symbol": symbol,
+                "status": UNREACHED,
+            })
+        };
+        let mut family = json!({
+            "tier": 1,
+            "items": [
+                item("a", "S", "Lbla"),
+                item("a", "T", "Lbla'T"),
+                item("b", "S", "Lblb1"),
+                item("b", "S", "Lblb2"),
+                item("c", "S", "Lblc"),
+                item("c", "S", "Lblc"),
+                item("d", "S", "Lbld"),
+            ],
+            "binders": [],
+        });
+        let (counts, targets) = derive_syntax(&mut family, &BTreeMap::new());
+        assert_eq!(counts, Some((0, 7)));
+        assert_eq!(targets.len(), 7);
+        let ids = family["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            [
+                "syntax:a@S",
+                "syntax:a@T",
+                "syntax:b@S@Lblb1",
+                "syntax:b@S@Lblb2",
+                "syntax:c@S@Lblc",
+                "syntax:c@S@Lblc#2",
+                "syntax:d",
+            ]
+        );
+    }
 }

@@ -1607,9 +1607,12 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
 
 /// What a run's fired instances bound as a record stores it: `operands`, per sentence
 /// (`{module, index, label}`, [`stored_sentence`]) the authored symbols that were the head of an
-/// operand of a fired instance (`symbols`), and `binders`, per selected template binder bound at
+/// operand of a fired instance (`symbols`), `binders`, per selected template binder bound at
 /// some fired instance, its axiom, the sentences behind it, its variable and its values
-/// (`{axiom, sentences, variable, values, truncated, nonliteral}`).
+/// (`{axiom, sentences, variable, values, truncated, nonliteral}`), and `alternatives`, per
+/// alternative of an axiom with several that a fired instance took, its axiom, its left-hand
+/// and right-hand side alternatives (null where the side has one) and the sentences behind the
+/// axiom (`{axiom, lhs, rhs, sentences}`).
 fn bindings_value(
     spec: &AdmittedSpec,
     bindings: &kink_native::coverage::SentenceBindings,
@@ -1639,6 +1642,22 @@ fn bindings_value(
                     "values": binder.values,
                     "truncated": binder.truncated,
                     "nonliteral": binder.nonliteral,
+                })
+            })
+            .collect::<Vec<_>>(),
+        "alternatives": bindings
+            .alternatives
+            .iter()
+            .map(|alternative| {
+                json!({
+                    "axiom": alternative.key.axiom,
+                    "lhs": alternative.key.lhs,
+                    "rhs": alternative.key.rhs,
+                    "sentences": alternative
+                        .sentences
+                        .iter()
+                        .map(|at| stored_sentence(spec, at))
+                        .collect::<Vec<_>>(),
                 })
             })
             .collect::<Vec<_>>(),
