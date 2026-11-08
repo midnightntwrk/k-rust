@@ -3856,8 +3856,9 @@ fn derive_flips(
 /// Why the kill search gave an `unknown` flip no verdict, as its target states it: the row's
 /// `reason` where it has one (a cause of the whole search), else kink's status where it is not
 /// `unknown` (`timeout`, `error`), then each executed program's cause (`causes`, `<program>:
-/// <cause>`), joined by `; `. The search decides `unknown` only from programs it ran, so one of
-/// these is always there; the text says so where none is, rather than invent a cause.
+/// <cause>`), joined by `; `. A row need carry none of them (an outcome cache's `unknown` entry
+/// recorded with no cause is input, not an invariant), and the text then says that kink
+/// recorded no cause, rather than invent one.
 fn no_verdict(item: &Value) -> String {
     let mut parts = Vec::new();
     if let Some(reason) = item["reason"].as_str() {
@@ -3873,10 +3874,6 @@ fn no_verdict(item: &Value) -> String {
             parts.push(format!("{program}: {cause}"));
         }
     }
-    debug_assert!(
-        !parts.is_empty(),
-        "an unknown flip has a reason, a status or a cause: {item:#}"
-    );
     if parts.is_empty() {
         "kink recorded no cause".to_owned()
     } else {
@@ -4425,6 +4422,13 @@ mod tests {
             unknown_target(&json!({"status": "unknown", "reason": "open-application",
                                    "executed": [{"program": "p1", "cause": "an open f(1)"}]})),
             format!("{prefix} (open-application; p1: an open f(1))")
+        );
+        assert_eq!(
+            unknown_target(&json!({"status": "unknown", "reason": null, "executed": [
+                {"program": "p1", "cause": null},
+            ]})),
+            format!("{prefix} (kink recorded no cause)"),
+            "a cached unknown entry with no cause is input the target states"
         );
         let mut item = json!({"id": "f"});
         crate::flips::fill_from_row(
