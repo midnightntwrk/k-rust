@@ -333,11 +333,14 @@ impl ResultModality {
 ///
 /// With `guards`, the request names every rewrite rule and function equation of the definition
 /// whose `requires` is not empty (k-rust `collect_guards`), and the run's coverage carries their
-/// guard outcomes ([`RunCoverage::guards`]). With `bindings`, the request sends the binding
-/// collection of the run's [`DefinitionTables`] ([`DefinitionTables::with_bindings`], the front
-/// end's authored symbols and template binders; k-rust `collect_bindings`), and the run's
-/// coverage carries what its fired instances bound ([`RunCoverage::bindings`]); tables without a
-/// collection send none. k-rust states that asking for either changes no other field of the
+/// guard outcomes ([`RunCoverage::guards`]): at each function application, those of every
+/// equation of the deciding priority group whose left-hand side matches, tried or not. On a
+/// backend that does not state that rule (k-rust `coverage_guards_untried`) such a run is
+/// refused before anything runs. With `bindings`, the request sends the binding collection of
+/// the run's [`DefinitionTables`] ([`DefinitionTables::with_bindings`], the front end's authored
+/// symbols and template binders; k-rust `collect_bindings`), and the run's coverage carries what
+/// its fired instances bound ([`RunCoverage::bindings`]); tables without a collection send
+/// none. k-rust states that asking for either changes no other field of the
 /// result (docs/compatibility.md, "Run coverage"), so no leaf, list, set, verdict or schedule
 /// differs from a run without it.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -1775,6 +1778,7 @@ impl ExecutionAdapter {
             matching,
         };
         stops_listed(requested, backend.capabilities())?;
+        guards_order_free(requested, backend.capabilities())?;
         with_definition(backend, |definition| {
             match uninhabited_variable(definition, &built.inhabitation, state) {
                 Ok(None) => Ok(()),
@@ -2316,6 +2320,31 @@ fn stops_listed(
     } else if requested.matching.is_some() && !capabilities.state_matches {
         Err(ExecutionAdapterFailure::Backend(
             "a run that matches its states needs a backend that reports state matches".to_owned(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Refuses a run that collects guard outcomes ([`Requested::guards`]) on a backend whose guard
+/// outcomes are not order free (`BackendCapabilities::coverage_guards_untried`, which implies
+/// `coverage_guards`). Such a backend enters only the equations a function scan tried: of the
+/// equations of one priority group whose left-hand sides match an application, it stops at the
+/// first that applies, in an order the definition does not state, so the outcomes of the later
+/// ones (two complementary equations' second `false`) would be missing for a reason no case can
+/// change, and a requirement open for it would read as a gap of the corpus. A request that
+/// collects no guard outcomes needs neither.
+fn guards_order_free(
+    requested: Requested<'_>,
+    capabilities: BackendCapabilities,
+) -> Result<(), ExecutionAdapterFailure> {
+    if requested.guards.is_some()
+        && !(capabilities.coverage_guards && capabilities.coverage_guards_untried)
+    {
+        Err(ExecutionAdapterFailure::Backend(
+            "a run that collects guard outcomes needs a backend whose guard outcomes cover every \
+             matching equation of the group that applied"
+                .to_owned(),
         ))
     } else {
         Ok(())
@@ -3110,6 +3139,57 @@ mod tests {
             .execute_result_stopped(&mut backend, &state, budget, ResultRun::default(), &stop)
             .expect("a listing backend runs a stop");
         assert!(stopped.facts().passed_stops.is_empty());
+    }
+
+    /// A run that collects guard outcomes is refused on a backend whose guard outcomes are not
+    /// order free within a priority group, before anything runs: the equations its function
+    /// scans did not try would have no entry, which no case can change. A run that collects none
+    /// needs neither capability. The in-process backend has both.
+    #[test]
+    fn guard_outcomes_need_a_backend_whose_outcomes_are_order_free() {
+        use k_rust::backend::BackendOptions;
+        let backend = Backend::new(
+            r"[]
+            module MAIN
+                sort SortS{} []
+            endmodule []",
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let listing = backend.capabilities();
+        assert!(listing.coverage_guards && listing.coverage_guards_untried);
+        let tried_only = BackendCapabilities {
+            coverage_guards_untried: false,
+            ..listing
+        };
+        let guardless = BackendCapabilities {
+            coverage_guards: false,
+            coverage_guards_untried: false,
+            ..listing
+        };
+        let axioms = BTreeSet::from(["a".to_owned()]);
+        let requested = |guards| Requested {
+            run: ResultRun::default(),
+            stop: &NO_STOP_RULES,
+            count: NonZeroU64::MIN,
+            conditioned: false,
+            probed: false,
+            guards,
+            bindings: None,
+            depth: None,
+            matching: None,
+        };
+        assert_eq!(guards_order_free(requested(Some(&axioms)), listing), Ok(()));
+        for capabilities in [listing, tried_only, guardless] {
+            assert_eq!(guards_order_free(requested(None), capabilities), Ok(()));
+        }
+        for capabilities in [tried_only, guardless] {
+            assert!(matches!(
+                guards_order_free(requested(Some(&axioms)), capabilities),
+                Err(ExecutionAdapterFailure::Backend(_))
+            ));
+        }
     }
 
     /// CF-21: a stop halt is admitted exactly for a request that selected a rule in its
