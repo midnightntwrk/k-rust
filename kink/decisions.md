@@ -95,7 +95,7 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
   `[observe]` declares point classes (rewrite rules on their before or after side, cells, and a stuttering mode, `collapse` or `count`, with no default) and logs (a `List` cell read at named classes' events and where the path ends), and every run is compared by them besides its end (kink-flow README, "What a run observes"; kink's `trust.md`, "What a kill trusts").
   A baseline run that a deterministic bound cuts before it ends is `comparable-prefix`, compared by its channels up to their horizons.
   A mutant that agrees up to every horizon is `survived`, and its row and its verdicts rendering carry `horizon`, each horizon with why its channel opened; one whose every horizon is 0 is `unknown`, and a prefix program none of whose channels kept an element is itself `unknown`.
-  Only one path per side is compared: a channel opens at its side's first state with several successors.
+  A side whose run never splits is compared on its one path; one whose run splits is compared by prefix sets (O2).
   [Sebastien, 2026-11-07: the stuttering mode declared per class, the survivor with its horizon, and the single-path meaning first, the prefix-set meaning for several paths a later unit]
   1. *An observation is a function of a finite prefix.*
      Every element is read in a reached state of a path the run explored, as a value under the baseline's definition, at an index that is a fact of the path; so a decided difference is a difference of the two definitions' observations in every model, and a bound only ends what is known: budget exhaustion never kills.
@@ -107,6 +107,26 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
   4. *The K front end compares cells as they hold them.*
      kink-flow reads terms of a K definition and has no observer to evaluate a function in, so it refuses `observer`, `views`, `components`, `when` and `element`; identity contents and logs are sound at the K level by the end projection's argument.
 
-  Accepted cost: a nondeterministic baseline is compared only up to its first branching; `query` and `fuzz` refuse a corpus with `[observe]` until their searches compare channels.
+  Accepted cost: `query` and `fuzz` refuse a corpus with `[observe]` until their searches compare channels.
   Rejected: a default stuttering mode (reason 2); a separate status for a survivor on a prefix (reason 3); cutting a channel at a mutant's budget as a difference (reason 1).
-  Reopen on a specification whose promised observation needs several paths before the prefix-set meaning lands.
+  Reopen on a specification whose promised observation is not a function of a finite prefix of each path.
+
+- **O2 — A run with several paths is compared by each channel's prefix sets, and a set difference kills only where the side that lacks the prefix is explored to its length.**
+  The meaning of a run is, per channel, the prefix-closed set of the finite prefixes of its paths' channels, END and UNDEF being elements; two definitions differ on a program where the sets differ (kink's `trust.md`, "What a kill trusts"; kink-flow README, "What a run observes").
+  A mutant's prefix outside the baseline's set (`outside: mutant`) kills where every baseline path is explored to that index, the prefix is read on a settled path of the mutant, and its run is judged; a baseline prefix outside the mutant's set (`outside: baseline`) kills where every leaf of the baseline's run is real and clean and every path of the mutant's clean, judged run is explored to that index.
+  Otherwise a channel agrees to its end where both sides are explored completely, up to the baseline's horizon where the mutant is explored that far, and is unknown elsewhere.
+  A state-set run merges two states only where the probe's histories of their paths are equal, as it merges only states with equal stop counts.
+  A run that never splits is compared, recorded and keyed by the O1 rule unchanged.
+  [Sebastien, 2026-11-07: Q1, the full prefix-set meaning as the unit after the single-path one; 2026-11-08: a branching mutant whose path leaves the baseline's set is killed]
+  1. *A witness is a fact only of a completely explored side.*
+     A prefix one side has is a fact of a path it explored, whatever its unexplored part holds; that the other side lacks it is a fact only where every path of that side holds an element at each index below its length or closed earlier, so the completeness is asked of the lacking side alone, and an incomplete side, a horizon or a budget never kills.
+  2. *A prefix is kept as a chain of truncated digests.*
+     Equal prefixes have equal chains, so a chain a set lacks is a prefix no path of it has; a truncation collision can only make two prefixes look alike, which hides a difference and never makes one, and a set enlarged by prefixes of paths not shown real can only hide a mutant's prefix, which is why baseline-outside needs a real record and mutant-outside does not.
+  3. *History is part of what a merge must share.*
+     A state's continuation is a function of the state, but what the probe observes on it also rests on the path's trace up to it (the last element collapse compares with, the log items read); merging states whose histories differ would join two prefixes under one continuation and lose one of them, so the history digest is in the merge key, and an interleaving that reaches one configuration by different observations is explored twice.
+  4. *Channels are compared one by one.*
+     A difference of one channel's sets is a difference of the tuple, so it is sound; a difference only the tuple shows is missed, which can only leave a mutant unknown or survived.
+
+  Accepted cost: a run whose paths reach one configuration with different observations no longer merges there (exponential in the worst case, as interleaved concurrency); a set difference has no capture run, so its evidence shows the mutant's element and no baseline value; one Vacuous leaf on the baseline's run makes its record not real, so no baseline prefix is held against a mutant.
+  Rejected: merging by configuration alone (reason 3); a kill on an incompletely explored side (reason 1); refusing `[observe]` on a branching program, which leaves nondeterministic specifications without observations.
+  Reopen on a corpus whose runs merge too rarely to finish under history-keyed merging.
