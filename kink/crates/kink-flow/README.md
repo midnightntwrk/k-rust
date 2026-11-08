@@ -293,7 +293,7 @@ A log (`[[observe.log]]`) reads a `List` cell at the events of the named classes
 | `cells` (point) | The cells whose contents, in this order, are each event's element, by K cell name: each a leaf cell of multiplicity 1 below cells of multiplicity 1, not `unobservable`. |
 | `cell` (log) | The `List` cell, by K cell name. |
 | `at` (log) | The point classes at whose events the log is read; it is also read where the path ends. |
-| `observer`, `views`, `components`, `when`, `element` | Functions of an observer, evaluated on the cells' values: only a front end that reads values can state them, which `krs kink` will be and does not yet accept them; kink-flow's own front end refuses them at stage `observe`, reason `unsupported-front-end`. |
+| `observer`, `views`, `components`, `when`, `element` | Functions of an observer, evaluated on the cells' values: only a front end that reads values can state them. `krs kink` resolves them and sets them on the manifest (`FlowManifest::with_observe_functions`), and then gives every content, filter and log element, its functions' identity named in `observe.functions`; kink-flow's own front end refuses them at stage `observe`, reason `unsupported-front-end`. |
 
 Positions are where elements are read, not what they are: which rule of a class fired, and the relative order of two classes' events, are not observed.
 To tell two rules apart, put them in separate classes, or observe a cell one of them writes; to observe an order, put both rules in one class.

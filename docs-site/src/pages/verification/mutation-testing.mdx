@@ -345,6 +345,17 @@ A run over `refused.toml` judges nothing and exits 2:
 - **Machines that do not halt.** A run of a machine that never halts ends where `[stop]` and `stop_count` say ([the corpus loop](/reference/workflow#the-corpus-loop)), and a kill is then relative to that stop.
   Where the end is a fact about the state rather than a count, `[stop] when = { function, cells, observer }` names a condition as a case's `run.stop_when` does: a stop is then an arrival where the condition holds, evaluated in the observer (the definition itself by default) for the definition and every mutant alike, so an edit changes where the condition is asked, never the condition.
   A case whose run's condition is undecided or has no value at an arrival is `unknown` (`stop-condition`), and a mutant that declares the read cells' constructors otherwise is `not-admitted` (`stop-condition-incompatible`).
+- **A mutant that never ends.**
+  A mutant that idles for ever where the specification goes on, such as one whose halted flag is flipped so that a running machine idles at every boundary, has no end within any budget, and a budget never kills: compared by its ends alone, it is `unknown`.
+  What it does differently shows in a finite prefix of its run, so declare what a run shows along its path, `[observe]` in `FLOW.toml`, as a case's `observe` declares it ([observations](/reference/workflow#observations)): point classes, each sampling named cells at the steps of named rules (by KRS item, as `[stop]` names them; cells by Rust path), and logs, each a `List` cell such as a bus log, read where a path ends.
+  ```toml
+  [[observe.log]]
+  name = "bus"
+  cell = "bus"
+  ```
+  A mutant is then killed at the first channel and index where both sides' elements are decided and differ, and the evidence names it (`bus[0]`) with both values (`krs-difference/4`); a mutant whose path returns to an earlier state with nothing new observed has no element there, ever, so a baseline element there kills it.
+  A case that never ends is compared over the prefix its budget explores, up to each channel's horizon, and a survivor of it says the horizon it agrees up to.
+  Views, components, filters and element functions are evaluated in the observer `observer` names, or the definition itself, for the definition and every mutant alike; a mutant that declares the read cells' constructors otherwise is `not-admitted` (`observation-incompatible`).
 - **Internal state.** State no case may observe is declared [`#[k::cell(unobservable)]`](/reference/language#unobservable-cells), or left out of `[result] cells`; a kill then needs a difference in a compared cell.
 - **Claims an edit leaves unbacked.** An edit that leaves a trusted claim unbacked, which no removal takes away, makes the mutation `unknown` (`unsupported-claims`).
 
