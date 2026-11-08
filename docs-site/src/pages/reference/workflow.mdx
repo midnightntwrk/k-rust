@@ -235,7 +235,7 @@ A case's `observe` declares its run's observations in the same table; `--observe
 ```
 
 Each element names the steps to its observed state (`depth`), its point's rule as a stop flag names it and its side (`null` for a log's items read at the path's end), and its `value`, the components by name as documents of the [encoding](#the-encoding).
-A channel is `closed` by the run's end, `end` where it ended on its own or at a stop, `undefined` where its last step is undefined; otherwise it is `open` at the index where the run stopped knowing it, with the reason: a depth bound, an inconclusive halt, or an undecided element.
+A channel is `closed` by the run's end, `end` where it ended on its own or at a stop, `undefined` where its last step is undefined; otherwise it is `open` at the index where the run stopped knowing it, with the reason: a depth bound, the first state of the path with several successors, an inconclusive halt, or an undecided element; at an inconclusive halt it carries `"undecided": true`, since a run that takes the path further may know more.
 An element whose evaluation spends `--view-budget`'s polls, or that the solver leaves undecided, carries its reason as `undecided` in place of `value`: under `count` only that element is unknown, while under `collapse` and in a log the channel opens there (`"undecided": true`), since the index of a later element rests on the equalities before it.
 An element with no value (a cell holding an unevaluated application, a function with no value there) refuses the run with exit 2, whatever the output, naming the channel, the point's side and rule, the steps and the component (``the observation `small` has no value at the before point of `crate::tick` after 3 steps: the component `small`: ...``); so does a declaration the run cannot record, naming the channel and the cause, and an `--observe` file that is no declaration, naming the key and its position (`krs::exec::observation`, as every refusal of observations is; a case's `observe` that is no declaration refuses the case, `krs::exec::case`).
 `--output observations` needs a declaration, from `--observe` or the case: a usage error otherwise.
@@ -252,7 +252,7 @@ The name is the item's, so every sentence one item lowers to (a context's heat a
 The sentences of K's builtin modules, and those a compiler pass generated from no authored source with neither a KRS item nor a label, are counted on a last line; `--output json` lists every sentence in `coverage.rules`, with its `item` spelled as a stop reads it, its K label (`label`, which the list prints in brackets beside a shared name), `UNIQUE_ID` and each predicate, beside `coverage.offered`, which says whether rules only offered are listed.
 `run`, `search`, and `prove` print configurations through the definition's grammar by default (`--output pretty`, as `krun --output pretty` prints them), and `--color auto|always|never` colours them from the productions' `color` and `colors` (`auto` colours only when standard output is a terminal and `NO_COLOR` is unset); `parse` prints KAST by default, and `--output program` prints the program back through the grammar, as `kast --output program` does.
 `--output kast`, `json`, or `kore` selects the other formats (`none` prints no configuration from `run`).
-`run --output end` prints the run's end as an end document (`halt`, `rule`, `cells`, [as `krs compare` reads one](#compare-two-ends)), on one line and alone on standard output, so that the output is a side `krs compare` reads as it is.
+`run --output end` prints the run's end as an end document (`halt`, `rule`, `cells`, [as `krs compare` reads one](#compare-two-sides)), on one line and alone on standard output, so that the output is a side `krs compare` reads as it is.
 It is always the full end, every cell the end states: a view belongs to a comparison, and a viewed value, at its view's result sort, is no end.
 At `--depth 0` it is the configured state, each input applied with `$call` evaluated to its value.
 An inconclusive halt has no end, so nothing is printed and the run exits 3.
@@ -265,7 +265,7 @@ A definition with a `stream = "stdin"` cell reads standard input into it before 
 Such a cell holds the stream's descriptor and buffer, which are no values of its `List` type, so `--output end` refuses the end of such a definition at that cell.
 `run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
-The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), [`compare`](#compare-two-ends), and the [corpus loop](#the-corpus-loop)'s `kink`.
+The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), [`compare`](#compare-two-sides), and the [corpus loop](#the-corpus-loop)'s `kink`.
 
 ### Exit status
 
@@ -928,19 +928,21 @@ Version 4 records the stops of a run with stop rules, which a version 3 reader w
 
 `krs cases` exits as a batch of its cases ([exit status](#exit-status)).
 
-## Compare two ends
+## Compare two sides
 
 ```console
 krs compare --package my-semantics --definition main ends/reference.json cases/steps.toml#ld-a
 krs compare --package my-semantics --definition main left.json right.json --compare pc,regs,bus \
   --view bus=WritesView --observer my-semantics-views:main --output json
 krs compare --package my-semantics --definition main --expect cases/steps.toml#ld-a ends/emulator.json
+krs compare --package my-semantics --definition main cases/boot.toml#rom observations/emulator.json
 ```
 
-`krs compare` compares two ends of the definition, the left and the right side, on the halt and on every leaf cell that is not unobservable.
+`krs compare` compares two sides of the definition, the left and the right side: their ends, on the halt and on every leaf cell that is not unobservable, and their [declared observations](#compare-observations).
 Each side is a `.toml` or `.json` file, read by its keys:
 an end document (`halt`, `rule`, `cells`), written as [an expectation](#expectations) writes its end;
-or a case document, whose case is run as `krs run --case` runs it (its inputs and its `run` table), and whose run's end is the side.
+an observation document (`schema`, `channels`), the `krs-observations/1` document `krs run --output observations` prints;
+or a case document, whose case is run as `krs run --case` runs it (its inputs, its `run` table and its `observe`), and whose run's end, and the observations its `observe` declares, are the side.
 `FILE#NAME` names a case of a document of named cases, as the case's id in `krs cases` does.
 The case of a case side is run, not checked: its own `expect` table is no part of the comparison.
 
@@ -957,8 +959,49 @@ An end document that leaves out a cell the comparison compares is refused, namin
 The side may be an end document: an end another implementation reached, checked against what the case expects.
 
 `krs compare` prints `krs compare: equal`, or the first difference as `krs run --case` prints an unmet expectation's: where the sides differ, each side's value labelled `left` and `right`, the other compared cells that differ, and the views it applied; with `--expect`, the lines of `krs run --case`.
-`--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/3`, the left side on its `left`) or `reason`, and `views` and `observer` when views were applied.
+`--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/3`, the left side on its `left`) or `reason`, `observations` where a side states observations, and `views` and `observer` when views were applied.
 It exits by the verdict ([exit status](#exit-status)).
+
+### Compare observations
+
+A side states ends, observations, or both: an end document states one end, an observation document a run's observations and no end, and a case its run's end and, where its `observe` declares a channel, the observations its run records, recorded as [`krs run --case` records them](#run-search-and-prove) (`run --observe FILE`, above).
+Two sides are compared on what both state: their ends where both state ends, their observations where both state observations.
+Sides that state nothing in common (an observation document against an end document, or against a case that declares no `observe`) are refused with exit 2, and so are `--compare` and `--view` where no ends are compared.
+Where only one side states observations (a case that declares them against an end document), the ends are compared, and the verdict says that the observations are not compared.
+An empty `observe` declares no channel, so a case that holds one is compared on its end alone.
+
+Observations are compared under one declaration: two cases must declare the same `observe`, and an observation document must have the channels of the other side, by name and kind, in order; otherwise the comparison is refused (`krs::exec::observation`).
+That an observation document's elements correspond to the other side's, an emulator's states to the definition's points, is its producer's claim, as an end document's end is.
+krs reads the document exactly: it holds `schema` and `channels` alone; each channel holds `name`, `kind`, `elements`, `closed` and `open`, exactly one of the last two not null; each element holds `index` (its position), `depth`, `rule` and `side` (`null` allowed), and either `value` or `undecided`; an `open` holds `index` (the number of elements), `reason`, and `undecided` where it is true.
+A case whose observations `krs run --case` refuses (an element with no value, a log that is not appended to) is refused here too, naming the side and the case, whatever the comparison reads of it, so `krs run`, `krs cases` and `krs compare` agree on which cases have an observation sequence.
+
+The two records are compared element by element along each channel, by their values, an `end` or `undefined` closure being an element unequal to every other.
+An element is a function of a finite prefix of its path, and a record knows each channel up to where it is closed or open, so nothing past a side's open point or at an unknown element is read, and a bound never makes a difference.
+The sides *differ* (exit 1) at the first index of a channel where both hold a decided element or closure and the two differ; where several channels differ, the one the right side reached first is shown, with the channel, the index, each side's element or closure, and the path inside the two values where they differ below their top:
+
+```text
+krs compare: differs at the observation `n` element 0 at `n`
+  left:  {"n":0} (before `crate::tick`, after 0 steps)
+  right: {"n":1} (before `crate::tick`, after 0 steps)
+```
+
+The observations are compared before the ends, since their first difference comes before either path's end; where they do not differ, the ends are compared as above, and the verdict is the join of the two, a difference before no answer before equal, so declaring observations only adds distinctions.
+
+Where no channel differs, each channel is compared up to where it stopped, and a line per channel says how many elements agree and what stopped the comparison.
+The sides are *equal* (exit 0) where every channel agrees to both sides' closure, and *equal up to a horizon* (exit 0) where a side is open at a bound: its case's depth, or the first state of its path with several successors, past which its observations are no one sequence.
+The bound is part of the side's question: `krs run --output observations` answers a depth-bounded run's observations with 0 as well, and two runs a depth bound ended compare equal on their ends; nothing past the horizon is claimed.
+
+```text
+krs compare: equal up to a horizon
+  observation `out`: 2 elements agree, then both sides are open: the left side: the run ended `depth-bound`, which is no end of its path; the right side: the run ended `depth-bound`, which is no end of its path
+```
+
+The comparison is *inconclusive* (exit 3) where another run may still differ: an element before any difference is unknown on a side (its evaluation spent `--view-budget`'s polls, or the solver left it undecided); a side is open as undecided (`"undecided": true`, at such an element or an inconclusive halt) where the other side still knows that index; a case side's run has no one path, so no record.
+A record shows the definition's observations only where its path is the definition's only one: a run that read a value the definition leaves open may take another path in another implementation of it.
+So a difference from a side whose run read none holds, a difference between two sides whose runs both read one is inconclusive, and an agreement is inconclusive where either did.
+
+With `--output json`, `observations` is `{"difference": {"channel", "index", "left", "right", "path"}}`, each side an element as the observation document writes it or `"end"` or `"undefined"`; `{"agree": [{"channel", "through", "left", "right"}], "reason"}`, `through` the index the comparison stopped at, each side `"end"` or `"undefined"` where it closed there, `{"open": {...}}` where it is open there, or `"known"`, with `uncompared` (`index`, `side`, `reason`) on a channel where an element was not compared, and `reason` where the agreement is inconclusive; or `{"not_compared": REASON}` where only one side states observations.
+An observation difference stands in `observations`, and `difference` stays the ends' difference, so a reader of one kind reads the same member as before.
 
 ### Compare many pairs
 
