@@ -563,6 +563,7 @@ fn result_context(other: Spelling) -> Context {
         other: Some(other),
         written: false,
         groups: Vec::new(),
+        fixed_cells: false,
     }
 }
 
@@ -699,6 +700,7 @@ fn initializer_case(own: Entry, entries: Vec<Entry>, variables: Vec<(String, boo
             other: None,
             written: false,
             groups: Vec::new(),
+            fixed_cells: false,
         },
         template: Template {
             sentence: Sentence::Initializer,

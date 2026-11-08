@@ -186,7 +186,7 @@ advice = "none"
 
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
-doc = "a `*` collection written without its instance list, the spellings of its examples, where the entry's inside passes form and kind against the instance group (P3c, with P3's reason at every depth: otherwise the inside's own refusal is named, S5.0g pattern review P-R5); or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
+doc = "a `*` collection written without its instance list, the spellings of its examples, where the entry's inside passes form and kind against the instance group (P3c, with P3's reason at every depth: otherwise the inside's own refusal is named, S5.0g pattern review P-R5); or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names, other than the leading Map collections of its path, whose one instance the rule matches as a rule for the instance's group does (IC-5; a function context and a context alias judge those too): name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
 examples = ["readable ; subject ; - ; * List of G ; x ; -", "readable ; subject ; - ; * Set of G ; _ ; -", "readable ; subject ; - ; * Map of G ; 0 ; -", "readable ; subject ; - ; * List of G ; G { a: x, .. } ; -", "readable ; subject ; * ; leaf Int ; x ; -", "cells ; result ; * ; leaf Int ; k::configuration::Cell(x) ; k::configuration::Cell(old)"]
 # A `cells!` result's path refusal below `*` advises the update of the instance the subject names
 # (P-R6): `{ me @ k::fragment![T { .. }], .. }` => `{ k::fragment![T { child: v, ..me }], .. }`.
@@ -345,6 +345,11 @@ advice = "init/k/k::k![pgm]"
 [class.instance-child-multiplicity]
 code = "krs::analysis::collection-entry"
 doc = "an instance record naming a child that is a `?` cell, its presence or absence (`acounter: Some(y)`, `acounter: None`), or a group child's `*` collection (`aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }`): inside one instance it means whether, or which, cells that instance holds there (P1, P2), and no lowering writes it; not supported yet, said at the child"
+advice = "none"
+
+[class.instance-beside-outer-cell]
+code = "krs::analysis::collection-entry"
+doc = "a rule whose cells lie both inside a Map collection's instance, named at the record's level (`apc` of one account, beside the top-level `k`), and outside every instance: it would match the outer cell beside one instance, which K states, but writing the instance's clauses beside an outer one is not supported yet (IC finding 1), said at the outer cell; the instance is matched through its holder's instance list instead"
 advice = "none"
 
 [class.instance-list-shape]
@@ -1395,18 +1400,18 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/overwrite/kinds/aolist/Some(k::configuration::Cell(x))'
-class = "collection-without-instances"
-at = "entry"
+class = "unmatched-optional-result"
+at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/overwrite/kinds/aolist/Some(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "unmatched-optional-result"
+at = "spelling"
 
 [[refuse]]
 match = 'cells/overwrite/kinds/acode/k::configuration::KCell(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = 'cells/overwrite/kinds/hbag/k::fragment![crate::Hobj \{ hkey: x\, .. \}]'
@@ -1424,9 +1429,16 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/{abag,aframe,aseq}/0'
+match = '{claim,readable}/result/kinds/abag/0'
 class = "collection-without-instances"
 at = "entry"
+
+# IC-5: a Map collection's instance cell is named at the record's level; its content's sort is the
+# lattice's
+[[refuse]]
+match = '{claim,readable}/result/kinds/{aframe,aseq}/0'
+class = "content-sort"
+at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/result/kinds/job/Job \{ payload: x\, .. \}'
@@ -1435,8 +1447,8 @@ at = "entry"
 
 [[refuse]]
 match = '{cells,claim,readable}/result/kinds/aomap/None'
-class = "collection-without-instances"
-at = "entry"
+class = "unmatched-optional-result"
+at = "spelling"
 
 [[refuse]]
 match = 'cells/result/kinds/job/k::fragment![crate::Job \{ payload: x\, .. \}]'
@@ -1465,8 +1477,8 @@ at = "entry"
 
 [[refuse]]
 match = '{claim,readable}/subject/kinds/{aenv,apc}/G \{ a: x\, .. \}'
-class = "collection-without-instances"
-at = "entry"
+class = "content-sort"
+at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/subject/kinds/bag/_'
@@ -1480,8 +1492,8 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/subject/kinds/{aenv,apc}/k::configuration::Cell(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = 'cells/subject/kinds/aacct/k::fragment![crate::Aacct \{ aid: x\, .. \}]'
@@ -1489,9 +1501,14 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/subject/kinds/{aacct,aenv,apc}/x'
+match = '{claim,readable}/subject/kinds/aacct/x'
 class = "collection-without-instances"
 at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{aenv,apc}/x'
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = 'cells/subject/kinds/bag/x'
@@ -1500,8 +1517,8 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/subject/kinds/aacct/\{ k::fragment![crate::Aacct \{ aid: x\, .. \}]\, .. \}'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = 'init/kinds/{account,bag,env,frame,job,seq,set,stack}/0'
@@ -6854,31 +6871,44 @@ at = "spelling"
 
 [[refuse]]
 match = 'cells/deep-a/kinds/aa/k::configuration::Cell(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = '{claim,readable}/deep-a/kinds/aa/x'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = 'cells/deep-b/kinds/aa/k::configuration::Cell(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = '{claim,readable}/deep-b/kinds/aa/x'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 # G6 (S5.3 part 3): an equation's function context, a context alias and a context keep their
 # `cells!` pattern as they matched it, and S1 (b) holds there as in a rule: an entry naming a cell
 # below a `*` ancestor is refused for the ancestor (`sentence_outcome`).
 [[refuse]]
-match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{apc,payload}/k::configuration::Cell(x)'
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/payload/k::configuration::Cell(x)'
 class = "collection-without-instances"
 at = "entry"
+
+# IC-5: a function context and a context alias judge every marked ancestor of a cell they name
+# (`cells_oracle::record_level`); a context names a Map collection's instance cell at the record's
+# level, as a rule does, beside the top-level `k`
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/apc/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/g6-context/kinds/apc/k::configuration::Cell(x)'
+class = "instance-beside-outer-cell"
+at = "item"
 
 # A kept pattern changes nothing, so it means what a rule with that pattern on both sides means
 # (P0; S5.3 part 3, ruling B): a `?` cell's `None` there creates nothing, at the cell's root and
@@ -6961,23 +6991,25 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/path-d/kinds/id/k::configuration::Cell(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = '{claim,readable}/path-d/kinds/id/x'
-class = "collection-without-instances"
-at = "entry"
+class = "instance-beside-outer-cell"
+at = "item"
 
 [[refuse]]
 match = 'cells/path-e/kinds/id/k::configuration::Cell(x)'
-class = "collection-without-instances"
-at = "entry"
+class = "group-and-descendant"
+at = "item"
 
+# IC-5: the result names the key `id` of an account at the record's level beside the subject's
+# instance list of `account`, which names it too (P1)
 [[refuse]]
 match = '{claim,readable}/path-e/kinds/id/x'
-class = "collection-without-instances"
-at = "entry"
+class = "group-and-descendant"
+at = "item"
 
 # The rule-level classes judge a sentence whose every entry is admitted (S5.3 part 2, ruling 1):
 # `hstack`'s path refusal, the kind step's, is the sentence's answer before `group-and-descendant`.
@@ -17657,6 +17689,11 @@ findings = ["S5-C2"]
 code = "krs::expand::cell-collection-placement"
 docs = "A context alias and an equation's function context read fixed cells only"
 findings = ["S5-Z1"]
+
+[limit.instance-beside-outer-cell]
+code = "krs::analysis::collection-entry"
+message = "a rule whose cells lie both inside an instance and outside every instance is not supported yet"
+findings = ["IC-1"]
 
 [limit.instance-child-multiplicity]
 code = "krs::analysis::collection-entry"

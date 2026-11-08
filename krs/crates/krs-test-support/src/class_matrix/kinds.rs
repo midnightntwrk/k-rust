@@ -1179,6 +1179,7 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
                 other: None,
                 written: false,
                 groups: Vec::new(),
+                fixed_cells: false,
             },
             template: Template {
                 sentence: Sentence::Initializer,

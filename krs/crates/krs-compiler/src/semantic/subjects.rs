@@ -809,21 +809,30 @@ fn stepped_entries(rule: &SemanticRule) -> BTreeSet<krs_ir::SemanticId> {
         .collect()
 }
 
-/// The cells the subject of `sentence` matches, in order, each with its instance path
-/// ([`MatchedPath`]).
+/// The cells the subject of `sentence` matches, in order, then those its result writes that the
+/// subject does not name, each with its instance path ([`MatchedPath`]).
 ///
-/// A `cells!` rule names a cell inside an instance only through its holder's instance list,
-/// whose entry matches the holder whole; only a readable clause for a sort, elaborated, matches
-/// cells inside an instance: the computation cell it runs at, and the cells its `have` and
-/// `update` name.
+/// A rule names a cell inside an instance through its holder's instance list, whose entry
+/// matches the holder whole, or directly: a readable clause for a sort, elaborated, at the
+/// computation cell it runs at and the cells its `have` and `update` name, and a rule for the
+/// configuration or for a group naming a cell of a Map collection's instance. A result writes
+/// the cells it names where they lie, so a cell only the result writes places the rule as a
+/// matched one does.
 fn matched_paths<'s>(
     sentence: &'s krs_ir::DescriptorConfigurationRule,
     tree: &ConfigurationTree<'_>,
 ) -> Vec<MatchedPath<'s>> {
-    sentence
-        .subject
-        .cells
+    let subject = &sentence.subject.cells;
+    let written = sentence.result.iter().flat_map(|result| {
+        result.cells.iter().filter(|cell| {
+            !subject
+                .iter()
+                .any(|matched| matched.field.cell == cell.field.cell)
+        })
+    });
+    subject
         .iter()
+        .chain(written)
         .filter_map(|cell| {
             let index = cell_index(tree, &cell.field.cell)?;
             let mut path = instance_path(tree, index);

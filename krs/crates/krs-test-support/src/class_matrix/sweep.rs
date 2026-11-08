@@ -2176,6 +2176,7 @@ pub(super) fn build(cell: &Cell) -> Built {
         other: own_other,
         written: cell.written,
         groups: layout.groups(),
+        fixed_cells: false,
     };
     let written = if cell.written {
         let admitted = |candidate: &&str, other: Option<Spelling>| {
@@ -2187,6 +2188,7 @@ pub(super) fn build(cell: &Cell) -> Built {
                 other,
                 written: false,
                 groups: layout.groups(),
+                fixed_cells: false,
             };
             matches!(
                 outcome(cell.form, Side::Result, &path, &stack, &result, &context),

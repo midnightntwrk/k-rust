@@ -311,6 +311,9 @@ pub struct Context {
     /// The configuration's groups ([`collect_groups`]): a record a term writes by a group's
     /// name has that group's children as its fields (P6).
     pub groups: Vec<Group>,
+    /// Whether the sentence is an equation's function context or a context alias, whose cells
+    /// are judged below every marked ancestor ([`record_level`]).
+    pub fixed_cells: bool,
 }
 
 /// A cell-entry case as the oracle reads it.
@@ -409,11 +412,12 @@ pub const ENTRY_CLASSES: [&str; 24] = [
 ];
 
 /// The classes [`rule_outcome`] answers with: they judge the whole sentence.
-pub const RULE_CLASSES: [&str; 6] = [
+pub const RULE_CLASSES: [&str; 7] = [
     "always-enabled-rule",
     "group-and-descendant",
     "main-cell-ambiguous",
     "main-cell-not-k",
+    "map-collection-key",
     "rule-changes-no-cell",
     "unused-configuration-variable",
 ];
@@ -1652,6 +1656,34 @@ fn seq_of(spelling: &Spelling) -> Option<(&[Spelling], Option<&Rest>)> {
     }
 }
 
+/// The layers of `path`, a cell's `?` and `*` ancestors outermost first, that an entry naming
+/// the cell at the record's level is judged against (S1 (b)), in a sentence typed by the
+/// configuration.
+///
+/// A sentence's cells lie in one instance of each holder on their deepest chain (IC ruling A,
+/// extended to a sentence typed by the configuration by IC-5), so naming a cell of a Map
+/// collection's instance matches one instance, the one whose cell matches, as a sentence about
+/// the instance's group does: the leading Map collections, outermost first up to the first
+/// other mark, are the record's level and are not judged. Every other mark keeps its refusal,
+/// and every mark after it: an optional ancestor's presence is stated, never implied (D5), a
+/// Set's step that made one instance equal to another would merge them, and a List's
+/// instance between others is not matched yet.
+///
+/// Where `fixed_cells` (an equation's function context, a context alias) every mark is judged:
+/// a function has one value for its arguments, so a context typed by the configuration names
+/// no cell one instance among several holds; a context alias is judged alike (IC-5, open).
+#[must_use]
+pub fn record_level(path: &[Layer], fixed_cells: bool) -> &[Layer] {
+    if fixed_cells {
+        return path;
+    }
+    let leading = path
+        .iter()
+        .take_while(|layer| matches!(layer, Layer::Instances(Order::Map)))
+        .count();
+    &path[leading..]
+}
+
 /// Steps 1–3 for one entry, with the refusal's step and depth: `path` is the layers of the
 /// cell's `?` and `*` ancestors, `stack` the cell's own.
 ///
@@ -1731,7 +1763,7 @@ pub fn sentence_outcome(form: Form, entries: &[(Entry, Context)], own: usize) ->
             judge(
                 form,
                 entry.side,
-                &entry.path,
+                record_level(&entry.path, context.fixed_cells),
                 &entry.stack,
                 &entry.spelling,
                 context,
@@ -1811,6 +1843,7 @@ impl EntryCase {
         for (at, entry) in all.iter().enumerate().skip(1) {
             let mut context = Context {
                 groups: self.context.groups.clone(),
+                fixed_cells: self.context.fixed_cells,
                 ..Context::default()
             };
             if self.template.sentence == Sentence::Initializer {
@@ -1848,17 +1881,17 @@ impl EntryCase {
         outcome(
             self.form,
             self.entry.side,
-            &self.entry.path,
+            record_level(&self.entry.path, self.context.fixed_cells),
             &self.entry.stack,
             &self.entry.spelling,
             &self.context,
         )
     }
 
-    /// The case's [`rule_outcome`], given its entry's outcome.
+    /// The case's [`rule_outcome_in`] its configuration's groups, given its entry's outcome.
     #[must_use]
     pub fn rule_outcome(&self, entry: Outcome) -> Option<&'static str> {
-        rule_outcome(&self.template, &self.entry, entry)
+        rule_outcome_in(&self.template, &self.entry, entry, &self.context.groups)
     }
 }
 
@@ -1899,9 +1932,78 @@ fn restates(result: &Entry, subject: &Entry) -> bool {
 ///   `k`, which K takes as the computation cell by its name, whatever order the entries come in.
 #[must_use]
 pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Option<&'static str> {
+    rule_outcome_in(template, entry, outcome, &[])
+}
+
+/// [`rule_outcome`] in a configuration whose groups are `groups`, which also says, once the
+/// rule's entries are admitted:
+///
+/// - `map-collection-key`: a result entry naming, at the record's level ([`record_level`]), the
+///   key of a Map collection's instance (its group's first child, the instance's identity) writes
+///   another value than its subject matched it with, the same binder or the same literal (IC-5,
+///   as for a sentence about the instance's group): the rule matches one instance, and writing
+///   another key would make it another instance. Judged after the other rule-level classes, as
+///   the collector judges the key once every entry is admitted.
+#[must_use]
+pub fn rule_outcome_in(
+    template: &Template,
+    entry: &Entry,
+    outcome: Outcome,
+    groups: &[Group],
+) -> Option<&'static str> {
     if !outcome.admits() {
         return None;
     }
+    let class = sentence_rule_outcome(template, entry);
+    if class.is_some() || template.sentence == Sentence::Initializer {
+        return class;
+    }
+    let entries = || template.entries.iter().chain([entry]);
+    entries()
+        .filter(|written| written.side == Side::Result && map_key(written, groups))
+        .any(|written| {
+            !entries().any(|matched| {
+                matched.side == Side::Subject
+                    && matched.cell == written.cell
+                    && matched.spelling == written.spelling
+                    && matches!(
+                        unwrapped(&written.spelling),
+                        Spelling::Binder(_) | Spelling::Literal(Some(_))
+                    )
+            })
+        })
+        .then_some("map-collection-key")
+}
+
+/// `spelling` inside its `cells!` wrapper, if any.
+fn unwrapped(spelling: &Spelling) -> &Spelling {
+    match spelling {
+        Spelling::Cell(inner) => inner,
+        other => other,
+    }
+}
+
+/// Whether `entry` names, at the record's level, the key of the instance of a Map collection it
+/// lies in: its path leads with a Map collection's mark, and a group of `groups` holds a Map
+/// collection whose instance's first child is the cell.
+fn map_key(entry: &Entry, groups: &[Group]) -> bool {
+    matches!(entry.path.first(), Some(Layer::Instances(Order::Map)))
+        && groups.iter().any(|group| {
+            group
+                .children
+                .iter()
+                .any(|(_, stack)| match stack.as_slice() {
+                    [Layer::Instances(Order::Map), Layer::Group(instance), ..] => instance
+                        .children
+                        .first()
+                        .is_some_and(|(key, _)| *key == entry.cell),
+                    _ => false,
+                })
+        })
+}
+
+/// The rule-level classes of [`rule_outcome`] other than the key's.
+fn sentence_rule_outcome(template: &Template, entry: &Entry) -> Option<&'static str> {
     let entries = || template.entries.iter().chain([entry]);
     if template.sentence != Sentence::Initializer
         && entries().any(|outer| entries().any(|inner| holds(&outer.stack, &inner.cell)))

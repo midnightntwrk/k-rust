@@ -32,6 +32,11 @@ owner = "S5"
 kind = "diagnostic"
 what = "an initializer value of the wrong kind or sort is rustc's E0308 at the entry's value, not a KRS error"
 
+["IC-5a"]
+owner = "S5"
+kind = "diagnostic"
+what = "a rule naming a Map collection's instance list and, at the record's level, a cell of one of its instances (`account: { Acct { id: _, .. }, .. }` beside the result's `id: x`) names that cell twice (P1, `group-and-descendant`); the compiler's older KF-023 check meets it first and answers `implicit-and-explicit-instances` (\"as its implicit single instance\"), a code of its own for the same mistake. Reachable since IC-5 admits flat instance names in rules for the configuration"
+
 ["K-2"]
 owner = "S5"
 kind = "diagnostic"

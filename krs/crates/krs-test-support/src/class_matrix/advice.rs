@@ -621,17 +621,15 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "collection-without-instances",
         forms: &[
-            r"`account: \{ k::fragment![crate::Acct \{ {acode,aolist,aomap}: v\, ..me \}]\, .. \}`",
             r"`bag: \{ k::fragment![crate::Obj \{ key: v\, ..me \}]\, .. \}`",
             r"`job: [k::fragment![crate::Job \{ payload: v\, ..me \}]\, ..]`",
             r"`line: [k::fragment![crate::L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: v\, ..me \}]\, ..]`",
-            r"`account: \{ Acct \{ {aframe,aolist,aomap,aseq}: v\, ..me \}\, .. \}`",
             r"`bag: \{ Obj \{ key: v\, ..me \}\, .. \}`",
             r"`job: [Job \{ payload: v\, ..me \}\, ..]`",
             r"`line: [L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: v\, ..me \}\, ..]`",
         ],
         shards: &["cells", "readable", "sweep-paths"],
-        reason: "the advice is the update of the instance whose child the case's result names by its path (P-R6), at that child, which only a case updating that child of that collection writes (the path sweep's results name each child of the List collection `line`'s instance, and no case updates one); the class's advised case writes the update of another child (`aframe`) of the Map collection `account`'s instance in `cells!`. Readable results reach this advice since a result over a cell the subject leaves out is the overwrite (S5.2 part a, 4), and no readable case updates an instance's child, so the readable spellings are unchecked alike",
+        reason: "the advice is the update of the instance whose child the case's result names by its path (P-R6), at that child, which only a case updating that child of that collection writes (the path sweep's results name each child of the List collection `line`'s instance, and no case updates one); the class's advised case writes the update of another child (`aframe`) of the Map collection `account`'s instance in `cells!`, whose children a rule names at the record's level since IC-5. Readable results reach this advice since a result over a cell the subject leaves out is the overwrite (S5.2 part a, 4), and no readable case updates an instance's child, so the readable spellings are unchecked alike",
     },
     Unchecked {
         class: "collection-without-instances",
@@ -645,13 +643,12 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "collection-without-instances",
         forms: &[
-            r"`account: \{ Acct \{ {aenv,apc}: ..\, .. \}\, .. \}`",
             r"`account: \{ k::fragment![crate::Acct \{ {aenv,apc}: ..\, .. \}]\, .. \}`",
             r"`line: [L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: ..\, .. \}\, ..]`",
             r"`line: [k::fragment![crate::L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: ..\, .. \}]\, ..]`",
         ],
-        shards: &["cells", "readable", "sweep-paths"],
-        reason: "the advice names the cell inside the instance record of its outermost collection ancestor, at that cell (S1 (b), design §2.7), which only a case naming that child of that collection's instance writes; the class's advised cases name `payload` of `job`, `key` of `bag` and `id` of `account`, and no case names `aenv` or `apc` of `account` or a child of the path sweep's `line`",
+        shards: &["cells", "sweep-paths"],
+        reason: "the advice names the cell inside the instance record of its outermost collection ancestor, at that cell (S1 (b), design §2.7), which only a case naming that child of that collection's instance writes; the class's advised cases name `payload` of `job`, `key` of `bag` and `id` of `account`, and no case names `apc` of `account` (which only an equation's function context and a context alias still refuse there, IC-5) or a child of the path sweep's `line`",
     },
     Unchecked {
         class: "configuration-variable-sort",

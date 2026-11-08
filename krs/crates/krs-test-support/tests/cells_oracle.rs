@@ -25,7 +25,7 @@ use krs_test_support::class_matrix::cells_oracle::{
     CELLS_ONLY, CODES, ENTRY_CLASSES, Entries, EntryCase, Form, Group, LINT_CLASSES, Layer, Mark,
     Notation, Order, Outcome, READABLE_ONLY, RULE_CLASSES, Record, RecordRest, Rest, RestAt,
     SORT_CLASSES, Seq, Spelling, Step, Template, abbreviate, advise, judge, mark, outcome,
-    rule_outcome, sentence_outcome,
+    record_level, rule_outcome, rule_outcome_in, sentence_outcome,
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::pending::{self, Pending};
@@ -105,10 +105,12 @@ fn limited(expected: &Expected<'_>) -> Option<&'static str> {
 /// a refusal of its class; an admission with an accept owing the same lint; `After` with an
 /// accept owing none or a sort class's refusal; and any admission with a rule-level row, which
 /// check 1r judges, or with a limit class's row: a limit is the product's, not a principle, so
-/// the principles admit what it refuses.
+/// the principles admit what it refuses. A class an entry and a rule both answer
+/// (`map-collection-key`: an instance record's key, a key named at the record's level) agrees
+/// with either.
 fn agrees(got: Outcome, expected: &Expected<'_>) -> bool {
     match expected {
-        Expected::Refuse { name, .. } if RULE_CLASSES.contains(name) => got.admits(),
+        Expected::Refuse { name, .. } if RULE_CLASSES.contains(name) && got.admits() => true,
         _ if limited(expected).is_some() => got.admits(),
         Expected::Refuse { name, .. } => match got {
             Outcome::Refuse(class) => class == *name,
@@ -350,7 +352,12 @@ fn check_1l_every_limit_is_said_and_decides_cell_entry_cases() {
 
 /// The rule-level classes no generated case's row has, so check 1r cannot see `rule_outcome`
 /// miss them (it sees it answer them where no row does), with why; S5.0g generates them.
-const RULE_UNCOVERED: [(&str, &str); 0] = [];
+const RULE_UNCOVERED: [(&str, &str); 1] = [(
+    "map-collection-key",
+    "IC-5: no generated sentence writes a Map collection's instance key at the record's level \
+     without naming the key's holder too (which is `group-and-descendant`); krs-cli \
+     `group_rules` pins the refusal (`configuration-key-written`)",
+)];
 
 /// Check 1r: where the entry is admitted, the rule-level judgement equals a rule-level row's
 /// class, and is none on an accept; and every rule-level class is some generated case's row, or
@@ -1374,6 +1381,32 @@ const fn product_side(side: Side) -> EntrySide {
     }
 }
 
+/// `kind` as the collector judges an entry of the sentence `rewrite` names
+/// (`Tree::judged_ancestors`): a rule's, a claim's and a context's from the level of the leading
+/// Map collections' instances the cell lies in, a function context's and a context alias's from
+/// the configuration's.
+fn judged_kind(
+    kind: &cell_kind::EntryKind,
+    rewrite: cell_entries::Rewrite,
+) -> cell_kind::EntryKind {
+    let mut kind = kind.clone();
+    if rewrite != (cell_entries::Rewrite::Kept { as_rule: false }) {
+        let leading = kind
+            .path
+            .layers
+            .iter()
+            .take_while(|layer| {
+                matches!(
+                    layer,
+                    cell_kind::Layer::Instances(krs_ir::cell_kind::Order::Map)
+                )
+            })
+            .count();
+        kind.path.layers.drain(..leading);
+    }
+    kind
+}
+
 /// The product's judgement of a case's entry: `admit` (form, path and kind), then `pair`, or
 /// `pair_kept` in a sentence that keeps its pattern as it matched it (the rendered sentence's
 /// [`product_rewrite`]).
@@ -1388,6 +1421,7 @@ fn product_outcome(
         .map_or(cell_entries::Rewrite::Result, |rendered| {
             product_rewrite(&rendered)
         });
+    let kind = judged_kind(kind, rewrite);
     let (path, stack) = (&kind.path.layers[..], &kind.own.layers[..]);
     let form = match entry.form {
         Form::Readable => EntryForm::Readable,
@@ -1582,7 +1616,7 @@ fn check_2s_the_product_judges_a_sentence_as_the_table_says() {
         let kinds = rendered
             .entries
             .iter()
-            .map(|(cell, ..)| configuration.kind(cell))
+            .map(|(cell, ..)| judged_kind(&configuration.kind(cell), product_rewrite(&rendered)))
             .collect::<Vec<_>>();
         let entries = rendered
             .entries
@@ -1667,14 +1701,14 @@ fn admitted(entry: &EntryCase, form: Form, spelling: &Spelling, template: &Templ
     let got = outcome(
         form,
         entry.entry.side,
-        &entry.entry.path,
+        record_level(&entry.entry.path, entry.context.fixed_cells),
         &entry.entry.stack,
         spelling,
         &context,
     );
     let mut own = entry.entry.clone();
     own.spelling = spelling.clone();
-    rule_outcome(template, &own, got).map_or(got, Outcome::Refuse)
+    rule_outcome_in(template, &own, got, &entry.context.groups).map_or(got, Outcome::Refuse)
 }
 
 fn accepted(id: &str) -> bool {
@@ -2399,6 +2433,7 @@ impl Probe<'_> {
             other: self.other.map(|text| probed_as(&self.read(text))),
             written: self.written,
             groups: self.groups(),
+            fixed_cells: false,
         }
     }
 

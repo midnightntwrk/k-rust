@@ -728,8 +728,10 @@ fn judge_sentence(
     let Ok(declaration) = index.configuration(configuration) else {
         return Ok(Vec::new());
     };
-    let tree = Tree::new(configuration, &declaration.declaration, index)
-        .scoped(reference.subject.as_ref());
+    let tree = Tree::new(configuration, &declaration.declaration, index).scoped(
+        reference.subject.as_ref(),
+        rewrite != (Rewrite::Kept { as_rule: false }),
+    );
     let subject_cells = subject;
     let subject = entries(&tree, subject, &authored.subject);
     let result = result
@@ -891,6 +893,9 @@ fn kept_key(
                 other => other,
             })
     }
+    if names_holder(key, subject.iter().chain(result)) {
+        return Ok(());
+    }
     for written in result.iter().filter(|entry| key.holds(entry.cell)) {
         let matched = subject
             .iter()
@@ -903,6 +908,14 @@ fn kept_key(
     Ok(())
 }
 
+/// Whether one of `entries` names the collection that holds the instance `key` is the key of.
+/// Such a sentence names the key twice, through the holder's instance list and directly, which
+/// the rule-level `group-and-descendant` refuses once every entry is admitted: until the two are
+/// one, what the subject matched for the key is not stated once, so the key is not judged.
+fn names_holder<'e>(key: &InstanceKey, mut entries: impl Iterator<Item = &'e Entry<'e>>) -> bool {
+    entries.any(|entry| unraw(&entry.cell.field) == unraw(&key.holder))
+}
+
 /// Refuses an in-place rewrite (`k::rewrite!`) at or inside the key of the instance the sentence
 /// is about, unless it keeps what it matched ([`krs_ir::subject::rewrites_keep`]): a single-body
 /// rule writes its cells where its subject rewrites them. The authored spelling reads a
@@ -913,6 +926,9 @@ fn kept_key_in_place(
     cells: &DescriptorCells,
     entries: &[Entry<'_>],
 ) -> Result<(), CollectionError> {
+    if names_holder(key, entries.iter()) {
+        return Ok(());
+    }
     for (cell, entry) in cells.iter().zip(entries) {
         if key.holds(&cell.field.cell)
             && !cell
@@ -995,8 +1011,12 @@ struct Tree<'i, 'a> {
     /// Where the sentence is about a cell group, the cell that holds it ([`Self::scoped`]).
     anchor: Option<usize>,
     /// Where that cell is a Map collection, its instance's key, then the key of each Map
-    /// collection's instance inside it ([`Self::scoped`]).
+    /// collection's instance inside it ([`Self::scoped`]); for a step typed by the
+    /// configuration, the key of each Map collection's instance.
     keys: Vec<InstanceKey>,
+    /// Whether the sentence is a step typed by the configuration, whose entries name the cells
+    /// of Map collections' instances directly ([`Self::scoped`]).
+    through_maps: bool,
 }
 
 impl<'i, 'a> Tree<'i, 'a> {
@@ -1011,6 +1031,7 @@ impl<'i, 'a> Tree<'i, 'a> {
             groups: Vec::new(),
             anchor: None,
             keys: Vec::new(),
+            through_maps: false,
         };
         tree.walk(owner, declaration, index, (&[], None), &[owner]);
         let mut groups = Vec::new();
@@ -1026,10 +1047,17 @@ impl<'i, 'a> Tree<'i, 'a> {
     /// The tree judged from the level of the one instance a sentence about `subject` is a step
     /// of ([`krs_ir::subject::scope`]): an entry naming a cell below the group's cell is judged
     /// against the marks strictly below that cell, and a further `?` or `*` inside the instance
-    /// keeps its mark. The whole configuration (`None`), or a subject without a scope, which
-    /// resolution refuses first, leaves every cell judged from the configuration's level.
-    fn scoped(mut self, subject: Option<&krs_ir::DescriptorSubject>) -> Self {
-        if subject.is_none() {
+    /// keeps its mark. A subject without a scope, which resolution refuses first, leaves every
+    /// cell judged from the configuration's level.
+    ///
+    /// The whole configuration (`None`) is judged from its own level. Where `steps`, the
+    /// sentence is a rule, a claim or a context, whose cells lie in one instance of each holder
+    /// on their deepest chain, so it names the cells of Map collections' instances directly
+    /// ([`Self::judged_ancestors`]) and writes each such instance's key only as matched. A
+    /// context alias and an equation's function context are evaluated in no instance (a
+    /// function has one value for its arguments), so they keep every mark.
+    fn scoped(mut self, subject: Option<&krs_ir::DescriptorSubject>, steps: bool) -> Self {
+        if subject.is_none() && !steps {
             return self;
         }
         let cells = self
@@ -1053,6 +1081,18 @@ impl<'i, 'a> Tree<'i, 'a> {
                 key: cell.kind().instance_key().map(str::to_owned),
             })
             .collect::<Vec<_>>();
+        if subject.is_none() {
+            self.through_maps = true;
+            let holders = (0..cells.len())
+                .filter_map(|holder| {
+                    let group = cells[holder].group.as_ref()?;
+                    (cells[holder].multiplicity == Multiplicity::Many(Order::Map))
+                        .then(|| (holder, group.item_name().to_owned()))
+                })
+                .collect::<Vec<_>>();
+            self.push_keys(&cells, holders);
+            return self;
+        }
         let Ok(krs_ir::SubjectScope {
             anchor: Some(anchor),
             ..
@@ -1076,10 +1116,18 @@ impl<'i, 'a> Tree<'i, 'a> {
                 && dropped(&self.parents, Some(anchor), holder) > 0)
                 .then(|| (holder, group.item_name().to_owned()))
         });
-        for (holder, group) in own.into_iter().chain(nested) {
+        let holders = own.into_iter().chain(nested).collect::<Vec<_>>();
+        self.push_keys(&cells, holders);
+        self
+    }
+
+    /// Adds the key of each instance of the holders `holders` (each with its group's name) to
+    /// the keys a sentence writes only as matched.
+    fn push_keys(&mut self, cells: &[krs_ir::TreeCell], holders: Vec<(usize, String)>) {
+        for (holder, group) in holders {
             let key = (0..cells.len())
                 .filter(|&index| {
-                    krs_ir::subject::keys_on_path(&cells, index)
+                    krs_ir::subject::keys_on_path(cells, index)
                         .iter()
                         .any(|&(on, _)| on == holder)
                 })
@@ -1093,20 +1141,20 @@ impl<'i, 'a> Tree<'i, 'a> {
                 });
             }
         }
-        self
     }
 
     /// The ancestors of the cell at `index` an entry naming it is judged against: those
     /// strictly below the anchor, where the cell is inside the group the sentence is about, else
     /// all of them.
     ///
-    /// Inside the group, the Map collections the cell lies in below the anchor, outermost first
-    /// up to the first other `?` or `*`, are not judged either: the sentence's cells lie in one
-    /// instance of each holder on their deepest chain, so naming a cell of a nested instance
-    /// matches one instance of each such collection, the one whose cell matches, as naming a
-    /// cell of the group matches one instance of the group. Its key is matched where the
-    /// sentence names it and written only as matched ([`Self::scoped`]). A Set or List
-    /// collection, or an optional cell, keeps its mark.
+    /// Inside the group, and in a step typed by the configuration, the Map collections the cell
+    /// lies in below the anchor (the configuration's level), outermost first up to the first
+    /// other `?` or `*`, are not judged either: the sentence's cells lie in one instance of each
+    /// holder on their deepest chain, so naming a cell of a nested instance matches one instance
+    /// of each such collection, the one whose cell matches, as naming a cell of the group
+    /// matches one instance of the group. Its key is matched where the sentence names it and
+    /// written only as matched ([`Self::scoped`]). A Set or List collection, or an optional
+    /// cell, keeps its mark.
     fn judged_ancestors<'t>(
         &'t self,
         index: usize,
@@ -1114,7 +1162,7 @@ impl<'i, 'a> Tree<'i, 'a> {
     ) -> &'t [DescriptorCell<'i, 'a>] {
         let dropped = dropped(&self.parents, self.anchor, index).min(ancestors.len());
         let below = &ancestors[dropped..];
-        if dropped == 0 {
+        if dropped == 0 && !self.through_maps {
             return below;
         }
         let mut nested = 0;

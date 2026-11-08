@@ -778,6 +778,10 @@ pub(super) struct HeadRuleTarget {
     /// declaration, or why a sentence about the group has no scope there; empty on a scoped
     /// target.
     subjects: Vec<(StableItemId, Result<HeadRuleTarget, CollectionError>)>,
+    /// On the configuration's own target, the key of each Map collection's instance whose cells
+    /// its sentences may name directly ([`Self::through_maps`]), as
+    /// [`TargetSubject::nested_keys`] holds them; empty on a scoped target.
+    configuration_keys: Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)>,
 }
 
 /// The cell group a [`HeadRuleTarget`] is scoped to.
@@ -969,20 +973,10 @@ impl HeadRuleTarget {
     }
 
     /// Scopes the configuration to each cell group one of its cells holds
-    /// ([`krs_ir::subject::scope`]), reading its cells as a tree.
+    /// ([`krs_ir::subject::scope`]), reading its cells as a tree, then judges the configuration's
+    /// own cells as a sentence typed by it does ([`Self::through_maps`]).
     fn with_subjects(mut self) -> Self {
-        let tree = self
-            .cells
-            .iter()
-            .map(|cell| krs_ir::TreeCell {
-                identity: cell.identity.clone(),
-                parent: cell.parent,
-                group: cell.group_id.clone(),
-                multiplicity: cell.kind.multiplicity(),
-                computation: cell.kind.is_computation(),
-                key: cell.kind.instance_key().map(str::to_owned),
-            })
-            .collect::<Vec<_>>();
+        let tree = self.tree();
         let mut groups = Vec::new();
         for group in self.cells.iter().filter_map(|cell| cell.group_id.as_ref()) {
             if !groups.contains(group) {
@@ -1028,6 +1022,79 @@ impl HeadRuleTarget {
                 (group, scoped)
             })
             .collect();
+        self.through_maps()
+    }
+
+    /// The configuration's cells as a tree.
+    fn tree(&self) -> Vec<krs_ir::TreeCell> {
+        self.cells
+            .iter()
+            .map(|cell| krs_ir::TreeCell {
+                identity: cell.identity.clone(),
+                parent: cell.parent,
+                group: cell.group_id.clone(),
+                multiplicity: cell.kind.multiplicity(),
+                computation: cell.kind.is_computation(),
+                key: cell.kind.instance_key().map(str::to_owned),
+            })
+            .collect()
+    }
+
+    /// The configuration's own target judged as a sentence typed by the configuration is: the
+    /// Map collections a cell lies in, outermost first up to the first other `?` or `*`, drop
+    /// their marks, as below a group's anchor ([`Self::scoped`]). A sentence's cells lie in one
+    /// instance of each holder on their deepest chain, so naming a cell of a Map collection's
+    /// instance matches one instance of each such collection, the one whose cell matches, as a
+    /// rule for the instance's group does, and each such instance's key is written only as
+    /// matched ([`Self::nested_instance_keys`]). A cell below an optional cell (whose presence is
+    /// stated, never implied), a Set collection (whose steps would merge instances) or a List
+    /// collection (whose middle instances are not matched yet) keeps that mark, so it is still
+    /// written inside that holder's record. Called once the scoped targets are made
+    /// ([`Self::with_subjects`]), since they count the marks from the configuration's level.
+    fn through_maps(mut self) -> Self {
+        let tree = self.tree();
+        let marked = |cell: &HeadRuleCellTarget| {
+            matches!(
+                cell.kind.layers.first(),
+                Some(Layer::Optional | Layer::Instances(_))
+            )
+        };
+        for index in 0..self.cells.len() {
+            // The cell's marked holders, outermost first; parents precede their children.
+            let mut holders = std::iter::successors(self.cells[index].parent, |&parent| {
+                self.cells[parent].parent.filter(|&above| above < parent)
+            })
+            .filter(|&holder| marked(&self.cells[holder]))
+            .collect::<Vec<_>>();
+            holders.reverse();
+            let nested = holders
+                .iter()
+                .take_while(|&&holder| self.is_map_collection(holder))
+                .count();
+            if nested == 0 {
+                continue;
+            }
+            let ancestor = holders.get(nested).and_then(|&holder| {
+                let target = &self.cells[holder];
+                match target.kind.layers.as_slice() {
+                    [
+                        layer @ (Layer::Optional | Layer::Instances(_)),
+                        Layer::Group(group),
+                        ..,
+                    ] => Some(MarkedAncestor {
+                        name: target.names[0].clone(),
+                        layer: layer.clone(),
+                        group: group.name.clone(),
+                        direct: self.cells[index].parent == Some(holder),
+                    }),
+                    _ => None,
+                }
+            });
+            let cell = &mut self.cells[index];
+            cell.path.layers.drain(..nested.min(cell.path.layers.len()));
+            cell.ancestor = ancestor;
+        }
+        self.configuration_keys = self.nested_map_keys(None, &tree);
         self
     }
 
@@ -1125,7 +1192,7 @@ impl HeadRuleTarget {
             })
             .map(|index| self.cells[index].identity.clone())
             .collect();
-        let nested_keys = self.nested_map_keys(anchor, tree);
+        let nested_keys = self.nested_map_keys(Some(anchor), tree);
         Self {
             configuration: self.configuration.clone(),
             cells,
@@ -1142,6 +1209,7 @@ impl HeadRuleTarget {
                 subject,
             }),
             subjects: Vec::new(),
+            configuration_keys: Vec::new(),
         }
     }
 
@@ -1153,18 +1221,20 @@ impl HeadRuleTarget {
         )
     }
 
-    /// The key of each Map collection's instance below the cell at `anchor`, as
-    /// [`TargetSubject::nested_keys`] holds them.
+    /// The key of each Map collection's instance below the cell at `anchor`, or in the whole
+    /// configuration where there is none, as [`TargetSubject::nested_keys`] holds them.
     fn nested_map_keys(
         &self,
-        anchor: usize,
+        anchor: Option<usize>,
         tree: &[krs_ir::TreeCell],
     ) -> Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)> {
         let below = |index: usize| {
-            std::iter::successors(self.cells[index].parent, |&parent| {
-                self.cells[parent].parent.filter(|&above| above < parent)
+            anchor.is_none_or(|anchor| {
+                std::iter::successors(self.cells[index].parent, |&parent| {
+                    self.cells[parent].parent.filter(|&above| above < parent)
+                })
+                .any(|ancestor| ancestor == anchor)
             })
-            .any(|ancestor| ancestor == anchor)
         };
         (0..self.cells.len())
             .filter(|&holder| below(holder) && self.is_map_collection(holder))
@@ -1191,18 +1261,18 @@ impl HeadRuleTarget {
             .collect()
     }
 
-    /// Where the target is scoped to a group, the key cells of each Map collection's instance
-    /// inside it whose cells its sentences name directly ([`Self::scoped`]), each with the
-    /// collection cell's name and the group's: a sentence writes each only as it matched it.
+    /// The key cells of each Map collection's instance whose cells the target's sentences name
+    /// directly: inside the group a scoped target is about ([`Self::scoped`]), or in the whole
+    /// configuration ([`Self::through_maps`]), each with the collection cell's name and the
+    /// group's: a sentence writes each only as it matched it.
     pub(super) fn nested_instance_keys(
         &self,
     ) -> impl Iterator<Item = (&[krs_ir::DescriptorCellIdentity], &str, &str)> {
-        self.subject.iter().flat_map(|subject| {
-            subject
-                .nested_keys
-                .iter()
-                .map(|(cells, holder, group)| (cells.as_slice(), holder.as_str(), group.as_str()))
-        })
+        self.subject
+            .iter()
+            .flat_map(|subject| subject.nested_keys.iter())
+            .chain(&self.configuration_keys)
+            .map(|(cells, holder, group)| (cells.as_slice(), holder.as_str(), group.as_str()))
     }
 
     /// Where the target is scoped to the instance type of a Map collection, the instance's key
@@ -1421,6 +1491,10 @@ fn collect_head_rule_cells(
 /// The fixed configurations as the targets a head rule, or a sentence typed by a cell group, is
 /// resolved against: built only where the descriptors hold such a sentence, so a bundle without
 /// one is resolved as before.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each configuration's target is built in one pass: its cells, its main cell and its scoped targets."
+)]
 pub(super) fn resolve_head_rule_targets(
     pending: &[PendingDescriptor],
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
@@ -1523,6 +1597,7 @@ pub(super) fn resolve_head_rule_targets(
                 cells,
                 subject: None,
                 subjects: Vec::new(),
+                configuration_keys: Vec::new(),
             }
             .with_subjects())
         })
@@ -4615,13 +4690,34 @@ mod tests {
                 ancestor.map(|marked| (marked.name.clone(), marked.layer.clone(), marked.direct)),
             )
         };
-        // From the configuration's level, every cell of a hart sits below the collection.
+        // From the configuration's level, a hart's cell is named at the hart's level too (IC-5):
+        // a rule for the configuration naming it matches one hart, writing its key only as
+        // matched. The hart's optional unit and List collection keep their marks.
+        assert_eq!(entry(&state, "pc"), (Vec::new(), None));
         assert_eq!(
-            entry(&state, "pc"),
+            entry(&state, "f"),
             (
-                vec![Layer::Instances(Order::Map)],
-                Some(("hart".to_owned(), Layer::Instances(Order::Map), true))
+                vec![Layer::Optional],
+                Some(("fpu".to_owned(), Layer::Optional, true))
             )
+        );
+        assert_eq!(
+            entry(&state, "payload"),
+            (
+                vec![Layer::Instances(Order::List)],
+                Some(("jobs".to_owned(), Layer::Instances(Order::List), true))
+            )
+        );
+        assert_eq!(
+            state.nested_instance_keys().collect::<Vec<_>>(),
+            vec![(
+                &[krs_ir::DescriptorCellIdentity {
+                    owner: cell_id("Hart"),
+                    field: "id".to_owned(),
+                }][..],
+                "hart",
+                "Hart"
+            )]
         );
         let hart = group_target(&cell_id("Hart"), targets).unwrap();
         assert_eq!(entry(hart, "pc"), (Vec::new(), None));
@@ -4708,6 +4804,7 @@ mod tests {
             groups: Vec::new(),
             subject: None,
             subjects: Vec::new(),
+            configuration_keys: Vec::new(),
         }
     }
 

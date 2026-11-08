@@ -5224,3 +5224,374 @@ fn a_record_naming_a_cell_of_a_nested_instance_is_inside_it() {
         ]
     "#]].assert_debug_eq(&outcomes);
 }
+
+/// A rule for the configuration (`for Smt`) whose record names cells of a Map collection's
+/// instance flat: `k` of one core, then also `tenv` of one thread of it.
+fn configuration_record(rule: &str) -> String {
+    format!("k::rules! {{\n    for Smt;\n    use Step::*;\n\n    {rule}\n}}\n")
+}
+
+/// The `cells!` spelling of a rule for the configuration that names the core's `k` flat,
+/// through the core's group struct, and `extra` beside it; its result writes `Done(result)` and
+/// `written`.
+fn configuration_cells(parameters: &str, extra: &str, result: &str, written: &str) -> String {
+    format!(
+        r#"
+#[k::rule(label = "go")]
+pub fn go(
+    {parameters}
+    k::cells! {{
+        crate::Core::k: k::configuration::KCell(crate::Step::Go(), ..),
+        {extra}
+        state @ ..
+    }}: crate::Smt,
+) -> crate::Smt {{
+    k::cells! {{
+        crate::Core::k: k::configuration::KCell(crate::Step::Done({result}), ..),
+        {written}
+        ..state
+    }}
+}}
+"#
+    )
+}
+
+/// [`SMT`] with its cores held in a collection of `order` instead of a Map.
+fn smt_cores_in(order: &str) -> String {
+    let changed = SMT.replace(
+        "pub struct Cores {\n    #[k::cell(multiplicity = \"*\", cell_type = \"Map\"",
+        &format!(
+            "pub struct Cores {{\n    #[k::cell(multiplicity = \"*\", cell_type = \"{order}\""
+        ),
+    );
+    assert_ne!(changed, SMT);
+    changed
+}
+
+/// A rule typed by the configuration names a cell of a Map collection's instance flat, with the
+/// meaning a rule for a group has: a sentence's cells lie in one instance of each holder on
+/// their deepest chain, so `for Smt { k: .. }` matches one core, the one whose `k` matches, as
+/// `for Core { k: .. }` does, and `{ k, tenv }` one thread of that core. Each is inside the
+/// instance it matches, passing its keys to a function evaluated there (`cidPlus`, `tvPlus`).
+/// The readable record, its `cells!` spelling (`crate::Core::k:`), the rule for the group, and
+/// the configuration rule whose entry steps one instance (or the `have` form) emit one rule up
+/// to where the key cells sit, and run alike. Naming a core's key cell matches it, and writing
+/// another key is `map-collection-key`, in both spellings. Kept refused, each with its own
+/// message: a cell of a List or a Set collection's instance named flat (the List's
+/// middle-match gap, the Set's merging), a core's cell beside a cell outside every instance
+/// (IC finding 1), and a core's cell beside a device's (two instances on no one chain).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The cases, their runs and the comparison of the accepted forms read as one table."
+)]
+fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let core_record =
+        |rule: &str| format!("k::rules! {{\n    for Core;\n    use Step::*;\n\n    {rule}\n}}\n");
+    let cid_call = "go: { k: [Go(), ..] } => { k: [Done { n: crate::CidPlus(1) }, ..] };";
+    let tenv_call =
+        "go: { k: [Go(), ..], tenv: { 0 -> v, .. } } => { k: [Done { n: crate::TvPlus(v) }, ..] };";
+    // The cores in a List or a Set hold no instance a function context could read.
+    let smt = format!("{SMT}{TV_PLUS}{CID_PLUS}");
+    let smt_list = smt_cores_in("List");
+    let smt_set = smt_cores_in("Set");
+    let no_call = "go: { k: [Go(), ..] } => { k: [Done { n: 1 }, ..] };";
+    let cases: Vec<(&str, &str, String)> = vec![
+        ("group-k", &smt, core_record(cid_call)),
+        ("configuration-k", &smt, configuration_record(cid_call)),
+        (
+            "configuration-k-cells",
+            &smt,
+            configuration_cells("", "", "crate::CidPlus(1)", ""),
+        ),
+        ("stepping-entry-k", &smt, DEEPEST_CASES[3].1.to_owned()),
+        ("group-tenv", &smt, THREAD_RECORD.to_owned()),
+        ("configuration-tenv", &smt, configuration_record(tenv_call)),
+        (
+            "configuration-tenv-cells",
+            &smt,
+            configuration_cells(
+                "v: k::Term<k::builtin::Int>,",
+                "crate::Thread::tenv: k::configuration::Cell(k::map![0 -> v, ..]),",
+                "crate::TvPlus(v)",
+                "",
+            ),
+        ),
+        ("have-tenv", &smt, DEEPEST_CASES[0].1.to_owned()),
+        (
+            "group-tv-only",
+            &smt,
+            "k::rules! {\n    for Thread;\n\n    go: { tv: 5 } => { tv: 6 };\n}\n".to_owned(),
+        ),
+        (
+            "configuration-tv-only",
+            &smt,
+            configuration_record("go: { tv: 5 } => { tv: 6 };"),
+        ),
+        (
+            "configuration-key",
+            &smt,
+            configuration_record(
+                "go: { k: [Go(), ..], cid: c } => { k: [Done { n: crate::CidPlus(c) }, ..] };",
+            ),
+        ),
+        (
+            "configuration-key-written",
+            &smt,
+            configuration_record(
+                "go: { k: [Go(), ..], cid: c } => { k: [Done { n: c }, ..], cid: 3 };",
+            ),
+        ),
+        (
+            "configuration-key-written-cells",
+            &smt,
+            configuration_cells(
+                "c: k::Term<k::builtin::Int>,",
+                "crate::Core::cid: k::configuration::Cell(c),",
+                "c",
+                "crate::Core::cid: k::configuration::Cell(3),",
+            ),
+        ),
+        (
+            "configuration-k-list",
+            &smt_list,
+            configuration_record(no_call),
+        ),
+        (
+            "configuration-k-set",
+            &smt_set,
+            configuration_record(no_call),
+        ),
+        (
+            "configuration-k-mem",
+            &smt,
+            configuration_record(
+                "go: { k: [Go(), ..], mem: { 0 -> v, .. } } => { k: [Done { n: v }, ..] };",
+            ),
+        ),
+        (
+            "configuration-k-device",
+            &smt,
+            configuration_record(
+                "go: { k: [Go(), ..], denv: { 0 -> v, .. } } => { k: [Done { n: v }, ..] };",
+            ),
+        ),
+    ];
+    let mut accepted = Vec::new();
+    let outcomes = cases
+        .iter()
+        .map(|(name, configuration, rules)| {
+            let manifest = instance_definitions(
+                &temporary.path().join(name),
+                "",
+                &[("smt", &format!("{configuration}{rules}"))],
+            )
+            .remove(0);
+            let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
+            let mut report = vec![(*name).to_owned()];
+            if !success {
+                report.extend(check_report(target.path(), &manifest, "smt"));
+                return report;
+            }
+            let flat = emitted(target.path(), &manifest, "smt");
+            let rule = sentence(&flat, "rule [go]:").to_owned();
+            report.push(rule.clone());
+            let path = manifest.with_file_name("program.txt");
+            fs::write(&path, "go").unwrap();
+            let (success, stdout, stderr) = krs_on(
+                target.path(),
+                &manifest,
+                "smt",
+                "run",
+                &[path.to_str().unwrap()],
+            );
+            assert!(success, "{name}:\n{stdout}\n{stderr}");
+            let run = cell(&whitespace(&stdout), "k");
+            report.push(run.clone());
+            accepted.push((*name, rule, run));
+            report
+        })
+        .collect::<Vec<_>>();
+    let key_cells = [
+        "<cid> Krs_KeyCore:Int </cid> ",
+        "<tid> Krs_KeyThread:Int </tid> ",
+    ];
+    // The stepping entry keeps the computation's rest under a name, `go ~> Tail0:K =>
+    // done(..) ~> Tail0:K`, which is `go => done(..) ...`.
+    let without_keys = |rule: &str| {
+        key_cells
+            .iter()
+            .fold(rule.to_owned(), |rule, key| rule.replace(key, ""))
+            .replace(" ~> Tail0:K =>", " =>")
+            .replace(" ~> Tail0:K </k>", " ... </k>")
+    };
+    let alike = |names: &[&str]| {
+        let found = names
+            .iter()
+            .map(|name| {
+                accepted
+                    .iter()
+                    .find(|(accepted, _, _)| accepted == name)
+                    .unwrap_or_else(|| panic!("{name} is refused: {outcomes:#?}"))
+            })
+            .collect::<Vec<_>>();
+        for (name, rule, run) in &found {
+            assert_eq!(without_keys(rule), without_keys(&found[0].1), "{name}");
+            assert_eq!(run, &found[0].2, "{name}");
+        }
+    };
+    alike(&[
+        "group-k",
+        "configuration-k",
+        "configuration-k-cells",
+        "stepping-entry-k",
+    ]);
+    alike(&["group-tv-only", "configuration-tv-only"]);
+    alike(&[
+        "group-tenv",
+        "configuration-tenv",
+        "configuration-tenv-cells",
+        "have-tenv",
+    ]);
+    expect_test::expect![[r#"
+        [
+            [
+                "group-k",
+                "rule [go]: <core> <k> go => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 1 ) ~> .K",
+            ],
+            [
+                "configuration-k",
+                "rule [go]: <core> <k> go => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 1 ) ~> .K",
+            ],
+            [
+                "configuration-k-cells",
+                "rule [go]: <core> <k> go => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 1 ) ~> .K",
+            ],
+            [
+                "stepping-entry-k",
+                "rule [go]: <core> <k> go ~> Tail0:K => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ~> Tail0:K </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 1 ) ~> .K",
+            ],
+            [
+                "group-tenv",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "configuration-tenv",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "configuration-tenv-cells",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "have-tenv",
+                "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
+                "done ( 12 ) ~> .K",
+            ],
+            [
+                "group-tv-only",
+                "rule [go]: <thread> <tv> 5 => 6 </tv> ... </thread>",
+                "go ~> .K",
+            ],
+            [
+                "configuration-tv-only",
+                "rule [go]: <thread> <tv> 5 => 6 </tv> ... </thread>",
+                "go ~> .K",
+            ],
+            [
+                "configuration-key",
+                "rule [go]: <core> <k> go => done ( cidPlus ( C:Int ) #instance ( C:Int ) ) ... </k> <cid> C:Int </cid> ... </core>",
+                "done ( 0 ) ~> .K",
+            ],
+            [
+                "configuration-key-written",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> smt/src/lib.rs: `3 };`",
+            ],
+            [
+                "configuration-key-written-cells",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> smt/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "configuration-k-list",
+                "error[krs::analysis::collection-entry]: the cell `k` is a cell of a collection's (`*`) instance, so no single cell has the content an entry naming it at the record's level would name: there is one `k` per instance, and an entry names the instance through its instance record; `k` is a cell of an instance of the collection `core`; so write the entry inside its record, `core: [Core { k: .., .. }, ..]`",
+                "--> smt/src/lib.rs: `[Go(), ..] } =>`",
+            ],
+            [
+                "configuration-k-set",
+                "error[krs::analysis::collection-entry]: the cell `k` is a cell of a collection's (`*`) instance, so no single cell has the content an entry naming it at the record's level would name: there is one `k` per instance, and an entry names the instance through its instance record; `k` is a cell of an instance of the collection `core`; so write the entry inside its record, `core: { Core { k: .., .. }, .. }`",
+                "--> smt/src/lib.rs: `[Go(), ..] } =>`",
+            ],
+            [
+                "configuration-k-mem",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
+                "--> smt/src/lib.rs: `mem: { 0 -> v, .`",
+            ],
+            [
+                "configuration-k-device",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
+                "--> smt/src/lib.rs: `denv: { 0 -> v,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// Two harts each step by rules for the configuration that name a hart's cells flat: the boot
+/// rule spawns hart 1 beside hart 0, and from there `inc` steps hart 0 and `dec` hart 1, each
+/// rule matching the one hart whose computation it matches. `krs search --mode all` reaches a
+/// state for each hart's step alone, then the one where both stepped.
+#[test]
+fn a_rule_for_the_configuration_naming_a_harts_cells_steps_each_hart() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rules = format!(
+        "{SMP_BOOT}\nk::rules! {{\n    for Smp;\n    use lib::Op::*;\n\n    inc: {{ k: [Inc(), ..], pc }} => {{ k: [..], pc: k::builtin::int::add(pc, 1) }};\n    dec: {{ k: [Dec(), ..], pc }} => {{ k: [..], pc: k::builtin::int::add(pc, 3) }};\n}}\n"
+    );
+    let manifest =
+        instance_definitions(temporary.path(), "", &[("smp", &smp("Map", &rules))]).remove(0);
+    let flat = emitted(target.path(), &manifest, "smp");
+    let emitted_rules =
+        ["rule [inc]:", "rule [dec]:"].map(|start| sentence(&flat, start).to_owned());
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "spawn").unwrap();
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (success, stdout, stderr) = krs_on(
+        target.path(),
+        &manifest,
+        "smp",
+        "search",
+        &[program.to_str().unwrap(), "--mode", "all"],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    let states = whitespace(&stdout)
+        .split("<generatedTop> ")
+        .skip(1)
+        .map(|state| harts(&state[..state.find(" </generatedTop>").unwrap()]).join(" | "))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        (
+            [
+                "rule [inc]: <hart> <k> inc => .K ... </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> ... </hart>",
+                "rule [dec]: <hart> <k> dec => .K ... </k> <pc> Pc:Int => Pc:Int +Int 3 </pc> ... </hart>",
+            ],
+            [
+                "<id> 0 </id> <k> spawn ~> .K </k> <pc> 0 </pc>",
+                "<id> 0 </id> <k> inc ~> .K </k> <pc> 0 </pc> | <id> 1 </id> <k> dec ~> .K </k> <pc> 10 </pc>",
+                "<id> 0 </id> <k> inc ~> .K </k> <pc> 0 </pc> | <id> 1 </id> <k> .K </k> <pc> 13 </pc>",
+                "<id> 0 </id> <k> .K </k> <pc> 1 </pc> | <id> 1 </id> <k> dec ~> .K </k> <pc> 10 </pc>",
+                "<id> 0 </id> <k> .K </k> <pc> 1 </pc> | <id> 1 </id> <k> .K </k> <pc> 13 </pc>",
+            ],
+        )
+    "#]].assert_debug_eq(&(emitted_rules, states));
+}

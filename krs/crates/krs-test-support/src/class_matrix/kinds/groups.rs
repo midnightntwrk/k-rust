@@ -820,6 +820,7 @@ fn case(group: &Group, family: Family, own: (Side, &str)) -> Option<Generated> {
             .map(|(_, text)| read(text)),
         written: own.0 == Side::Subject && result.iter().any(|(cell, _)| *cell == own.1),
         groups: groups(),
+        fixed_cells: false,
     };
     let mut item = ItemBuilder::new();
     let fields = |item: &mut ItemBuilder, side: Side, list: &[(&str, &str)]| {
@@ -1077,6 +1078,7 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
                 other: None,
                 written: false,
                 groups: groups(),
+                fixed_cells: matches!(kept, Kept::FunctionContext | Kept::ContextAlias),
             },
             template: Template {
                 sentence: TemplateSentence::Context,
