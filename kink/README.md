@@ -116,6 +116,12 @@ In scope:
   `kink-flow fuzz --fired RULE` targets the fired outcome for a rewrite rule; no reach mode targets a refuted `requires` or a missing operand outcome yet.
   An equation that only the load-time discharge of a matched rule's definedness used can be `fired` with no guard entry, which its row shows (no outcome).
 
+- **Syntax productions.** Built in `coverage`, as its syntax family at depth 1: each constructor production of an authored sort, `reached` when a fired instance of a rule or equation in scope touched it, at a non-variable position of its left-hand side, as the head of a value one of its left-hand-side variables bound, or at a non-variable position of its right-hand side.
+  Parsing a program does not cover its productions: a program's text can hold a production no step ever takes (a branch no run reaches, a value in a cell no rule reads), and a machine whose instructions are decoded from bytes, or a program given as typed inputs, has productions no text spells.
+  A production elsewhere in a state was carried, not touched; a value kept in a cell that no rule reads stays `unreached`.
+  The operand heads are recorded by k-rust at the fired instance (`collectBindings`, kink-native `ResultRun::bindings`); what a sentence inspects and builds is read from the definition once.
+  Values of a `k::bits!` template's fields are a front end's to add: K has no such templates, so kink-flow builds no field-value item ([kink-flow's README](crates/kink-flow/README.md), "Syntax").
+
 - **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits. Not built yet: `coverage` lists `rule` sentences only, so they have no item.
 
 Out of scope, each for its reason:
@@ -125,7 +131,6 @@ Out of scope, each for its reason:
 - **Overload axioms kompile generates** (an equation between an overloaded symbol's application and its overload's, through an injection). They state that the overloads agree and compute no step of their own. The authored equations of an overloaded function are in scope (above).
 - **Macros and aliases.** They are expanded at compile time, so their rules are the expanded ones, counted where they occur.
   `coverage` lists such a rule as `no-coverage-signal`, no obligation (k-rust's coverage never names a macro or alias rule).
-- **Syntax productions.** Parsing the corpus covers them. `coverage` lists `rule` sentences only, so a production has no item.
 - **Hooks.** They are the backend's code, not the specification's; they are no axioms, and k-rust's coverage never names one.
 - **The initial configuration.** Every run uses it. The `configuration` sentence has no row.
 

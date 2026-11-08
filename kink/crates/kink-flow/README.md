@@ -486,7 +486,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<execution digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v16`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, and with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`), class and cause,
+(result schema version `kink-flow/result/v17`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
 the writer's specification digest `spec_digest` (outside the key: it only tells a reader that a record was written under other bytes),
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), whose whole-term (or `cells`) side holds the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), each end once: since v12 a comparable record does not repeat them in `final_configuration`, which holds the final state of each leaf of an `unknown` program's diagnostic run (`results::record_final_configuration` reads either), the rule
@@ -617,22 +617,43 @@ The universe is a function of the definition: the nodes come from the definition
 A condition whose skeleton the definition cannot give (an atom the backend cannot encode as KORE) shows no node, whichever programs entered it, and its guard's `operands_reason` says why: its requirements are its root's alone.
 The measure is covered / obligations.
 
-**Not built.** `syntax`, `rule_windows` and `syntax_paths` are `null`.
+**Syntax (depth 1).** Each production of an authored sort, an item `{kind: "production", id, module, index, file, start_line, sort, production, symbol, text, status, covered, reached_by, inspected_by, operand_of, built_by, uncounted, touched_only_by, inspecting, building, inspecting_rules, building_rules}`.
+The authored sorts are the front end's where it gives them (`FlowManifest::with_syntax`), else every sort the specification's own sentences declare and no library sentence declares: a library sort's meaning is the library's, so a production an author adds to it is not counted.
+A production is an obligation when it builds a term with a constructor of the compiled definition: a function's application is evaluated away, a token is a domain value, a bracket and a subsort are erased, a macro is expanded and a cell is the configuration's, so none of these is.
+The universe is a function of the definition and the front end's selection.
+
+A production is `reached` when a fired instance of a sentence of the rules universe (status `fired`, `matched` or `unmatched`), in some comparable program's baseline run, touched it:
+- inspected: the production is at a non-variable position of the sentence's left-hand side (`inspected_by`);
+- an operand: it is the head, through injections, of a value the instance bound to a variable of its left-hand side (`operand_of`);
+- built: it is at a non-variable position of the right-hand side (`built_by`).
+
+A production elsewhere in a state was carried, not touched, and stays `unreached`: the initial state holds the whole program, so "anywhere in a reached state" would read every production of a branch no run took, and a value in a cell no rule reads, as reached; "at the head of `<k>`" would miss the values a step passes to a function or keeps in a cell, and would depend on how strictness presents a term.
+Only the head of a bound value counts, so a continuation, which binds a sequence, never counts the rest of a program; the one over-claim left is a statement a sequencing rule takes as an operand and nothing runs afterwards, whose own rules stay unfired in the rules family.
+Inspected and built are static per sentence, read from the loaded axioms once (kink-native `syntax_facts`; a function equation's argument patterns are in its left-hand side) and joined with the record's fired sentences; the operand heads are what the backend recorded at the fired instance (the record's `coverage.bindings`).
+`inspecting` and `building` list the sentences of the rules universe that inspect and build the production (`inspecting_rules` and `building_rules` by rule id), whichever programs ran: what an author makes fire to reach it.
+The measure is reached / obligations; `counts` gives `reached`, `unreached`, and productions and field values apart (`productions`, `field_values`: `{obligations, covered}`).
+
+Field values are a front end's: a value of a field of a `k::bits!` template is reached when some fired instance of the template's sentence bound its binder to a value with that field.
+K has no notion of such a template, so kink-flow selects no binder and builds no field-value item.
+A front end that has templates names their binders in its selection (`SyntaxSelection::binders`, `(axiom, variable, cap)`), every baseline run records the values they took, and the family lists them (`binders`: per binder `{axiom, variable, sentences, values: [{value, programs}], truncated_by, nonliteral_by, uncounted}`); the front end adds an item of kind `field-value` per field value of its universe, with its `status` and its target's text (`krs.target`), before `coverage::derive` counts them.
+
+**Not built.** `rule_windows` and `syntax_paths` (depth above 1) are `null`.
 `flips`, the tier-2 family of condition flips, needs a front end that gives coverage the flips it generates, each judged as a mutation of the specification, which no front end of this build does (krs derives and judges a definition's condition flips, but no verb hands them to coverage): it is `{tier: 2, run: false, obligations: null, reason, items: []}`, the reason saying so.
 
 The measure is per family: no weighted total is given, since nothing weighs a rule against an operand's truth.
 `summary.open`, the count of open obligations, is the one scalar, and zero means done.
 
-Every item has a stable `id`: `rule:<name>` and `requirement:<name>:<detail>`.
-A rule's name is its KRS item where a front end named it (`krs.item`), else its label, else its `file:line`, with `:<label>` added where two rules share a name; a requirement's detail is `held`, `refuted`, or the node's text (the front end's source text where it gives one, else the K text, with `@<path>` added where two nodes of one condition share a text) and its truth.
+Every item has a stable `id`: `rule:<name>`, `requirement:<name>:<detail>` and `syntax:<production>`.
+A rule's name is its KRS item where a front end named it (`krs.item`), else its label, else its `file:line`, with `:<label>` added where two rules share a name; a requirement's detail is `held`, `refuted`, or the node's text (the front end's source text where it gives one, else the K text, with `@<path>` added where two nodes of one condition share a text) and its truth; a production is named by its front end (`krs.item`) where it names it, else by its K label, with `@<sort>` added where two share a name.
 
 ### Targets
 
-`targets` holds one entry per open obligation, in tier, family, then sentence order: `{family, item, text, file, line, programs, pattern, fuzz}`.
+`targets` holds one entry per open obligation, in tier, family, then sentence order: `{family, item, text, file, line, programs, pattern, fuzz}`, and a syntax target also `rules`.
 
 - An `unmatched` rule asks for `a case whose run reaches a state that <rule> matches`, with `fuzz`, the `fuzz --matched` job of a rewrite rule, and `pattern`, the rewrite rule's left-hand side as a `PATTERNS.toml` pattern (below).
 - A `matched` rule asks for `a case where <rule> is entered and its condition holds`, naming its open requirement `held`, with the programs that entered it (`programs`, the templates of a fuzz job) and the `fuzz --fired` job of a rewrite rule.
 - A requirement asks for `a case that enters <rule> with <valuation>`: the truths of `reaching`, then the node's own; for the root, its condition holding or false, with the valuation of its node where it has one.
+- An unreached production asks for `a case in which a step takes <production> as an operand, or inspects or builds it`, naming the rules that inspect it and those that build it (`rules`, both), each a thing to make fire; a production no rule writes says that only a step that takes it as an operand reaches it. A field value states the front end's text.
 - An item with `touched_only_by` adds the programs that touch it but are not comparable, and asks to make one comparable.
 
 `file` and `line` are the front end's position of the rule where it gives one, else the K source's.
@@ -642,8 +663,9 @@ It is `null` for every other target, where the rule's text cannot be read, and f
 
 ### The document
 
-`{schema: "kink-flow-coverage", version: 1, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, stop?}`.
+`{schema: "kink-flow-coverage", version: 2, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, stop?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
+Version 2 builds the syntax family, where version 1 had `null`.
 `settings` is `{tiers, depth, mcdc, max_obligations, source}` (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, not_cached?, cache_error?, unable_to_kill?}` (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, measure, counts, items}` where built.
@@ -699,6 +721,7 @@ Neither is an over-approximation of what can change a result: a
 higher-priority rule whose left-hand side never matched is not matched, although its failure is what lets a
 lower-priority or `owise` rule fire. The record holds the matched, applied and fired sentences (`coverage.sentences`,
 `coverage.applied_sentences`, which orders `run`'s programs, and `coverage.fired_sentences`).
+Since result schema v17 it also holds `coverage.bindings`, what the baseline run's fired instances bound (k-rust `collectBindings`, kink-native `ResultRun::bindings`): `operands`, per sentence `{module, index, label, symbols}`, the syntax family's production symbols that were the head of an operand of a fired instance of it, and `binders`, per template binder a front end selected and some fired instance bound, `{axiom, sentences, variable, values, truncated, nonliteral}`; null for a diagnostic run, which collects none.
 A `non-executable` rule is one k-rust never runs (it internalizes executable axioms only), so no program can match it:
 since re-pin L2-1-tail it has status `no-coverage-signal` with reason `a non-executable rule: k-rust never runs it, so no
 program can match it` (`reach` for `match` before version 7), never `unmatched`; before, it was listed `uncovered`, as a next program to write.
