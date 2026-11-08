@@ -2347,6 +2347,24 @@ fn run_bindings_output(bindings: k_rust_backend::coverage::RunBindings) -> super
     }
 }
 
+/// The skeleton of the written `requires` of every rewrite rule and function equation of
+/// `definition` that `axioms` names and whose `requires` is not empty, each as a run's
+/// `coverage.guards` entry for it would give it with no node reached, no outcome and no
+/// combination (k-rust-backend `coverage::skeletons`): what a reader needs to name the nodes of
+/// a guard no run entered. In process only; no request carries it.
+///
+/// # Errors
+/// An atom that cannot be encoded as KORE.
+pub fn guard_skeletons(
+    definition: &k_rust_backend::definition::BackendDefinition,
+    axioms: &std::collections::BTreeSet<String>,
+) -> Result<Vec<super::AxiomGuardOutput<KorePattern>>, BackendError> {
+    k_rust_backend::coverage::skeletons(definition, axioms)
+        .into_iter()
+        .map(axiom_guard_output)
+        .collect()
+}
+
 fn axiom_guard_output<K: WireKore>(
     guard: k_rust_backend::coverage::AxiomGuard,
 ) -> Result<super::AxiomGuardOutput<K>, BackendError> {

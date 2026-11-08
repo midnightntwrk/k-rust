@@ -414,6 +414,50 @@ impl Sink {
     }
 }
 
+/// The skeleton of the written `requires` of every rewrite rule and function equation of
+/// `definition` that `axioms` names by `UNIQUE_ID` or label and whose `requires` is not empty:
+/// each axiom's nodes as a run that enters it reports them, none reached, with no outcome and no
+/// combination, by `UNIQUE_ID`. A run reports an axiom only once it entered its condition, so
+/// this is what tells a reader the nodes of a guard no run entered: the skeleton is a function of
+/// the axiom's written `requires` alone, the same predicates every entry site folds
+/// ([`enter`]), so it is the skeleton a run that enters the axiom reports. An axiom that
+/// several left-hand side alternatives compile to has one skeleton.
+pub fn skeletons(definition: &BackendDefinition, axioms: &BTreeSet<String>) -> Vec<AxiomGuard> {
+    let collection = GuardCollection::new(axioms.iter().cloned());
+    let rewrites = definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| rule.rule.as_ref());
+    let equations = definition
+        .function_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| rule.as_ref());
+    let mut found = std::collections::BTreeMap::new();
+    for rule in rewrites.chain(equations) {
+        let requires = rule.requires.conjuncts();
+        if requires.is_empty() || !collection.selects(&rule.attributes) {
+            continue;
+        }
+        found
+            .entry(rule.attributes.unique_id.clone())
+            .or_insert_with(|| Slot::of(requires).nodes);
+    }
+    found
+        .into_iter()
+        .map(|(axiom, nodes)| AxiomGuard {
+            axiom,
+            nodes,
+            outcomes: BTreeSet::new(),
+            combinations: Vec::new(),
+            combinations_truncated: false,
+        })
+        .collect()
+}
+
 /// Install `sink` as the innermost collection's guards, returning the enclosing one's.
 pub(super) fn replace(sink: Option<Sink>) -> Option<Sink> {
     RECORDING.set(sink.is_some());

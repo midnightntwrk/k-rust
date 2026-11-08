@@ -143,6 +143,79 @@ pub struct RuleAuthors {
     unresolved: BTreeSet<UnresolvedAddress>,
 }
 
+/// The skeleton of every guarded sentence's condition, without a run: for each baseline
+/// sentence behind a rewrite rule or function equation of `definition` whose `requires` is not
+/// empty (the axioms a run that collects guard outcomes names, [`crate::execution::ResultRun::guards`]),
+/// each such axiom's nodes as a run that entered it would report them, none reached (k-rust
+/// `guard_skeletons`), by the sentence `authors` names. A run reports a guard only once it
+/// entered it; this gives the nodes of every guard, so that what a guard can show is read from
+/// the definition alone. A sentence one of whose axioms has an atom that cannot be encoded is
+/// listed in [`GuardSkeletons::unreadable`] with the reason instead, and has no skeletons: a
+/// part of its condition would be missing, and a run that entered that axiom could not report
+/// it either.
+#[must_use]
+pub fn guard_skeletons(
+    definition: &k_rust_backend::definition::BackendDefinition,
+    authors: &RuleAuthors,
+) -> GuardSkeletons {
+    let axioms = crate::execution::guarded_unique_ids(definition);
+    let mut skeletons = GuardSkeletons::default();
+    let sentences_of = |axiom: &str| match authors.get(axiom) {
+        Some(Authorship::Sentences(sentences)) => sentences.iter().cloned().collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    // One call reads every axiom; only when it fails is each axiom read alone, to tell the
+    // axioms whose atoms cannot be encoded from the others.
+    let guards = match k_rust::backend::guard_skeletons(definition, &axioms) {
+        Ok(guards) => guards,
+        Err(_) => {
+            let mut guards = Vec::new();
+            for axiom in &axioms {
+                let one = BTreeSet::from([axiom.clone()]);
+                match k_rust::backend::guard_skeletons(definition, &one) {
+                    Ok(read) => guards.extend(read),
+                    Err(error) => {
+                        for sentence in sentences_of(axiom) {
+                            skeletons.unreadable.entry(sentence).or_insert_with(|| {
+                                format!(
+                                    "the skeleton of the condition of axiom {axiom} cannot be \
+                                     read: {error}"
+                                )
+                            });
+                        }
+                    }
+                }
+            }
+            guards
+        }
+    };
+    for guard in guards {
+        for sentence in sentences_of(&guard.axiom) {
+            if !skeletons.unreadable.contains_key(&sentence) {
+                skeletons
+                    .by_sentence
+                    .entry(sentence)
+                    .or_default()
+                    .push(guard.clone());
+            }
+        }
+    }
+    let unreadable = skeletons.unreadable.keys().cloned().collect::<Vec<_>>();
+    for sentence in unreadable {
+        skeletons.by_sentence.remove(&sentence);
+    }
+    skeletons
+}
+
+/// The skeletons of the guarded sentences' conditions ([`guard_skeletons`]).
+#[derive(Clone, Debug, Default)]
+pub struct GuardSkeletons {
+    /// Each guarded sentence's skeletons, one per axiom behind it.
+    pub by_sentence: BTreeMap<SentenceRef, Vec<AxiomGuardOutput<Pattern>>>,
+    /// The guarded sentences with an axiom whose skeleton cannot be read, each with why.
+    pub unreadable: BTreeMap<SentenceRef, String>,
+}
+
 impl RuleAuthors {
     /// Maps every id of the side's sentence provenance to its authors. A baseline's addresses
     /// are its own sentences; a mutant's are mapped back through its origins, and an address

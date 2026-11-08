@@ -502,3 +502,40 @@ fn the_bounded_cache_changes_no_outcome() {
         assert_eq!(guards, expected, "{cache_keys} keys, size {max_value_size}");
     }
 }
+
+/// The skeleton of an axiom's condition is the one a run that enters it reports, every node
+/// unreached; an axiom no run entered has one too, and an axiom with no condition has none.
+#[test]
+fn a_skeleton_is_the_nodes_a_run_reports() {
+    let definition = definition();
+    let named = ["andThen", "fPos", "useF"];
+    let skeletons = crate::coverage::skeletons(
+        &definition,
+        &named.iter().map(|name| (*name).to_owned()).collect(),
+    );
+    let names = skeletons
+        .iter()
+        .map(|guard| guard.axiom.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.contains(&"andThen") && names.contains(&"fPos"),
+        "{names:?}"
+    );
+    assert!(!names.contains(&"useF"), "{names:?}");
+    for skeleton in &skeletons {
+        assert!(skeleton.outcomes.is_empty() && skeleton.combinations.is_empty());
+        assert!(skeleton.nodes.iter().all(|node| node.reached.is_empty()));
+    }
+    let st = ground(&definition, &format!("st{{}}({}, {})", int(1), int(5)));
+    let ran = guards_of(&definition, st, &["andThen"]);
+    let ran = guard(&ran, "andThen");
+    let skeleton = guard(&skeletons, "andThen");
+    let shape = |guard: &AxiomGuard| {
+        guard
+            .nodes
+            .iter()
+            .map(|node| (node.path.clone(), node.shape.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shape(skeleton), shape(ran));
+}

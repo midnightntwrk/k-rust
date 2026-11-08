@@ -83,6 +83,7 @@ pub use conditions::{
 pub use guards::{
     AttemptCause, AxiomGuard, Combination, DEFAULT_COMBINATION_LIMIT, DEFAULT_GUARD_CACHE_KEYS,
     GuardCollection, GuardNode, GuardOutcome, GuardShape, NodeOutcome, OperandCause, Refutation,
+    skeletons,
 };
 pub(crate) use guards::{Decided, GuardHandle};
 

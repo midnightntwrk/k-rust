@@ -1927,7 +1927,7 @@ fn settle(
 /// is not empty: the axioms whose guard outcomes a run that collects them names
 /// ([`ResultRun::guards`]). Simplifications, ceil and predicate equations are no sentence of the
 /// definition's runs in coverage's sense, so they are not named.
-fn guarded_unique_ids(
+pub(crate) fn guarded_unique_ids(
     definition: &k_rust_backend::definition::BackendDefinition,
 ) -> BTreeSet<String> {
     let rewrites = definition
