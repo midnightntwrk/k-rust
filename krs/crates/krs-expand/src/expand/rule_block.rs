@@ -187,6 +187,7 @@ fn expand_head_rule(
         bindings.push(krs_ir::wire::WireHeadRuleBinding { name, refinement });
     }
 
+    builder.read_match(&readable_match(clause));
     // A head that also reads as a List collection's front record lets rustc
     // resolve its record roots, which may name the instance struct (KF-023).
     let alternative = clause.bracket_alternative();
@@ -1178,4 +1179,43 @@ fn alternative_instances(
             back,
         },
     )))
+}
+
+/// Every term of a readable clause's left side, which one match matches
+/// together: the head's items, the keys of its map reads and the before
+/// side of each cell it rewrites.
+fn readable_match(clause: &krs_syntax::RuleClause) -> Vec<&krs_syntax::TermTree> {
+    let rule = clause.rule();
+    let mut matched = Vec::new();
+    if clause.head().is_some_and(krs_syntax::RuleHead::subject) {
+        matched.push(rule.subject_tree());
+    }
+    for item in clause.head().iter().flat_map(|head| head.following()) {
+        matched.push(item.tree());
+    }
+    for extra in clause.extras() {
+        match extra {
+            krs_syntax::RuleExtra::HaveMap { entries, .. } => {
+                matched.extend(entries.iter().map(|entry| entry.key.tree()));
+            }
+            krs_syntax::RuleExtra::RewriteCell { before_tree, .. } => matched.push(before_tree),
+            krs_syntax::RuleExtra::RewriteState { before, .. } => {
+                matched.extend(
+                    before
+                        .terms()
+                        .into_iter()
+                        .map(krs_syntax::TermExpression::tree),
+                );
+            }
+            krs_syntax::RuleExtra::RewriteList { before, .. } => {
+                matched.extend(before.items().iter().map(krs_syntax::RuleHeadItem::tree));
+                if let krs_syntax::RuleListRest::Named(rest) = before.rest() {
+                    matched.push(rest.tree());
+                }
+                matched.extend(before.back().iter().map(krs_syntax::RuleHeadItem::tree));
+            }
+            krs_syntax::RuleExtra::UpdateMap { .. } => {}
+        }
+    }
+    matched
 }

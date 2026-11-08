@@ -13,8 +13,8 @@ use krs_ir::{BuiltinSort, DescriptorApplicationHeadClass, ProductionFieldId, Pro
 use krs_syntax::positions::{Admission, Construct, Form, Nesting, Position, Slot};
 use krs_syntax::surface::path_text;
 use krs_syntax::{
-    ProvenanceRole, TermArguments, TermExpression, TermKeys, TermNode, TermSymbol, TermTree,
-    TokenRange,
+    AlternativeBindings, ProvenanceRole, TermArguments, TermExpression, TermKeys, TermNode,
+    TermSymbol, TermTree, TokenRange,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -568,6 +568,12 @@ pub(super) struct TermBuilder<'a> {
     /// Whether the position table refused a construct where it stands, a
     /// mistake told by its spelling and position alone ([`Self::admit`]).
     refused_by_position: std::cell::Cell<bool>,
+    /// The names each `A | B` of the sentence's match binds unequally,
+    /// read against the whole match ([`Self::with_match`]).
+    alternatives: AlternativeBindings,
+    /// The same of the `k::matches!` pattern being expanded, a match of
+    /// its own, or `None` outside one.
+    matches_alternatives: Option<AlternativeBindings>,
 }
 
 /// Where a node stands in a `cells!` rule's or claim's list cell entry, whose root brackets may
@@ -626,7 +632,31 @@ impl<'a> TermBuilder<'a> {
             rewrite: None,
             list_root: ListRoot::Not,
             refused_by_position: std::cell::Cell::new(false),
+            alternatives: AlternativeBindings::default(),
+            matches_alternatives: None,
         }
+    }
+
+    /// Reads the sentence's `A | B` against `scope`, every term its one
+    /// match matches: a name the match binds outside an or-pattern is a use
+    /// in each of its alternatives, by nonlinear matching, which binds it in
+    /// none ([`AlternativeBindings`]). Without it each or-pattern is read
+    /// alone.
+    #[must_use]
+    pub(super) fn with_match(mut self, scope: &[&TermTree]) -> Self {
+        self.read_match(scope);
+        self
+    }
+
+    /// [`Self::with_match`] on a builder already made.
+    pub(super) fn read_match(&mut self, scope: &[&TermTree]) {
+        self.alternatives = AlternativeBindings::of(scope);
+    }
+
+    /// Reads the sentence's `A | B` as `previous` does: a part of the match
+    /// it expanded first.
+    pub(super) fn continue_match(&mut self, previous: &TermBuilder<'_>) {
+        self.alternatives = previous.alternatives.clone();
     }
 
     /// The position a construct at the current node stands at, on `side`.
@@ -946,7 +976,13 @@ impl<'a> TermBuilder<'a> {
         let subject =
             self.below_computed(true, |this| this.expand_node(subject, keys, side, slots))?;
         self.local_binders = Some(binders.to_vec());
+        // The pattern is a match of its own: its names are its binders,
+        // never the sentence's.
+        let enclosing = self
+            .matches_alternatives
+            .replace(AlternativeBindings::of(&[pattern]));
         let pattern = self.expand_node(pattern, keys, side, slots);
+        self.matches_alternatives = enclosing;
         self.local_binders = None;
         Ok(WireTerm::Matches {
             key: node.key(ProvenanceRole::Matches)?,
@@ -1384,12 +1420,26 @@ impl<'a> TermBuilder<'a> {
             TermTree::Or {
                 range,
                 alternatives,
-                unbound,
+                ..
             } => {
                 self.admit(side, Construct::Or, *range)?;
                 // The names the alternatives bind are judged once they, and
                 // what they hold, may stand where they do; a name the author
-                // wrote wrong outranks a key the expansion lacks.
+                // wrote wrong outranks a key the expansion lacks. A name the
+                // match binds outside them is a use in each, which none binds.
+                // A `k::matches!` pattern's names are its own binders: one
+                // the sentence binds is refused as rebound, the reason the
+                // pattern cannot compare with it (`invalid-matches`).
+                let unbound = match &self.matches_alternatives {
+                    Some(bindings) => bindings.unbound(tree).iter().find(|unbound| {
+                        !self
+                            .bindings
+                            .iter()
+                            .any(|binding| binding.unraw() == unbound.name)
+                    }),
+                    None => self.alternatives.unbound(tree).first(),
+                }
+                .cloned();
                 let unbound = || {
                     unbound.as_ref().map(|unbound| {
                         ExpandError::at_range(

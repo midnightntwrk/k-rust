@@ -870,9 +870,19 @@ fn expand_ordinary_rule(
         RuleSentence::Alias => Form::Alias,
         RuleSentence::Desugar(_) => Form::Desugar,
     };
+    // The subject and the function context's cells are one match.
+    let matched = std::iter::once(rule.subject_tree())
+        .chain(
+            rule.function_context()
+                .into_iter()
+                .flat_map(krs_syntax::FunctionContext::terms)
+                .map(krs_syntax::TermExpression::tree),
+        )
+        .collect::<Vec<_>>();
     let mut term_builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents, form)
         .with_lexical_imports(lexical_imports)
-        .with_subject_head(table.map(|table| table.function));
+        .with_subject_head(table.map(|table| table.function))
+        .with_match(&matched);
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) = existential_binders(
         rule.existentials(),

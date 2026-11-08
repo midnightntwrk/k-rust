@@ -979,7 +979,7 @@ class = "other"
 at = "spelling"
 
 [[refuse]]
-match = "terms/rule/subject/or-branch/x"
+match = "terms/rule/subject/or-branch/y @ Cmd::Hold(_)"
 class = "or-branch-binder"
 at = "spelling"
 
@@ -1020,10 +1020,11 @@ k = ""
     // The class's code, but outside the spelling. The witness is a refusal the front raises at
     // the entry, which a readable result's kind no longer is (the collector answers those once
     // the cell's kind is known, S0-9): an or-pattern's branch that binds `x` alone is refused
-    // over the whole pattern, not at the spelling. When the front stops raising it there, take
-    // another case it refuses at the entry.
+    // over the whole pattern, not at the spelling (a name the subject binds outside the
+    // alternatives, the template's `x`, is a use there, TRI-E: the alias's `y` is fresh). When
+    // the front stops raising it there, take another case it refuses at the entry.
     assert_eq!(
-        verdict("terms/rule/subject/or-branch/x"),
+        verdict("terms/rule/subject/or-branch/y @ Cmd::Hold(_)"),
         "K2 front: krs::syntax::invalid-pattern-or @ entry"
     );
     // Located, but with another class's code.

@@ -278,3 +278,86 @@ fn bar_outside_a_pattern_is_the_bitwise_or_operator() {
         .is_ok()
     );
 }
+
+/// The or-patterns of `tree`, in preorder.
+fn or_patterns(tree: &TermTree) -> Vec<&TermTree> {
+    let mut output = Vec::new();
+    let mut stack = vec![tree];
+    while let Some(tree) = stack.pop() {
+        match tree {
+            TermTree::Or { alternatives, .. } => {
+                output.push(tree);
+                stack.extend(alternatives.iter().collect::<Vec<_>>().into_iter().rev());
+            }
+            TermTree::Application(application) => match application.arguments() {
+                krs_syntax::TermArguments::Positional(arguments) => {
+                    stack.extend(arguments.iter().rev());
+                }
+                krs_syntax::TermArguments::Named(arguments) => {
+                    stack.extend(
+                        arguments
+                            .iter()
+                            .rev()
+                            .map(krs_syntax::TermNamedArgument::value),
+                    );
+                }
+            },
+            TermTree::As { pattern, .. } => stack.push(pattern),
+            _ => {}
+        }
+    }
+    output
+}
+
+/// The names each or-pattern of a fn rule's subject binds unequally, read
+/// against the subject: one list per or-pattern, in preorder.
+fn unequal(source: &str) -> Vec<Vec<String>> {
+    let rule = krs_syntax::RuleItem::parse_source(source)
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+    let subject = rule.subject_tree();
+    let bindings = krs_syntax::AlternativeBindings::of(&[subject]);
+    or_patterns(subject)
+        .into_iter()
+        .map(|or| {
+            bindings
+                .unbound(or)
+                .iter()
+                .map(|unbound| unbound.name.clone())
+                .collect()
+        })
+        .collect()
+}
+
+/// A name the match binds outside an or-pattern is a use in each of its
+/// alternatives (nonlinear matching), wherever the binding is written;
+/// what must agree is the names the alternatives bind fresh. An or-pattern
+/// elsewhere binds, for every match, only what all its alternatives hold.
+#[test]
+fn a_name_bound_outside_alternatives_is_a_use_in_each() {
+    let rule = |subject: &str| format!("fn r(k::term![{subject}]: Term<Exp>) -> Term<Exp> {{ 1 }}");
+    let none: &[String] = &[];
+    assert_eq!(unequal(&rule("Same(x, x | 1)")), [none]);
+    assert_eq!(unequal(&rule("Same(x | 1, x)")), [none], "order-free");
+    assert_eq!(unequal(&rule("Same(x, y @ (x | 1))")), [none]);
+    assert_eq!(unequal(&rule("Same(x, x | y)")), [vec!["y".to_owned()]]);
+    assert_eq!(
+        unequal(&rule("Same(x | 1, x | 2)")),
+        [vec!["x".to_owned()], vec!["x".to_owned()]],
+        "a name only alternatives bind is bound outside neither"
+    );
+    assert_eq!(
+        unequal(&rule("Same(Pair(x, _) | Pair(_, x), x | 1)")),
+        [none, none],
+        "an or-pattern whose every alternative binds `x` binds it for every match"
+    );
+    // Inside one alternative of an enclosing or-pattern, the rest of that
+    // alternative is outside; another alternative is not.
+    assert_eq!(
+        unequal(&rule("Same(x | 1, x) | Same(2, 3)")),
+        [&["x".to_owned()][..], none]
+    );
+    assert_eq!(
+        unequal(&rule("Same(x, Same(x | 1, y) | Same(2, y))")),
+        [none, none]
+    );
+}

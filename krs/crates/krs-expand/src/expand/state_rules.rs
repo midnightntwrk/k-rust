@@ -170,6 +170,7 @@ pub(crate) fn context_alias(
         RuleSide::Left,
         Form::ContextAlias,
     );
+    builder.terms.read_match(&cells_match(alias.pattern()));
     let pattern = builder.expand_cells(alias.pattern(), configuration_type, &mut slots)?;
     key_functions.extend(builder.terms.key_functions);
     let mut wrapper_checks = Vec::new();
@@ -451,6 +452,7 @@ pub(super) fn configuration_rule(
         RuleSide::Left,
         form,
     );
+    left.terms.read_match(&cells_match(rule.subject()));
     let subject = left.expand_cells(rule.subject(), subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
@@ -695,6 +697,7 @@ impl<'a> StateRuleBuilder<'a> {
     /// KF-025).
     pub(super) fn continue_subject(&mut self, previous: &TermBuilder<'_>) {
         self.terms.next_key = previous.next_key;
+        self.terms.continue_match(previous);
     }
 
     const fn term_side(&self) -> TermSide {
@@ -971,6 +974,16 @@ fn expand_frame(
             binding: binding.unraw().to_string(),
         }),
     }
+}
+
+/// Every term of a `cells!` pattern, which one match matches together.
+pub(super) fn cells_match(cells: &krs_syntax::CellsExpression) -> Vec<&krs_syntax::TermTree> {
+    cells
+        .entries()
+        .iter()
+        .flat_map(|entry| entry.value().terms())
+        .map(krs_syntax::TermExpression::tree)
+        .collect()
 }
 
 /// The wire form of a map a configuration holds, on `side`: its keys are what the map is looked

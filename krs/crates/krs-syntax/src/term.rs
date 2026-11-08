@@ -15,6 +15,10 @@ use crate::positions::{PatternRoot, RootConstruct};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 use krs_ir::ProvenanceKey;
 
+mod alternatives;
+
+pub use alternatives::AlternativeBindings;
+
 /// Syntactic shape at the root of an accepted term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TermRootKind {
@@ -644,8 +648,8 @@ fn is_head_path(path: &Path) -> bool {
         && !path.segments.is_empty()
 }
 
-/// A name some alternatives of an `A | B` bind and another does not
-/// (rustc's E0408), at the first alternative that does not bind it.
+/// A name some alternatives of an `A | B` hold and another does not
+/// (rustc's E0408), at the first alternative that does not hold it.
 #[derive(Clone, Debug)]
 pub struct UnboundAlternative {
     /// The name, unraw.
@@ -727,12 +731,15 @@ pub enum TermTree {
         range: TokenRange,
         /// The alternatives, in source order.
         alternatives: AtLeastTwo<TermTree>,
-        /// A name some alternative binds and another does not (rustc's
-        /// E0408). Every alternative binds the same names where alternatives
-        /// may stand, so whether they do is judged after where the
-        /// alternatives, and the constructs in them, stand: by the term
-        /// walker, once it has admitted them, which refuses it there.
-        unbound: Option<UnboundAlternative>,
+        /// Each name some alternative holds and another does not, in
+        /// first-appearance order (rustc's E0408). Every alternative binds
+        /// the same fresh names where alternatives may stand; a name the
+        /// match binds outside the or-pattern is a use in each alternative,
+        /// not a binder ([`AlternativeBindings`]). Whether they do is judged
+        /// after where the alternatives, and the constructs in them, stand:
+        /// by the term walker, once it has admitted them, which refuses the
+        /// first such name the match does not bind outside.
+        unbound: Vec<UnboundAlternative>,
     },
     /// `k::matches!(subject, pattern)`: K's `( PATTERN :=K SUBJECT )`, a Bool
     /// test, only in results and conditions.
@@ -895,15 +902,13 @@ impl TermTree {
     }
 
     /// The first `A | B` in the tree, in preorder, with a name some
-    /// alternative binds and another does not, which the term walker
-    /// refuses once the alternatives may stand where they do
-    /// ([`TermTree::Or`]).
+    /// alternative holds and another does not, that name, which the term
+    /// walker refuses once the alternatives may stand where they do unless
+    /// the match binds it outside them ([`TermTree::Or`]).
     #[must_use]
     pub fn unbound_alternative(&self) -> Option<&UnboundAlternative> {
-        if let Self::Or {
-            unbound: Some(unbound),
-            ..
-        } = self
+        if let Self::Or { unbound, .. } = self
+            && let Some(unbound) = unbound.first()
         {
             return Some(unbound);
         }
@@ -2358,7 +2363,8 @@ pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not re
 /// binds; the result carries the names the whole pattern binds, in
 /// first-appearance order, and the tree a name not bound in every
 /// alternative (rustc's E0408), which the term walker reports once it has
-/// judged where the alternatives stand ([`TermTree::Or`]).
+/// judged where the alternatives stand, unless the match binds it outside
+/// them ([`TermTree::Or`]).
 ///
 /// # Errors
 ///
@@ -2416,7 +2422,7 @@ pub(crate) fn validate_pattern_or(
     {
         nodes[index] = TermNode::Or(TokenRange::new(range.first(), last));
     }
-    let mut unbound = None;
+    let mut unbound = Vec::new();
     for name in &names {
         let spelling = syn::ext::IdentExt::unraw(name).to_string();
         if let Some((case, _)) = or
@@ -2425,11 +2431,10 @@ pub(crate) fn validate_pattern_or(
             .zip(&bound)
             .find(|(_, spellings)| !spellings.contains(&spelling))
         {
-            unbound = Some(UnboundAlternative {
+            unbound.push(UnboundAlternative {
                 name: spelling,
                 range: TokenRange::for_tokens(case)?,
             });
-            break;
         }
     }
     let alternatives = AtLeastTwo::try_from(trees).map_err(|_| {

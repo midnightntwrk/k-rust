@@ -2308,28 +2308,12 @@ fn validate_term_node<L: Validation>(
                 nodes,
             )?;
         }
+        // What the alternatives bind is a fact of the match they belong to,
+        // checked with it ([`validate_alternative_bindings`]).
         IrTermKind::Or { alternatives } => {
-            let mut expected = None;
             for alternative in alternatives {
                 if !is_subsort::<L>(alternative.sort(), term.sort(), sort_parents) {
                     return Err(L::error(ValidationError::PatternOrSortMismatch));
-                }
-                // Wildcards are distinct generated variables per occurrence;
-                // only named binders must agree across alternatives.
-                let mut bound = BTreeSet::new();
-                collect_term_variables::<L>(alternative, &mut bound);
-                bound.retain(|variable| {
-                    matches!(
-                        variable.kind(),
-                        krs_ir::SemanticIdKind::Named | krs_ir::SemanticIdKind::Local { .. }
-                    )
-                });
-                match &expected {
-                    None => expected = Some(bound),
-                    Some(expected) if *expected != bound => {
-                        return Err(L::error(ValidationError::InvalidPatternOr));
-                    }
-                    Some(_) => {}
                 }
                 validate_term::<L>(
                     alternative,
@@ -2360,6 +2344,8 @@ fn validate_term_node<L: Validation>(
             {
                 return Err(L::error(ValidationError::InvalidMatches));
             }
+            // The pattern is a match of its own.
+            validate_alternative_bindings::<L>(&[pattern])?;
             for term in [subject, pattern] {
                 validate_term::<L>(
                     term,
@@ -2941,6 +2927,7 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         return Err(L::error(ValidationError::InvalidLocalRewrite));
     }
     post.extend(conditions);
+    validate_alternative_bindings::<L>(&pre)?;
     if let Some(alias) = post.iter().copied().find_map(find_pattern_as) {
         crate::failure_site::report(alias.origin());
         return Err(L::error(ValidationError::InvalidPatternAs));
@@ -2992,6 +2979,124 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         return Err(L::error(ValidationError::InvalidMatches));
     }
     Ok(())
+}
+
+/// Checks that the alternatives of each `A | B` of one match (a rule's
+/// pre-patterns together, or one `k::matches!` pattern) bind the same fresh
+/// named variables. The match is one pattern, and a variable it binds
+/// outside the or-pattern, at a position every match through the
+/// or-pattern passes, is one value in every alternative, which none binds:
+/// nonlinear matching. Wildcards are distinct generated variables per
+/// occurrence and bind nothing another alternative reads.
+fn validate_alternative_bindings<L: Validation>(scope: &[&IrTerm<L>]) -> Result<(), L::Error> {
+    let mut ors = Vec::new();
+    for term in scope {
+        match_or_patterns(term, &mut ors);
+    }
+    for or in ors {
+        let IrTermKind::Or { alternatives } = or.kind() else {
+            continue;
+        };
+        let mut outside = BTreeSet::new();
+        for term in scope {
+            surely_bound(*term, or, &mut outside);
+        }
+        let mut expected = None;
+        for alternative in alternatives {
+            let mut bound = BTreeSet::new();
+            collect_term_variables::<L>(alternative, &mut bound);
+            bound.retain(|variable| {
+                matches!(
+                    variable.kind(),
+                    krs_ir::SemanticIdKind::Named | krs_ir::SemanticIdKind::Local { .. }
+                ) && !outside.contains(variable)
+            });
+            match &expected {
+                None => expected = Some(bound),
+                Some(expected) if *expected != bound => {
+                    crate::failure_site::report(or.origin());
+                    return Err(L::error(ValidationError::InvalidPatternOr));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The `A | B` nodes of one match, in preorder, those of a `k::matches!` or
+/// `let` pattern, another match, left out.
+fn match_or_patterns<'t, L: IrLevel>(term: &'t IrTerm<L>, output: &mut Vec<&'t IrTerm<L>>) {
+    let below = match term.kind() {
+        IrTermKind::Matches { subject, .. } => vec![&**subject],
+        IrTermKind::Let { value, body, .. } => vec![&**value, &**body],
+        IrTermKind::Or { .. } => {
+            output.push(term);
+            term.children()
+        }
+        _ => term.children(),
+    };
+    for child in below {
+        match_or_patterns(child, output);
+    }
+}
+
+/// Adds the variables every match of `term` binds outside `target`: at a
+/// position no `A | B` encloses, in the alternative that holds `target`, or
+/// in every alternative of another `A | B`. A test, a `let` block and a
+/// rewrite's right side bind none.
+fn surely_bound<L: IrLevel>(
+    term: &IrTerm<L>,
+    target: &IrTerm<L>,
+    output: &mut BTreeSet<SemanticId>,
+) {
+    if std::ptr::eq(term, target) {
+        return;
+    }
+    match term.kind() {
+        IrTermKind::Variable { variable } => {
+            output.insert(variable.clone());
+        }
+        IrTermKind::As { alias, pattern } => {
+            output.insert(alias.clone());
+            surely_bound(pattern, target, output);
+        }
+        IrTermKind::Or { alternatives } => {
+            if let Some(holding) = alternatives
+                .iter()
+                .find(|alternative| holds(alternative, target))
+            {
+                surely_bound(holding, target, output);
+                return;
+            }
+            let mut every: Option<BTreeSet<SemanticId>> = None;
+            for alternative in alternatives {
+                let mut bound = BTreeSet::new();
+                surely_bound(alternative, target, &mut bound);
+                every = Some(match every {
+                    None => bound,
+                    Some(every) => every.intersection(&bound).cloned().collect(),
+                });
+            }
+            output.extend(every.unwrap_or_default());
+        }
+        IrTermKind::Rewrite { from, .. } => surely_bound(from, target, output),
+        IrTermKind::Matches { .. } | IrTermKind::Let { .. } => {}
+        _ => {
+            for child in term.children() {
+                surely_bound(child, target, output);
+            }
+        }
+    }
+}
+
+/// Whether `target` is `term` or below it.
+fn holds<L: IrLevel>(term: &IrTerm<L>, target: &IrTerm<L>) -> bool {
+    std::ptr::eq(term, target)
+        || term
+            .children()
+            .into_iter()
+            .any(|child| holds(child, target))
 }
 
 /// Checks a syntactic-list cons production: `[head, separator, tail]` with

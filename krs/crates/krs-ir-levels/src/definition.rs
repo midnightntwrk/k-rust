@@ -2301,7 +2301,7 @@ impl fmt::Display for DefinitionValidationError {
                 "an alternative of an `A | B` (#Or) node does not inject into the node's sort",
             ),
             Self::InvalidPatternOr => formatter.write_str(
-                "`A | B` (#Or) occurs only in pre-patterns, and every alternative binds the same variables",
+                "`A | B` (#Or) occurs only in pre-patterns, and every alternative binds the same variables besides those its match binds outside it",
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",

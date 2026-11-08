@@ -1937,7 +1937,8 @@ pub enum IrTermKind<L: IrLevel> {
     },
     /// `A | B | ..`: K's `( A #Or B #Or .. )`, admitted only in pre-patterns.
     /// The term's sort is the least common sort of the alternatives, and
-    /// every alternative binds the same variables.
+    /// every alternative binds the same variables besides those its match
+    /// binds outside it, which are one value in each (nonlinear matching).
     Or {
         /// The alternatives, in source order.
         alternatives: AtLeastTwo<IrTerm<L>>,

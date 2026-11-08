@@ -124,9 +124,9 @@ pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
 };
 pub use term::{
-    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermKeys,
-    TermLiteral, TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
-    UnboundAlternative, is_constant_island_macro, is_island_macro, parse_fn_item,
+    AlternativeBindings, CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression,
+    TermKeys, TermLiteral, TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind,
+    TermTree, UnboundAlternative, is_constant_island_macro, is_island_macro, parse_fn_item,
     parse_lexeme_arguments, parse_matches_arguments, parse_sort_test_arguments,
 };
 pub use term_sort::TermSort;

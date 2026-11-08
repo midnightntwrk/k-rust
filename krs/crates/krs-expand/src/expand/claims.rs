@@ -159,6 +159,8 @@ fn configuration_claim(
         RuleSide::Left,
         Form::CellsClaim,
     );
+    left.terms
+        .read_match(&super::state_rules::cells_match(rule.subject()));
     let subject = left.expand_cells(rule.subject(), subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
