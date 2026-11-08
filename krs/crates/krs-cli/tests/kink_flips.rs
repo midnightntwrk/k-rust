@@ -6,7 +6,8 @@
 //! transitions kept apart by complementary conditions, with an `if`/`else` chain, a 4-bit
 //! `k::bits!` decode, two transitions kept apart by a `k::matches!` test, two transitions that
 //! share a `k::matches!` test and are kept apart by `ime` beside it, and a transition whose
-//! condition reads a looked-up value. The introduction's story package has no guarded sentence.
+//! condition reads a looked-up value; a variant adds a guarded function only a claim applies. The
+//! introduction's story package has no guarded sentence.
 
 #![cfg(feature = "kink")]
 
@@ -26,6 +27,23 @@ const LIBRARY: &str = include_str!("fixtures/guard-mutations/src/lib.rs");
 const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
 const STORY_FLOW: &str = include_str!("../../../../docs-site/story/plus/kink/FLOW.toml");
 const FLOW: &str = "[spec]\nkrs = { definition = \"main\" }\n";
+/// Added to the fixture: a function only a claim applies, an `if`/`else` on an `Int`, so its two
+/// equations are a guard family of claim helpers.
+const CLAIMED: &str = r#"
+/// The vector a claim expects of a raised request.
+#[k::function(total, internal)]
+pub fn ExpectedVector(p: Term<Int>) -> Term<Int> {
+    if p >= 1 { 64 } else { 0 }
+}
+
+#[k::claim(all_paths, label = "raise-expected")]
+pub fn raise_expected(
+    p: Term<Int>,
+    k::cells! { k: k::configuration::KCell(CmdSyntax::Raise(p), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(CmdSyntax::Raise(ExpectedVector(p)), ..tail), ..state }
+}
+"#;
 
 /// A package holding `library` and a corpus manifest `flow`, in a fresh directory.
 struct Package {
@@ -370,6 +388,73 @@ fn generation_is_byte_stable() {
     );
     assert_eq!(flips.families, 6, "{:#}", flips.value());
     assert_eq!(flips.flips.len(), 13, "{:#}", flips.value());
+}
+
+/// A flip that changes only claim helpers is not generated, and is neither spelled nor judged:
+/// the equations of `ExpectedVector`, which only a claim applies, are no obligation of any
+/// coverage family, so the flip of its condition is a `claim-helper` entry under
+/// `not_generated`, and the fixture's flips and other entries are the same as without it.
+#[test]
+fn a_flip_of_claim_helpers_alone_is_not_generated() {
+    let (_, base) = fixture();
+    let package = Package::new(
+        "krs-cli-kink-flips",
+        "FLIPS",
+        &format!("{LIBRARY}{CLAIMED}"),
+        FLOW,
+    );
+    let flips = package.flips();
+    let helpers = ["flips--expected_vector_1", "flips--expected_vector_2"];
+    assert!(
+        flips.flips.iter().all(|flip| flip
+            .sentences
+            .iter()
+            .all(|sentence| !helpers.contains(&sentence.label.as_str()))),
+        "{:#}",
+        flips.value()
+    );
+    let ids = |flips: &DerivedFlips| {
+        flips
+            .flips
+            .iter()
+            .map(|flip| flip.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&flips), ids(base), "{:#}", flips.value());
+    // One judge cache entry per flip: the helper's flip was not judged.
+    assert_eq!(package.cache_entries().len(), flips.flips.len());
+    assert_eq!(flips.families, base.families + 1, "{:#}", flips.value());
+    let (claimed, others): (Vec<_>, Vec<_>) = flips
+        .not_generated
+        .iter()
+        .cloned()
+        .partition(|not| not.reason == "claim-helper");
+    assert_eq!(others, base.not_generated, "{:#}", flips.value());
+    let [claimed] = claimed.as_slice() else {
+        panic!("{:#}", flips.value());
+    };
+    let id = claimed.id.as_deref().unwrap();
+    assert_eq!(claimed.sentences, helpers, "{:#}", flips.value());
+    assert!(claimed.atom.is_some());
+    assert_eq!(claimed.pair, None);
+    assert!(
+        claimed.detail.starts_with(&format!(
+            "`{id}` changes only claim helpers (`flips--expected_vector_1`, \
+             `flips--expected_vector_2`, equations of `ExpectedVector`, "
+        )),
+        "{}",
+        claimed.detail
+    );
+    // The entry names its flip as kink-flow names one it moves out of scope; the generator's
+    // own entries name none.
+    let value = flips.value();
+    for entry in value["not_generated"].as_array().unwrap() {
+        if entry["reason"] == "claim-helper" {
+            assert_eq!(entry["id"], id, "{entry:#}");
+        } else {
+            assert_eq!(entry.get("id"), None, "{entry:#}");
+        }
+    }
 }
 
 /// The front end's judgements are read back from the corpus's judge cache, by the flips and by

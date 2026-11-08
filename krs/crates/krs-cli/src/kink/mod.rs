@@ -352,8 +352,10 @@ pub fn condition_flips_reading(
         Ok(_) => {}
         Err(error) => return Err(refuse(outcome, error.detail(&shown))),
     }
+    // The flips skip a family with a claim helper, which they ask of the manifest as every
+    // coverage family does.
     let manifest = match declared.bind(Some(bound_spec(&emitted))) {
-        Ok(manifest) => manifest,
+        Ok(manifest) => manifest.with_claim_helpers(claim_helpers(&emitted)),
         Err(error) => return Err(refuse(outcome, error.to_string())),
     };
     let loaded =
@@ -995,13 +997,17 @@ fn with_front_end_facts(
     manifest
         .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone(), observers)))
         .with_input_decoder(decoder)
-        .with_claim_helpers(
-            emitted
-                .rules
-                .iter()
-                .filter(|rule| rule.claim_helper)
-                .map(|rule| (rule.module.clone(), rule.label.clone())),
-        )
+        .with_claim_helpers(claim_helpers(emitted))
+}
+
+/// The claim helpers of `emitted`, each by its K module and label, as a manifest's
+/// [`kink_flow::FlowManifest::with_claim_helpers`] takes them ([`with_front_end_facts`]).
+fn claim_helpers(emitted: &EmittedDefinition) -> impl Iterator<Item = (String, String)> + '_ {
+    emitted
+        .rules
+        .iter()
+        .filter(|rule| rule.claim_helper)
+        .map(|rule| (rule.module.clone(), rule.label.clone()))
 }
 
 /// The command request every stage before kink runs on: `request`'s selection, judged as

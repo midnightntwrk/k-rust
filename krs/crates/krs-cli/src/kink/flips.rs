@@ -6,6 +6,12 @@
 //! definition tests it. Every flip is computed from the definition on every command, so it has
 //! no list file and no misunderstanding: the rule that generates it is its justification.
 //!
+//! A flip that changes only claim helpers (equations of a function only claims apply,
+//! [`FlowManifest::is_claim_helper`]) is not generated. No coverage family counts a claim helper,
+//! whatever the programs did, so such a flip is no obligation; it is listed under `not_generated`
+//! with the reason `claim-helper` before it is spelled or judged, and no mutant is spent on it. A
+//! flip that also changes a sentence in scope is an obligation of that sentence, and is kept.
+//!
 //! Each flip is spelled as a K patch of `definition.k` in the mutation format a list uses, one
 //! `rule = <label>` edit per flipped sentence, and judged by the front end's checks
 //! ([`super::checks`]) through the judge cache shared with `check` and `run`, as an authored
@@ -36,7 +42,8 @@ use kink_corpus::LoadedSource;
 use kink_flow::flips::SentenceRef;
 use kink_flow::{EditAction, EditSpec, FlowManifest, InvalidMutation, Mutation};
 use krs_compiler::{
-    AtomKind, FamilySentence, FlipOperator, GuardAtom, GuardFamily, guard_families,
+    AtomKind, FamilyKind, FamilySentence, Flip, FlipOperator, GuardAtom, GuardFamily,
+    guard_families,
 };
 use krs_ir::{ApplicationRef, BuiltinOperation, SourceMapKey};
 use krs_ir_levels::{SemanticModule, SemanticRule, SemanticTerm, SemanticTermKind};
@@ -138,8 +145,12 @@ pub enum FlipStatus {
 /// A flip, or a family's flips, the families do not generate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlipNotGenerated {
-    /// Why ([`krs_compiler::NotGeneratedReason::as_str`]).
+    /// Why: the generator's reason ([`krs_compiler::NotGeneratedReason::as_str`]), or
+    /// [`kink_flow::coverage::CLAIM_HELPER`] for a flip that changes only claim helpers.
     pub reason: &'static str,
+    /// The flip's id, for a flip the generator generated and the front end does not (a
+    /// `claim-helper` one).
+    pub id: Option<String>,
     /// The atom concerned, when there is one.
     pub atom: Option<FlipAtom>,
     /// The labels of the sentences concerned.
@@ -245,14 +256,20 @@ impl FlipAtom {
 }
 
 impl FlipNotGenerated {
+    /// `{reason, atom, sentences, pair, detail}`, and `id` for a flip the generator generated
+    /// (the shape kink-flow gives a flip it moves out of scope).
     pub(crate) fn value(&self) -> Value {
-        json!({
+        let mut value = json!({
             "reason": self.reason,
             "atom": self.atom.as_ref().map(FlipAtom::value),
             "sentences": self.sentences,
             "pair": self.pair,
             "detail": self.detail,
-        })
+        });
+        if let Some(id) = &self.id {
+            value["id"] = json!(id);
+        }
+        value
     }
 }
 
@@ -266,7 +283,8 @@ fn edit_value(edit: &EditSpec) -> Value {
 }
 
 /// The flips of `baseline`'s definition, each judged by `checks` after kink-flow resolves its
-/// patch against the corpus `manifest` bound to `definition.k`, whose specification is `loaded`.
+/// patch against the corpus `manifest` bound to `definition.k`, whose specification is `loaded`;
+/// a flip that changes only `manifest`'s claim helpers is not generated ([`claim_helper_flip`]).
 pub(crate) fn derive(
     baseline: &Baseline<'_>,
     checks: &KrsChecks<'_>,
@@ -288,6 +306,10 @@ pub(crate) fn derive(
             .map(|sentence| speller.label(sentence))
             .collect::<Vec<_>>();
         for flip in &family.obligations {
+            if let Some(not) = claim_helper_flip(family, flip, &labels, &speller, manifest) {
+                derived.not_generated.push(not);
+                continue;
+            }
             let atom = &family.atoms[flip.atom];
             let mut flipped = DerivedFlip {
                 id: flip.id.clone(),
@@ -320,6 +342,7 @@ pub(crate) fn derive(
         for not in &family.not_generated {
             derived.not_generated.push(FlipNotGenerated {
                 reason: not.reason.as_str(),
+                id: None,
                 atom: not.atom.map(|atom| FlipAtom::of(&family.atoms[atom].kind)),
                 sentences: not
                     .sentences
@@ -334,6 +357,70 @@ pub(crate) fn derive(
         }
     }
     derived
+}
+
+/// The entry of `flip`, a flip of `family`, under `not_generated` when every sentence it edits
+/// is a claim helper of `manifest` ([`only_claim_helpers`]): no coverage family counts a claim
+/// helper whatever the programs did, so such a flip is no obligation, and it is neither spelled
+/// nor judged. A flip that also edits a sentence in scope is kept: it is an obligation of that
+/// sentence, which a program can distinguish through that edit alone.
+fn claim_helper_flip(
+    family: &GuardFamily,
+    flip: &Flip,
+    labels: &[String],
+    speller: &Speller<'_>,
+    manifest: &FlowManifest,
+) -> Option<FlipNotGenerated> {
+    let edited = flip
+        .sentences
+        .iter()
+        .map(|sentence| {
+            speller
+                .emitted(&family.sentences[*sentence])
+                .map(|(_, rule)| (rule.module.as_str(), rule.label.as_str()))
+        })
+        .collect::<Vec<_>>();
+    if !only_claim_helpers(&edited, manifest) {
+        return None;
+    }
+    let sentences = flip
+        .sentences
+        .iter()
+        .map(|sentence| labels[*sentence].clone())
+        .collect::<Vec<_>>();
+    let function = match &family.kind {
+        FamilyKind::Equations { function, .. } => {
+            format!(", equations of `{}`", function.item_name())
+        }
+        FamilyKind::Rules { .. } => String::new(),
+    };
+    Some(FlipNotGenerated {
+        reason: kink_flow::coverage::CLAIM_HELPER,
+        id: Some(flip.id.clone()),
+        atom: Some(FlipAtom::of(&family.atoms[flip.atom].kind)),
+        detail: format!(
+            "`{}` changes only claim helpers ({}{function}, which only claims apply): no coverage \
+             family counts a claim helper, so the flip is no obligation and is neither spelled \
+             nor judged",
+            flip.id,
+            sentences
+                .iter()
+                .map(|label| format!("`{label}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        sentences,
+        pair: None,
+    })
+}
+
+/// Whether every sentence a flip edits, each by its emitted module and label (`None` where it is
+/// not rendered), is a claim helper of `manifest`; a flip that edits no sentence edits none.
+fn only_claim_helpers(edited: &[Option<(&str, &str)>], manifest: &FlowManifest) -> bool {
+    !edited.is_empty()
+        && edited.iter().all(|sentence| {
+            sentence.is_some_and(|(module, label)| manifest.is_claim_helper(module, label))
+        })
 }
 
 /// Resolve `mutation` and judge it as `run` judges a list's mutation.
@@ -800,4 +887,36 @@ pub(crate) fn derived_list(
             .collect(),
         none: derived.none_reason(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    /// A flip is not generated for a claim helper only where every sentence it edits is one: a
+    /// flip that also edits a sentence in scope is that sentence's obligation and is kept, and so
+    /// is one that edits a sentence the emission does not render.
+    #[test]
+    fn only_a_flip_of_claim_helpers_alone_is_skipped() {
+        let manifest = FlowManifest::decode(
+            "[spec]\nentry = \"m.k\"\nmain_module = \"M\"\n[[program]]\nid = \"a\"\ntext = \"a\"\n",
+            Path::new("corpus"),
+        )
+        .unwrap()
+        .with_claim_helpers([
+            ("M".to_owned(), "helper_1".to_owned()),
+            ("M".to_owned(), "helper_2".to_owned()),
+        ]);
+        let helper_1 = Some(("M", "helper_1"));
+        let helper_2 = Some(("M", "helper_2"));
+        let in_scope = Some(("M", "step"));
+        assert!(only_claim_helpers(&[helper_1, helper_2], &manifest));
+        assert!(only_claim_helpers(&[helper_2], &manifest));
+        assert!(!only_claim_helpers(&[helper_1, in_scope], &manifest));
+        assert!(!only_claim_helpers(&[in_scope], &manifest));
+        assert!(!only_claim_helpers(&[helper_1, None], &manifest));
+        assert!(!only_claim_helpers(&[Some(("N", "helper_1"))], &manifest));
+        assert!(!only_claim_helpers(&[], &manifest));
+    }
 }
