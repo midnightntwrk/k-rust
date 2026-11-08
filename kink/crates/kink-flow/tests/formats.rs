@@ -47,12 +47,17 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// moved by the key `weakening` and the value `stack-stops`, since the refusal's reason is an
 /// argument of `Refusal::new` and a warning kind one of `warning(..)`. Version 10 adds the
 /// `stopped` value `open-stops` and the warnings `open-application` and
-/// `last-run-without-mutation`; the digest moved by the value `open-stops`.
+/// `last-run-without-mutation`; the digest moved by the value `open-stops`. Version 11 adds the
+/// kill job of a condition flip a front end derives, `job.flip`, and the refusal of a refused
+/// flip; the digest moved by the key `flip` and the value `kill`, the job kind the refusal of a
+/// flip writes as a literal (every other kill job's kind is computed by `FuzzJob::kind`); the
+/// refusal's stage and reason are arguments of `Refusal::new` and its `job.status` a constant,
+/// neither of which the reader takes.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    10,
+    11,
     10,
     2,
-    "1c71700f809209d6e8f8e0bffbadce4abc958d1d12dcd76ac97d5a534f8a3856",
+    "db1dcbf4eccef2f2914fdd247eb52717691720a05e85b25617e677bf04c62492",
 );
 
 /// `source` without `//` comments, string literals kept whole.
