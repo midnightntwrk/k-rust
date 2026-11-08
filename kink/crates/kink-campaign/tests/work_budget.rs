@@ -190,6 +190,7 @@ const fn calibrated(factor: u64, floor: u64) -> RunOptions {
         baseline_max_work: None,
         smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         stop: kink_campaign::Stop::NONE,
+        observe: kink_campaign::Observe::NONE,
     }
 }
 
@@ -323,6 +324,7 @@ mod kink_tier {
                 baseline_max_work: None,
                 smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
                 stop: kink_campaign::Stop::NONE,
+                observe: kink_campaign::Observe::NONE,
             };
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                 for options in [

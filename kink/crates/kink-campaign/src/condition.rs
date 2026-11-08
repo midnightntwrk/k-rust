@@ -328,6 +328,11 @@ impl KoreSignature {
         Ok(ReadSignature { sorts, symbols })
     }
 
+    /// The symbols the cells `cells` reach in this signature ([`ReadSignature`]).
+    pub(crate) fn read_symbols(&self, cells: &[Vec<String>]) -> Result<BTreeSet<String>, String> {
+        self.reads(cells).map(|read| read.symbols)
+    }
+
     /// Why the front end, which reads every side's cells with the declarations of `baseline`,
     /// cannot read the cells `cells` of a run of the definition whose declarations are `self`
     /// (module documentation, "Reading a mutant's cells"); `None` when it can; `Err` when either

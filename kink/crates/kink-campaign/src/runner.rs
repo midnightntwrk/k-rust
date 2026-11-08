@@ -158,9 +158,28 @@
 //! rewrite rule there, or the baseline's campaign is refused and a mutant is not admitted
 //! (`StopUnresolved`), never run without its stop, which would compare ends of two different
 //! observations.
+//!
+//! A campaign may also declare observation channels ([`RunOptions::observe`],
+//! [`crate::observation`]). Every result run then carries a probe within its one request: the
+//! baseline's records its channels, and each mutant's compares its elements with that record as
+//! they come and ends the request at the first difference. Each test gets one slot more, after its
+//! end slots, which distinguishes at the first decided difference of the two runs' channels, never
+//! past either side's open point. A baseline run that a deterministic bound cut and that is
+//! otherwise complete is a prefix program: it has no end, so admission does not read its end
+//! sides (a complete path of it that crashed still meets each slot's crash policy) and its end
+//! slots agree within its horizon, and its channels decide the test. A baseline run whose log did
+//! not only grow by appending refuses the campaign (`log-not-appended`). A name of
+//! a point class must label a rewrite rule on each side, or the baseline's campaign is refused
+//! and a mutant is not admitted (`PointUnresolved`); a mutant whose declarations of the read
+//! cells' values differ from the baseline's is not admitted either (`ObservationIncompatible`).
+//! A campaign without a declaration makes every request, judges every run and admits every mutant
+//! as before observations existed.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use k_rust::k_rust_backend::definition::BackendDefinition;
 
 use k_rust::backend::{Backend, BackendOptions, counter_erased};
 use k_rust::k_rust_backend::nesting::SegmentRefused;
@@ -180,11 +199,14 @@ use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, DefinitionTables, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
-    HaltClass, ResultModality, ResultRun, SolverProfile, StepRunFailure, SteppedExecution,
-    StopRules,
+    HaltClass, RequestProbe, ResultModality, ResultRun, SolverProfile, StepRunFailure,
+    SteppedExecution, StopRules,
 };
 
 use crate::condition::{KoreSignature, StopWhen};
+use crate::observation::{
+    BaselineRecord, Comparison, LeafFacts, Observation, ObservationProbe, Observe, Resolved, Trace,
+};
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
 use kink_native::signature::{DefinitionFacts, definition_facts};
@@ -449,6 +471,14 @@ pub struct RunNotes {
     /// ([`ExecutionFailureKind::StopCondition`]): the last arrival the condition was left
     /// undecided at, with its reason, or the condition's refusal. `None` for every other run.
     pub stop_condition: Option<String>,
+    /// What the run observed of its channels, under an observation declaration
+    /// ([`RunOptions::observe`], [`crate::observation`]): a baseline's record, which every
+    /// mutant's run of the test is compared with, or a mutant's comparison with it and, on the
+    /// mutant's evidence of a pair, the observation slot's verdict (its position on `Distinguish`,
+    /// its horizon on an `Agree` that rests on the baseline's prefix). The record decides the
+    /// observation slot and whether the baseline is a prefix program: it is the one member of the
+    /// notes a comparison reads. `None` for a run without a declaration.
+    pub observation: Option<Observation>,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -523,6 +553,10 @@ pub struct RunOptions {
     /// Where every result run ends besides its own end ([`Stop`]), on the baseline and on every
     /// mutant; [`Stop::NONE`] by default, under which every run is the run before stops existed.
     pub stop: Stop,
+    /// The observation channels every result run is compared by besides its end slots
+    /// ([`Observe`], [`crate::observation`]); [`Observe::NONE`] by default, under which every
+    /// run, key and verdict is the one before observations existed.
+    pub observe: Observe,
 }
 
 impl Default for RunOptions {
@@ -534,6 +568,7 @@ impl Default for RunOptions {
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
             stop: Stop::NONE,
+            observe: Observe::NONE,
         }
     }
 }
@@ -550,7 +585,8 @@ impl RunOptions {
     /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]; and
     /// `baseline_max_work` only when it is set, so the value of every option set without it, a
     /// kink-corpus index entry's included, is the value it had before the option existed, and
-    /// absence means exactly `None`; `stop` likewise only with a stop ([`Stop::value`]).
+    /// absence means exactly `None`; `stop` likewise only with a stop ([`Stop::value`]), and
+    /// `observe` only with an observation declaration ([`Observe::value`]).
     /// `smt_resource_limit` is a member under the Z3 profile only: under the no-Z3 profile no
     /// backend reads it, so it decides nothing a store keeps, and the value is the one the options
     /// had before it existed. A store that records the options its runs were made with
@@ -567,6 +603,7 @@ impl RunOptions {
             baseline_max_work,
             smt_resource_limit,
             stop,
+            observe,
         } = *self;
         let work = match work {
             WorkBudget::Unbounded => Value::Null,
@@ -585,6 +622,9 @@ impl RunOptions {
         }
         if let Some(stop) = stop.value() {
             value["stop"] = stop;
+        }
+        if let Some(observe) = observe.value() {
+            value["observe"] = observe;
         }
         value
     }
@@ -797,18 +837,22 @@ impl Stop {
         budget: ExecutionBudget,
         run: ResultRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        self.execute_asking(adapter, backend, tables, test_id, initial, budget, run)
-            .0
+        self.execute_asking(
+            adapter, backend, tables, test_id, initial, budget, run, None,
+        )
+        .0
     }
 
     /// [`Self::execute_result_with`], and the reason of the last arrival the stop's condition
     /// was left undecided at, when it was. With a condition the request asks it at each arrival
     /// (kink-native `ExecutionAdapter::execute_result_counted`); a condition its oracle cannot
     /// give fails the run as the condition's refusal does
-    /// ([`ExecutionAdapterFailure::StopCondition`]).
+    /// ([`ExecutionAdapterFailure::StopCondition`]). With `probe` the request carries it
+    /// (kink-native `ExecutionAdapter::execute_result_probed`), composed with the stop and its
+    /// condition within the one request.
     #[expect(
         clippy::too_many_arguments,
-        reason = "Self::execute_result_with's inputs"
+        reason = "Self::execute_result_with's inputs and the run's probe"
     )]
     fn execute_asking(
         self,
@@ -819,6 +863,7 @@ impl Stop {
         initial: &Pattern,
         budget: ExecutionBudget,
         run: ResultRun,
+        probe: Option<RequestProbe<'_>>,
     ) -> (
         Result<AdaptedExecution, ExecutionAdapterFailure>,
         Option<String>,
@@ -828,14 +873,14 @@ impl Stop {
             .unwrap_or((&NO_STOP, std::num::NonZeroU64::MIN));
         let Some(when) = self.when() else {
             return (
-                adapter.execute_result_counted(
-                    backend, tables, initial, budget, run, rules, count, None,
+                adapter.execute_result_probed(
+                    backend, tables, initial, budget, run, rules, count, None, probe,
                 ),
                 None,
             );
         };
         match when.asking(|condition| {
-            adapter.execute_result_counted(
+            adapter.execute_result_probed(
                 backend,
                 tables,
                 initial,
@@ -844,6 +889,7 @@ impl Stop {
                 rules,
                 count,
                 Some(condition),
+                probe,
             )
         }) {
             Ok((execution, undecided)) => (execution, undecided),
@@ -1189,6 +1235,9 @@ struct BaselineKey {
     max_work: Option<u64>,
     /// The result run's stop (`Runtime::execute`; [`RunOptions::stop`]).
     stop: Stop,
+    /// The result run's observation declaration (`Runtime::execute_against`;
+    /// [`RunOptions::observe`]), whose probe records the run's channels.
+    observe: Observe,
 }
 
 /// A stored live baseline run, under its key.
@@ -1643,6 +1692,10 @@ impl<'v> BaselineSession<'v> {
             modality: runtime.modality,
             max_work: runtime.baseline_max_work,
             stop: runtime.stop,
+            observe: runtime
+                .observe
+                .as_ref()
+                .map_or(Observe::NONE, |observing| observing.declared),
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
             let (evidence, cache) = match &stored.run {
@@ -1670,7 +1723,8 @@ impl<'v> BaselineSession<'v> {
             self.record_baseline(&cache, true);
             return (evidence, cache);
         }
-        let (evidence, executed) = runtime.run_keeping(campaign, test, runtime.baseline_max_work);
+        let (evidence, executed) =
+            runtime.run_keeping(campaign, test, runtime.baseline_max_work, None);
         let cache = executed.cache.clone();
         self.record_baseline(&cache, false);
         self.live += 1;
@@ -1779,7 +1833,8 @@ fn run_campaign_session(
         .iter()
         .map(|test| ManifestTest {
             test_id: test.id.clone(),
-            slot_count: test.oracles.len(),
+            // The observation slot comes after the end slots.
+            slot_count: test.oracles.len() + usize::from(!options.run.observe.is_none()),
         })
         .collect::<Vec<_>>();
     check_manifest(&manifest)?;
@@ -1809,7 +1864,7 @@ fn run_campaign_session(
         campaign,
         &baseline,
         options.run.backend_options(),
-        options.run.stop.when().is_some(),
+        options.run.stop.when().is_some() || !options.run.observe.is_none(),
     )
     .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
@@ -1853,6 +1908,14 @@ fn run_campaign_session(
                 format!("stop-condition: {reason} on the baseline"),
             ));
         }
+    }
+    if !options.run.observe.is_none() {
+        runtime.observe = Some(Arc::new(observing(
+            campaign,
+            &baseline,
+            options.run.observe,
+            &mut runtime,
+        )?));
     }
     // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
     // a name the author gives that the baseline refuses refuses a call with a mutant. Every call
@@ -1987,6 +2050,21 @@ fn run_campaign_session(
                     "the baseline run of test {test_id} is no evidence: {}",
                     exclusion.name()
                 ),
+            ));
+        }
+        if admission == BaselineAdmission::OracleFailed
+            && let Some((test_id, refusal)) = baseline_evidence.iter().find_map(|evidence| {
+                // A run that gave no sides is refused for that first ([`admit`]).
+                matches!(evidence.run, SideRun::Sides { .. }).then_some(())?;
+                baseline_record(evidence)?
+                    .refusal
+                    .as_deref()
+                    .map(|refusal| (&evidence.test_id, refusal))
+            })
+        {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::BaselineOracleFailed,
+                format!("observe: the baseline run of test {test_id} refuses it: {refusal}"),
             ));
         }
         validate_baseline(admission)?;
@@ -2139,6 +2217,113 @@ fn run_campaign_session(
     })
 }
 
+/// The campaign's observation declaration `observe` as every side's runs observe it, on the
+/// baseline `baseline` and its runtime `runtime` ([`Observing`]).
+///
+/// # Errors
+///
+/// The campaign is refused (`InvalidDeclaration`) when a test has a pattern oracle (its stepped
+/// run carries no probe, so its sides would be of another run than the channels), when a name of
+/// a point class labels no rewrite rule of the baseline (`point-unresolved`), and when a cell
+/// states no observation of the baseline's configuration ([`Observe::resolve`]).
+fn observing(
+    campaign: &Campaign<'_>,
+    baseline: &ValidatedDefinition,
+    observe: Observe,
+    runtime: &mut Runtime,
+) -> Result<Observing, CampaignFailure> {
+    let invalid = |detail: String| {
+        CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            format!("observe: {detail}"),
+        )
+    };
+    if let Some(test) = campaign.tests.iter().find(|test| has_pattern_slot(test)) {
+        return Err(invalid(format!(
+            "test {} has a pattern oracle, whose stepped run carries no observation probe",
+            test.id
+        )));
+    }
+    let unresolved = observe
+        .rules()
+        .unresolved(&mut runtime.backend)
+        .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    if !unresolved.is_empty() {
+        return Err(invalid(format!(
+            "point-unresolved: {} label no rewrite rule of the baseline",
+            unresolved.join(", ")
+        )));
+    }
+    let kore = parse_definition(&baseline.artifacts().definition_kore)
+        .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    let layout = crate::CellLayout::of_parsed(baseline, &kore)
+        .map_err(|refusal| invalid(format!("{refusal:?}")))?;
+    let resolved = observe.resolve(&layout, &kore).map_err(invalid)?;
+    let shared = runtime
+        .backend
+        .select_definition(None)
+        .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    Ok(Observing {
+        declared: observe,
+        resolved,
+        shared,
+        trusted: runtime.exclusions.collections_trusted(),
+    })
+}
+
+/// Why the mutant whose runtime is `mutant` is not admitted under the observation `observing`,
+/// read on the baseline whose declarations `admission` holds; `None` when it is admitted (module
+/// [`crate::observation`]).
+/// - `PointUnresolved`: a name of a point class labels no rewrite rule of the claim-free mutant
+///   (the edit deleted the rule, made it an equation or dropped its label). Positions are named
+///   by label, which is metadata, so no kill may rest on an edit of a label.
+/// - `ObservationIncompatible`: the cells the declaration reads could hold a term that denotes
+///   another value on the mutant than on the baseline: a sort or symbol those cells reach on
+///   either side is declared by both otherwise ([`KoreSignature::incompatibility`]), a symbol they
+///   reach that both declare is a free constructor on one side only (an `anywhere` rule or an
+///   overload axiom heads it on the other), or the mutant does not trust its collection terms
+///   where the baseline does. Every element is read as a value under the baseline's definition,
+///   so where neither holds, a term that is a value there denotes the same value in both.
+fn observation_refusal(
+    observing: &Observing,
+    admission: &MutantAdmission,
+    mutant: &mut Runtime,
+) -> Option<MutantScopeFailure> {
+    match observing.declared.rules().unresolved(&mut mutant.backend) {
+        Ok(unresolved) if unresolved.is_empty() => {}
+        Ok(_) => return Some(MutantScopeFailure::PointUnresolved),
+        Err(_) => return Some(MutantScopeFailure::Infrastructure),
+    }
+    let cells = observing.resolved.cells();
+    let incompatible = || MutantScopeFailure::ObservationIncompatible;
+    let (Some(baseline), Some(own)) = (&admission.signature, &mutant.signature) else {
+        return Some(incompatible());
+    };
+    if !own
+        .incompatibility(baseline, cells)
+        .is_ok_and(|incompatibility| incompatibility.is_none())
+    {
+        return Some(incompatible());
+    }
+    if observing.trusted && !mutant.exclusions.collections_trusted() {
+        return Some(incompatible());
+    }
+    let Ok(definition) = mutant.backend.select_definition(None) else {
+        return Some(MutantScopeFailure::Infrastructure);
+    };
+    let (Ok(theirs), Ok(mine)) = (baseline.read_symbols(cells), own.read_symbols(cells)) else {
+        return Some(incompatible());
+    };
+    let differs = theirs.union(&mine).any(|symbol| {
+        let on = |side: &BackendDefinition| side.symbols().contains_key(symbol.as_str());
+        on(&observing.shared)
+            && on(&definition)
+            && kink_native::feasibility::is_free_constructor(&observing.shared, symbol)
+                != kink_native::feasibility::is_free_constructor(&definition, symbol)
+    });
+    differs.then(incompatible)
+}
+
 /// The patches the runner's mutant preparation compiles for `patch`: the patch itself and, when
 /// [`ClaimSupport::withdraw`] gives a trusted withdrawal that removes claims, its withdrawing
 /// patch (re-pin L1-3: what a caller compiles ahead, [`NativeValidator::compile_ahead`]). A patch
@@ -2206,7 +2391,13 @@ fn baseline_exclusion(evidence: &[TestEvidence]) -> Option<(&str, Exclusion)> {
 
 /// A baseline side that failed is `Error`; one that is bounded, unknown or a crash its
 /// declaration rejects is `OracleFailed`, and so is a baseline run that is excluded
-/// ([`kink_native::exclusion`]): it completed but is no evidence, as an unknown side.
+/// ([`kink_native::exclusion`]): it completed but is no evidence, as an unknown side. Under an
+/// observation declaration, a run whose log did not only grow by appending is `OracleFailed`
+/// (`log-not-appended`, [`crate::observation::BaselineRecord::refusal`]), and a prefix
+/// program's sides are not read: it has no end, and its channels are compared up to their
+/// horizons ([`crate::observation::BaselineRecord::prefix`]). A complete path of it that crashed
+/// still meets each slot's crash policy, as a crashing side does
+/// ([`crate::observation::BaselineRecord::crashed`]).
 ///
 /// The exception is a baseline run a leaf of which contradicts a trusted claim (re-pin decision
 /// 2, per test since Sebastien's 2026-10-17 decision): it makes that test
@@ -2236,6 +2427,24 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
             }
             SideRun::Failed(_) => return BaselineAdmission::Error,
         };
+        let record = baseline_record(evidence);
+        if record.is_some_and(|record| record.refusal.is_some()) {
+            admission = BaselineAdmission::OracleFailed;
+            continue;
+        }
+        // A prefix program has no end: its end slots compare nothing, and it is admitted for its
+        // observation channels ([`crate::observation`]), under each slot's crash policy.
+        if let Some(record) = record.filter(|record| record.prefix) {
+            if record.crashed
+                && test
+                    .oracles
+                    .iter()
+                    .any(|declaration| declaration.crash_policy() == CrashPolicy::Reject)
+            {
+                admission = BaselineAdmission::OracleFailed;
+            }
+            continue;
+        }
         for (declaration, side) in test.oracles.iter().zip(sides) {
             match side {
                 OracleSide::Error => return BaselineAdmission::Error,
@@ -2374,7 +2583,7 @@ fn run_mutant(
             patch,
             compiled_baseline,
             admission,
-            options.run.stop,
+            options.run.stop.when().is_some() || !options.run.observe.is_none(),
         ),
     };
     match gated {
@@ -2410,6 +2619,14 @@ fn run_mutant(
                 Ok(_) => Some(MutantScopeFailure::StopUnresolved),
                 Err(_) => Some(MutantScopeFailure::Infrastructure),
             };
+            // The observation names its positions on this side too, and reads its cells with the
+            // baseline's declarations: a mutant on which either fails is not run under it.
+            let failure = failure.or_else(|| {
+                let observing = observations.runtime.observe.clone()?;
+                let refusal = observation_refusal(&observing, admission, &mut sides.runtime);
+                sides.runtime.observe = Some(observing);
+                refusal
+            });
             if let Some(failure) = failure {
                 return MutantExecution {
                     tests: Vec::new(),
@@ -2538,13 +2755,14 @@ fn mutant_selection(
 /// Builds the mutant every test runs on ([`claim_free_mutant`]) and its runtime, or its
 /// mutant-scope failure with the claims its patch leaves unbacked. A preparation failure after
 /// the claim-free mutant is built is the mutant side's (`Infrastructure`). The runtime holds the
-/// mutant's declarations only when `stop` has a condition, whose admission reads them.
+/// mutant's declarations only when `declarations` (a stop condition's admission or an observation
+/// declaration's reads them).
 fn prepare_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
     admission: &MutantAdmission,
-    stop: Stop,
+    declarations: bool,
 ) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
     let ClaimFreeMutant {
         side,
@@ -2567,7 +2785,7 @@ fn prepare_mutant(
     let ground_witness = ground_witness.unwrap_or_else(|| edit.clone());
     // The claim-free mutant's backend was loaded once, for its facts, and runs its tests; its
     // facts judge its ends and, in each pair, the baseline's (KINK-OVERLOAD-VALUE).
-    let mut runtime = Runtime::from_loaded(campaign, &side, loaded, stop.when().is_some())
+    let mut runtime = Runtime::from_loaded(campaign, &side, loaded, declarations)
         .map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
     runtime.data = Some(data);
     Ok((
@@ -2949,9 +3167,12 @@ fn run_tests(
                     one_sided: cached.one_sided.clone(),
                 },
             ),
-            None => sides
-                .runtime
-                .run_bounded(campaign, test, pair.mutant_max_work),
+            None => sides.runtime.run_compared(
+                campaign,
+                test,
+                pair.mutant_max_work,
+                baseline_record(baseline),
+            ),
         };
         if let Some(recording) = &cache.recording {
             recordings.push(recording.clone());
@@ -3028,6 +3249,30 @@ fn run_tests(
             .iter()
             .map(|terminal| terminal.state.clone())
             .collect();
+        // The observation slot, after the end slots ([`crate::observation::judge`]), on the
+        // mutant's sides as the pair judged them.
+        let observed = sides.runtime.observe.is_some().then(|| {
+            let record = baseline_record(&paired_baseline);
+            let mutant_sides = match &mutant.run {
+                SideRun::Sides { sides } => Some(sides.clone()),
+                SideRun::Failed(_) => None,
+            };
+            let undefined = mutant.undefined_steps && mutant.ends.is_empty();
+            let verdict = match (record, &mut mutant.notes.observation) {
+                (Some(record), Some(Observation::Compared(comparison))) => {
+                    let verdict = crate::observation::judge(
+                        record,
+                        comparison,
+                        mutant_sides.as_deref(),
+                        undefined,
+                    );
+                    comparison.verdict = Some(verdict.clone());
+                    verdict.outcome
+                }
+                _ => OracleOutcome::Unknown,
+            };
+            (verdict, record.is_some_and(|record| record.prefix))
+        });
         let run = match (&paired_baseline.run, &mutant.run) {
             // Admission keeps a baseline run that contradicts a claim: the test is unknown.
             (SideRun::Failed(ExecutionFailureKind::ContradictedClaim), _) => {
@@ -3044,7 +3289,11 @@ fn run_tests(
                     .iter()
                     .zip(baseline.iter().zip(mutant))
                     .map(|(declaration, (baseline, mutant))| {
-                        if matches!(declaration.projection(), Projection::Pattern { .. })
+                        // A prefix program has no end: within its horizon its end slots have
+                        // nothing to compare, and its channels decide the test.
+                        if observed.is_some_and(|(_, prefix)| prefix) {
+                            OracleOutcome::Agree
+                        } else if matches!(declaration.projection(), Projection::Pattern { .. })
                             && !matches!(baseline, OracleSide::Normal(_))
                         {
                             OracleOutcome::Unknown
@@ -3066,6 +3315,7 @@ fn run_tests(
                             }
                         }
                     })
+                    .chain(observed.map(|(outcome, _)| outcome))
                     .collect(),
             ),
             // Admission refused every other failed baseline run.
@@ -3083,6 +3333,14 @@ fn run_tests(
     (tests, evidence, recordings)
 }
 
+/// The baseline's record of its channels in its run's evidence `evidence`, when it has one.
+fn baseline_record(evidence: &TestEvidence) -> Option<&BaselineRecord> {
+    match &evidence.notes.observation {
+        Some(Observation::Recorded(record)) => Some(record),
+        _ => None,
+    }
+}
+
 /// The classifier-independent part of one run ([`Runtime::execute`]): the adapter's execution,
 /// the side a pattern slot gets when stepping failed, and the run cache.
 struct Executed {
@@ -3092,6 +3350,10 @@ struct Executed {
     /// The last arrival the stop's condition was left undecided at, with its reason, when the
     /// run asked a condition and it was ([`Stop::with_when`]).
     undecided: Option<String>,
+    /// What the run's observation probe built of its channels ([`RunOptions::observe`]), and
+    /// whether it compared them with a baseline's record (a mutant's run); `None` for a run
+    /// without a declaration.
+    observed: Option<(Trace, bool)>,
 }
 
 /// Stepped evidence retained from the primary run, its rule coverage when the side records
@@ -3611,8 +3873,21 @@ struct Runtime {
     solver: BackendOptions,
     /// The declarations a stop condition's read signature is read from
     /// ([`crate::condition`], "Reading a mutant's cells"); `None` on a side loaded for a
-    /// campaign without a stop condition.
+    /// campaign without a stop condition or an observation declaration.
     signature: Option<KoreSignature>,
+    /// The campaign's observation declaration as the side's result runs observe it
+    /// ([`RunOptions::observe`]); `None` without one.
+    observe: Option<Arc<Observing>>,
+}
+
+/// An observation declaration as every side's runs observe it: resolved on the baseline
+/// ([`Observe::resolve`]), with the baseline's definition, under which every element's value is
+/// read on every side, and whether that definition trusts its collection terms.
+struct Observing {
+    declared: Observe,
+    resolved: Resolved,
+    shared: Arc<BackendDefinition>,
+    trusted: bool,
 }
 
 /// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
@@ -3738,6 +4013,7 @@ impl Runtime {
             functions,
             solver,
             signature,
+            observe: None,
         })
     }
 
@@ -3773,7 +4049,20 @@ impl Runtime {
         test: &TestCase,
         max_work: Option<u64>,
     ) -> (TestEvidence, RunCache) {
-        let (evidence, executed) = self.run_keeping(campaign, test, max_work);
+        let (evidence, executed) = self.run_keeping(campaign, test, max_work, None);
+        (evidence, executed.cache)
+    }
+
+    /// [`Runtime::run_bounded`] of a mutant's run, whose observation probe compares its channels
+    /// with the baseline's record `against` ([`RunOptions::observe`]).
+    fn run_compared(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        max_work: Option<u64>,
+        against: Option<&BaselineRecord>,
+    ) -> (TestEvidence, RunCache) {
+        let (evidence, executed) = self.run_keeping(campaign, test, max_work, against);
         (evidence, executed.cache)
     }
 
@@ -3784,9 +4073,10 @@ impl Runtime {
         campaign: &Campaign<'_>,
         test: &TestCase,
         max_work: Option<u64>,
+        against: Option<&BaselineRecord>,
     ) -> (TestEvidence, Executed) {
         let started = Instant::now();
-        let mut executed = self.execute(campaign, test, max_work);
+        let mut executed = self.execute_against(campaign, test, max_work, against);
         let (evidence, one_sided) = self.judge_with(campaign, test, &executed, None);
         executed.cache.one_sided = one_sided;
         // Recording only (flow F-13): read from the execution the run already has.
@@ -3811,11 +4101,26 @@ impl Runtime {
     /// with a stop ([`RunOptions::stop`]) is one request to the test's count
     /// ([`Stop::execute_result`]); one without is the request it was before stops existed. Every
     /// result run reads the side's definition tables, built on its first.
+    #[cfg(test)]
     fn execute(
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
         max_work: Option<u64>,
+    ) -> Executed {
+        self.execute_against(campaign, test, max_work, None)
+    }
+
+    /// [`Runtime::execute`], with the side's observation probe on a result run under an
+    /// observation declaration: recording the run's channels, or comparing them with the
+    /// baseline's record `against` on a mutant's run ([`crate::observation`]). A mutant's run
+    /// without a record to compare with (its baseline's run gave none) carries no probe.
+    fn execute_against(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        max_work: Option<u64>,
+        against: Option<&BaselineRecord>,
     ) -> Executed {
         stage_log::note(campaign, stage_log::Stage::Execute);
         let mut cache = RunCache::default();
@@ -3825,6 +4130,7 @@ impl Runtime {
             .any(|declaration| matches!(declaration.projection(), Projection::Pattern { .. }));
         let mut pattern_failure = OracleSide::Unknown;
         let mut undecided = None;
+        let mut observed = None;
         let execution = if has_pattern {
             match self.adapter.execute_steps(
                 &mut self.backend,
@@ -3866,6 +4172,25 @@ impl Runtime {
                 guards: self.coverage.is_some(),
                 bindings: self.coverage.is_some(),
             };
+            let observing = self.observe.clone();
+            let compared = self.coverage.is_none();
+            let mut probe = observing
+                .as_ref()
+                .filter(|_| !compared || against.is_some())
+                .map(|observing| {
+                    let trusted = observing.trusted && self.exclusions.collections_trusted();
+                    ObservationProbe::new(
+                        &observing.resolved,
+                        &observing.shared,
+                        trusted,
+                        &test.initial_state,
+                        against,
+                    )
+                });
+            let request = probe.as_mut().map(|probe| RequestProbe {
+                rules: probe.rules(),
+                probe,
+            });
             let (execution, asked) = self.stop.execute_asking(
                 &self.adapter,
                 &mut self.backend,
@@ -3874,7 +4199,9 @@ impl Runtime {
                 &test.initial_state,
                 campaign.budget,
                 run,
+                request,
             );
+            observed = probe.map(|probe| (probe.finish(), against.is_some()));
             undecided = asked;
             execution
         };
@@ -3892,6 +4219,7 @@ impl Runtime {
             pattern_failure,
             cache,
             undecided,
+            observed,
         }
     }
 
@@ -3965,6 +4293,7 @@ impl Runtime {
                 unjudged: false,
                 incomplete_leaves: BTreeSet::new(),
                 stop_condition: None,
+                observation: None,
             },
             _ => RunNotes::default(),
         };
@@ -3976,6 +4305,17 @@ impl Runtime {
         let mut ends = BTreeSet::new();
         let mut stop_ends = BTreeSet::new();
         let mut undefined_steps = false;
+        // Whether a complete path of the run ended in a semantic crash ([`crate::observation`]:
+        // a prefix program's admission reads it under its slots' crash policies).
+        let mut crashed = false;
+        // Whether the bridge kept the run's one path as complete or as a real prefix
+        // ([`crate::observation`]): for a probe's leaf, `ResultLimit`, which the bridge gives one
+        // whose state has a terminal value or is shown to exist.
+        let mut vouched = false;
+        // For a run with an observation probe, whether each leaf's state is shown to exist
+        // ([`LeafFacts::existence`]), on the definition that produced it, under its collection
+        // trust; empty for a run the decider did not judge, which shows no leaf to exist.
+        let mut existing = Vec::new();
         // Whether the decider's judgements met a stack stop ([`judgement`]), which marks the run
         // unjudged below.
         let mut stack_stopped = false;
@@ -4033,6 +4373,13 @@ impl Runtime {
                             } else {
                                 Vec::new()
                             };
+                            if executed.observed.is_some() {
+                                existing = execution
+                                    .leaves()
+                                    .iter()
+                                    .map(|leaf| LeafFacts::existence(leaf, exists))
+                                    .collect();
+                            }
                             (bridged, one_sided)
                         })
                         .unwrap_or_else(|refused| {
@@ -4086,6 +4433,10 @@ impl Runtime {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
                         None => {
                             terminals = one_sided;
+                            vouched = matches!(
+                                bridged.paths.as_slice(),
+                                [path] if path.complete || path.stop.has_real_prefix()
+                            );
                             let sides = test
                                 .oracles
                                 .iter()
@@ -4129,6 +4480,8 @@ impl Runtime {
                                 if terminal.kind == ExecutionTerminalKind::UndefinedStep {
                                     undefined_steps = true;
                                 } else {
+                                    crashed |=
+                                        terminal.kind == ExecutionTerminalKind::SemanticCrash;
                                     if path.path_key.is_some_and(|key| stopped.contains(&key)) {
                                         stop_ends.insert(terminal.state.clone());
                                     }
@@ -4142,6 +4495,15 @@ impl Runtime {
             },
         };
         notes.unjudged |= stack_stopped;
+        notes.observation = self.observation_note(
+            executed,
+            &run,
+            undefined_steps && ends.is_empty(),
+            crashed,
+            &notes,
+            vouched,
+            &existing,
+        );
         (
             TestEvidence {
                 test_id: test.id.clone(),
@@ -4155,6 +4517,70 @@ impl Runtime {
             },
             terminals,
         )
+    }
+
+    /// What `executed`'s observation probe built, as the run's notes report it
+    /// ([`RunNotes::observation`]): a baseline's record of its channels, ended by its run `run`
+    /// (its sides, whether every complete path is an undefined step, whether a complete path
+    /// crashed, its leaves' halts and those of its incomplete paths, `notes`'
+    /// [`RunNotes::incomplete_leaves`], and the facts of the path its leaves share), or a mutant's
+    /// comparison with its one leaf's facts, which the pair's slot reads ([`run_tests`]). The
+    /// facts read whether the bridge vouched for the run's one path (`vouched`) and whether each
+    /// leaf's state is shown to exist (`existing`, [`LeafFacts::existence`]).
+    #[allow(clippy::too_many_arguments)]
+    fn observation_note(
+        &self,
+        executed: &Executed,
+        run: &SideRun,
+        undefined_steps: bool,
+        crashed: bool,
+        notes: &RunNotes,
+        vouched: bool,
+        existing: &[bool],
+    ) -> Option<Observation> {
+        let (trace, compared) = executed.observed.clone()?;
+        let leaves = executed
+            .execution
+            .as_ref()
+            .ok()
+            .filter(|execution| !execution.timed_out())
+            .map(AdaptedExecution::leaves)
+            .unwrap_or_default();
+        if compared {
+            return Some(Observation::Compared(Comparison {
+                trace,
+                leaf: match leaves {
+                    [leaf] => Some(LeafFacts::of(
+                        leaf,
+                        vouched,
+                        existing.first().copied().unwrap_or(false),
+                    )),
+                    _ => None,
+                },
+                verdict: None,
+            }));
+        }
+        let observing = self.observe.as_ref()?;
+        let sides = match run {
+            SideRun::Sides { sides } => Some(sides.as_slice()),
+            SideRun::Failed(_) => None,
+        };
+        let halts = leaves.iter().map(|leaf| leaf.halt).collect::<Vec<_>>();
+        let incomplete = notes
+            .incomplete_leaves
+            .iter()
+            .filter_map(|index| halts.get(*index).copied())
+            .collect::<Vec<_>>();
+        Some(Observation::Recorded(crate::observation::record(
+            &observing.resolved,
+            trace,
+            sides,
+            undefined_steps,
+            crashed,
+            &halts,
+            &incomplete,
+            LeafFacts::shared(leaves, vouched, existing),
+        )))
     }
 
     /// The pattern-slot sides of one side's stepped run. This (the baseline's) definition and
@@ -5154,6 +5580,7 @@ mod tests {
                         pattern_failure: OracleSide::Unknown,
                         cache: RunCache::default(),
                         undecided: None,
+                        observed: None,
                     }
                 };
                 let mut stopped = raw();
@@ -5260,6 +5687,7 @@ mod tests {
                             modality: ResultModality::default(),
                             max_work: None,
                             stop: Stop::NONE,
+                            observe: Observe::NONE,
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -5454,6 +5882,7 @@ mod tests {
                         pattern_failure: OracleSide::Unknown,
                         cache: RunCache::default(),
                         undecided: None,
+                        observed: None,
                     }
                 };
                 let ground = RecordedRun {
@@ -5512,6 +5941,7 @@ mod tests {
                             modality: ResultModality::default(),
                             max_work: None,
                             stop: Stop::NONE,
+                            observe: Observe::NONE,
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -5584,6 +6014,7 @@ mod tests {
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
             stop: Stop::NONE,
+            observe: Observe::NONE,
         };
         assert_eq!(
             options.value(),
@@ -5804,6 +6235,7 @@ mod tests {
                     pattern_failure: OracleSide::Unknown,
                     cache: RunCache::default(),
                     undecided: None,
+                    observed: None,
                 };
                 assert_eq!(
                     runtime.judge_with(campaign, test, &executed(raw()), None),
@@ -7037,9 +7469,9 @@ mod tests {
                             evidence: Some(BTreeMap::new()),
                         };
                         let (mut sides_a, claims_a) =
-                            prepare_mutant(&campaign, &a, &compiled, &support, Stop::NONE).unwrap();
+                            prepare_mutant(&campaign, &a, &compiled, &support, false).unwrap();
                         let (mut sides_b, claims_b) =
-                            prepare_mutant(&campaign, &b, &compiled, &support, Stop::NONE).unwrap();
+                            prepare_mutant(&campaign, &b, &compiled, &support, false).unwrap();
                         assert!(claims_a.withdrawn.is_empty());
                         assert_eq!(claims_b.withdrawn.len(), 2);
                         assert!(claims_b.patch().is_some());
@@ -7077,7 +7509,7 @@ mod tests {
                             .unwrap();
                         cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
                         let (mut repeated, _) =
-                            prepare_mutant(&campaign, &a, &compiled, &support, Stop::NONE).unwrap();
+                            prepare_mutant(&campaign, &a, &compiled, &support, false).unwrap();
                         let (_, hit, _) = run_tests(
                             &campaign,
                             &mut repeated,

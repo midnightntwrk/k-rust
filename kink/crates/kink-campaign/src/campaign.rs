@@ -118,6 +118,21 @@ pub enum MutantScopeFailure {
     /// mutant could be asked another question; it is not run under it.
     /// [`MutantStatus::NotAdmitted`]: outside the score, never killed or survived.
     StopConditionIncompatible,
+    /// A name of a point class of the campaign's observation declaration selects no rewrite
+    /// rule of the claim-free mutant (`point-unresolved`; [`crate::Observe`]): the edit deleted
+    /// the rule, made it an equation or dropped its label. Positions are named by label, which is
+    /// metadata, so the mutant is not run under the declaration, and no kill rests on an edit of a
+    /// label (a mutation can state "this rule never fires" as `requires false`, which is judged).
+    /// [`MutantStatus::NotAdmitted`]: outside the score, never killed or survived.
+    PointUnresolved,
+    /// The cells the campaign's observation declaration reads could hold a term that denotes
+    /// another value on the claim-free mutant than on the baseline (`observation-incompatible`;
+    /// [`crate::observation`]): a sort or symbol they reach is declared otherwise, is a free
+    /// constructor on one side only, or the mutant does not trust its collection terms where the
+    /// baseline does. Every element is read with the baseline's definition, so the mutant is not
+    /// run under the declaration. [`MutantStatus::NotAdmitted`]: outside the score, never killed
+    /// or survived.
+    ObservationIncompatible,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -133,7 +148,9 @@ impl MutantScopeFailure {
             | Self::LoweringNontermination
             | Self::InconsistentMutant
             | Self::StopUnresolved
-            | Self::StopConditionIncompatible => MutantStatus::NotAdmitted,
+            | Self::StopConditionIncompatible
+            | Self::PointUnresolved
+            | Self::ObservationIncompatible => MutantStatus::NotAdmitted,
             Self::LoweringTimeLimit => MutantStatus::Timeout,
             Self::LoweringResourceLimit
             | Self::RepresentationRefused

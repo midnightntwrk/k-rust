@@ -81,6 +81,9 @@ pub enum ManifestError {
     /// The runs have a stop ([`crate::RunOptions::stop`]), which a manifest does not record, so
     /// it could not say what its report's verdicts are relative to.
     Stopped,
+    /// The runs have an observation declaration ([`crate::RunOptions::observe`]), which a
+    /// manifest does not record, so it could not say what its report's verdicts are relative to.
+    Observed,
     BaselineCompile(String),
     Census(String),
     Encode(String),
@@ -161,6 +164,9 @@ pub fn campaign_manifest_multi_with_options(
     }
     if !run.stop.is_none() {
         return Err(ManifestError::Stopped);
+    }
+    if !run.observe.is_none() {
+        return Err(ManifestError::Observed);
     }
     let compiled = validator
         .compile_baseline()

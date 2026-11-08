@@ -20,9 +20,14 @@ pub use cells::{
 };
 pub use condition::{StopOracle, StopWhen};
 pub mod identity;
+pub mod observation;
 pub use identity::{
     KINK_IDENTITY, RESULT_SCHEMA_VERSION, identity_difference, kink_build, kink_identity,
     writer_difference,
+};
+pub use observation::{
+    BaselineRecord, ChannelEnd, ChannelRecord, Closure, Comparison, Log, OBSERVATION_VERSION,
+    Observation, ObservationVerdict, Observe, PointClass, Position, Stutter,
 };
 mod manifest;
 mod oracle;

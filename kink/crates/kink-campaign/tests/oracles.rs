@@ -21,7 +21,7 @@ use kink_campaign::{
     derive_mutant_report, pattern_side, slot_outcome, state_side,
 };
 use kink_native::MutantRejection;
-use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
+use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop, probed_halt_stop};
 use kink_native::execution::{ExecutionAdapterFailure, HaltClass};
 use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, Withdrawal, apply};
 use kink_pattern::{
@@ -1039,7 +1039,24 @@ fn halt_side(
     projection: &StateProjection,
     halt: HaltClass,
 ) -> Result<OracleSide, ExecutionFailureKind> {
-    match halt_stop(halt) {
+    stop_side(projection, halt, halt_stop(halt))
+}
+
+/// [`halt_side`] of a leaf of a run with an observation probe, which carries the probe's answer
+/// exactly on a probe's halt (`probed_halt_stop`).
+fn probed_halt_side(
+    projection: &StateProjection,
+    halt: HaltClass,
+) -> Result<OracleSide, ExecutionFailureKind> {
+    stop_side(projection, halt, probed_halt_stop(halt, halt.is_probe()))
+}
+
+fn stop_side(
+    projection: &StateProjection,
+    halt: HaltClass,
+    stop: Result<Option<PathStop>, BridgeFailure>,
+) -> Result<OracleSide, ExecutionFailureKind> {
+    match stop {
         Ok(Some(stop)) => Ok(state_side(projection, &run(vec![incomplete(0, stop)]))),
         Ok(None) => Ok(state_side(
             projection,
@@ -1394,7 +1411,8 @@ fn runner_mapping_is_exhaustive() {
         (H::WorkBound, Ok(OracleSide::Unknown)),
         // Only a request with a stop condition has it, and kink asks none: a contract violation.
         (H::StopUndecided, infrastructure.clone()),
-        // Only a request with a probe has them, and kink asks none: a contract violation.
+        // Only a request with a probe has them: without one, a contract violation (a run with
+        // an observation probe reads them below).
         (H::ProbeDifference, infrastructure.clone()),
         (H::ProbeDone, infrastructure.clone()),
     ];
@@ -1402,8 +1420,20 @@ fn runner_mapping_is_exhaustive() {
         halts.iter().map(|(halt, _)| *halt).collect::<Vec<_>>(),
         HaltClass::ALL
     );
+    for (halt, expected) in &halts {
+        assert_eq!(halt_side(&whole, *halt), *expected, "{halt:?}");
+    }
+    // KINK-observation-traces T3b: a run with an observation probe (`RunOptions::observe`) reads
+    // a probe's leaf, which carries its answer, as a path the probe cut: incomplete, so every end
+    // slot is `Unknown`, and the observation slot reads the probe's comparison instead. Every
+    // other halt maps as without a probe.
     for (halt, expected) in halts {
-        assert_eq!(halt_side(&whole, halt), expected, "{halt:?}");
+        let expected = if halt.is_probe() {
+            Ok(OracleSide::Unknown)
+        } else {
+            expected
+        };
+        assert_eq!(probed_halt_side(&whole, halt), expected, "probed {halt:?}");
     }
 
     // Terminal sets.

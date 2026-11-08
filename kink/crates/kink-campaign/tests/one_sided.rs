@@ -258,6 +258,7 @@ const fn options(max_work: Option<u64>, one_sided: OneSided) -> RunOptions {
         baseline_max_work: None,
         smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         stop: kink_campaign::Stop::NONE,
+        observe: kink_campaign::Observe::NONE,
     }
 }
 

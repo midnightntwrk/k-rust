@@ -513,6 +513,16 @@ fn the_identity_is_an_object_of_its_components() {
         staged["stop"] = retired.into();
         assert_eq!(identity_difference(&staged).as_deref(), Some("stop"));
     }
+    // KINK-observation-traces T3b: the observation slot is a component, and an identity written
+    // before it (every other component equal) differs at it.
+    assert_eq!(identity["observation"], kink_campaign::OBSERVATION_VERSION);
+    assert_eq!(
+        kink_campaign::OBSERVATION_VERSION,
+        "kink-campaign/observation/v1"
+    );
+    let mut before = identity.clone();
+    before.as_object_mut().unwrap().remove("observation");
+    assert_eq!(identity_difference(&before).as_deref(), Some("observation"));
     assert_eq!(identity_difference(&identity), None);
     // Re-pin L2-1: coverage v2 (equations, matched and applied) is another coverage reading, so
     // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and

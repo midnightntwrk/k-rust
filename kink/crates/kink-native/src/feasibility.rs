@@ -291,6 +291,19 @@ pub(crate) fn free_constructor(symbol: &Symbol) -> bool {
         && !attributes.macro_or_alias
 }
 
+/// Whether `name` is a free constructor of `definition` ([`free_constructor`]): a symbol the
+/// definition declares whose applications are values of K's free term algebra there. Two
+/// definitions that declare a symbol alike can still differ here (an `anywhere` rule or an
+/// overload axiom of one heads it), and a ground term of such symbols denotes one value in both
+/// only where it is free in both (kink-campaign's observation admission).
+#[must_use]
+pub fn is_free_constructor(definition: &BackendDefinition, name: &str) -> bool {
+    definition
+        .symbols()
+        .get(name)
+        .is_some_and(|symbol| free_constructor(symbol))
+}
+
 /// The solver's answer to `query`, or `None` when it has none. A stop withholds only a
 /// refinement: every caller's outcome without an answer (`Unknown`, not proved) is sound, so
 /// the stop is dismissed and its owner observes it again. An undecided answer

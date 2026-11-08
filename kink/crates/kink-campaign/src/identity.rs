@@ -125,8 +125,12 @@ use std::{path::Path, sync::OnceLock};
 /// fired instances bound (the requested authored symbols that were the head of an operand, by
 /// sentence, and the values of the selected template binders), which `coverage`'s syntax family
 /// reads, and the key names the binding collection the run asked with (`bindings`); a v16 record
-/// has none, so every production would read unreached.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v17";
+/// has none, so every production would read unreached. v18: a program's result may rest on an
+/// observation declaration (kink-campaign `Observe`): a baseline run with one records its
+/// channels, and one that a deterministic bound cut and that is otherwise complete is a prefix
+/// program, comparable over its channels up to their horizons, where a v17 record of it was
+/// `unknown`; a record of a program run without a declaration is unchanged.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v18";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -145,7 +149,7 @@ pub struct Component {
 /// the first that differs. The k-rust revision comes last: a campaign manifest also names it in
 /// its `k_rust` member, which replay checks first, and a manifest written before packet CACHE-ID
 /// lacks it in `kink`, where the first kink algorithm it lacks is the more useful report.
-pub const KINK_IDENTITY: [Component; 17] = [
+pub const KINK_IDENTITY: [Component; 18] = [
     Component {
         key: "fingerprint",
         krate: "kink-patch",
@@ -244,6 +248,12 @@ pub const KINK_IDENTITY: [Component; 17] = [
         value: crate::runner::STOP_VERSION,
     },
     Component {
+        key: "observation",
+        krate: "kink-campaign",
+        constant: "OBSERVATION_VERSION",
+        value: crate::observation::OBSERVATION_VERSION,
+    },
+    Component {
         key: "k_rust_revision",
         krate: "kink-native",
         constant: "K_RUST_REVISION",
@@ -264,7 +274,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 36] = [
+pub const OUTSIDE_IDENTITY: [Outside; 37] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -388,6 +398,15 @@ pub const OUTSIDE_IDENTITY: [Outside; 36] = [
                  manifest of another version (replay.rs, summary.rs); the solver options a \
                  run's verdict depends on are not named by a version: the manifest records \
                  those of its runs (backend_options), so its text and digest name them",
+    },
+    Outside {
+        krate: "kink-campaign",
+        constant: "ELEMENT_DOMAIN",
+        reason: "the domain of an observation element's digest (observation.rs): a mutant's \
+                 elements are compared with its baseline's record of the same campaign call, \
+                 digested by the same build, and what an element is and how two are compared \
+                 is named by the component `observation` (OBSERVATION_VERSION), which moves \
+                 with any change of this domain",
     },
     Outside {
         krate: "kink-corpus",
