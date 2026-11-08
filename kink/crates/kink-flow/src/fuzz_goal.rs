@@ -192,7 +192,7 @@ fn at_of(value: &Value) -> Option<SentenceRef> {
 }
 
 /// The facts of a requirement item (module documentation).
-fn requirement_facts(
+pub(crate) fn requirement_facts(
     document: &Value,
     spec: &AdmittedSpec,
     item: &Value,
@@ -438,7 +438,7 @@ fn field_value_facts(manifest: &FlowManifest, item: &Value) -> Result<Vec<Covera
 
 /// The facts of a rules item: the firing of each compiled id of its sentence k-rust's coverage
 /// names, of a heating item its heating rule.
-fn rule_facts(spec: &AdmittedSpec, item: &Value) -> Result<Vec<CoverageFact>, Refused> {
+pub(crate) fn rule_facts(spec: &AdmittedSpec, item: &Value) -> Result<Vec<CoverageFact>, Refused> {
     if item["kind"] == HEATING {
         let axiom = item["heating"]["heat"]["axiom"]
             .as_str()

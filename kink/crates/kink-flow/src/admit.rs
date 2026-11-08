@@ -897,6 +897,13 @@ fn named_inputs(program: &Program, inputs: &CaseInputs) -> String {
 }
 
 impl InputSession<'_> {
+    /// The input backend: the specification's compiled KORE for its main module, with the
+    /// corpus's solver budget, which a question asked of the baseline definition outside any run
+    /// is asked on (`coverage`'s connection of an argued item's invariant).
+    pub(crate) fn backend(&mut self) -> &mut Backend {
+        self.backend
+    }
+
     /// Refuses `initial` (`program`'s assembled, concrete initial configuration from `inputs`)
     /// when it has no value on the baseline (stage `inputs`, reason `initial-undefined`): the
     /// baseline's run of it to depth 0, kink's run request bounded by `[budget] time_ms`, ends in

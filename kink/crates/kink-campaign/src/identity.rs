@@ -313,7 +313,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 40] = [
+pub const OUTSIDE_IDENTITY: [Outside; 41] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -539,6 +539,14 @@ pub const OUTSIDE_IDENTITY: [Outside; 40] = [
         reason: "the census memo record's format and meaning (re-pin L1-4): its reader requires it \
                  in the record's key, which also holds `kink_build` and the whole identity, and \
                  checks the record's digest under that key (memo.rs read)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "CONNECTION_MEMO_VERSION",
+        reason: "the connection memo record's format and meaning (an argued item's invariant): \
+                 its reader requires it in the record's key, which also holds `kink_build`, the \
+                 whole identity and the solver, and checks the record's digest under that key \
+                 (memo.rs read); a record gives one answer of an argued item's connection",
     },
     Outside {
         krate: "kink-flow",

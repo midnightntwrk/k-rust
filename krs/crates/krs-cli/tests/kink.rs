@@ -4291,6 +4291,130 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
     assert!(detail.contains("after `crate::nothing`"), "{detail}");
 }
 
+/// Two ordered cells: `bump` moves `high` down to `low` where `low > high`, which no state the
+/// definition reaches has, since `Ordered` (`low <= high`) holds of the initial state and `bump`
+/// keeps it; the corpus only idles, so `bump`'s condition is open. `Gap` reads the same cells and
+/// is not Bool.
+const BUMPER: &str = r#"use k::builtin::{Bool, Int, KSequence};
+use k::{KItem, Term};
+
+k::sorts! {
+    Op: KItem;
+}
+
+#[k::constructors(sort = Op, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Step {
+    #[k::syntax("bump")] Bump(),
+    #[k::syntax("idle")] Idle(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub low: Int,
+    #[k::cell]
+    pub high: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Op) -> Self {
+        Self { k: k::k![pgm], low: 0, high: 1 }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Step::*;
+
+    #[k::requires(low > high)]
+    bump: { k: [Bump(), ..], low, high } => { k: [..], high: low };
+    idle: { k: [Idle(), ..] } => { k: [..] };
+}
+
+/// Whether `low` is at most `high`.
+#[k::function(total, internal)]
+pub fn Ordered(low: Term<Int>, high: Term<Int>) -> Term<Bool> {
+    low <= high
+}
+"#;
+
+/// [`BUMPER`] with a corpus (`kink`) that argues `bump`'s condition on the invariant `Ordered`
+/// of the cells `low` and `high`, and one (`corpora/nothing`) whose invariant names a function
+/// the definition does not hold.
+fn bumper() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        let mut files = vec![("src/lib.rs".to_owned(), BUMPER.as_bytes().to_vec())];
+        for (corpus, function) in [("kink", "Ordered"), ("corpora/nothing", "Nothing")] {
+            files.push((
+                format!("{corpus}/FLOW.toml"),
+                format!(
+                    "[spec]\nkrs = {{ definition = \"main\" }}\n\n[[coverage.invariant]]\nname = \"ordered\"\nfunction = \"{function}\"\ncells = [\"low\", \"high\"]\n\n[[coverage.argued]]\nitem = \"requirement:crate::bump:held\"\nargument = \"no state has low above high\"\ninvariant = \"ordered\"\n\n[[program]]\nid = \"idle\"\nfile = \"cases/idle.b\"\n"
+                )
+                .into_bytes(),
+            ));
+            files.push((format!("{corpus}/cases/idle.b"), b"idle\n".to_vec()));
+        }
+        project_of("krs-cli-kink-bumper", "BUMPER", &files)
+    })
+}
+
+/// An argued item's invariant named with KRS's spellings, the function by its KRS path and the
+/// cells by Rust field path: the front end resolves it through krs-exec's resolver to the K
+/// symbol and the KORE cell paths, its identity names the function's full path and the
+/// definition's Definition IR digest, and the connection holds (`low > high` has no model where
+/// `low <= high`), so the item is `connected`. A function the definition does not hold refuses
+/// the corpus with krs-exec's message (`invariant-unresolved`).
+#[test]
+fn an_argued_items_krs_invariant_is_resolved_and_connected() {
+    let project = bumper();
+    let output = project.kink("coverage", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let check = &requirement_of(&document, "requirement:crate::bump:held")["argument_check"];
+    assert_eq!(
+        (&check["standing"], &check["connection"]["status"]),
+        (&json!("connected"), &json!("holds")),
+        "{check:#}"
+    );
+    let identity = &document["settings"]["invariants"][0]["identity"];
+    assert!(
+        identity["function"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("::Ordered")),
+        "{identity:#}"
+    );
+    assert!(identity["definition_ir"].is_string(), "{identity:#}");
+    assert!(identity["symbol"].is_string(), "{identity:#}");
+    let cells = identity["cells"].as_array().unwrap();
+    assert_eq!(cells.len(), 2, "{identity:#}");
+    assert!(
+        cells
+            .iter()
+            .all(|path| path.as_array().is_some_and(|path| path.len() >= 2)),
+        "{identity:#}"
+    );
+
+    let output = project.kink("coverage", &["--corpus", "corpora/nothing"]);
+    assert_status(&output, 2);
+    let refused = json(&output);
+    let spec = &refused["spec"];
+    assert_eq!(
+        (&spec["stage"], &spec["reason"]),
+        (&json!("coverage"), &json!("invariant-unresolved")),
+        "{spec:#}"
+    );
+    let detail = spec["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("`ordered`: ") && detail.contains("Nothing"),
+        "{detail}"
+    );
+}
+
 /// A free-running counter: `tick` adds 1 to `n` and ticks again, so a run never ends on its own,
 /// and `Third` holds where `n` is a multiple of 3: a stop condition of the one cell `n`.
 const STOPWATCH: &str = r##"use k::builtin::{Bool, Int, KSequence};

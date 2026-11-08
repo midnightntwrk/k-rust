@@ -122,8 +122,12 @@ pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v4";
 /// v2 since the memo is read and written under the Z3 profile too, its key naming the solver
 /// (`smt`).
 pub const CENSUS_MEMO_VERSION: &str = "kink-flow/census-memo/v2";
+/// The format and meaning of a connection memo record (its key's `version` and its digest's
+/// domain): the answer of one connection question of an argued item's invariant
+/// ([`connection_key`]).
+pub const CONNECTION_MEMO_VERSION: &str = "kink-flow/connection-memo/v1";
 /// The memos' directory in the cache directory: `memo/resolutions/<spec digest>/<entry
-/// digest>.json` and `memo/census/<spec digest>.json`.
+/// digest>.json`, `memo/census/<spec digest>.json` and `memo/connections/<key digest>.json`.
 pub const MEMO_DIRECTORY: &str = "memo";
 
 /// The record schema of both memos.
@@ -338,6 +342,57 @@ fn with_solver(mut key: Value, budget: Budget) -> Value {
         key["smt"] = solver;
     }
     key
+}
+
+/// The connection memo key of one connection question (`crate::coverage`, "Argued
+/// obligations"): whether the invariant applied to the cells at `cells` (KORE cell paths) of
+/// the axiom `axiom`'s left-hand side, the function `symbol`, excludes `valuation` there, under
+/// the execution digest `execution` (the definition the question is asked of, without positions,
+/// which no answer reads), kink's build `build` (which fixes kink-native's query, the linked
+/// k-rust and its simplifier) and the solver of `budget`. The answer is a function of these: the
+/// question is built from the compiled axiom and the function's equations alone, and decided on
+/// the proof route by the solver the key names.
+pub fn connection_key(
+    execution: &Value,
+    build: Sha256Digest,
+    budget: Budget,
+    axiom: &str,
+    valuation: &Value,
+    symbol: &str,
+    cells: &[Vec<String>],
+) -> Value {
+    with_solver(
+        json!({
+            "version": CONNECTION_MEMO_VERSION,
+            "kink_build": build.to_string(),
+            "kink": kink_campaign::kink_identity(),
+            "execution": execution,
+            "axiom": axiom,
+            "valuation": valuation,
+            "symbol": symbol,
+            "cells": cells,
+        }),
+        budget,
+    )
+}
+
+/// Where the connection memo keeps the answer under `key`. The key decides what a record may be
+/// used for; the path only finds it.
+pub fn connection_path(cache: &Path, key: &Value) -> std::path::PathBuf {
+    cache
+        .join(MEMO_DIRECTORY)
+        .join("connections")
+        .join(format!("{}.json", sha256(canonical_json(key).as_bytes())))
+}
+
+/// The connection answer stored under exactly `key` at `path`.
+pub fn read_connection(path: &Path, key: &Value) -> Option<Value> {
+    read(path, CONNECTION_MEMO_VERSION, key)
+}
+
+/// Store the connection answer `answer` under `key` at `path`.
+pub fn write_connection(store: &Store, path: &Path, key: &Value, answer: &Value) {
+    write(store, path, CONNECTION_MEMO_VERSION, key, answer);
 }
 
 /// Where the resolution memo keeps the record of `mutation` under the specification digest

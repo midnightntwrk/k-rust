@@ -1,0 +1,10 @@
+# kink-flow corpus manifest for the invariant fixture: the one program idles, so no read and no
+# bump is matched, and their obligations are open for an argument to rest on an invariant.
+[spec]
+entry = "invariant.k"
+main_module = "INVARIANT"
+syntax_module = "INVARIANT-SYNTAX"
+
+[[program]]
+id = "idle"
+text = "idle"

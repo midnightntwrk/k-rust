@@ -1124,10 +1124,18 @@ pub struct FrontEnd<'a> {
     /// kink-flow's own front end reads K alone, so it derives none
     /// ([`crate::flips::DERIVES_NONE`]).
     pub derived: Derived<'a>,
+    /// How the front end resolves the function and the cells a `[[coverage.invariant]]` names to
+    /// the definition's KORE symbol and cell paths, which `coverage` checks an argued item's
+    /// invariant with ([`crate::coverage::InvariantResolver`]); `None` for a front end that
+    /// resolves none, whose corpus `coverage` refuses where it declares an invariant
+    /// (`invariant-unsupported-front-end`). kink-flow's own front end reads K, so it resolves the
+    /// function by its K label and the cells by their K names
+    /// ([`crate::coverage::KInvariants`]).
+    pub invariants: Option<&'a (dyn crate::coverage::InvariantResolver + Sync)>,
 }
 
 impl Default for FrontEnd<'_> {
-    /// kink-flow's own: its spelling, nothing refused, no annotation.
+    /// kink-flow's own: its spelling, nothing refused, no annotation, invariants named in K.
     fn default() -> Self {
         Self {
             spelling: &KinkFlowSpelling,
@@ -1135,6 +1143,7 @@ impl Default for FrontEnd<'_> {
             annotate: None,
             progress: None,
             derived: Derived::default(),
+            invariants: Some(&crate::coverage::KInvariants),
         }
     }
 }
@@ -1147,6 +1156,7 @@ impl std::fmt::Debug for FrontEnd<'_> {
             .field("annotate", &self.annotate.map(|_| ".."))
             .field("progress", &self.progress.map(|_| ".."))
             .field("derived", &self.derived)
+            .field("invariants", &self.invariants.map(|_| ".."))
             .finish()
     }
 }
@@ -1392,7 +1402,9 @@ fn baseline_status(row: &Value) -> u8 {
 /// in an error (`kink_status` `error`: a corpus error, a failed run or an unwritten record),
 /// [`EXIT_NO`] for a needless argument (`summary.needless_arguments`: a `[[coverage.argued]]`
 /// entry whose item a program covers or that is no obligation, which would turn the item's next
-/// regression into `argued` instead of `open`), [`EXIT_UNANSWERED`] for an argued item whose
+/// regression into `argued` instead of `open`), [`EXIT_NO`] for a refuted argument
+/// (`summary.failed_arguments`: an invariant a check showed does not exclude the item, which is
+/// open again), [`EXIT_UNANSWERED`] for an argued item whose
 /// argument rests on an invariant no check decided (`summary.argued_by_standing.unchecked`: the
 /// corpus is done only by a claim nothing confirmed, so the answer is inconclusive, as an
 /// `unknown` program's is), and [`EXIT_UNASKED`] for a refused
@@ -1432,6 +1444,15 @@ pub fn coverage_status(document: &Value) -> u8 {
     } else {
         EXIT_YES
     };
+    // A refuted argument stands in for nothing, and its item is open again: a finding.
+    let failed = if document["summary"]["failed_arguments"]
+        .as_array()
+        .is_some_and(|failed| !failed.is_empty())
+    {
+        EXIT_NO
+    } else {
+        EXIT_YES
+    };
     let unchecked = if document["summary"]["argued_by_standing"]["unchecked"]
         .as_u64()
         .is_some_and(|unchecked| unchecked > 0)
@@ -1444,6 +1465,7 @@ pub fn coverage_status(document: &Value) -> u8 {
         mismatch_status(document),
         lock_status(document),
         needless,
+        failed,
         unchecked,
     ]
     .into_iter()

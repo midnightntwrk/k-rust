@@ -246,10 +246,22 @@
 //! rule's left-hand side is a whole configuration, so an invariant reads its cells there and
 //! argues a `rule:` item of a rewrite rule or a held, refuted or node requirement of one; on any
 //! other item it is refused before any mutant runs ([`unsupported_kind`]), and so is an invariant
-//! no entry names ([`invariant_refusal`]). No check runs yet: an item under an invariant is
-//! [`STANDING_UNCHECKED`], its checks [`CHECK_NOT_RUN`], and it stays argued; the command then
-//! exits 3, since nothing confirmed the claim it is done by. The verdicts rendering gives each
-//! argued item's standing, so a standing that moves moves the coverage lock.
+//! no entry names ([`invariant_refusal`]). The front end then resolves each invariant's function
+//! and cells to the definition's KORE symbol and cell paths ([`InvariantResolver`]), refusing one
+//! it cannot resolve (`invariant-unresolved`, with the front end's message), one whose function's
+//! result is not Bool (`invariant-not-bool`), and every invariant where it resolves none
+//! (`invariant-unsupported-front-end`). Each argued item under an invariant is checked by its
+//! connection (`invariants`, "The connection"): whether the invariant excludes, at the left-hand
+//! side of each axiom of the item's rule, the valuation of each fact of a run's records that
+//! would cover the item. A connection that holds gives the standing [`STANDING_CONNECTED`]; one
+//! that is undecided leaves the item [`STANDING_UNCHECKED`] with the cause, and the command then
+//! exits 3, since nothing confirmed the claim it is done by. A connection that fails refutes the
+//! argument: a state the rule matches satisfies the invariant and has the item's valuation, so the
+//! argument stands in for nothing. The item goes back to its status, with its target, carries
+//! `argument_failed` (`{check, detail}`), and the summary lists it in `failed_arguments`; the
+//! command exits 1. The evidence of an invariant on runs is not checked
+//! ([`CHECK_NOT_RUN`]). The verdicts rendering gives each argued item's standing, so a standing
+//! that moves moves the coverage lock.
 //!
 //! # Unique-cause MC/DC
 //!
@@ -320,8 +332,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod invariants;
 mod paths;
 pub(crate) mod scope;
+pub use invariants::{
+    CONNECTION_FAILS, CONNECTION_HOLDS, CONNECTION_UNDECIDED, InvariantRefusal, InvariantResolver,
+    KInvariants, ResolvedInvariant,
+};
 pub use paths::{FIELD_VALUES, PATH};
 mod windows;
 
@@ -392,8 +409,16 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// (`{standing: "text"}`, or under an invariant `{invariant, standing: "unchecked", connection,
 /// evidence, proof}`, no check yet run), the summary has `argued_by_standing` and
 /// `failed_arguments`, a coverage lock's state has `argument_changes`, and the text rendering
-/// states each argued item's standing.
-pub const COVERAGE_VERSION: u64 = 16;
+/// states each argued item's standing; 17 since an argued item's invariant is checked by its
+/// connection: each `settings.invariants` entry has the `identity` its front end resolved
+/// (`{definition, symbol, cells}`, with the front end's own members), the document has
+/// `argument_checks` (by item id, `{invariant, connection}`), an argued item's
+/// `argument_check.connection` is `{status, axioms, reason, model, cached, smt_unknown}` with
+/// status `holds` (standing `connected`) or `undecided` (standing `unchecked`), and an item whose
+/// connection `fails` is not argued: it keeps its status and target, has `argument_failed`
+/// (`{check, detail}`), is listed in `summary.failed_arguments`, and the text lists it under
+/// `failed arguments`.
+pub const COVERAGE_VERSION: u64 = 17;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -438,6 +463,11 @@ pub const STANDINGS: [&str; 5] = [
 ];
 /// The status of a check of an argued item's invariant that this build does not run.
 pub const CHECK_NOT_RUN: &str = "not-run";
+/// The document member that holds, by argued item id, the connection of the item's invariant
+/// (`{invariant, connection}`), which [`derive`] reads into each item's `argument_check`.
+pub const ARGUMENT_CHECKS: &str = "argument_checks";
+/// The check of an argued item whose refutation `argument_failed` names: the connection.
+pub const CHECK_CONNECTION: &str = "connection";
 
 /// Why an argued item's argument is needless (`argument_needless`): a program covers it.
 pub const NEEDLESS_COVERED: &str = "covered";
@@ -772,6 +802,36 @@ pub fn coverage_front(
         record.refusal = Some(refusal);
         return (refused(&record), false);
     }
+    // Each invariant resolved by the front end, and each argued item's connection to its own,
+    // before any mutant runs (module documentation, "Argued obligations").
+    if let Some(probe) = probe.as_ref().filter(|_| !section.invariants.is_empty()) {
+        let checked = invariants::resolve(manifest, &spec, front.invariants, &execution).and_then(
+            |resolved| {
+                for (index, invariant) in section.invariants.iter().enumerate() {
+                    if let Some((_, identity)) = resolved.get(&invariant.name) {
+                        document["settings"]["invariants"][index]["identity"] = identity.clone();
+                    }
+                }
+                invariants::connections(
+                    probe,
+                    &spec,
+                    manifest,
+                    &resolved,
+                    inputs.backend(),
+                    &execution,
+                    &cache,
+                    options.verify,
+                )
+            },
+        );
+        match checked {
+            Ok(checks) => document[ARGUMENT_CHECKS] = checks,
+            Err(refusal) => {
+                record.refusal = Some(refusal);
+                return (refused(&record), false);
+            }
+        }
+    }
     document["families"]["flips"] = match (flips, derived) {
         (Some(list), _) => {
             let (family, searched) = run_flips(
@@ -997,8 +1057,8 @@ fn run_flips(
 /// The document's `settings`: the tiers computed (tier 2 where the flips run), the depth
 /// computed (`--depth`, else `[coverage] depth`), `[coverage]`'s other values, and whether the
 /// manifest declared them (`source`). An invariant's `identity`, what its checks are about once
-/// resolved (the definition, the symbol and the cell paths), is null: no front end resolves one
-/// yet.
+/// resolved (the definition, the symbol and the cell paths), is null here: [`coverage_front`]
+/// sets it once the front end resolved the invariant.
 fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
     let section = &manifest.coverage;
     json!({
@@ -3248,7 +3308,11 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "mismatches": document["mismatches"].as_array().map_or(0, Vec::len),
     });
     unargue(document);
-    let argued_entries = argued_entries(document);
+    // A refuted argument stands in for nothing: its item is open, with its target, wherever
+    // the derived part reads the entries.
+    let failed = failed_arguments(document);
+    let mut argued_entries = argued_entries(document);
+    argued_entries.retain(|id, _| !failed.contains_key(id));
     let mcdc = document["settings"]["mcdc"].clone();
     let mcdc_on = mcdc == true || mcdc.as_array().is_some_and(|names| !names.is_empty());
     let selects = |name: &str| {
@@ -3617,7 +3681,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         &argued_entries,
     );
     targets.extend(flips.iter().map(|(_, target)| target.clone()));
-    let applied = argue(document, &argued_entries);
+    let applied = argue(document, &argued_entries, &failed);
     targets.retain(|target| {
         target["item"]
             .as_str()
@@ -3686,8 +3750,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     summary["per_family"] = Value::Object(per);
     summary["needless_arguments"] = json!(applied.needless);
     summary["argued_by_standing"] = argued_by_standing(document);
-    // No check of an invariant runs yet, so none refutes an argument.
-    summary["failed_arguments"] = json!([]);
+    summary["failed_arguments"] = json!(applied.failed);
     document["targets"] = Value::Array(targets);
     document["summary"] = summary;
 }
@@ -3733,20 +3796,52 @@ fn argued_invariants(document: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The refuted arguments of a document's connections ([`ARGUMENT_CHECKS`]): the detail of each
+/// item whose invariant's connection fails, by item id.
+fn failed_arguments(document: &Value) -> BTreeMap<String, String> {
+    document[ARGUMENT_CHECKS]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, check)| check["connection"]["status"] == CONNECTION_FAILS)
+        .map(|(id, check)| {
+            (
+                id.clone(),
+                check["connection"]["reason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            )
+        })
+        .collect()
+}
+
 /// An argued item's `argument_check`, what its argument rests on (module documentation, "Argued
 /// obligations"): the standing [`STANDING_TEXT`] where its entry names no invariant; under the
-/// invariant `invariant`, the standing [`STANDING_UNCHECKED`], with the connection and the
-/// evidence not run and no proof, since this build runs no check of an invariant.
-fn argument_check(invariant: Option<&String>) -> Value {
+/// invariant `invariant`, the connection `check` gives for the item ([`ARGUMENT_CHECKS`], `not-run`
+/// where none was asked), the evidence not run and no proof: the standing [`STANDING_CONNECTED`]
+/// where the connection holds, else [`STANDING_UNCHECKED`].
+fn argument_check(invariant: Option<&String>, check: Option<&Value>) -> Value {
     match invariant {
         None => json!({"standing": STANDING_TEXT}),
-        Some(name) => json!({
-            "invariant": name,
-            "standing": STANDING_UNCHECKED,
-            "connection": {"status": CHECK_NOT_RUN},
-            "evidence": {"status": CHECK_NOT_RUN},
-            "proof": null,
-        }),
+        Some(name) => {
+            let connection = check.map_or_else(
+                || json!({"status": CHECK_NOT_RUN}),
+                |check| check["connection"].clone(),
+            );
+            let standing = if connection["status"] == CONNECTION_HOLDS {
+                STANDING_CONNECTED
+            } else {
+                STANDING_UNCHECKED
+            };
+            json!({
+                "invariant": name,
+                "standing": standing,
+                "connection": connection,
+                "evidence": {"status": CHECK_NOT_RUN},
+                "proof": null,
+            })
+        }
     }
 }
 
@@ -3798,16 +3893,19 @@ fn unargue(document: &mut Value) {
             item.remove("argument");
             item.remove("argument_needless");
             item.remove("argument_check");
+            item.remove("argument_failed");
         }
     }
 }
 
-/// What [`argue`] applied: the ids now `argued`, their number per family, and the needless
-/// arguments (`{family, item, reason}`), in family then item order.
+/// What [`argue`] applied: the ids now `argued`, their number per family, the needless
+/// arguments (`{family, item, reason}`) and the refuted ones (`{family, item, check, detail}`),
+/// in family then item order.
 struct Applied {
     argued: BTreeSet<String>,
     counts: BTreeMap<&'static str, usize>,
     needless: Vec<Value>,
+    failed: Vec<Value>,
 }
 
 /// Apply the argued entries `entries` to the derived items of `document` (module documentation,
@@ -3817,9 +3915,16 @@ struct Applied {
 /// that is no obligation, is needless (`argument_needless`, [`NEEDLESS_COVERED`] or
 /// [`NEEDLESS_NOT_OBLIGATION`]): the item keeps its status and carries the argument, and the
 /// summary lists it, since an argument kept on a covered item would turn the item's next
-/// regression into `argued` instead of `open`. Each family's counts gain `argued`, taken from the
+/// regression into `argued` instead of `open`. An open obligation whose entry's argument a check
+/// refuted (`failed`, its detail by id) keeps its status, carries its argument and
+/// `argument_failed` (`{check, detail}`), and the summary lists it: the argument stands in for
+/// nothing, and the item gives its target. Each family's counts gain `argued`, taken from the
 /// status the item had.
-fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
+fn argue(
+    document: &mut Value,
+    entries: &BTreeMap<String, String>,
+    failed: &BTreeMap<String, String>,
+) -> Applied {
     use crate::flips::{
         DISTINGUISHED, UNDISTINGUISHED, UNKNOWN as FLIP_UNKNOWN, UNREACHED as FLIP_UNREACHED,
     };
@@ -3827,8 +3932,11 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
         argued: BTreeSet::new(),
         counts: BTreeMap::new(),
         needless: Vec::new(),
+        failed: Vec::new(),
     };
     let invariants = argued_invariants(document);
+    let checks = document[ARGUMENT_CHECKS].clone();
+    let all = argued_entries(document);
     for family in ARGUABLE {
         let value = &mut document["families"][family];
         if family == "flips" && value["run"] != true {
@@ -3842,6 +3950,19 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
             let Some(id) = item["id"].as_str().map(str::to_owned) else {
                 continue;
             };
+            if let Some(detail) = failed.get(&id) {
+                if let Some(argument) = all.get(&id) {
+                    item["argument"] = json!(argument);
+                    item["argument_failed"] = json!({"check": CHECK_CONNECTION, "detail": detail});
+                    applied.failed.push(json!({
+                        "family": family,
+                        "item": id,
+                        "check": CHECK_CONNECTION,
+                        "detail": detail,
+                    }));
+                }
+                continue;
+            }
             let Some(argument) = entries.get(&id) else {
                 continue;
             };
@@ -3862,7 +3983,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
             if open {
                 item["unargued_status"] = status.clone();
                 item["status"] = json!(ARGUED);
-                item["argument_check"] = argument_check(invariants.get(&id));
+                item["argument_check"] = argument_check(invariants.get(&id), checks.get(&id));
                 applied.argued.insert(id.clone());
                 *applied.counts.entry(family).or_default() += 1;
                 argued_from.push((id, status));
@@ -3892,7 +4013,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
             .filter(|item| item["argued_by"].is_string())
         {
             let by = item["argued_by"].as_str().unwrap_or_default();
-            item["argument_check"] = argument_check(invariants.get(by));
+            item["argument_check"] = argument_check(invariants.get(by), checks.get(by));
             if let Some(id) = item["id"].as_str() {
                 applied.argued.insert(id.to_owned());
                 *applied.counts.entry(family).or_default() += 1;
@@ -4570,13 +4691,21 @@ pub fn text(document: &Value) -> Result<String, String> {
     }
     let mut argued = Vec::new();
     let mut needless = Vec::new();
+    let mut failed = Vec::new();
     for family in ARGUABLE {
         for item in families[family]["items"].as_array().into_iter().flatten() {
             let Some(argument) = item["argument"].as_str() else {
                 continue;
             };
             let id = item["id"].as_str().unwrap_or("?");
-            if item["status"] == ARGUED {
+            if let Some(detail) = item["argument_failed"]["detail"].as_str() {
+                failed.push(format!(
+                    "  {id} [the {} fails]: {detail}; it is open again\n",
+                    item["argument_failed"]["check"]
+                        .as_str()
+                        .unwrap_or(CHECK_CONNECTION)
+                ));
+            } else if item["status"] == ARGUED {
                 let check = &item["argument_check"];
                 let standing = check["standing"].as_str().unwrap_or(STANDING_TEXT);
                 let rests = match check["invariant"].as_str() {
@@ -4603,6 +4732,10 @@ pub fn text(document: &Value) -> Result<String, String> {
     if !needless.is_empty() {
         out.push_str("needless arguments:\n");
         out.push_str(&needless.concat());
+    }
+    if !failed.is_empty() {
+        out.push_str("failed arguments:\n");
+        out.push_str(&failed.concat());
     }
     let targets = document["targets"]
         .as_array()

@@ -75,6 +75,7 @@ mod emit;
 mod flips;
 mod guards;
 mod inputs;
+mod invariant;
 mod observe;
 mod render;
 mod spelling;
@@ -694,13 +695,14 @@ fn run_flow(
     tell_progress(&command, "run: binding the corpus to the emitted K");
     let sources = outcome.sources.clone();
     let (guard_names, syntax) = front_syntax(emitted, &sources);
-    let (manifest, names) = match bound_manifest(&command, declared, emitted, observers, &syntax) {
-        Ok(bound) => bound,
-        Err(mut document) => {
-            document["definition"] = definition;
-            return finish(outcome, &document, EXIT_UNASKED, output);
-        }
-    };
+    let (manifest, names, invariants) =
+        match bound_manifest(&command, declared, emitted, observers, &syntax) {
+            Ok(bound) => bound,
+            Err(mut document) => {
+                document["definition"] = definition;
+                return finish(outcome, &document, EXIT_UNASKED, output);
+            }
+        };
     resolve_rule(&mut command, emitted);
     let annotator = naming_guards(
         names
@@ -774,6 +776,7 @@ fn run_flow(
         annotate: Some(&annotate as &(dyn Fn(&mut Value) + Sync)),
         progress: command.shows_progress().then_some(&print_progress),
         derived: front_derived(derived.as_ref()),
+        invariants: Some(&invariants),
     };
     let span = format!("kink.{}", verb.as_str());
     let dispatched = measurement
@@ -943,15 +946,23 @@ impl BoundNames {
 /// ([`stop::bind`]), and `[observe]` named with KRS's spellings resolved, its rules as exact K
 /// labels and its cells as K names, with the functions that give its elements
 /// ([`observe::bind`]); the labels each `[stop]` name selects, the labels and cells each
-/// `[observe]` name reads as, and the cells by path that the documents' `result` gains; or
-/// `command`'s document refusing the corpus.
+/// `[observe]` name reads as, and the cells by path that the documents' `result` gains; and the
+/// resolver of `[[coverage.invariant]]`'s KRS spellings over the decoder's compile
+/// ([`invariant`]); or `command`'s document refusing the corpus.
 fn bound_manifest(
     command: &FlowCommand,
     declared: ManifestFile,
     emitted: &EmittedDefinition,
     observers: render::Observers,
     syntax: &syntax::KrsSyntax,
-) -> Result<(kink_flow::FlowManifest, BoundNames), Value> {
+) -> Result<
+    (
+        kink_flow::FlowManifest,
+        BoundNames,
+        invariant::KrsInvariants,
+    ),
+    Value,
+> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
         .map_err(|error| command.manifest_refused(&error))?;
@@ -972,6 +983,7 @@ fn bound_manifest(
         .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
     let (manifest, observe_items) = observe::bind(manifest, &decoder, &observers, &emitted.ir)
         .map_err(|unbound| refused(command, "observe", unbound.reason, &unbound.detail))?;
+    let invariants = invariant::KrsInvariants::new(decoder);
     Ok((
         manifest,
         BoundNames {
@@ -979,6 +991,7 @@ fn bound_manifest(
             observe: observe_items,
             result: result_names,
         },
+        invariants,
     ))
 }
 
