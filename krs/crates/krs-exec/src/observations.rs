@@ -70,8 +70,9 @@
 //! ([`ObservationOracle::record`]) keeps every element, with its value where asked; comparing
 //! ([`ObservationOracle::compare`]) checks each element against a recorded baseline as it is
 //! emitted, ends the run at the first decided difference, and ends the path once every channel
-//! has opened or passed the baseline's horizon. [`first_difference`] is the one comparison of two
-//! records, which reads the channels' ends too.
+//! has opened or passed the baseline's horizon. [`compare_records`] is the one comparison of two
+//! records, which reads the channels' ends too: their first difference ([`first_difference`]),
+//! or how far each channel agrees and what stopped it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
@@ -735,8 +736,9 @@ pub struct Open {
     pub index: u64,
     /// Why.
     pub reason: String,
-    /// Whether it opened at an undecided element: an evaluation that spent its budget, or that
-    /// the solver left undecided, which another run may decide.
+    /// Whether it opened where another run may know more: at an undecided element (an
+    /// evaluation that spent its budget, or that the solver left undecided), or at an
+    /// inconclusive halt of the run.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub undecided: bool,
     /// The point's depth and side it opened at, for cutting a record back.
@@ -761,6 +763,37 @@ pub struct Element {
     pub value: Option<Json>,
     /// Why the element is unknown, where it is.
     pub undecided: Option<String>,
+}
+
+impl Element {
+    /// The element's document at `index`, as [`Observations::document`] writes it: `{"index",
+    /// "depth", "rule", "side", "value"}`, with `undecided` (its reason) in place of `value` for
+    /// an unknown element.
+    #[must_use]
+    pub fn document(&self, index: u64) -> Json {
+        let mut object = serde_json::Map::new();
+        object.insert("index".to_owned(), Json::from(index));
+        object.insert("depth".to_owned(), Json::from(self.depth));
+        object.insert(
+            "rule".to_owned(),
+            self.rule.clone().map_or(Json::Null, Json::String),
+        );
+        object.insert(
+            "side".to_owned(),
+            self.side.map_or(Json::Null, |side| {
+                serde_json::to_value(side).unwrap_or(Json::Null)
+            }),
+        );
+        match &self.undecided {
+            Some(reason) => {
+                object.insert("undecided".to_owned(), Json::String(reason.clone()));
+            }
+            None => {
+                object.insert("value".to_owned(), self.value.clone().unwrap_or(Json::Null));
+            }
+        }
+        Json::Object(object)
+    }
 }
 
 /// One channel of a record.
@@ -860,33 +893,7 @@ impl Observations {
                     .elements
                     .iter()
                     .enumerate()
-                    .map(|(index, element)| {
-                        let mut object = serde_json::Map::new();
-                        object.insert("index".to_owned(), Json::from(index as u64));
-                        object.insert("depth".to_owned(), Json::from(element.depth));
-                        object.insert(
-                            "rule".to_owned(),
-                            element.rule.clone().map_or(Json::Null, Json::String),
-                        );
-                        object.insert(
-                            "side".to_owned(),
-                            element.side.map_or(Json::Null, |side| {
-                                serde_json::to_value(side).unwrap_or(Json::Null)
-                            }),
-                        );
-                        match &element.undecided {
-                            Some(reason) => {
-                                object.insert("undecided".to_owned(), Json::String(reason.clone()));
-                            }
-                            None => {
-                                object.insert(
-                                    "value".to_owned(),
-                                    element.value.clone().unwrap_or(Json::Null),
-                                );
-                            }
-                        }
-                        Json::Object(object)
-                    })
+                    .map(|(index, element)| element.document(index as u64))
                     .collect::<Vec<_>>();
                 serde_json::json!({
                     "name": channel.name,
@@ -900,6 +907,49 @@ impl Observations {
         serde_json::json!({ "schema": OBSERVATIONS_FORMAT, "channels": channels })
     }
 
+    /// The record a `krs-observations/1` document states ([`Self::document`]), as a run's
+    /// record or another producer writes it: each channel's elements by their values (or as
+    /// unknown, by their reason), with no digests, and how each channel ends.
+    ///
+    /// The document is read exactly: it holds `schema` and `channels` alone; each channel holds
+    /// `name` (distinct), `kind` (`point` or `log`), `elements`, `closed` and `open`, exactly one
+    /// of the last two not null; each element holds `index` (its position), `depth`, `rule` and
+    /// `side` (each a string or null, `side` `before` or `after`), and either `value` or
+    /// `undecided`; an `open` holds `index` (the number of elements), `reason` and optionally
+    /// `undecided`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first part that is not of that shape, named by its position
+    /// (`channels[1].elements[3]`).
+    pub fn from_document(document: &Json) -> Result<Self, String> {
+        let top = document_object(document, "the document", &["schema", "channels"])?;
+        match top.get("schema") {
+            Some(Json::String(schema)) if schema == OBSERVATIONS_FORMAT => {}
+            _ => {
+                return Err(format!(
+                    "at `schema`: an observation document's `schema` is `{OBSERVATIONS_FORMAT}`"
+                ));
+            }
+        }
+        let Json::Array(listed) = document_key(&top, "the document", "channels")? else {
+            return Err("at `channels`: an array of channels".to_owned());
+        };
+        let mut channels = Vec::<Channel>::new();
+        for (position, listed) in listed.iter().enumerate() {
+            let at = format!("channels[{position}]");
+            let channel = channel_from_document(listed, &at)?;
+            if channels.iter().any(|other| other.name == channel.name) {
+                return Err(format!("at `{at}`: a second channel `{}`", channel.name));
+            }
+            channels.push(channel);
+        }
+        Ok(Self {
+            channels,
+            conversions: 0,
+        })
+    }
+
     /// Rename each element's rule by `name` (a `UNIQUE_ID` to a report's name).
     pub(crate) fn rename_rules(&mut self, name: impl Fn(&str) -> String) {
         for channel in &mut self.channels {
@@ -910,6 +960,160 @@ impl Observations {
             }
         }
     }
+}
+
+/// The object `value` is, at `at` of a document, holding only `keys`.
+fn document_object(
+    value: &Json,
+    at: &str,
+    keys: &[&str],
+) -> Result<serde_json::Map<String, Json>, String> {
+    let Json::Object(object) = value else {
+        return Err(format!("at `{at}`: not an object"));
+    };
+    if let Some(key) = object.keys().find(|key| !keys.contains(&key.as_str())) {
+        return Err(format!(
+            "at `{at}`: unknown key `{key}`; it has the keys {}",
+            keys.iter()
+                .map(|key| format!("`{key}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    Ok(object.clone())
+}
+
+/// The member `key` of `object`, at `at` of a document, which it must hold.
+fn document_key(
+    object: &serde_json::Map<String, Json>,
+    at: &str,
+    key: &str,
+) -> Result<Json, String> {
+    object
+        .get(key)
+        .cloned()
+        .ok_or_else(|| format!("at `{at}`: no `{key}`"))
+}
+
+/// The channel `listed` states at `at` of an observation document
+/// ([`Observations::from_document`]).
+fn channel_from_document(listed: &Json, at: &str) -> Result<Channel, String> {
+    let channel = document_object(listed, at, &["name", "kind", "elements", "closed", "open"])?;
+    let name = match document_key(&channel, at, "name")? {
+        Json::String(name) if !name.is_empty() => name,
+        _ => return Err(format!("at `{at}`: `name` is the channel's name")),
+    };
+    let kind = match document_key(&channel, at, "kind")?.as_str() {
+        Some("point") => ChannelKind::Point,
+        Some("log") => ChannelKind::Log,
+        _ => return Err(format!("at `{at}`: `kind` is `point` or `log`")),
+    };
+    let Json::Array(listed_elements) = document_key(&channel, at, "elements")? else {
+        return Err(format!("at `{at}`: `elements` is an array of elements"));
+    };
+    let elements = listed_elements
+        .iter()
+        .enumerate()
+        .map(|(index, listed)| {
+            element_from_document(listed, &format!("{at}.elements[{index}]"), index)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let closed = match document_key(&channel, at, "closed")? {
+        Json::Null => None,
+        Json::String(closure) if closure == "end" => Some(Closure::End),
+        Json::String(closure) if closure == "undefined" => Some(Closure::Undefined),
+        _ => return Err(format!("at `{at}`: `closed` is `end`, `undefined` or null")),
+    };
+    let open = match document_key(&channel, at, "open")? {
+        Json::Null => None,
+        listed => {
+            let at = format!("{at}.open");
+            let open = document_object(&listed, &at, &["index", "reason", "undecided"])?;
+            let count = elements.len();
+            if document_key(&open, &at, "index")?.as_u64() != Some(count as u64) {
+                return Err(format!(
+                    "at `{at}`: `index` is where the channel opened, after its {count} element{}",
+                    if count == 1 { "" } else { "s" }
+                ));
+            }
+            let Json::String(reason) = document_key(&open, &at, "reason")? else {
+                return Err(format!("at `{at}`: `reason` is why the channel opened"));
+            };
+            let undecided = match open.get("undecided") {
+                None => false,
+                Some(Json::Bool(undecided)) => *undecided,
+                Some(_) => return Err(format!("at `{at}`: `undecided` is true or false")),
+            };
+            Some(Open {
+                index: count as u64,
+                reason,
+                undecided,
+                at: None,
+            })
+        }
+    };
+    if closed.is_some() == open.is_some() {
+        return Err(format!(
+            "at `{at}`: a channel is closed (`closed`) or open (`open`) where its elements end, one of the two"
+        ));
+    }
+    Ok(Channel {
+        name,
+        kind,
+        elements,
+        closed,
+        open,
+    })
+}
+
+/// The element `listed` states at `at` of an observation document, the `index`th of its channel.
+fn element_from_document(listed: &Json, at: &str, index: usize) -> Result<Element, String> {
+    let element = document_object(
+        listed,
+        at,
+        &["index", "depth", "rule", "side", "value", "undecided"],
+    )?;
+    if document_key(&element, at, "index")?.as_u64() != Some(index as u64) {
+        return Err(format!(
+            "at `{at}`: `index` is the element's position, {index}"
+        ));
+    }
+    let depth = document_key(&element, at, "depth")?
+        .as_u64()
+        .ok_or_else(|| format!("at `{at}`: `depth` is a number of steps"))?;
+    let rule = match document_key(&element, at, "rule")? {
+        Json::Null => None,
+        Json::String(rule) => Some(rule),
+        _ => return Err(format!("at `{at}`: `rule` is a rule's name or null")),
+    };
+    let side = match document_key(&element, at, "side")? {
+        Json::Null => None,
+        Json::String(side) if side == "before" => Some(StopAt::Before),
+        Json::String(side) if side == "after" => Some(StopAt::After),
+        _ => return Err(format!("at `{at}`: `side` is `before`, `after` or null")),
+    };
+    let (value, undecided) = match (element.get("value"), element.get("undecided")) {
+        (Some(value), None) => (Some(value.clone()), None),
+        (None, Some(Json::String(reason))) => (None, Some(reason.clone())),
+        (None, Some(_)) => {
+            return Err(format!(
+                "at `{at}`: `undecided` is why the element is unknown"
+            ));
+        }
+        _ => {
+            return Err(format!(
+                "at `{at}`: an element holds its `value`, or why it is unknown (`undecided`), not both"
+            ));
+        }
+    };
+    Ok(Element {
+        depth,
+        rule,
+        side,
+        digest: None,
+        value,
+        undecided,
+    })
 }
 
 /// The run report's summary of a record.
@@ -936,7 +1140,7 @@ impl Serialize for Observations {
     }
 }
 
-/// What a channel holds at an index, as [`first_difference`] reads it.
+/// What a channel holds at an index, as [`compare_records`] reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Observed {
     /// An element.
@@ -945,6 +1149,19 @@ pub enum Observed {
     End,
     /// The channel was closed there by an undefined last step.
     Undefined,
+}
+
+impl Observed {
+    /// What the channel holds at `index`, as a document writes it: the element's document
+    /// ([`Element::document`]), or `"end"` or `"undefined"` for a closure.
+    #[must_use]
+    pub fn document(&self, index: u64) -> Json {
+        match self {
+            Self::Element(element) => element.document(index),
+            Self::End => Json::String("end".to_owned()),
+            Self::Undefined => Json::String("undefined".to_owned()),
+        }
+    }
 }
 
 /// The first decided difference of two records ([`first_difference`]).
@@ -963,11 +1180,124 @@ pub struct ObservationDifference {
     pub path: Option<String>,
 }
 
-/// The first decided difference between two records of the same declaration: a channel and an
-/// index at which both sides hold a decided element or a closure, and the two differ (an `end`
-/// and an `undefined` closure differ from each other and from every element). Nothing past a
-/// side's open point, nor at an unknown element, is read, so an open record differs only where
-/// it is known.
+/// A side of a comparison of two records ([`compare_records`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecordSide {
+    /// The first record.
+    Left,
+    /// The second record.
+    Right,
+}
+
+impl RecordSide {
+    /// The side's name, `left` or `right`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+}
+
+/// What a side holds where the comparison of a channel stopped ([`ChannelAgreement`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reach {
+    /// The channel is closed there, as it is on the other side.
+    Closed(Closure),
+    /// The channel is open there: nothing from there on is known on this side.
+    Open(Open),
+    /// The side knows the index; the other side's open point stopped the comparison.
+    Known,
+}
+
+/// An index at which two records' elements were not compared ([`ChannelAgreement::uncompared`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Uncompared {
+    /// The index.
+    pub index: u64,
+    /// The side whose element is unknown there; `None` where both are known and have neither a
+    /// value nor a digest in common.
+    pub side: Option<RecordSide>,
+    /// Why.
+    pub reason: String,
+}
+
+/// A channel on which two records do not differ ([`compare_records`]): how far they were
+/// compared, and what stopped the comparison.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChannelAgreement {
+    /// The channel's name.
+    pub channel: String,
+    /// The index the comparison stopped at. Each earlier index was compared and the two agree
+    /// there, except at an index [`Self::uncompared`] names.
+    pub through: u64,
+    /// What the left record holds at `through`.
+    pub left: Reach,
+    /// What the right record holds at `through`.
+    pub right: Reach,
+    /// The first earlier index at which the two elements were not compared, where there is one.
+    pub uncompared: Option<Uncompared>,
+}
+
+impl ChannelAgreement {
+    /// Where the agreement answers nothing yet, because another record of an open side may still
+    /// differ: the side, the index and why. That is so at an index [`Self::uncompared`] names,
+    /// and where a side is open at `through` as undecided ([`Open::undecided`]) while the other
+    /// side is not open there for another reason. A side open at a bound or a split ends the
+    /// comparison at `through` whatever the other side may still learn, so the agreement is
+    /// then bounded, and decided up to `through`.
+    #[must_use]
+    pub fn undecided(&self) -> Option<(Option<RecordSide>, u64, &str)> {
+        fn undecided(reach: &Reach) -> Option<&str> {
+            match reach {
+                Reach::Open(open) if open.undecided => Some(open.reason.as_str()),
+                _ => None,
+            }
+        }
+        if let Some(uncompared) = &self.uncompared {
+            return Some((uncompared.side, uncompared.index, &uncompared.reason));
+        }
+        let bounded = |reach: &Reach| matches!(reach, Reach::Open(open) if !open.undecided);
+        if let Some(reason) = undecided(&self.left)
+            && !bounded(&self.right)
+        {
+            return Some((Some(RecordSide::Left), self.through, reason));
+        }
+        if let Some(reason) = undecided(&self.right)
+            && !bounded(&self.left)
+        {
+            return Some((Some(RecordSide::Right), self.through, reason));
+        }
+        None
+    }
+
+    /// Whether some side is open at `through`, so the agreement holds up to a horizon rather
+    /// than to both sides' closure.
+    #[must_use]
+    pub const fn bounded(&self) -> bool {
+        matches!(self.left, Reach::Open(_)) || matches!(self.right, Reach::Open(_))
+    }
+}
+
+/// How two records of the same declaration compare ([`compare_records`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum RecordComparison {
+    /// They differ, first here ([`first_difference`]).
+    Differs(Box<ObservationDifference>),
+    /// They do not differ: each channel both have, compared up to where it stopped, in the left
+    /// record's order.
+    Agree(Vec<ChannelAgreement>),
+}
+
+/// Compare two records of the same declaration: the first decided difference, or else how far
+/// each channel agrees.
+///
+/// A difference is a channel and an index at which both sides hold a decided element or a
+/// closure, and the two differ (an `end` and an `undefined` closure differ from each other and
+/// from every element). Nothing past a side's open point, nor at an unknown element, is read, so
+/// an open record differs only where it is known.
 ///
 /// Two elements are compared by their values where both carry one, and otherwise by their
 /// digests on the bytes both have ([`ElementDigest::agrees`]); two elements with neither in
@@ -978,11 +1308,9 @@ pub struct ObservationDifference {
 /// first: the least depth of its element there (a closure after every element), then the
 /// earlier channel in the left side's order.
 #[must_use]
-pub fn first_difference(
-    left: &Observations,
-    right: &Observations,
-) -> Option<ObservationDifference> {
-    let mut best: Option<(u64, ObservationDifference)> = None;
+pub fn compare_records(left: &Observations, right: &Observations) -> RecordComparison {
+    let mut best: Option<(u64, Box<ObservationDifference>)> = None;
+    let mut agreements = Vec::new();
     for channel in &left.channels {
         let Some(other) = right
             .channels
@@ -991,8 +1319,12 @@ pub fn first_difference(
         else {
             continue;
         };
-        let Some(difference) = channel_difference(channel, other) else {
-            continue;
+        let difference = match channel_comparison(channel, other) {
+            Ok(agreement) => {
+                agreements.push(agreement);
+                continue;
+            }
+            Err(difference) => difference,
         };
         let reached = match &difference.right {
             Observed::Element(element) => element.depth,
@@ -1002,69 +1334,155 @@ pub fn first_difference(
             best = Some((reached, difference));
         }
     }
-    best.map(|(_, difference)| difference)
+    match best {
+        Some((_, difference)) => RecordComparison::Differs(difference),
+        None => RecordComparison::Agree(agreements),
+    }
 }
 
-fn channel_difference(left: &Channel, right: &Channel) -> Option<ObservationDifference> {
-    let at = |channel: &Channel, index: usize| -> Option<Observed> {
-        if let Some(open) = &channel.open
-            && index as u64 >= open.index
-        {
-            return None;
-        }
-        match channel.elements.get(index) {
-            Some(element) => Some(Observed::Element(element.clone())),
-            None if index == channel.elements.len() => match channel.closed {
-                Some(Closure::End) => Some(Observed::End),
-                Some(Closure::Undefined) => Some(Observed::Undefined),
-                None => None,
-            },
+/// The first decided difference between two records of the same declaration
+/// ([`compare_records`]).
+#[must_use]
+pub fn first_difference(
+    left: &Observations,
+    right: &Observations,
+) -> Option<ObservationDifference> {
+    match compare_records(left, right) {
+        RecordComparison::Differs(difference) => Some(*difference),
+        RecordComparison::Agree(_) => None,
+    }
+}
+
+/// What `channel` holds at `index`: `None` at or past its open point, or past its elements where
+/// no closure follows them.
+fn held(channel: &Channel, index: usize) -> Option<Observed> {
+    if let Some(open) = &channel.open
+        && index as u64 >= open.index
+    {
+        return None;
+    }
+    match channel.elements.get(index) {
+        Some(element) => Some(Observed::Element(element.clone())),
+        None if index == channel.elements.len() => match channel.closed {
+            Some(Closure::End) => Some(Observed::End),
+            Some(Closure::Undefined) => Some(Observed::Undefined),
             None => None,
-        }
-    };
+        },
+        None => None,
+    }
+}
+
+/// What `channel` holds where the comparison stopped at `index`, `held` there.
+fn reach(channel: &Channel, index: usize, held: Option<&Observed>) -> Reach {
+    if held.is_some() {
+        return Reach::Known;
+    }
+    channel.open.clone().map_or_else(
+        || {
+            Reach::Open(Open {
+                index: index as u64,
+                reason: "the record states nothing past its last element".to_owned(),
+                undecided: false,
+                at: None,
+            })
+        },
+        Reach::Open,
+    )
+}
+
+fn channel_comparison(
+    left: &Channel,
+    right: &Channel,
+) -> Result<ChannelAgreement, Box<ObservationDifference>> {
+    let mut uncompared = None;
     let mut index = 0;
     loop {
-        let (Some(left_at), Some(right_at)) = (at(left, index), at(right, index)) else {
-            return None;
+        let (left_at, right_at) = (held(left, index), held(right, index));
+        let (Some(left_held), Some(right_held)) = (&left_at, &right_at) else {
+            return Ok(ChannelAgreement {
+                channel: left.name.clone(),
+                through: index as u64,
+                left: reach(left, index, left_at.as_ref()),
+                right: reach(right, index, right_at.as_ref()),
+                uncompared,
+            });
         };
-        let differs = match (&left_at, &right_at) {
-            (Observed::Element(left), Observed::Element(right)) => elements_differ(left, right),
-            (Observed::End, Observed::End) | (Observed::Undefined, Observed::Undefined) => {
-                return None;
+        let differs = match (left_held, right_held) {
+            (Observed::Element(left_element), Observed::Element(right_element)) => {
+                match elements_compared(left_element, right_element) {
+                    Pair::Differ(path) => Some(path),
+                    Pair::Agree => None,
+                    Pair::Uncompared(side, reason) => {
+                        uncompared.get_or_insert(Uncompared {
+                            index: index as u64,
+                            side,
+                            reason,
+                        });
+                        None
+                    }
+                }
             }
-            _ => Some(Differs(None)),
+            (Observed::End, Observed::End) | (Observed::Undefined, Observed::Undefined) => {
+                let closure = if matches!(left_held, Observed::End) {
+                    Closure::End
+                } else {
+                    Closure::Undefined
+                };
+                return Ok(ChannelAgreement {
+                    channel: left.name.clone(),
+                    through: index as u64,
+                    left: Reach::Closed(closure),
+                    right: Reach::Closed(closure),
+                    uncompared,
+                });
+            }
+            _ => Some(None),
         };
-        if let Some(Differs(path)) = differs {
-            return Some(ObservationDifference {
+        if let Some(path) = differs {
+            return Err(Box::new(ObservationDifference {
                 channel: left.name.clone(),
                 index: index as u64,
-                left: left_at,
-                right: right_at,
+                left: left_held.clone(),
+                right: right_held.clone(),
                 path,
-            });
-        }
-        if !matches!(left_at, Observed::Element(_)) {
-            return None;
+            }));
         }
         index += 1;
     }
 }
 
-/// Two elements that differ, with the path inside their values where both carry values that
-/// differ below their top.
-struct Differs(Option<String>);
+/// How two elements at one index compare.
+enum Pair {
+    /// They differ, with the path inside their values where both carry values that differ below
+    /// their top.
+    Differ(Option<String>),
+    /// They agree.
+    Agree,
+    /// They are not compared: the side whose element is unknown (`None` where both are known
+    /// and have nothing in common), and why.
+    Uncompared(Option<RecordSide>, String),
+}
 
-/// Whether two elements differ; `None` where they agree or either is unknown.
-fn elements_differ(left: &Element, right: &Element) -> Option<Differs> {
-    if left.undecided.is_some() || right.undecided.is_some() {
-        return None;
+fn elements_compared(left: &Element, right: &Element) -> Pair {
+    for (side, element) in [(RecordSide::Left, left), (RecordSide::Right, right)] {
+        if let Some(reason) = &element.undecided {
+            return Pair::Uncompared(Some(side), reason.clone());
+        }
     }
     if let (Some(left), Some(right)) = (&left.value, &right.value) {
-        return (left != right).then(|| Differs(json_path(left, right, String::new())));
+        return if left == right {
+            Pair::Agree
+        } else {
+            Pair::Differ(json_path(left, right, String::new()))
+        };
     }
     match (left.digest, right.digest) {
-        (Some(left), Some(right)) => (!left.agrees(&right)).then_some(Differs(None)),
-        _ => None,
+        (Some(left), Some(right)) if left.agrees(&right) => Pair::Agree,
+        (Some(_), Some(_)) => Pair::Differ(None),
+        _ => Pair::Uncompared(
+            None,
+            "the two elements have neither a value nor a digest in common".to_owned(),
+        ),
     }
 }
 
@@ -1451,6 +1869,7 @@ impl<'o> ObservationOracle<'o> {
                 ChannelEnd::End => channel.closed = Some(Closure::End),
                 ChannelEnd::Undefined => channel.closed = Some(Closure::Undefined),
                 ChannelEnd::Open(reason) => channel.open_at(reason.clone(), false, None),
+                ChannelEnd::Undecided(reason) => channel.open_at(reason.clone(), true, None),
             }
         }
         Observations {
@@ -2173,8 +2592,11 @@ pub enum ChannelEnd {
     End,
     /// Closed by an undefined last step.
     Undefined,
-    /// Open there, for this reason (a bound, an inconclusive halt).
+    /// Open there, for this reason: a bound, which ends only what is known.
     Open(String),
+    /// Open there as undecided ([`Open::undecided`]), for this reason: an inconclusive halt,
+    /// which another run may take further.
+    Undecided(String),
 }
 
 impl Probe for ObservationOracle<'_> {
@@ -2463,5 +2885,164 @@ mod tests {
         let summary = serde_json::to_value(&observations).unwrap();
         assert_eq!(summary["channels"][0]["elements"], 2);
         assert!(observations.undecided());
+    }
+
+    /// Two records that do not differ agree channel by channel: to both sides' closure, up to a
+    /// horizon where a side is open at a bound, and with no answer where an element was not
+    /// compared or a side is open as undecided while the other side still knows the index.
+    #[test]
+    fn how_far_two_records_agree() {
+        let closed = record(vec![channel(
+            "c",
+            vec![element(1, b"a", None), element(2, b"b", None)],
+            Some(Closure::End),
+            None,
+        )]);
+        let RecordComparison::Agree(agreements) = compare_records(&closed, &closed.clone()) else {
+            panic!("equal records differ");
+        };
+        assert_eq!(agreements[0].through, 2);
+        assert_eq!(agreements[0].left, Reach::Closed(Closure::End));
+        assert!(!agreements[0].bounded() && agreements[0].undecided().is_none());
+        let bounded = record(vec![channel(
+            "c",
+            vec![element(1, b"a", None)],
+            None,
+            Some(1),
+        )]);
+        let RecordComparison::Agree(agreements) = compare_records(&bounded, &closed) else {
+            panic!("a bound made a difference");
+        };
+        assert_eq!(agreements[0].through, 1);
+        assert!(matches!(agreements[0].left, Reach::Open(_)));
+        assert_eq!(agreements[0].right, Reach::Known);
+        assert!(agreements[0].bounded() && agreements[0].undecided().is_none());
+        // An unknown element is not compared, so the agreement answers nothing.
+        let unknown_first = record(vec![channel(
+            "c",
+            vec![unknown(1), element(2, b"b", None)],
+            Some(Closure::End),
+            None,
+        )]);
+        let RecordComparison::Agree(agreements) = compare_records(&closed, &unknown_first) else {
+            panic!("an unknown element made a difference");
+        };
+        assert_eq!(
+            agreements[0].undecided(),
+            Some((Some(RecordSide::Right), 0, "spent"))
+        );
+        // A side open as undecided where the other side knows the index answers nothing; where
+        // the other side is open at a bound there, the agreement is bounded.
+        let mut undecided = bounded.clone();
+        undecided.channels[0].open.as_mut().unwrap().undecided = true;
+        let RecordComparison::Agree(agreements) = compare_records(&undecided, &closed) else {
+            panic!("an undecided open point made a difference");
+        };
+        assert_eq!(
+            agreements[0].undecided(),
+            Some((Some(RecordSide::Left), 1, "depth-bound"))
+        );
+        let RecordComparison::Agree(agreements) = compare_records(&undecided, &bounded) else {
+            panic!("two open points made a difference");
+        };
+        assert_eq!(agreements[0].undecided(), None);
+        // Elements with neither a value nor a digest in common are not compared.
+        let mut valued = closed.clone();
+        for element in &mut valued.channels[0].elements {
+            element.digest = None;
+            element.value = Some(serde_json::json!(1));
+        }
+        let RecordComparison::Agree(agreements) = compare_records(&closed, &valued) else {
+            panic!("elements with nothing in common differ");
+        };
+        assert_eq!(
+            agreements[0]
+                .undecided()
+                .map(|(side, index, _)| (side, index)),
+            Some((None, 0))
+        );
+    }
+
+    /// A record's document reads back as the record, with values in place of digests, so the
+    /// two compare alike; a part of another shape is refused, naming its position.
+    #[test]
+    fn a_document_reads_back_as_its_record() {
+        let observations = record(vec![
+            channel(
+                "c",
+                vec![
+                    element(1, b"a", Some(serde_json::json!({"n": 1}))),
+                    unknown(2),
+                ],
+                None,
+                Some(2),
+            ),
+            Channel {
+                kind: ChannelKind::Log,
+                ..channel(
+                    "l",
+                    vec![Element {
+                        rule: None,
+                        side: None,
+                        ..element(3, b"x", Some(serde_json::json!({"Out": {"n": 2}})))
+                    }],
+                    Some(Closure::End),
+                    None,
+                )
+            },
+        ]);
+        let document = observations.document();
+        let read = Observations::from_document(&document).unwrap();
+        assert_eq!(read.document(), document);
+        assert!(read.channels[0].elements[0].digest.is_none());
+        assert_eq!(first_difference(&observations, &read), None);
+        let refused = |edit: &dyn Fn(&mut Json)| {
+            let mut edited = document.clone();
+            edit(&mut edited);
+            Observations::from_document(&edited).unwrap_err()
+        };
+        for (edit, expected) in [
+            (
+                &(|document: &mut Json| document["schema"] = Json::from("krs-observations/0"))
+                    as &dyn Fn(&mut Json),
+                "at `schema`: an observation document's `schema` is `krs-observations/1`",
+            ),
+            (
+                &|document: &mut Json| document["extra"] = Json::from(1),
+                "at `the document`: unknown key `extra`",
+            ),
+            (
+                &|document: &mut Json| document["channels"][1]["name"] = Json::from("c"),
+                "at `channels[1]`: a second channel `c`",
+            ),
+            (
+                &|document: &mut Json| {
+                    document["channels"][0]["elements"][1]["index"] = Json::from(5);
+                },
+                "at `channels[0].elements[1]`: `index` is the element's position, 1",
+            ),
+            (
+                &|document: &mut Json| {
+                    document["channels"][0]["elements"][0]["undecided"] = Json::from("x");
+                },
+                "at `channels[0].elements[0]`: an element holds its `value`",
+            ),
+            (
+                &|document: &mut Json| {
+                    document["channels"][1]["open"] = document["channels"][0]["open"].clone();
+                },
+                "at `channels[1].open`: `index` is where the channel opened, after its 1 element",
+            ),
+            (
+                &|document: &mut Json| document["channels"][1]["closed"] = Json::Null,
+                "at `channels[1]`: a channel is closed (`closed`) or open (`open`)",
+            ),
+        ] {
+            let message = refused(edit);
+            assert!(
+                message.starts_with(expected),
+                "{expected:?} is not the start of {message:?}"
+            );
+        }
     }
 }

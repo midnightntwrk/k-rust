@@ -70,7 +70,7 @@ pub enum CommandKind {
     Prove,
     /// Run a batch of named cases and report each one's verdict.
     Cases,
-    /// Compare two ends, or an end against a case's expectation.
+    /// Compare two sides (ends, observations), or an end against a case's expectation.
     Compare,
 }
 
@@ -232,7 +232,7 @@ pub enum Command {
     Prove(ProveRequest),
     /// Run a batch of cases (`krs cases`).
     Cases(CasesRequest),
-    /// Compare two ends (`krs compare`).
+    /// Compare two sides (`krs compare`).
     Compare(CompareRequest),
 }
 
@@ -831,10 +831,10 @@ fn execute_compare(
     let mut composed = observer
         .as_ref()
         .map_or_else(Vec::new, |observer| observer.composed.clone());
-    // The observers case sides' stop conditions name, prepared before the sides are run, as
-    // the views' observer is: a facet only such an observer composes is used. One that cannot
-    // be prepared refuses the run that asks it, saying why.
-    let conditions = compare::condition_observers(&read)
+    // The observers case sides' stop conditions and observations name, prepared before the
+    // sides are run, as the views' observer is: a facet only such an observer composes is
+    // used. One that cannot be prepared refuses the run that asks it, saying why.
+    let conditions = compare::run_observers(&read)
         .into_iter()
         .map(|name| {
             let observer = match prepare_observer(request, &name, workspace_root) {

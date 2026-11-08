@@ -2,10 +2,47 @@
 //! expectation, printed as `krs run --case` prints an expectation's verdict.
 //!
 //! Each side is a file: an end document (`halt`, `rule`, `cells`; krs-exec's `ends` module, "End
-//! documents"), or a case document, whose case is run as `krs run --case` runs it (its inputs and
-//! its `run` table) and whose run's end is the side. A document of named cases names its case as
-//! `FILE#NAME`, the case's id in `krs cases`. The keys of the two kinds are disjoint, so a
-//! document is read as one kind, and one that holds keys of both is refused.
+//! documents"), an observation document (`schema`, `channels`: the `krs-observations/1` document
+//! `krs run --output observations` prints, krs-exec's `observations` module), or a case document,
+//! whose case is run as `krs run --case` runs it (its inputs, its `run` table and its `observe`)
+//! and whose run's end, and the observations its `observe` declares, are the side. A document of
+//! named cases names its case as `FILE#NAME`, the case's id in `krs cases`. The keys of the three
+//! kinds are disjoint, so a document is read as one kind, and one that holds keys of two is
+//! refused.
+//!
+//! A side states ends (an end document, a case), observations (an observation document, a case
+//! whose `observe` declares a channel), or both (such a case). Two sides are compared on what both
+//! state: their ends where both state ends, their observations where both state observations, and
+//! two sides that state nothing in common are refused. Observations are compared under one
+//! declaration: two cases must declare the same `observe`, and an observation document must have
+//! the channels the other side has, by name and kind, in order (that its elements correspond to
+//! the other side's is its producer's claim). Where only one side states observations, the
+//! verdict says they are not compared.
+//!
+//! Two records of observations are compared by krs-exec's one comparison of records
+//! (`compare_records`): the first decided difference (a channel, an index, both sides' elements or
+//! closures there, and the path inside two values), which is a finding (exit 1); or how far each
+//! channel agrees. An element is a function of a finite prefix of its path, and a record knows
+//! each channel up to where it is closed or open, so a difference read there holds of every
+//! longer run, and a bound only ends what is known. The agreement is:
+//!
+//! - equal (exit 0), to both sides' closure, or up to a horizon where a side is open at a bound
+//!   (its case's depth, a split of its path): the verdict says so and names each channel's
+//!   horizon. The bound is part of the side's question, as `krs run --output observations`
+//!   answers a depth-bounded run's observations with yes, and as two runs that a depth bound
+//!   ended compare equal on their ends: nothing past the horizon is claimed;
+//! - inconclusive (exit 3) where an element before any difference is unknown, or a side is open
+//!   as undecided (an evaluation's budget spent, the solver undecided, an inconclusive halt)
+//!   where the other side still knows the index: another run, with more budget, may differ there;
+//! - inconclusive where the record does not hold of the definition: a case run that has no one
+//!   path has no record, and where both sides' runs read a value the definition leaves open a
+//!   difference may be one implementation's choice (where one side's run read none, that side's
+//!   path is the definition's only one up to its record's open points, so a difference from it
+//!   holds), and an agreement holds only where neither side's run read one.
+//!
+//! The observations are compared first: their first difference is reached before either path's
+//! end, so the ends are compared only where the observations do not differ, and the verdict is
+//! the join of the two, a difference before no answer before equal.
 //!
 //! Two sides are compared as two sets of ends ([`Semantics::compare_ends`]): an end document
 //! states the one end of what produced it, and a run's end is its case's only end exactly when
@@ -24,6 +61,10 @@
 //! The case of a case side is run, never checked: its own `expect` table is not part of the
 //! comparison.
 //!
+//! A case side's observations are recorded as `krs run --case` and `krs cases` record them, so a
+//! case whose observation sequence does not exist (an element with no value) is refused here as
+//! there, whatever the comparison reads of it.
+//!
 //! With `--pairs FILE`, the document FILE lists comparisons, each one `krs compare` question:
 //! `LEFT RIGHT` with its own `compare`, `views` and `observer`, or `--expect CASE ACTUAL`. A case
 //! side's end and whether it is the case's only end depend on the case and the definition alone,
@@ -40,9 +81,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
 
 use krs_exec::{
-    BackendOptions, CaseDocument, CellViews, Compared, Comparison, CompiledStage, Difference,
-    EndError, Ends, ExecError, RunOptions, RunReport, Semantics, Side, SourceText, State,
-    StopCriterion, json_document, toml_text_document,
+    BackendOptions, CaseDocument, CellViews, ChannelAgreement, ChannelKind, Compared, Comparison,
+    CompiledStage, Difference, EndError, Ends, ExecError, ObservationDifference, ObservationSpec,
+    Observations, Observed, Observers, Reach, RecordComparison, RunOptions, RunReport, Semantics,
+    Side, SourceText, State, StopCriterion, compare_records, json_document, open_values,
+    toml_text_document,
 };
 use krs_ir::measure::{Measurement, Span, Timings};
 use krs_ir_levels::DefinitionIr;
@@ -186,6 +229,64 @@ pub(super) enum SideDocument {
     },
     /// A case, run once the definition is loaded.
     Case(SelectedCase),
+    /// An observation document, read as the record it states.
+    Observations { record: Observations },
+}
+
+impl SideDocument {
+    /// What the side is, as a refusal names it.
+    const fn kind(&self) -> &'static str {
+        match self {
+            Self::End { .. } => "an end document",
+            Self::Case(_) => "a case",
+            Self::Observations { .. } => "an observation document",
+        }
+    }
+
+    /// Whether the side states ends: an end document's one end, a case run's.
+    const fn states_ends(&self) -> bool {
+        matches!(self, Self::End { .. } | Self::Case(_))
+    }
+
+    /// The observations a case side declares, where it declares a channel.
+    fn declared(&self) -> Option<&ObservationSpec> {
+        match self {
+            Self::Case(case) => case.case.observe.as_deref().filter(|spec| !spec.is_empty()),
+            _ => None,
+        }
+    }
+
+    /// Whether the side states observations: an observation document's, a case run's whose case
+    /// declares a channel.
+    fn states_observations(&self) -> bool {
+        matches!(self, Self::Observations { .. }) || self.declared().is_some()
+    }
+
+    /// The side's channels by name and kind, in order, where it states observations: an
+    /// observation document's, or those a case's declaration gives a record, its classes then its
+    /// logs.
+    fn channels(&self) -> Option<Vec<(&str, ChannelKind)>> {
+        match self {
+            Self::Observations { record, .. } => Some(
+                record
+                    .channels
+                    .iter()
+                    .map(|channel| (channel.name.as_str(), channel.kind))
+                    .collect(),
+            ),
+            _ => self.declared().map(|spec| {
+                spec.points
+                    .iter()
+                    .map(|point| (point.name.as_str(), ChannelKind::Point))
+                    .chain(
+                        spec.logs
+                            .iter()
+                            .map(|log| (log.name.as_str(), ChannelKind::Log)),
+                    )
+                    .collect()
+            }),
+        }
+    }
 }
 
 /// The two sides' documents: `LEFT` and `RIGHT`, or `CASE` and `ACTUAL`.
@@ -198,15 +299,19 @@ pub(super) struct ReadSides {
 const END_KEYS: [&str; 3] = ["halt", "rule", "cells"];
 
 /// The keys of a case document: one case's, and a document of named cases'.
-const CASE_KEYS: [&str; 4] = ["inputs", "run", "expect", "case"];
+const CASE_KEYS: [&str; 5] = ["inputs", "run", "observe", "expect", "case"];
+
+/// The keys of an observation document.
+const OBSERVATION_KEYS: [&str; 2] = ["schema", "channels"];
 
 /// Read the sides' documents of `request`, before the definition is loaded.
 ///
 /// # Errors
 ///
-/// Fails for a document that cannot be read, holds keys of both kinds, or is no case document,
-/// a `#NAME` its document does not select, and, with `--expect`, an end document or a case
-/// that states no expectation.
+/// Fails for a document that cannot be read, holds keys of two kinds, or is no case document,
+/// a `#NAME` its document does not select, and, with `--expect`, an end document or an
+/// observation document named as the case, a case that states no expectation, and an observation
+/// document named as the actual side.
 pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
     let (first, second) = match &request.sides {
         CompareSides::Ends { left, right } => (left, right),
@@ -216,9 +321,10 @@ pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
     let first = read_side(first)?;
     if let CompareSides::Expectation { case, .. } = &request.sides {
         match &first {
-            SideDocument::End { .. } => {
+            SideDocument::End { .. } | SideDocument::Observations { .. } => {
                 return Err(Failure::Usage(format!(
-                    "--expect `{case}` names an end document; --expect names a case document whose `expect` table states the expected end"
+                    "--expect `{case}` names {}; --expect names a case document whose `expect` table states the expected end",
+                    first.kind()
                 )));
             }
             SideDocument::Case(selected) if selected.case.expect.is_none() => {
@@ -230,6 +336,13 @@ pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
         }
     }
     let second = read_side(second)?;
+    if let (CompareSides::Expectation { actual, .. }, SideDocument::Observations { .. }) =
+        (&request.sides, &second)
+    {
+        return Err(Failure::Usage(format!(
+            "--expect checks an end against the case's expectation, and `{actual}` is an observation document, which states no end"
+        )));
+    }
     Ok(ReadSides { first, second })
 }
 
@@ -267,18 +380,41 @@ fn read_side(file: &SideFile) -> Result<SideDocument, Failure> {
         toml_text_document(&text)
     }
     .map_err(|error| refuse(file, &error.to_string()))?;
-    let end_key = |key: &String| END_KEYS.contains(&key.as_str());
-    if let Json::Object(table) = &document
-        && table.keys().any(end_key)
-    {
-        if let Some(key) = table.keys().find(|key| CASE_KEYS.contains(&key.as_str())) {
-            return Err(refuse(
-                file,
-                &format!(
-                    "`{key}`: a document is an end document (`halt`, `rule`, `cells`) or a case document (`inputs`, `run`, `expect`, or `case` for named cases), not both"
-                ),
-            ));
+    let kinds = [&END_KEYS[..], &OBSERVATION_KEYS[..], &CASE_KEYS[..]];
+    let kind_of = |key: &String| kinds.iter().position(|keys| keys.contains(&key.as_str()));
+    let kind = match &document {
+        Json::Object(table) => {
+            let first = table.keys().find_map(kind_of);
+            if let Some(key) = table
+                .keys()
+                .find(|key| kind_of(key).is_some_and(|kind| Some(kind) != first))
+            {
+                return Err(refuse(
+                    file,
+                    &format!(
+                        "`{key}`: a document is an end document (`halt`, `rule`, `cells`), an observation document (`schema`, `channels`) or a case document (`inputs`, `run`, `observe`, `expect`, or `case` for named cases), one of the three"
+                    ),
+                ));
+            }
+            first
         }
+        _ => None,
+    };
+    if kind == Some(1) {
+        if let Some(name) = &file.name {
+            return Err(Failure::Usage(format!(
+                "`{file}`: `{}` is an observation document, which states one record and no named case; name it without `#{name}`",
+                path.display()
+            )));
+        }
+        let record = Observations::from_document(&document).map_err(|error| {
+            Failure::Exec(ExecError::Observe(format!(
+                "`{file}`: the observation document {error}"
+            )))
+        })?;
+        return Ok(SideDocument::Observations { record });
+    }
+    if kind == Some(0) {
         if let Some(name) = &file.name {
             return Err(Failure::Usage(format!(
                 "`{file}`: `{}` is an end document, which states one end and no named case; name it without `#{name}`",
@@ -427,34 +563,261 @@ pub(super) fn execute(
     result.map_err(|failure: Failure| failure.into_command_error(prepared))
 }
 
-/// The verdict of two sets of ends, with the views it applied.
-struct EndsVerdict {
-    verdict: Compared,
+/// The observations part of a comparison ([module documentation](self)).
+enum ObservationsPart {
+    /// Only one side states observations: why the other states none.
+    Unstated(String),
+    /// The first decided difference.
+    Differs(Box<ObservationDifference>),
+    /// No difference: how far each channel agrees, and why that answers nothing where it does
+    /// not.
+    Agree {
+        channels: Vec<ChannelAgreement>,
+        inconclusive: Option<String>,
+    },
+}
+
+impl ObservationsPart {
+    /// The part's exit status ([`exit_status`]): a difference is a finding, an agreement that
+    /// answers nothing has no answer, and an agreement to both sides' closure or up to a horizon
+    /// is yes, as is a part that compares nothing.
+    const fn status(&self) -> i32 {
+        match self {
+            Self::Differs(_) => exit_status::NO,
+            Self::Agree {
+                inconclusive: Some(_),
+                ..
+            } => exit_status::UNANSWERED,
+            Self::Unstated(_) | Self::Agree { .. } => exit_status::YES,
+        }
+    }
+
+    /// Whether some channel agrees up to a horizon rather than to both sides' closure.
+    fn bounded(&self) -> bool {
+        matches!(self, Self::Agree { channels, .. } if channels.iter().any(ChannelAgreement::bounded))
+    }
+
+    /// The part's document: `{"not_compared": REASON}`; `{"difference": {"channel", "index",
+    /// "left", "right", "path"}}`, each side an element's document or `"end"` or `"undefined"`;
+    /// or `{"agree": [{"channel", "through", "left", "right", "uncompared"?}], "reason"?}`, each
+    /// side `"end"` or `"undefined"` where it closed there, `{"open": {"index", "reason",
+    /// "undecided"?}}` where it is open there, or `"known"`.
+    fn document(&self) -> Json {
+        match self {
+            Self::Unstated(reason) => json!({"not_compared": reason}),
+            Self::Differs(difference) => json!({"difference": {
+                "channel": difference.channel,
+                "index": difference.index,
+                "left": difference.left.document(difference.index),
+                "right": difference.right.document(difference.index),
+                "path": difference.path,
+            }}),
+            Self::Agree {
+                channels,
+                inconclusive,
+            } => {
+                let reach = |reach: &Reach| match reach {
+                    Reach::Closed(closure) => json!(closure),
+                    Reach::Open(open) => json!({"open": open}),
+                    Reach::Known => json!("known"),
+                };
+                let channels = channels
+                    .iter()
+                    .map(|agreement| {
+                        let mut document = json!({
+                            "channel": agreement.channel,
+                            "through": agreement.through,
+                            "left": reach(&agreement.left),
+                            "right": reach(&agreement.right),
+                        });
+                        if let Some(uncompared) = &agreement.uncompared {
+                            document["uncompared"] = json!({
+                                "index": uncompared.index,
+                                "side": uncompared.side,
+                                "reason": uncompared.reason,
+                            });
+                        }
+                        document
+                    })
+                    .collect::<Vec<_>>();
+                let mut document = json!({"agree": channels});
+                if let Some(reason) = inconclusive {
+                    document["reason"] = json!(reason);
+                }
+                document
+            }
+        }
+    }
+
+    /// The part's lines below a verdict's head: a line per agreeing channel, or why the
+    /// observations are not compared; nothing for a difference, which the head shows.
+    fn write(&self, output: &mut String) {
+        match self {
+            Self::Differs(_) => {}
+            Self::Unstated(reason) => {
+                let _ = writeln!(output, "  observations not compared: {reason}");
+            }
+            Self::Agree { channels, .. } => {
+                for agreement in channels {
+                    let through = agreement.through;
+                    let elements = format!(
+                        "{through} element{} agree{}",
+                        if through == 1 { "" } else { "s" },
+                        if through == 1 { "s" } else { "" }
+                    );
+                    let open = |reach: &Reach| match reach {
+                        Reach::Open(open) => Some(open.reason.clone()),
+                        _ => None,
+                    };
+                    let then = match (&agreement.left, &agreement.right) {
+                        (Reach::Closed(krs_exec::Closure::End), _) => {
+                            "then both paths end".to_owned()
+                        }
+                        (Reach::Closed(krs_exec::Closure::Undefined), _) => {
+                            "then both paths take an undefined step".to_owned()
+                        }
+                        (left, right) => match (open(left), open(right)) {
+                            (Some(left), Some(right)) => format!(
+                                "then both sides are open: the left side: {left}; the right side: {right}"
+                            ),
+                            (Some(reason), None) => format!("then the left side is open: {reason}"),
+                            (None, Some(reason)) => {
+                                format!("then the right side is open: {reason}")
+                            }
+                            (None, None) => String::new(),
+                        },
+                    };
+                    let _ = writeln!(
+                        output,
+                        "  observation `{}`: {elements}, {then}",
+                        agreement.channel
+                    );
+                    if let Some(uncompared) = &agreement.uncompared {
+                        let _ = writeln!(
+                            output,
+                            "    element {} is not compared{}: {}",
+                            uncompared.index,
+                            uncompared.side.map_or_else(String::new, |side| format!(
+                                ", unknown on the {} side",
+                                side.as_str()
+                            )),
+                            uncompared.reason
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The lines of an observation difference, headed by `head`: where, then each side's element or
+/// closure there.
+fn write_observation_difference(
+    output: &mut String,
+    head: &str,
+    difference: &ObservationDifference,
+) {
+    let at = difference
+        .path
+        .as_ref()
+        .map_or_else(String::new, |path| format!(" at `{path}`"));
+    let _ = writeln!(
+        output,
+        "{head} at the observation `{}` element {}{at}",
+        difference.channel, difference.index
+    );
+    let shown = |observed: &Observed| match observed {
+        Observed::End => "the end of the path".to_owned(),
+        Observed::Undefined => "an undefined step, which ends the path".to_owned(),
+        Observed::Element(element) => {
+            let value = match (&element.undecided, &element.value) {
+                (Some(reason), _) => format!("unknown ({reason})"),
+                (None, Some(value)) => value.to_string(),
+                (None, None) => "an element".to_owned(),
+            };
+            let steps = format!(
+                "after {} step{}",
+                element.depth,
+                if element.depth == 1 { "" } else { "s" }
+            );
+            let point = match (&element.rule, element.side) {
+                (Some(rule), Some(side)) => format!(
+                    "{} `{rule}`, {steps}",
+                    match side {
+                        krs_exec::StopAt::Before => "before",
+                        krs_exec::StopAt::After => "after",
+                    }
+                ),
+                (Some(rule), None) => format!("at `{rule}`, {steps}"),
+                (None, _) => format!("read at the path's end, {steps}"),
+            };
+            format!("{value} ({point})")
+        }
+    };
+    for (name, observed) in [("left:", &difference.left), ("right:", &difference.right)] {
+        let _ = writeln!(output, "  {name:<6} {}", shown(observed));
+    }
+}
+
+/// The verdict of two sides: their ends' where both state ends and the observations do not
+/// differ, their observations' where either states observations, with the views it applied.
+struct SidesVerdict {
+    ends: Option<Compared>,
+    observations: Option<ObservationsPart>,
     views: BTreeMap<String, String>,
     observer: Option<String>,
 }
 
-impl EndsVerdict {
-    /// The exit status the verdict gives ([`exit_status`]): equal, differs (a finding), or
-    /// inconclusive (no answer).
+impl SidesVerdict {
+    /// The exit status the verdict gives ([`exit_status`]): the join of its parts', a difference
+    /// (a finding) before no answer before equal.
     const fn exit_code(&self) -> i32 {
-        compared_status(&self.verdict)
+        let ends = match &self.ends {
+            Some(ends) => compared_status(ends),
+            None => exit_status::YES,
+        };
+        let observations = match &self.observations {
+            Some(observations) => observations.status(),
+            None => exit_status::YES,
+        };
+        exit_status::join(ends, observations)
     }
 
     const fn word(&self) -> &'static str {
-        match self.verdict {
-            Compared::Equal => "equal",
-            Compared::Differs(_) => "differs",
-            Compared::Inconclusive(_) => "inconclusive",
+        match self.exit_code() {
+            exit_status::YES => "equal",
+            exit_status::NO => "differs",
+            _ => "inconclusive",
+        }
+    }
+
+    /// Why the verdict is inconclusive: the ends' reason, else the observations'.
+    fn reason(&self) -> Option<&str> {
+        match (&self.ends, &self.observations) {
+            (Some(Compared::Inconclusive(reason)), _)
+            | (
+                _,
+                Some(ObservationsPart::Agree {
+                    inconclusive: Some(reason),
+                    ..
+                }),
+            ) => Some(reason),
+            _ => None,
         }
     }
 
     fn document(&self) -> Json {
         let mut document = json!({"schema": COMPARE_SCHEMA, "verdict": self.word()});
-        match &self.verdict {
-            Compared::Equal => {}
-            Compared::Differs(difference) => document["difference"] = json!(difference),
-            Compared::Inconclusive(reason) => document["reason"] = json!(reason),
+        if let Some(Compared::Differs(difference)) = &self.ends {
+            document["difference"] = json!(difference);
+        }
+        if self.exit_code() == exit_status::UNANSWERED
+            && let Some(reason) = self.reason()
+        {
+            document["reason"] = json!(reason);
+        }
+        if let Some(observations) = &self.observations {
+            document["observations"] = observations.document();
         }
         if !self.views.is_empty() {
             document["views"] = json!(self.views);
@@ -467,17 +830,35 @@ impl EndsVerdict {
 
     /// The verdict's lines, headed by `label`.
     fn write(&self, output: &mut String, label: &str) {
-        match &self.verdict {
-            Compared::Equal => {
-                let _ = writeln!(output, "{label}: equal");
+        match (&self.observations, &self.ends) {
+            (Some(ObservationsPart::Differs(difference)), _) => {
+                write_observation_difference(output, &format!("{label}: differs"), difference);
             }
-            Compared::Inconclusive(reason) => {
-                let _ = writeln!(output, "{label}: inconclusive: {reason}");
-            }
-            Compared::Differs(difference) => {
+            (_, Some(Compared::Differs(difference))) => {
                 exec::write_difference(output, &format!("{label}: differs"), difference);
                 write_pair_note(output, difference);
             }
+            _ => match self
+                .reason()
+                .filter(|_| self.exit_code() == exit_status::UNANSWERED)
+            {
+                Some(reason) => {
+                    let _ = writeln!(output, "{label}: inconclusive: {reason}");
+                }
+                None if self
+                    .observations
+                    .as_ref()
+                    .is_some_and(ObservationsPart::bounded) =>
+                {
+                    let _ = writeln!(output, "{label}: equal up to a horizon");
+                }
+                None => {
+                    let _ = writeln!(output, "{label}: equal");
+                }
+            },
+        }
+        if let Some(observations) = &self.observations {
+            observations.write(output);
         }
         let observer = self.observer.as_deref().filter(|_| !self.views.is_empty());
         exec::write_views(output, &self.views, observer);
@@ -487,7 +868,7 @@ impl EndsVerdict {
 /// One comparison's verdict: two sets of ends compared, or a side checked against a case's
 /// expectation.
 enum Verdict {
-    Ends(EndsVerdict),
+    Sides(SidesVerdict),
     Expectation(Checked),
 }
 
@@ -495,7 +876,7 @@ impl Verdict {
     /// The exit status the verdict gives ([`exit_status`]).
     const fn exit_code(&self) -> i32 {
         match self {
-            Self::Ends(verdict) => verdict.exit_code(),
+            Self::Sides(verdict) => verdict.exit_code(),
             Self::Expectation(checked) => checked.exit_code(),
         }
     }
@@ -503,7 +884,7 @@ impl Verdict {
     /// The [`COMPARE_SCHEMA`] document.
     fn document(&self) -> Json {
         match self {
-            Self::Ends(verdict) => verdict.document(),
+            Self::Sides(verdict) => verdict.document(),
             Self::Expectation(checked) => {
                 let mut document = json!({"schema": COMPARE_SCHEMA});
                 if let (Json::Object(target), Json::Object(members)) =
@@ -519,7 +900,7 @@ impl Verdict {
     /// The verdict's lines, headed by `label`.
     fn write(&self, output: &mut String, label: &str) {
         match self {
-            Self::Ends(verdict) => verdict.write(output, label),
+            Self::Sides(verdict) => verdict.write(output, label),
             Self::Expectation(checked) => checked.write(output, label),
         }
     }
@@ -665,28 +1046,33 @@ impl CaseRuns {
     }
 }
 
-/// The observers the stop conditions of a comparison's case sides name, each prepared before any
-/// run asks: by name, `None` for one that names the compared definition itself, or why it could
-/// not be prepared.
+/// The observers the stop conditions and the observations of a comparison's case sides name,
+/// each prepared before any run asks: by name, `None` for one that names the compared definition
+/// itself, or why it could not be prepared.
 pub(super) type NamedConditions<O> = Vec<(String, Result<Option<O>, String>)>;
 
-/// The observers the stop conditions of `read`'s case sides name, each once, in the order of
-/// the sides: each is prepared before the sides are run, as a views' observer is, so that the
-/// dependency facets it composes are known before the comparison.
-pub(super) fn condition_observers(read: &ReadSides) -> Vec<String> {
+/// The observers the stop conditions and the observations of `read`'s case sides name, each
+/// once, in the order of the sides: each is prepared before the sides are run, as a views'
+/// observer is, so that the dependency facets it composes are known before the comparison.
+pub(super) fn run_observers(read: &ReadSides) -> Vec<String> {
     let mut names = Vec::new();
     for side in [&read.first, &read.second] {
         let SideDocument::Case(case) = side else {
             continue;
         };
         // A case whose stops cannot be read is refused when it is run.
-        let Ok(stop) = case.stop(&StopCriterion::None, None) else {
-            continue;
-        };
-        if let Some(name) = stop.when().and_then(|when| when.observer.clone())
-            && !names.contains(&name)
-        {
-            names.push(name);
+        let condition = case
+            .stop(&StopCriterion::None, None)
+            .ok()
+            .and_then(|stop| stop.when().and_then(|when| when.observer.clone()));
+        let observations = side
+            .declared()
+            .filter(|spec| spec.declares_function())
+            .and_then(|spec| spec.observer.clone());
+        for name in [condition, observations].into_iter().flatten() {
+            if !names.contains(&name) {
+                names.push(name);
+            }
         }
     }
     names
@@ -700,10 +1086,11 @@ enum ConditionObserver {
     Compiled(Arc<Observer>),
 }
 
-/// The definitions the stop conditions of case sides' runs are evaluated in, each loaded the
-/// first time a run asks one: another semantics of the compared definition, or an observer it
-/// names, prepared beforehand ([`Self::name`]). They are loaded apart from the views' observer,
-/// which a comparison reads at the same time.
+/// The definitions the stop conditions and the observations of case sides' runs are evaluated
+/// in, each loaded the first time a run asks one: another semantics of the compared definition,
+/// or an observer it names, prepared beforehand ([`Self::name`]). They are loaded apart from the
+/// views' observer, which a comparison reads at the same time, and a run's observations apart
+/// from its stop condition, since the run asks both at once.
 pub(super) struct Conditions<'a> {
     /// The polls each evaluation of a condition may spend (`--view-budget`), as `krs run --case`
     /// spends them.
@@ -715,8 +1102,11 @@ pub(super) struct Conditions<'a> {
     restore: bool,
     /// The observers conditions name, prepared, by name ([`NamedConditions`]).
     named: HashMap<String, Result<Option<ConditionObserver>, String>>,
-    /// By observer name, `None` for the compared definition's own.
+    /// The stop conditions' definitions by observer name, `None` for the compared definition's
+    /// own.
     loaded: Vec<(Option<String>, Result<Semantics, String>)>,
+    /// The observations' definitions, by observer name as [`Self::loaded`].
+    observations: Vec<(Option<String>, Result<Semantics, String>)>,
 }
 
 impl<'a> Conditions<'a> {
@@ -735,6 +1125,7 @@ impl<'a> Conditions<'a> {
             restore,
             named: HashMap::new(),
             loaded: Vec::new(),
+            observations: Vec::new(),
         }
     }
 
@@ -745,49 +1136,97 @@ impl<'a> Conditions<'a> {
 
     /// The definition the condition of `criterion` is evaluated in; `None` without one.
     fn of(&mut self, criterion: &StopCriterion) -> Result<Option<&mut Semantics>, Failure> {
-        let Some(when) = criterion.when() else {
-            return Ok(None);
+        Ok(self.for_run(criterion, None)?.condition)
+    }
+
+    /// The definitions a run under `criterion` and the observations `observe` is evaluated in:
+    /// its condition's, and its observations' where they evaluate a function.
+    fn for_run(
+        &mut self,
+        criterion: &StopCriterion,
+        observe: Option<&ObservationSpec>,
+    ) -> Result<Observers<'_>, Failure> {
+        let condition = criterion
+            .when()
+            .map(|when| self.position(false, when.observer.clone()));
+        let observations = observe
+            .filter(|spec| spec.declares_function())
+            .map(|spec| self.position(true, spec.observer.clone()));
+        let condition = match condition {
+            None => None,
+            Some(position) => Some(
+                self.loaded[position]
+                    .1
+                    .as_mut()
+                    .map_err(|reason| Failure::Exec(ExecError::StopWhen(reason.clone())))?,
+            ),
         };
-        let key = when.observer.clone();
-        let position = if let Some(position) =
-            self.loaded.iter().position(|(loaded, _)| *loaded == key)
-        {
-            position
+        let observations = match observations {
+            None => None,
+            Some(position) => Some(
+                self.observations[position]
+                    .1
+                    .as_mut()
+                    .map_err(|reason| Failure::Exec(ExecError::Observe(reason.clone())))?,
+            ),
+        };
+        Ok(Observers {
+            condition,
+            observations,
+        })
+    }
+
+    /// The place of the definition the observer `key` names (`None` for the compared
+    /// definition's own) among the loaded observations' definitions (`observations`) or the stop
+    /// conditions', loaded there the first time it is asked.
+    fn position(&mut self, observations: bool, key: Option<String>) -> usize {
+        let loaded = if observations {
+            &self.observations
         } else {
-            let timings = &mut Timings::disabled();
-            let own = |timings: &mut Timings| {
-                exec::load_condition(self.definition, self.stage, None, self.solver, timings)
-                    .map_err(|error| error.to_string())
-            };
-            let loaded = match &key {
-                None => own(timings),
-                Some(name) => match self.named.get(name) {
-                    None => Err(format!("the observer `{name}` was not prepared")),
-                    Some(Err(reason)) => Err(reason.clone()),
-                    Some(Ok(None)) => own(timings),
-                    Some(Ok(Some(ConditionObserver::Prepared(observer)))) => {
-                        exec::load_observer(observer, self.restore, self.solver, timings)
-                            .map_err(|error| error.to_string())
-                    }
-                    Some(Ok(Some(ConditionObserver::Compiled(observer)))) => exec::load_condition(
-                        self.definition,
-                        self.stage,
-                        Some((&observer.definition, &observer.stage)),
-                        self.solver,
-                        timings,
-                    )
-                    .map_err(|error| error.to_string()),
-                },
-            }
-            .map_err(|error| format!("krs cannot load the stop condition's definition: {error}"));
-            self.loaded.push((key, loaded));
-            self.loaded.len() - 1
+            &self.loaded
         };
-        self.loaded[position]
-            .1
-            .as_mut()
-            .map(Some)
-            .map_err(|reason| Failure::Exec(ExecError::StopWhen(reason.clone())))
+        if let Some(position) = loaded.iter().position(|(loaded, _)| *loaded == key) {
+            return position;
+        }
+        let timings = &mut Timings::disabled();
+        let own = |timings: &mut Timings| {
+            exec::load_condition(self.definition, self.stage, None, self.solver, timings)
+                .map_err(|error| error.to_string())
+        };
+        let semantics = match &key {
+            None => own(timings),
+            Some(name) => match self.named.get(name) {
+                None => Err(format!("the observer `{name}` was not prepared")),
+                Some(Err(reason)) => Err(reason.clone()),
+                Some(Ok(None)) => own(timings),
+                Some(Ok(Some(ConditionObserver::Prepared(observer)))) => {
+                    exec::load_observer(observer, self.restore, self.solver, timings)
+                        .map_err(|error| error.to_string())
+                }
+                Some(Ok(Some(ConditionObserver::Compiled(observer)))) => exec::load_condition(
+                    self.definition,
+                    self.stage,
+                    Some((&observer.definition, &observer.stage)),
+                    self.solver,
+                    timings,
+                )
+                .map_err(|error| error.to_string()),
+            },
+        }
+        .map_err(|error| {
+            if observations {
+                format!("krs cannot load the observations' definition: {error}")
+            } else {
+                format!("krs cannot load the stop condition's definition: {error}")
+            }
+        });
+        let loaded = if observations {
+            &mut self.observations
+        } else {
+            &mut self.loaded
+        };
+        loaded.push((key, semantics));
+        loaded.len() - 1
     }
 }
 
@@ -795,6 +1234,12 @@ impl<'a> Conditions<'a> {
 /// its end is the case's only one.
 struct CaseRun {
     ends: Ends,
+    /// The record of the observations its case declares: `None` where it declares none, the
+    /// reason where the run has no record.
+    observations: Option<Result<Observations, String>>,
+    /// Why the run's path may not be the definition's only one up to its record's open points:
+    /// it read values the definition leaves open ([`open_values`]); `None` where it read none.
+    chosen: Option<String>,
     /// The note of the stop rules the run went on past ([`krs_exec::RunReport::passed_stops`]),
     /// naming the case; `None` when it passed none.
     passed: Option<String>,
@@ -814,7 +1259,8 @@ struct RunOf {
 
 impl CaseRun {
     /// The end of `case`'s run, as `krs run --case` runs it: its inputs bound, its `run` table's
-    /// depth and stops.
+    /// depth and stops, and the observations its `observe` declares recorded as `krs run --case`
+    /// records them, so that one whose element has no value refuses the run.
     fn run(
         semantics: &mut Semantics,
         conditions: &mut Conditions<'_>,
@@ -823,19 +1269,31 @@ impl CaseRun {
         let stop = case.stop(&StopCriterion::None, None)?;
         let depth = case.depth(None)?;
         let state = exec::configure(semantics, Inputs::of_case(case), false)?;
+        let observe = case
+            .case
+            .observe
+            .as_deref()
+            .filter(|spec| !spec.is_empty())
+            .cloned();
+        let declared = observe.is_some();
         let options = RunOptions {
             depth,
             stop,
             condition_budget: Some(conditions.budget),
+            observe,
             ..RunOptions::default()
         };
-        let condition = conditions.of(&options.stop)?;
-        let report = match semantics.run_observed(&state, options.clone(), condition) {
+        let observers = conditions.for_run(&options.stop, options.observe.as_ref())?;
+        let report = match semantics.run_with(&state, options.clone(), observers) {
             Ok(report) => report,
-            // A run that cannot decide which of several states it reaches has no one end.
+            // A run that cannot decide which of several states it reaches has no one end, and
+            // no one path to record observations along.
             Err(error @ ExecError::Undecided { .. }) => {
                 return Ok(Self {
                     ends: Ends::none(format!("the run has no one end: {error}")),
+                    observations: declared
+                        .then(|| Err(format!("the run has no one path: {error}"))),
+                    chosen: None,
                     passed: None,
                     run: None,
                     followed: OnceLock::new(),
@@ -853,14 +1311,22 @@ impl CaseRun {
                 case.id()
             )
         });
-        // A run with no end has nothing a completeness could change.
+        let observations = declared.then(|| Ok(report.observations.clone().unwrap_or_default()));
+        let chosen = open_values(&report.implementation_chosen_values);
+        // A run with no end has nothing a completeness could change; following it again reads
+        // no observation.
         let run = (!ends.ends.is_empty()).then_some(RunOf {
             state,
-            options,
+            options: RunOptions {
+                observe: None,
+                ..options
+            },
             report,
         });
         Ok(Self {
             ends,
+            observations,
+            chosen,
             passed,
             run,
             followed: OnceLock::new(),
@@ -890,7 +1356,8 @@ impl CaseRun {
     }
 }
 
-/// A side's ends: an end document's one end, or a case's run, until its completeness is known.
+/// A side: an end document's one end, an observation document's record, or a case's run, its
+/// ends until their completeness is known.
 struct Produced {
     name: &'static str,
     source: Source,
@@ -898,6 +1365,8 @@ struct Produced {
 
 enum Source {
     End(Ends),
+    /// An observation document's record.
+    Record(Observations),
     /// A case's run, and whether this comparison followed it again ([`Produced::settle`]).
     Run {
         run: Arc<CaseRun>,
@@ -906,14 +1375,40 @@ enum Source {
 }
 
 impl Produced {
+    /// The side's ends; a comparison reads them only of a side that states ends
+    /// ([`SideDocument::states_ends`]).
     fn ends(&self) -> &Ends {
         match &self.source {
             Source::End(ends) => ends,
+            Source::Record(_) => {
+                unreachable!("ends are compared only where both sides state them")
+            }
             Source::Run { run, followed } => (*followed)
                 .then(|| run.followed.get())
                 .flatten()
                 .and_then(|followed| followed.as_ref().ok().and_then(Option::as_ref))
                 .unwrap_or(&run.ends),
+        }
+    }
+
+    /// The side's record of observations, or why its run has none; `None` for a side that
+    /// states no observations.
+    fn record(&self) -> Option<Result<&Observations, &str>> {
+        match &self.source {
+            Source::End(_) => None,
+            Source::Record(record) => Some(Ok(record)),
+            Source::Run { run, .. } => run
+                .observations
+                .as_ref()
+                .map(|record| record.as_ref().map_err(String::as_str)),
+        }
+    }
+
+    /// Why the side's path may not be the definition's only one ([`CaseRun::chosen`]).
+    fn chosen(&self) -> Option<&str> {
+        match &self.source {
+            Source::Run { run, .. } => run.chosen.as_deref(),
+            Source::End(_) | Source::Record(_) => None,
         }
     }
 
@@ -954,14 +1449,20 @@ impl Produced {
         case: &SelectedCase,
         timings: &mut Timings,
     ) -> Result<Self, Failure> {
-        // A stop condition refused on this side's run names the side and its case, which the
-        // run's own refusal cannot.
+        // A stop condition or observations refused on this side's run name the side and its
+        // case, which the run's own refusal cannot.
         let run =
             runs.get(semantics, conditions, case, timings)
                 .map_err(|failure| match failure {
                     Failure::Exec(
                         error @ (ExecError::StopWhen(_) | ExecError::StopCondition { .. }),
                     ) => Failure::Exec(ExecError::StopWhen(format!(
+                        "the {name} side, the case `{}`: {error}",
+                        case.id()
+                    ))),
+                    Failure::Exec(
+                        error @ (ExecError::Observe(_) | ExecError::Observation { .. }),
+                    ) => Failure::Exec(ExecError::Observe(format!(
                         "the {name} side, the case `{}`: {error}",
                         case.id()
                     ))),
@@ -1007,10 +1508,10 @@ fn compare(
     timings: &mut Timings,
 ) -> Result<Verdict, Failure> {
     match &request.sides {
-        CompareSides::Ends { .. } => compare_ends(
+        CompareSides::Ends { .. } => compare_sides(
             semantics, observer, conditions, request, read, runs, timings,
         )
-        .map(Verdict::Ends),
+        .map(Verdict::Sides),
         CompareSides::Expectation { .. } => check_expectation(
             semantics, observer, conditions, request, read, runs, timings,
         )
@@ -1024,10 +1525,90 @@ fn refuse_comparison(error: &EndError) -> Failure {
     Failure::Exec(ExecError::Case(format!("the comparison: {error}")))
 }
 
-/// Compare two sets of ends: every end document read and checked first, so that a partial one
-/// is refused before a case is run; then each case side run; then the views evaluated; then the
-/// sets compared, a run side followed again where the verdict rests on its completeness.
-fn compare_ends(
+/// Refuse sides that `read` and `request` cannot compare, before anything is run: sides that state
+/// nothing in common, observations of two declarations, and compared cells or views where no
+/// ends are compared.
+fn check_sides(request: &CompareRequest, read: &ReadSides) -> Result<(), Failure> {
+    let ReadSides { first, second } = read;
+    let ends = first.states_ends() && second.states_ends();
+    let observations = first.states_observations() && second.states_observations();
+    let states = |document: &SideDocument| match document {
+        SideDocument::End { .. } => "states an end and no observations",
+        SideDocument::Observations { .. } => "states observations and no end",
+        SideDocument::Case(_) if document.states_observations() => "states an end and observations",
+        SideDocument::Case(_) => {
+            "states an end and no observations (its case declares no `observe`)"
+        }
+    };
+    if !ends && !observations {
+        return Err(Failure::Usage(format!(
+            "the left side, {}, {}, and the right side, {}, {}: the two sides state nothing both can be compared on",
+            first.kind(),
+            states(first),
+            second.kind(),
+            states(second)
+        )));
+    }
+    if !ends && (request.compare.is_some() || !request.views.is_empty()) {
+        let side = if first.states_ends() { second } else { first };
+        return Err(Failure::Usage(format!(
+            "--compare and --view apply to the ends a comparison compares, and the {} side, {}, states no end",
+            if first.states_ends() { "right" } else { "left" },
+            side.kind()
+        )));
+    }
+    if observations {
+        let refuse = |reason: String| {
+            Failure::Exec(ExecError::Observe(format!(
+                "the comparison: {reason}; observations are compared under one declaration"
+            )))
+        };
+        if let (SideDocument::Case(left), SideDocument::Case(right)) = (first, second)
+            && first.declared() != second.declared()
+        {
+            return Err(refuse(format!(
+                "the cases `{}` and `{}` declare different observations (`observe`)",
+                left.id(),
+                right.id()
+            )));
+        }
+        let (left, right) = (first.channels(), second.channels());
+        if left != right {
+            let listed = |channels: Option<Vec<(&str, ChannelKind)>>| {
+                let channels = channels.unwrap_or_default();
+                if channels.is_empty() {
+                    return "none".to_owned();
+                }
+                channels
+                    .iter()
+                    .map(|(name, kind)| {
+                        format!(
+                            "`{name}` ({})",
+                            match kind {
+                                ChannelKind::Point => "point",
+                                ChannelKind::Log => "log",
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            return Err(refuse(format!(
+                "the left side's channels are {} and the right side's are {}",
+                listed(left),
+                listed(right)
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Compare two sides on what both state ([module documentation](self)): every end document read
+/// and checked first, so that a partial one is refused before a case is run; then each case side
+/// run; then the observations compared, where both sides state them; then, unless they differ,
+/// the views evaluated and the sets of ends compared, where both sides state ends, a run side
+/// followed again where the verdict rests on its completeness.
+fn compare_sides(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
     conditions: &mut Conditions<'_>,
@@ -1035,22 +1616,27 @@ fn compare_ends(
     read: ReadSides,
     runs: &CaseRuns,
     timings: &mut Timings,
-) -> Result<EndsVerdict, Failure> {
+) -> Result<SidesVerdict, Failure> {
+    check_sides(request, &read)?;
+    let compares_ends = read.first.states_ends() && read.second.states_ends();
     let mut comparison = Comparison {
         compare: request.compare.clone(),
         views: CellViews::default(),
     };
-    if !request.views.is_empty() {
-        let resolver = observer.as_deref().unwrap_or(&*semantics);
-        comparison.views = semantics
-            .cell_views(resolver, &request.views)
+    if compares_ends {
+        if !request.views.is_empty() {
+            let resolver = observer.as_deref().unwrap_or(&*semantics);
+            comparison.views = semantics
+                .cell_views(resolver, &request.views)
+                .map_err(|error| refuse_comparison(&error))?;
+        }
+        semantics
+            .check_comparison(&comparison)
             .map_err(|error| refuse_comparison(&error))?;
     }
-    semantics
-        .check_comparison(&comparison)
-        .map_err(|error| refuse_comparison(&error))?;
-    let verdict = |verdict| EndsVerdict {
-        verdict,
+    let mut verdict = SidesVerdict {
+        ends: None,
+        observations: None,
         views: request.views.clone(),
         observer: request.observer.clone(),
     };
@@ -1061,19 +1647,27 @@ fn compare_ends(
             document,
             base,
         } => Produced::end(semantics, name, (file, document, base.clone()), &comparison).map(Some),
-        SideDocument::Case(_) => Ok(None),
+        SideDocument::Case(_) | SideDocument::Observations { .. } => Ok(None),
     };
     let left = read_end("left", &first)?;
     let right = read_end("right", &second)?;
-    let mut produce = |name, end: Option<Produced>, document: &SideDocument| match (end, document) {
+    let mut produce = |name, end: Option<Produced>, document: SideDocument| match (end, document) {
         (Some(end), _) => Ok(end),
         (None, SideDocument::Case(case)) => {
-            Produced::run(runs, semantics, conditions, name, case, timings)
+            Produced::run(runs, semantics, conditions, name, &case, timings)
         }
+        (None, SideDocument::Observations { record, .. }) => Ok(Produced {
+            name,
+            source: Source::Record(record),
+        }),
         (None, SideDocument::End { .. }) => unreachable!("an end document is read before"),
     };
-    let mut left = produce("left", left, &first)?;
-    let mut right = produce("right", right, &second)?;
+    let mut left = produce("left", left, first)?;
+    let mut right = produce("right", right, second)?;
+    verdict.observations = observations_part(&left, &right);
+    if !compares_ends || matches!(verdict.observations, Some(ObservationsPart::Differs(_))) {
+        return Ok(verdict);
+    }
     if !comparison.views.is_empty() {
         let (observer, subject) = match observer {
             Some(observer) => (observer, Some(&*semantics)),
@@ -1087,7 +1681,8 @@ fn compare_ends(
         ) {
             Ok(()) => {}
             Err(error @ EndError::ViewStopped { .. }) => {
-                return Ok(verdict(Compared::Inconclusive(error.to_string())));
+                verdict.ends = Some(Compared::Inconclusive(error.to_string()));
+                return Ok(verdict);
             }
             Err(error) => return Err(refuse_comparison(&error)),
         }
@@ -1111,9 +1706,88 @@ fn compare_ends(
             changed |= right.settle(semantics, conditions)?;
         }
         if !changed {
-            return Ok(verdict(compared));
+            verdict.ends = Some(compared);
+            return Ok(verdict);
         }
     }
+}
+
+/// The observations part of a comparison of `left` and `right` ([module documentation](self)):
+/// `None` where neither side states observations.
+fn observations_part(left: &Produced, right: &Produced) -> Option<ObservationsPart> {
+    let unstated = |side: &Produced| {
+        format!(
+            "the {} side, {}, states no observations",
+            side.name,
+            match side.source {
+                Source::End(_) => "an end document",
+                Source::Record(_) | Source::Run { .. } => "a case that declares none (`observe`)",
+            }
+        )
+    };
+    let (left_record, right_record) = match (left.record(), right.record()) {
+        (None, None) => return None,
+        (Some(_), None) => return Some(ObservationsPart::Unstated(unstated(right))),
+        (None, Some(_)) => return Some(ObservationsPart::Unstated(unstated(left))),
+        (Some(left_record), Some(right_record)) => (left_record, right_record),
+    };
+    let inconclusive = |reason: String| ObservationsPart::Agree {
+        channels: Vec::new(),
+        inconclusive: Some(reason),
+    };
+    let (left_record, right_record) = match (left_record, right_record) {
+        (Err(reason), _) => {
+            return Some(inconclusive(format!(
+                "the left side has no record of its observations: {reason}"
+            )));
+        }
+        (_, Err(reason)) => {
+            return Some(inconclusive(format!(
+                "the right side has no record of its observations: {reason}"
+            )));
+        }
+        (Ok(left_record), Ok(right_record)) => (left_record, right_record),
+    };
+    let chosen = |side: &Produced| {
+        side.chosen()
+            .map(|reason| format!("the {} side's run {reason}", side.name))
+    };
+    Some(match compare_records(left_record, right_record) {
+        RecordComparison::Differs(difference) => match (chosen(left), chosen(right)) {
+            // A difference from a side whose path is the definition's only one holds.
+            (Some(left_chosen), Some(right_chosen)) => inconclusive(format!(
+                "the observations differ at `{}` element {}, but {left_chosen}, and {right_chosen}, so the difference may be one implementation's choice",
+                difference.channel, difference.index
+            )),
+            _ => ObservationsPart::Differs(difference),
+        },
+        RecordComparison::Agree(channels) => {
+            let undecided = channels.iter().find_map(|agreement| {
+                let (side, index, reason) = agreement.undecided()?;
+                let channel = &agreement.channel;
+                Some(match side {
+                    None => format!("the observation `{channel}` element {index} is not compared: {reason}"),
+                    Some(side) if index < agreement.through => format!(
+                        "the observation `{channel}` element {index} is unknown on the {} side: {reason}",
+                        side.as_str()
+                    ),
+                    Some(side) => format!(
+                        "the observation `{channel}` is open on the {} side at element {index}, which another run may decide: {reason}",
+                        side.as_str()
+                    ),
+                })
+            });
+            let inconclusive = undecided.or_else(|| {
+                chosen(left).or_else(|| chosen(right)).map(|reason| {
+                    format!("the observations agree as far as both are known, but {reason}")
+                })
+            });
+            ObservationsPart::Agree {
+                channels,
+                inconclusive,
+            }
+        }
+    })
 }
 
 /// Check the actual side against the expectation of the case `--expect` names, as
@@ -1149,6 +1823,9 @@ fn check_expectation(
         )?,
         SideDocument::Case(actual) => {
             Produced::run(runs, semantics, conditions, "actual", actual, timings)?
+        }
+        SideDocument::Observations { .. } => {
+            unreachable!("`read` refuses an observation document as the actual side")
         }
     };
     let budget = request.view_budget;
@@ -1504,10 +2181,10 @@ struct Tally {
 impl Tally {
     fn count(&mut self, record: &PairRecord) {
         let counter = match &record.outcome {
-            Outcome::Verdict(Verdict::Ends(verdict)) => match verdict.verdict {
-                Compared::Equal => &mut self.equal,
-                Compared::Differs(_) => &mut self.differs,
-                Compared::Inconclusive(_) => &mut self.inconclusive,
+            Outcome::Verdict(Verdict::Sides(verdict)) => match verdict.exit_code() {
+                exit_status::YES => &mut self.equal,
+                exit_status::NO => &mut self.differs,
+                _ => &mut self.inconclusive,
             },
             Outcome::Verdict(Verdict::Expectation(checked)) => match checked.verdict {
                 Compared::Equal => &mut self.met,
@@ -1825,7 +2502,7 @@ impl Feed<'_, '_> {
                 },
                 None => None,
             };
-            let conditions = condition_observers(&read)
+            let conditions = run_observers(&read)
                 .into_iter()
                 .map(|name| {
                     let observer = self.observer(&name);
@@ -1950,6 +2627,7 @@ impl<'a> Worker<'a> {
                 self.subject = None;
                 self.observers.clear();
                 self.conditions.loaded.clear();
+                self.conditions.observations.clear();
                 Outcome::Refused("krs panicked while comparing the pair".to_owned())
             }
         };
@@ -2038,8 +2716,84 @@ impl<'a> Worker<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::SideFile;
+    use super::{CaseRun, ObservationsPart, Produced, SideFile, Source, observations_part};
+    use krs_exec::{Channel, ChannelKind, Closure, Element, Ends, Observations};
+    use serde_json::json;
     use std::path::PathBuf;
+    use std::sync::{Arc, OnceLock};
+
+    /// A case run's side whose record holds one element `value`, its run having read a value
+    /// the definition leaves open where `chosen` says so.
+    fn side(name: &'static str, value: i64, chosen: bool) -> Produced {
+        let record = Observations {
+            channels: vec![Channel {
+                name: "c".to_owned(),
+                kind: ChannelKind::Point,
+                elements: vec![Element {
+                    depth: 0,
+                    rule: None,
+                    side: None,
+                    digest: None,
+                    value: Some(json!(value)),
+                    undecided: None,
+                }],
+                closed: Some(Closure::End),
+                open: None,
+            }],
+            conversions: 0,
+        };
+        Produced {
+            name,
+            source: Source::Run {
+                run: Arc::new(CaseRun {
+                    ends: Ends::none("no end"),
+                    observations: Some(Ok(record)),
+                    chosen: chosen.then(|| "read values the definition leaves open".to_owned()),
+                    passed: None,
+                    run: None,
+                    followed: OnceLock::new(),
+                }),
+                followed: false,
+            },
+        }
+    }
+
+    /// A difference holds where one side's path is the definition's only one, and is no answer
+    /// where both sides' runs read a value the definition leaves open; an agreement holds only
+    /// where neither did.
+    #[test]
+    fn open_values_bound_what_a_record_shows() {
+        let part = |left, right| observations_part(&left, &right).unwrap();
+        assert!(matches!(
+            part(side("left", 0, false), side("right", 1, true)),
+            ObservationsPart::Differs(_)
+        ));
+        assert!(matches!(
+            part(side("left", 0, true), side("right", 1, true)),
+            ObservationsPart::Agree {
+                inconclusive: Some(_),
+                ..
+            }
+        ));
+        assert!(matches!(
+            part(side("left", 0, false), side("right", 0, false)),
+            ObservationsPart::Agree {
+                inconclusive: None,
+                ..
+            }
+        ));
+        let ObservationsPart::Agree {
+            inconclusive: Some(reason),
+            ..
+        } = part(side("left", 0, false), side("right", 0, true))
+        else {
+            panic!("an agreement with a path that read an open value is an answer");
+        };
+        assert!(
+            reason.contains("the right side's run read values"),
+            "{reason}"
+        );
+    }
 
     #[test]
     fn a_side_is_a_document_and_the_case_its_name_selects() {

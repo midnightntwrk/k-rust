@@ -74,8 +74,9 @@ Commands:
   prove                     Prove the definition's claims (kprove)
   cases                     Run a batch of cases, the definition loaded once per worker, and
                             report each case's verdict against its expectation
-  compare                   Compare two ends of the definition, each an end document or the
-                            end of a case's run, or check an end against a case's expectation
+  compare                   Compare two sides of the definition, each an end document, an
+                            observation document or a case's run (its end and its declared
+                            observations), or check an end against a case's expectation
   kink                      The corpus loop over the package's kink/ corpus: what the cases
                             cover, mutations killed or survived, query and fuzz
   fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
@@ -118,9 +119,14 @@ Options:
   --name PATTERN             With cases, only the named cases whose name PATTERN matches
                              (`*` any text, `?` any one character)
   LEFT RIGHT                 With compare, the two sides, each an end document (halt, rule,
-                             cells) or a case document (.toml or .json), whose case is run for
-                             its end; FILE#NAME names a case of a document of named cases.
-                             Prints equal, the first difference, or inconclusive
+                             cells), an observation document (krs-observations/1, as run
+                             --output observations prints it) or a case document (.toml or
+                             .json), whose case is run for its end and the observations its
+                             `observe` declares; FILE#NAME names a case of a document of named
+                             cases. The sides are compared on what both state, ends and
+                             observations. Prints equal (up to a horizon where a side's
+                             observations are open at a bound), the first difference, or
+                             inconclusive
   --expect CASE              With compare, check the one side ACTUAL against the expectation of
                              CASE (FILE or FILE#NAME), as run --case checks a run's end, on the
                              cells, views and observer it names: met, unmet or inconclusive

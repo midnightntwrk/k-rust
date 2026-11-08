@@ -12,7 +12,7 @@
 //! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
 //! - [`Semantics::values`] names constructors and sorts by their KRS declarations, so a configuration variable can be given as a [`Value`] ([`ConfigValue::Value`]), and [`Semantics::views`] reads a result's cells as values by their Rust field names.
 //! - [`Semantics::end_of`] and [`Semantics::ends_of`] read a run's or a search's ends, [`Semantics::read_end`] and [`Semantics::end_document`] read and write an end as a document of the typed encoding, and [`Semantics::compare_ends`] and [`Semantics::check_expectation`] compare ends on their observable cells by Rust field path; the documentation of [`ends`] is their normative statement.
-//! - [`Semantics::observations`] resolves a run's declared observations, which [`Semantics::run_with`] records along its path; the documentation of [`observations`] is their normative statement, and [`first_difference`] compares two records.
+//! - [`Semantics::observations`] resolves a run's declared observations, which [`Semantics::run_with`] records along its path; the documentation of [`observations`] is their normative statement, [`compare_records`] compares two records, and [`Observations::from_document`] reads a record from its document.
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
@@ -111,10 +111,11 @@ use k_rust::backend::{BackendErrorKind, InProcess, Probe, ProbeDecision, StopCon
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use observations::{
-    Channel, ChannelEnd, ChannelKind, Closure, Component, Element, ElementDigest, Filter,
-    LogChannel, OBSERVATIONS_FORMAT, ObservationDifference, ObservationOracle, ObservationRefusal,
-    ObservationSpec, Observations, Observed, Open, PointClass, RecordOptions, ResolvedObservations,
-    Stutter, first_difference,
+    Channel, ChannelAgreement, ChannelEnd, ChannelKind, Closure, Component, Element, ElementDigest,
+    Filter, LogChannel, OBSERVATIONS_FORMAT, ObservationDifference, ObservationOracle,
+    ObservationRefusal, ObservationSpec, Observations, Observed, Open, PointClass, Reach,
+    RecordComparison, RecordOptions, RecordSide, ResolvedObservations, Stutter, Uncompared,
+    compare_records, first_difference,
 };
 pub use origin::{Origins, item_spelling};
 pub use read_back::{PrintedCell, ReadBack};
@@ -2763,13 +2764,19 @@ impl Semantics {
     }
 
     /// The record of a run's observations, ended as `halt` ends the path: closed by a run that
-    /// ends on its own or at a stop, closed `undefined` by an undefined one, and open at a bound
-    /// or an inconclusive halt; each rule named as a report names it.
+    /// ends on its own or at a stop, closed `undefined` by an undefined one, open at a bound, and
+    /// open as undecided at an inconclusive halt; each rule named as a report names it.
     fn observed(&self, probe: &mut ObservationOracle<'_>, halt: Halt) -> Observations {
         let end = match halt {
             Halt::Stuck | Halt::Stopped => ChannelEnd::End,
             Halt::Undefined => ChannelEnd::Undefined,
-            other => ChannelEnd::Open(format!(
+            // A bound ends only what is known; an inconclusive halt leaves what follows to a run
+            // that takes the path further.
+            Halt::DepthBound => ChannelEnd::Open(format!(
+                "the run ended `{}`, which is no end of its path",
+                halt.as_str()
+            )),
+            other => ChannelEnd::Undecided(format!(
                 "the run ended `{}`, which is no end of its path",
                 other.as_str()
             )),
