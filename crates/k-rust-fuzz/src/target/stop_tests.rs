@@ -20,7 +20,7 @@ use crate::{
         comparable::{ComparableCondition, end_conditions},
     },
     spec::{CaseOptions, PathMode},
-    support::{Fixture, STOP, STOP_KILL},
+    support::{Fixture, STOP, STOP_KILL, STOP_ONE},
 };
 
 /// A work bound far above every stopped run's work, which a run without a stop meets.
@@ -50,10 +50,14 @@ fn options(paths: PathMode, stop: Option<CaseStop>) -> CaseOptions {
 }
 
 fn final_pattern(pattern: &str) -> Target {
+    pattern_at(pattern, PatternAt::Final)
+}
+
+fn pattern_at(pattern: &str, at: PatternAt) -> Target {
     Target {
         kind: TargetKind::Pattern(PatternTarget {
             pattern: pattern.to_owned(),
-            at: PatternAt::Final,
+            at,
         }),
         run_to_completion: false,
         negated_property: false,
@@ -110,11 +114,12 @@ fn judge(
         .assemble(file_of(text), text, &[])
         .expect("the program assembles");
     let shape = CaseRequestShape::new(options, &resolved.needs(options.paths));
-    let result = executor
-        .run(&initial, &shape, &resolved.matchers(), None)
+    let judged = resolved
+        .run_and_judge(&mut executor, &initial, &shape, None)
         .expect("no abort");
-    let judgement = resolved
-        .judge_run(&result, shape.all_paths(), shape.state_set())
+    let result = judged.result;
+    let judgement = judged
+        .judgement
         .unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"));
     let every_path = executor
         .run(&initial, &shape.every_path(), &[], None)
@@ -245,6 +250,16 @@ fn differential_case(
     options: &CaseOptions,
     text: &str,
 ) -> (differential::DifferentialJudgement, Option<UnjudgedReason>) {
+    differential_pair(&STOP, mutant, options, text)
+}
+
+/// Run `text` on `baseline` and `mutant` as a differential case is run, and judge it.
+fn differential_pair(
+    baseline: &'static Fixture,
+    mutant: &'static Fixture,
+    options: &CaseOptions,
+    text: &str,
+) -> (differential::DifferentialJudgement, Option<UnjudgedReason>) {
     let plan = differential::plan(options);
     let side = |fixture: &'static Fixture, needs| {
         let (mut executor, _) = executor(fixture, options);
@@ -256,7 +271,7 @@ fn differential_case(
             .run(&initial, &CaseRequestShape::new(options, needs), &[], None)
             .expect("no abort")
     };
-    let baseline = side(&STOP, &plan.baseline);
+    let baseline = side(baseline, &plan.baseline);
     let mutated = side(mutant, &plan.mutant);
     differential::judge_pair_explained(&baseline, &mutated, options.paths, false)
         .expect("no engine defect")
@@ -286,6 +301,17 @@ fn a_mutant_that_reaches_another_end_at_the_stop_is_killed() {
             ),
             "{paths:?}"
         );
+        // A stop only the mutant passes leaves the pair unjudged: the mutant's ends at the stop
+        // (`<n> 0 </n>` and `<n> 10 </n>`) differ from the baseline's one end there
+        // (`<n> 0 </n>` after `tick(0)` alone), but they are no ends of the truncated system.
+        let passed = options(paths, Some(stop_before(2, &["STOP.left"])));
+        let (unjudged, reason) = differential_pair(&STOP_ONE, &STOP, &passed, "fork(0)");
+        assert_eq!(
+            (unjudged.class, reason),
+            (OutcomeClass::Unsupported, Some(UnjudgedReason::PassedStop)),
+            "{paths:?}"
+        );
+        assert_eq!((unjudged.killing_leaf, unjudged.removed_end), (None, None));
         // A passed stop leaves the baseline incomplete, whatever the mutant reaches.
         let passed = options(paths, Some(stop_before(2, &["STOP.left"])));
         let (unjudged, reason) = differential_case(&STOP_KILL, &passed, "fork(0)");
@@ -317,6 +343,25 @@ fn every_request_carries_the_stop_and_no_target_stop_beside_it() {
         assert!(request.terminal_rules.is_empty());
         assert_eq!(request.stop_count, NonZeroU64::new(3));
         assert!(!shape.has_terminal_rules());
+    }
+    // An `after` stop is the request's terminal rules, the program's run of every path too.
+    let after = options(
+        PathMode::OnePath,
+        Some(CaseStop {
+            before: Vec::new(),
+            after: vec!["STOP.tick".to_owned()],
+            count: NonZeroU64::MIN,
+        }),
+    );
+    for shape in [
+        CaseRequestShape::new(&after, &needs),
+        CaseRequestShape::new(&after, &needs).every_path(),
+    ] {
+        let request = shape.request(state.clone());
+        assert!(request.cut_point_rules.is_empty());
+        assert_eq!(request.terminal_rules, ["STOP.tick"]);
+        assert_eq!(request.stop_count, Some(NonZeroU64::MIN));
+        assert!(!shape.has_terminal_rules() && shape.stopped());
     }
     // Without a stop the request is what it was: the target's terminal rule, no stop count,
     // and the program's run of every path without a stop rule.
@@ -363,4 +408,187 @@ fn a_stop_must_name_a_rewrite_rule_of_the_definition() {
         empty.check(&catalog, "baseline"),
         Err(CampaignError::InvalidOptions { .. })
     ));
+}
+
+#[test]
+fn an_any_state_target_reads_the_truncated_system() {
+    for paths in BOTH_MODES {
+        let stopped = options(paths, Some(stop_before(3, &[])));
+        // `<n> 1 </n>` is reached at the stop's state; `<n> 3 </n>` only past the stop.
+        let (hit, result, _) = judge(
+            &pattern_at("<n> 1 </n>", PatternAt::AnyState),
+            &stopped,
+            "tick(0)",
+        );
+        assert_eq!(hit.class, OutcomeClass::Hit, "{paths:?}: {result:#?}");
+        let (miss, result, _) = judge(
+            &pattern_at("<n> 3 </n>", PatternAt::AnyState),
+            &stopped,
+            "tick(0)",
+        );
+        assert_eq!(miss.class, OutcomeClass::Miss, "{paths:?}: {result:#?}");
+        // Past a passed stop a reached state is no evidence about the truncated system.
+        let passed = options(paths, Some(stop_before(2, &["STOP.left"])));
+        let (unjudged, result, _) = judge(
+            &pattern_at("<n> 0 </n>", PatternAt::AnyState),
+            &passed,
+            "fork(0)",
+        );
+        assert_eq!(
+            (unjudged.class, unjudged.reason),
+            (OutcomeClass::Unsupported, Some(UnjudgedReason::PassedStop)),
+            "{paths:?}: {result:#?}"
+        );
+    }
+}
+
+/// A campaign on STOP's `tick(N)` (the hole `N` at `0`) against the final pattern `pattern`,
+/// under `stop`, against `mutant` when given.
+fn campaign(
+    pattern: &str,
+    stop: CaseStop,
+    mutant: Option<&'static Fixture>,
+) -> crate::CampaignSpec {
+    campaign_on("tick", pattern, stop, mutant)
+}
+
+/// [`campaign`] on the program `stop/{program}.pgm`, `{program}(N)`.
+fn campaign_on(
+    program: &str,
+    pattern: &str,
+    stop: CaseStop,
+    mutant: Option<&'static Fixture>,
+) -> crate::CampaignSpec {
+    use crate::{
+        CallerIdentity, CampaignSpec, Definitions, ProgramInput, ProposerConfig,
+        holes::{HoleDecl, HoleLocation, SpanAddress},
+        values::{Constraints, GenerationBounds},
+    };
+    let file = format!("stop/{program}.pgm");
+    let definition =
+        |fixture: &'static Fixture| std::sync::Arc::new(fixture.compiled().definition());
+    let target = match mutant {
+        Some(_) => Target {
+            kind: TargetKind::Differential(super::DifferentialTarget::default()),
+            ..final_pattern(pattern)
+        },
+        None => final_pattern(pattern),
+    };
+    CampaignSpec {
+        definitions: Definitions {
+            baseline: definition(&STOP),
+            mutant: mutant.map(definition),
+        },
+        program: ProgramInput::Source(STOP.compiled().program_source(&file)),
+        holes: vec![HoleDecl {
+            name: "N".into(),
+            sort: "Int".into(),
+            location: HoleLocation::Span(SpanAddress {
+                program: file.clone(),
+                line: None,
+                column: None,
+                find: format!("{program}(0)"),
+                literal: "0".into(),
+            }),
+            constraints: Constraints::default(),
+            allow_refused_sort: false,
+        }],
+        target,
+        options: CaseOptions {
+            stop: Some(stop),
+            ..options(PathMode::OnePath, None)
+        },
+        proposers: ProposerConfig::default(),
+        bounds: GenerationBounds::default(),
+        rejection_cap: crate::spec::DEFAULT_REJECTION_CAP,
+        seed: 1,
+        identity: CallerIdentity::default(),
+    }
+}
+
+fn report_json(spec: crate::CampaignSpec) -> serde_json::Value {
+    let report = match crate::Campaign::new(spec) {
+        Ok(mut campaign) => campaign.run(crate::Budget::Cases(1), None),
+        Err(error) => panic!("the campaign is valid: {error}"),
+    };
+    serde_json::from_str(&report.to_canonical_json()).expect("a report is JSON")
+}
+
+#[test]
+fn a_campaign_under_a_stop_records_it_and_reproduces_its_witness_only_where_krun_can() {
+    // Count 1: the anchor `tick(0)` stops before its first step, at `<n> 0 </n>`; krun takes the
+    // stop's rule as a cut-point rule.
+    let report = report_json(campaign("<n> 0 </n>", stop_before(1, &[]), None));
+    assert_eq!(
+        report["identity"]["options"]["stop"],
+        serde_json::json!({"before": ["STOP.tick", "STOP.late"], "count": 1}),
+        "{report}"
+    );
+    assert_eq!(report["outcome"]["status"], "witness-found", "{report}");
+    let witness = &report["outcome"]["witness"];
+    let line = witness["krun-command"].as_str().expect("a krun line");
+    assert!(
+        line.contains(" --cut-point-rule STOP.tick --cut-point-rule STOP.late ")
+            && !line.contains("--terminal-rule"),
+        "{line}"
+    );
+    // Count 3: krun takes no stop count, so no line reproduces the case.
+    let report = report_json(campaign("<n> 1 </n>", stop_before(3, &[]), None));
+    assert_eq!(
+        report["identity"]["options"]["stop"]["count"], 3,
+        "{report}"
+    );
+    assert_eq!(report["outcome"]["status"], "witness-found", "{report}");
+    let witness = &report["outcome"]["witness"];
+    assert!(witness["krun-command"].is_null(), "{witness}");
+}
+
+#[test]
+fn a_campaign_refuses_a_stop_rule_its_mutant_lacks() {
+    // STOP_ONE has no `right`: the baseline resolves the stop, the mutant does not.
+    let spec = campaign(
+        "<n> 0 </n>",
+        stop_before(1, &["STOP.right"]),
+        Some(&STOP_ONE),
+    );
+    match crate::Campaign::new(spec) {
+        Err(CampaignError::InvalidOptions { message }) => {
+            assert!(
+                message.contains("`STOP.right`") && message.contains("of the mutant"),
+                "{message}"
+            );
+        }
+        Err(error) => panic!("refused for another reason: {error}"),
+        Ok(_) => panic!("a stop rule the mutant lacks is refused"),
+    }
+}
+
+#[test]
+fn a_case_that_passed_a_stop_adds_nothing_to_the_coverage_totals() {
+    // `fork(0)` passes the stop on `left`: its run fires `left`, `right` and `tick`, outside the
+    // truncated system's run, so the totals name no rule.
+    let report = report_json(campaign_on(
+        "fork",
+        "<n> 0 </n>",
+        stop_before(2, &["STOP.left"]),
+        None,
+    ));
+    let totals = &report["totals"];
+    assert_eq!(totals["unsupported-reasons"]["passed-stop"], 1, "{totals}");
+    assert_eq!(
+        totals["coverage"]["applied"],
+        serde_json::json!([]),
+        "{totals}"
+    );
+    assert_eq!(
+        totals["coverage"]["matched"],
+        serde_json::json!([]),
+        "{totals}"
+    );
+    // Without `left` among the stop rules the same case covers what it ran.
+    let report = report_json(campaign_on("fork", "<n> 7 </n>", stop_before(2, &[]), None));
+    let applied = report["totals"]["coverage"]["applied"]
+        .as_array()
+        .expect("a list");
+    assert!(!applied.is_empty(), "{report}");
 }

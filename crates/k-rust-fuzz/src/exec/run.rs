@@ -1465,6 +1465,9 @@ impl Judge<'_> {
         if let Some(heads) = self.data_heads {
             internal.data_end = Some(definition.is_data(&pattern.term, heads));
         }
+        // Only a `stuck` leaf is judged against the normal end: a leaf at the campaign's stop
+        // (a `cut-point` or `terminal` halt) is a natural end by the stop, whatever its `<k>`
+        // cells hold, so no undecided match of the pattern may make it unjudged.
         if leaf.halt == HaltReasonOutput::Stuck {
             let verdict = match self.normal_end_kind {
                 NormalEndKind::EveryK => {

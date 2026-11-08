@@ -62,6 +62,8 @@ Every request of the campaign carries the stop: each case's, both differential s
 A leaf at the stop is a final configuration of the truncated system, so every judgement reads it as it reads a `stuck` leaf: it is an end of a differential side's set, a natural end (so `miss`, not `stuck`, when it reaches nothing), it is judged for data, and a final pattern is matched on it.
 A rule target's own early stop is not used under a stop, because one count counts the events of every stop rule together; `fired` reads the firing from the traces of the truncated run to its end, as under `run-to-completion`.
 A step of a named rule that has another successor is no event, and the run goes on past it (k-rust's passed stops): the run's leaves are then not the truncated system's ends, so the case is `unsupported` with the reason `passed-stop` (a differential baseline `baseline-incomplete`, a run of every path not comparable, `passed-stop`).
+Such a run explored states of another system than the truncated one, so its coverage adds nothing to `totals.coverage` and nothing to what the proposers read, as kink excludes that run.
+A `krun-command` line names the stop's rules (`--cut-point-rule`, `--terminal-rule`) and no rule of the target's; krun takes no stop count and its search no stop rule, so under a stop of count above 1, and for the any-state search, no line is written, since one without the stop would run past it.
 `Campaign::new` refuses a stop that names no rule, and a name that selects no rewrite rule of the baseline or the mutant, whose runs it would leave untruncated.
 A stop condition, asked at each event, is not supported: the cases run on the wire route, which carries no callback.
 REPORT_VERSION 11 covers the stop.

@@ -886,6 +886,12 @@ impl LiveCases {
     /// strategy `paths` and with `terminal_rules` as krun's terminal rules; `None` when no `krun`
     /// run is: the `from-definition` route, a KORE template, or a program without `$PGM` (krun
     /// would read `$PGM` from its standard input).
+    ///
+    /// Under the campaign's stop ([`crate::CaseStop`]) the case ran the stop's rules and none of
+    /// the target's, so the line names the stop's (`--cut-point-rule`, `--terminal-rule`) in
+    /// place of `terminal_rules`. krun has no stop count, and its search takes no stop rule, so
+    /// a stop with a count above 1, or the any-state search, has no equivalent `krun` run:
+    /// `None`, since a line without the stop would run past it, possibly forever.
     fn krun_command(
         definition: &CompiledDefinition,
         directory: &str,
@@ -921,6 +927,13 @@ impl LiveCases {
         if definition.route == BackendRoute::FromDefinition {
             return None;
         }
+        if options
+            .stop
+            .as_ref()
+            .is_some_and(|stop| stop.count.get() > 1 || search_pattern.is_some())
+        {
+            return None;
+        }
         let InstantiatedProgram::Source {
             program: Some(program),
             config_vars,
@@ -947,9 +960,19 @@ impl LiveCases {
         if let Some(depth) = options.max_depth {
             write!(line, " --depth {depth}").expect("writing to a String");
         }
-        // A `fired` target under one path stops at its rule (FZ-05, D16); so must krun.
-        for rule in terminal_rules {
-            write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
+        // A `fired` target under one path stops at its rule (FZ-05, D16); so must krun. Under
+        // the campaign's stop the case ran the stop's rules instead, and krun must too.
+        if let Some(stop) = &options.stop {
+            for rule in &stop.before {
+                write!(line, " --cut-point-rule {}", quote(rule)).expect("writing to a String");
+            }
+            for rule in &stop.after {
+                write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
+            }
+        } else {
+            for rule in terminal_rules {
+                write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
+            }
         }
         write!(
             line,
@@ -1063,14 +1086,17 @@ impl LiveCases {
         let mut leaves_class = None;
         run.pattern_body_matches = target.pattern_body_matches(&result);
         run.pattern_body_judged = target.pattern_body_judged(&result);
-        run.progress = progress;
+        // A run past a stop of the campaign measures nothing of the truncated system (`run_of`):
+        // no progress towards the target and no blocked rule either.
+        let truncated = result.passed_stops.is_empty();
+        run.progress = progress.filter(|_| truncated);
         run.cut = cut_of(&result);
         match judged {
             Ok(judgement) => {
                 run.class = judgement.class;
                 leaves_class = judgement.demoted_from;
                 run.unjudged = data_reason(judgement.reason, &self.baseline, None);
-                run.blocked = judgement.blocked;
+                run.blocked = judgement.blocked && truncated;
                 if judgement.class == OutcomeClass::Hit {
                     // A leaf hit names its leaf; a hit of the whole run (D16) names none, and
                     // rests on every leaf's configuration; an any-state hit names the
@@ -1718,21 +1744,21 @@ impl LiveCases {
 /// The run-level parts of a [`CaseRun`]: coverage from `covered`, work and determinism and load
 /// records from every side.
 fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
-    let (applied, matched, applied_counts) =
-        covered
-            .coverage
-            .as_ref()
-            .map_or_else(Default::default, |coverage| {
-                (
-                    coverage.applied.clone(),
-                    coverage.matched.clone(),
-                    coverage.applied_counts.clone().unwrap_or_default(),
-                )
-            });
-    let conditions = covered
+    // A run that went on past a stop of the campaign explored states of another system than
+    // the truncated one the campaign fuzzes, so its coverage is no fact of that system: it adds
+    // nothing to the report's totals or to what the proposers read, as kink excludes that run.
+    let coverage = covered
         .coverage
         .as_ref()
-        .and_then(|coverage| coverage.conditions.as_deref());
+        .filter(|_| covered.passed_stops.is_empty());
+    let (applied, matched, applied_counts) = coverage.map_or_else(Default::default, |coverage| {
+        (
+            coverage.applied.clone(),
+            coverage.matched.clone(),
+            coverage.applied_counts.clone().unwrap_or_default(),
+        )
+    });
+    let conditions = coverage.and_then(|coverage| coverage.conditions.as_deref());
     let guards = conditions.map(score::records::guards).unwrap_or_default();
     let comparisons = conditions
         .map(|conditions| {
@@ -1756,9 +1782,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         guards,
         comparisons,
         progress: None,
-        record: covered
-            .coverage
-            .as_ref()
+        record: coverage
             .filter(|coverage| coverage.conditions.is_some() || coverage.bindings.is_some())
             .map(|coverage| Box::new(coverage.clone())),
         outside_determinism: sides

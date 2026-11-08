@@ -1545,7 +1545,10 @@ pub struct Witness {
     /// only when they are finitely many, and the trailing comment says that it may not terminate.
     /// `None` when no `krun` run is equivalent: a KORE-template program, a program without
     /// `$PGM`, or a backend on the `from-definition` route (krun orders rules by the compiler's
-    /// rewrite order).
+    /// rewrite order). Under the campaign's stop ([`crate::CaseStop`]) the line names the stop's
+    /// rules (`--cut-point-rule`, `--terminal-rule`) and no target rule; it is `None` for a stop
+    /// whose count is above 1 and for the any-state search, since krun takes no stop count and
+    /// its search no stop rule, and a line without the stop would run past it.
     pub krun_command: Option<String>,
     /// For a differential witness, the same command line on the mutant, whose compiled
     /// directory is left as `<mutant-dir>`: strategy `all` for a removed end (judged against
@@ -1915,7 +1918,8 @@ pub struct IncidentalCase {
     /// The `krun` command line that re-runs the case's run of the semantics under test (in a
     /// differential campaign the baseline, on all paths), written as [`Witness::krun_command`]
     /// is; `None` when no `krun` run is equivalent (a KORE-template program, the
-    /// `from-definition` route, a program without `$PGM`). `krun` reports an undefined step only
+    /// `from-definition` route, a program without `$PGM`, a stop krun cannot take as
+    /// [`Witness::krun_command`] states). `krun` reports an undefined step only
     /// when every path of the run takes one; when another path does not, the line says so in a
     /// trailing comment, and the finding is leaf [`Self::leaf`] of [`Self::leaves`].
     pub krun_command: Option<String>,
@@ -2186,7 +2190,8 @@ pub struct CrashFinding {
     /// raise (the build identity names the sources, not the profile).
     pub debug_assertions: bool,
     /// The `krun` command line equivalent to the crashed run, when the crash is in `execute`
-    /// and one is: expected to reproduce it.
+    /// and one is (not under a stop krun cannot take, as [`Witness::krun_command`] states):
+    /// expected to reproduce it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub krun_command: Option<String>,
     /// The instantiated program text, when the case assembled one.
