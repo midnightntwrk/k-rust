@@ -1544,7 +1544,7 @@ text = 'h(opaque(1), 2)'
         // derives the flips; its fourth has the coverage lock and each flip's recorded killer; its
         // fifth names the observation channels; its sixth reads the argued obligations.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 6);
+        assert_eq!(document["version"], 7);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
