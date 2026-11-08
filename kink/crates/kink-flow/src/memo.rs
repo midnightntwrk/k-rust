@@ -126,8 +126,12 @@ pub const CENSUS_MEMO_VERSION: &str = "kink-flow/census-memo/v2";
 /// domain): the answer of one connection question of an argued item's invariant
 /// ([`connection_key`]).
 pub const CONNECTION_MEMO_VERSION: &str = "kink-flow/connection-memo/v1";
+/// The format and meaning of an evidence memo record (its key's `version` and its digest's
+/// domain): what one program's evidence run read of an invariant ([`evidence_key`]).
+pub const EVIDENCE_MEMO_VERSION: &str = "kink-flow/evidence-memo/v1";
 /// The memos' directory in the cache directory: `memo/resolutions/<spec digest>/<entry
-/// digest>.json`, `memo/census/<spec digest>.json` and `memo/connections/<key digest>.json`.
+/// digest>.json`, `memo/census/<spec digest>.json`, `memo/connections/<key digest>.json` and
+/// `memo/evidence/<key digest>.json`.
 pub const MEMO_DIRECTORY: &str = "memo";
 
 /// The record schema of both memos.
@@ -393,6 +397,41 @@ pub fn read_connection(path: &Path, key: &Value) -> Option<Value> {
 /// Store the connection answer `answer` under `key` at `path`.
 pub fn write_connection(store: &Store, path: &Path, key: &Value, answer: &Value) {
     write(store, path, CONNECTION_MEMO_VERSION, key, answer);
+}
+
+/// The evidence memo key of one program's evidence run of an invariant (`crate::coverage`,
+/// "Argued obligations"): the program's result key `result` (the execution digest, the program,
+/// the budget, the stop, kink's build and identity: what its baseline run is a function of), the
+/// invariant's `identity` (its function's symbol and its cells' paths in that definition), and
+/// the labels of the rules before whose steps it is read, `rules`. What the run reads is a
+/// function of these: the run is the program's baseline run with only those points observed,
+/// and each value is the function's evaluation on the proof route with no solver.
+pub fn evidence_key(result: &Value, identity: &Value, rules: &[String]) -> Value {
+    json!({
+        "version": EVIDENCE_MEMO_VERSION,
+        "result": result,
+        "invariant": identity,
+        "rules": rules,
+    })
+}
+
+/// Where the evidence memo keeps the record under `key`. The key decides what a record may be
+/// used for; the path only finds it.
+pub fn evidence_path(cache: &Path, key: &Value) -> std::path::PathBuf {
+    cache
+        .join(MEMO_DIRECTORY)
+        .join("evidence")
+        .join(format!("{}.json", sha256(canonical_json(key).as_bytes())))
+}
+
+/// The evidence record stored under exactly `key` at `path`.
+pub fn read_evidence(path: &Path, key: &Value) -> Option<Value> {
+    read(path, EVIDENCE_MEMO_VERSION, key)
+}
+
+/// Store the evidence record `record` under `key` at `path`.
+pub fn write_evidence(store: &Store, path: &Path, key: &Value, record: &Value) {
+    write(store, path, EVIDENCE_MEMO_VERSION, key, record);
 }
 
 /// Where the resolution memo keeps the record of `mutation` under the specification digest

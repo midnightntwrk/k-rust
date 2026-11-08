@@ -255,16 +255,20 @@
 //! side of each axiom of the item's rule, the valuation of each fact of a run's records that
 //! would cover the item. A connection that holds shows only that the invariant excludes the item,
 //! not that it holds of any state (an invariant false everywhere excludes everything), so the
-//! item stays [`STANDING_UNCHECKED`], with the reason that the evidence is not run; one that is
-//! undecided leaves it [`STANDING_UNCHECKED`] with the cause. The command then exits 3, since
-//! nothing confirmed the claim it is done by; [`STANDING_CONNECTED`] needs the evidence on runs
-//! too, which this build does not check. A connection that fails refutes the
-//! argument: a state the rule matches satisfies the invariant and has the item's valuation, so the
-//! argument stands in for nothing. The item goes back to its status, with its target, carries
-//! `argument_failed` (`{check, detail}`), and the summary lists it in `failed_arguments`; the
-//! command exits 1. The evidence of an invariant on runs is not checked
-//! ([`CHECK_NOT_RUN`]). The verdicts rendering gives each argued item's standing, so a standing
-//! that moves moves the coverage lock.
+//! item is also checked by its evidence on the corpus's runs (`evidence`): the invariant read at
+//! the initial state, before every step of a rule that can step where the item's rule matches,
+//! and at every end of each comparable program's run. Where both hold, the standing is
+//! [`STANDING_CHECKED_ON_RUNS`]; where the connection holds and no run reached such a step, the
+//! evidence is vacuous and the standing [`STANDING_CONNECTED`]; otherwise (a connection
+//! undecided, an evidence incomplete) [`STANDING_UNCHECKED`] with the cause, and the command
+//! exits 3, since nothing confirmed the claim it is done by. A connection that fails refutes the
+//! argument: a state the rule matches satisfies the invariant and has the item's valuation; so
+//! does an evidence that fails, a state of a run where the invariant is false, which is then no
+//! invariant. Either way the argument stands in for nothing: the item goes back to its status,
+//! with its target, carries `argument_failed` (`{check, detail}`, the check [`CHECK_CONNECTION`]
+//! or [`CHECK_EVIDENCE`]), and the summary lists it in `failed_arguments`; the command exits 1.
+//! The verdicts rendering gives each argued item's standing, so a standing that moves moves the
+//! coverage lock.
 //!
 //! # Unique-cause MC/DC
 //!
@@ -335,9 +339,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod evidence;
 mod invariants;
 mod paths;
 pub(crate) mod scope;
+pub use evidence::{EVIDENCE_FAILS, EVIDENCE_HOLDS, EVIDENCE_INCOMPLETE, EVIDENCE_VACUOUS};
 pub use invariants::{
     CONNECTION_FAILS, CONNECTION_HOLDS, CONNECTION_UNDECIDED, InvariantRefusal, InvariantResolver,
     KInvariants, ResolvedInvariant,
@@ -421,8 +427,14 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// the evidence is not run, and an item whose
 /// connection `fails` is not argued: it keeps its status and target, has `argument_failed`
 /// (`{check, detail}`), is listed in `summary.failed_arguments`, and the text lists it under
-/// `failed arguments`.
-pub const COVERAGE_VERSION: u64 = 17;
+/// `failed arguments`; 18 since an argued item's invariant is also checked by its evidence on
+/// the corpus's runs: each `argument_checks` entry and each argued item's `argument_check` has
+/// `evidence`, `{status, rules, states, steps, programs, failure, reason, cached}` with status
+/// `holds`, `vacuous`, `fails` or `incomplete`, the standing is `checked-on-runs` where the
+/// connection and the evidence hold and `connected` where the connection holds and the evidence
+/// is vacuous, an item whose evidence fails is not argued (its `argument_failed` check is
+/// `evidence`), and the summary has `invariant_runs` (`{run, cached}`).
+pub const COVERAGE_VERSION: u64 = 18;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -472,6 +484,11 @@ pub const CHECK_NOT_RUN: &str = "not-run";
 pub const ARGUMENT_CHECKS: &str = "argument_checks";
 /// The check of an argued item whose refutation `argument_failed` names: the connection.
 pub const CHECK_CONNECTION: &str = "connection";
+/// The check of an argued item whose refutation `argument_failed` names: the evidence on runs.
+pub const CHECK_EVIDENCE: &str = "evidence";
+/// The document member that holds the evidence runs of the command's invariants, `{run,
+/// cached}`, which [`derive`] reads into the summary's `invariant_runs`.
+pub const INVARIANT_RUNS: &str = "invariant_runs";
 
 /// Why an argued item's argument is needless (`argument_needless`): a program covers it.
 pub const NEEDLESS_COVERED: &str = "covered";
@@ -826,10 +843,33 @@ pub fn coverage_front(
                     &cache,
                     options.verify,
                 )
+                .map(|checks| (resolved, checks))
             },
         );
         match checked {
-            Ok(checks) => document[ARGUMENT_CHECKS] = checks,
+            Ok((resolved, mut checks)) => {
+                // The evidence of each invariant on the corpus's runs (`evidence`).
+                let found = evidence::evidence(
+                    probe,
+                    &resolved,
+                    &checks,
+                    &mut evidence::Context {
+                        spec: &spec,
+                        manifest,
+                        update: &update,
+                        inputs: &mut inputs,
+                        depth,
+                        execution: &execution,
+                        cache: &cache,
+                        verify: options.verify,
+                    },
+                );
+                for (id, value) in found.items {
+                    checks[id.as_str()]["evidence"] = value;
+                }
+                document[ARGUMENT_CHECKS] = checks;
+                document[INVARIANT_RUNS] = found.runs;
+            }
             Err(refusal) => {
                 record.refusal = Some(refusal);
                 return (refused(&record), false);
@@ -3755,6 +3795,11 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     summary["needless_arguments"] = json!(applied.needless);
     summary["argued_by_standing"] = argued_by_standing(document);
     summary["failed_arguments"] = json!(applied.failed);
+    summary["invariant_runs"] = if document[INVARIANT_RUNS].is_object() {
+        document[INVARIANT_RUNS].clone()
+    } else {
+        json!({"run": 0, "cached": 0})
+    };
     document["targets"] = Value::Array(targets);
     document["summary"] = summary;
 }
@@ -3800,61 +3845,117 @@ fn argued_invariants(document: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// The refuted arguments of a document's connections ([`ARGUMENT_CHECKS`]): the detail of each
-/// item whose invariant's connection fails, by item id.
-fn failed_arguments(document: &Value) -> BTreeMap<String, String> {
+/// The refuted arguments of a document's checks ([`ARGUMENT_CHECKS`]), by item id: the check
+/// that refutes each and its detail, the connection where it fails, else the evidence where it
+/// fails.
+fn failed_arguments(document: &Value) -> BTreeMap<String, (&'static str, String)> {
     document[ARGUMENT_CHECKS]
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(_, check)| check["connection"]["status"] == CONNECTION_FAILS)
-        .map(|(id, check)| {
-            (
-                id.clone(),
-                check["connection"]["reason"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            )
+        .filter_map(|(id, check)| {
+            let failed = if check["connection"]["status"] == CONNECTION_FAILS {
+                (
+                    CHECK_CONNECTION,
+                    check["connection"]["reason"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                )
+            } else if check["evidence"]["status"] == EVIDENCE_FAILS {
+                (CHECK_EVIDENCE, evidence_failure(check))
+            } else {
+                return None;
+            };
+            Some((id.clone(), failed))
         })
         .collect()
 }
 
+/// Where an argued item's evidence fails, in words: the invariant is false at a state of a
+/// program's run.
+fn evidence_failure(check: &Value) -> String {
+    let failure = &check["evidence"]["failure"];
+    let at = match failure["at"].as_str() {
+        Some("initial") => "at its initial state".to_owned(),
+        Some("end") => format!("at its end {}", failure["index"]),
+        _ => format!(
+            "before the step of `{}` at its arrival {}",
+            failure["rule"].as_str().unwrap_or("?"),
+            failure["index"]
+        ),
+    };
+    let cells = failure["cells"]
+        .as_array()
+        .map(|cells| {
+            format!(
+                ", where the cells hold {}",
+                cells
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "the invariant `{}` is false in the run of the program `{}`, {at}{cells}, so it is no \
+         invariant of the definition",
+        check["invariant"].as_str().unwrap_or("?"),
+        failure["program"].as_str().unwrap_or("?"),
+    )
+}
+
 /// An argued item's `argument_check`, what its argument rests on (module documentation, "Argued
 /// obligations"): the standing [`STANDING_TEXT`] where its entry names no invariant; under the
-/// invariant `invariant`, the connection `check` gives for the item ([`ARGUMENT_CHECKS`], `not-run`
-/// where none was asked), the evidence not run and no proof, and the standing
-/// [`STANDING_UNCHECKED`] with its `reason`. A connection that holds shows only that the
-/// invariant excludes the item, not that it holds of any state (one false everywhere excludes
-/// everything), and [`STANDING_CONNECTED`] also needs the evidence, which this build does not
-/// run.
+/// invariant `invariant`, the connection and the evidence `check` gives for the item
+/// ([`ARGUMENT_CHECKS`], `not-run` where none was asked), no proof, and the standing:
+/// [`STANDING_CHECKED_ON_RUNS`] where the connection holds and the evidence holds,
+/// [`STANDING_CONNECTED`] where the connection holds and the evidence is vacuous, else
+/// [`STANDING_UNCHECKED`] with its `reason`. A refuted argument has no `argument_check`.
 fn argument_check(invariant: Option<&String>, check: Option<&Value>) -> Value {
     match invariant {
         None => json!({"standing": STANDING_TEXT}),
         Some(name) => {
-            let connection = check.map_or_else(
-                || json!({"status": CHECK_NOT_RUN}),
-                |check| check["connection"].clone(),
-            );
-            let reason = if connection["status"] == CONNECTION_HOLDS {
-                "the connection holds, and the evidence that the invariant holds on runs is not \
-                 run"
-                .to_owned()
+            let not_run = || json!({"status": CHECK_NOT_RUN});
+            let connection = check.map_or_else(not_run, |check| check["connection"].clone());
+            let evidence = check
+                .map(|check| check["evidence"].clone())
+                .filter(Value::is_object)
+                .unwrap_or_else(not_run);
+            let (standing, reason) = if connection["status"] != CONNECTION_HOLDS {
+                (
+                    STANDING_UNCHECKED,
+                    Some(format!(
+                        "the connection is {}: {}",
+                        connection["status"].as_str().unwrap_or(CHECK_NOT_RUN),
+                        connection["reason"]
+                            .as_str()
+                            .unwrap_or("no connection was asked")
+                    )),
+                )
+            } else if evidence["status"] == EVIDENCE_HOLDS {
+                (STANDING_CHECKED_ON_RUNS, None)
+            } else if evidence["status"] == EVIDENCE_VACUOUS {
+                (STANDING_CONNECTED, None)
             } else {
-                format!(
-                    "the connection is {}: {}",
-                    connection["status"].as_str().unwrap_or(CHECK_NOT_RUN),
-                    connection["reason"]
-                        .as_str()
-                        .unwrap_or("no connection was asked")
+                (
+                    STANDING_UNCHECKED,
+                    Some(format!(
+                        "the connection holds, and the evidence on runs is {}: {}",
+                        evidence["status"].as_str().unwrap_or(CHECK_NOT_RUN),
+                        evidence["reason"]
+                            .as_str()
+                            .unwrap_or("no evidence was read")
+                    )),
                 )
             };
             json!({
                 "invariant": name,
-                "standing": STANDING_UNCHECKED,
+                "standing": standing,
                 "reason": reason,
                 "connection": connection,
-                "evidence": {"status": CHECK_NOT_RUN},
+                "evidence": evidence,
                 "proof": null,
             })
         }
@@ -3939,7 +4040,7 @@ struct Applied {
 fn argue(
     document: &mut Value,
     entries: &BTreeMap<String, String>,
-    failed: &BTreeMap<String, String>,
+    failed: &BTreeMap<String, (&'static str, String)>,
 ) -> Applied {
     use crate::flips::{
         DISTINGUISHED, UNDISTINGUISHED, UNKNOWN as FLIP_UNKNOWN, UNREACHED as FLIP_UNREACHED,
@@ -3966,14 +4067,14 @@ fn argue(
             let Some(id) = item["id"].as_str().map(str::to_owned) else {
                 continue;
             };
-            if let Some(detail) = failed.get(&id) {
+            if let Some((check, detail)) = failed.get(&id) {
                 if let Some(argument) = all.get(&id) {
                     item["argument"] = json!(argument);
-                    item["argument_failed"] = json!({"check": CHECK_CONNECTION, "detail": detail});
+                    item["argument_failed"] = json!({"check": check, "detail": detail});
                     applied.failed.push(json!({
                         "family": family,
                         "item": id,
-                        "check": CHECK_CONNECTION,
+                        "check": check,
                         "detail": detail,
                     }));
                 }

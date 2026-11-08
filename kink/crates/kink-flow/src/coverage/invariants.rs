@@ -55,8 +55,8 @@
 //! A connection that holds shows that the invariant excludes the item at its rule's left-hand
 //! side, not that the invariant holds of any state the definition reaches: an invariant false
 //! everywhere excludes everything. So an argument whose connection holds still rests on the
-//! invariant's own claim, and its standing stays `unchecked` while no evidence is checked. A
-//! failing connection reports the axiom and the valuation, not a model.
+//! invariant's own claim, which the evidence on runs tests (`super::evidence`). A failing
+//! connection reports the axiom and the valuation, not a model.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;

@@ -781,21 +781,24 @@ mod kink_tier {
     /// (the function by its K label, the cells by their K names, `settings.invariants[].identity`):
     /// - `readzRom`'s `inRom(E, A)` under the walk over `memory`'s bindings: the walk unfolds at
     ///   the binding the rule matches and the simplification alone refutes the question, so the
-    ///   connection holds in both profiles. It is not `connected`: nothing shows the invariant
-    ///   holds of any state, so the item stays `unchecked`, with that reason;
+    ///   connection holds in both profiles. The corpus only idles, so no run steps a rule that can
+    ///   step where `readzRom` matches, and the walk holds at the initial state and the end: the
+    ///   evidence is vacuous, and the item is `connected`;
     /// - the walk as a fold over `keys_list(memory)` does not unfold there, so `readz`'s refuted
     ///   condition is undecided, with the cause;
     /// - a firing of `bump`, the one fact that covers `rule:bump`, needs `A >Int B`: under the Z3
     ///   profile, under `a <=Int b` it has no model at the left-hand side (the connection holds),
     ///   and under the same order with its cells swapped, `b <=Int a`, `requirement:bump:held`
-    ///   has one, so that argument fails, the item is open again with its target and
-    ///   `argument_failed`, and the command exits 1. The portable profile has no solver to decide
-    ///   either: both are undecided, nothing is refuted, and the command exits 3.
+    ///   has one, so that argument fails, `rule:bump` is `connected` (its evidence is vacuous),
+    ///   and the command exits 1. The portable profile has no solver to decide either: both
+    ///   connections are undecided, so `rule:bump` is `unchecked`; `b <=Int a` is false at the
+    ///   initial state, so the evidence refutes `requirement:bump:held`, and the command exits 1
+    ///   too. Either way the refuted item is open again with its target and `argument_failed`.
     ///
     /// A second run reads every answer the memo keeps from it, and the portable profile's
     /// undecided answers are not kept; another function, and another definition, each ask again.
-    /// An invariant false of every state excludes everything (the simplification alone shows it)
-    /// and still leaves the item `unchecked` (exit 3).
+    /// An invariant false of every state excludes everything (the simplification alone shows it),
+    /// and its evidence fails at the initial state: the argument is refuted (exit 1).
     #[test]
     #[ignore = "kink"]
     fn an_invariants_connection_holds_fails_or_is_undecided() {
@@ -818,11 +821,8 @@ mod kink_tier {
             &entries(OUTSIDE_ROM),
         );
         let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
-        #[cfg(feature = "z3")]
         assert_eq!(status, EXIT_NO, "{document:#}");
-        #[cfg(not(feature = "z3"))]
-        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
-        assert_eq!(document["version"], 17);
+        assert_eq!(document["version"], 18);
         let check = |id: &str| &item(&document, "requirements", id)["argument_check"];
         let walk = check(READZ_ROM_HELD);
         assert_eq!(
@@ -831,18 +831,27 @@ mod kink_tier {
                 &walk["standing"],
                 &walk["connection"]["status"]
             ),
-            (&json!("outside-rom"), &json!("unchecked"), &json!("holds")),
+            (&json!("outside-rom"), &json!("connected"), &json!("holds")),
             "{walk:#}"
         );
-        assert!(
-            walk["reason"].as_str().is_some_and(|reason| {
-                reason.contains("the evidence that the invariant holds on runs is not run")
-            }),
-            "{walk:#}"
-        );
+        assert_eq!(walk["reason"], Value::Null, "{walk:#}");
         assert_eq!(walk["connection"]["model"], Value::Null);
         assert_eq!(walk["connection"]["cached"], false);
-        assert_eq!(walk["evidence"], json!({"status": "not-run"}));
+        assert_eq!(
+            (
+                &walk["evidence"]["status"],
+                &walk["evidence"]["rules"],
+                &walk["evidence"]["steps"],
+                &walk["evidence"]["programs"],
+            ),
+            (
+                &json!("vacuous"),
+                &json!(["INVARIANT.readz", "INVARIANT.readzRom"]),
+                &json!(0),
+                &json!(["idle"]),
+            ),
+            "{walk:#}"
+        );
         let axioms = walk["connection"]["axioms"].as_array().unwrap();
         assert!(!axioms.is_empty(), "{walk:#}");
         assert!(
@@ -857,7 +866,6 @@ mod kink_tier {
         );
         assert!(fold["connection"]["reason"].is_string(), "{fold:#}");
         let fired = &item(&document, "rules", BUMP)["argument_check"];
-        assert_eq!(fired["standing"], "unchecked", "{fired:#}");
         assert!(
             fired["connection"]["axioms"]
                 .as_array()
@@ -868,18 +876,31 @@ mod kink_tier {
         );
         let summary = &document["summary"];
         let text = text(&document).unwrap();
+        let held = item(&document, "requirements", BUMP_HELD);
+        assert_eq!(held["status"], "open", "{held:#}");
+        assert!(held.get("argument_check").is_none(), "{held:#}");
         assert!(
-            text.contains(&format!(
-                "  {BUMP} [unchecked, invariant ordered]: no state has a above b\n"
-            )),
-            "{text}"
+            document["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|target| target["item"] == BUMP_HELD),
+            "{:#}",
+            document["targets"]
         );
         #[cfg(feature = "z3")]
         {
-            assert_eq!(fired["connection"]["status"], "holds", "{fired:#}");
-            let held = item(&document, "requirements", BUMP_HELD);
-            assert_eq!(held["status"], "open", "{held:#}");
-            assert!(held.get("argument_check").is_none(), "{held:#}");
+            assert_eq!(
+                (&fired["standing"], &fired["connection"]["status"]),
+                (&json!("connected"), &json!("holds")),
+                "{fired:#}"
+            );
+            assert!(
+                text.contains(&format!(
+                    "  {BUMP} [connected, invariant ordered]: no state has a above b\n"
+                )),
+                "{text}"
+            );
             let failed = &held["argument_failed"];
             assert_eq!(failed["check"], "connection", "{held:#}");
             let detail = failed["detail"].as_str().unwrap();
@@ -888,15 +909,6 @@ mod kink_tier {
                     && detail.ends_with("so the invariant does not exclude the item"),
                 "{detail}"
             );
-            assert!(
-                document["targets"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|target| target["item"] == BUMP_HELD),
-                "{:#}",
-                document["targets"]
-            );
             assert_eq!(
                 summary["failed_arguments"],
                 json!([{"family": "requirements", "item": BUMP_HELD, "check": "connection",
@@ -904,9 +916,11 @@ mod kink_tier {
             );
             assert_eq!(
                 summary["argued_by_standing"],
-                json!({"text": 0, "connected": 0, "checked_on_runs": 0, "proved": 0,
-                       "unchecked": 3})
+                json!({"text": 0, "connected": 2, "checked_on_runs": 0, "proved": 0,
+                       "unchecked": 1})
             );
+            // One evidence run per invariant whose argued item's connection does not fail.
+            assert_eq!(summary["invariant_runs"], json!({"run": 3, "cached": 0}));
             assert!(
                 text.contains(&format!(
                     "failed arguments:\n  {BUMP_HELD} [the connection fails]: {detail}; it is \
@@ -917,25 +931,40 @@ mod kink_tier {
         }
         #[cfg(not(feature = "z3"))]
         {
-            for connection in [
-                &fired["connection"],
-                &check(BUMP_HELD)["connection"],
-                &fold["connection"],
-            ] {
+            assert_eq!(fired["standing"], "unchecked", "{fired:#}");
+            assert!(
+                text.contains(&format!(
+                    "  {BUMP} [unchecked, invariant ordered]: no state has a above b\n"
+                )),
+                "{text}"
+            );
+            for connection in [&fired["connection"], &fold["connection"]] {
                 assert_eq!(
                     (&connection["status"], &connection["reason"]),
                     (&json!("undecided"), &json!(NO_SOLVER)),
                     "{connection:#}"
                 );
             }
-            assert_eq!(check(BUMP_HELD)["standing"], "unchecked");
-            assert_eq!(summary["failed_arguments"], json!([]));
+            // Undecided, the connection refutes nothing; `b <=Int a` is false at the initial
+            // state, and the evidence does.
+            let failed = &held["argument_failed"];
+            assert_eq!(
+                (&failed["check"], &failed["detail"]),
+                (
+                    &json!("evidence"),
+                    &json!(
+                        "the invariant `reversed` is false in the run of the program `idle`, at \
+                         its initial state, so it is no invariant of the definition"
+                    )
+                ),
+                "{held:#}"
+            );
             assert_eq!(
                 summary["argued_by_standing"],
-                json!({"text": 0, "connected": 0, "checked_on_runs": 0, "proved": 0,
-                       "unchecked": 4})
+                json!({"text": 0, "connected": 1, "checked_on_runs": 0, "proved": 0,
+                       "unchecked": 2})
             );
-            assert!(!text.contains("failed arguments:"), "{text}");
+            assert_eq!(summary["invariant_runs"], json!({"run": 4, "cached": 0}));
         }
 
         let invariants = document["settings"]["invariants"].as_array().unwrap();
@@ -986,6 +1015,12 @@ mod kink_tier {
             again["summary"]["failed_arguments"],
             summary["failed_arguments"]
         );
+        // Every program's evidence is read from the memo.
+        let runs = &summary["invariant_runs"];
+        assert_eq!(
+            again["summary"]["invariant_runs"],
+            json!({"run": 0, "cached": runs["run"]})
+        );
 
         // Another function with the same equations is another question.
         argue_on(
@@ -1019,26 +1054,199 @@ mod kink_tier {
             "{edited:#}"
         );
 
-        // An invariant false of every state excludes everything, and shows nothing: the item
-        // stays unchecked, and the command has no answer.
+        // An invariant false of every state excludes everything, and is false at the initial
+        // state: its evidence fails there, so the argument is refuted.
         argue_on(
             &dir,
             &[NEVER],
             &[(BUMP, "no state is ever reached", Some(NEVER.0))],
         );
         let (never, status) = coverage(&dir, &["--tier", "1"], Derived::default());
-        assert_eq!(status, EXIT_UNANSWERED, "{never:#}");
-        let check = &item(&never, "rules", BUMP)["argument_check"];
+        assert_eq!(status, EXIT_NO, "{never:#}");
+        let bump = item(&never, "rules", BUMP);
+        assert_eq!(bump["status"], "unmatched", "{bump:#}");
+        let failed = &bump["argument_failed"];
+        assert_eq!(failed["check"], "evidence", "{bump:#}");
         assert_eq!(
-            (&check["standing"], &check["connection"]["status"]),
-            (&json!("unchecked"), &json!("holds")),
+            failed["detail"],
+            "the invariant `never` is false in the run of the program `idle`, at its initial \
+             state, so it is no invariant of the definition"
+        );
+        let check = &never[kink_flow::coverage::ARGUMENT_CHECKS][BUMP];
+        assert_eq!(check["connection"]["status"], "holds", "{check:#}");
+        assert_eq!(
+            check["evidence"]["failure"],
+            json!({"program": "idle", "at": "initial", "rule": null, "index": null,
+                   "cells": null})
+        );
+    }
+
+    /// `dir`'s manifest with the programs `programs` (`(id, text)`) after its own.
+    fn with_programs(dir: &Path, programs: &[(&str, &str)]) {
+        let path = dir.join("FLOW.toml");
+        let text = fs::read_to_string(&path).unwrap();
+        let idle = "text = \"idle\"\n";
+        assert!(text.contains(idle), "{text}");
+        let added = programs
+            .iter()
+            .map(|(id, program)| format!("\n[[program]]\nid = \"{id}\"\ntext = \"{program}\"\n"))
+            .collect::<String>();
+        fs::write(&path, text.replacen(idle, &format!("{idle}{added}"), 1)).unwrap();
+    }
+
+    /// An argued item's evidence reads its invariant on every comparable program's run: at the
+    /// initial state, before each step of a rule that can step where the item's rule matches (for
+    /// `readzRom`, `readz` and `readzRom`), and at each end.
+    /// - `read(8)` steps `readz` at a memory with no ROM address, so the walk holds at every state
+    ///   read, one of them before a step: `requirement:readzRom:held` is `checked-on-runs` (its
+    ///   connection holds in both profiles); no program bumps, so the evidence of `rule:bump` is
+    ///   vacuous, and it is `connected` under the Z3 profile, `unchecked` (exit 3) under the
+    ///   portable one, whose connection is undecided;
+    /// - a second run reads each program's evidence from the memo;
+    /// - `write(2, 1) ; read(8)` stores at the ROM address 2 and then reads 8: the walk is false
+    ///   before the step of `readz`, at its first arrival, so the evidence fails there, naming the
+    ///   program, the rule, the arrival and the cells, and the argument is refuted (exit 1).
+    #[test]
+    #[ignore = "kink"]
+    fn an_invariants_evidence_is_read_where_its_rule_can_match() {
+        let dir = invariant("evidence");
+        with_programs(&dir, &[("clean", "read(8)")]);
+        let entries = [
+            (
+                READZ_ROM_HELD,
+                "memory holds no ROM address",
+                Some(OUTSIDE_ROM.0),
+            ),
+            (BUMP, "no state has a above b", Some(ORDERED.0)),
+        ];
+        argue_on(&dir, &[OUTSIDE_ROM, ORDERED], &entries);
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        let (exit, bumped) = if cfg!(feature = "z3") {
+            (EXIT_YES, "connected")
+        } else {
+            (EXIT_UNANSWERED, "unchecked")
+        };
+        assert_eq!(status, exit, "{document:#}");
+        let walk = &item(&document, "requirements", READZ_ROM_HELD)["argument_check"];
+        assert_eq!(walk["standing"], "checked-on-runs", "{walk:#}");
+        assert_eq!(
+            walk["evidence"],
+            json!({
+                "status": "holds",
+                "rules": ["INVARIANT.readz", "INVARIANT.readzRom"],
+                "states": 5,
+                "steps": 1,
+                "programs": ["idle", "clean"],
+                "failure": null,
+                "reason": null,
+                "cached": false,
+            }),
+            "{walk:#}"
+        );
+        let bump = &item(&document, "rules", BUMP)["argument_check"];
+        assert_eq!(
+            (&bump["standing"], &bump["evidence"]["status"]),
+            (&json!(bumped), &json!("vacuous")),
+            "{bump:#}"
+        );
+        let summary = &document["summary"];
+        assert_eq!(
+            summary["argued_by_standing"],
+            json!({"text": 0, "connected": u8::from(cfg!(feature = "z3")), "checked_on_runs": 1,
+                   "proved": 0, "unchecked": u8::from(!cfg!(feature = "z3"))})
+        );
+        assert_eq!(summary["invariant_runs"], json!({"run": 4, "cached": 0}));
+        let rendered = text(&document).unwrap();
+        assert!(
+            rendered.contains(&format!(
+                "  {READZ_ROM_HELD} [checked-on-runs, invariant outside-rom]: memory holds no ROM \
+                 address\n"
+            )),
+            "{rendered}"
+        );
+
+        // A second run reads every program's evidence from the memo.
+        let (again, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, exit, "{again:#}");
+        assert_eq!(
+            again["summary"]["invariant_runs"],
+            json!({"run": 0, "cached": 4})
+        );
+        let walk = &item(&again, "requirements", READZ_ROM_HELD)["argument_check"];
+        assert_eq!(
+            (&walk["standing"], &walk["evidence"]["cached"]),
+            (&json!("checked-on-runs"), &json!(true)),
+            "{walk:#}"
+        );
+
+        // A program that stores a ROM address before a read breaks the walk there.
+        with_programs(&dir, &[("dirty", "write(2, 1) ; read(8)")]);
+        let (broken, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_NO, "{broken:#}");
+        let held = item(&broken, "requirements", READZ_ROM_HELD);
+        assert_eq!(held["status"], "open", "{held:#}");
+        let failed = &held["argument_failed"];
+        assert_eq!(failed["check"], "evidence", "{held:#}");
+        let check = &broken[kink_flow::coverage::ARGUMENT_CHECKS][READZ_ROM_HELD];
+        let failure = &check["evidence"]["failure"];
+        assert_eq!(
+            (
+                &failure["program"],
+                &failure["at"],
+                &failure["rule"],
+                &failure["index"]
+            ),
+            (
+                &json!("dirty"),
+                &json!("step"),
+                &json!("INVARIANT.readz"),
+                &json!(0)
+            ),
             "{check:#}"
+        );
+        let cells = failure["cells"].as_array().unwrap();
+        assert_eq!(
+            cells[1], "Lbl'-LT-'romEnd'-GT-'{}(\\dv{SortInt{}}(\"4\"))",
+            "{failure:#}"
+        );
+        assert!(
+            cells[0]
+                .as_str()
+                .is_some_and(|memory| memory.contains("\\dv{SortInt{}}(\"2\")")),
+            "{failure:#}"
+        );
+        let detail = failed["detail"].as_str().unwrap();
+        assert!(
+            detail.starts_with(
+                "the invariant `outside-rom` is false in the run of the program `dirty`, before \
+                 the step of `INVARIANT.readz` at its arrival 0, where the cells hold "
+            ),
+            "{detail}"
+        );
+        assert_eq!(
+            broken["summary"]["failed_arguments"],
+            json!([{"family": "requirements", "item": READZ_ROM_HELD, "check": "evidence",
+                    "detail": detail}])
+        );
+        let rendered = text(&broken).unwrap();
+        assert!(
+            rendered.contains(&format!(
+                "failed arguments:\n  {READZ_ROM_HELD} [the evidence fails]: {detail}; it is open \
+                 again\n"
+            )),
+            "{rendered}"
+        );
+        // `rule:bump` rests on another invariant, which holds wherever it is read.
+        assert_eq!(
+            item(&broken, "rules", BUMP)["argument_check"]["standing"],
+            bumped
         );
     }
 
     /// Every argued item says what its argument rests on (`argument_check`): its text alone where
-    /// its entry names no invariant (`text`), else the invariant and its connection (`unchecked`,
-    /// a connection that holds included, while the evidence is not run, so the command exits 3).
+    /// its entry names no invariant (`text`), else the invariant, its connection and its evidence:
+    /// under the Z3 profile `connected` (the connection holds, and no run steps `bump`, exit 0),
+    /// under the portable one `unchecked` (no solver decides the connection, exit 3).
     /// The settings list the invariants, the summary counts the argued items by
     /// standing, the text states each standing, and the coverage lock gives each argued item's
     /// standing under `[arguments]`: a standing that moves makes `--locked` stale, naming the
@@ -1064,15 +1272,25 @@ mod kink_tier {
                 (BUMP_HELD, "no state has a above b", Some(ORDERED.0)),
             ],
         );
+        let standing = if cfg!(feature = "z3") {
+            "connected"
+        } else {
+            "unchecked"
+        };
         let (document, status) = run(false);
-        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let exit = if cfg!(feature = "z3") {
+            EXIT_YES
+        } else {
+            EXIT_UNANSWERED
+        };
+        assert_eq!(status, exit, "{document:#}");
         assert_eq!(
             item(&document, "rules", BUMP)["argument_check"],
             json!({"standing": "text"})
         );
         assert_eq!(
             item(&document, "requirements", BUMP_HELD)["argument_check"]["standing"],
-            "unchecked"
+            standing
         );
         assert_eq!(
             document["settings"]["argued"][1],
@@ -1082,7 +1300,8 @@ mod kink_tier {
         let summary = &document["summary"];
         assert_eq!(
             summary["argued_by_standing"],
-            json!({"text": 1, "connected": 0, "checked_on_runs": 0, "proved": 0, "unchecked": 1})
+            json!({"text": 1, "connected": u8::from(cfg!(feature = "z3")), "checked_on_runs": 0,
+                   "proved": 0, "unchecked": u8::from(!cfg!(feature = "z3"))})
         );
         assert_eq!(summary["failed_arguments"], json!([]));
         let text = text(&document).unwrap();
@@ -1095,7 +1314,7 @@ mod kink_tier {
         let recorded = fs::read_to_string(&lock).unwrap();
         assert!(
             recorded.contains(&format!(
-                "\n[arguments]\n\"{BUMP}\" = \"text\"\n\"{BUMP_HELD}\" = \"unchecked\"\n"
+                "\n[arguments]\n\"{BUMP}\" = \"text\"\n\"{BUMP_HELD}\" = \"{standing}\"\n"
             )),
             "{recorded}"
         );
@@ -1124,11 +1343,13 @@ mod kink_tier {
         );
         assert_eq!(
             state["argument_changes"],
-            json!([{"obligation": BUMP_HELD, "recorded": "unchecked", "now": "text"}])
+            json!([{"obligation": BUMP_HELD, "recorded": standing, "now": "text"}])
         );
         assert_eq!(
             stale_lines(&stale),
-            [format!("{path}: arguments: {BUMP_HELD}: unchecked -> text")]
+            [format!(
+                "{path}: arguments: {BUMP_HELD}: {standing} -> text"
+            )]
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }

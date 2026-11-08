@@ -1,11 +1,14 @@
 // Flow fixture (FB-39): argued obligations whose arguments rest on invariants. A memory whose keys
-// an invariant keeps outside a ROM region, read by a pair of rules split on the region, and two
-// scalar cells an invariant orders; the corpus only idles, so no read and no bump is matched.
+// an invariant keeps outside a ROM region, read by a pair of rules split on the region and written
+// by a rule that may store anywhere, and two scalar cells an invariant orders; the corpus only
+// idles, so no read, write and bump is matched, and a test adds the programs it needs.
 module INVARIANT-SYNTAX
   imports INT-SYNTAX
-  syntax Pgm ::= read(Int) [symbol(read)]
-               | "bump"    [symbol(bump)]
-               | "idle"    [symbol(idle)]
+  syntax Pgm ::= read(Int)       [symbol(read)]
+               | write(Int, Int) [symbol(write)]
+               | "bump"          [symbol(bump)]
+               | "idle"          [symbol(idle)]
+               > Pgm ";" Pgm     [symbol(seq), right]
 endmodule
 
 module INVARIANT
@@ -61,4 +64,6 @@ module INVARIANT
     requires inRom(E, A)
   rule [bump]: <k> bump => .K ... </k> <a> A </a> <b> B => A </b> requires A >Int B
   rule [idle]: <k> idle => .K ... </k>
+  rule [write]: <k> write(A, V) => .K ... </k> <memory> M => M [ A <- V ] </memory>
+  rule [seq]: <k> P:Pgm ; Q:Pgm => P ~> Q ... </k>
 endmodule

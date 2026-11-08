@@ -10,7 +10,7 @@
 //! depends on a clock.
 
 use kink_flow::{
-    cli::{EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, coverage},
+    cli::{EXIT_UNASKED, EXIT_YES, coverage},
     coverage::CoverageOptions,
     query::QueryOptions,
 };
@@ -426,9 +426,10 @@ mod kink_tier {
     }
 
     /// A window argued by a rule whose argument rests on an invariant has the rule's
-    /// `argument_check`, unchecked, so the command has no answer (exit 3): here an invariant
-    /// false of every state, whose connection holds, which shows nothing while the evidence is
-    /// not run. An invariant named on a window itself is refused, the window named as
+    /// `argument_check`: here an invariant false exactly where `<k>` begins with `lone()`, whose
+    /// connection holds (the simplification alone shows it) and whose evidence is vacuous (no
+    /// program steps `lone`, and it holds at every initial state and end), so the rule is
+    /// `connected`. An invariant named on a window itself is refused, the window named as
     /// `rule_windows`, before any invariant is resolved.
     #[test]
     #[ignore = "kink"]
@@ -436,7 +437,7 @@ mod kink_tier {
         let j_c1 = window_id(&["j", "c1"]);
         let invariant =
             "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = [\"k\"]\n\n";
-        let never = "[[coverage.invariant]]\nname = \"i\"\nfunction = \"never\"\ncells = \
+        let never = "[[coverage.invariant]]\nname = \"i\"\nfunction = \"notLone\"\ncells = \
                      [\"k\"]\n\n";
         let lone = "[[coverage.argued]]\nitem = \"rule:WIN.lone\"\nargument = \"no program \
                     holds lone\"\ninvariant = \"i\"\n";
@@ -445,7 +446,7 @@ mod kink_tier {
             &format!("[coverage]\ndepth = 3\n\n{never}{lone}"),
             &[("diamond", "start()"), ("chain", "c1()")],
         );
-        // The fixture with a Bool function of the `<k>` cell false of every state.
+        // The fixture with a Bool function of the `<k>` cell false where it begins with `lone()`.
         let source = manifest.with_file_name("win.k");
         let k = fs::read_to_string(&source).unwrap();
         let imports = "  imports WIN-SYNTAX\n";
@@ -455,15 +456,16 @@ mod kink_tier {
             k.replacen(
                 imports,
                 &format!(
-                    "{imports}  imports BOOL\n  syntax Bool ::= never(K) [function, total, \
-                     symbol(never)]\n  rule never(_) => false\n"
+                    "{imports}  imports BOOL\n  syntax Bool ::= notLone(K) [function, total, \
+                     symbol(notLone)]\n  rule notLone(lone() ~> _) => false\n  rule notLone(_) \
+                     => true [owise]\n"
                 ),
                 1,
             ),
         )
         .unwrap();
         let (document, status) = run(&manifest, &CoverageOptions::default());
-        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        assert_eq!(status, EXIT_YES, "{document:#}");
         let rule = document["families"]["rules"]["items"]
             .as_array()
             .unwrap()
@@ -475,7 +477,11 @@ mod kink_tier {
                 &rule["argument_check"]["standing"],
                 &rule["argument_check"]["connection"]["status"]
             ),
-            (&json!("unchecked"), &json!("holds")),
+            (&json!("connected"), &json!("holds")),
+            "{rule:#}"
+        );
+        assert_eq!(
+            rule["argument_check"]["evidence"]["status"], "vacuous",
             "{rule:#}"
         );
         let by = window(&document, &window_id(&["j", "lone"]));

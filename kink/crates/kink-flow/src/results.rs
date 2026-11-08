@@ -868,6 +868,33 @@ impl<'a> BaselineRunner<'a> {
         )
     }
 
+    /// The baseline run of `test` with the specification's oracles, as [`Self::run`] makes it,
+    /// and the campaign's evidence of it: what the run recorded (its observations included) and
+    /// its ends. `Err` says why the campaign gave the run no sides (it refused the baseline, or
+    /// the run failed).
+    pub(crate) fn evidence_of(&self, mut test: TestCase) -> Result<TestEvidence, String> {
+        test.oracles = self.spec.result.oracles();
+        let options = CampaignOptions {
+            schedule: ScheduleMode::FirstKill,
+            selection: kink_campaign::SelectionPolicy::None,
+            share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
+        };
+        let run = self
+            .call(std::slice::from_ref(&test), &self.generations, &options)
+            .map_err(|failure| format!("the campaign refused the run: {failure}"))?;
+        let [evidence] = <[TestEvidence; 1]>::try_from(run.baseline)
+            .map_err(|_| "the campaign gave no single baseline run".to_owned())?;
+        match evidence.run {
+            SideRun::Sides { .. } => Ok(evidence),
+            SideRun::Failed(kind) => Err(format!(
+                "the campaign gave the run no sides: {}",
+                kind.exclusion().map_or("a failed run", |e| e.name())
+            )),
+        }
+    }
+
     /// [`Self::call`] with each mutant's programs ordered once it compiles: `first` gets the
     /// compiled edit of the side the programs run on and names the programs that run first
     /// (kink-campaign `run_campaign_multi_ordered`; the kill search's witness order).
