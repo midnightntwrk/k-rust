@@ -42,9 +42,11 @@
 //! name a condition or result reads that the sentence does not bind; a name written at another
 //! sort than the sentence binds it at; a name KRS made where KRS does not write it; an alias
 //! inside its own subpattern; a write of a Map instance's key other than as the sentence matched
-//! it (KRS's `map-collection-key`). A new application of a parametric production, a new `:=K` or
-//! `#let`, a new cell term and a new Bytes token are not read (refused): their instance, local
-//! binders or spelling are not in the K text alone.
+//! it (KRS's `map-collection-key`). A new application of a parametric production, a new `:=K`
+//! whose pattern names a variable, a new `#let`, a new cell term and a new Bytes token are not
+//! read (refused): their instance, local binders or spelling are not in the K text alone. A new
+//! `:=K` whose pattern names only `_` binds nothing: it is the Boolean test `k::matches!` writes,
+//! read wherever a condition stands, under `notBool` or not.
 //!
 //! A configuration rule's cells are read where the emitter places them
 //! ([`DefinitionIndex::clause_layout`]): a rule about one instance of a `?` or `*` cell names that
@@ -2373,6 +2375,44 @@ fn pattern_names(term: &SemanticTerm, bound: &mut BTreeSet<SemanticId>) {
     }
 }
 
+/// Refuses a `:=K` the baseline does not have unless its pattern names no variable, so that it
+/// binds nothing: such a test is a Boolean, the K of `k::matches!(subject, pattern)` with only
+/// `_` in the pattern, and stands under `notBool` or outside it alike, as a source writes it
+/// under `!` or not. `before` is the lift's naming before the pattern was read.
+///
+/// A pattern that names a variable the sentence does not bind binds it, and K's binding reaches
+/// the conjuncts after the test, where no `k::matches!` binder reaches; under `notBool` K binds
+/// it on no path. Which reading a mutant means is not in its text, so it is not read. A pattern
+/// that names a variable the sentence binds tests that variable's value, which no
+/// `k::matches!` writes: a name in its pattern binds anew, and KRS refuses one that shadows a
+/// binder of the sentence.
+fn binding_free(
+    pattern: &SemanticTerm,
+    before: &BTreeMap<String, SemanticId>,
+    after: &BTreeMap<String, SemanticId>,
+) -> Result<(), LiftRefusal> {
+    let mut named = BTreeSet::new();
+    pattern_names(pattern, &mut named);
+    let Some(id) = named
+        .into_iter()
+        .find(|id| id.kind() != SemanticIdKind::Wildcard)
+    else {
+        return Ok(());
+    };
+    let name = after
+        .iter()
+        .find(|(_, own)| **own == id)
+        .map_or_else(|| id.as_str().to_owned(), |(name, _)| name.clone());
+    if before.values().any(|own| *own == id) {
+        return Err(LiftRefusal::NotAdmitted(format!(
+            "`{name}`, a name the sentence binds, in a `:=K` pattern"
+        )));
+    }
+    Err(LiftRefusal::Shape(format!(
+        "a new `:=K` that binds `{name}`"
+    )))
+}
+
 fn value_names(
     term: &SemanticTerm,
     read: &mut BTreeSet<SemanticId>,
@@ -2832,6 +2872,8 @@ impl<'i> Lift<'i> {
                     if position != Position::Value {
                         return Err(LiftRefusal::NotAdmitted("`:=K` in a pattern".into()));
                     }
+                    let guide =
+                        guide.filter(|guide| matches!(guide.kind(), IrTermKind::Matches { .. }));
                     let (guide_subject, guide_pattern, binds) = match guide.map(SemanticTerm::kind)
                     {
                         Some(IrTermKind::Matches {
@@ -2846,13 +2888,17 @@ impl<'i> Lift<'i> {
                         _ => (None, None, None),
                     };
                     let subject = self.term(subject, guide_subject, Position::Value, None)?;
+                    let bound = self.names.clone();
                     let pattern = self.term(
                         pattern,
                         guide_pattern,
                         Position::Pattern,
                         Some(subject.sort()),
                     )?;
-                    let binds = binds.ok_or_else(|| LiftRefusal::Shape("a new `:=K`".into()))?;
+                    if binds.is_none() {
+                        binding_free(&pattern, &bound, &self.names)?;
+                    }
+                    let binds = binds.unwrap_or_default();
                     let origin = self.origin(guide, base);
                     return Ok(SemanticTerm::matches(
                         origin,

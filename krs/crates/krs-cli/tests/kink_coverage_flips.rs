@@ -219,7 +219,9 @@ fn a_flip_whose_operands_no_case_reached_is_unreached_with_no_mutant_run() {
 
 /// A distinguished flip names its killer, the first killing case in the corpus's order: `irq`
 /// raises a request the machine dispatches, which the flip of `Dispatches` steps over; the bit
-/// flips of the decode table are killed by the one case that decodes.
+/// flips of the decode table are killed by the one case that decodes; the flips of the
+/// `k::matches!` test that keeps the `tag` transitions apart, and of the one `mark_raise` reads,
+/// are killed by the case that tags and the case that marks.
 #[test]
 fn a_distinguished_flip_names_its_killer() {
     let (_, document) = covered();
@@ -227,6 +229,8 @@ fn a_distinguished_flip_names_its_killer() {
         ("flip--boundary_dispatch+boundary_step--Dispatches", "irq"),
         ("flip--boundary_dispatch+3--halted", "irq"),
         ("flip--mark_held+mark_raise--ime", "mark"),
+        ("flip--tag_other+tag_raise--matches", "tag"),
+        ("flip--mark_raise--matches", "mark"),
         ("bitflip--decode_dec+decode_inc--bit0", "dec"),
         ("bitflip--decode_dec+decode_inc+decode_load--bit3", "dec"),
     ] {
@@ -262,6 +266,18 @@ fn a_distinguished_flip_names_its_killer() {
     );
 }
 
+/// The flip of `mark_held`'s `k::matches!` test changes only runs where `ime` is false, since the
+/// test is conjoined with `!ime`; the one case that marks does so with `ime` true, so no case
+/// distinguishes it, and every case ran the mutant.
+#[test]
+fn a_matches_flip_beside_a_false_atom_is_undistinguished() {
+    let (_, document) = covered();
+    let held = item(document, "flip--mark_held--matches");
+    assert_eq!(held["status"], "undistinguished", "{held:#}");
+    assert_eq!(held["killer"], Value::Null, "{held:#}");
+    assert_eq!(held["live_runs"], CASES.len(), "{held:#}");
+}
+
 /// A flip the front end's judge refuses is listed with the judge's reason and next step, and is
 /// not counted: the measure is distinguished over the obligations less the refused ones.
 #[test]
@@ -283,12 +299,12 @@ fn a_refused_flip_is_listed_with_its_reason() {
     assert_eq!(family["run"], true, "{family:#}");
     assert_eq!(
         family["counts"],
-        json!({"distinguished": 6, "undistinguished": 1, "unreached": 2, "unknown": 0,
-               "refused": 4, "equivalent": 0, "not_generated": 0}),
+        json!({"distinguished": 8, "undistinguished": 2, "unreached": 2, "unknown": 0,
+               "refused": 1, "equivalent": 0, "not_generated": 0}),
         "{family:#}"
     );
     assert_eq!(family["obligations"], 13, "{family:#}");
-    assert_eq!(family["counted"], 9, "{family:#}");
+    assert_eq!(family["counted"], 12, "{family:#}");
 }
 
 /// Every occurrence of every flip of the fixture is placed in its sentence's guard row, at the

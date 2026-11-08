@@ -254,34 +254,20 @@ fn a_bit_pair_flip_and_a_chain_flip_are_judged() {
             ),
         ])
     );
-    // Every flip of the fixture but the two the next test names, and the flips of the `mark`
-    // transitions' shared `k::matches!` test, is admitted: the generator and KRS's admission
-    // agree.
+    // Every flip of the fixture but the one the next test names is admitted: the generator and
+    // KRS's admission agree.
     let refused = flips
         .flips
         .iter()
         .filter(|flip| !admitted(flip))
         .map(|flip| flip.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(
-        refused,
-        [
-            "flip--mark_held--matches",
-            "flip--mark_raise--matches",
-            "flip--peek--IntGreater",
-            "flip--tag_other+tag_raise--matches"
-        ],
-        "{:#}",
-        flips.value()
-    );
+    assert_eq!(refused, ["flip--peek--IntGreater"], "{:#}", flips.value());
 }
 
 /// A flip the judge refuses is reported with the judge's reason and detail, not dropped: the
 /// condition of `peek` shares its `requires` with the lookup guard KRS writes for `ix[a]`, whose
-/// derivation reads more than the edited atom, so the edit is not judged. The two transitions kept
-/// apart by a `k::matches!` test that binds nothing have the flip of that test, an atom like any
-/// other; the judge cannot yet read the edited `:=K` back to a Rust source, so it is not judged
-/// either.
+/// derivation reads more than the edited atom, so the edit is not judged.
 #[test]
 fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
     let (_, flips) = fixture();
@@ -301,7 +287,18 @@ fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
         detail.starts_with("`peek` (crate::peek, src/lib.rs:"),
         "{detail}"
     );
+}
+
+/// The two transitions kept apart by a `k::matches!` test that binds nothing have the flip of that
+/// test, an atom like any other: a `:=K` whose pattern names only `_` is a Boolean test, which a
+/// source writes as `k::matches!(..)` or `!k::matches!(..)`, so the test moved out of `notBool` in
+/// `tag_other` and into it in `tag_raise` is a definition KRS admits.
+#[test]
+fn a_flip_of_a_matches_test_that_binds_nothing_is_admitted() {
+    let (_, flips) = fixture();
     let tag = flip(flips, "flip--tag_other+tag_raise--matches");
+    assert!(admitted(tag), "{:#}", flips.value());
+    assert!(tag.whole);
     assert_eq!(
         edits(tag),
         triples(&[
@@ -317,11 +314,6 @@ fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
             ),
         ])
     );
-    let FlipStatus::Refused { reason, detail, .. } = &tag.status else {
-        panic!("{:#}", flips.value());
-    };
-    assert_eq!(reason, "not-judged");
-    assert!(detail.contains("does not read a new `:=K`"), "{detail}");
 }
 
 /// A condition that conjoins a `k::matches!` test with another atom is flipped in that atom, the
@@ -329,7 +321,8 @@ fn a_flip_the_judge_refuses_is_reported_with_its_reason() {
 /// the flip of `ime` is a definition KRS admits (`k::matches!(next, Raise { .. }) && !ime` and
 /// `... && ime` exchanged). In `mark_raise` the edit's `find` holds the rendered test, since
 /// `Ime:Bool` alone also occurs in the sentence's `<ime>` cell. The shared test is flipped in each
-/// transition alone, and, as the `tag` pair's, is not judged.
+/// transition alone, and, as the `tag` pair's, is a definition KRS admits
+/// (`!k::matches!(next, Raise { .. }) && ime` in `mark_raise`, `... && !ime` in `mark_held`).
 #[test]
 fn a_flip_beside_a_matches_test_is_admitted() {
     let (_, flips) = fixture();
@@ -347,12 +340,21 @@ fn a_flip_beside_a_matches_test_is_admitted() {
             ),
         ])
     );
-    for id in ["flip--mark_held--matches", "flip--mark_raise--matches"] {
-        let FlipStatus::Refused { reason, detail, .. } = &flip(flips, id).status else {
-            panic!("{:#}", flips.value());
-        };
-        assert_eq!(reason, "not-judged");
-        assert!(detail.contains("does not read a new `:=K`"), "{detail}");
+    for (id, rule) in [
+        ("flip--mark_held--matches", "mark-held"),
+        ("flip--mark_raise--matches", "mark-raise"),
+    ] {
+        let matches = flip(flips, id);
+        assert!(admitted(matches), "{:#}", flips.value());
+        assert!(!matches.whole);
+        assert_eq!(
+            edits(matches),
+            triples(&[(
+                rule,
+                "( raise _ :=K Next:Cmd )",
+                "(notBool (( raise _ :=K Next:Cmd )))"
+            )])
+        );
     }
 }
 

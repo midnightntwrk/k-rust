@@ -10,8 +10,9 @@
 //! The re-derivation then accepts a sentence the judge hands on only when it is what KRS emits
 //! for its edited authored content: every sentence is its own re-derivation, a derived test
 //! must follow the edited construct, the lift refuses what no authored syntax writes (a function
-//! KRS lifts out of a sentence, one equation of a function shorthand moved to another function),
-//! an edit beside a local function is accepted when the function derives as before, a
+//! KRS lifts out of a sentence, one equation of a function shorthand moved to another function,
+//! a new `:=K` whose pattern names a variable), a new `:=K` that binds nothing is read under
+//! `notBool` or outside it, an edit beside a local function is accepted when the function derives as before, a
 //! mutation that changes nothing is refused, and the story's mutations are accepted.
 
 use std::fs;
@@ -34,6 +35,9 @@ const EDITS: &str = include_str!("fixtures/edit-origin/src/lib.rs");
 
 /// The introduction's specification.
 const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
+
+/// The package whose `tag` and `mark` transitions are kept apart by a `k::matches!` test.
+const GUARDS: &str = include_str!("fixtures/guard-mutations/src/lib.rs");
 
 fn krs_path() -> String {
     let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1212,6 +1216,48 @@ fn derived_nodes_follow_the_edit() {
             .iter()
             .any(|sentence| matches!(sentence.verdict, SentenceVerdict::FamilyNotJudged { .. })),
         "{check:#?}"
+    );
+}
+
+/// A `:=K` the baseline does not have at a position is read when its pattern names only `_`: it
+/// binds nothing, so it is a Boolean test, `k::matches!(..)` outside `notBool` and
+/// `!k::matches!(..)` under it. The test moved out of `notBool` in `tag-other` and into it in
+/// `mark-raise` is accepted. A new `:=K` whose pattern names a variable is refused: one that
+/// binds a name would let K read the binding after the test, where no `k::matches!` binder
+/// reaches, and one that names a variable the sentence binds tests its value, which no
+/// `k::matches!` writes.
+#[test]
+fn a_new_matches_test_is_read_only_when_it_binds_nothing() {
+    let baseline = baseline("guard-mutations", "FLIPS", GUARDS);
+    let tag = "rule [tag-other]";
+    let negated = "notBool ( raise _ :=K Next:Cmd )";
+    accepted(&baseline.check(tag, &[(negated, "( raise _ :=K Next:Cmd )")]));
+    accepted(&baseline.check(
+        "rule [mark-raise]",
+        &[(
+            "( raise _ :=K Next:Cmd )",
+            "(notBool (( raise _ :=K Next:Cmd )))",
+        )],
+    ));
+    let check = baseline.check(tag, &[(negated, "( raise B:Int :=K Next:Cmd )")]);
+    let Err(Refusal::Lift(refusal)) = outcome(&check) else {
+        panic!("{check:#?}");
+    };
+    assert_eq!(
+        refusal,
+        &LiftRefusal::Shape("a new `:=K` that binds `B`".into())
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "the check does not read a new `:=K` that binds `B`"
+    );
+    let check = baseline.check(tag, &[(negated, "( Next:Cmd :=K Next:Cmd )")]);
+    let Err(Refusal::Lift(refusal)) = outcome(&check) else {
+        panic!("{check:#?}");
+    };
+    assert_eq!(
+        refusal.to_string(),
+        "no authored syntax writes `Next`, a name the sentence binds, in a `:=K` pattern"
     );
 }
 
