@@ -1543,7 +1543,7 @@ text = 'h(opaque(1), 2)'
         // second builds the syntax family; its third runs the flips family where a front end
         // derives the flips; its fourth has the coverage lock and each flip's recorded killer.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 4);
+        assert_eq!(document["version"], 5);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

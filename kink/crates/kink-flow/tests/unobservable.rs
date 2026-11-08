@@ -120,7 +120,7 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
 
     let (document, status) = check(&manifest);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 12);
+    assert_eq!(document["version"], 13);
     assert_eq!(document["result"], expected);
 
     let (document, ok) = coverage(

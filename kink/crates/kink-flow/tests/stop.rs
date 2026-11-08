@@ -535,7 +535,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
     let (document, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{document:#}");
     assert_eq!(document["schema"], "kink-flow-coverage");
-    assert_eq!(document["version"], 4);
+    assert_eq!(document["version"], 5);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];
@@ -561,7 +561,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
 fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
     let dir = fixture("run", &[]);
     let document = search(&dir.join("FLOW.toml"));
-    assert_eq!(document["version"], 32);
+    assert_eq!(document["version"], 33);
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1})
@@ -601,7 +601,7 @@ fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
             cache: None,
         },
     );
-    assert_eq!(check["version"], 12);
+    assert_eq!(check["version"], 13);
     assert!(
         warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()),
         "{check:#}"

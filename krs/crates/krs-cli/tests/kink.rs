@@ -3025,7 +3025,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 4);
+    assert_eq!(document["version"], 5);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -4605,7 +4605,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     let output = project.kink("check", &[]);
     assert_status(&output, 0);
     let check = json(&output);
-    assert_eq!(check["version"], 12, "{check:#}");
+    assert_eq!(check["version"], 13, "{check:#}");
     assert_eq!(results["result_cache"]["enabled"], true, "{results:#}");
     assert_eq!(verdicts(&check), expected, "{check:#}");
 
@@ -5413,7 +5413,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 11\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 12\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );
