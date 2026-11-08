@@ -516,11 +516,18 @@ fn the_identity_is_an_object_of_its_components() {
     // KINK-observation-traces T3b: the observation slot is a component, and an identity written
     // before it (every other component equal) differs at it. T7: v2 closes a channel by a cycle
     // where its path returns to an earlier state with nothing new observed, so one written under
-    // v1 differs too.
+    // v1 differs too. T8: v3 compares a run that splits by its channels' prefix sets where v2
+    // opened every channel at the first branch, so one written under v2 differs as well.
     assert_eq!(identity["observation"], kink_campaign::OBSERVATION_VERSION);
     assert_eq!(
         kink_campaign::OBSERVATION_VERSION,
-        "kink-campaign/observation/v2"
+        "kink-campaign/observation/v3"
+    );
+    let mut one_path = identity.clone();
+    one_path["observation"] = json!("kink-campaign/observation/v2");
+    assert_eq!(
+        identity_difference(&one_path).as_deref(),
+        Some("observation")
     );
     let mut before = identity.clone();
     before.as_object_mut().unwrap().remove("observation");

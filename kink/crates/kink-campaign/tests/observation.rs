@@ -689,11 +689,14 @@ fn an_undecided_element_opens_the_channel_while_an_earlier_difference_still_kill
     });
 }
 
-/// jump's -1 becomes 1: at the second tick both tick and jump apply, so the mutant's path
-/// branches there, and only one path is compared: its channels open at the branch, after an
-/// agreeing first element, and the mutant is `unknown`.
+/// jump's -1 becomes 1: at the second tick both tick and jump apply, so the mutant's run splits
+/// there (kink-campaign `observation`, "Several paths"). Its tick path agrees with the baseline's
+/// one path, and its jump path's clock prefix [0, 101] is no prefix of the baseline, which is
+/// explored to its horizon of 16 on its one path: the mutant's prefix is outside the baseline's
+/// set at clock index 1, and the mutant is killed there. A branch where the baseline is not
+/// explored to the index stays unknown (`several_paths::incomplete_exploration_stays_unknown`).
 #[test]
-fn a_branching_mutant_opens_its_channels_at_the_branch() {
+fn a_branching_mutants_path_outside_the_baseline_set_kills() {
     on_a_big_stack(|| {
         let validator = validator();
         let tests = [test("console")];
@@ -704,10 +707,18 @@ fn a_branching_mutant_opens_its_channels_at_the_branch() {
             &generation,
             observe(vec![clock(Stutter::Count)], Vec::new()),
         );
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
         let verdict = verdict(&run);
-        assert_eq!(verdict.outcome, OracleOutcome::Unknown);
-        assert!(verdict.cause.unwrap().contains("branched"));
+        assert_eq!(verdict.outcome, OracleOutcome::Distinguish);
+        assert_eq!(
+            verdict.position,
+            Some(Position {
+                channel: "clock".into(),
+                index: 1,
+                at_end: false,
+                outside: Some(kink_campaign::Outside::Mutant),
+            })
+        );
     });
 }
 

@@ -2289,7 +2289,7 @@ endmodule
         // because a record's bindings hold the alternatives a fired instance took and only the
         // operand heads of variables the axiom reads. v20, because a record's coverage holds the
         // heating and cooling rules it matched and fired by id.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v20");
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v21");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);
