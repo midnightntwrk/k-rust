@@ -1161,6 +1161,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         cancelled_result: CancelledResultOutput::Error,
         match_states: None,
         collect_committed: true,
+        collect_windows: None,
         schema_version: BACKEND_SCHEMA_VERSION,
     }
 }

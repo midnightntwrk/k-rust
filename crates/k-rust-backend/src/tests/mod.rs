@@ -18,6 +18,7 @@ mod rewrite;
 mod several_matchings;
 mod unread_frames;
 mod walk_flags;
+mod windows;
 
 pub(crate) mod alpha;
 mod capture;

@@ -3871,6 +3871,10 @@ mode = "condition recording (collect_conditions)"
 bound = "per entry of a selected rule: collect/sort the condition-read bindings, clone path/match knowledge and hash/compare the EntryKey, even for a duplicate or capped entry; per admitted record, one isolated bottom-up evaluation of its condition with NoSolver, substitutions and capped output-value checks; at most the configured record limit per rule, with record_polls per evaluation and max_value_size per stored value. Polls do not bound the byte cost of bigint hooks or intermediate terms. This extra evaluation is off the step clock but costs wall time (coverage::conditions)."
 
 [[node.cost]]
+mode = "rule windows (collect_windows)"
+bound = "nothing without collect_windows: no state carries a window path and no merge-table record a forward set. With windows of length up to d: per committed step one rule-id lookup, one recorded window of at most d ids, and a copy of the path's last d - 1 steps into each state forked from it; under state-set with d >= 2 also one sequence of at most d - 1 ids added to the forward set of each of the path's last d - 1 source states still in the merge table, and per merged arrival O(|F(s)| d^2) ids for the absorbing state's forward set F(s). Memory: one forward set per merge-table record, freed with the record, holding at most the distinct rule sequences shorter than d from its state (coverage::windows)"
+
+[[node.cost]]
 mode = "trace storage"
 bound = "O(1) per fork and per appended entry: a path shares its trace with the paths it forked from (rewrite::path_trace); O(entries) per leaf to materialise the trace it returns"
 

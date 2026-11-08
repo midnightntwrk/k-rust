@@ -2320,6 +2320,9 @@ fn run_coverage_output<K: WireKore>(
             .map(|axioms| axioms.into_iter().map(axiom_guard_output).collect())
             .transpose()?,
         bindings: coverage.bindings.map(run_bindings_output),
+        windows: coverage
+            .windows
+            .map(|windows| windows.into_iter().collect()),
     })
 }
 

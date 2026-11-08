@@ -775,6 +775,14 @@ pub struct ExecutionOptions {
     /// committed to (off by default; ignored without `collect_coverage`). Asking costs one set
     /// insert per normalized successor and changes nothing else in the result.
     pub collect_committed: bool,
+    /// With [`Self::collect_coverage`], also report [`crate::coverage::RunCoverage::windows`]:
+    /// every sequence of at most `d` rewrite rules some path committed to as consecutive steps
+    /// (`None`, the default: no windows; ignored without `collect_coverage`). Each path carries
+    /// its last `d - 1` committed steps; under `state-set`, the merge table also keeps, for each
+    /// state it records, the rule sequences shorter than `d` that start there, so that a merged
+    /// arrival takes the windows that go on into the recorded state's subtree (the cost is stated
+    /// in `coverage::windows`). Asking changes nothing else in the result.
+    pub collect_windows: Option<std::num::NonZeroUsize>,
     /// The literals of the request whose element the definition leaves open, as written
     /// (`definition::Admitted::for_execution`): every path reads them, so each initial state, and
     /// every leaf after it, carries the mark `literal` of each, and so does the run's list
@@ -826,6 +834,7 @@ impl Default for ExecutionOptions {
             discard_stopped: false,
             match_states: None,
             collect_committed: false,
+            collect_windows: None,
             request_literals: Vec::new(),
             probe_rules: ProbeRules::default(),
         }

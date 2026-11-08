@@ -34,6 +34,10 @@
 //! bound = "per entry of a selected rule: collect/sort the condition-read bindings, clone path/match knowledge and hash/compare the EntryKey, even for a duplicate or capped entry; per admitted record, one isolated bottom-up evaluation of its condition with NoSolver, substitutions and capped output-value checks; at most the configured record limit per rule, with record_polls per evaluation and max_value_size per stored value. Polls do not bound the byte cost of bigint hooks or intermediate terms. This extra evaluation is off the step clock but costs wall time (coverage::conditions)."
 //!
 //! [[cost]]
+//! mode = "rule windows (collect_windows)"
+//! bound = "nothing without collect_windows: no state carries a window path and no merge-table record a forward set. With windows of length up to d: per committed step one rule-id lookup, one recorded window of at most d ids, and a copy of the path's last d - 1 steps into each state forked from it; under state-set with d >= 2 also one sequence of at most d - 1 ids added to the forward set of each of the path's last d - 1 source states still in the merge table, and per merged arrival O(|F(s)| d^2) ids for the absorbing state's forward set F(s). Memory: one forward set per merge-table record, freed with the record, holding at most the distinct rule sequences shorter than d from its state (coverage::windows)"
+
+//! [[cost]]
 //! mode = "trace storage"
 //! bound = "O(1) per fork and per appended entry: a path shares its trace with the paths it forked from (rewrite::path_trace); O(entries) per leaf to materialise the trace it returns"
 //!
@@ -69,6 +73,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
+    coverage::{WindowCollection, WindowPath},
     definedness::{FactsVerdict, UndecidedFacts},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
@@ -245,6 +250,8 @@ fn execute_counted(
         (options.result_modality == ResultModality::StateSet).then(|| Standing::possible(&options));
     // The condition's refusal, which fails the run: its leaves are no result.
     let refused = std::cell::RefCell::new(None);
+    // The rule windows the run took, when it collects them (`coverage::windows`).
+    let windows = std::cell::RefCell::new(None);
     let run = || {
         let mut execution = Execution::seed(
             definition,
@@ -261,10 +268,12 @@ fn execute_counted(
             probe.map(|probe| -> &mut dyn Probe { &mut *probe }),
         );
         if execution.options.max_breadth == Some(0) {
+            *windows.borrow_mut() = execution.windows.take().map(WindowCollection::finish);
             return execution.collect_at_breadth_zero();
         }
         execution.run(&timeout_controller);
         *refused.borrow_mut() = execution.refusal.take();
+        *windows.borrow_mut() = execution.windows.take().map(WindowCollection::finish);
         execution.collect()
     };
     // Every mark the run notes, whatever becomes of the work that noted it.
@@ -321,7 +330,7 @@ fn execute_counted(
     }
     // The definition is selected and internalized before this call, so the collection holds
     // what the run applied and nothing a module's construction did (`crate::coverage`).
-    let ((mut result, status), coverage) = crate::coverage::collect_all(
+    let ((mut result, status), mut coverage) = crate::coverage::collect_all(
         collect_offered,
         collect_counts,
         collect_committed,
@@ -333,6 +342,7 @@ fn execute_counted(
     if let Some(refusal) = refused.into_inner() {
         return Err(refusal);
     }
+    coverage.windows = windows.into_inner();
     result.coverage = Some(coverage);
     Ok((result, status))
 }
@@ -384,6 +394,10 @@ struct Execution<'a> {
     /// The state being expanded, as the merge table would record it once its expansion
     /// completes; `None` when it takes no part in merging.
     arrival: Option<Arrival>,
+    /// The rule windows of a run that collects coverage and asks for them
+    /// ([`ExecutionOptions::collect_windows`]); `None` otherwise, and then no state carries a
+    /// [`WindowPath`].
+    windows: Option<WindowCollection>,
     /// Whether the state being expanded was merged ([`Execution::merged`]).
     merged_arrival: bool,
     /// The state matcher of a run that asks for state matches ([`ExecutionOptions::match_states`]).
@@ -447,6 +461,12 @@ impl<'a> Execution<'a> {
         let has_execution_io = initial_io.is_some();
         let initial_io = initial_io.unwrap_or_default();
         let diagnostics = PathDiagnostics::new_request();
+        let merging = options.result_modality == ResultModality::StateSet
+            && options.branch_mode == ExecutionBranchMode::ExploreAll;
+        let windows = options
+            .collect_windows
+            .filter(|_| options.collect_coverage)
+            .map(|length| WindowCollection::new(length, merging));
         let mut pending = initial
             .into_iter()
             .map(|pattern| {
@@ -470,6 +490,7 @@ impl<'a> Execution<'a> {
                     arriving: None,
                     probing: None,
                     probe_path: ProbePath::ROOT,
+                    windows: windows.as_ref().map(|_| Box::default()),
                 }
             })
             .collect::<VecDeque<_>>();
@@ -525,9 +546,7 @@ impl<'a> Execution<'a> {
                 options.max_simplification_iterations,
             )
         });
-        let merge = (options.result_modality == ResultModality::StateSet
-            && options.branch_mode == ExecutionBranchMode::ExploreAll)
-            .then(ExplorationMerge::default);
+        let merge = merging.then(ExplorationMerge::default);
         // Under strategy `any` a state the path leaves by one successor may have others in the
         // definition, so no return is recognized there (`probe`, "Cycles").
         let cycles = probe
@@ -557,6 +576,7 @@ impl<'a> Execution<'a> {
             refutations: RefutationMemo::default(),
             merge,
             arrival: None,
+            windows,
             merged_arrival: false,
             matcher,
             condition,
@@ -761,14 +781,25 @@ impl<'a> Execution<'a> {
         {
             arrival.history = Some(probe::isolated(|| probe.history(state.probe_path)));
         }
-        if let Some(mark) = merge.absorbs(&mut arrival, self.fresh_counter.request()) {
+        if let Some((mark, forward)) = merge.absorbs(&mut arrival, self.fresh_counter.request()) {
             measure::bump(Counter::ExecutionStatesMerged);
             self.merged_arrival = true;
+            // The path goes on into the recorded state's subtree, explored to its end
+            // (`coverage::windows`).
+            if let (Some(windows), Some(path), Some(forward)) =
+                (&mut self.windows, state.windows.as_deref(), forward)
+            {
+                windows.merged(path, &forward);
+            }
             if let Some(matcher) = &mut self.matcher {
                 matcher.absorbed(mark, state.depth, &state.pattern, &state.diagnostics);
             }
             return true;
         }
+        arrival.forward = self
+            .windows
+            .as_ref()
+            .and_then(WindowCollection::forward_set);
         self.arrival = Some(arrival);
         false
     }
@@ -793,9 +824,10 @@ impl<'a> Execution<'a> {
     /// ([`crate::coverage::note_bindings`], read by the step into its producer). The rule is the
     /// path's last rewrite entry, the one at the state's depth, which every trace keeps
     /// (`commit_applied`); an initial state and a remainder were built by no rule of this depth.
-    fn note_committed(state: &ExecutionState) {
+    /// The step also ends a rule window of the path ([`WindowCollection::committed`]).
+    fn note_committed(&mut self, state: &mut ExecutionState) {
         let binding = crate::coverage::records_bindings();
-        if !(crate::coverage::committing() || binding)
+        if !(crate::coverage::committing() || binding || self.windows.is_some())
             || state.is_initial_input
             || !matches!(state.kind, ExecutionStateKind::Rewritable)
         {
@@ -804,6 +836,9 @@ impl<'a> Execution<'a> {
         if let Some(entry) = state.trace.last_rewrite()
             && entry.depth == state.depth
         {
+            if let (Some(windows), Some(path)) = (&mut self.windows, state.windows.as_deref_mut()) {
+                windows.committed(path, &entry.unique_id);
+            }
             crate::coverage::note_committed(&entry.unique_id);
             if binding
                 && let Some(fired) = state
@@ -888,6 +923,17 @@ impl<'a> Execution<'a> {
         };
         if self.merged(&state) {
             return Ok(Vec::new());
+        }
+        let mut state = state;
+        // The steps this state takes start here; a remainder's go on from the state it restricts.
+        if let (ExecutionStateKind::Rewritable, Some(path)) =
+            (&state.kind, state.windows.as_deref_mut())
+        {
+            path.expands(
+                self.arrival
+                    .as_ref()
+                    .and_then(|arrival| arrival.forward.as_ref()),
+            );
         }
         if let ExecutionStateKind::Rewritable = state.kind {
             let mark = self.match_state(&state);
@@ -1434,7 +1480,7 @@ impl<'a> Execution<'a> {
         // The successor is normalized and defined: its step is a transition of the run, and an
         // arrival at a stop where it was a stop rule's step the path goes on past
         // ([`ExecutionOptions::stop_count`]).
-        Self::note_committed(&state);
+        self.note_committed(&mut state);
         match state.arriving.take() {
             None => {}
             Some(Arriving::Counted) => {
@@ -1842,7 +1888,7 @@ impl<'a> Execution<'a> {
         rule: String,
         deferred: Option<StopDecision>,
     ) -> Phase<Vec<ExecutionState>> {
-        Self::note_committed(&next);
+        self.note_committed(&mut next);
         // The step is taken: its points are asked before the path ends at the terminal rule.
         // They are asked within the expansion, before the run knows what else it leaves, so a
         // probe that follows paths asks them on a path forked for the leaf (`probe`, "Several
@@ -4924,6 +4970,9 @@ struct ExecutionState {
     /// The state's path, as a probe that follows paths is told of it (`probe`, "Several paths");
     /// the root on every state of a run without one.
     probe_path: ProbePath,
+    /// The path's last committed steps, under a run that collects rule windows
+    /// ([`ExecutionOptions::collect_windows`]); `None` on every state of another run.
+    windows: Option<Box<WindowPath>>,
 }
 
 /// The points of a step a probe observes ([`ExecutionState::probing`]): the rule of its before
@@ -6267,6 +6316,7 @@ mod tests {
             arriving: None,
             probing: None,
             probe_path: ProbePath::ROOT,
+            windows: None,
             pattern: subject(definition, "state"),
             depth: 500,
             trace,
@@ -7159,6 +7209,7 @@ mod tests {
                         arriving: None,
                         probing: None,
                         probe_path: ProbePath::ROOT,
+                        windows: None,
                         pattern: pattern.clone(),
                         depth: 0,
                         trace: PathTrace::default(),

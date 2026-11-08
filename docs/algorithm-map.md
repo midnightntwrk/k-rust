@@ -125,7 +125,7 @@ Representation flow into [execution result]:
 
 - from kprove flow [1]: backend.definition.internalize → [internalized theory], [internalized pattern]
 - from kprove flow [2]: backend.rewrite.step → [rewrite result]
-- [0] backend.rewrite.execute — O(min(s, max_work)) state pops, plus… +8 modes — in: [internalized theory], [internalized pattern], [rewrite result] → out: [execution result] — at backend/rewrite/execute.rs `execute_using`
+- [0] backend.rewrite.execute — O(min(s, max_work)) state pops, plus… +9 modes — in: [internalized theory], [internalized pattern], [rewrite result] → out: [execution result] — at backend/rewrite/execute.rs `execute_using`
 
 ### Without a declared position
 

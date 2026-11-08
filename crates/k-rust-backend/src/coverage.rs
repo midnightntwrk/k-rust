@@ -56,6 +56,13 @@
 //! values selected template binders were bound to, read from the substitution the instance's
 //! match already made, with no evaluation ([`RunCoverage::bindings`], [`RunBindings`]).
 //!
+//! An execution that also asks for windows of length up to `d`
+//! (`rewrite::ExecutionOptions::collect_windows`) receives, besides, every sequence of at most `d`
+//! rewrite rules some path committed to as consecutive steps ([`RunCoverage::windows`]). The
+//! execution collects them itself, from the last steps each path carries and, under `state-set`,
+//! from the forward sets of the states it merges into (`windows`), not through the thread's
+//! collection.
+//!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
 //! would also collect what selecting or loading a module applies, which depends on the requests
@@ -73,6 +80,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 mod bindings;
 mod conditions;
 mod guards;
+mod windows;
 
 pub use bindings::{
     AxiomOperands, BinderKey, BinderValues, BindingCollection, FiredAlternative, RunBindings,
@@ -90,6 +98,7 @@ pub use guards::{
     skeletons,
 };
 pub(crate) use guards::{Decided, GuardHandle};
+pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 
 /// The axioms a run used, by `UNIQUE_ID`.
 ///
@@ -246,6 +255,18 @@ pub(crate) use guards::{Decided, GuardHandle};
 /// multiplicity nor the order of the instances, and it is a deterministic function of the same
 /// inputs (`bindings`).
 ///
+/// `windows`, present exactly when the run asked for windows of length up to `d`
+/// (`rewrite::ExecutionOptions::collect_windows`), holds every rule window of length `1..=d` the
+/// run took: each sequence of rewrite rules, by id, that some path committed to as consecutive
+/// steps, a step being committed where `committed` records its rule (`windows`). The windows of
+/// length 1 are `committed`; no equation is in one, and neither is a cut-point rule's proposed
+/// step. Under `state-set` a merged arrival takes, besides, the windows that begin on its path and
+/// end in the recorded state's subtree, so the set is that of the `path-set` run wherever the two
+/// explore the same states. Like the sets it depends on neither the multiplicity nor the order
+/// of the steps, and it is a deterministic function of the same inputs. Unlike them it is
+/// collected by the execution itself, which carries each path's last steps, not reported from
+/// the sites that apply an axiom: a collection opened elsewhere has none.
+///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -258,6 +279,7 @@ pub struct RunCoverage {
     pub committed: Option<BTreeSet<String>>,
     pub guards: Option<Vec<AxiomGuard>>,
     pub bindings: Option<RunBindings>,
+    pub windows: Option<BTreeSet<Vec<String>>>,
 }
 
 /// The ids reported to the open collection, inserted once each; `applied` also counts its
@@ -309,6 +331,7 @@ impl Sink {
             committed,
             guards: None,
             bindings: None,
+            windows: None,
         }
     }
 }
@@ -464,6 +487,7 @@ pub(crate) fn replay(coverage: &RunCoverage) {
         committed: _,
         guards: _,
         bindings: _,
+        windows: _,
     } = coverage;
     for id in applied {
         note_applied(id);

@@ -32,11 +32,12 @@
 //! (`RequestNames::state_key`) are built only for states whose hashes agree, each at most once.
 //! A run in which no two states of one depth share a hash builds no key.
 
-use std::{cell::OnceCell, collections::BTreeMap};
+use std::{cell::OnceCell, collections::BTreeMap, rc::Rc};
 
 use rustc_hash::FxHashMap;
 
 use crate::{
+    coverage::Forward,
     diagnostic::PathDiagnostics,
     fresh::RequestNames,
     transition::{EffectJournal, ExecutionIoState},
@@ -61,6 +62,10 @@ pub(super) struct Arrival {
     /// The probe's history of the state's path, under a probe that follows paths
     /// (`probe::Probe::history`); `None` otherwise.
     pub(super) history: Option<[u8; 32]>,
+    /// The state's forward set, under a run that collects rule windows and keeps them
+    /// (`coverage::windows`): the table owns it, so it lives as long as the state's record;
+    /// `None` otherwise.
+    pub(super) forward: Option<Rc<Forward>>,
     /// The pattern's shape hash, once a state of its depth was met.
     shape: Option<u64>,
     /// The pattern's key, once a recorded state of its shape was met.
@@ -87,6 +92,7 @@ impl Arrival {
             diagnostics,
             mark: MatchMark::Other,
             history: None,
+            forward: None,
             shape: None,
             key: OnceCell::new(),
         }
@@ -153,14 +159,14 @@ impl ExplorationMerge {
         self.len == 0
     }
 
-    /// The match mark of a recorded state of `arrival`'s depth that absorbs it, if one does.
-    /// When the depth holds a recorded state, `arrival` and every state of the depth not yet
-    /// hashed are hashed.
+    /// The match mark and the forward set (`Arrival::forward`) of a recorded state of
+    /// `arrival`'s depth that absorbs it, if one does. When the depth holds a recorded state,
+    /// `arrival` and every state of the depth not yet hashed are hashed.
     pub(super) fn absorbs(
         &mut self,
         arrival: &mut Arrival,
         names: &RequestNames,
-    ) -> Option<MatchMark> {
+    ) -> Option<(MatchMark, Option<Rc<Forward>>)> {
         let depth = self.depths.get_mut(&arrival.depth)?;
         for mut recorded in depth.unhashed.drain(..) {
             let shape = names.shape_hash(&recorded.pattern);
@@ -174,7 +180,7 @@ impl ExplorationMerge {
             recorded
                 .iter()
                 .find(|recorded| arrival.absorbed_by(recorded, names))
-                .map(|recorded| recorded.mark)
+                .map(|recorded| (recorded.mark, recorded.forward.clone()))
         })
     }
 

@@ -549,6 +549,9 @@ pub struct BackendCapabilities {
     /// An execution accepts `collect_committed` beside `collect_coverage`
     /// ([`RunCoverageOutput::committed`]).
     pub coverage_committed: bool,
+    /// An execution accepts `collect_windows` beside `collect_coverage`
+    /// ([`RunCoverageOutput::windows`]).
+    pub coverage_windows: bool,
     /// An execution accepts `match_states` ([`ExecuteRequest::match_states`]) and reports
     /// [`ExecutionResult::state_matches`].
     pub state_matches: bool,
@@ -779,6 +782,15 @@ pub struct ExecuteRequest {
     /// (docs/compatibility.md, "Committed transitions").
     #[serde(default)]
     pub collect_committed: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::windows`] up to this
+    /// length `d` (wire `collectWindows`, a positive integer): every sequence of at most `d`
+    /// rewrite rules some path committed to as consecutive steps. Absent by default; a request
+    /// that sets it without `collect_coverage` is refused. Asking changes no other field of the
+    /// result; each committed step costs `O(d)` and, under `state-set`, `O(d^2)` more, and each
+    /// merged arrival `O(d^2)` per rule sequence shorter than `d` from the state it merges into
+    /// (docs/compatibility.md, "Rule windows").
+    #[serde(default)]
+    pub collect_windows: Option<std::num::NonZeroUsize>,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
 }
@@ -840,6 +852,7 @@ impl ExecuteRequest {
             cancelled_result: CancelledResultOutput::Partial,
             match_states: None,
             collect_committed: false,
+            collect_windows: None,
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
@@ -1211,6 +1224,14 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   template binders, and the alternatives of an axiom with several that a fired instance took
 ///   ([`BindingsOutput`]). A rewrite rule's instance is fired where the run committed to its
 ///   successor, as for `committed`; an equation's where it gave a result.
+///
+/// - `windows`, present exactly when the request set `collect_windows` to `d`: every sequence of
+///   at most `d` rewrite rules, by id, that some path committed to as consecutive steps, a step
+///   being committed as for `committed`, sorted. Its windows of length 1 are `committed`; no
+///   equation is in a window, and neither is a cut-point rule's proposed step. A `state-set` run
+///   reports the windows of the `path-set` run of the same request wherever the two explore the
+///   same states: a merged arrival takes the windows that go on into the recorded state's
+///   subtree (docs/compatibility.md, "Rule windows").
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -1229,6 +1250,8 @@ pub struct RunCoverageOutput<K = Value> {
     pub guards: Option<Vec<AxiomGuardOutput<K>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bindings: Option<BindingsOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows: Option<Vec<Vec<String>>>,
 }
 
 /// What an execute request records of its run's fired instances (wire `collectBindings`;
@@ -2628,6 +2651,7 @@ impl Backend {
             coverage_guards: true,
             coverage_bindings: true,
             coverage_committed: true,
+            coverage_windows: true,
             state_matches: true,
             stack_stops: true,
             smt_unknowns: true,
@@ -2899,6 +2923,11 @@ impl Backend {
                 "collectCommitted requires collectCoverage: the committed transitions are part of the run's coverage",
             ));
         }
+        if request.collect_windows.is_some() && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectWindows requires collectCoverage: the rule windows are part of the run's coverage",
+            ));
+        }
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
@@ -3004,6 +3033,7 @@ impl Backend {
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
                 match_states,
                 collect_committed: request.collect_committed,
+                collect_windows: request.collect_windows,
                 request_literals: literals.to_vec(),
                 probe_rules,
             };
@@ -4477,6 +4507,23 @@ mod tests {
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["coverageCounts"], true);
+    }
+
+    /// Rule windows are declared where the facade reads and writes them: the request's option,
+    /// the coverage's list and a capability flag, true in every build.
+    #[test]
+    fn the_rule_windows_match_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectWindows?: number");
+        assert_typescript_member("RunCoverage", "windows?: string[][]");
+        assert_typescript_member("BackendCapabilities", "coverageWindows: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageWindows"], true);
     }
 
     /// State matches and committed transitions are declared where the facade reads and writes

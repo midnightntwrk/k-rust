@@ -1,8 +1,10 @@
-//! State matches and committed transitions through the facade (docs/compatibility.md, "State
-//! matches", "Committed transitions"): an execute request that sets `match_states` receives a
-//! summary of the verdicts of every state the run reached against a pattern, and one that sets
-//! `collect_committed` beside `collect_coverage` receives the rewrite rules whose successor the
-//! run committed to. Neither changes any other field of the result.
+//! State matches, committed transitions and rule windows through the facade
+//! (docs/compatibility.md, "State matches", "Committed transitions", "Rule windows"): an execute
+//! request that sets `match_states` receives a summary of the verdicts of every state the run
+//! reached against a pattern, one that sets `collect_committed` beside `collect_coverage`
+//! receives the rewrite rules whose successor the run committed to, and one that sets
+//! `collect_windows` beside it the sequences of rules some path committed to as consecutive
+//! steps. None changes any other field of the result.
 
 use k_rust::{
     backend::{
@@ -550,4 +552,164 @@ fn the_wire_spells_the_options_in_camel_case() {
     assert_eq!(output["stateMatches"]["firstCleanReach"]["depth"], 2);
     assert_eq!(output["stateMatches"]["matched"], 3);
     assert!(output["coverage"]["committed"].is_array());
+}
+
+fn windows_request(
+    program: (&str, i64),
+    modality: ResultModalityOutput,
+    length: usize,
+) -> ExecuteRequest {
+    ExecuteRequest {
+        collect_coverage: true,
+        collect_committed: true,
+        collect_windows: std::num::NonZeroUsize::new(length),
+        ..request(program, modality)
+    }
+}
+
+/// The windows a run reports agree across the modalities, though the `state-set` run merges the
+/// second arrival of each diamond: a merged arrival takes the windows that go on into the
+/// recorded state's subtree. Their windows of length 1 are `committed`, so a rolled-back
+/// candidate (`bad` on `pick(0)`) is in none.
+#[test]
+fn rule_windows_agree_across_modalities_and_hold_committed_steps_only() {
+    let mut backend = backend();
+    let catalog: Vec<(String, String)> = backend
+        .rule_catalog(None)
+        .unwrap()
+        .into_iter()
+        .filter_map(|rule| rule.label.map(|label| (label, rule.id)))
+        .collect();
+    let id = |label: &str| {
+        catalog
+            .iter()
+            .find(|(name, _)| *name == format!("MATCH.{label}"))
+            .unwrap_or_else(|| panic!("no rule {label}"))
+            .1
+            .clone()
+    };
+    for program in PROGRAMS {
+        for length in [1, 2, 3] {
+            let mut reported = Vec::new();
+            for modality in MODALITIES {
+                let coverage = backend
+                    .execute_kore(windows_request(program, modality, length))
+                    .unwrap()
+                    .coverage
+                    .unwrap();
+                let windows = coverage.windows.clone().unwrap();
+                assert!(
+                    windows
+                        .iter()
+                        .all(|window| (1..=length).contains(&window.len()))
+                );
+                assert!(
+                    windows.windows(2).all(|pair| pair[0] < pair[1]),
+                    "sorted, distinct"
+                );
+                let singles: Vec<String> = windows
+                    .iter()
+                    .filter(|window| window.len() == 1)
+                    .map(|window| window[0].clone())
+                    .collect();
+                assert_eq!(&singles, coverage.committed.as_ref().unwrap());
+                reported.push(windows);
+            }
+            assert_eq!(reported[0], reported[1], "{program:?} length {length}");
+        }
+    }
+    let went = backend
+        .execute_kore(windows_request(
+            ("go", 5),
+            ResultModalityOutput::StateSet,
+            2,
+        ))
+        .unwrap();
+    let windows = went.coverage.unwrap().windows.unwrap();
+    assert!(windows.contains(&vec![id("ab"), id("bd")]), "{windows:?}");
+    assert!(windows.contains(&vec![id("ac"), id("cd")]), "{windows:?}");
+    let picked = backend
+        .execute_kore(windows_request(
+            ("pick", 0),
+            ResultModalityOutput::StateSet,
+            3,
+        ))
+        .unwrap();
+    let windows = picked.coverage.unwrap().windows.unwrap();
+    assert!(
+        windows.iter().all(|window| !window.contains(&id("bad"))),
+        "{windows:?}"
+    );
+    assert!(windows.contains(&vec![id("good")]), "{windows:?}");
+}
+
+/// Asking for windows changes no other field of the result; without it the coverage has no
+/// `windows` key, and without `collectCoverage` the request is refused.
+#[test]
+fn rule_windows_change_no_other_field() {
+    let mut backend = backend();
+    for program in PROGRAMS {
+        for modality in MODALITIES {
+            for max_work in [None, Some(3)] {
+                let plain = ExecuteRequest {
+                    collect_coverage: true,
+                    max_work,
+                    ..request(program, modality)
+                };
+                let without: serde_json::Value =
+                    serde_json::from_str(&backend.execute_json(plain.clone()).unwrap()).unwrap();
+                assert!(without["coverage"].get("windows").is_none());
+                for length in [1, 3] {
+                    let with = ExecuteRequest {
+                        collect_windows: std::num::NonZeroUsize::new(length),
+                        ..plain.clone()
+                    };
+                    let mut with: serde_json::Value =
+                        serde_json::from_str(&backend.execute_json(with).unwrap()).unwrap();
+                    assert!(with["coverage"]["windows"].is_array());
+                    with["coverage"].as_object_mut().unwrap().remove("windows");
+                    assert_eq!(with, without, "{program:?} {modality:?} {max_work:?}");
+                }
+            }
+        }
+    }
+    let refused = backend
+        .execute_kore(ExecuteRequest {
+            collect_windows: std::num::NonZeroUsize::new(2),
+            ..request(("go", 5), ResultModalityOutput::StateSet)
+        })
+        .unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("collectWindows requires collectCoverage")
+    );
+}
+
+/// The wire spelling `collectWindows` is read as a positive length, and the result writes
+/// `coverage.windows`, a list of lists of rule ids; a length of 0 is no request.
+#[test]
+fn the_wire_spells_collect_windows_in_camel_case() {
+    let state = json::to_string(&parse_pattern(&initial(("go", 5))).unwrap()).unwrap();
+    let text = |length: u64| {
+        format!(r#"{{"state":{state},"collectCoverage":true,"collectWindows":{length}}}"#)
+    };
+    let request: ExecuteRequest = serde_json::from_str(&text(2)).unwrap();
+    assert_eq!(request.collect_windows, std::num::NonZeroUsize::new(2));
+    let output: serde_json::Value =
+        serde_json::from_str(&backend().execute_json(request).unwrap()).unwrap();
+    let windows = output["coverage"]["windows"].as_array().unwrap();
+    assert!(
+        windows
+            .iter()
+            .any(|window| window.as_array().unwrap().len() == 2)
+    );
+    assert!(windows.iter().all(|window| {
+        window
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(serde_json::Value::is_string)
+    }));
+    assert!(serde_json::from_str::<ExecuteRequest>(&text(0)).is_err());
 }

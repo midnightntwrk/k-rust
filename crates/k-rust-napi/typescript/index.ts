@@ -218,6 +218,8 @@ export interface BackendCapabilities {
   coverageBindings: boolean
   /** `execute` and `executeObserved` accept `collectCommitted` beside `collectCoverage`. */
   coverageCommitted: boolean
+  /** `execute` and `executeObserved` accept `collectWindows` beside `collectCoverage`. */
+  coverageWindows: boolean
   /** `execute` and `executeObserved` accept `matchStates` and report `stateMatches`. */
   stateMatches: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
@@ -349,6 +351,13 @@ export interface ExecuteOptions {
    * asking changes no other field (docs/compatibility.md, "Committed transitions").
    */
   collectCommitted?: boolean
+  /**
+   * With `collectCoverage`, also report `RunCoverage.windows` up to this length `d`, a positive
+   * integer: every sequence of at most `d` rewrite rules some path committed to as consecutive
+   * steps. A request that sets it without `collectCoverage` is refused; asking changes no other
+   * field (docs/compatibility.md, "Rule windows").
+   */
+  collectWindows?: number
   schemaVersion?: number
 }
 
@@ -740,6 +749,12 @@ export interface RunCoverage {
    * of the run's fired instances.
    */
   bindings?: RunBindings
+  /**
+   * Present exactly when the request set `collectWindows` to `d`: every sequence of at most `d`
+   * rewrite rules, by id, some path committed to as consecutive steps, sorted; its windows of
+   * length 1 are `committed`, and no equation or cut-point rule's proposed step is in one.
+   */
+  windows?: string[][]
 }
 
 /** What an execute request records of its run's fired instances (`collectBindings`). */
