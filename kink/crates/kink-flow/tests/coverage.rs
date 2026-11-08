@@ -1593,7 +1593,7 @@ text = 'h(opaque(1), 2)'
         // requirements, productions, field values, heating rules and equations; its twelfth is
         // computed at a depth above 1, with the rule windows.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 12);
+        assert_eq!(document["version"], 13);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
