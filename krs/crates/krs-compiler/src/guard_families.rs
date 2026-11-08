@@ -68,8 +68,8 @@
 //! cannot separate (a pair kept apart by literals in patterns, or by
 //! comparisons that are no complements) is not generated: nothing then
 //! guarantees the flipped family stays disjoint. Nor are flips of a `nondet`
-//! group's members (they overlap by design), of claim helpers (sentences of
-//! a spec module), of a family whose atom identity is not one relation, of
+//! group's members (they overlap by design), of a spec module's sentences
+//! (which serve its claims), of a family whose atom identity is not one relation, of
 //! an authored atom some node states that a flip cannot edit, or of the bits of an
 //! argument whose values are no one evaluable domain. Each is reported with
 //! its reason. The abstraction is a sufficient condition: KRS's judge of the
@@ -238,8 +238,9 @@ pub enum NotGeneratedReason {
     /// The sentences are members of a `nondet` group, which overlap by
     /// design.
     NondetGroup,
-    /// The sentences are claim helpers (sentences of a spec module).
-    ClaimHelper,
+    /// A sentence of the family belongs to a spec module, whose sentences
+    /// serve its claims and are no program's guards.
+    SpecModule,
     /// The identity of an atom is not one relation: a construct renders
     /// several atoms, or two relations (one construct, a pair's unifier)
     /// disagree on whether two occurrences are one atom.
@@ -267,7 +268,7 @@ impl NotGeneratedReason {
         match self {
             Self::TheorySeparated => "theory-separated",
             Self::NondetGroup => "nondet-group",
-            Self::ClaimHelper => "claim-helper",
+            Self::SpecModule => "spec-module",
             Self::AtomIdentity => "atom-identity",
             Self::Unflippable => "unflippable",
             Self::BitDomain => "bit-domain",
@@ -1201,7 +1202,7 @@ fn analyze(
         .any(|member| input.spec.contains(member.rule.id()))
     {
         family.not_generated.push(NotGenerated {
-            reason: NotGeneratedReason::ClaimHelper,
+            reason: NotGeneratedReason::SpecModule,
             atom: None,
             sentences: all,
             pair: None,

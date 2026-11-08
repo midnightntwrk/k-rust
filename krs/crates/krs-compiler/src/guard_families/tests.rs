@@ -970,7 +970,7 @@ fn inserted_nodes_are_never_atoms() {
 }
 
 #[test]
-fn nondet_and_claim_helper_families_are_not_generated() {
+fn nondet_and_spec_module_families_are_not_generated() {
     let terms = Terms::default();
     let raced = |name: &str| {
         transition(&terms, name, &["H", "I", "P"], Some(terms.var("H", BOOL)))
@@ -1027,7 +1027,7 @@ fn nondet_and_claim_helper_families_are_not_generated() {
     assert_eq!(family.not_generated.len(), 1);
     assert_eq!(
         family.not_generated[0].reason,
-        NotGeneratedReason::ClaimHelper
+        NotGeneratedReason::SpecModule
     );
 }
 
