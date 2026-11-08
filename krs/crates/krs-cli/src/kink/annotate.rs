@@ -91,7 +91,11 @@
 //! path with its K cell, beside `observe`, whose rules and cells are K names, which a reader of
 //! version 6 would take for the corpus's own names; version 8 names the heating items of the
 //! rules family by the strict production's declaration and the field of the position
-//! (`krs.field`), which a reader of version 7 would read as the item's sentence alone.
+//! (`krs.field`), which a reader of version 7 would read as the item's sentence alone; version 9
+//! adds to the `coverage` document's syntax paths family, at a depth above 1, the joint field
+//! values of every `k::bits!` template with several fields ([`super::syntax`], items of kind
+//! `field-values` with `krs.parts`), which a reader of version 8 would count as nothing it
+//! knows.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -133,7 +137,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 8;
+pub(crate) const ANNOTATION_VERSION: u64 = 9;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {

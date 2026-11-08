@@ -717,3 +717,97 @@ fn an_argued_syntax_item_is_named_by_its_krs_id() {
         "{refused:#}"
     );
 }
+
+/// The syntax paths item whose id is `id`.
+fn path_item<'d>(document: &'d Value, id: &str) -> &'d Value {
+    document["families"]["syntax_paths"]["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no syntax paths: {:#}", document["families"]))
+        .iter()
+        .find(|item| item["id"] == id)
+        .unwrap_or_else(|| panic!("no path {id}: {:#}", document["families"]["syntax_paths"]))
+}
+
+/// At depth 2, a template with several fields gives its joint field values: one item per
+/// combination of its fields' values some point of its arm domain gives, so `decode_ld`'s
+/// `01 rr ss` under `op != 0x1f` has the 15 combinations other than `r = 3, s = 3`. A combination
+/// is reached where a comparable case decoded an opcode that has it: `0x10` and `0x15`. A
+/// combination whose field values are each reached is on the frontier and has a target with its
+/// encodings; one with a field value no case reached is not. The productions' paths are named by
+/// Rust path: `Seq` holding `Run` at either argument is reached by the case that sequences two
+/// runs.
+#[test]
+fn a_templates_joint_field_values_are_its_depth_2_paths() {
+    let package = Package::new();
+    let document = json(&package.coverage(&["--depth", "2"]));
+    let family = &document["families"]["syntax_paths"];
+    let joint = family["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{:#}", document["families"]))
+        .iter()
+        .filter(|item| item["kind"] == "field-values" && item["krs"]["rule"] == "crate::decode_ld")
+        .map(|item| item["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(joint.len(), 15, "{joint:?}");
+    assert!(
+        !joint.contains(&"path:crate::decode_ld:r=3,s=3"),
+        "{joint:?}"
+    );
+    let reached = path_item(&document, "path:crate::decode_ld:r=0,s=0");
+    assert_eq!(reached["status"], "reached", "{reached:#}");
+    assert_eq!(strings(&reached["covered_by"]), ["load"]);
+    assert_eq!(
+        strings(&reached["krs"]["parts"]),
+        ["crate::decode_ld:r=0", "crate::decode_ld:s=0"]
+    );
+    let frontier = path_item(&document, "path:crate::decode_ld:r=0,s=1");
+    assert_eq!(
+        (&frontier["status"], &frontier["frontier"]),
+        (&serde_json::json!("unreached"), &serde_json::json!(true)),
+        "{frontier:#}"
+    );
+    let text = target(&document, "path:crate::decode_ld:r=0,s=1")["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.starts_with(
+            "a case in which crate::decode_ld fires with the fields of k::bits!(\"01 rr ss\") at \
+             once r = 0 (0b00), s = 1 (0b01): encodings 0x11"
+        ),
+        "{text}"
+    );
+    let off = path_item(&document, "path:crate::decode_ld:r=2,s=0");
+    assert_eq!(off["frontier"], false, "{off:#}");
+    assert!(
+        document["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|target| target["item"] != "path:crate::decode_ld:r=2,s=0")
+    );
+    assert_eq!(
+        family["counts"]["field_values"]["obligations"]
+            .as_u64()
+            .unwrap(),
+        15,
+        "{:#}",
+        family["counts"]
+    );
+    assert_eq!(family["counts"]["field_values"]["covered"], 2);
+    for argument in [0, 1] {
+        let id = format!("path:crate::CmdSyntax::Seq/{argument}/crate::CmdSyntax::Run");
+        assert!(
+            strings(&path_item(&document, &id)["covered_by"]).contains(&"load"),
+            "{id}"
+        );
+    }
+    // A template with one field has no joint value: its field values are the syntax family's.
+    assert!(
+        family["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["kind"] != "field-values" || item["krs"]["rule"] == "crate::decode_ld"),
+        "{family:#}"
+    );
+}

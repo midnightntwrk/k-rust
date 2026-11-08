@@ -88,6 +88,33 @@
 //! `= 16 (template bits 0b001)`). Only templates of sentences of the rules
 //! universe (`fired`, `matched` or `unmatched`) give items, as only those sentences' instances
 //! count.
+//!
+//! # Joint field values
+//!
+//! At a depth above 1 the document has kink-flow's syntax paths family, the paths of length up to
+//! the depth along consecutive argument positions of the productions a fired step touched. A
+//! template's fields are its arguments: the template inspects its fixed bits and binds each
+//! field, so its field values play the role of the productions at its arguments, and a path of
+//! length 2 through the template is the values its fields take together at one instance. Each
+//! enumerated template of a counted sentence with several fields therefore adds, to the syntax
+//! paths family, one item of kind `field-values` per combination of its fields' values that some
+//! point of its arm domain gives (a template `01 rrr sss` whose sentence requires `op != 0x76` has
+//! 63): the
+//! combinations are read from the same enumeration as the field values, point by point, so a
+//! combination no point gives is no obligation and one some point gives can be reached by an
+//! input. A combination is reached when some comparable program's run bound the binder to a
+//! point with that combination, which the binder's recorded values say, so no run at a greater
+//! depth is needed. The fields of one instance are bound together, so no longer path exists
+//! through a template, and a template with one field has no combination beyond its field values.
+//!
+//! Each item is `{kind, length: 2, template, fields: [{field, value}], status, covered_by,
+//! uncounted, frontier, programs, binder, krs}`, `krs = {item, parts, rule, label, file, line,
+//! column, encodings, matched_by, target}`: `item` names it (`crate::decode_ld:r=3,s=5`), `parts`
+//! the field values it joins by their `krs.item`, `encodings` the points that give it. It is on the
+//! frontier where it is unreached and each of its field values is reached, as a path is where its
+//! shorter prefix is; its target writes each field's value as a field value's target does and
+//! lists the encodings. An argued field value argues every combination that holds it (kink-flow
+//! reads `parts`): an instance that binds the combination binds each of its field values.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -354,24 +381,18 @@ impl KrsSyntax {
             .as_array()
             .cloned()
             .unwrap_or_default();
+        // The joint field values are syntax paths: only where the document has that family, at a
+        // depth above 1, and has read its universe.
+        let paths = document["families"]["syntax_paths"]["items"].is_array()
+            && document["families"]["syntax_paths"].get("reason").is_none();
+        let mut joint = Vec::new();
         let family = &mut document["families"]["syntax"];
         let binders = family["binders"].as_array().cloned().unwrap_or_default();
         let readable = family.get("reason").is_none() && family["binders"].is_array();
         let Some(items) = family["items"].as_array_mut() else {
             return;
         };
-        // The field-value items of an earlier application, by name, whose derived fields
-        // (kink-flow's `derive`) a new item of the same name keeps.
-        let mut previous = BTreeMap::new();
-        items.retain(|item| {
-            if item["kind"] != kink_flow::coverage::FIELD_VALUE {
-                return true;
-            }
-            if let Some(name) = item["krs"]["item"].as_str() {
-                previous.insert(name.to_owned(), item.clone());
-            }
-            false
-        });
+        let mut field_values = Vec::new();
         for item in items.iter_mut() {
             if let Some(name) = item["production"]
                 .as_str()
@@ -403,18 +424,20 @@ impl KrsSyntax {
                                     })
                                 })
                         });
-                        for item in template.items(layout, &name, binder, rule, &programs) {
-                            let kept = item["krs"]["item"]
-                                .as_str()
-                                .and_then(|name| previous.remove(name));
-                            items.push(match (kept, item) {
-                                (Some(Value::Object(mut kept)), Value::Object(item)) => {
-                                    kept.extend(item);
-                                    Value::Object(kept)
-                                }
-                                (_, item) => item,
-                            });
+                        let field_items = template.items(layout, &name, binder, rule, &programs);
+                        if paths && layout.fields.len() > 1 {
+                            let reached = field_items
+                                .iter()
+                                .filter(|item| item["status"] == kink_flow::coverage::REACHED)
+                                .filter_map(|item| item["krs"]["item"].as_str())
+                                .map(str::to_owned)
+                                .collect::<BTreeSet<_>>();
+                            joint.extend(
+                                template
+                                    .joint_items(layout, &name, binder, rule, &programs, &reached),
+                            );
                         }
+                        field_values.extend(field_items);
                     }
                     Err(reason) => unenumerated.push(json!({
                         "rule": template.rule,
@@ -427,12 +450,22 @@ impl KrsSyntax {
                 }
             }
         }
+        replace_items(items, kink_flow::coverage::FIELD_VALUE, field_values);
         if unenumerated.is_empty() {
             if let Some(krs) = family.get_mut("krs").and_then(Value::as_object_mut) {
                 krs.remove("unenumerated");
             }
         } else {
             family["krs"]["unenumerated"] = json!(unenumerated);
+        }
+        // Read without indexing, which would make a `null` family (depth 1) an object.
+        if let Some(items) = document
+            .get_mut("families")
+            .and_then(|families| families.get_mut("syntax_paths"))
+            .and_then(|family| family.get_mut("items"))
+            .and_then(Value::as_array_mut)
+        {
+            replace_items(items, kink_flow::coverage::FIELD_VALUES, joint);
         }
     }
 
@@ -586,6 +619,173 @@ impl Template {
     }
 }
 
+impl Template {
+    /// The joint field-value items of this template, which has several fields (module
+    /// documentation, "Joint field values"), named after `name`, of the comparable and other
+    /// programs `binder` lists; `rule` is the sentence's rules item, `programs` the document's,
+    /// and `reached` the names (`krs.item`) of its field values some comparable program reached.
+    fn joint_items(
+        &self,
+        layout: &Layout,
+        name: &str,
+        binder: Option<&Value>,
+        rule: &Value,
+        programs: &[String],
+        reached: &BTreeSet<String>,
+    ) -> Vec<Value> {
+        let by_values = joint_programs(layout, binder);
+        let ordered = |set: Option<&BTreeSet<&str>>| -> Vec<String> {
+            programs
+                .iter()
+                .filter(|program| set.is_some_and(|set| set.contains(program.as_str())))
+                .cloned()
+                .collect()
+        };
+        let matched_by = rule["krs"]
+            .get("matched_by")
+            .cloned()
+            .unwrap_or(Value::Null);
+        // Each joint value of the arm domain, in the order of the values, with its points.
+        let mut encodings = BTreeMap::<&[i128], Vec<u128>>::new();
+        for (point, fields) in &layout.points {
+            encodings.entry(fields.as_slice()).or_default().push(*point);
+        }
+        encodings
+            .into_iter()
+            .map(|(values, points)| {
+                let reached_by = ordered(by_values[0].get(values));
+                let uncounted = ordered(by_values[1].get(values));
+                let runs = runs(&points, layout.width);
+                let parts = layout
+                    .fields
+                    .iter()
+                    .zip(values)
+                    .map(|(field, value)| format!("{name}:{}={value}", field.letter))
+                    .collect::<Vec<_>>();
+                let target = self.joint_target(layout, values, points[0], &runs, &matched_by);
+                let item_name = format!(
+                    "{name}:{}",
+                    layout
+                        .fields
+                        .iter()
+                        .zip(values)
+                        .map(|(field, value)| format!("{}={value}", field.letter))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+                json!({
+                    "kind": kink_flow::coverage::FIELD_VALUES,
+                    "length": 2,
+                    "template": self.literal,
+                    "fields": layout
+                        .fields
+                        .iter()
+                        .zip(values)
+                        .map(|(field, value)| {
+                            json!({"field": field.letter.to_string(), "value": value.to_string()})
+                        })
+                        .collect::<Vec<_>>(),
+                    "status": reached_status(&reached_by),
+                    "covered_by": reached_by,
+                    "uncounted": uncounted,
+                    "frontier": reached_by.is_empty() && parts.iter().all(|part| reached.contains(part)),
+                    "programs": matched_by.as_array().cloned().unwrap_or_default(),
+                    "binder": self.binder(&runs),
+                    "krs": {
+                        "item": item_name,
+                        "parts": parts,
+                        "rule": self.rule,
+                        "label": self.label,
+                        "file": self.file,
+                        "line": self.line,
+                        "column": self.column,
+                        "encodings": runs,
+                        "matched_by": matched_by,
+                        "target": target,
+                    },
+                })
+            })
+            .collect()
+    }
+
+    /// The target's text of the joint value `values` of `layout`'s fields, `point` one of its
+    /// encodings, `runs` all of them, and `matched_by` the cases that match the template's
+    /// sentence's templates.
+    fn joint_target(
+        &self,
+        layout: &Layout,
+        values: &[i128],
+        point: u128,
+        runs: &[String],
+        matched_by: &Value,
+    ) -> String {
+        let rule_name = self.rule.clone().unwrap_or_else(|| self.label.clone());
+        let shown = layout
+            .fields
+            .iter()
+            .zip(values)
+            .map(|(field, value)| {
+                format!("{} = {}", field.letter, value_text(*value, field, point))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut target = format!(
+            "a case in which {rule_name} fires with the fields of k::bits!({:?}) at once {shown}: {}",
+            self.literal.as_deref().unwrap_or_default(),
+            listed_encodings(runs),
+        );
+        match matched_by.as_array() {
+            Some(matched) if !matched.is_empty() => {
+                target.push_str("; the cases that match its templates: ");
+                target.push_str(
+                    &matched
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            Some(_) => target.push_str("; no comparable case matches its templates"),
+            None => {}
+        }
+        target
+    }
+}
+
+/// The programs behind each joint value of `layout`'s fields, comparable then not, read from
+/// `binder` (kink-flow's `families.syntax.binders` entry, if some program bound the binder).
+fn joint_programs<'b>(
+    layout: &'b Layout,
+    binder: Option<&'b Value>,
+) -> [BTreeMap<&'b [i128], BTreeSet<&'b str>>; 2] {
+    let mut by_values: [BTreeMap<&[i128], BTreeSet<&str>>; 2] = Default::default();
+    for (slot, values) in [
+        binder.map(|binder| &binder["values"]),
+        binder.map(|binder| &binder["uncounted"]["values"]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for entry in values.and_then(Value::as_array).into_iter().flatten() {
+            let Some(fields) = entry["value"]
+                .as_str()
+                .and_then(|value| value.parse::<u128>().ok())
+                .and_then(|point| layout.values(point))
+            else {
+                continue;
+            };
+            by_values[slot].entry(fields).or_default().extend(
+                entry["programs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str),
+            );
+        }
+    }
+    by_values
+}
+
 /// Whether `symbol`, of the syntax sentence `sentence`, is authored (module documentation,
 /// "Authored sorts"): an item declares it, and that item is not of the framework package.
 fn authored(sentence: &DefinitionSentence, symbol: &SymbolIdentity) -> bool {
@@ -593,6 +793,35 @@ fn authored(sentence: &DefinitionSentence, symbol: &SymbolIdentity) -> bool {
         && sentence
             .item()
             .is_none_or(|item| item.package().k_namespace() != FRAMEWORK_NAMESPACE)
+}
+
+/// Replace the items of kind `kind` of `items`, a family's items, by `added`, which are a front
+/// end's and follow the others: an item of an earlier application keeps the derived fields
+/// (kink-flow's `derive`) under a new item of the same name (`krs.item`), so that applying the
+/// annotation twice gives what applying it once does.
+fn replace_items(items: &mut Vec<Value>, kind: &str, added: Vec<Value>) {
+    let mut previous = BTreeMap::new();
+    items.retain(|item| {
+        if item["kind"] != kind {
+            return true;
+        }
+        if let Some(name) = item["krs"]["item"].as_str() {
+            previous.insert(name.to_owned(), item.clone());
+        }
+        false
+    });
+    for item in added {
+        let kept = item["krs"]["item"]
+            .as_str()
+            .and_then(|name| previous.remove(name));
+        items.push(match (kept, item) {
+            (Some(Value::Object(mut kept)), Value::Object(item)) => {
+                kept.extend(item);
+                Value::Object(kept)
+            }
+            (_, item) => item,
+        });
+    }
 }
 
 /// Whether the document object `object` (`{module, index, label}`) names the sentence of
