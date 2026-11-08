@@ -216,19 +216,7 @@ match = 'k8/terms/readable/map-key/or-branch/{!(x < 1),Cmd::Go,Cmd::Go(),Cmd::Ho
 finding = "S0-14"
 kind = "k8"
 
-# S0-9, diagnostic: 224 reds
-
-# sweep: 6
-[[family]]
-match = 'sweep/*/overwrite/{c26-ocell,c27-ocell}/*'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/*/result/{f02-mcell,f03-mcell}/M \{ mm: \{ y -> x\, .. \}\, mn: 0 \}'
-finding = "S0-9"
-kind = "diagnostic"
+# S0-9, diagnostic: 210 reds
 
 # sweep: 2
 [[family]]
@@ -236,9 +224,9 @@ match = 'sweep/cells/written/olist/{k::configuration::KCell(..\, x),k::configura
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 3
+# sweep: 1
 [[family]]
-match = 'sweep/cells/result/*/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]'
+match = 'sweep/cells/result/f02-mcell/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -332,12 +320,6 @@ match = 'sweep/init/init/{frame,olist}/G \{ a: 0 \}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 2
-[[family]]
-match = 'sweep/*/result/f04-mcell/M \{ mm: \{ y -> x \}\, mn: 0 \}'
-finding = "S0-9"
-kind = "diagnostic+rust-syntax"
-
 # sweep: 56
 [[family]]
 match = 'k8/sweep/*/{subject,written}/*/Some([..])'
@@ -349,28 +331,6 @@ kind = "k8"
 match = 'k8/sweep-paths/*/subject/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qomap,qpc,qprog,qseq,qset,qstack}/Some([..])'
 finding = "S0-9"
 kind = "k8"
-
-# S5-B1, diagnostic: 2 reds
-
-# sweep: 2
-[[family]]
-match = 'sweep/*/result/omap/\{ y -> x\, .. \}'
-finding = "S5-B1"
-kind = "diagnostic"
-
-# S5-B1, diagnostic+rust-syntax: 34 reds
-
-# sweep: 32
-[[family]]
-match = 'sweep/*/result/omap/{0,G \{ a: x \},G \{ a: x\, .. \},G \{ a: x\, b: y\, .. \},Some(G \{ .. \}),Some([..]),Some(x),[..\, x],[..],[G \{ a: x\, .. \}\, ..],[x\, ..],[x],\{ G \{ a: x\, .. \}\, .. \},\{ G \{ a: x\, b: y \} \},\{ G \{ b: x\, .. \}\, .. \},\{ x\, .. \}}'
-finding = "S5-B1"
-kind = "diagnostic+rust-syntax"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim,readable}/result/omap/x'
-finding = "S5-B1"
-kind = "diagnostic+rust-syntax"
 
 # S5-F2, diagnostic: 1 reds
 
@@ -792,10 +752,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
-["cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
-finding = "S5-P1"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
 ["claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -845,35 +801,27 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/None"]
-finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ item"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/claim/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/claim/subject/f01-mcell/M { mm: { y -> x }, .. }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/readable/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/None"]
-finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ item"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/readable/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/readable/subject/f01-mcell/M { mm: { y -> x }, .. }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/c12-tjob/[k::fragment![crate::T { tk: [x], tn: 0 }], ..]"]
 finding = "S5-C2"

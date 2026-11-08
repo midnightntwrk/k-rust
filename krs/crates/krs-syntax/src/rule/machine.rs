@@ -145,8 +145,14 @@ fn parse_readable_pattern_state(
                 syn::parenthesized!(inner in input);
                 inner.parse::<TokenStream>()
             })?;
-            // `Some(..)` holds the cell's content as a record value does, so an item-less
-            // `[..]` there is whatever the present cell holds, its `_`.
+            // `Some(..)` holds the cell's content as a record value does: a map read there,
+            // `{ k -> v, .. }`, reads the present map cell's entries, as an instance's map
+            // child's are read ([`parse_readable_child`]); whether the cell holds a map is its
+            // kind's question, which the collector answers from the same spelling.
+            if let Some(map) = braced_map_entries(&tokens, StateMacroContext::Pattern)? {
+                return Ok(Some(StateTerm::Present(Box::new(StateTerm::Map(map)))));
+            }
+            // So an item-less `[..]` there is whatever the present cell holds, its `_`.
             let tokens = match tokens.clone().into_iter().collect::<Vec<_>>().as_slice() {
                 [TokenTree::Group(group)]
                     if group.delimiter() == proc_macro2::Delimiter::Bracket
@@ -595,11 +601,7 @@ fn parse_readable_child(
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     // A map cell's entries with its other entries open, `{ k -> v, .. }`, as a readable record
     // reads a map cell's entries, and as a `cells!` instance writes `map![k -> v, ..]`.
-    if let [TokenTree::Group(group)] = trees.as_slice()
-        && group.delimiter() == proc_macro2::Delimiter::Brace
-        && contains_top_level_arrow(group)
-        && top_level_items(group.stream()).last().is_some_and(is_dots)
-    {
+    if let Some(group) = map_read_group(&tokens) {
         // A map read is a pattern: in a result it is refused as at a record's top-level cell,
         // since a readable record has no spelling for the frame write it would be.
         if context == StateMacroContext::Expression {
@@ -646,6 +648,38 @@ fn parse_readable_child(
         )?));
     }
     Ok(StateTerm::Term(read(tokens)?))
+}
+
+/// The braces of a value spelled as a map read with its other entries open, `{ k -> v, .. }`:
+/// one braced group whose items hold a top-level arrow and end in `..`.
+fn map_read_group(tokens: &TokenStream) -> Option<proc_macro2::Group> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    match trees.as_slice() {
+        [TokenTree::Group(group)]
+            if group.delimiter() == proc_macro2::Delimiter::Brace
+                && contains_top_level_arrow(group)
+                && top_level_items(group.stream()).last().is_some_and(is_dots) =>
+        {
+            Some(group.clone())
+        }
+        _ => None,
+    }
+}
+
+/// A map read `{ k -> v, .. }` that `tokens` spell, as a map cell's entries in `context`, or
+/// `None` for any other value.
+fn braced_map_entries(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<crate::MapExpression>, ParseError> {
+    let Some(group) = map_read_group(tokens) else {
+        return Ok(None);
+    };
+    Ok(Some(crate::state_macro::parse_map(
+        group.stream(),
+        context,
+        Some(TokenRange::for_tokens(tokens)?),
+    )?))
 }
 
 fn readable_term(
@@ -741,6 +775,9 @@ fn parse_machine_pattern_record(
                 let (entries, rest) = parse_machine_map_pattern(&content)?;
                 MachinePatternCell::MapItems(entries, rest)
             }
+        } else if let Some(error) = record_child_entry(&content, true) {
+            skip_value(&content)?;
+            MachinePatternCell::Refused(Box::new(error))
         } else {
             let (pattern, signs) = parse_pattern_with_signs(&content)?;
             let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
@@ -994,6 +1031,9 @@ fn parse_machine_result_record(
             MachineResultCell::Bracket(content.parse()?)
         } else if let Some(instances) = braced_instances(&content)? {
             MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
+        } else if let Some(error) = record_child_entry(&content, false) {
+            skip_value(&content)?;
+            MachineResultCell::Refused(Box::new(error))
         } else {
             MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
         };
@@ -1007,6 +1047,83 @@ fn parse_machine_result_record(
         }
     }
     Ok(cells)
+}
+
+/// The refusal a readable record value carries when it is a group record `Group { .. }` one of
+/// whose children is spelled as that child cell's entry, which no term spells: a map
+/// `{ k -> v, .. }` or `{ k -> v }`, or a `?` cell's `Some(..)` or `None`. At a configuration
+/// position a group record's child is its cell's entry, read by the child's declared kind
+/// (ruling R4), which the collector judges from the authored spelling, before this. The
+/// descriptor carries a record's children as terms, so no reading writes such a child yet, a
+/// stated limitation: the cell is neither read nor written, and the refusal carried
+/// ([`read_with_pairing_deferred`]). A map read in a result is a pattern where a value is built,
+/// the class `map-read-in-result`. `None` for every other value, which is read as a term.
+fn record_child_entry(content: ParseStream<'_>, pattern: bool) -> Option<crate::SyntaxError> {
+    let fork = content.fork();
+    let mut value = Vec::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.push(fork.parse::<TokenTree>().ok()?);
+    }
+    let (TokenTree::Group(body), owner) = value.split_last()? else {
+        return None;
+    };
+    if body.delimiter() != proc_macro2::Delimiter::Brace
+        || owner.is_empty()
+        || syn::parse2::<Path>(owner.iter().cloned().collect()).is_err()
+    {
+        return None;
+    }
+    top_level_items(body.stream()).into_iter().find_map(|item| {
+        let trees = item.into_iter().collect::<Vec<_>>();
+        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = trees.as_slice()
+        else {
+            return None;
+        };
+        if colon.as_char() != ':' {
+            return None;
+        }
+        let child = child.unraw().to_string();
+        let (kind, span) = match value {
+            [TokenTree::Group(map)]
+                if map.delimiter() == proc_macro2::Delimiter::Brace
+                    && contains_top_level_arrow(map) =>
+            {
+                let read = top_level_items(map.stream()).last().is_some_and(is_dots);
+                let kind = if read && !pattern {
+                    crate::SyntaxErrorKind::RustSyntax(
+                        crate::cell_entries::Refusal::MapReadInResult.reason(
+                            crate::cell_entry::EntryForm::Readable,
+                            &child,
+                            &crate::cell_entries::EntryKind::default(),
+                            None,
+                        ),
+                    )
+                } else {
+                    crate::SyntaxErrorKind::InvalidStateMacro {
+                        macro_name: "rules",
+                        reason: "a map written as a record's field, `{ k -> v, .. }`, is no term: \
+                                 in a group record it is the child cell's entry, which a group \
+                                 record does not name yet",
+                    }
+                };
+                (kind, map.span())
+            }
+            [TokenTree::Ident(head), TokenTree::Group(inside)]
+                if head == "Some" && inside.delimiter() == proc_macro2::Delimiter::Parenthesis =>
+            {
+                (
+                    crate::state_macro::record_child_presence(&child, true),
+                    head.span(),
+                )
+            }
+            [TokenTree::Ident(head)] if head == "None" => (
+                crate::state_macro::record_child_presence(&child, false),
+                head.span(),
+            ),
+            _ => return None,
+        };
+        Some(crate::SyntaxError::new(kind, span))
+    })
 }
 
 /// Skips a record value whose reading is refused: its tokens up to the `,` that ends it.

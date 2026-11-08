@@ -2879,6 +2879,30 @@ fn render_rule_cell(
         })
     };
     let value = rendering.value;
+    let map_entry = |map: &krs_ir::ProtocolRuleMap<DescriptorTerm>,
+                     pattern: bool|
+     -> Result<entries::Entry, ReferenceExpansionError> {
+        let krs_ir::ProtocolRuleMapBody::Items { items, remainder } = &map.body else {
+            return Err(ReferenceExpansionError::UnsupportedState);
+        };
+        let pairs = items
+            .iter()
+            .map(|item| {
+                let key = render_term(&item.key, pattern, package, bundle)?;
+                let value = match (&item.value, value) {
+                    (DescriptorTerm::Variable { name, .. }, Some(value)) if name == "_" => {
+                        quote!(#value)
+                    }
+                    (term, _) => render_term(term, pattern, package, bundle)?,
+                };
+                Ok((key, value))
+            })
+            .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+        Ok(entries::Entry {
+            contents: entries::Contents::Map(pairs),
+            rest: rest(remainder)?,
+        })
+    };
     let side = |state: &State<DescriptorTerm>,
                 pattern: bool,
                 rendering: &mut CellRendering<'_>|
@@ -2905,31 +2929,17 @@ fn render_rule_cell(
             )?,
             // A read leaves the other entries as they are: the subject's `..` matches them,
             // and the cell, absent from the result, keeps them.
-            State::Map(krs_ir::ProtocolRuleMap {
-                body: krs_ir::ProtocolRuleMapBody::Items { items, remainder },
-                ..
-            }) => {
-                let pairs = items
-                    .iter()
-                    .map(|item| {
-                        let key = render_term(&item.key, pattern, package, bundle)?;
-                        let value = match (&item.value, value) {
-                            (DescriptorTerm::Variable { name, .. }, Some(value)) if name == "_" => {
-                                quote!(#value)
-                            }
-                            (term, _) => render_term(term, pattern, package, bundle)?,
-                        };
-                        Ok((key, value))
-                    })
-                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
-                entries::print_entry(
-                    &field,
-                    &entries::Entry {
-                        contents: entries::Contents::Map(pairs),
-                        rest: rest(remainder)?,
-                    },
-                    entry_side,
-                )?
+            State::Map(map) => {
+                let value = entries::print_value(&map_entry(map, pattern)?, entry_side)?;
+                quote!(#field: #value)
+            }
+            // A present map cell's entries, `Some(Cell(map![k -> v, ..]))`.
+            State::Present { value: present } if matches!(**present, State::Map(_)) => {
+                let State::Map(map) = &**present else {
+                    unreachable!("matched above")
+                };
+                let value = entries::print_value(&map_entry(map, pattern)?, entry_side)?;
+                quote!(#field: Some(#value))
             }
             State::Instances(instances) => {
                 let rendered = render_instances(instances, pattern, cell, rendering)?;

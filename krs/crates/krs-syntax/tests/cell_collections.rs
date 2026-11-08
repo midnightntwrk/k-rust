@@ -3,7 +3,7 @@
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
-    InstanceListDelimiter, InstanceRest, RuleExtra, StateMacroRemainder, StateTerm,
+    InstanceListDelimiter, InstanceRest, MapBody, RuleExtra, StateMacroRemainder, StateTerm,
     parse_cells_expression, parse_cells_pattern,
 };
 
@@ -829,4 +829,48 @@ fn a_shorthand_cells_instance_child_is_the_child_bound_to_its_name() {
         ),
         ["id: id", "balance: balance"]
     );
+}
+
+/// `Some({ k -> v, .. })` in a readable subject is the present map cell's entries, a map state
+/// inside the presence, as an instance's map child is one.
+#[test]
+fn a_map_read_inside_a_presence_is_the_present_cells_entries() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+        use Cmd::*;
+
+        drop: { k: [Drop(), ..], omap: Some({ y -> x, .. }) } => { k: [..], omap: None };
+        ",
+    )
+    .unwrap();
+    let [RuleExtra::RewriteState { before, .. }] = block.clauses()[0].extras() else {
+        panic!("expected one optional-cell rewrite");
+    };
+    let StateTerm::Present(inside) = before.as_ref() else {
+        panic!("`Some(..)` is a presence");
+    };
+    let StateTerm::Map(map) = inside.as_ref() else {
+        panic!("a map read inside `Some(..)` is a map state");
+    };
+    let MapBody::Items { items, remainder } = map.body() else {
+        panic!("a map read names entries");
+    };
+    assert_eq!(items.len(), 1);
+    assert!(matches!(remainder, StateMacroRemainder::Anonymous(_)));
+}
+
+/// A `cells!` map that names only its rest, `map![..]`, names no entry: its `..` is the rest,
+/// not the start of `.Map`.
+#[test]
+fn a_cells_map_of_only_a_rest_names_no_entry() {
+    let subject = pattern("k: KCell(..), env: Cell(k::map![..]), state @ ..");
+    let StateTerm::Map(map) = subject.entries()[1].value() else {
+        panic!("`map![..]` is a map");
+    };
+    let MapBody::Items { items, remainder } = map.body() else {
+        panic!("a rest-only map is the items form with no item");
+    };
+    assert!(items.is_empty());
+    assert!(matches!(remainder, StateMacroRemainder::Anonymous(_)));
 }

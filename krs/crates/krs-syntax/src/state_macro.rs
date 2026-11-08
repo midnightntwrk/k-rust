@@ -1251,11 +1251,17 @@ pub struct CellsExpression {
     remainder_key: Option<ProvenanceKey>,
     /// The anchors of the cells' standalone keying.
     anchors: Vec<ProvenanceAnchor>,
+    /// The refusal of the first result entry left out because a `k::fragment!` child writes a
+    /// `?` cell's presence ([`fragment_child_presence`]).
+    carried: Option<SyntaxError>,
 }
 
 impl CellsExpression {
-    /// The refusal of the first entry, in source order, whose `KCell(..)` sequence writes an item
-    /// after its tail ([`KSequence::misplaced_tail`]), `None` where no entry does.
+    /// The refusal of the first entry, in source order, that the parser keeps for the judgement
+    /// of the entries against their cells: a `KCell(..)` sequence that writes an item after its
+    /// tail ([`KSequence::misplaced_tail`]), or a result fragment whose child writes a `?` cell's
+    /// presence, left out of the payload ([`fragment_child_presence`]); `None` where no entry
+    /// does.
     #[must_use]
     pub fn misplaced_tail(&self) -> Option<&SyntaxError> {
         fn within(state: &StateTerm) -> Option<&SyntaxError> {
@@ -1264,7 +1270,9 @@ impl CellsExpression {
                 other => other.nested_states().into_iter().find_map(within),
             }
         }
-        self.entries.iter().find_map(|entry| within(&entry.value))
+        self.carried
+            .as_ref()
+            .or_else(|| self.entries.iter().find_map(|entry| within(&entry.value)))
     }
 
     /// The payload, refused where an entry writes an item after its sequence's tail: for a
@@ -1877,18 +1885,8 @@ fn parse_unkeyed_map(
             if input.is_empty() {
                 return Ok(MapExpression::empty(original.clone(), false, context));
             }
-            if input.peek(Token![.]) {
-                parse_dot_unit(input, "Map")?;
-                if !input.is_empty() {
-                    return Err(state_error(
-                        "map",
-                        "`.Map` must be the complete empty map",
-                        input.span(),
-                    ));
-                }
-                return Ok(MapExpression::empty(original.clone(), true, context));
-            }
-
+            // A payload that is only a rest, `map![..]` or `map![r @ ..]`, names no entry: it is
+            // read before `.Map`, whose first token a rest's `..` also begins with.
             if starts_remainder(input) {
                 let remainder = parse_remainder(input, context, "map")?;
                 if !input.is_empty() {
@@ -1904,6 +1902,18 @@ fn parse_unkeyed_map(
                     remainder,
                     context,
                 ));
+            }
+
+            if input.peek(Token![.]) {
+                parse_dot_unit(input, "Map")?;
+                if !input.is_empty() {
+                    return Err(state_error(
+                        "map",
+                        "`.Map` must be the complete empty map",
+                        input.span(),
+                    ));
+                }
+                return Ok(MapExpression::empty(original.clone(), true, context));
             }
 
             let first = parse_map_item_key(input)?;
@@ -2019,6 +2029,7 @@ fn parse_unkeyed_cells(
             let mut entries = Vec::new();
             let mut names = BTreeSet::new();
             let mut remainder = StateMacroRemainder::Exact;
+            let mut carried = None;
             while !input.is_empty() {
                 if starts_remainder(input) {
                     remainder = parse_remainder(input, context, "cells")?;
@@ -2059,7 +2070,8 @@ fn parse_unkeyed_cells(
                     ));
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
-                let (wrapper, value) = parse_entry_value(input, context, looks_up)?;
+                let (wrapper, value) =
+                    parse_carried_entry_value(input, context, looks_up, &mut carried)?;
                 entries.push(CellsEntry {
                     name,
                     owner,
@@ -2092,6 +2104,7 @@ fn parse_unkeyed_cells(
                 payload_key: None,
                 remainder_key: None,
                 anchors: Vec::new(),
+                carried,
             })
         },
         |error| {
@@ -2102,6 +2115,138 @@ fn parse_unkeyed_cells(
             )
         },
     )
+}
+
+/// [`parse_entry_value`], where a result fragment whose child writes a `?` cell's presence is read
+/// without that child and its refusal kept in `carried` ([`fragment_child_presence`]).
+fn parse_carried_entry_value(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+    looks_up: bool,
+    carried: &mut Option<SyntaxError>,
+) -> Result<(Option<Path>, StateTerm), SyntaxError> {
+    let Some((refusal, without)) = fragment_child_presence(input, context) else {
+        return parse_entry_value(input, context, looks_up);
+    };
+    while !input.is_empty() && !input.peek(Token![,]) {
+        input.parse::<TokenTree>().map_err(SyntaxError::from)?;
+    }
+    carried.get_or_insert(refusal);
+    structured_with(
+        without,
+        move |input| parse_entry_value(input, context, looks_up),
+        |error| state_error("cells", "malformed fragment", error.span()),
+    )
+}
+
+/// The refusal of a result entry `k::fragment![Group { .. }]` one of whose children is written
+/// `Some(..)` or `None`, with the entry's tokens without that child; `None` for any other entry
+/// value. At a configuration position a fragment's child is its cell's entry (ruling R4), and a
+/// `?` child's presence is its entry, read by the child's declared kind, which the collector
+/// judges from the authored spelling. The descriptor carries a fragment's children as terms,
+/// where `Some(..)` and `None` are no term (KRS has no `Option` term), so no reading writes such a
+/// child yet, a stated limitation: the fragment is read without it, which the entry's judgement
+/// reads as authored, and the refusal is carried until the entries are admitted
+/// ([`CellsExpression::misplaced_tail`]). A pattern's child is read as written, since leaving it
+/// out would change what the rule matches.
+fn fragment_child_presence(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+) -> Option<(SyntaxError, TokenStream)> {
+    if context != StateMacroContext::Expression {
+        return None;
+    }
+    let fork = input.fork();
+    let mut value = Vec::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.push(fork.parse::<TokenTree>().ok()?);
+    }
+    let (TokenTree::Group(invocation), head) = value.split_last()? else {
+        return None;
+    };
+    let (name, payload) = qualified_macro_payload(&value.iter().cloned().collect())?;
+    if name != "fragment" {
+        return None;
+    }
+    let trees = payload.into_iter().collect::<Vec<_>>();
+    let (TokenTree::Group(body), owner) = trees.split_last()? else {
+        return None;
+    };
+    if body.delimiter() != Delimiter::Brace {
+        return None;
+    }
+    let mut items = vec![Vec::new()];
+    for tree in body.stream() {
+        if matches!(&tree, TokenTree::Punct(comma) if comma.as_char() == ',') {
+            items.push(Vec::new());
+        } else {
+            items.last_mut()?.push(tree);
+        }
+    }
+    let (at, refusal) = items.iter().enumerate().find_map(|(at, item)| {
+        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = item.as_slice() else {
+            return None;
+        };
+        if colon.as_char() != ':' {
+            return None;
+        }
+        let (present, span) = match value {
+            [TokenTree::Ident(head), TokenTree::Group(inside)]
+                if head == "Some" && inside.delimiter() == Delimiter::Parenthesis =>
+            {
+                (true, head.span())
+            }
+            [TokenTree::Ident(head)] if head == "None" => (false, head.span()),
+            _ => return None,
+        };
+        let child = syn::ext::IdentExt::unraw(child).to_string();
+        Some((
+            at,
+            SyntaxError::new(record_child_presence(&child, present), span),
+        ))
+    })?;
+    items.remove(at);
+    let mut fields = TokenStream::new();
+    for (index, item) in items
+        .into_iter()
+        .filter(|item| !item.is_empty())
+        .enumerate()
+    {
+        if index > 0 {
+            fields.extend([TokenTree::Punct(proc_macro2::Punct::new(
+                ',',
+                proc_macro2::Spacing::Alone,
+            ))]);
+        }
+        fields.extend(item);
+    }
+    let mut body = proc_macro2::Group::new(Delimiter::Brace, fields);
+    body.set_span(trees.last()?.span());
+    let mut payload = owner.iter().cloned().collect::<TokenStream>();
+    payload.extend([TokenTree::Group(body)]);
+    let mut invocation_group = proc_macro2::Group::new(invocation.delimiter(), payload);
+    invocation_group.set_span(invocation.span());
+    let mut without = head.iter().cloned().collect::<TokenStream>();
+    without.extend([TokenTree::Group(invocation_group)]);
+    Some((refusal, without))
+}
+
+/// The limit a group record's `?` child written `Some(..)` (`present`) or `None` meets, read as a
+/// readable record's field or a `k::fragment!` child: no term, and in a group record the child's
+/// entry, which a group record does not name yet.
+pub(crate) fn record_child_presence(child: &str, present: bool) -> SyntaxErrorKind {
+    let written = if present {
+        "`Some(..)`, a `?` cell's presence"
+    } else {
+        "`None`, a `?` cell's absence"
+    };
+    SyntaxErrorKind::InstanceChildMultiplicity {
+        reason: format!(
+            "the record's field `{child}` holds {written}, and no term: KRS has no `Option` term; \
+             in a group record it is the `?` child's entry, which a group record does not name \
+             yet, as {INSTANCE_CHILD_MULTIPLICITY}"
+        ),
+    }
 }
 
 /// Parses one `cells!` entry value: `None`, `Some(..)` around a leaf or
@@ -2700,13 +2845,21 @@ fn parse_group_entry(
     }
     let fragment = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment");
     let term = state_term_tokens(tokens, context).map_err(|error| match error.kind() {
-        // A fragment's children are read as terms: a result's anonymous `..` in a child's list
-        // keeps no rest, a stated limitation the term reader names, and a map read there, which
-        // the term reader refuses as a literal's notation, is not supported either.
+        // A fragment's child at a configuration position is its cell's entry (ruling R4), which
+        // the descriptor carries as a term. A result's anonymous `..` in a child's list keeps no
+        // rest, a stated limitation the term reader names; a result's `k::map![k -> v, ..]` is
+        // built, so its anonymous `..` names no map the entries are written over, the literal's
+        // own refusal whichever reading it has. A map read in a pattern's child, which the term
+        // reader refuses as a literal's notation, is the child's entry, not supported yet.
         SyntaxErrorKind::InvalidListNotation { .. } if fragment => error,
+        SyntaxErrorKind::InvalidExpressionNotation { .. }
+            if fragment && context == StateMacroContext::Expression =>
+        {
+            error
+        }
         SyntaxErrorKind::InvalidExpressionNotation { .. } if fragment => state_error(
             "cells",
-            "a `k::fragment!` child is a binder, `_`, a `k::fragment!`, or a term, and this child reads as none of them; a map read in a fragment child, `k::map![k -> v, ..]`, is not supported yet",
+            "a `k::fragment!` child is its cell's entry, and a map read there, `k::map![k -> v, ..]`, is not supported yet",
             span,
         ),
         _ => invalid(span),

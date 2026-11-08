@@ -14206,6 +14206,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/result/omap/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<omap> V0:KItem |-> V1:KItem ... </omap> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/result/seq/[..]"]
 k = """
@@ -16125,6 +16132,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/result/omap/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<omap> V0:KItem |-> V1:KItem ... </omap> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/result/seq/[..]"]
 k = """
@@ -17237,6 +17251,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> .Map ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/lint/kinds/frame/k::fragment![crate::G { .. }]"]
 lint = "no-effect-entry"

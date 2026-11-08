@@ -1507,9 +1507,10 @@ fn an_anonymous_rest_in_a_built_collection_is_the_literal_s_mistake() {
     }
 }
 
-/// A `cells!` fragment's children are read as terms: a result's anonymous `..` in a child's list
-/// is the term reader's refusal, and a child's map read is no term, said as not supported yet. A
-/// fragment whose own record is no term keeps the whole entry's message.
+/// A `cells!` fragment's child is its cell's entry, which the descriptor carries as a term: a
+/// result's anonymous `..` in a child's list is the term reader's refusal, a result's map literal
+/// with an anonymous `..` the literal's, and a pattern child's map read is said as not supported
+/// yet. A fragment whose own record is no term keeps the whole entry's message.
 #[test]
 fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
     let group_entry = SyntaxErrorKind::InvalidStateMacro {
@@ -1533,13 +1534,25 @@ fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
     );
     let map_read = SyntaxErrorKind::InvalidStateMacro {
         macro_name: "cells",
-        reason: "a `k::fragment!` child is a binder, `_`, a `k::fragment!`, or a term, and this child reads as none of them; a map read in a fragment child, `k::map![k -> v, ..]`, is not supported yet",
+        reason: "a `k::fragment!` child is its cell's entry, and a map read there, `k::map![k -> v, ..]`, is not supported yet",
     };
     let source = "mcell: k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]";
     let error =
         krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
             .unwrap_err();
     assert_eq!(error.kind(), &map_read, "{source}");
+    let source = "mcell: k::fragment![crate::M { mm: k::map![y -> x, ..], mn: 0 }]";
+    let error =
+        krs_syntax::parse_cells_expression(krs_syntax::parse::tokens_from_source(source).unwrap())
+            .unwrap_err();
+    assert!(
+        matches!(
+            error.kind(),
+            SyntaxErrorKind::InvalidExpressionNotation { .. }
+        ),
+        "{source}: {:?}",
+        error.kind()
+    );
     let source = "outer: k::fragment![Outer { flag: 0, .. } | Outer { flag: 1, .. }]";
     let error =
         krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())

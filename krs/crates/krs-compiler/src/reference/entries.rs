@@ -96,6 +96,17 @@ pub(crate) fn print_entry(
     entry: &Entry,
     side: Side,
 ) -> Result<TokenStream, IllegalEntry> {
+    let value = print_value(entry, side)?;
+    Ok(quote!(#field: #value))
+}
+
+/// The value of the entry [`print_entry`] writes, without its field: what a `?` cell's
+/// `Some(..)` holds.
+///
+/// # Errors
+///
+/// As [`print_entry`].
+pub(crate) fn print_value(entry: &Entry, side: Side) -> Result<TokenStream, IllegalEntry> {
     match (&entry.contents, &entry.rest, side) {
         (Contents::Map(_), Rest::Anonymous, Side::Result) => {
             return Err(IllegalEntry(
@@ -159,7 +170,7 @@ pub(crate) fn print_entry(
             quote!(k::configuration::Cell([#(#parts),*]))
         }
     };
-    Ok(quote!(#field: #value))
+    Ok(value)
 }
 
 /// A group cell's record `Owner { field: value, .. }` as an author reads it: the children

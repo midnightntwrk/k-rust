@@ -719,6 +719,11 @@ impl Elaborator<'_> {
                                 ),
                             })
                         }
+                        // A map read in `Some(..)` is the present map cell's entries, the
+                        // `cells!` entry `Some(Cell(map![k -> v, ..]))`.
+                        ProtocolRuleStateTerm::Map(map) => Ok(ProtocolRuleStateTerm::Present {
+                            value: Box::new(ProtocolRuleStateTerm::Map(map.clone())),
+                        }),
                         _ => Err(Unelaborated("a present state holding no term")),
                     },
                     _ => Err(Unelaborated("a cell state other than an optional cell's")),

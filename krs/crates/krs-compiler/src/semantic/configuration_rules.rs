@@ -465,9 +465,15 @@ impl<'a> StateRuleTerms<'a> {
                         base,
                     );
                 }
-                MapOperands::items(entries).map_err(|error| {
-                    DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
-                })?
+                // A map that names no entry, only its rest (`map![..]`, `map![r @ ..]`), is the
+                // empty map beside its frame: the frame matches every entry of the cell.
+                if entries.is_empty() {
+                    MapOperands::Empty
+                } else {
+                    MapOperands::items(entries).map_err(|error| {
+                        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
+                    })?
+                }
             }
             ProtocolRuleMapBody::Update {
                 base, key, value, ..
