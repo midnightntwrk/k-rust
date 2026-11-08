@@ -3,7 +3,8 @@
 //! no other; every document names it; a mutant on which its rule labels nothing is not admitted;
 //! `check` warns of an edit a stop before its rule hides, and a survivor repeats it, and of a
 //! deletion of its rule, which `run` does not admit; a `cases` entry gives its cases a count;
-//! `query` and `fuzz` refuse a stopped corpus.
+//! `query` answers through each program's stopped run, a pattern reachable only past the stop
+//! being a `no` and a passed stop `unknown`; `fuzz` refuses a stopped corpus.
 //!
 //! The fixture is testdata/flow/clock: `clock.k`, a clock whose `frame` rule fires every fourth
 //! step and which never ends on its own; `FLOW.toml` stops before the first `frame`, at
@@ -707,25 +708,12 @@ fn a_stop_naming_no_rewrite_rule_refuses_the_specification() {
     );
 }
 
-/// `query` and `fuzz` search runs that end at no stop, so they refuse a stopped corpus.
+/// `fuzz` runs cases that end at no stop, so it refuses a stopped corpus.
 #[test]
-fn query_and_fuzz_refuse_a_stopped_corpus() {
+fn fuzz_refuses_a_stopped_corpus() {
     let dir = fixture("verbs", &[]);
-    let manifest = dir.join("FLOW.toml");
-    let (query, status) = kink_flow::cli::query(
-        &manifest,
-        &dir.join("PATTERNS.toml"),
-        &QueryOptions::default(),
-    );
-    assert_eq!(status, EXIT_UNASKED, "{query:#}");
-    assert_eq!(query["schema"], kink_flow::query::QUERY_SCHEMA);
-    assert_eq!(
-        (&query["spec"]["stage"], &query["spec"]["reason"]),
-        (&json!("stop"), &json!("unsupported-verb")),
-        "{query:#}"
-    );
     let (fuzz, status) = kink_flow::cli::fuzz(
-        &manifest,
+        &dir.join("FLOW.toml"),
         &dir.join("TEMPLATES.toml"),
         &FuzzRequest {
             template: "t".into(),
@@ -742,6 +730,153 @@ fn query_and_fuzz_refuse_a_stopped_corpus() {
         (&json!("stop"), &json!("unsupported-verb")),
         "{fuzz:#}"
     );
+}
+
+/// The clock's patterns: its state at the first frame's stop, the state the first frame makes
+/// (`clock(4, 0)`), a state with phase 3 binding the count, and the state the second frame makes.
+const CLOCK_PATTERNS: &str = "[[pattern]]\nid = \"at-stop\"\npattern = \"<k> clock(3, 3) </k>\"\n\n\
+                              [[pattern]]\nid = \"past-stop\"\npattern = \"<k> clock(4, 0) </k>\"\n\n\
+                              [[pattern]]\nid = \"phase-three\"\npattern = \"<k> clock(N, 3) </k>\"\n\n\
+                              [[pattern]]\nid = \"second\"\npattern = \"<k> clock(8, 0) </k>\"\n";
+
+/// `kink-flow query` on `manifest` with the clock's patterns, on a thread with the command's stack.
+fn query(manifest: &Path) -> (Value, u8) {
+    let manifest = manifest.to_path_buf();
+    std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || {
+            let patterns = manifest.with_file_name("PATTERNS.toml");
+            kink_flow::cli::query(&manifest, &patterns, &QueryOptions::default())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// The row of `pattern` and `program`.
+fn answer<'d>(document: &'d Value, pattern: &str, program: &str) -> &'d Value {
+    document["rows"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document:#}"))
+        .iter()
+        .find(|row| row["pattern"] == pattern && row["program"] == program)
+        .unwrap_or_else(|| panic!("no row ({pattern}, {program}): {document:#}"))
+}
+
+/// `query` asks a stopped corpus through each program's stopped run: the states of the case are
+/// those of the truncated system. With the stop before the first frame, `clock(3, 3)` (the stop's
+/// state) is a hit and `clock(4, 0)` (reached only past the stop) a `no`, although the clock never
+/// ends on its own: the run explored the truncated system to its ends. With count 2 the first
+/// frame is taken, so `clock(4, 0)` is a hit and `clock(8, 0)` (past the second frame) a `no`.
+/// Each answer is cached under a key that names the stop with the program's count, and a second
+/// command reads it. A hit's witness has the reached state's depth, the author's bindings matched
+/// again, and `rules` null.
+#[test]
+fn query_answers_through_the_stopped_run() {
+    let dir = fixture(
+        "query",
+        &[(
+            "two",
+            &stopped("[stop]\nbefore = [\"CLOCK.frame\"]\ncount = 2\n"),
+        )],
+    );
+    fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
+    let (document, status) = query(&dir.join("FLOW.toml"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["version"], 5, "{document:#}");
+    assert_eq!(
+        document["stop"],
+        json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),
+        "{document:#}"
+    );
+    assert_eq!(document.get("observe"), None, "{document:#}");
+    let hit = answer(&document, "at-stop", "zero");
+    assert_eq!(
+        (&hit["answer"], &hit["route"], &hit["cached"]),
+        (&json!("hit"), &json!("stopped-run"), &json!(false)),
+        "{hit:#}"
+    );
+    assert_eq!(hit["witness"]["depth"], 3, "{hit:#}");
+    assert_eq!(hit["witness"]["rules"], Value::Null, "{hit:#}");
+    let past = answer(&document, "past-stop", "zero");
+    assert_eq!(past["answer"], "no", "{past:#}");
+    let bound = answer(&document, "phase-three", "zero");
+    assert_eq!(bound["answer"], "hit", "{bound:#}");
+    let bindings = bound["witness"]["bindings"].as_array().unwrap();
+    assert_eq!(bindings.len(), 1, "{bound:#}");
+    assert!(
+        bindings[0]["value"]["kore"]
+            .as_str()
+            .unwrap()
+            .contains("\"3\""),
+        "{bound:#}"
+    );
+    // A second command reads every answer from the cache.
+    let (warm, _) = query(&dir.join("FLOW.toml"));
+    for pattern in ["at-stop", "past-stop", "phase-three", "second"] {
+        let (cold, warm) = (
+            answer(&document, pattern, "zero"),
+            answer(&warm, pattern, "zero"),
+        );
+        assert_eq!(cold["answer"], warm["answer"], "{warm:#}");
+        assert_eq!(warm["cached"], true, "{warm:#}");
+    }
+
+    let (two, status) = query(&dir.join("FLOW-two.toml"));
+    assert_eq!(status, EXIT_YES, "{two:#}");
+    for (pattern, expected) in [("at-stop", "hit"), ("past-stop", "hit"), ("second", "no")] {
+        let row = answer(&two, pattern, "zero");
+        assert_eq!(row["answer"], expected, "{row:#}");
+        // The count is part of the key: no answer of count 1 is read for count 2.
+        assert_eq!(row["cached"], false, "{row:#}");
+    }
+    assert_eq!(answer(&two, "past-stop", "zero")["witness"]["depth"], 4);
+}
+
+/// A clock whose `warp` applies beside `frame` from a negative count at phase 3.
+const WARP: &str = "module CLOCK-SYNTAX\n  imports INT-SYNTAX\n  \
+                    syntax Clock ::= clock(Int, Int) [symbol(clock)]\nendmodule\n\
+                    module CLOCK\n  imports CLOCK-SYNTAX\n  imports INT\n  imports BOOL\n  \
+                    configuration <k> $PGM:Clock </k>\n  \
+                    rule [tick]: <k> clock(N, P) => clock(N +Int 1, P +Int 1) </k> requires P <Int 3\n  \
+                    rule [frame]: <k> clock(N, 3) => clock(N +Int 1, 0) </k>\n  \
+                    rule [warp]: <k> clock(N, 3) => clock(N +Int 100, 3) </k> requires N <Int 0\n\
+                    endmodule\n";
+
+/// From `clock(-1, 3)` both `frame` and `warp` apply, so the first frame is a step of the stop
+/// rule with another successor and the run goes on past it through both: its states on that
+/// branch need not be states of the truncated system, so neither a match there (`clock(0, 0)`,
+/// frame's successor) nor the lack of one is an answer (`passed-stop`).
+#[test]
+fn query_on_a_passed_stop_is_unknown() {
+    let dir = fixture("passed", &[]);
+    fs::write(dir.join("warp.k"), WARP).unwrap();
+    fs::write(
+        dir.join("FLOW-warp.toml"),
+        "[spec]\nentry = \"warp.k\"\nmain_module = \"CLOCK\"\nsyntax_module = \"CLOCK-SYNTAX\"\n\n\
+         [stop]\nbefore = [\"CLOCK.frame\"]\n\n\
+         [[program]]\nid = \"negative\"\ntext = \"clock(-1, 3)\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"frame\"\npattern = \"<k> clock(0, 0) </k>\"\n\n\
+         [[pattern]]\nid = \"never\"\npattern = \"<k> clock(1000, 0) </k>\"\n",
+    )
+    .unwrap();
+    let (document, status) = query(&dir.join("FLOW-warp.toml"));
+    assert_eq!(status, kink_flow::cli::EXIT_UNANSWERED, "{document:#}");
+    for pattern in ["frame", "never"] {
+        let row = answer(&document, pattern, "negative");
+        assert_eq!(row["answer"], "unknown", "{row:#}");
+        assert!(
+            row["cause"]
+                .as_str()
+                .unwrap()
+                .contains("(passed-stop: CLOCK.frame at depth 0)"),
+            "{row:#}"
+        );
+    }
 }
 
 /// The outcome cache's tests.

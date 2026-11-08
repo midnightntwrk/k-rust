@@ -4,7 +4,8 @@
 //! every cached result and outcome it changes and no other; every document names it; a run's
 //! kill on a channel names its position and both elements, the baseline's re-derived by a capture
 //! run; a survivor that agrees only up to a horizon says so; `run --verify` re-derives every
-//! cached observation outcome; `query` and `fuzz` refuse a corpus with observations.
+//! cached observation outcome; `query` ignores the observations, saying why, and `fuzz` refuses
+//! a corpus with them.
 //!
 //! The fixture is testdata/flow/console: `console.k` (testdata/k/console.k), a free-running
 //! console whose `tick` advances the count `<n>` and whose `emit` appends `show(n)` to the `<out>`
@@ -912,25 +913,12 @@ fn a_prefix_program_that_observed_nothing_is_unknown() {
     );
 }
 
-/// `query` and `fuzz` search runs that compare no channel, so they refuse a corpus with
-/// observations.
+/// `fuzz` runs cases that compare no channel, so it refuses a corpus with observations.
 #[test]
-fn query_and_fuzz_refuse_a_corpus_with_observations() {
+fn fuzz_refuses_a_corpus_with_observations() {
     let dir = fixture("verbs", &[]);
-    let manifest = dir.join("FLOW.toml");
-    let (query, status) = kink_flow::cli::query(
-        &manifest,
-        &dir.join("PATTERNS.toml"),
-        &QueryOptions::default(),
-    );
-    assert_eq!(status, EXIT_UNASKED, "{query:#}");
-    assert_eq!(
-        (&query["spec"]["stage"], &query["spec"]["reason"]),
-        (&json!("observe"), &json!("unsupported-verb")),
-        "{query:#}"
-    );
     let (fuzz, status) = kink_flow::cli::fuzz(
-        &manifest,
+        &dir.join("FLOW.toml"),
         &dir.join("TEMPLATES.toml"),
         &FuzzRequest {
             template: "t".into(),
@@ -948,6 +936,77 @@ fn query_and_fuzz_refuse_a_corpus_with_observations() {
         "{fuzz:#}"
     );
     assert_eq!(fuzz["action"], "remove [observe] to fuzz this corpus");
+}
+
+/// `query` admits a corpus with observations and ignores them, saying why: a pattern query asks
+/// which states one definition's run reaches, and an observation changes none of them. Its
+/// answers are those of the same corpus without `[observe]`: `<n> 2 </n>` is reached, and
+/// `<n> 1000 </n>` is `unknown`, since the depth bound cuts every run.
+#[test]
+fn query_ignores_the_observations() {
+    let plain = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .split("[[observe.point]]")
+        .next()
+        .unwrap()
+        .to_owned()
+        + PROGRAM.replace("\"a\"", "\"run\"").as_str();
+    let dir = fixture("query", &[("plain", &plain)]);
+    fs::write(
+        dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"two\"\npattern = \"<n> 2 </n>\"\n\n\
+         [[pattern]]\nid = \"far\"\npattern = \"<n> 1000 </n>\"\n",
+    )
+    .unwrap();
+    let ask = |manifest: &str| {
+        let (manifest, patterns) = (dir.join(manifest), dir.join("PATTERNS.toml"));
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || kink_flow::cli::query(&manifest, &patterns, &QueryOptions::default()))
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    let (observed, status) = ask("FLOW.toml");
+    assert_eq!(status, EXIT_UNANSWERED, "{observed:#}");
+    assert_eq!(observed["version"], 5, "{observed:#}");
+    assert_eq!(
+        observed["observe"]["ignored"],
+        kink_flow::query::OBSERVE_IGNORED,
+        "{observed:#}"
+    );
+    assert!(
+        observed["observe"]["declaration"].is_object(),
+        "{observed:#}"
+    );
+    let (plain, _) = ask("FLOW-plain.toml");
+    assert_eq!(plain.get("observe"), None, "{plain:#}");
+    let answers = |document: &Value| {
+        document["rows"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{document:#}"))
+            .iter()
+            .map(|row| {
+                (
+                    row["pattern"].clone(),
+                    row["route"].clone(),
+                    row["answer"].clone(),
+                    row["cause"].clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(answers(&observed), answers(&plain));
+    assert_eq!(
+        answers(&observed)
+            .iter()
+            .map(|(_, route, answer, _)| (route.clone(), answer.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (json!("search"), json!("hit")),
+            (json!("search"), json!("unknown"))
+        ]
+    );
 }
 
 /// Functions a front end set ([`kink_flow::FlowManifest::with_observe_functions`]); none is

@@ -10,7 +10,10 @@ use kink_corpus::admission::input_backend;
 use kink_flow::{
     FlowManifest, admit,
     cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES},
-    pattern::{Answer, Facts, Lowering, PatternList, SearchOutcome, Searcher, judge},
+    pattern::{
+        Answer, Facts, Lowering, PatternList, Route, SearchOutcome, Searcher, judge,
+        search_modality, stopped_modality,
+    },
     query::{QueryOptions, record_sha256},
     results::{CACHE_DIRECTORY, SIMPLIFICATION_ITERATIONS},
 };
@@ -457,6 +460,7 @@ fn facts<'a>(
         baseline_cause: None,
         profile,
         no_data: None,
+        route: Route::Search,
     }
 }
 
@@ -498,6 +502,20 @@ fn the_answer_rules() {
             .as_deref()
             .unwrap()
             .contains("the search received 0 undecided solver answers"),
+        "{z3:?}"
+    );
+    // FB-41: on the stopped route the cause names the three counts the run's answer sums.
+    let stopped = Facts {
+        route: Route::StoppedRun,
+        ..facts(&clean, "comparable", SolverProfile::Z3)
+    };
+    let z3 = judge(&complete, &stopped);
+    assert_eq!(z3.answer, "no");
+    assert!(
+        z3.cause.as_deref().unwrap().contains(
+            "its run, its leaves' feasibility questions and its matcher received 0 undecided \
+             solver answers"
+        ),
         "{z3:?}"
     );
     let undecided = SearchOutcome::Complete { smt_unknowns: 2 };
@@ -748,6 +766,146 @@ fn a_no_needs_a_search_without_undecided_solver_answers() {
             "{unreached:#}"
         );
         assert_eq!(document["programs"][0]["smt_unknowns"], 0, "{document:#}");
+    }
+}
+
+/// FB-41: on a corpus with `[stop]` (here after `step`, whose successor `res(f(3))` is the run's
+/// last state) a (pattern, program) is answered by the program's stopped run, and a `no` needs
+/// every count of undecided solver answers the run's answer sums to be zero: the run's, its
+/// leaves' feasibility questions' and its matcher's. Under Z3 with the default units `go(4)` is a
+/// `no` whose cause names those counts and `res(1)` a hit; with one unit per first attempt Z3
+/// decides neither condition of `f`, the run counts undecided answers and leaves their diagnostic
+/// on its leaf, and `go(4)` is `unknown` (`diagnosed-leaf`, the first premise it misses). Without Z3 the run that leaves `f(3)` unevaluated is not comparable, so
+/// `go(4)` is `unknown`. Each answer's key names the stop and the stopped route's modality; the
+/// stopless corpus's key names neither, as before the stopped route existed.
+#[test]
+fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
+    let dir = scratch("stopped-undecided-solver-answers");
+    write(&dir.join("undecided.k"), UNDECIDED_SPEC);
+    let spec = "[spec]\nentry = \"undecided.k\"\nmain_module = \"UNDECIDED\"\n\
+                syntax_module = \"UNDECIDED-SYNTAX\"\n\n\
+                [[program]]\nid = \"three\"\ntext = \"go(3)\"\n";
+    let stop = "[stop]\nafter = [\"UNDECIDED.step\"]\n\n";
+    write(
+        &dir.join("FLOW.toml"),
+        &format!("[budget]\ntime_ms = 600000\n\n{spec}"),
+    );
+    write(
+        &dir.join("FLOW-stop.toml"),
+        &format!("[budget]\ntime_ms = 600000\n\n{stop}{spec}"),
+    );
+    write(
+        &dir.join("FLOW-units.toml"),
+        &format!("[budget]\ntime_ms = 600000\nsmt_resource_limit = 1\n\n{stop}{spec}"),
+    );
+    write(
+        &dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"unreached\"\npattern = \"<k> go(4) </k>\"\n\n\
+         [[pattern]]\nid = \"one\"\npattern = \"<k> res(1) </k>\"\n",
+    );
+    let cache = |name: &str| QueryOptions {
+        cache: Some(dir.join(name)),
+        ..QueryOptions::default()
+    };
+    let (document, _) = query(
+        &dir.join("FLOW-stop.toml"),
+        &dir.join("PATTERNS.toml"),
+        cache("stop"),
+    );
+    assert_eq!(document["version"], 5, "{document:#}");
+    assert_eq!(
+        document["stop"],
+        json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
+        "{document:#}"
+    );
+    let unreached = row(&document, "unreached", "three");
+    assert_eq!(unreached["route"], "stopped-run", "{unreached:#}");
+    if SolverProfile::BUILD == SolverProfile::Z3 {
+        assert_eq!(unreached["answer"], "no", "{unreached:#}");
+        assert!(
+            unreached["cause"].as_str().unwrap().contains(
+                "its run, its leaves' feasibility questions and its matcher received 0 \
+                 undecided solver answers"
+            ),
+            "{unreached:#}"
+        );
+        let one = row(&document, "one", "three");
+        assert_eq!(one["answer"], "hit", "{one:#}");
+        assert_eq!(one["witness"]["depth"], 1, "{one:#}");
+        assert_eq!(one["witness"]["rules"], Value::Null, "{one:#}");
+
+        let (units, status) = query(
+            &dir.join("FLOW-units.toml"),
+            &dir.join("PATTERNS.toml"),
+            cache("units"),
+        );
+        assert_eq!(status, EXIT_UNANSWERED, "{units:#}");
+        let unreached = row(&units, "unreached", "three");
+        assert_eq!(unreached["answer"], "unknown", "{unreached:#}");
+        // The undecided conditions of `f` leave their diagnostic on the run's one leaf, which is
+        // the first premise the answer misses; the run counted the undecided answers too.
+        assert!(
+            unreached["cause"]
+                .as_str()
+                .unwrap()
+                .contains("(diagnosed-leaf)"),
+            "{unreached:#}"
+        );
+        let program = &units["programs"][0];
+        assert!(program["smt_unknowns"].as_u64().unwrap() > 0, "{program:#}");
+        assert_ne!(row(&units, "one", "three")["answer"], "hit", "{units:#}");
+    } else {
+        assert_eq!(unreached["answer"], "unknown", "{unreached:#}");
+        assert!(
+            unreached["cause"]
+                .as_str()
+                .unwrap()
+                .contains("a no also needs the program's baseline run to be comparable"),
+            "{unreached:#}"
+        );
+    }
+    // The keys: the stopped route's names the stop and its modality, the stopless one's neither.
+    let (plain_document, _) = query(
+        &dir.join("FLOW.toml"),
+        &dir.join("PATTERNS.toml"),
+        cache("plain"),
+    );
+    assert_eq!(row(&plain_document, "one", "three")["route"], "search");
+    assert_eq!(plain_document.get("stop"), None, "{plain_document:#}");
+    let keys = |cache: &str| {
+        let mut found = Vec::new();
+        let mut pending = vec![dir.join(cache).join("patterns")];
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).into_iter().flatten() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let record: Value =
+                        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+                    found.push(record["key"].clone());
+                }
+            }
+        }
+        found
+    };
+    // Under Z3 both corpora have answers the cache holds.
+    let z3 = SolverProfile::BUILD == SolverProfile::Z3;
+    let stopped = keys("stop");
+    assert!(!z3 || !stopped.is_empty());
+    for key in stopped {
+        assert_eq!(
+            key["stop"],
+            json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
+            "{key:#}"
+        );
+        assert_eq!(key["modality"], stopped_modality(), "{key:#}");
+    }
+    let plain_keys = keys("plain");
+    assert!(!z3 || !plain_keys.is_empty());
+    for key in plain_keys {
+        assert_eq!(key.get("stop"), None, "{key:#}");
+        assert_eq!(key["modality"], search_modality(), "{key:#}");
     }
 }
 
@@ -1311,7 +1469,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 4);
+        assert_eq!(document["version"], 5);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

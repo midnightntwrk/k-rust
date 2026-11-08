@@ -1250,14 +1250,15 @@ pub fn run_command(
             };
             (document, status)
         }
-        FlowCommand::Query { .. } | FlowCommand::Fuzz { .. } if manifest.stop.is_some() => {
-            (stop_unsupported(command), EXIT_UNASKED)
-        }
-        FlowCommand::Query { .. } | FlowCommand::Fuzz { .. } if manifest.observe.is_some() => {
-            (observe_unsupported(command), EXIT_UNASKED)
+        FlowCommand::Fuzz { .. } if manifest.stop.is_some() => (stop_unsupported(), EXIT_UNASKED),
+        FlowCommand::Fuzz { .. } if manifest.observe.is_some() => {
+            (observe_unsupported(), EXIT_UNASKED)
         }
         FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
-            Err(error) => (pattern_list_refused(&error), EXIT_UNASKED),
+            Err(error) => (
+                crate::query::named(manifest, pattern_list_refused(&error)),
+                EXIT_UNASKED,
+            ),
             Ok(list) => {
                 let (document, ok) = crate::query::query(manifest, &list, options);
                 let status = completed(query_status(&document), ok);
@@ -1607,21 +1608,15 @@ pub fn fuzz_status(document: &Value) -> u8 {
     }
 }
 
-/// The document of `query` or `fuzz` on a corpus with `[stop]`: refused at stage `stop`, reason
-/// `unsupported-verb`. Both search runs of the specification with their own requests (a pattern
-/// search, a fuzzer's replays and confirmation), none of which ends a path at a stop yet, so
-/// their answers would be about the definition's own runs, not the observation the corpus states.
-fn stop_unsupported(command: &FlowCommand) -> Value {
-    let detail = format!(
-        "{} does not run a stopped corpus yet: its searches end no path at [stop], so its answers \
-         would not be about the runs this corpus observes; use `check`, `coverage` and `run`, or \
-         a manifest without [stop]",
-        command.verb().as_str()
-    );
-    let mut document = match command {
-        FlowCommand::Fuzz { .. } => crate::fuzz::stop_refused(&detail),
-        _ => command.manifest_refused(&ManifestError::new("stop", &detail)),
-    };
+/// The document of `fuzz` on a corpus with `[stop]`: refused at stage `stop`, reason
+/// `unsupported-verb`. A fuzz campaign runs the specification with its own requests (its cases,
+/// replays and confirmation), none of which ends a path at a stop yet, so its answers would be
+/// about the definition's own runs, not the observation the corpus states.
+fn stop_unsupported() -> Value {
+    let detail = "fuzz does not run a stopped corpus yet: its searches end no path at [stop], so \
+                  its answers would not be about the runs this corpus observes; use `check`, \
+                  `coverage`, `run` and `query`, or a manifest without [stop]";
+    let mut document = crate::fuzz::stop_refused(detail);
     if let Some(spec) = document.get_mut("spec").and_then(Value::as_object_mut) {
         spec.insert("stage".into(), json!("stop"));
         spec.insert("reason".into(), json!("unsupported-verb"));
@@ -1630,26 +1625,18 @@ fn stop_unsupported(command: &FlowCommand) -> Value {
     document
 }
 
-/// The document of `query` or `fuzz` on a corpus with `[observe]`: refused at stage `observe`,
-/// reason `unsupported-verb`. Both search runs of the specification with their own requests,
-/// which carry no observation probe and compare no channel, so their answers would be about the
-/// definition's ends alone, not the observation the corpus states. Within the query and fuzz
-/// documents' versions: a corpus without `[observe]` has the document it had.
-fn observe_unsupported(command: &FlowCommand) -> Value {
-    let detail = format!(
-        "{} does not run a corpus with observations yet: its searches compare no observation \
-         channel, so its answers would not be about the observation this corpus states; use \
-         `check`, `coverage` and `run`, or a manifest without [observe]",
-        command.verb().as_str()
-    );
-    let mut document = match command {
-        FlowCommand::Fuzz { .. } => {
-            let mut document = crate::fuzz::stop_refused(&detail);
-            document["action"] = json!("remove [observe] to fuzz this corpus");
-            document
-        }
-        _ => command.manifest_refused(&ManifestError::new("observe", &detail)),
-    };
+/// The document of `fuzz` on a corpus with `[observe]`: refused at stage `observe`, reason
+/// `unsupported-verb`. A fuzz campaign runs the specification with its own requests, which carry
+/// no observation probe and compare no channel, so its answers would be about the definition's
+/// ends alone, not the observation the corpus states. Within the fuzz document's version: a
+/// corpus without `[observe]` has the document it had.
+fn observe_unsupported() -> Value {
+    let detail = "fuzz does not run a corpus with observations yet: its searches compare no \
+                  observation channel, so its answers would not be about the observation this \
+                  corpus states; use `check`, `coverage`, `run` and `query`, or a manifest \
+                  without [observe]";
+    let mut document = crate::fuzz::stop_refused(detail);
+    document["action"] = json!("remove [observe] to fuzz this corpus");
     if let Some(spec) = document.get_mut("spec").and_then(Value::as_object_mut) {
         spec.insert("stage".into(), json!("observe"));
         spec.insert("reason".into(), json!("unsupported-verb"));

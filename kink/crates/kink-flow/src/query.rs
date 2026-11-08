@@ -3,8 +3,24 @@
 //!
 //! The command admits the specification, brings the result cache up to date (`coverage` without
 //! `--verify`, or with it under `query --verify`), lowers every selected pattern once, and asks
-//! each pattern of each program it names (its claimed programs, or the whole corpus): one
-//! `search_pattern_kore` per (pattern, program), unless a cached answer stands.
+//! each pattern of each program it names (its claimed programs, or the whole corpus), unless a
+//! cached answer stands, by one of two routes ([`crate::pattern::Route`]):
+//! - a corpus without `[stop]`: one `search_pattern_kore` per (pattern, program), which explores
+//!   the definition's own reachable states;
+//! - a corpus with `[stop]`: the program's run as every campaign of the command makes it (the
+//!   stop's rules, the program's count and the stop's condition, in one execute request), which
+//!   matches every state it reaches against the pattern (`Searcher::run_stopped`). A stop is part
+//!   of a case's meaning: a path of the case ends at its last stop event, so a state past it is no
+//!   state of the case. A pattern only such a state matches is a `no`, and a complete exploration
+//!   of the truncated system is a complete answer, also for a program whose untruncated run never
+//!   ends. A run that passed a stop (a step of a stop rule that had another successor), whose
+//!   condition refused, or that some count left undecided answers `unknown`.
+//!
+//! `[observe]` is admitted and ignored on both routes, and the document says so (`observe`): an
+//! observation channel is the instrument by which two definitions' runs are compared, and it
+//! changes neither which states one definition's run reaches nor where it ends. Its one effect on
+//! a query is that a program a bound cuts is `comparable-prefix`, not `comparable`, and a `no`
+//! keeps requiring `comparable`.
 //!
 //! **The cache** holds only `hit` and a final `no`, one record per (pattern, program):
 //! `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory,
@@ -18,7 +34,10 @@
 //! pattern's digest (its KORE target and generated variables), the budget's bounds
 //! (`results::budget_value`, without `time_ms`: a stored answer is a hit or the `no` of a complete
 //! exploration, neither of which the clock decided), and the search's modality (search type all,
-//! state set, at most one result). A record is used only when its key is exactly the current one
+//! state set, at most one result), and on the stopped route the program's stop
+//! (`FlowManifest::program_stop`: the rules, the program's count and the condition's identity)
+//! with the route's modality ([`crate::pattern::stopped_modality`]); a key without a stop keeps
+//! the bytes it had before the stopped route existed. A record is used only when its key is exactly the current one
 //! and its `record_sha256` recomputes; a `no` also only while the program's current result record
 //! is comparable with the baseline run digest the `no` was given against. A used record's answer is
 //! judged again with the current command's facts (the definition exclusions of this command's load,
@@ -48,7 +67,7 @@ use crate::{
     manifest::{FlowManifest, ManifestError},
     pattern::{
         Answer, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredPattern, Lowering, PatternList,
-        SearchOutcome, Searcher, judge, search_modality,
+        Route, SearchOutcome, Searcher, judge, search_modality, stopped_modality,
     },
     results::{
         BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
@@ -74,9 +93,15 @@ use std::{
 /// count, and names the count in the `cause` of an `unknown` it withholds a `no` for. Version 4
 /// names, under the Z3 profile, the Z3 build the answers were decided on (`z3`,
 /// [`crate::with_z3_build`]): whether a search's solver queries are decided within their units is
-/// a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too.
+/// a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too. Version
+/// 5 (FB-41) admits a corpus with `[stop]`, answered by its stopped run (module docs), and one
+/// with `[observe]`, which it ignores: the refusals at stages `stop` and `observe` are gone, the
+/// document names the stop (`stop`, as `check`, `coverage` and `run` do) and the observation
+/// (`observe`: `{declaration, ignored}`, the declaration and why the query ignores it) when the
+/// manifest has them, and each row names its route (`route`: `search` or `stopped-run`); a hit's
+/// witness on the stopped route has `rules` null.
 pub const QUERY_SCHEMA: &str = "kink-flow-query";
-pub const QUERY_VERSION: u64 = 4;
+pub const QUERY_VERSION: u64 = 5;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -98,7 +123,8 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// names its units and Z3 build, so a record may hold an answer that rests on solver answers; v8,
 /// KINK-query-no-z3: a `no` is given under the Z3 profile too, on a completed search that received
 /// no undecided solver answer, so a `no` may now be given where a v7 answer was `unknown`, and a
-/// stored `no` stands for a search that counted none).
+/// stored `no` stands for a search that counted none; the stopped route's records are v8 too:
+/// their key holds a `stop`, which no earlier record's does, so no stored answer changes meaning).
 pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v8";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
@@ -118,15 +144,17 @@ pub struct QueryOptions {
     pub cache: Option<PathBuf>,
 }
 
-/// The key of a cached answer (module docs).
+/// The key of a cached answer (module docs); `stop` is the program's stop on the stopped route
+/// (`FlowManifest::program_stop`), `None` on the search route.
 pub fn answer_key(
     build: Sha256Digest,
     execution: ExecutionDigest,
     program: Sha256Digest,
     pattern: Sha256Digest,
     budget: crate::manifest::Budget,
+    stop: Option<Value>,
 ) -> Value {
-    json!({
+    let mut key = json!({
         "schema_version": ANSWER_SCHEMA_VERSION,
         "lowering": LOWERING_VERSION,
         "k_rust_revision": K_RUST_REVISION,
@@ -138,7 +166,12 @@ pub fn answer_key(
         // The result key's budget object, so both keys name the same bounds.
         "budget": budget_value(budget),
         "modality": search_modality(),
-    })
+    });
+    if let Some(stop) = stop {
+        key["stop"] = stop;
+        key["modality"] = stopped_modality();
+    }
+    key
 }
 
 /// Where the record of (`pattern`, `program`) is kept under the execution digest `execution`.
@@ -251,6 +284,34 @@ pub(crate) fn query_with(
     options: &QueryOptions,
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
 ) -> (Value, bool) {
+    let (document, ok) = query_unnamed(manifest, list, options, adjust);
+    (named(manifest, document), ok)
+}
+
+/// Why a query ignores `[observe]` (module docs).
+pub const OBSERVE_IGNORED: &str = "a pattern query asks which states one definition's run \
+     reaches; observation channels compare two definitions' runs, and change neither which states \
+     a run reaches nor where it ends";
+
+/// `document` naming the manifest's stop (`stop`) and observation (`observe`: the declaration,
+/// and why the query ignores it) when it has them, as every query document does, a refused one's
+/// too (version 5).
+pub fn named(manifest: &FlowManifest, mut document: Value) -> Value {
+    if let Some(stop) = manifest.stop_value() {
+        document["stop"] = stop;
+    }
+    if let Some(observe) = manifest.observe_value() {
+        document["observe"] = json!({"declaration": observe, "ignored": OBSERVE_IGNORED});
+    }
+    document
+}
+
+fn query_unnamed(
+    manifest: &FlowManifest,
+    list: &PatternList,
+    options: &QueryOptions,
+    adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
+) -> (Value, bool) {
     if let Err(error) = list.check_programs(manifest) {
         return (pattern_list_refused(&error), false);
     }
@@ -294,6 +355,11 @@ pub(crate) fn query_with(
     };
     let mut exclusions = searcher.exclusions().clone();
     adjust(&mut exclusions);
+    let route = if manifest.stop.is_some() {
+        Route::StoppedRun
+    } else {
+        Route::Search
+    };
     let build = kink_campaign::kink_build().ok();
     let refusal = cache_refusal(build, manifest.budget.backend_options());
     let cache_build = build.filter(|_| refusal.is_none());
@@ -335,6 +401,7 @@ pub(crate) fn query_with(
             row.insert("pattern".into(), json!(entry.id));
             row.insert("program".into(), json!(program_id));
             row.insert("claimed".into(), json!(claimed));
+            row.insert("route".into(), json!(route.name()));
             let lowered = match &lowered {
                 Ok(lowered) => lowered,
                 Err(detail) => {
@@ -356,6 +423,7 @@ pub(crate) fn query_with(
                 execution,
                 verify: options.verify,
                 exclusions: &exclusions,
+                route,
             };
             let (row, row_ok) = ask(
                 &context,
@@ -413,6 +481,8 @@ struct Context<'a> {
     verify: bool,
     /// The definition exclusions of the searcher's load.
     exclusions: &'a kink_native::exclusion::DefinitionExclusions,
+    /// How every (pattern, program) of the command is asked.
+    route: Route,
 }
 
 /// One (pattern, program) row and whether it found no error.
@@ -464,7 +534,7 @@ fn ask(
         .and_then(|record| record["run_sha256"].as_str())
         .map(str::to_owned);
     let baseline = result.live.as_ref().or(result.record.as_ref());
-    let facts = Facts {
+    let mut facts = Facts {
         exclusions: context.exclusions,
         state,
         baseline_class: baseline.and_then(|record| record["class"].as_str()),
@@ -474,6 +544,11 @@ fn ask(
         ),
         profile: SolverProfile::BUILD,
         no_data: crate::pattern::no_data(&spec.data),
+        route: context.route,
+    };
+    let stop = match context.route {
+        Route::Search => None,
+        Route::StoppedRun => context.manifest.program_stop(program),
     };
     let keyed = context.build.map(|build| {
         (
@@ -483,6 +558,7 @@ fn ask(
                 digest,
                 lowered.digest,
                 context.manifest.budget,
+                stop,
             ),
             answer_path(
                 context.cache,
@@ -507,7 +583,22 @@ fn ask(
         accounting["from_cache"] = json!(accounting["from_cache"].as_u64().unwrap_or(0) + 1);
         return (finish_row(row, &answer, true, None, claimed), true);
     }
-    let (outcome, wall_ms) = searcher.search(&test.initial_state, lowered);
+    let (outcome, wall_ms) = match context.route {
+        Route::Search => searcher.search(&test.initial_state, lowered),
+        Route::StoppedRun => {
+            let (outcome, state, wall_ms) = searcher.run_stopped(
+                context.manifest.campaign_stop(),
+                &test.id,
+                &test.initial_state,
+                lowered,
+                context.exclusions,
+            );
+            // The initial state's exclusion read with the run's lists (its short-circuit
+            // readings), as the baseline runner reads it.
+            facts.state = state;
+            (outcome, wall_ms)
+        }
+    };
     let answer = judge(&outcome, &facts);
     let mut ok = answer.answer != "error";
     let mut row = finish_row(row, &answer, false, Some(wall_ms), claimed);
@@ -567,8 +658,8 @@ fn ask(
     (row, ok)
 }
 
-/// A row with its answer: `{pattern, program, claimed, answer, cause, witness, cached, wall_ms,
-/// claim}`. `claim` is null for a program the corpus form asked, else `confirmed` (hit),
+/// A row with its answer: `{pattern, program, claimed, route, answer, cause, witness, cached,
+/// wall_ms, claim}`. `claim` is null for a program the corpus form asked, else `confirmed` (hit),
 /// `refuted` (no: the run reaches no state matching the pattern) or `unconfirmed`.
 fn finish_row(
     mut row: Map<String, Value>,

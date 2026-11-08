@@ -43,6 +43,21 @@
 //! `budget.time_ms`. A search has no work budget at k-rust 0068938b1 (KINK-24, drafted), so the
 //! clock is its only bound on a runaway program.
 //!
+//! **The stopped route** ([`Route::StoppedRun`], [`Searcher::run_stopped`]): on a corpus with
+//! `[stop]` the case's system is the truncated one, whose every path ends at its last stop event
+//! or at its own end, so a search of the definition's own reachable states would ask about states
+//! no case has. Each (pattern, program) is then the program's run as every campaign of the
+//! command makes it (kink-campaign `Stop::execute_result_matching`: the stop's rules, the
+//! program's count and the stop's condition in one execute request, all paths, state set, the
+//! manifest's `max_depth`, `baseline_max_work` and `time_ms`), matching every state it reaches
+//! (k-rust `match_states`) with proof agreement, so a state is refuted only where both
+//! evaluation modes refute it (a refutation in execution mode alone may rest on a value the
+//! definition leaves open that nothing records; for a pattern that evaluates nothing agreement
+//! costs a second match and changes no verdict); kink-campaign `judge_matches` answers it, and [`judge`] then applies
+//! the premises both routes share (the load's facts, data, the initial state, the baseline
+//! class). A hit's witness is the reached state and its depth, its bindings matched again by a
+//! search of depth 0 from that state, and `rules` null: the run reports no path to the state.
+//!
 //! **Answers** ([`judge`]):
 //! - `hit`: the search returned a decided match: no condition (`constraints` empty), no diagnostic
 //!   of the match or of the matching state's path, a state that carries no predicate, a state whose
@@ -212,7 +227,7 @@
 use crate::{
     admit::AdmittedSpec,
     manifest::{Budget, FlowManifest, ManifestError},
-    results::{SIMPLIFICATION_ITERATIONS, sentence_value},
+    results::{SIMPLIFICATION_ITERATIONS, execution_budget, sentence_value},
 };
 use k_rust::backend::ShortCircuitReadingOutput;
 use k_rust::{
@@ -233,10 +248,14 @@ use k_rust::{
         parser::parse_definition,
     },
 };
+use kink_campaign::{MatchAnswer, MatchUnknown};
 use kink_native::{
     coverage::{Authorship, RuleAuthors},
     exclusion::{DefinitionExclusions, Exclusion, state_references_implementation_chosen},
-    execution::{RunFacts, SolverProfile},
+    execution::{
+        DefinitionTables, ExecutionAdapter, HaltClass, MatchedState, ResultRun, RunFacts,
+        SolverProfile, StateMatchRequest, UndecidedMatchReasonOutput,
+    },
 };
 use kink_patch::{Sha256Digest, canonical_json, payload_digest};
 use serde_json::{Value, json};
@@ -264,9 +283,35 @@ pub const INVALID_PATTERN: &str = "invalid-pattern";
 /// Characters of a witness state's KORE text kept in a document (as the run document cuts a
 /// killer's final configurations).
 pub const WITNESS_CUT: usize = 4000;
-/// The search every check makes, as the cache key names it.
+/// The search every check of a corpus without `[stop]` makes, as the cache key names it.
 pub fn search_modality() -> Value {
     json!({"search_type": "all", "result_modality": "state-set", "max_results": 1})
+}
+
+/// The run every check of a corpus with `[stop]` makes ([`Searcher::run_stopped`]), as the cache
+/// key names it: one execute request of every path, state set, matching every state it reaches.
+pub fn stopped_modality() -> Value {
+    json!({"route": Route::StoppedRun.name(), "search_type": "all", "result_modality": "state-set"})
+}
+
+/// How a (pattern, program) is asked (module docs): by a pattern search of the definition's own
+/// reachable states (a corpus without `[stop]`), or by the program's stopped run matching every
+/// state of the truncated system it reaches (a corpus with `[stop]`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Route {
+    Search,
+    StoppedRun,
+}
+
+impl Route {
+    /// The name a query row and a key give the route.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Search => "search",
+            Self::StoppedRun => "stopped-run",
+        }
+    }
 }
 
 /// A decoded `PATTERNS.toml`.
@@ -596,6 +641,8 @@ pub struct Facts<'a> {
     /// fz26 KINK-BASELINE-FINDINGS, or did not read the whole definition), `None` when it has:
     /// while it has none, no `no` is given ([`no_data`]).
     pub no_data: Option<String>,
+    /// How the outcome was found, which names what a `no`'s cause counted.
+    pub route: Route,
 }
 
 /// [`Facts::no_data`] of `data`: the gate `run` and `coverage` read for an end
@@ -751,11 +798,17 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
                 Some("comparable") => Answer {
                     answer: "no",
                     // Under Z3 the count licensed the no; without Z3 no query is ever undecided.
-                    cause: (facts.profile == SolverProfile::Z3).then(|| {
-                        "the exploration completed with no match, and the search received 0 \
-                         undecided solver answers, so no solver query it made was left \
-                         undecided"
-                            .to_owned()
+                    cause: (facts.profile == SolverProfile::Z3).then(|| match facts.route {
+                        Route::Search => "the exploration completed with no match, and the \
+                                          search received 0 undecided solver answers, so no \
+                                          solver query it made was left undecided"
+                            .to_owned(),
+                        Route::StoppedRun => "the stopped run explored the truncated system to \
+                                              its ends with no match, and its run, its leaves' \
+                                              feasibility questions and its matcher received 0 \
+                                              undecided solver answers, so no solver query the \
+                                              answer rests on was left undecided"
+                            .to_owned(),
                     }),
                     witness: None,
                 },
@@ -783,6 +836,9 @@ pub struct Searcher {
     /// How a witness names each compiled rule: its label, else `file:line` of the authored rule
     /// behind it, else its id.
     rule_names: BTreeMap<String, String>,
+    /// The definition tables of `backend`, kept beside it for every stopped run
+    /// ([`Self::run_stopped`]; kink-native `DefinitionTables`).
+    tables: DefinitionTables,
 }
 
 /// The name of every compiled rule of `spec` an authored rule is behind (`file:line` of its
@@ -835,6 +891,7 @@ impl Searcher {
             exclusions,
             budget,
             rule_names: rule_names(spec),
+            tables: DefinitionTables::new(),
         })
     }
 
@@ -899,6 +956,270 @@ impl Searcher {
         let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         (outcome, wall_ms)
     }
+
+    /// One check of a corpus with `[stop]` (module docs, the stopped route): the run of the
+    /// test `test_id` from `initial` as every campaign of the command makes it (`stop`, the
+    /// test's count and the stop's condition in one request, under the budget's bounds and
+    /// `baseline_max_work`), matching every state it reaches against `lowered` with proof
+    /// agreement (module docs); its outcome, the
+    /// exclusion of the initial state read with the run's lists (kink-native
+    /// `DefinitionExclusions::state_exclusion`, as the baseline runner reads it), and its wall
+    /// time. `exclusions` are the definition exclusions the run is judged with.
+    pub fn run_stopped(
+        &mut self,
+        stop: kink_campaign::Stop,
+        test_id: &str,
+        initial: &Pattern,
+        lowered: &LoweredPattern,
+        exclusions: &DefinitionExclusions,
+    ) -> (SearchOutcome, Option<Exclusion>, u64) {
+        let started = Instant::now();
+        let matched = stop.execute_result_matching(
+            &ExecutionAdapter::with_profile(SolverProfile::BUILD),
+            &mut self.backend,
+            &mut self.tables,
+            test_id,
+            initial,
+            execution_budget(self.budget),
+            ResultRun {
+                max_work: self.budget.baseline_max_work,
+                ..ResultRun::default()
+            },
+            // Proof agreement: a refutation in execution mode alone may rest on a value the
+            // definition leaves open that nothing records, so a no needs both modes to refute.
+            &StateMatchRequest {
+                proof_agreement: true,
+                ..StateMatchRequest::new(lowered.target.clone())
+            },
+            exclusions,
+        );
+        let (outcome, state) = match matched {
+            Err(failure) => (
+                SearchOutcome::Failed(format!("k-rust refused the stopped run: {failure:?}")),
+                None,
+            ),
+            Ok(matched) => {
+                let state = matched.execution.as_ref().and_then(|execution| {
+                    exclusions.state_exclusion(&self.definition, initial, execution.facts())
+                });
+                let outcome = match &matched.answer {
+                    MatchAnswer::Hit(reach) => {
+                        SearchOutcome::Hit(self.stopped_witness(reach, lowered))
+                    }
+                    MatchAnswer::No => SearchOutcome::Complete { smt_unknowns: 0 },
+                    MatchAnswer::Unknown(unknown) => SearchOutcome::Incomplete(stopped_cause(
+                        unknown,
+                        matched.execution.as_ref(),
+                        self.budget,
+                    )),
+                };
+                (outcome, state)
+            }
+        };
+        let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        (outcome, state, wall_ms)
+    }
+
+    /// The witness of a stopped run's reach (module docs, the stopped route): its depth and state as the run
+    /// reported them, `rules` null, and the bindings of the reached state matched against the
+    /// pattern again (a search of depth 0 from that state, under the budget's clock), null when
+    /// that match gives none. The bindings are for the reader only: no answer reads them.
+    fn stopped_witness(&mut self, reach: &MatchedState, lowered: &LoweredPattern) -> Value {
+        let request = SearchPatternRequest {
+            state: reach.state.clone(),
+            pattern: lowered.target.clone(),
+            module_name: None,
+            search_type: SearchTypeArg::All,
+            max_depth: Some(0),
+            max_breadth: None,
+            max_results: Some(1),
+            max_simplification_iterations: SIMPLIFICATION_ITERATIONS,
+            schema_version: BACKEND_SCHEMA_VERSION,
+        };
+        let time = Duration::from_millis(self.budget.time_ms);
+        let (result, fired) = watchdog(time, || self.backend.search_pattern_kore(request));
+        let bindings = result
+            .ok()
+            .filter(|_| !fired)
+            .and_then(|response| response.matches.into_iter().next())
+            .map_or(Value::Null, |found| {
+                witness(&found, lowered, &self.rule_names)["bindings"].take()
+            });
+        json!({
+            "depth": reach.depth,
+            "state": cut(reach.state.to_string()),
+            "bindings": bindings,
+            "rules": null,
+            "rendering": "kore",
+            "note": STOPPED_WITNESS_NOTE,
+        })
+    }
+}
+
+/// The note of a stopped run's witness ([`Searcher::stopped_witness`]).
+const STOPPED_WITNESS_NOTE: &str = "the state and the bindings are KORE text (query does not \
+     print them through krs-unparse, the K-text printer kill evidence uses); rules is null: the \
+     stopped run reports the depth and the state of the first state it reached that matches, not \
+     the rewrite steps of the path to it, and a search for that path could find another path, \
+     past a stop; the bindings match that state against the pattern again";
+
+/// The cause of a stopped run's `unknown` (kink-campaign `MatchUnknown`), in the reader's words,
+/// each naming its cause; `execution` is the run, when it has a result.
+fn stopped_cause(
+    unknown: &MatchUnknown,
+    execution: Option<&kink_native::execution::AdaptedExecution>,
+    budget: Budget,
+) -> String {
+    let name = unknown.name();
+    let reach = |what: &str, state: &MatchedState| {
+        format!(
+            "the first state the stopped run reached that matches (depth {}) {what} ({name})",
+            state.depth
+        )
+    };
+    let would = "the stopped run reached no state that matches, but a no is not given";
+    match unknown {
+        MatchUnknown::Clock => format!(
+            "the stopped run did not finish within time_ms = {}, so its states are not read \
+             ({name}: the clock is no answer)",
+            budget.time_ms
+        ),
+        MatchUnknown::StopConditionRefused(reason) => format!(
+            "the stop's condition refused at an arrival or could not be asked ({reason}), so the \
+             stop is not defined on this run, nor is the system it truncates ({name})"
+        ),
+        MatchUnknown::PassedStop(passed) => format!(
+            "the stopped run went on past a step of a stop rule that had another successor \
+             ({name}: {}), so on that branch its states need not be states of the truncated \
+             system, and neither a match nor its lack is an answer",
+            passed
+                .iter()
+                .map(|stop| format!("{} at depth {}", stop.rule, stop.depth))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        MatchUnknown::DirtyReach(state) => reach(
+            &format!(
+                "rests on its path's diagnostics ({}), so the path may not exist",
+                state
+                    .diagnostics
+                    .iter()
+                    .map(diagnostic_kind)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            state,
+        ),
+        MatchUnknown::TermConjunction(state) => reach(
+            "holds a term-level \\and, which denotes a configuration only where its sides are \
+             equal, which kink does not decide",
+            state,
+        ),
+        MatchUnknown::UnevaluatedHook => {
+            let hooks = execution
+                .map(|execution| {
+                    let facts = execution.facts();
+                    facts
+                        .unsupported_hooks
+                        .iter()
+                        .chain(&facts.allowance_refusals)
+                        .map(|entry| entry.hook.clone())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            format!(
+                "a state the stopped run reached matches, but the run left applications \
+                 unevaluated ({UNSUPPORTED_HOOK}: {hooks}; a hook it does not evaluate, or a \
+                 result its memory allowance refused), and a state holding one denotes a \
+                 configuration only where the hook is defined at its arguments, which k-rust did \
+                 not compute"
+            )
+        }
+        MatchUnknown::UndecidedMatch(undecided) => format!(
+            "{would}: the matcher left the verdict of some reached state undecided ({name}: {})",
+            undecided
+                .iter()
+                .map(|(reason, count)| format!("{} {count}", undecided_reason(*reason)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        MatchUnknown::StopConditionUndecided(reason) => format!(
+            "{would}: a path ended at an arrival at a stop where the condition was left \
+             undecided (stop-undecided{}), which is no end of the truncated system ({name})",
+            reason
+                .as_deref()
+                .map(|reason| format!(": {reason}"))
+                .unwrap_or_default()
+        ),
+        MatchUnknown::Incomplete { halt, leaves } => {
+            let first = match halt {
+                HaltClass::DepthBound => format!("a path reached max_depth = {}", budget.max_depth),
+                HaltClass::WorkBound => format!(
+                    "the run reached baseline_max_work = {}",
+                    budget
+                        .baseline_max_work
+                        .map_or_else(|| "unset".to_owned(), |work| work.to_string())
+                ),
+                halt => format!("a {} leaf", crate::results::kebab(&format!("{halt:?}"))),
+            };
+            format!(
+                "{would}: the run did not explore the truncated system to its ends ({name}: \
+                 {leaves} leaf/leaves ended where the system goes on, the first: {first})"
+            )
+        }
+        MatchUnknown::DiagnosedLeaf { halt, leaves } => format!(
+            "{would}: {leaves} leaf/leaves of the run carry a diagnostic of their path, the first a \
+             {} leaf ({name}): a rule whose condition was left unsimplified, failed to simplify \
+             or exhausted the simplification budget may have been left unapplied there, so the \
+             leaf need not be an end of the truncated system",
+            crate::results::kebab(&format!("{halt:?}"))
+        ),
+        MatchUnknown::ExecutionModeRefutation => format!(
+            "{would}: the run's states were refuted in execution mode alone ({name}), where the \
+             matcher may read a value the definition leaves open without the run recording it"
+        ),
+        MatchUnknown::Exclusion(exclusion) => exclusion_cause(*exclusion, would),
+        MatchUnknown::MatcherStackStop(stops) => format!(
+            "{would}: the matcher stopped {stops} time(s) for lack of native stack ({name}), \
+             which leaves its match undecided"
+        ),
+        MatchUnknown::UndecidedAnswers {
+            run,
+            feasibility,
+            matcher,
+        } => format!(
+            "{would}: the run received {run}, its leaves' feasibility questions {feasibility} \
+             and its matcher {matcher} undecided solver answer(s) ({name}: a query Z3 did not \
+             decide within budget.smt_resource_limit and its retries, or by its \
+             incompleteness), so a decision the answer rests on may rest on one"
+        ),
+        MatchUnknown::Unmatched => {
+            format!("the stopped run reports no state matches ({name}), so it answers nothing")
+        }
+    }
+}
+
+/// The kind of a path diagnostic, as k-rust's wire `kind` spells it (kebab case of its variant).
+fn diagnostic_kind(diagnostic: &k_rust::backend::BackendDiagnosticOutput<Pattern>) -> String {
+    let debug = format!("{diagnostic:?}");
+    let variant = debug
+        .split(|c: char| !c.is_alphanumeric())
+        .next()
+        .unwrap_or_default();
+    crate::results::kebab(variant)
+}
+
+/// k-rust's name of an undecided match's reason.
+fn undecided_reason(reason: UndecidedMatchReasonOutput) -> String {
+    serde_json::to_value(reason)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| format!("{reason:?}"))
 }
 
 /// Run `body` under a watchdog that cancels it after `time`; whether the watchdog fired.
