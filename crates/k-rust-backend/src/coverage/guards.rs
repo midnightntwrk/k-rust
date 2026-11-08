@@ -46,18 +46,36 @@
 //! the first group, in priority order, that applies to the subject or that the step leaves
 //! undecided there. A lower group states nothing where that group applies, and where it is
 //! undecided whether it applies a lower group is not known to state anything, so it gets no
-//! entry unless the step gives it a subject of its own (an `All` step's remainder). Under
-//! `ExecutionMode::All` a step tries every rule of a productive group; it stops early where a
-//! rule's attempt leaves the group undecided, and under `ExecutionMode::Any` where a rule takes
-//! every instance of the subject. Each named rule of the deciding group the step does not try
-//! then gets an untried entry where its left-hand side matches the subject the group decides
-//! (`rewrite::step::enter_untried_rules`): the step's subject, the remainder for a lower group
-//! of an `All` step, and under `Any` the subject the group was entered with, the instances no
-//! higher priority applies to, which every rule of the group is tried on until an earlier rule
-//! of the group takes some of its instances. An entry is made where the match decides the instance by itself, a syntactic match
-//! binding the rule's variables with no definedness obligation, as an attempt would enter it;
-//! where only the attempt's later phases, which may ask the solver, would decide its instances,
-//! none is made.
+//! entry unless the step gives it a subject of its own (an `All` step's remainder, or under
+//! `Any` the instances no higher priority applies to).
+//!
+//! Under `ExecutionMode::All` a step tries every rule of a productive group on one subject, and
+//! stops early only where a rule's attempt leaves the group undecided: each named rule after it
+//! gets an untried entry where its left-hand side matches the subject the group decides, the
+//! step's subject or, for a lower group, the remainder (`rewrite::step::enter_untried_rules`).
+//! Under `ExecutionMode::Any` the step feeds each rule of a group the instances no earlier rule
+//! of the group took, and stops at the rule that takes every instance or that leaves the group
+//! undecided, so an attempt's own entry would depend on the order: of `A <Int 5` and
+//! `A >=Int 5` on a symbolic `A`, the rule tried second would be decided under the other's
+//! negation and read held. So every named rule of the group, tried or not, has its entry made
+//! against the subject the group was entered with, read from the evaluation as an untried entry
+//! is, and its attempt makes none ([`rule_entry_aside`], `rewrite::step`'s `SequentialGuards`):
+//! one entry per rule and step, by one classification, whatever the order. A step that stops (a
+//! deadline, a budget, a cancellation) decides no subject, and makes none of these entries.
+//!
+//! An untried entry is made where the match decides the instance by itself, a syntactic match
+//! binding the rule's variables with no definedness obligation the path conditions do not
+//! state, under the path conditions an attempt is decided under, as the attempt would enter it
+//! (`rewrite::apply::untried_instance`). Where only the attempt's later phases, which may ask
+//! the solver, decide the instances (a match recovered by unification or a split, such as a map
+//! pattern with several candidates, an equality of a subject variable, a definedness obligation
+//! the path does not state), none is made: such a rule has the entries of its attempt where the
+//! step tries it, under the instances the attempt is fed, and none where it does not. Under
+//! `All`, the rules of an undecided group before the rule that left it undecided keep the
+//! entries of their attempts, whose guard outcomes are the attempts' verdicts, while those after
+//! it have untried entries: on a subject the solver-free evaluation leaves open, a rule's guard
+//! outcome there (`held` or `refuted-decided` by the solver, `undecided-open`) and its untried
+//! one (`undecided-untried`) differ, so they depend on the order on such a subject.
 //!
 //! A function applied inside an untried entry's evaluation is applied by the record, not by the
 //! run: the evaluation is isolated (`coverage::isolated`), so it reports to no coverage set and
@@ -373,6 +391,8 @@ thread_local! {
     static RECORDING: Cell<bool> = const { Cell::new(false) };
     /// What it has collected.
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
+    /// Whether a rule attempt's own entry is set aside ([`rule_entry_aside`]).
+    static RULE_ENTRY_ASIDE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The guard outcomes of one collection.
@@ -576,6 +596,28 @@ pub(super) fn recording() -> bool {
     RECORDING.get()
 }
 
+/// Run `attempt`, a rewrite rule's attempt, with its own guard entry set aside when `aside`
+/// holds: the site that enters a rule's `requires` (`super::enter_rule_condition`) then makes no
+/// guard entry, because the step makes the rule's entry itself, against the subject its group
+/// decides (`rewrite::step`'s `SequentialGuards`). The entries of the equations the attempt
+/// applies are the run's and are made as ever. The flag is restored afterwards, also when
+/// `attempt` unwinds.
+pub(crate) fn rule_entry_aside<T>(aside: bool, attempt: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RULE_ENTRY_ASIDE.set(self.0);
+        }
+    }
+    let _restore = Restore(RULE_ENTRY_ASIDE.replace(aside));
+    attempt()
+}
+
+/// Whether a rule attempt's own guard entry is set aside ([`rule_entry_aside`]).
+pub(super) fn rule_entry_set_aside() -> bool {
+    RULE_ENTRY_ASIDE.get()
+}
+
 /// Fold the entry of the axiom `attributes` names, whose written `requires` is `requires`,
 /// under `substitution`, with the path and match conditions `knowledge`, when the open
 /// collection names it; `shared` is the evaluation a condition record of the same entry made,
@@ -756,21 +798,20 @@ pub(crate) fn untried_application(
 /// ([`untried_application`]), with no cache of subjects: a step's subject is a whole
 /// configuration, which a run seldom steps from twice and which mostly holds more than
 /// `max_value_size` nodes, and the entry cache recognizes each repeated entry anyway.
-pub(crate) fn untried_step(enter: impl FnOnce()) {
-    if SINK.with_borrow(Option::is_some) {
-        untried_isolated(enter);
-    }
+pub(crate) fn untried_step<T>(enter: impl FnOnce() -> T) -> Option<T> {
+    SINK.with_borrow(Option::is_some)
+        .then(|| untried_isolated(enter))
 }
 
 /// The isolation of [`untried_application`] and [`untried_step`] around `enter`.
-fn untried_isolated(enter: impl FnOnce()) {
+fn untried_isolated<T>(enter: impl FnOnce() -> T) -> T {
     super::suspend(|| {
         k_rust_kore::measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
                 crate::path_facts::discarded(|| crate::rule::with_apart_names_restored(enter))
             })
         })
-    });
+    })
 }
 
 /// Fold the entry of the axiom `attributes` names into `requires` under `substitution`, with

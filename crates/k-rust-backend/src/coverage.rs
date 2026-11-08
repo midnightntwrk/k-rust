@@ -99,7 +99,8 @@ pub use guards::{
     skeletons,
 };
 pub(crate) use guards::{
-    Decided, GuardHandle, collects_guard_of, enter_untried, untried_application, untried_step,
+    Decided, GuardHandle, collects_guard_of, enter_untried, rule_entry_aside, untried_application,
+    untried_step,
 };
 pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 
@@ -161,9 +162,9 @@ pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 /// group is scanned until one equation applies, a rewrite step stops at the first productive
 /// priority group), but not on the order or multiplicity of applications, and they do not grow
 /// with the number of leaves. The guard outcomes below do not depend on the trial order within
-/// a priority group: the equations of the group that applied after the one that applied, and
-/// the rules of a step's deciding group that the step does not try, get untried entries
-/// (`guards`).
+/// a priority group: the equations of the group that applied after the one that applied, the
+/// rules of an `All` step's undecided group after the one that left it undecided, and every rule
+/// of an `Any` step's group get untried entries, within the limits `guards` states.
 ///
 /// `offered`, present exactly when the collection offered (`collect_offering`), holds
 /// `matched`, plus the id of an axiom whose left-hand side matched a subject at a site where the
@@ -245,9 +246,8 @@ pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 /// `requires` phase, an equation's condition evaluation, a definedness decision's one-step
 /// selection: the sites of `matched` that decide a condition), or that a function scan or a
 /// rewrite step gave an untried entry (an equation of the group that applied, after the one that
-/// applied, whose left-hand side matches the application; a rule of the step's deciding group
-/// that the step did not try, whose left-hand side matches its subject: `guards`), the outcomes
-/// of its guard
+/// applied, whose left-hand side matches the application; a rule of the group that decides a
+/// step's subject, whose left-hand side matches it: `guards`), the outcomes of its guard
 /// ([`AxiomGuard`]): per node of the written `requires`, the outcomes it took on the entries
 /// where it was reached; the guard outcomes of the entries; and their valuation combinations,
 /// bounded. Each is a union over the run's distinct entries, so like the sets they depend on
@@ -626,9 +626,10 @@ pub(crate) fn records_conditions() -> bool {
 /// Record the entry of `rule`'s `requires` under `substitution`, the match's bindings, with the
 /// path and match conditions `knowledge`: a condition record when the open collection names the
 /// rule for records (`conditions`), and the entry's guard outcomes when it names it for guards
-/// (`guards`), from one evaluation where both ask under the same caps. P11 of a rule attempt
-/// calls it where it notes the rule matched, after [`records_conditions`]; the attempt then
-/// reports its verdict with the returned handle ([`rule_condition_verdict`]).
+/// (`guards`) and the step has not set the attempt's guard entry aside to make it itself
+/// (`guards::rule_entry_aside`), from one evaluation where both ask under the same caps. P11 of
+/// a rule attempt calls it where it notes the rule matched, after [`records_conditions`]; the
+/// attempt then reports its verdict with the returned handle ([`rule_condition_verdict`]).
 #[inline(never)]
 pub(crate) fn enter_rule_condition(
     definition: &crate::definition::BackendDefinition,
@@ -642,7 +643,7 @@ pub(crate) fn enter_rule_condition(
     } else {
         None
     };
-    if guards::recording() {
+    if guards::recording() && !guards::rule_entry_set_aside() {
         guards::enter(
             definition,
             &rule.attributes,

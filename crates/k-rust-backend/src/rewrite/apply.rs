@@ -1537,19 +1537,22 @@ fn consumed_collections(
 }
 
 /// The instance of `rule` at the subject `pattern` that an untried entry of its guard is made
-/// under (`step::enter_untried_rules`): the rule renamed apart from the subject where an attempt
-/// renames it, and the bindings of its left-hand side's match, where the match decides the
-/// instance by itself. That is where P1 matches with `Success`, binding the rule's variables
-/// only, and P9 finds no definedness obligation of a binding or of a consumed collection: an
-/// attempt then reaches P11 with exactly these bindings and no match condition, so its entry is
-/// this one. `None` where the left-hand side does not match, and where only the attempt's later
-/// phases decide its instances (the recovery of an indeterminate match, an equality of a subject
-/// variable, a definedness obligation), each of which may ask the solver: an untried entry asks
+/// under (`step::enter_untried_rules`), with `knowledge` the path conditions an attempt is
+/// decided under (P2): the rule renamed apart from the subject where an attempt renames it, and
+/// the bindings of its left-hand side's match, where the match decides the instance by itself.
+/// That is where P1 matches with `Success`, binding the rule's variables only, and every
+/// definedness obligation P9 states of a binding or of a consumed collection is one of
+/// `knowledge`, which P9's simplification under it discharges: an attempt then reaches P11 with
+/// exactly these bindings and no match condition, so its entry is this one. `None` where the
+/// left-hand side does not match, and where only the attempt's later phases decide its instances
+/// (the recovery of an indeterminate match, an equality of a subject variable, a definedness
+/// obligation the path does not state), each of which may ask the solver: an untried entry asks
 /// none, and claims nothing there.
 pub(super) fn untried_instance<'r>(
     definition: &BackendDefinition,
     rule: &'r RewriteRule,
     pattern: &Pattern,
+    knowledge: &[Predicate],
 ) -> Option<(std::borrow::Cow<'r, RewriteRule>, Substitution)> {
     let rule = match rename_apart(
         rule,
@@ -1580,6 +1583,7 @@ pub(super) fn untried_instance<'r>(
     {
         extend_unique(&mut obligations, ceil_term(definition, value).ok()?);
     }
+    obligations.retain(|obligation| !knowledge.contains(obligation));
     (predicates_truth(&obligations) == Truth::True).then_some((rule, substitution))
 }
 

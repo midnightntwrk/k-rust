@@ -1405,7 +1405,12 @@ fn collecting_untried_guards_changes_nothing_else_in_the_run() {
 /// - `rs(A)`: `rsOpen`, whose guard reads `k`, which has no equation, so that its attempt
 ///   leaves the group undecided without a solver, then `rsLow` (`A <Int 5`) and `rsHigh`
 ///   (`A >=Int 5`); `rsBelow`, of a lower priority, applies wherever `A <Int 100`;
-/// - `rt(A)`: `rtLow` and `rtHigh`, the same complementary pair, and `rtBelow` below them.
+/// - `rt(A)`: `rtLow` and `rtHigh`, the same complementary pair, and `rtBelow` below them;
+/// - `rd(B, Q)`: `rdOpen`, as `rsOpen`, then `rdGuard` (`notBool(B ==Int 0)`), on a subject
+///   whose `Q` is `10 /Int B`, defined only where `B` is not 0;
+/// - `rm(M)`, over a map: `rmAny`, which applies to every map, then `rmMap`, whose left-hand side
+///   `rm(K |-> V M2)` matches a map of two entries in two ways, which the match alone does not
+///   decide.
 fn rules_definition(reversed: bool) -> BackendDefinition {
     let group = |mut rules: Vec<String>| {
         if reversed {
@@ -1442,6 +1447,7 @@ fn rules_definition(reversed: bool) -> BackendDefinition {
     };
     let rs = format!("rs{{}}({A})");
     let rt = format!("rt{{}}({A})");
+    let rd = format!("rd{{}}({B}, Q:SortInt{{}})");
     let axioms = group(vec![
         rule(
             "rsOpen",
@@ -1457,6 +1463,38 @@ fn rules_definition(reversed: bool) -> BackendDefinition {
     .chain([below("rsBelow", &rs)])
     .chain(group(vec![low("rtLow", &rt), high("rtHigh", &rt)]))
     .chain([below("rtBelow", &rt)])
+    .chain(group(vec![
+        rule(
+            "rdOpen",
+            &rd,
+            "open{}()",
+            &format!("eqInt{{}}(k{{}}({B}), {})", int(1)),
+            "",
+        ),
+        rule(
+            "rdGuard",
+            &rd,
+            "low{}()",
+            &format!("notBool{{}}(eqInt{{}}({B}, {}))", int(0)),
+            "",
+        ),
+    ]))
+    .chain(group(vec![
+        rule(
+            "rmAny",
+            "rm{}(M:SortC{})",
+            "low{}()",
+            &format!("ltInt{{}}({}, {})", int(0), int(1)),
+            "",
+        ),
+        rule(
+            "rmMap",
+            "rm{}(cConcat{}(cItem{}(K:SortInt{}, V:SortInt{}), M2:SortC{}))",
+            "high{}()",
+            &format!("eqInt{{}}(V:SortInt{{}}, {})", int(5)),
+            "",
+        ),
+    ]))
     .collect::<Vec<_>>();
     let source = format!(
         r#"[]
@@ -1470,7 +1508,18 @@ fn rules_definition(reversed: bool) -> BackendDefinition {
                 [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
             hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
                 [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            hooked-symbol notBool{{}}(SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.not"), smt-hook{{}}("not")]
+            hooked-symbol divInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), hook{{}}("INT.tdiv"), smt-hook{{}}("div")]
+            hooked-sort SortC{{}} [hook{{}}("MAP.Map"), unit{{}}(cUnit{{}}()), element{{}}(cItem{{}}()), concat{{}}(cConcat{{}}())]
+            hooked-symbol cUnit{{}}() : SortC{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.unit")]
+            hooked-symbol cItem{{}}(SortInt{{}}, SortInt{{}}) : SortC{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.element")]
+            hooked-symbol cConcat{{}}(SortC{{}}, SortC{{}}) : SortC{{}}
+                [function{{}}(), hook{{}}("MAP.concat"), assoc{{}}(), comm{{}}(), unit{{}}(cUnit{{}}())]
             symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol rd{{}}(SortInt{{}}, SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol rm{{}}(SortC{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol rs{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol rt{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol open{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
@@ -1501,8 +1550,18 @@ fn rule_guards_of(
         mode,
         ..guarded(axioms)
     };
-    let mut with = execute(definition, initial.clone(), options.clone());
-    let without = execute(
+    rule_guards_with(definition, initial, options, execute)
+}
+
+/// [`rule_guards_of`] under `options`, each run made by `run`.
+fn rule_guards_with(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    run: impl Fn(&BackendDefinition, Pattern, ExecutionOptions) -> ExecutionResult,
+) -> (Vec<AxiomGuard>, BTreeSet<String>) {
+    let mut with = run(definition, initial.clone(), options.clone());
+    let without = run(
         definition,
         initial,
         ExecutionOptions {
@@ -1605,4 +1664,160 @@ fn under_any_the_rules_after_the_one_that_took_the_state_get_entries() {
         }
         assert_eq!(by_order[0], by_order[1], "at {argument}");
     }
+}
+
+/// Under `ExecutionMode::Any`, a rule whose attempt leaves its group undecided (`rsOpen`) ends
+/// the step: every rule of the group, tried or not, has its entry against the subject the group
+/// decides, read by one classification, so the group's guards are the same in either
+/// declaration order, the undecided rule's included; the lower group gets none.
+#[test]
+fn under_any_an_undecided_attempt_leaves_every_rule_of_its_group_one_entry() {
+    let refuted = GuardOutcome::Refuted(Refutation::False);
+    for (head, axioms) in [("rs", ["rsOpen", "rsLow", "rsHigh", "rsBelow"])] {
+        for (argument, low, high) in [
+            (1, GuardOutcome::Held, refuted),
+            (7, refuted, GuardOutcome::Held),
+        ] {
+            let mut by_order = Vec::new();
+            for reversed in [false, true] {
+                let definition = rules_definition(reversed);
+                let initial = ground(&definition, &format!("{head}{{}}({})", int(argument)));
+                let (guards, matched) =
+                    rule_guards_of(&definition, initial, &axioms, ExecutionMode::Any);
+                // Tried first, the undecided rule ends the step; tried last, after the rule that
+                // takes the state, it is never tried.
+                assert_eq!(
+                    matched.contains(axioms[0]),
+                    !reversed,
+                    "the declaration order is the trial order: {matched:?}"
+                );
+                assert!(reversed || !matched.contains(axioms[1]), "{matched:?}");
+                let mut expected = vec![axioms[2], axioms[1], axioms[0]];
+                expected.sort_unstable();
+                assert_eq!(names(&guards), expected, "{guards:?}");
+                assert_eq!(guard(&guards, axioms[1]).outcomes, set(&[low]));
+                assert_eq!(guard(&guards, axioms[2]).outcomes, set(&[high]));
+                by_order.push(guards);
+            }
+            assert_eq!(by_order[0], by_order[1], "{head} at {argument}");
+        }
+    }
+}
+
+/// An untried rule is entered under the path conditions its attempt would be decided under,
+/// the subject's definedness among them where it is assumed: on `rd(B, 10 /Int B)` assumed
+/// defined, the definedness of the binding `Q = 10 /Int B` is known, so `rdGuard`, untried after
+/// `rdOpen`, has the entry its attempt has where it is tried first. Without the assumption only
+/// the attempt's definedness phase decides the instance, and the untried rule has no entry.
+#[test]
+fn an_untried_rule_reads_the_assumed_definedness_of_the_subject() {
+    let read = |reversed: bool, assume: bool| {
+        let definition = rules_definition(reversed);
+        let initial = ground(
+            &definition,
+            &format!(
+                "rd{{}}(B:SortInt{{}}, divInt{{}}({}, B:SortInt{{}}))",
+                int(10)
+            ),
+        );
+        let options = ExecutionOptions {
+            assume_initial_defined: assume,
+            ..guarded(&["rdOpen", "rdGuard"])
+        };
+        let (guards, matched) = rule_guards_with(&definition, initial, options, execute);
+        assert_eq!(matched.contains("rdGuard"), reversed, "{matched:?}");
+        guards
+            .iter()
+            .find(|guard| guard.axiom == "rdGuard")
+            .map(|guard| guard.nodes.clone())
+    };
+    let untried = read(false, true);
+    assert!(untried.is_some());
+    assert_eq!(untried, read(true, true));
+    assert_eq!(read(false, false), None);
+}
+
+/// A rule whose left-hand side's match does not decide its instance by itself (`rmMap`, whose
+/// map pattern matches a map of two entries in two ways) gets no untried entry; it has the
+/// entries of its attempt only where the step tries it.
+#[test]
+fn a_rule_whose_match_is_not_decided_by_itself_gets_no_untried_entry() {
+    for reversed in [false, true] {
+        let definition = rules_definition(reversed);
+        let initial = ground(
+            &definition,
+            &format!(
+                "rm{{}}(cConcat{{}}(cItem{{}}({}, {}), cItem{{}}({}, {})))",
+                int(1),
+                int(5),
+                int(2),
+                int(7)
+            ),
+        );
+        let (guards, matched) = rule_guards_of(
+            &definition,
+            initial,
+            &["rmAny", "rmMap"],
+            ExecutionMode::Any,
+        );
+        assert_eq!(matched.contains("rmMap"), reversed, "{matched:?}");
+        let expected: &[&str] = if reversed {
+            &["rmAny", "rmMap"]
+        } else {
+            &["rmAny"]
+        };
+        assert_eq!(names(&guards), expected, "{guards:?}");
+    }
+}
+
+/// [`rule_guards_with`], each run deciding with a Z3 solver of its own.
+#[cfg(feature = "z3")]
+fn z3_rule_guards(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    axioms: &[&str],
+    mode: ExecutionMode,
+) -> (Vec<AxiomGuard>, BTreeSet<String>) {
+    let options = ExecutionOptions {
+        mode,
+        ..guarded(axioms)
+    };
+    rule_guards_with(
+        definition,
+        initial,
+        options,
+        |definition, initial, options| {
+            let solver = crate::smt::Z3Solver::new(definition).expect("Z3 should initialize");
+            crate::rewrite::execute_with_solver(definition, initial, options, &solver)
+        },
+    )
+}
+
+/// Under `ExecutionMode::Any`, on a symbolic `A`, the rule of `A <Int 5` and `A >=Int 5` tried
+/// second is tried on the instances the first left, where its guard holds; each rule's entry is
+/// made against the subject the group was entered with instead, so the two read the same in
+/// either declaration order, and the entries do not depend on which one the step tried.
+#[cfg(feature = "z3")]
+#[test]
+fn under_any_a_symbolic_subject_gives_the_same_entries_in_either_order() {
+    let mut by_order = Vec::new();
+    for reversed in [false, true] {
+        let definition = rules_definition(reversed);
+        let initial = ground(&definition, "rt{}(A:SortInt{})");
+        let (guards, matched) = z3_rule_guards(&definition, initial, &RT, ExecutionMode::Any);
+        assert!(
+            matched.contains("rtLow") && matched.contains("rtHigh"),
+            "{matched:?}"
+        );
+        assert_eq!(names(&guards), ["rtHigh", "rtLow"], "{guards:?}");
+        for axiom in ["rtHigh", "rtLow"] {
+            assert_eq!(
+                guard(&guards, axiom).outcomes,
+                set(&[GuardOutcome::Undecided(AttemptCause::Untried)]),
+                "{guards:?}"
+            );
+        }
+        by_order.push(guards);
+    }
+    assert_eq!(by_order[0], by_order[1]);
 }

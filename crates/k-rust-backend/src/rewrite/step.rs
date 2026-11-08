@@ -543,8 +543,93 @@ fn rule_probe<'a>(
     }
 }
 
+/// Whether the run collects the guard of `rule` and an untried entry can be made of it: its
+/// `requires` is not empty and it holds no literal whose element the definition leaves open
+/// (`crate::literal`), whose attempt rests on k-rust's element, which an untried entry cannot
+/// mark.
+fn untried_candidate(rule: &RewriteRule) -> bool {
+    !rule.requires.is_empty()
+        && rule.computed_attributes.open_literals.is_empty()
+        && crate::coverage::collects_guard_of(&rule.attributes)
+}
+
+/// The instance of a rule an untried entry is made under (`apply::untried_instance`).
+type UntriedRule<'r> = (std::borrow::Cow<'r, RewriteRule>, Substitution);
+
+/// The path conditions an attempt at the subject `pattern` is decided under (P2): its
+/// constraints, and its definedness where it is assumed.
+fn untried_knowledge(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    assume_initial_defined: bool,
+) -> Vec<Predicate> {
+    let mut knowledge = pattern.constraints.clone();
+    if assume_initial_defined {
+        // As for an attempt's knowledge: a definedness that depends on an impure application in
+        // an operand a conditional never evaluates is left out, which only weakens it.
+        let definedness = crate::coverage::untried_step(|| {
+            crate::stop::off_the_clock(u64::MAX, || {
+                ceil_term(definition, &pattern.term).unwrap_or_default()
+            })
+            .0
+        })
+        .unwrap_or_default();
+        extend_unique(&mut knowledge, definedness);
+    }
+    knowledge
+}
+
+/// The instances of `rules` at `pattern` that untried entries are made under, decided under the
+/// path conditions `knowledge` (`apply::untried_instance`), found by a matching isolated from the
+/// run and off its clock (`coverage::untried_step`); `None` for a rule whose match does not
+/// decide an instance by itself.
+fn untried_instances<'r>(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    knowledge: &[Predicate],
+    rules: impl IntoIterator<Item = &'r RewriteRule>,
+) -> Vec<Option<UntriedRule<'r>>> {
+    crate::coverage::untried_step(|| {
+        crate::stop::off_the_clock(u64::MAX, || {
+            rules
+                .into_iter()
+                .map(|rule| super::apply::untried_instance(definition, rule, pattern, knowledge))
+                .collect::<Vec<_>>()
+        })
+        .0
+    })
+    .unwrap_or_default()
+}
+
+/// Make the untried entries of `instances` under the path conditions `knowledge`, with the
+/// outcome each one's evaluation gives (`coverage::enter_untried`), isolated from the run
+/// (`coverage::untried_step`).
+fn enter_instances(
+    definition: &BackendDefinition,
+    knowledge: &[Predicate],
+    instances: Vec<UntriedRule<'_>>,
+    options: SimplificationOptions,
+) {
+    if instances.is_empty() {
+        return;
+    }
+    crate::coverage::untried_step(|| {
+        for (rule, substitution) in instances {
+            crate::coverage::enter_untried(
+                definition,
+                &rule.attributes,
+                rule.requires.conjuncts(),
+                &substitution,
+                knowledge,
+                options,
+            );
+        }
+    });
+}
+
 /// The untried guard entries of the rules `untried`, rules of the priority group that decides
-/// the subject `pattern` which the step never tries there (`coverage::guards`).
+/// the subject `pattern` which an `All` step never tries there, after the rule whose attempt
+/// left the group undecided (`coverage::guards`).
 ///
 /// A rewrite rule of a priority states a transition from the instances of a subject its
 /// left-hand side matches where its `requires` holds and no rule of a higher priority applies,
@@ -553,22 +638,11 @@ fn rule_probe<'a>(
 /// that the step leaves undecided there. The groups above it were refuted in full there. The
 /// groups below it state nothing where it applies, and where it is undecided whether it applies
 /// they are not known to state anything: none of their rules gets an entry, unless the step gives
-/// them a subject of their own (the remainder of an `All` step). The step tries the rules of the
-/// deciding group in an order the definition does not state, and stops early in two cases: a
-/// rule whose attempt leaves the group undecided ends the step there, and under
-/// `ExecutionMode::Any` the rule that takes every instance of the subject does. So each rule of
-/// the deciding group the step does not try gets an untried entry where its left-hand side
-/// matches, and every rule of the group has an entry wherever its left-hand side matches,
-/// whatever the order.
-///
-/// An entry is made where the match decides the instance by itself (`apply::untried_instance`),
-/// under the path conditions an attempt decides under (with the subject's definedness where it
-/// is assumed, as P2 states it), with the outcome its evaluation gives
-/// (`coverage::enter_untried`). None is made for a rule holding a literal whose element the
-/// definition leaves open (`crate::literal`), since its attempt rests on k-rust's element. The
-/// matching is isolated from the run and off its clock, as the entries' evaluations are
-/// (`coverage::untried_step`), so it changes nothing the step does. Out of line, so that its
-/// work is no part of a step's frame.
+/// them a subject of their own (the remainder of an `All` step). An `All` step tries every rule
+/// of a productive group, and stops early only at a rule whose attempt leaves the group
+/// undecided; each rule of the group after it gets an untried entry where its match decides its
+/// instance by itself (`apply::untried_instance`). Out of line, so that its work is no part of a
+/// step's frame.
 #[inline(never)]
 fn enter_untried_rules(
     definition: &BackendDefinition,
@@ -582,65 +656,92 @@ fn enter_untried_rules(
     }
     let candidates = untried
         .iter()
-        .filter(|rule| {
-            !rule.requires.is_empty()
-                && rule.computed_attributes.open_literals.is_empty()
-                && crate::coverage::collects_guard_of(&rule.attributes)
-        })
+        .map(AsRef::as_ref)
+        .filter(|rule| untried_candidate(rule))
         .collect::<Vec<_>>();
     if candidates.is_empty() {
         return;
     }
-    crate::coverage::untried_step(|| {
-        let ((instances, knowledge), _) = crate::stop::off_the_clock(u64::MAX, || {
-            let instances = candidates
-                .into_iter()
-                .filter_map(|rule| super::apply::untried_instance(definition, rule, pattern))
-                .collect::<Vec<_>>();
-            let mut knowledge = pattern.constraints.clone();
-            if assume_initial_defined && !instances.is_empty() {
-                extend_unique(
-                    &mut knowledge,
-                    ceil_term(definition, &pattern.term).unwrap_or_default(),
-                );
-            }
-            (instances, knowledge)
-        });
-        for (rule, substitution) in instances {
-            crate::coverage::enter_untried(
-                definition,
-                &rule.attributes,
-                rule.requires.conjuncts(),
-                &substitution,
-                &knowledge,
-                options,
-            );
-        }
-    });
+    let knowledge = untried_knowledge(definition, pattern, assume_initial_defined);
+    let instances = untried_instances(definition, pattern, &knowledge, candidates)
+        .into_iter()
+        .flatten()
+        .collect();
+    enter_instances(definition, &knowledge, instances, options);
 }
 
-/// The untried guard entries of a sequential step that ends at `rule` of the priority group
-/// `group` ([`enter_untried_rules`]), against the subject the group decides, `subject`: the rules
-/// after `rule`, and `rule` itself unless it was `tried`. Where `rule` is the first of its group
-/// and not tried, an earlier priority took every instance of the subject, which leaves this
-/// group none, and no entry is made.
-fn enter_untried_sequential(
-    definition: &BackendDefinition,
-    group: &[Arc<RewriteRule>],
-    rule: &Arc<RewriteRule>,
-    tried: bool,
-    subject: &Pattern,
-    options: SimplificationOptions,
-) {
-    let Some(position) = group.iter().position(|member| Arc::ptr_eq(member, rule)) else {
-        return;
-    };
-    let first = match (tried, position) {
-        (true, _) => position + 1,
-        (false, 0) => return,
-        (false, _) => position,
-    };
-    enter_untried_rules(definition, subject, &group[first..], false, options);
+/// The guard entries of one priority group of a sequential step (`ExecutionMode::Any`), made
+/// against the subject the group decides, the instances no higher priority applies to, when the
+/// step leaves the group (`coverage::guards`).
+///
+/// The sequential step feeds each rule of the group the instances no earlier rule of the group
+/// took to a defined result, and stops at the rule that takes every instance or whose attempt
+/// leaves the group undecided. A rule's entry made by its own attempt would therefore depend on
+/// the order the definition does not state: a rule tried after another one is decided under the
+/// other's negation (of `A <Int 5` and `A >=Int 5` on a symbolic `A`, the one tried second
+/// would read held, and neither refuted), and a rule after the one that ended the step has no
+/// attempt. So the group's rules have their entries made here, each against the subject the
+/// group was entered with, under the path conditions an attempt is made under there, with the
+/// outcome the evaluation gives (`coverage::enter_untried`), the one classification every rule
+/// of the group shares, whichever the step tried: every rule of the group whose match decides
+/// its instance by itself (`apply::untried_instance`) has one entry per step, whatever the
+/// order, and its attempt, if any, makes none (`coverage::rule_entry_aside`). A rule whose match
+/// only its attempt's later phases decide keeps the entry its attempt makes, where the step tries
+/// it, under the instances the attempt is fed.
+///
+/// A step that stops (its deadline, its budget, a cancellation) decides no subject and makes the
+/// entries of none of its groups.
+struct SequentialGuards<'r> {
+    subject: Pattern,
+    group: &'r [Arc<RewriteRule>],
+    /// Per rule of the group, its instance where it was looked for already: `Some(None)` where
+    /// the rule is no candidate or its match decides no instance by itself.
+    instances: Vec<Option<Option<UntriedRule<'r>>>>,
+}
+
+impl<'r> SequentialGuards<'r> {
+    fn new(subject: Pattern, group: &'r [Arc<RewriteRule>]) -> Self {
+        Self {
+            subject,
+            group,
+            instances: group.iter().map(|_| None).collect(),
+        }
+    }
+
+    /// The instance of the group's rule at `position`, looked for once.
+    fn instance_at(&mut self, definition: &BackendDefinition, position: usize) -> bool {
+        if self.instances[position].is_none() {
+            let rule = self.group[position].as_ref();
+            let instance = if untried_candidate(rule) {
+                untried_instances(definition, &self.subject, &self.subject.constraints, [rule])
+                    .pop()
+                    .flatten()
+            } else {
+                None
+            };
+            self.instances[position] = Some(instance);
+        }
+        matches!(self.instances[position], Some(Some(_)))
+    }
+
+    /// Whether the group makes the entry of `rule`, which the step is about to try, so that its
+    /// attempt makes none.
+    fn makes_entry_of(&mut self, definition: &BackendDefinition, rule: &Arc<RewriteRule>) -> bool {
+        self.group
+            .iter()
+            .position(|member| Arc::ptr_eq(member, rule))
+            .is_some_and(|position| self.instance_at(definition, position))
+    }
+
+    /// Make the entries of every rule of the group whose match decides its instance by itself.
+    #[inline(never)]
+    fn enter(mut self, definition: &BackendDefinition, options: SimplificationOptions) {
+        for position in 0..self.group.len() {
+            self.instance_at(definition, position);
+        }
+        let instances = self.instances.into_iter().flatten().flatten().collect();
+        enter_instances(definition, &self.subject.constraints, instances, options);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1333,12 +1434,15 @@ pub(super) fn rewrite_step_any(
             Some((priority, rule, rules.is_exhausted()))
         })
     });
-    // The subject the current priority's rules decide, the instances no higher priority applies
-    // to, against which the rules the step never tries get untried guard entries; kept only when
-    // the run collects guards.
-    let mut priority_subject = None;
+    // The guard entries of the current priority's rules, made against the subject it decides
+    // when the step leaves it (`SequentialGuards`); kept only when the run collects guards and
+    // the priority has an instance to decide.
+    let mut group_guards: Option<SequentialGuards<'_>> = None;
     for (priority, rule, last_of_priority) in rules {
         if remaining.priority() != Some(priority) {
+            if let Some(guards) = group_guards.take() {
+                guards.enter(definition, simplification_options);
+            }
             if let Err(error) = close_priority(
                 definition,
                 pattern,
@@ -1356,25 +1460,15 @@ pub(super) fn rewrite_step_any(
                 });
             }
             priority_trivial = trivial.len();
-            if crate::coverage::records_guards() {
-                priority_subject = Some(remaining.pattern().clone());
+            if crate::coverage::records_guards()
+                && predicates_truth(&remaining.pattern().constraints) != Truth::False
+            {
+                group_guards = Some(SequentialGuards::new(
+                    remaining.pattern().clone(),
+                    &priority_groups[&priority],
+                ));
             }
         }
-        // The rules of this priority the step never tries once it ends at `rule`: those after
-        // it, with `rule` itself where it is not tried, and none where `rule` is the first of its
-        // priority and not tried, since an earlier priority then took every instance.
-        let untried = |tried: bool| {
-            if let Some(subject) = &priority_subject {
-                enter_untried_sequential(
-                    definition,
-                    &priority_groups[&priority],
-                    rule,
-                    tried,
-                    subject,
-                    simplification_options,
-                );
-            }
-        };
         if predicates_truth(&remaining.pattern().constraints) == Truth::False {
             // Nothing is left to feed the later rules; the tracker still asks whether they
             // cover a configuration an earlier rule took.
@@ -1395,20 +1489,24 @@ pub(super) fn rewrite_step_any(
             // Under `Any` the rule that took the state ends the step: this rule and the ones
             // after it are never tried.
             selection.give_back();
-            untried(false);
             break;
         }
-        let attempt = RefutationMemo::apply_rule(
-            memo.as_deref_mut(),
-            definition,
-            rule,
-            remaining.pattern(),
-            fresh_counter,
-            simplification_options,
-            solver,
-            io,
-            ground_halt,
-        )?;
+        let aside = group_guards
+            .as_mut()
+            .is_some_and(|guards| guards.makes_entry_of(definition, rule));
+        let attempt = crate::coverage::rule_entry_aside(aside, || {
+            RefutationMemo::apply_rule(
+                memo.as_deref_mut(),
+                definition,
+                rule,
+                remaining.pattern(),
+                fresh_counter,
+                simplification_options,
+                solver,
+                io,
+                ground_halt,
+            )
+        })?;
         if let Some(determinism) = determinism.as_deref_mut() {
             determinism.record(
                 definition,
@@ -1675,7 +1773,9 @@ pub(super) fn rewrite_step_any(
                             solver,
                         )?
                     {
-                        untried(true);
+                        if let Some(guards) = group_guards.take() {
+                            guards.enter(definition, simplification_options);
+                        }
                         return Ok(RewriteResult::Simplification {
                             pattern: remaining.into_pattern(),
                             error,
@@ -1684,20 +1784,27 @@ pub(super) fn rewrite_step_any(
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
-                untried(true);
+                if let Some(guards) = group_guards.take() {
+                    guards.enter(definition, simplification_options);
+                }
                 return Ok(RewriteResult::Indeterminate {
                     pattern: remaining.into_pattern(),
                     reason,
                 });
             }
             RuleAttempt::Simplification(error) => {
-                untried(true);
+                if let Some(guards) = group_guards.take() {
+                    guards.enter(definition, simplification_options);
+                }
                 return Ok(RewriteResult::Simplification {
                     pattern: remaining.into_pattern(),
                     error,
                 });
             }
         }
+    }
+    if let Some(guards) = group_guards.take() {
+        guards.enter(definition, simplification_options);
     }
     if let Err(error) = close_priority(
         definition,
