@@ -155,7 +155,28 @@
 //! state into an equal one only where the probe's histories of their paths are equal (a digest of
 //! every field of the trace the path's later answers rest on), so the merged path's continuation,
 //! and what the probe keeps of it, are the other's; two states with different histories are both
-//! explored.
+//! explored. Until the run first splits the history is one constant: the run then has one state
+//! at each depth, and every later state is deeper than the state that split, so no two states
+//! whose histories it compares were read before the split.
+//!
+//! A path the run stops exploring with no leaf of its own (a pending state a work budget, a stop
+//! that ends the run or a difference dropped) has no leaf whose facts the slot reads, so its
+//! prefixes are facts only where another leaf stands for them. k-rust asks nothing of such a path
+//! after its fork, since its state was never normalized, so its trace is the trace of the path it
+//! was forked from as that path split. Where that path leads to a leaf of the run, every state up
+//! to the split is a state of the leaf's path, real and clean where the leaf is: the dropped path's
+//! prefixes are facts, and it bounds its side at its elements. A diagnostic only the dropped state
+//! carries arose at the split's step, so a path it stands for shares the trace up to the split and
+//! differs only at or past that bound. A dropped path asked anything since its fork, or whose fork
+//! leads to no leaf, is unknown ([`LeafEnd::Unknown`]): it adds no prefix, bounds its side at 0,
+//! and makes a baseline's record not real.
+//!
+//! A path that ends at an undefined step beside other paths closes its channels with UNDEF in its
+//! side's sets, where the run's end is determined. A real `Trivial` leaf stands only for the
+//! instances on which every applied candidate of the step is undefined (k-rust
+//! `docs/compatibility.md`, "Trivial rule results"), which have no successor: their path is a path
+//! of the definition that reaches the configuration and whose step's outcome is no configuration,
+//! so its prefix closed by UNDEF is a fact of the side, not a prefix of a longer path.
 //!
 //! A prefix is kept as its chain: its elements folded in order, each by the 8 bytes of its digest a
 //! record keeps, END and UNDEF by links of their own ([`ChannelSets`]). Equal prefixes have equal
@@ -982,9 +1003,9 @@ pub enum Opening {
     /// [`Stutter::Collapse`], or a log item that is no value or a log cell that holds no list of
     /// known items.
     UndecidedElement,
-    /// The path branched there: only one path is compared. In a record of several paths, every
-    /// channel of [`BaselineRecord::channels`] opens at 0 so, and the paths' prefix sets
-    /// ([`BaselineRecord::paths`]) hold what was observed.
+    /// The run has several paths: every channel of a record of such a run
+    /// ([`BaselineRecord::channels`]) opens at 0 so, and the paths' prefix sets
+    /// ([`BaselineRecord::paths`]) hold what was observed and how far each channel is explored.
     Branch,
     /// The path's states or its end are not decided: the leaf is not settled, its end is no
     /// value and no bound cut it, or the run gave no single leaf.
@@ -1123,9 +1144,10 @@ pub struct PathRecord {
     pub channels: Vec<ChannelSets>,
     /// The number of paths the sets were built from.
     pub paths: usize,
-    /// Whether every leaf of the run is real and clean ([`LeafFacts::settled`]): then every prefix
-    /// in the sets is a prefix of a path of the definition, and a mutant that lacks one is
-    /// distinguished. Otherwise a set may hold a prefix the definition does not have, which can
+    /// Whether every leaf of the run is real and clean ([`LeafFacts::settled`]), and every path the
+    /// run stopped exploring is known up to where it was left (module documentation, "Several
+    /// paths"): then every prefix in the sets is a prefix of a path of the definition, and a mutant
+    /// that lacks one is distinguished. Otherwise a set may hold a prefix the definition does not have, which can
     /// only hide a mutant's prefix, and no baseline prefix is held against a mutant.
     pub real: bool,
 }
@@ -1656,6 +1678,10 @@ pub(crate) enum LeafEnd {
     Vacuous,
     /// The path was cut there, or its end is not decided; open at its elements.
     Open(Opened),
+    /// The run stopped exploring the path, and no leaf of the run shows the facts of its states
+    /// (module documentation, "Several paths"): its prefixes are no facts, it bounds its side's
+    /// sets at 0, and a baseline's record with such a path is not real.
+    Unknown,
 }
 
 impl LeafEnd {
@@ -1688,7 +1714,8 @@ fn halt_name(halt: &HaltReason) -> &'static str {
 
 /// The paths of a run that split into several, as its probe kept them (module documentation,
 /// "Several paths"): each path that ended at a leaf, with how, and each path the run left
-/// unexplored, open where it was left. A path merged into an equal state of another, with an
+/// unexplored, open where it was left, or [`LeafEnd::Unknown`] where no leaf shows its facts. A
+/// path merged into an equal state of another, with an
 /// equal history, is not kept: its continuation is the other's.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Paths {
@@ -1755,6 +1782,12 @@ pub(crate) struct ObservationProbe<'a> {
     live: BTreeMap<ProbePath, Trace>,
     /// Each path that ended at a leaf, with its trace and how it ended.
     ended: Vec<(Trace, LeafEnd)>,
+    /// The paths that ended at a leaf the probe was told of ([`Probe::ended`]).
+    ended_paths: BTreeSet<ProbePath>,
+    /// The path each path was forked from ([`Probe::fork`]).
+    parents: BTreeMap<ProbePath, ProbePath>,
+    /// The paths the probe was asked a question of since they were forked.
+    asked: BTreeSet<ProbePath>,
     /// The trace of a path the run left with no path on, kept for a run that never split.
     vanished: Option<Trace>,
     /// Whether the run split into two paths or more.
@@ -1818,6 +1851,9 @@ impl<'a> ObservationProbe<'a> {
             trace: Trace::default(),
             live: BTreeMap::from([(ProbePath::ROOT, trace)]),
             ended: Vec::new(),
+            ended_paths: BTreeSet::new(),
+            parents: BTreeMap::new(),
+            asked: BTreeSet::new(),
             vanished: None,
             several: false,
             sets: against.map(BaselineRecord::sets),
@@ -1830,6 +1866,7 @@ impl<'a> ObservationProbe<'a> {
     /// Answer `ask` about the path `path`, on its trace ([`Self::trace`]): the trace is taken from
     /// the live paths for the answer and put back after it.
     fn on<R>(&mut self, path: ProbePath, ask: impl FnOnce(&mut Self) -> R) -> R {
+        self.asked.insert(path);
         self.trace = self.live.remove(&path).unwrap_or_else(|| self.fresh());
         let answer = ask(self);
         let trace = std::mem::take(&mut self.trace);
@@ -1998,16 +2035,49 @@ impl<'a> ObservationProbe<'a> {
                 .unwrap_or_default();
         }
         let mut paths = std::mem::take(&mut self.ended);
-        for trace in self.live.into_values() {
+        // Every path on the way to a leaf of the run: the paths the probe was told ended, those
+        // its own answer ended (the answer's leaf), and every path each was forked from.
+        let mut toward_a_leaf = BTreeSet::new();
+        let answered = self
+            .live
+            .iter()
+            .filter(|(_, trace)| trace.answer.is_some())
+            .map(|(path, _)| *path);
+        for leaf in self.ended_paths.iter().copied().chain(answered) {
+            let mut at = Some(leaf);
+            while let Some(path) = at.filter(|path| toward_a_leaf.insert(*path)) {
+                at = self.parents.get(&path).copied();
+            }
+        }
+        for (path, trace) in self.live {
+            let stopped = || {
+                LeafEnd::Open(Opened::new(
+                    Opening::Bound,
+                    "the run stopped exploring the path",
+                ))
+            };
             let end = match trace.answer {
                 // On a mutant, a path its probe ended past every horizon or opened.
-                Some(Answer::Done) => Opened::new(
+                Some(Answer::Done) => LeafEnd::Open(Opened::new(
                     Opening::Bound,
                     "the path reached the baseline's horizon on every channel",
-                ),
-                _ => Opened::new(Opening::Bound, "the run stopped exploring the path"),
+                )),
+                Some(Answer::Differs { .. }) => stopped(),
+                // A path the run stopped exploring with no leaf of its own: a pending state the
+                // run dropped. Its facts are known up to its fork where nothing was asked of it
+                // since and the path it was forked from leads to a leaf, whose facts the slot
+                // reads; otherwise no leaf shows them.
+                None if !self.asked.contains(&path)
+                    && self
+                        .parents
+                        .get(&path)
+                        .is_some_and(|parent| toward_a_leaf.contains(parent)) =>
+                {
+                    stopped()
+                }
+                None => LeafEnd::Unknown,
             };
-            paths.push((trace, LeafEnd::Open(end)));
+            paths.push((trace, end));
         }
         let refusal = paths.iter().find_map(|(trace, _)| trace.refusal.clone());
         Trace {
@@ -2564,7 +2634,9 @@ fn add_prefixes(sets: &mut ChannelSets, trace: &ChannelTrace) -> [u8; 32] {
 /// The prefix sets of `paths`, one side's paths, channel by channel: each path's prefixes, its
 /// END or UNDEF where `ended` (the run's end is determined) and its leaf is one, and the index to
 /// which every path is explored. A path whose leaf has no instance adds its prefixes, which can
-/// only hide a difference, and bounds nothing: it is no path of the definition.
+/// only hide a difference, and bounds nothing: it is no path of the definition. A path whose facts
+/// no leaf shows ([`LeafEnd::Unknown`]) adds nothing and bounds every channel at 0: what it holds
+/// is no fact, and what it lacks may be a path of the definition.
 fn sets_of(paths: &[(Trace, LeafEnd)], channels: usize, ended: bool) -> Vec<ChannelSets> {
     (0..channels)
         .map(|channel| {
@@ -2579,6 +2651,10 @@ fn sets_of(paths: &[(Trace, LeafEnd)], channels: usize, ended: bool) -> Vec<Chan
                     LeafEnd::End | LeafEnd::Undefined => (None, Opening::UndecidedPath),
                     LeafEnd::Vacuous => {
                         add_prefixes(&mut sets, trace);
+                        continue;
+                    }
+                    LeafEnd::Unknown => {
+                        sets.bound(0, Opening::UndecidedPath);
                         continue;
                     }
                     LeafEnd::Open(opened) => (None, opened.opening),
@@ -2634,7 +2710,9 @@ impl Probe for ObservationProbe<'_> {
     fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
         let path = leaf.path();
         self.on(path, |probe| probe.ended_here(leaf));
+        self.asked.remove(&path);
         if let Some(trace) = self.live.remove(&path) {
+            self.ended_paths.insert(path);
             self.ended.push((trace, LeafEnd::of(leaf.halt())));
         }
     }
@@ -2650,6 +2728,7 @@ impl Probe for ObservationProbe<'_> {
             .cloned()
             .unwrap_or_else(|| self.fresh());
         self.live.insert(into, trace);
+        self.parents.insert(into, from);
     }
 
     /// A split into two paths or more makes the run one of several paths; a split into one
@@ -2657,6 +2736,7 @@ impl Probe for ObservationProbe<'_> {
     fn split(&mut self, path: ProbePath, _depth: u64, into: &[ProbePath]) {
         self.several |= into.len() > 1;
         self.histories.borrow_mut().remove(&path);
+        self.asked.remove(&path);
         if let Some(trace) = self.live.remove(&path)
             && into.is_empty()
         {
@@ -2668,12 +2748,21 @@ impl Probe for ObservationProbe<'_> {
     /// probe keeps of that path is what it would keep of this one.
     fn merged(&mut self, path: ProbePath, _depth: u64) {
         self.histories.borrow_mut().remove(&path);
+        self.asked.remove(&path);
         self.live.remove(&path);
     }
 
     /// A digest of everything the path's trace keeps that its later answers and records rest on
-    /// ([`trace_digest`]), recomputed only where its progress changed.
+    /// ([`trace_digest`]), recomputed only where its progress changed; one constant until the run
+    /// first splits into several paths. Before that split the run has one state at each depth,
+    /// and every state after it is deeper than the state that split, so no state whose history
+    /// was read before it is ever compared with another (the merge table compares states of one
+    /// depth): the constant changes no merge, and spares a run that never splits a digest of its
+    /// whole trace at each state.
     fn history(&self, path: ProbePath) -> [u8; 32] {
+        if !self.several {
+            return [0; 32];
+        }
         let Some(trace) = self.live.get(&path) else {
             return [0; 32];
         };
@@ -2920,7 +3009,8 @@ pub(crate) fn record(
 /// "Several paths"): each channel's prefix set over them, END and UNDEF read where the run's end
 /// is determined (`ended`). It is held to the facts of every leaf (`every`): where a leaf has a
 /// diagnostic, a path may be missing from the sets, so no channel is known to be explored
-/// anywhere; where a leaf is not shown real, a set may hold a prefix the definition does not
+/// anywhere; where a leaf is not shown real, or a path the run stopped exploring is one whose
+/// facts no leaf shows ([`LeafEnd::Unknown`]), a set may hold a prefix the definition does not
 /// have, so the record is not [`PathRecord::real`].
 fn record_paths(
     resolved: &Resolved,
@@ -2957,7 +3047,7 @@ fn record_paths(
         paths: Some(PathRecord {
             channels: sets,
             paths: paths.len(),
-            real: every.settled(),
+            real: every.settled() && paths.iter().all(|(_, end)| *end != LeafEnd::Unknown),
         }),
     }
 }
@@ -4033,5 +4123,213 @@ mod tests {
                 .settled()
         );
         assert!(!LeafFacts::shared(&leaves, false, &[]).unwrap().real);
+    }
+
+    /// Several paths (module documentation, "Several paths"): a side's record and comparison
+    /// built from its paths, each holding the channel `out`.
+    mod several_paths {
+        use super::*;
+
+        /// A path whose channel holds `items`, each decided, ended as `end`.
+        fn path(items: &[u8], end: LeafEnd) -> (Trace, LeafEnd) {
+            (trace(vec![emitted(items, false)]), end)
+        }
+
+        fn stopped() -> LeafEnd {
+            LeafEnd::Open(Opened::new(
+                Opening::Bound,
+                "the run stopped exploring the path",
+            ))
+        }
+
+        /// The baseline's record of `paths`, every leaf with the facts `every`, its end
+        /// determined.
+        fn record_of(paths: &[(Trace, LeafEnd)], every: LeafFacts) -> BaselineRecord {
+            record_paths(&resolved(&["out"]), paths, true, every, false, false, None)
+        }
+
+        /// A mutant's comparison of a run of the paths `paths`, every leaf with the facts
+        /// `every`, its probe having found no difference.
+        fn compared_paths(paths: Vec<(Trace, LeafEnd)>, every: LeafFacts) -> Comparison {
+            Comparison {
+                trace: Box::new(Trace {
+                    paths: Some(Box::new(Paths { paths })),
+                    ..trace(Vec::new())
+                }),
+                leaf: None,
+                every,
+                verdict: None,
+            }
+        }
+
+        fn judged(baseline: &BaselineRecord, mutant: &Comparison) -> ObservationVerdict {
+            judge(baseline, mutant, Some(&determined_end()), false)
+        }
+
+        const NOT_REAL: LeafFacts = LeafFacts {
+            real: false,
+            clean: true,
+        };
+
+        const DIAGNOSED: LeafFacts = LeafFacts {
+            real: true,
+            clean: false,
+        };
+
+        /// The baseline's paths end after 1 and after 2; the mutant's only after 1. Where every
+        /// baseline leaf is real, its prefix [2], which no mutant path has, kills; where one is
+        /// not, a prefix of the record is no fact the mutant could lack, and the slot is unknown.
+        #[test]
+        fn a_baseline_record_that_is_not_real_leaves_the_slot_unknown() {
+            let baseline = [path(&[1], LeafEnd::End), path(&[2], LeafEnd::End)];
+            let mutant = || compared_paths(vec![path(&[1], LeafEnd::End)], SETTLED);
+            let real = record_of(&baseline, SETTLED);
+            assert!(real.paths.as_ref().unwrap().real);
+            let killed = judged(&real, &mutant());
+            assert_eq!(killed.outcome, OracleOutcome::Distinguish);
+            assert_eq!(
+                killed.position.and_then(|at| at.outside),
+                Some(Outside::Baseline)
+            );
+            let unreal = record_of(&baseline, NOT_REAL);
+            assert!(!unreal.paths.as_ref().unwrap().real);
+            let verdict = judged(&unreal, &mutant());
+            assert_eq!(verdict.outcome, OracleOutcome::Unknown, "{verdict:?}");
+            assert!(verdict.cause.unwrap().contains("not shown real"));
+        }
+
+        /// A diagnostic on a baseline leaf may stand for a path the run does not hold, so the
+        /// record is explored to no index (`complete_to` 0), and a mutant prefix outside its set
+        /// is no kill; a diagnostic on a mutant leaf leaves the slot unknown, as a mutant path may
+        /// be missing.
+        #[test]
+        fn a_diagnostic_bounds_its_side_at_zero() {
+            let baseline = [path(&[1], LeafEnd::End), path(&[2], LeafEnd::End)];
+            let diagnosed = record_of(&baseline, DIAGNOSED);
+            let sets = &diagnosed.paths.as_ref().unwrap().channels[0];
+            assert_eq!(sets.complete_to, Some(at(0, Opening::UndecidedPath)));
+            assert!(!sets.complete_at(0));
+            let third = compared_paths(
+                vec![path(&[1], LeafEnd::End), path(&[3], LeafEnd::End)],
+                SETTLED,
+            );
+            assert_eq!(judged(&diagnosed, &third).outcome, OracleOutcome::Unknown);
+            let clean = record_of(&baseline, SETTLED);
+            let verdict = judged(
+                &clean,
+                &compared_paths(vec![path(&[1], LeafEnd::End)], DIAGNOSED),
+            );
+            assert_eq!(verdict.outcome, OracleOutcome::Unknown);
+            assert!(verdict.cause.unwrap().contains("diagnostic"));
+        }
+
+        /// After the run, a mutant path's END or UNDEF outside the baseline's set kills, where
+        /// the baseline is explored past its index and every mutant leaf is settled: the
+        /// baseline's paths end after [1] and after [2, 3]; a mutant path ending after [2]
+        /// closes there by END, and one taking an undefined step there by UNDEF, neither of which
+        /// any baseline path has at index 1.
+        #[test]
+        fn a_mutant_end_or_undef_outside_the_baseline_set_kills_after_the_run() {
+            let baseline = record_of(
+                &[path(&[1], LeafEnd::End), path(&[2, 3], LeafEnd::End)],
+                SETTLED,
+            );
+            for (end, element) in [
+                (LeafEnd::End, Element::End),
+                (LeafEnd::Undefined, Element::Undefined),
+            ] {
+                let mutant =
+                    compared_paths(vec![path(&[1], LeafEnd::End), path(&[2], end)], SETTLED);
+                let verdict = judged(&baseline, &mutant);
+                assert_eq!(verdict.outcome, OracleOutcome::Distinguish, "{verdict:?}");
+                assert_eq!(
+                    verdict.position,
+                    Some(Position {
+                        channel: "out".to_owned(),
+                        index: 1,
+                        at_end: true,
+                        outside: Some(Outside::Mutant),
+                    })
+                );
+                assert_eq!(verdict.element, Some(element));
+                // A mutant leaf that is not settled decides no end.
+                let unsettled = compared_paths(
+                    vec![path(&[1], LeafEnd::End), path(&[2], LeafEnd::End)],
+                    NOT_REAL,
+                );
+                assert_ne!(
+                    judged(&baseline, &unsettled).outcome,
+                    OracleOutcome::Distinguish
+                );
+            }
+        }
+
+        /// A `Vacuous` leaf among several paths is no path of the definition: its prefixes join
+        /// the set, which can only hide a mutant's prefix, it bounds nothing, and it makes the
+        /// run's leaves not real, so the record holds no baseline prefix against a mutant.
+        #[test]
+        fn a_vacuous_leaf_among_several_paths_hides_and_bounds_nothing() {
+            let state = k_rust::kore::parser::parse_pattern(r"\top{SortBool{}}()").unwrap();
+            let mut vacuous = leaf(HaltClass::Vacuous, &state);
+            vacuous.feasibility = LeafFeasibility::Syntactic;
+            let mut stuck = leaf(HaltClass::Stuck, &state);
+            stuck.feasibility = LeafFeasibility::Syntactic;
+            let every = LeafFacts::every(&[stuck, vacuous], false, &[]);
+            assert!(!every.real && every.clean);
+            let paths = [path(&[1], LeafEnd::End), path(&[9], LeafEnd::Vacuous)];
+            let sets = &sets_of(&paths, 1, true)[0];
+            assert_eq!(sets.complete_to, None);
+            assert!(sets.holds(
+                0,
+                &chain_next(&chain_start(), Link::Content(short(&digest(9))))
+            ));
+            let record = record_of(&paths, every);
+            assert!(!record.paths.as_ref().unwrap().real);
+            // The mutant lacks the vacuous prefix [9] and has the baseline's real one: no kill.
+            let mutant = compared_paths(vec![path(&[1], LeafEnd::End)], SETTLED);
+            assert_eq!(judged(&record, &mutant).outcome, OracleOutcome::Unknown);
+        }
+
+        /// A path the run stopped exploring is known up to where it was left only where a leaf
+        /// stands for it (module documentation, "Several paths"): as known, it bounds its side at
+        /// its elements; as unknown, it adds no prefix, bounds its side at 0 and makes the record
+        /// not real, so neither a mutant prefix outside the set nor a baseline prefix the mutant
+        /// lacks kills.
+        #[test]
+        fn a_path_the_run_stopped_exploring_bounds_its_side() {
+            let known = record_of(&[path(&[1], LeafEnd::End), path(&[2], stopped())], SETTLED);
+            let paths = known.paths.as_ref().unwrap();
+            assert!(paths.real);
+            assert_eq!(paths.channels[0].complete_to, Some(at(1, Opening::Bound)));
+            let unknown = record_of(
+                &[path(&[1], LeafEnd::End), path(&[2], LeafEnd::Unknown)],
+                SETTLED,
+            );
+            let paths = unknown.paths.as_ref().unwrap();
+            assert!(!paths.real);
+            assert_eq!(
+                paths.channels[0].complete_to,
+                Some(at(0, Opening::UndecidedPath))
+            );
+            assert_eq!(paths.channels[0].prefixes[0].len(), 1);
+            for mutant in [
+                vec![path(&[3], LeafEnd::End)],
+                vec![path(&[1], LeafEnd::End), path(&[3], LeafEnd::End)],
+            ] {
+                let verdict = judged(&unknown, &compared_paths(mutant, SETTLED));
+                assert_eq!(verdict.outcome, OracleOutcome::Unknown, "{verdict:?}");
+            }
+            // An unknown mutant path leaves the mutant explored to no index: the baseline's
+            // prefix [2], which no other mutant path has, does not kill.
+            let baseline = record_of(
+                &[path(&[1], LeafEnd::End), path(&[2], LeafEnd::End)],
+                SETTLED,
+            );
+            let mutant = compared_paths(
+                vec![path(&[1], LeafEnd::End), path(&[], LeafEnd::Unknown)],
+                SETTLED,
+            );
+            assert_eq!(judged(&baseline, &mutant).outcome, OracleOutcome::Unknown);
+        }
     }
 }

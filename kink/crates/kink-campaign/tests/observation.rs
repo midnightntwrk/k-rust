@@ -1653,4 +1653,121 @@ mod several_paths {
             );
         });
     }
+
+    /// `testdata/k/paths.k`, whose runs from `pick` and from `fan` split into paths.
+    fn paths() -> NativeValidator {
+        NativeValidator::bind(
+            support::load_path(&Path::new(support::DIR).join("paths.k"), "PATHS"),
+            CompileOptions::default(),
+        )
+    }
+
+    /// The test `<k> program </k> <n> 0 </n>` of `paths.k`, whose one slot reads only the end's
+    /// terminal class.
+    fn paths_test(program: &str) -> TestCase {
+        let initial = support::initial_state(support::app(program, Vec::new()), "SortCmd");
+        let Pattern::Application { symbol, arguments } = &initial else {
+            unreachable!("a configuration is an application");
+        };
+        TestCase {
+            id: format!("paths-{program}"),
+            initial_state: Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![
+                    arguments[0].clone(),
+                    support::app("Lbl'-LT-'n'-GT-'", vec![support::int(0)]),
+                    arguments[1].clone(),
+                ],
+            },
+            ..test(0)
+        }
+    }
+
+    /// The class `picked` (or `seen`), after each of `rules`, with the content `<n>`.
+    fn reading_n(name: &str, rules: &[&str]) -> RunOptions {
+        observe(
+            vec![PointClass {
+                name: name.into(),
+                before: BTreeSet::new(),
+                after: rules.iter().map(|rule| (*rule).to_owned()).collect(),
+                cells: vec!["n".into()],
+                stutter: Stutter::Collapse,
+            }],
+            Vec::new(),
+        )
+    }
+
+    /// From `pick` the paths of `one` and `two` observe 1 and 2 and then reach one configuration
+    /// at one depth, `done` with `<n>` 0. The state-set run merges a state only into one whose
+    /// path has an equal history, so both are explored, and the baseline's set holds both
+    /// prefixes; two's 2 becomes 1, the mutant observes only 1, and the baseline's prefix [2]
+    /// kills it. Merged by configuration alone, the second path's prefix would be lost, and the mutant
+    /// would agree.
+    #[test]
+    fn paths_with_different_histories_are_both_kept() {
+        on_a_big_stack(|| {
+            let validator = paths();
+            let tests = [paths_test("Lblpick")];
+            let campaign = Campaign {
+                module: "PATHS",
+                ..campaign(&validator, &tests, 8)
+            };
+            let generation = replaced(validator.baseline(), "PATHS.two", "2", "1");
+            let run = run(
+                &campaign,
+                &generation,
+                reading_n("seen", &["PATHS.one", "PATHS.two"]),
+            );
+            let record = record(&run);
+            assert!(record.real, "{record:?}");
+            assert_eq!(record.paths, 2);
+            let seen = &record.channels[0];
+            assert_eq!(seen.complete_to, None);
+            assert_eq!(seen.prefixes[0].len(), 2, "{seen:?}");
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+            assert_eq!(
+                verdict(&run).position,
+                outside("seen", 0, Outside::Baseline)
+            );
+        });
+    }
+
+    /// A run the work bound cuts while a path is pending: from `fan`, with room for four states,
+    /// `low`'s path ends at `done` and `high`'s is cut at its `done`, both explored past their one
+    /// element, while `odd`'s path, whose `<n>` would hold `part(3)`, a value no equation gives,
+    /// is dropped unexplored. That path bounds the baseline's set at 0, so low's 1 becoming 7,
+    /// a prefix outside the explored paths' set, is no kill: the dropped path, whatever `part(3)`
+    /// is, may hold it.
+    #[test]
+    fn a_path_the_work_bound_drops_bounds_the_baseline_set() {
+        on_a_big_stack(|| {
+            let validator = paths();
+            let tests = [paths_test("Lblfan")];
+            let campaign = Campaign {
+                module: "PATHS",
+                ..campaign(&validator, &tests, 8)
+            };
+            let generation = replaced(validator.baseline(), "PATHS.low", "1", "7");
+            let options = RunOptions {
+                baseline_max_work: Some(4),
+                work: WorkBudget::Calibrated {
+                    factor: 0,
+                    floor: 100,
+                },
+                ..reading_n("picked", &["PATHS.low", "PATHS.high", "PATHS.odd"])
+            };
+            let run = run(&campaign, &generation, options);
+            let record = record(&run);
+            assert_eq!(record.paths, 3, "{record:?}");
+            let picked = &record.channels[0];
+            assert_eq!(picked.prefixes[0].len(), 2, "{picked:?}");
+            assert_eq!(
+                picked.complete_to.map(|at| (at.elements, at.opening)),
+                Some((0, kink_campaign::Opening::Bound))
+            );
+            assert_ne!(run.mutants[0].report.status, MutantStatus::Killed);
+            let verdict = verdict(&run);
+            assert_eq!(verdict.outcome, OracleOutcome::Unknown, "{verdict:?}");
+        });
+    }
 }
