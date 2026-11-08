@@ -10,7 +10,10 @@
 //! - A run that passed a stop answers `unknown`, never `no` and never a hit.
 //! - A condition left undecided at an arrival loses a `no`, not a hit; a refused one makes every
 //!   answer `unknown`; one that always holds answers as the stop without it.
-//! - A `no` needs every count of undecided solver answers to be 0.
+//! - A `no` needs every count of undecided solver answers to be 0, and the request's proof
+//!   agreement: without it each state was refuted in execution mode alone. The clock's targets
+//!   evaluate nothing (no constraint, free constructors and integers), so agreement changes no
+//!   hit.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -72,8 +75,20 @@ impl Clock {
     fn matching(
         &mut self,
         stop: Stop,
+        start: (i64, i64),
+        target: &Pattern,
+    ) -> kink_campaign::StoppedMatch {
+        self.matching_agreed(stop, start, target, true)
+    }
+
+    /// The run of `clock(n, phase)` under `stop`, matching `target` with proof agreement when
+    /// `proof_agreement`.
+    fn matching_agreed(
+        &mut self,
+        stop: Stop,
         (n, phase): (i64, i64),
         target: &Pattern,
+        proof_agreement: bool,
     ) -> kink_campaign::StoppedMatch {
         stop.execute_result_matching(
             &ExecutionAdapter::with_profile(SolverProfile::BUILD),
@@ -83,7 +98,10 @@ impl Clock {
             &clock(n, phase),
             BUDGET,
             ResultRun::default(),
-            &StateMatchRequest::new(target.clone()),
+            &StateMatchRequest {
+                pattern: target.clone(),
+                proof_agreement,
+            },
             &self.exclusions,
         )
         .expect("the run is made")
@@ -188,6 +206,15 @@ fn a_state_reached_before_the_stop_is_a_hit() {
                 Some((depth, target.clone())),
                 "{stop:?} {target:?}"
             );
+            assert_eq!(
+                hit_at(
+                    &clock_run
+                        .matching_agreed(stop, (0, 0), &target, false)
+                        .answer
+                ),
+                Some((depth, target.clone())),
+                "{stop:?} {target:?} without agreement"
+            );
         }
     });
 }
@@ -208,6 +235,13 @@ fn a_state_only_past_the_stop_is_no_in_a_program_that_never_ends_without_it() {
         ] {
             let matched = clock_run.matching(stop, (0, 0), &target);
             assert_eq!(matched.answer, MatchAnswer::No, "{stop:?} {target:?}");
+            assert_eq!(
+                clock_run
+                    .matching_agreed(stop, (0, 0), &target, false)
+                    .answer,
+                MatchAnswer::Unknown(MatchUnknown::ExecutionModeRefutation),
+                "{stop:?} {target:?} without agreement"
+            );
             let execution = matched.execution.expect("the run has a result");
             assert_eq!(execution.undecided_answers(), 0);
             // The no needs every count of undecided answers at 0: one undecided answer of the
