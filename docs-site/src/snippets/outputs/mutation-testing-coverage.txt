@@ -1,0 +1,23 @@
+$ krs kink --package story-plus --definition main coverage --locked  # the document's "summary"
+{
+  "argued": 0,
+  "comparable": 4,
+  "computed": 0,
+  "mismatches": 0,
+  "open": 0,
+  "per_family": {
+    "requirements": {
+      "argued": 0,
+      "covered": 0,
+      "obligations": 0,
+      "open": 0
+    },
+    "rules": {
+      "argued": 0,
+      "covered": 2,
+      "obligations": 2,
+      "open": 0
+    }
+  },
+  "programs": 4
+}

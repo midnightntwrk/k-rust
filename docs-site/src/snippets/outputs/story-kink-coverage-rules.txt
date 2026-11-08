@@ -1,0 +1,81 @@
+$ krs kink --package story-plus --definition main coverage --locked  # the document's "families.rules.items"
+[
+  {
+    "covered": true,
+    "end_line": 36,
+    "file": "definition.k",
+    "fired_by": [
+      "t3",
+      "t4"
+    ],
+    "id": "rule:crate::plus_succ",
+    "index": 1,
+    "krs": {
+      "claim_helper": false,
+      "column": 4,
+      "file": "src/lib.rs",
+      "item": "crate::plus_succ",
+      "kind": "equation",
+      "line": 38,
+      "package": "story-plus",
+      "source_item": "plus_succ"
+    },
+    "label": "nat--plus_succ",
+    "matched_by": [
+      "t3",
+      "t4"
+    ],
+    "module": "NAT",
+    "obligation": true,
+    "pattern": null,
+    "rewrite": false,
+    "start_line": 36,
+    "status": "fired",
+    "touched_only_by": [],
+    "uncounted": {
+      "fired_by": [],
+      "matched_by": []
+    }
+  },
+  {
+    "covered": true,
+    "end_line": 38,
+    "file": "definition.k",
+    "fired_by": [
+      "t1",
+      "t2",
+      "t3",
+      "t4"
+    ],
+    "id": "rule:crate::plus_zero",
+    "index": 2,
+    "krs": {
+      "claim_helper": false,
+      "column": 4,
+      "file": "src/lib.rs",
+      "item": "crate::plus_zero",
+      "kind": "equation",
+      "line": 31,
+      "package": "story-plus",
+      "source_item": "plus_zero"
+    },
+    "label": "nat--plus_zero",
+    "matched_by": [
+      "t1",
+      "t2",
+      "t3",
+      "t4"
+    ],
+    "module": "NAT",
+    "obligation": true,
+    "pattern": null,
+    "rewrite": false,
+    "start_line": 38,
+    "status": "fired",
+    "touched_only_by": [],
+    "uncounted": {
+      "fired_by": [],
+      "matched_by": []
+    }
+  }
+]

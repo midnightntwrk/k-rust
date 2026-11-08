@@ -37,16 +37,16 @@ Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { d
 
 1. **Specification.** Start from a K specification: an entry file, its main module and its syntax module.
    A literate Markdown specification (`.md`) works too: every text kink-flow addresses, searches or shows is the K text k-rust parsed from the selected fences (prose and fence lines count as whitespace, and line numbers are the file's), and kink-flow never edits the Markdown file.
-2. **Corpus with cached results.** Write concrete programs for it in `FLOW.toml`.
-   `kink-flow results` runs each new or changed program once on the specification,
-   caches its final configuration, and gives each rule the status of what the corpus did with it: `fired`, `matched` (matched, never fired) or `unmatched`, with each guard's outcomes per operand.
-   Write programs until every rule in scope fires and every guard outcome is seen or argued unreachable ("What coverage covers", below).
+2. **Corpus with cached results, and what it covers.** Write concrete programs for it in `FLOW.toml`.
+   `kink-flow coverage` runs each new or changed program once on the specification, caches its final configuration, and lists the obligations the specification states, family by family, each covered or open: every rule in scope fires (`rules`), and every authored operand of a rule's condition is seen true and false where it is reached, the condition holding and refuted (`requirements`).
+   Each open obligation is a target: the case to write, with its position and, for a rewrite rule, the fuzz job that looks for one.
+   Write programs until nothing is open (`summary.open` is 0; `kink-flow coverage FLOW.toml --output text` lists the targets), "What coverage covers", below.
 3. **Mutation list.** Write `MUTATIONS.toml` (or one `<topic>.toml` per topic in a mutations directory): edits of rules that are likely to expose bugs,
    either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation),
    each with the plausible misunderstanding of the specification it writes (`misunderstanding`).
    `kink-flow check FLOW.toml --mutations MUTATIONS.toml` resolves every mutation without compiling or running anything: it shows each edited rule before and after, and refuses a mutation that does not resolve (a stale anchor, overlapping edits, an edit of a sentence that is not a rule) with what to do next.
    A mutant kink does not compile is found only by `run` (status `not-admitted`).
-   `kink-flow results FLOW.toml --mutations MUTATIONS.toml` (and every run report) lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
+   Every run report lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
    It reports the survivors: mutations no program kills.
    For each survivor, write a program that kills it, or argue that no program can and drop the mutation, or keep it with the argument in its `misunderstanding`; then run again.
@@ -62,7 +62,7 @@ Definitive answers are cached under a key that names the specification, the prog
 
 **Killing a survivor with `fuzz`.** When no program you can think of tells a survivor apart, take a program that matches the edited rule (the run report's `witnesses` lists the programs whose coverage witnesses the edit), mark its literals as holes in `TEMPLATES.toml` (k-rust-fuzz's `[[hole]]` keys), and run `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml`.
 It runs a k-rust-fuzz campaign in process on kink's own two sides (the admitted baseline and the claim-free mutant `run` would test), judges each candidate by kink's own rules inside the campaign (`--no-filter` turns that off), has kink's own `run` confirm the witness on the flow with the fragment as its only program (`--no-confirm` skips it), and prints the killing program as a `[[program]]` fragment; it never writes `FLOW.toml` or the cache.
-The same command looks for a program that matches an unmatched rule (`--matched FILE:LINE`, as `results` lists it; `--fired` for one that fires it) or hits a pattern (`--pattern ID --patterns PATTERNS.toml`); [docs/fuzzing.md](../docs/fuzzing.md) is the user guide to the three jobs.
+The same command looks for a program that matches an unmatched rule (`--matched FILE:LINE`, as a `coverage` target spells it; `--fired` for one that fires it) or hits a pattern (`--pattern ID --patterns PATTERNS.toml`); [docs/fuzzing.md](../docs/fuzzing.md) is the user guide to the three jobs.
 Append the fragment and run `kink-flow run --only MUTATION`: only `run` decides the kill, with its own oracle.
 The fuzz refuses up front what `run` could not confirm: a mutation `run` refuses, a definition exclusion on either side, a mutant that parses the template differently from kink's input (a `[macro]` edit), and a definition whose full critical-pair check has a finding you have not named (`--assume-joined NAME`, then `[spec] assume_joined`; every assumed name is printed beside the fragment as a premise, genuine ones flagged).
 Each candidate's input is checked against kink's own assembly of the fragment, and the document warns about a template whose program is not comparable or does not witness the mutant's edit in the last run, suggesting the witnesses as templates ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "Killing a survivor with `fuzz`").
@@ -93,21 +93,21 @@ The full record is [`trust.md`](trust.md).
 
 ### What coverage covers
 
-Coverage, in `kink-flow results` and in the fuzz's rule jobs (`--matched`, `--fired`), is meant to cover the parts of the specification that compute a step, since those are what a mutation edits and a program can tell apart.
+Coverage, in `kink-flow coverage` and in the fuzz's rule jobs (`--matched`, `--fired`), is meant to cover the parts of the specification that compute a step, since those are what a mutation edits and a program can tell apart.
 This is the boundary (kink27 R2-COVERAGE-DOCS); each item in scope says whether it is built today and which function builds it.
 
 In scope:
 
 - **Rewrite rules.** Built.
-  `kink-flow results` lists every authored `rule` sentence (kink-flow `results::rules`) and gives it the status named for the predicate it tests: `fired` when some comparable program's baseline run fired it, `matched` when some matched it and none fired it, `unmatched` when none matched it.
+  `kink-flow coverage` lists every authored `rule` sentence in its rules family (kink-flow `coverage`) and gives it the status named for the predicate it tests: `fired` when some comparable program's baseline run fired it, which covers it, `matched` when some matched it and none fired it, `unmatched` when none matched it.
   `matched_by` is k-rust's `matched` (kink-native `TestCoverage::of_run`): the run began to decide the rule's `requires` for an instance whose left-hand side matched, whatever the verdict, or applied the rule.
   `kink-flow fuzz --matched` targets one (kink-flow `resolve_rule`), as `krust fuzz --reach-rule` does (k-rust-fuzz `resolve_rule_recorded`).
-- **Function equations**, `owise`, `anywhere` and the equations of an overloaded function included. Built in `results`, not built yet in the fuzz.
-  `results` lists and covers an equation as it does a rewrite rule: kink-native's coverage domain (`coverage_domain`) holds every axiom of the compiled `definition.kore` but `smt-lemma` and `non-executable` ones (macro and alias rules are compiled apart, into `macros.kore`), and k-rust records an equation in `matched` and `applied` wherever a run applied it (k-rust `RunCoverageOutput`).
+- **Function equations**, `owise`, `anywhere` and the equations of an overloaded function included. Built in `coverage`, not built yet in the fuzz.
+  `coverage` lists and covers an equation as it does a rewrite rule: kink-native's coverage domain (`coverage_domain`) holds every axiom of the compiled `definition.kore` but `smt-lemma` and `non-executable` ones (macro and alias rules are compiled apart, into `macros.kore`), and k-rust records an equation in `matched` and `applied` wherever a run applied it (k-rust `RunCoverageOutput`).
   Those lists also hold an equation that the load-time discharge of a matched rule's definedness used, which the run never evaluated, so `matched_by` can list a program for an equation it did not evaluate.
   That is why the fuzz does not target an equation yet: `kink-flow fuzz --matched` and `--fired` refuse one as `equation-target` (`resolve_rule`) and `krust fuzz --reach-rule` as an equation (`TargetProblem::Equation`, in `resolve_rule_recorded`; finding REACH-EQUATIONS).
   Target a rewrite rule whose step evaluates the function instead.
-- **A rule's `requires`, per outcome and per operand.** Built in `results`.
+- **A rule's `requires`, per outcome and per operand.** Built in `coverage`, as its requirements family: the condition held and refuted, and each authored operand true and false where it is reached.
   `fired_by` lists the programs that fired the rule (for a rewrite rule, some path takes its step, k-rust `committed`; for an equation, an instance gave a result, `applied`; kink-native `TestCoverage::of_run`), and the status reads it: a rule some program matched and none fired is `matched`, since its right-hand side was never instantiated on a path and no program can tell a change of its result apart.
   A guarded rewrite rule's or function equation's row carries `guard` (kink-flow `guards::row_guard`): the programs whose entries into its `requires` held, were refuted (false, undefined, or by the solver alone), stayed undecided (with the cause) or stopped, and per operand of the written condition the programs for each outcome it took where it was reached.
   An operand is reached, in written order, where every operand before it in a conjunction is `true` (in a disjunction, `false`), so for `A && B` the outcomes "A false", "A true and B false" and "both true" are A's `false`, B's `false` and the guard's `held`; `andBool` and `andThenBool` report alike, since both are strict.
@@ -116,16 +116,16 @@ In scope:
   `kink-flow fuzz --fired RULE` targets the fired outcome for a rewrite rule; no reach mode targets a refuted `requires` or a missing operand outcome yet.
   An equation that only the load-time discharge of a matched rule's definedness used can be `fired` with no guard entry, which its row shows (no outcome).
 
-- **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits. Not built yet: `results` lists `rule` sentences only, so they have no row.
+- **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits. Not built yet: `coverage` lists `rule` sentences only, so they have no item.
 
 Out of scope, each for its reason:
 
 - **Simplification, `symbolic` and ceil equations.** They state facts about functions and compute no step; a mutant of one is a claim edit (claims are premises, [`trust.md`](trust.md), "What a kill trusts").
-  `results` does not leave them out yet: they are in kink-native's coverage domain and k-rust records them when a run applies them, so `results` gives each a status, and an `unmatched` row can be one of them, which no program needs to reach; their rows carry no `guard`.
+  `coverage` gives each the status `out-of-scope`, which is no obligation and never a target, whatever its runs: the definition means the same without such an equation, so no program needs to run it; its item carries no `guard`.
 - **Overload axioms kompile generates** (an equation between an overloaded symbol's application and its overload's, through an injection). They state that the overloads agree and compute no step of their own. The authored equations of an overloaded function are in scope (above).
 - **Macros and aliases.** They are expanded at compile time, so their rules are the expanded ones, counted where they occur.
-  `results` lists such a rule as `no-coverage-signal`, never `unmatched` (`results::rules`; k-rust's coverage never names a macro or alias rule).
-- **Syntax productions.** Parsing the corpus covers them. `results` lists `rule` sentences only, so a production has no row.
+  `coverage` lists such a rule as `no-coverage-signal`, no obligation (k-rust's coverage never names a macro or alias rule).
+- **Syntax productions.** Parsing the corpus covers them. `coverage` lists `rule` sentences only, so a production has no item.
 - **Hooks.** They are the backend's code, not the specification's; they are no axioms, and k-rust's coverage never names one.
 - **The initial configuration.** Every run uses it. The `configuration` sentence has no row.
 
@@ -134,7 +134,7 @@ Out of scope, each for its reason:
 Every command prints one JSON document on stdout.
 The exit status says what to do next ([kink-flow's README](crates/kink-flow/README.md#exit-status)):
 0 when the command answered its question (survivors included),
-1 for a finding (a `--verify` mismatch, a fact `check` finds that makes a verdict impossible, an unmet expectation in `results`, a refuted pattern claim),
+1 for a finding (a `--verify` mismatch, a fact `check` finds that makes a verdict impossible, an unmet expectation in `coverage`, a refuted pattern claim),
 2 when the question could not be asked (a usage error, with its message on stderr; the manifest, the mutation list, the specification, a program or a mutation refused, `run` on an `invalid-mutation` or `not-admitted` mutation; a cache file that cannot be written; a corpus error that stops a run),
 and 3 for no answer (a program or a mutation that is `timeout` or `unknown`, a fuzz that ends without a witness kink accepts);
 a command with several parts exits 2 when one could not be asked, else 1, else 3, else 0.
@@ -143,13 +143,13 @@ A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` or a directory of `<to
 | Command | Does |
 | --- | --- |
 | `kink-flow check FLOW.toml [--mutations MUTATIONS]` | Loads and admits the specification and parses every program; reports each refusal with its stage and reason, and each program every run of which kink excludes before it runs (the definition exclusion, named with each excluded rule's cause chain and positions, or the program's initial configuration's); exits 1, a finding, when a fact known before any mutant runs makes a verdict impossible: a program that cannot be judged on the baseline, whatever the reason, or a baseline whose full critical-pair check has a finding `[spec] assume_joined` leaves unnamed (each named with what to do) or did not read the whole definition. With `--mutations`, also resolves every mutation against the current specification and runs nothing: each edited rule's before and after, label, file and lines; each refusal with its reason and next step (a stale anchor, overlapping edits, a non-rule sentence, an edit that changes nothing); warnings for `line` and `find`-only anchors and for edited rules no comparable program witnesses in the cached results. It compiles no mutant, so a mutant that does not compile is `not-admitted` only in `run`. Run it after every edit of the mutations or the specification. |
-| `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS]` | Fills the result cache for new or changed programs; lists every program's class, cause and baseline wall time (`wall_ms`) and every rule's coverage; `--verify` reruns every program and compares it with its cached result; `--mutations` also lists the rules no mutation of that list targets. |
+| `kink-flow coverage FLOW.toml [--tier 1] [--verify] [--output json\|text\|verdicts]` | Fills the result cache for new or changed programs; lists every program's class, cause and baseline wall time (`wall_ms`), each family's obligations, each covered or open, with a target per open one; `--verify` reruns every program and compares it with its cached result; `--output text` prints a summary with one line per target. |
 | `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress]` | Updates the result cache, resolves each mutation, runs the kill search, updates the outcome cache, and writes the report. The search tries the programs whose coverage witnesses an edited rule's edit first (for an edit confined to a rule's right-hand side or `ensures`, those that applied the rule; for any other site-local edit, those that matched it; [`trust.md`](trust.md#what-a-kill-trusts), "What a kill trusts", the paragraph on coverage), each group in `FLOW.toml`'s order; the order changes which killer is found first and the cost, never a status. `--full` runs every comparable program on every mutation, in corpus order, instead of stopping at the first kill: each row gets `killed_by`, every killing program, and the document the per-program kill `matrix`; its outcomes are cached in the same store the first-kill search reads. `--lock FILE` names the killer record: each mutation's recorded killer is tried first and kept while it still kills, else the first killing program in the search's order is the killer, and a run that judged the whole list rewrites FILE (the verdicts rendering without `killed_by`, the same under both schedules); `--locked` writes nothing and exits 1 when the run would change FILE, the check a CI runs. `--verify` decides nothing from the outcome cache: it re-proves every cached outcome, reports each that differs (`mismatches`, exit 1, a finding) and writes no outcome and no lock. `--compile-workers N` compiles up to N mutants ahead of their turn (4 by default; 1 compiles each in its own call); it changes nothing but wall time and memory. A warm run reads the memos of what did not change (re-pin L1-4: each mutation's resolution facts, used only for a mutation tier 1 decides with no call, and the specification's declaration census, under keys that name every input, `kink_build` and `kink`); `--no-memo` reads and writes none, `--verify` re-derives and compares them. `--progress` prints a line on stderr before the baseline results, as each program gets its baseline row, before the list is resolved and as each mutation gets its row (also without the flag when stderr is a terminal); stdout stays the document. |
 | `kink-flow report FLOW.toml [--output json\|verdicts]` | Prints the last run's report again, byte for byte; `--output verdicts` prints the stored report's verdicts rendering, which is what that run printed under `--output verdicts`. It runs and compiles nothing. |
 | `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify]` | Updates the result cache and answers each pattern on each program it claims (or on every program): `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with the witness of a hit, refuted claims flagged; caches the definitive answers; `--verify` re-derives every answer and compares. |
 | `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \| --matched RULE \| --fired RULE \| --pattern ID --patterns PATTERNS.toml) [--cases N \| --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--no-confirm] [--no-filter]` | Looks for hole values of a template that kill the mutation (or match or fire the rule, or hit the pattern), on kink's own sides, has kink confirm the witness, and prints the program as a `[[program]]` fragment with its premises; writes nothing. Exit 2 when the job is refused up front (a mutation `run` refuses, a definition exclusion, a mutant that assembles the template otherwise, unnamed findings), 3 when the search ends without a witness kink accepts. |
 
-`results`, `run`, `report`, `query` and `fuzz` take `--cache DIR` (`fuzz` only reads the last run document there); the default cache is `.kink-flow/` next to `FLOW.toml`.
+`coverage`, `run`, `report`, `query` and `fuzz` take `--cache DIR` (`fuzz` only reads the last run document there); the default cache is `.kink-flow/` next to `FLOW.toml`.
 
 ### Walkthrough
 
@@ -221,16 +221,16 @@ Check the corpus and fill the result cache:
 <!-- example: run -->
 ```sh
 kink-flow check FLOW.toml
-kink-flow results FLOW.toml
+kink-flow coverage FLOW.toml
 ```
 
-`results` lists the rules no comparable program matches first.
-Here the unlabelled subtraction rule on line 23 is unmatched:
+`coverage` lists one target per open obligation.
+Here the unlabelled subtraction rule on line 23 is unmatched, so the first target asks for a case that reaches it:
 
-<!-- example: output /rules/0 -->
+<!-- example: output /targets/0 -->
 ```json
-{"module": "CALC", "file": "calc.k", "label": null, "start_line": 23, "end_line": 23,
- "status": "unmatched", "matched_by": []}
+{"family": "rules", "item": "rule:calc.k:23", "file": "calc.k", "line": 23,
+ "text": "a case whose run reaches a state that calc.k:23 matches"}
 ```
 
 Cover it with a program, `programs/sub.calc`:
@@ -250,14 +250,14 @@ file = "programs/sub.calc"
 
 <!-- example: run -->
 ```sh
-kink-flow results FLOW.toml
+kink-flow coverage FLOW.toml
 ```
 
-Only the new program runs (`computed`); the others come from the cache, and every rule fires:
+Only the new program runs (`computed`); the others come from the cache, every rule fires, and nothing is open:
 
 <!-- example: output /summary -->
 ```json
-{"programs": 3, "comparable": 3, "computed": 1, "unmatched": 0, "matched": 0, "fired": 3}
+{"programs": 3, "comparable": 3, "computed": 1, "open": 0}
 ```
 
 Coverage counts rewrite rules and equations alike: a `[function]` rule a program evaluates fires too.
@@ -459,7 +459,7 @@ Every other row also carries:
 | `equivalent` | kink shows the mutant to be the specification: it compiles to the baseline's definition, or each edit only adds to an equation's `requires` a condition that holds of every value of its variables' sorts (reason `valid-condition`); nothing can kill it. Drop or change the mutation. |
 | `not-admitted` | kink did not admit the mutant for judging (`reason`): it does not compile, or k-rust's critical-pair check does not show its equations to have a model (`inconsistent-mutant`, the pairs in `inconsistent_pairs`). Fix the mutation; for `inconsistent-mutant`, rewrite the edit so that the check shows each named pair to join, for example with guards it refutes as disjoint. |
 | `invalid-mutation` | The mutation does not resolve (`reason`, `edit`, `detail`). Fix the mutation. |
-| `error` | The runner failed, or a corpus error stopped the run (`reason`: `baseline-mismatch:<program>`, `baseline-count-mismatch`, `campaign-refused`, `program-refused:<program>`, `no-comparable-program`). Fix the corpus; `kink-flow results FLOW.toml --verify` shows which cached result no longer holds. `outcome-conflict` (a cached agreement next to a mutant that no longer compiles) stops the run too: run `kink-flow run FLOW.toml MUTATIONS.toml --verify`. `outcome-mismatch:<program>` comes from `run --verify`: a cached outcome differs from a live run; report it and delete `outcomes/`. |
+| `error` | The runner failed, or a corpus error stopped the run (`reason`: `baseline-mismatch:<program>`, `baseline-count-mismatch`, `campaign-refused`, `program-refused:<program>`, `no-comparable-program`). Fix the corpus; `kink-flow coverage FLOW.toml --verify` shows which cached result no longer holds. `outcome-conflict` (a cached agreement next to a mutant that no longer compiles) stops the run too: run `kink-flow run FLOW.toml MUTATIONS.toml --verify`. `outcome-mismatch:<program>` comes from `run --verify`: a cached outcome differs from a live run; report it and delete `outcomes/`. |
 
 ### The cache directory
 

@@ -62,17 +62,17 @@ Step 4 adds a case in the guide's own corpus, `guide/`, which holds the introduc
 
 ### 1. Write cases until every rule in scope fires and every guard outcome is seen
 
-`krs kink results` runs each new or changed case once, caches its result, and reports which rules its run matched and fired; `--output verdicts` renders that case by case:
+`krs kink coverage` runs each new or changed case once, caches its result, and reports which rules its run matched and fired, family by family; `--output verdicts` renders each family's open obligations, here none:
 
 ```console [recorded with krs]
-// [!include ~/snippets/outputs/story-kink-results.txt]
+// [!include ~/snippets/outputs/story-kink-coverage.txt]
 ```
 
-The rendering lists cases, not rules.
-Each rule's status is in the JSON document, the default output, as `rules[].status`, and the summary counts each status (`summary.fired`, `summary.matched`, `summary.unmatched`), here every rule fires:
+The rendering lists open obligations, not cases.
+Each rule's status is in the JSON document, the default output, as `families.rules.items[].status`, and the summary counts the open obligations per family (`summary.per_family`), here every rule fires:
 
 ```console [recorded with krs]
-// [!include ~/snippets/outputs/mutation-testing-results.txt]
+// [!include ~/snippets/outputs/mutation-testing-coverage.txt]
 ```
 
 | status | the rule | what to do |
@@ -81,15 +81,16 @@ Each rule's status is in the JSON document, the default output, as `rules[].stat
 | `matched` | some comparable case matches it and none fires it: its condition was entered but its right-hand side never ran, so no case can tell a change of its result apart | write a case that takes its step |
 | `unmatched` | no comparable case matches it, so a mutation of it cannot be killed | write a case that reaches it |
 | `claim-helper` | is an equation of a function only claims apply, and no case matches it | nothing: the claims serve it, and `krs prove` checks them |
+| `out-of-scope` | is a simplification, a `symbolic` equation or a ceil equation: it states a fact of the definition's functions, which the definition means the same without | nothing: no step computes it, so no case needs to |
 | `no-coverage-signal` | cannot be recorded by k-rust's coverage (a macro, an alias, an `smt-lemma` or a rule that never runs), so no case can be shown to match it | nothing a case can change |
 
 A rule or equation with a condition also has `guard`: which cases saw its condition hold (`held_by`) and refuted (`refuted_by`), and for each operand of the condition (`guard.operands`, printed as K) the cases for which it was `true` and `false` where it was reached.
 An operand is reached in written order: for `a && b`, `b` is reached only where `a` is true, so "a false", "a true and b false" and "both true" are `a`'s `false`, `b`'s `false` and the guard's `held`.
-`never` lists what no case saw, and the verdicts rendering lists each rule whose guard misses an outcome as `[[guard]]`: a boundary rule no case holds, or a guard no case refutes, is a case to write, or an outcome to argue unreachable.
+`never` lists what no case saw, and each outcome a case can still show is an open requirement (`families.requirements`), which the verdicts rendering lists by id under `[requirements]`: a boundary rule no case holds, or a guard no case refutes, is a case to write, or an outcome to argue unreachable.
 krs names each operand by its Rust text (`guard.krs.authored`) and lists apart what it inserted into the condition (`guard.krs.generated`: the definedness test of a division or a map read, the guard of a looked-up key) and a `k::bits!` template's match test (`guard.krs.templates`), which are not gaps of your guard: the guard's `held_by`, `refuted_by` and `never` (`guard.krs`) read your conjuncts alone, so a template-only or lookup-only condition has no guard gap; a decode equation whose template no case matches is `unmatched` (`krs.status`), whatever the K-level status says.
 
 Continue until every rule in scope fires and every guard outcome is seen or argued unreachable.
-A simplification (`#[k::simplification]`, whose `krs.kind` is `simplification`), a `symbolic` equation or a ceil equation can be `unmatched` and is out of scope: a run of concrete cases need not use it, so it needs no case.
+A simplification (`#[k::simplification]`, whose `krs.kind` is `simplification`), a `symbolic` equation or a ceil equation has status `out-of-scope`, whatever its runs did: it is no obligation, so it needs no case.
 
 ### 2. Write mutations, and check them until they resolve
 
@@ -311,7 +312,7 @@ A run over `refused.toml` judges nothing and exits 2:
 - **A baseline without data.** When the specification's own critical-pair check has a finding, no end of it is data, and every mutation is `unknown` (`baseline-findings`); `check` exits 1 and names each finding.
   Name a finding in `[spec] assume_joined` only when it holds of the specification.
 - **Exclusions.** A run is excluded, and decides nothing, when it reads a value the definition leaves open (`implementation-chosen-hook`), when its result could depend on whether `andBool`, `orBool` or `#if` skips an operand (`short-circuit-reading`), or when it goes through a condition `{ A #Equals B }` over terms that may be undefined (`equals-condition`).
-  `check` exits 1 for a case every run of which is excluded, and `results` names the exclusion and its cause.
+  `check` exits 1 for a case every run of which is excluded, and `coverage` names the exclusion and its cause.
 - **Budgets.** `[budget]` bounds every run:
   - `time_ms` is a host clock; a run that reaches it is `timeout`, which is never cached.
   - `max_depth` bounds each path; a run that reaches it is inconclusive, `unknown`.
@@ -364,7 +365,7 @@ A run over `refused.toml` judges nothing and exits 2:
 A template is a case of the corpus with some of its literals marked as holes.
 Build it on one of the survivor's `witnesses`, the cases whose coverage reaches a rule the mutation edits; `fuzz` warns when the template's case is not one of them.
 A mutation kink decides from its edit alone, `unkillable` or `equivalent` with reason `valid-condition`, is refused before any case and exits 2, with the row's action: no case can change a fact of the axioms.
-An edit of an equation's pattern or of one of its attributes is witnessed by every case (`witnesses_global`), since a changed pattern can match terms no case's run tried, so every case is then a witness by default and not by what it reaches: a template built on a case that reaches the edited equation, one that `krs kink results` lists in the equation's `matched_by`, is the better start, and `fuzz` warns `global-witnesses` when the template's case is not one.
+An edit of an equation's pattern or of one of its attributes is witnessed by every case (`witnesses_global`), since a changed pattern can match terms no case's run tried, so every case is then a witness by default and not by what it reaches: a template built on a case that reaches the edited equation, one that `krs kink coverage` lists in the equation's `matched_by`, is the better start, and `fuzz` warns `global-witnesses` when the template's case is not one.
 `fuzz` reads these facts from the last run of the mutation's list, in the same cache; when that run judged another list it warns `last-run-without-mutation` and names the run to make.
 On the introduction's corpus, the default `kink/` with its four cases, the witnesses of `survivors/one` are `t3` and `t4`, the cases that apply `plus_succ`, and the guide's `TEMPLATES.toml` makes the second argument of `t4` a hole:
 
@@ -436,7 +437,7 @@ It is a K patch for these reasons, which kink's decision register states in full
 
 ## Checklist for an agent
 
-1. Run `krs kink results` until every rule in scope fires (`summary.matched` and `summary.unmatched` of its JSON document are 0; a simplification needs no case) and every guard outcome is seen or argued unreachable (the verdicts rendering's `[[guard]]`).
+1. Run `krs kink coverage` until nothing is open (`summary.open` of its JSON document is 0; `--output text` lists each open target; a simplification is out of scope and needs no case).
 2. Write one misunderstanding per mutation, in its `misunderstanding`.
 3. Anchor every edit by `rule`, never by `line`.
 4. Run `krs kink check` after every edit of a mutation file, until it exits 0.
@@ -447,6 +448,6 @@ It is a K patch for these reasons, which kink's decision register states in full
 
 ## How this page is checked
 
-- Every output on this page is recorded by `scripts/record-outputs.py` from the commands `recorded-outputs.toml` lists, and `bun run verify:outputs` runs them again and compares them byte for byte; the JSON recordings of `results` and `check` show one member of the document, since the rest names k-rust's build.
+- Every output on this page is recorded by `scripts/record-outputs.py` from the commands `recorded-outputs.toml` lists, and `bun run verify:outputs` runs them again and compares them byte for byte; the JSON recordings of `coverage` and `check` show one member of the document, since the rest names k-rust's build.
 - The guide's corpus is the introduction's corpus plus `t5`, which `scripts/sync-story.py` checks.
 - The files shown are the fixture's own, mirrored by `scripts/sync-snippets.mjs`.

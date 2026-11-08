@@ -9,12 +9,15 @@ names, and the edits as K patches in `mutations/plus.toml`). `--write` generates
 `recorded-outputs.toml`. Without an option, the script fails when any of them is stale.
 
 Neither the rules each test fires nor the tests that catch each edit are written by hand.
-A test's rules are the `fired` list of its case in the recorded `krs kink results --output
-verdicts` (`story-kink-results`), named by KRS item as a stop names it, `crate::` and the item's
-path in the story's package (`crate::plus_zero`), each read as the scenes' rule of that path and
-put in the order of the scenes' `ruleNames`; a story test with no case there, a case that is not `comparable`, or a case or a
-fired rule the story does not know fails the script, naming it, as does a FLOW.toml that lists
-its cases in another order than story.toml's tests. The tests that catch an edit are the
+A test's rules are the rules whose `fired_by` lists its case in the rules family of the recorded
+`krs kink coverage` (`story-kink-coverage-rules`, the document's `families.rules.items`), each
+named by KRS item as a stop names it, `crate::` and the item's path in the story's package
+(`crate::plus_zero`), read as the scenes' rule of that path and put in the order of the scenes'
+`ruleNames`; a story test that fires no rule or that a rule lists as not comparable
+(`uncounted`), a case the story has no test for, or a fired rule the story does not know fails
+the script, naming it, as does a FLOW.toml that lists its cases in another order than
+story.toml's tests. The guide shows the same command's verdicts rendering
+(`story-kink-coverage`). The tests that catch an edit are the
 `killed_by` of its mutation in the recorded `krs kink run --full --output verdicts`
 (`story-kink-run`), and its misunderstanding, which the scenes quote, is the mutation's own;
 an edit whose mutation is neither killed nor survived, a mutation the story does not know, and
@@ -55,7 +58,8 @@ DATA = SITE / "src" / "components" / "story" / "data.ts"
 MUTATIONS = CORPUS / "mutations"
 # The edits are the mutations of mutations/<TOPIC>.toml; kink qualifies their ids as <TOPIC>/<id>.
 TOPIC = "plus"
-VERDICTS = "story-kink-results"
+COVERAGE = "story-kink-coverage"
+RULES = "story-kink-coverage-rules"
 RUN = "story-kink-run"
 CHECK = "story-kink-check"
 OUTPUTS = SITE / "src" / "snippets" / "outputs"
@@ -208,7 +212,10 @@ def manifest_block(story: dict, corpus: dict[str, str]) -> str:
     entry("story-prove", "story", "story-plus-claims", ["prove", "--dependency", "story-plus:main", "--claim", "add-one"])
     # --locked: recording must not write into its fixture, so a stale kink/definition.k is
     # recorded as refused (and fails this script) instead of being rewritten by the recording.
-    entry(VERDICTS, "story/plus", "story-plus", ["kink", "results", "--output", "verdicts", "--locked"])
+    entry(COVERAGE, "story/plus", "story-plus", ["kink", "coverage", "--output", "verdicts", "--locked"])
+    # The rules family's items, which give each test's rules; the rest of the document names
+    # k-rust's build and the cache's state, which are no functions of the fixture.
+    entry(RULES, "story/plus", "story-plus", ["kink", "coverage", "--locked"], select="families.rules.items")
     # The check document's mutations, which give each edit's Rust location; the rest of the
     # document names k-rust's build, which is no function of the fixture.
     entry(CHECK, "story/plus", "story-plus", ["kink", "check", "--locked"], select="mutations")
@@ -262,30 +269,53 @@ def recorded_verdicts(identifier: str, verb: str) -> dict:
     return verdicts
 
 
-def fired_rules(story: dict) -> dict[str, list[str]]:
-    """Each story test's rules: its case's `fired` in the recorded verdicts, in `ruleNames` order."""
+def recorded_rules() -> list[dict]:
+    """The rules family's items of the recorded `krs kink coverage` (`story-kink-coverage-rules`)."""
 
-    verdicts = recorded_verdicts(VERDICTS, "results")
-    recorded = {case["id"]: case for case in verdicts.get("case", [])}
+    path = OUTPUTS / f"{RULES}.txt"
+    if not path.is_file():
+        fail(f"no recorded output {RULES}; run python3 scripts/record-outputs.py --write")
+    command, _, rendering = path.read_text(encoding="utf-8").partition("\n")
+    exits = [line for line in rendering.splitlines() if line.startswith("exit status ")]
+    if exits:
+        fail(f"recorded output {RULES}: krs kink coverage ended with {exits[-1]}; it reads:\n{rendering}")
+    if command.split()[:3] != ["$", "krs", "kink"] or "coverage" not in command.split():
+        fail(f"recorded output {RULES} does not start with its `$ krs kink ... coverage` line")
+    try:
+        items = json.loads(rendering)
+    except json.JSONDecodeError as error:
+        fail(f"recorded output {RULES} is not the rules family's items ({error}); it reads:\n{rendering}")
+    if not isinstance(items, list):
+        fail(f"recorded output {RULES} is not a list of rule items")
+    return items
+
+
+def fired_rules(story: dict) -> dict[str, list[str]]:
+    """Each story test's rules: the rules whose `fired_by` lists its case, in `ruleNames` order."""
+
+    items = recorded_rules()
     tests = [test["id"] for test in story["test"]]
-    extra = sorted(set(recorded) - set(tests))
-    if extra:
-        fail(f"recorded output {VERDICTS} has cases {extra} that story.toml has no test for")
     known = rule_names()
+    fired: dict[str, list[str]] = {}
+    for item in items:
+        name = (item.get("krs") or {}).get("item")
+        for program in item.get("fired_by", []):
+            fired.setdefault(program, []).append(name)
+        for program in (item.get("uncounted") or {}).get("fired_by", []):
+            fail(f"test {program}: its case is not comparable in {RULES}, so it fires {name} uncounted")
+    extra = sorted(set(fired) - set(tests))
+    if extra:
+        fail(f"recorded output {RULES} has cases {extra} that story.toml has no test for")
     rules = {}
     for test in tests:
-        case = recorded.get(test)
-        if case is None:
-            fail(f"test {test} has no case in the recorded output {VERDICTS}")
-        if case.get("class") != "comparable":
-            fail(f"test {test}: its case is {case.get('class')}, not comparable, in {VERDICTS}")
-        fired = case.get("fired")
-        if not isinstance(fired, list):
-            fail(f"test {test}: its case in {VERDICTS} has no `fired` list")
+        names = fired.get(test)
+        if not names:
+            fail(f"test {test} fires no rule in the recorded output {RULES}")
         # The story is one package, so each rule is an item of it, `crate::` and its path; the
         # scenes name it by that path.
-        paths = [name.removeprefix("crate::") if name.startswith("crate::") else None for name in fired]
-        unknown = [name for name, path in zip(fired, paths) if path not in known]
+        paths = [name.removeprefix("crate::") if isinstance(name, str) and name.startswith("crate::") else None
+                 for name in names]
+        unknown = [name for name, path in zip(names, paths) if path not in known]
         if unknown:
             fail(f"test {test} fires {unknown}, which are not `crate::` and one of the scenes' "
                  f"ruleNames ({DATA.name})")
@@ -408,7 +438,7 @@ def generated_data(story: dict, corpus: dict[str, str], rules: dict[str, list[st
     table = ",\n".join(f"  {json.dumps(name)}: output{index}" for index, name in enumerate(ids))
     return "\n".join([
         "// Generated by scripts/sync-story.py from story/story.toml, the cases and mutations of",
-        f"// story/plus/kink/, and the recorded outputs {VERDICTS} (each test's rules),",
+        f"// story/plus/kink/, and the recorded outputs {RULES} (each test's rules),",
         f"// {RUN} (the tests that catch each edit) and {CHECK} (each edit's Rust",
         "// location). Do not edit.",
         *imports,

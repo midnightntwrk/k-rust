@@ -248,11 +248,19 @@ definition = "main"
 args = ["prove", "--dependency", "story-plus:main", "--claim", "add-one"]
 
 [[output]]
-id = "story-kink-results"
+id = "story-kink-coverage"
 fixture = "story/plus"
 package = "story-plus"
 definition = "main"
-args = ["kink", "results", "--output", "verdicts", "--locked"]
+args = ["kink", "coverage", "--output", "verdicts", "--locked"]
+
+[[output]]
+id = "story-kink-coverage-rules"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "coverage", "--locked"]
+select = "families.rules.items"
 
 [[output]]
 id = "story-kink-check"
@@ -386,15 +394,15 @@ args = ["run", "kink/cases/t4.nat"]
 # The guide "Mutation testing a KRS specification" (/verification/mutation-testing): the story's
 # package. Steps 1-3 run the story's corpus story/plus/kink/ (its four cases) with the guide's
 # mutation files (--mutations guide/mutations); step 4 and after run the guide's corpus
-# story/plus/guide/ (the story's cases plus t5). Step 1 also shows story-kink-results. The JSON
-# documents of results and check name k-rust's build, so only one member of each is recorded:
-# results' summary, check's mutations.
+# story/plus/guide/ (the story's cases plus t5). Step 1 also shows story-kink-coverage. The JSON
+# documents of coverage and check name k-rust's build, so only one member of each is recorded:
+# coverage's summary, check's mutations.
 [[output]]
-id = "mutation-testing-results"
+id = "mutation-testing-coverage"
 fixture = "story/plus"
 package = "story-plus"
 definition = "main"
-args = ["kink", "results", "--locked"]
+args = ["kink", "coverage", "--locked"]
 select = "summary"
 
 [[output]]

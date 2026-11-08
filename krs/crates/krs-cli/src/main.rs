@@ -2839,6 +2839,17 @@ mod tests {
         assert_eq!(emit.verb, krs_cli::KinkVerb::Emit { check: true });
     }
 
+    /// `krs kink results` is a usage error that names `coverage`, the verb that replaced it.
+    #[cfg(feature = "kink")]
+    #[test]
+    fn kink_refuses_the_retired_results_verb() {
+        let error = error(&["kink", "results", "--package", "p"]);
+        assert!(
+            error.contains("`results` is no longer a verb: `coverage` replaced it"),
+            "{error}"
+        );
+    }
+
     /// `krs kink` refuses an option before the verb or on a verb it does not apply to, an
     /// unknown verb, and a missing package or verb; `krs kink --help` is kink's own help.
     #[cfg(feature = "kink")]
@@ -2849,10 +2860,6 @@ mod tests {
             (
                 &["kink", "walk", "--package", "p"][..],
                 "unknown verb `walk`",
-            ),
-            (
-                &["kink", "results", "--package", "p"][..],
-                "`results` is no longer a verb: `coverage` replaced it",
             ),
             (
                 &[

@@ -16,13 +16,13 @@ Run it from this directory:
 
 ```sh
 kink-flow check FLOW.toml
-kink-flow results FLOW.toml
+kink-flow coverage FLOW.toml
 kink-flow run FLOW.toml MUTATIONS.toml
 ```
 
 ## Results at k-rust 927b9ce6
 
-- `results`: every one of the 17 rules is covered by a comparable program; the lesson's three programs alone cover them.
+- `results` (which `coverage` has replaced): every one of the 17 rules is covered by a comparable program; the lesson's three programs alone cover them.
 - `run`: 20 mutations are killed; `add-commuted` survives and is equivalent
   (`+Int` is commutative and the rule only fires on two `Int` values), so it is kept as the one explained survivor.
 - Killers, in the search's order (the manifest's order, the programs that reach an edited rule first): `sum` 8, `primes` 5, `arith` 3, `and` 2, `divzero` 1, `redeclare` 1.
@@ -82,7 +82,7 @@ The measurements in this section are from the path-set runs before re-pin L1-1.
 kink compares the set of final configurations, so it explores every evaluation order.
 IMP's `+` and `/` are `strict`, and k-rust does not merge equal intermediate states
 (k-rust request KINK-01, `pathset-state-dedup`), so each loop iteration multiplies the paths.
-Measured with the release binary (wall time of `results` for one program with time_ms = 60000, compile included; host load about 10):
+Measured with the release binary (wall time of `results`, now `coverage`, for one program with time_ms = 60000, compile included; host load about 10):
 
 | Program | Bound | Wall | Peak RSS |
 | --- | --- | --- | --- |

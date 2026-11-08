@@ -36,7 +36,7 @@ The examples use two small flows over the IMP language of the K tutorial, kept i
 - `kink/testdata/flow/fuzz/imp`: two programs (`sum`, `primes`), seven mutations of `imp.k` that no program kills, four templates, and a pattern.
 - `kink/testdata/flow/fuzz/impu`: three programs that leave three rules of `imp.k` unmatched, and three templates.
 
-Commands run from the repository root. `kink-flow run` and `kink-flow results` write a cache next to `FLOW.toml`, so copy a flow out of the repository before working in it.
+Commands run from the repository root. `kink-flow run` and `kink-flow coverage` write a cache next to `FLOW.toml`, so copy a flow out of the repository before working in it.
 Each example shows the command, then the part of its output that matters. Every command prints one JSON document; save it to a file and read it with any JSON viewer.
 
 ## Marking holes
@@ -244,26 +244,30 @@ A mutation `run` decides from its edit alone, `unkillable` or `equivalent` with 
 
 ## Reach an unmatched rule
 
-`kink-flow results` lists every rule with the programs that match it (`matched_by`) and fire it (`fired_by`):
+`kink-flow coverage` lists every rule with the programs that match it (`matched_by`) and fire it (`fired_by`), and each rule no program fires as a target, with the fuzz job that looks for a program for it:
 
 ```sh
 cp -r kink/testdata/flow/fuzz/impu /tmp/fuzz-impu
 cd /tmp/fuzz-impu
-kink-flow results FLOW.toml > results.json
+kink-flow coverage FLOW.toml > coverage.json
 ```
 
 ```json
 {
-  "summary": { "rules": 17, "fired": 14, "matched": 0, "unmatched": 3 },
-  "rules": [
-    { "file": "imp.k", "start_line": 47, "status": "unmatched" },
-    { "file": "imp.k", "start_line": 50, "status": "unmatched" },
-    { "file": "imp.k", "start_line": 52, "status": "unmatched" }
+  "families": { "rules": { "counts": { "matched": 0, "unmatched": 3 } } },
+  "targets": [
+    { "item": "rule:imp.k:47", "file": "imp.k", "line": 47,
+      "pattern": "<k> - I1:Int ...</k>", "fuzz": "…--matched imp.k:47" },
+    { "item": "rule:imp.k:50", "file": "imp.k", "line": 50,
+      "pattern": "<k> ! T:Bool ...</k>", "fuzz": "…--matched imp.k:50" },
+    { "item": "rule:imp.k:52", "file": "imp.k", "line": 52,
+      "pattern": "<k> false && _:BExp ...</k>", "fuzz": "…--matched imp.k:52" }
   ]
 }
 ```
 
-Name the rule by `FILE:LINE`, as `results` prints it (a label works too, but these rules have none):
+Each target's `pattern` is the rule's left-hand side as a `PATTERNS.toml` pattern, with the sorts the rule's parse inferred for its variables and in the `<k>` cell where the rule runs, so `query` can check whether a program reaches it and `fuzz --pattern` can look for one.
+Name the rule by `FILE:LINE`, as a `coverage` target spells it (a label works too, but these rules have none):
 
 ```sh
 cd /tmp/fuzz-impu
@@ -285,7 +289,7 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template clamp-holes --matched imp.k:4
 ```
 
 Rule 47 is `- I1 => 0 -Int I1`. `clamp` writes `r = -1;` only when `x < lo`, which its literals never made true; `X = 0, LO = 1` does.
-The confirmation is kink's `results` on the fragment: the program is comparable and listed in the rule's `matched_by`.
+The confirmation is kink's `coverage` on the fragment: the program is comparable and listed in the rule's `matched_by`.
 `--matched RULE` asks for a program that matches the rule (its run begins to decide the rule's condition, as `matched_by` counts); `--fired RULE` asks for one that fires it (some path takes the rule's step: a step built a successor of the rule that denotes a configuration, as `fired_by` counts; a step whose result was empty, rolled back or undefined does not fire the rule).
 
 Rule 50 is `! T => notBool T`. No hole value of `clamp` matches it, since `clamp` has no `!`:
@@ -325,7 +329,7 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template bang-holes --matched imp.k:50
 ```
 
 kink counts a program as matching or firing a rule only when its run on every path ends in values kink can compare, so the witness must end naturally, on every path, in data.
-Only rewrite rules can be targets: a function's equation is refused before any case (`equation-target`), although `results` lists it; write a program that calls the function and target a rewrite rule that uses its result.
+Only rewrite rules can be targets: a function's equation is refused before any case (`equation-target`), although `coverage` lists it; write a program that calls the function and target a rewrite rule that uses its result.
 Which rules coverage is meant to cover, and which rule targets are not built yet, are stated in [kink's README, section "What coverage covers"](../kink/README.md#what-coverage-covers): an `unmatched` simplification, `symbolic` or ceil equation is out of scope and needs no witness.
 
 ## Hit a pattern
@@ -443,7 +447,7 @@ The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `t
 **Warnings** are information, not refusals:
 
 - `template-not-a-witness`, `no-witness`: in the last `run` this template's program does not witness the mutant's edit, or no program does. Expected for a new program.
-- `global-witnesses`: the mutant's edit is not site-local (an equation's left-hand side or attribute, a deleted or inserted equation, a declaration, ...), so in the last `run` every program is a witness by default, the template's among them, not because its coverage reaches an edited rule: a changed pattern can match terms no baseline run tried. Prefer a template whose program reaches the edited rule, one that `results` lists in the rule's `matched_by`.
+- `global-witnesses`: the mutant's edit is not site-local (an equation's left-hand side or attribute, a deleted or inserted equation, a declaration, ...), so in the last `run` every program is a witness by default, the template's among them, not because its coverage reaches an edited rule: a changed pattern can match terms no baseline run tried. Prefer a template whose program reaches the edited rule, one that `coverage` lists in the rule's `matched_by`.
 - `witnesses-not-computed`: the last `run` neither compiled the mutant nor found its compiled edit in the outcome cache (a `baseline-findings` row, say), so the row's `witnesses` are `null`: it names no program to start from and no template is suggested. This is not the empty set `no-witness` reports. The detail gives the row's reason.
 - `unusable-template`: the template's program is not comparable in the last `run`, or kink refuses its input. Choose another.
 - `already-killed`, `stale-run-document`: the last `run` killed the mutation already, or was made for another specification.
@@ -451,7 +455,7 @@ The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `t
 - `crash`: k-rust or k-rust-fuzz failed on a case (a defect to report; the case kills nothing). The fuzz report's `crashes` holds the case.
 - `stack-stop`: the last `run` left the mutation `unknown` with reason `stack-stop`, so a case on which the mutant recurses the same way is no witness either; the search ends after `--stack-stops` such cases in a row.
 - `not-ceil-free`: a case ended on an application of the named function that no equation evaluates and whose definedness k-rust does not show, so the case was not judged. On a mutant from which kink withdrew the function's `total` claim (`job.claims.removed`), it is often the application the narrowed equation leaves open: choose hole values whose runs avoid it.
-- `witness-not-terminating`: the pattern witness's run of every path was cut by `--max-work`, the depth bound or a clock. It reaches the pattern, but as a test it may never end, so every `run` and `results` runs it to the budget. Prefer hole values or a template whose run ends.
+- `witness-not-terminating`: the pattern witness's run of every path was cut by `--max-work`, the depth bound or a clock. It reaches the pattern, but as a test it may never end, so every `run` and `coverage` runs it to the budget. Prefer hole values or a template whose run ends.
 - `time-limit-scope`: `--time-limit-ms` bounds the campaign, not the setup before it.
 
 ## What kink refuses, and why
@@ -582,7 +586,7 @@ witness found
 cases: 2, work: 1261 (hit 1, miss 1)
 ```
 
-A rule named by its position, as kink's `results` prints it:
+A rule named by its position, as kink's `coverage` prints it:
 
 ```sh
 cd /tmp/fuzz-krust
@@ -655,10 +659,10 @@ On WebAssembly and KEVM, compile the definition and the mutant with `krust kcomp
 
 ## Checklist for an agent
 
-1. Run `kink-flow run` (kill) or `kink-flow results` (`--matched`, `--fired`) first, and pick the job from the document: a `survived` or `unknown` mutation, or an `unmatched` rule by `FILE:LINE`.
+1. Run `kink-flow run` (kill) or `kink-flow coverage` (`--matched`, `--fired`) first, and pick the job from the document: a `survived` or `unknown` mutation, or an `unmatched` rule by `FILE:LINE`.
 2. Template: start from a program in the mutation's `witnesses` (or one near the rule). Mark every data literal, with small ranges.
 3. Run with a small budget and a fixed seed: `--cases 50` to `300`, `--max-work 20000`, default `--seed 0`.
-4. `stopped: null`: append `program.fragment` (and any `premises` to `[spec] assume_joined`), run `kink-flow run --only ID` or `results`, and check the status.
+4. `stopped: null`: append `program.fragment` (and any `premises` to `[spec] assume_joined`), run `kink-flow run --only ID` or `coverage`, and check the status.
 5. `stopped: budget` or `domain-exhausted`: read `action`. `Domain exhausted`, "may not terminate", or 100 % `miss` with no progress means: write a new three-to-eight-line program in which the edited rule's result reaches the end directly. Then consider whether any input can kill the mutation. `stopped: stack-stops` means the mutant recursed without end on the last cases: write a case it ends on, or write the misunderstanding as a mutant that ends, or drop it.
 6. `client-refused` or `unconfirmed`: read the cause; change the template or ranges (ASCII strings), or try another seed.
 7. `not-comparable`: do not name findings by reflex. Name one only if you accept it as a premise, and say so beside the test.

@@ -7,8 +7,8 @@
 # current and that each edit's two forms below are one edit.
 
 # The corpus, in the order the AI writes it. A test is a case of plus/kink/FLOW.toml, with the
-# same id; the rules it fires are those `krs kink results` reports for it (the recorded output
-# story-kink-results), which sync-story.py writes into the story data.
+# same id; the rules it fires are those `krs kink coverage` reports for it (the recorded output
+# story-kink-coverage-rules), which sync-story.py writes into the story data.
 [[test]]
 id = "t1"
 

@@ -1,5 +1,5 @@
 # The introduction's corpus for the `plus` specification: the tests an AI writes, in that
-# order, each a program of `cases/`. `krs kink results` reports the rules each one fires,
+# order, each a program of `cases/`. `krs kink coverage` reports the rules each one fires,
 # which the coverage scenes show (scripts/sync-story.py reads the recorded output).
 
 [spec]
