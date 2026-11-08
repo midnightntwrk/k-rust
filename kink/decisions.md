@@ -94,7 +94,7 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
 - **O1 — A corpus compares runs by declared observation channels; each class states its stuttering, and a survivor that rests on a horizon stays `survived` with its horizon.**
   `[observe]` declares point classes (rewrite rules on their before or after side, cells, and a stuttering mode, `collapse` or `count`, with no default) and logs (a `List` cell read at named classes' events and where the path ends), and every run is compared by them besides its end (kink-flow README, "What a run observes"; kink's `trust.md`, "What a kill trusts").
   A baseline run that a deterministic bound cuts before it ends is `comparable-prefix`, compared by its channels up to their horizons.
-  A mutant that agrees up to every horizon is `survived`, and its row and its verdicts rendering carry `horizon`; one whose every horizon is 0 is `unknown`.
+  A mutant that agrees up to every horizon is `survived`, and its row and its verdicts rendering carry `horizon`, each horizon with why its channel opened; one whose every horizon is 0 is `unknown`, and a prefix program none of whose channels kept an element is itself `unknown`.
   Only one path per side is compared: a channel opens at its side's first state with several successors.
   [Sebastien, 2026-11-07: the stuttering mode declared per class, the survivor with its horizon, and the single-path meaning first, the prefix-set meaning for several paths a later unit]
   1. *An observation is a function of a finite prefix.*
@@ -102,7 +102,8 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
   2. *Which stuttering is meant is a property of the specification.*
      Weak trace equivalence over declared labels counts events (two equal consecutive events are two), while a position is a place to sample, not content, which collapses them; each loses kills the other finds (a redundant write under `count`; an idle cycle that is a promised event under `collapse`), and both are sound, so the author states which the specification promises.
   3. *A horizon qualifies a survivor as the declared observation does.*
-     Every survivor is relative to what is compared; a horizon is part of the observation of a program that never ends, a function of the budget and not of the host, so it is reported with the survivor rather than as another status.
+     Every survivor is relative to what is compared; a horizon is part of the observation of a run, a function of the result key and not of the host, so it is reported with the survivor rather than as another status.
+     A channel opens at a bound, at an undecided element, at a branch or where the path is not decided, on a prefix program or on one that ended; against a channel a cycle closed, a survivor's horizon is where the mutant's channel stopped past the baseline's elements; only a bound's horizon, and a cycle's where the mutant was cut, moves with the budget, so each horizon names its opening, and the survivor's action asks to raise the bound only for those.
   4. *The K front end compares cells as they hold them.*
      kink-flow reads terms of a K definition and has no observer to evaluate a function in, so it refuses `observer`, `views`, `components`, `when` and `element`; identity contents and logs are sound at the K level by the end projection's argument.
 
