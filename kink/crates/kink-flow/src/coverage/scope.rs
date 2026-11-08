@@ -136,9 +136,9 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    /// A claim helper is named by its module and its label, bare or qualified, and matches a
-    /// sentence that writes its label either way; another module's label of the same name does
-    /// not.
+    /// A claim helper is named by its module and its label, bare or qualified by that module,
+    /// and matches a sentence of that module that writes its label either way; a sentence of
+    /// another module does not, whether its label is bare or qualified by the helper's module.
     #[test]
     fn a_claim_helper_matches_its_label_bare_or_qualified() {
         let manifest = FlowManifest::decode(
@@ -159,6 +159,8 @@ mod tests {
             assert!(manifest.is_claim_helper(module, label), "{module} {label}");
         }
         assert!(!manifest.is_claim_helper("N", "bare"));
+        assert!(!manifest.is_claim_helper("N", "M.bare"));
+        assert!(!manifest.is_claim_helper("N", "M.qualified"));
         assert!(!manifest.is_claim_helper("M", "N.bare"));
         assert!(!manifest.is_claim_helper("M", "other"));
     }

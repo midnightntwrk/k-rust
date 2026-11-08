@@ -962,15 +962,25 @@ impl FlowManifest {
         self
     }
 
-    /// Whether the sentence of K module `module` labelled `label` (bare, or `MODULE.x`) is a
-    /// claim helper ([`Self::claim_helpers`]): a helper and a sentence are the same where their
-    /// labels qualified by their modules are, so either may write its label bare.
+    /// Whether the sentence of K module `module` labelled `label` is a claim helper
+    /// ([`Self::claim_helpers`]): a helper names one sentence by its module and the label the
+    /// emission writes, and K stores a `rule [x]:` label of module `M` as `M.x`, so a helper and
+    /// a sentence are the same exactly where their modules are and their labels are, once each
+    /// drops a leading `<module>.` of that one module. A label that names another module
+    /// (`N.x` in `M`) is that label, not `N`'s sentence `x`.
     #[must_use]
     pub fn is_claim_helper(&self, module: &str, label: &str) -> bool {
-        let wanted = crate::mutation::qualified_label(label, module);
-        self.claim_helpers.iter().any(|(helper_module, helper)| {
-            crate::mutation::qualified_label(helper, helper_module) == wanted
-        })
+        let own = |label: &'_ str| -> String {
+            label
+                .strip_prefix(module)
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(label)
+                .to_owned()
+        };
+        let wanted = own(label);
+        self.claim_helpers
+            .iter()
+            .any(|(helper_module, helper)| helper_module == module && own(helper) == wanted)
     }
 
     /// This manifest with `syntax` as its reading of the syntax family ([`Self::syntax`]): the
