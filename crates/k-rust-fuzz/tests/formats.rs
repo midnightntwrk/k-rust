@@ -46,10 +46,12 @@ use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 /// fuzzer never does, so no report it writes changes. Re-pinned within version 10 by
 /// KINK-observation-traces T1: k-rust's `HaltReasonOutput` gained `probe-difference` and
 /// `probe-done`, which only an in-process request with a probe has, which the fuzzer never
-/// sends, so no report it writes changes.
+/// sends, so no report it writes changes. Version 11: the campaign's options carry the corpus
+/// `stop` (`CaseStop {before, after, count}`), recorded in the report identity, a leaf reports
+/// `stop_end`, and the unjudged reason `passed-stop`.
 const REPORT_SHAPE: (u32, &str) = (
-    10,
-    "9932c14af0a770e772f07bd6ab04428bea4229f9fc25185400fea2d1116194bd",
+    11,
+    "376848c5bdff81f7114f08c33afc9a62ab4fa038f7238a898f65194e06c04d58",
 );
 
 /// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds. Re-pinned

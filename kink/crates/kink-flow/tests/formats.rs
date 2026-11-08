@@ -61,11 +61,17 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// reader does not take. Version 14 adds a kill job's `job.expect` and the warning
 /// `expected-to-survive`; the digest moved by the key `expect` alone, since a warning kind passed
 /// to `warning(..)` is not a value the reader takes and `job.expect`'s value is computed.
+/// Version 15 runs a corpus with `[stop]` or `[observe]` and embeds report
+/// version 11, whose identity records the stop; the digest moved by the keys `stop`, `observe`,
+/// `ignored` and `stop_count` and the values `not-admitted` and `stop-unresolved`, the status and
+/// reason of a kill job whose mutant the stop does not resolve, and by the keys `count` and
+/// `counts`, which the last run document's `stop` is read by; the narrowed refusals' stages and
+/// reasons are arguments of `Refusal::new`, and the warning `stop-hides-edit` one of `warning(..)`.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    14,
-    10,
+    15,
+    11,
     2,
-    "179e82f51d6917507e5d02393fd95c44a1a94018a08be7291d0e9ec2889133df",
+    "b57e997d75141191c20919677e86edae752f77be881dc9e018086e922f2ee4f2",
 );
 
 /// `source` without `//` comments, string literals kept whole.
