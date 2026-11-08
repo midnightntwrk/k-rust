@@ -27,8 +27,8 @@ Usage:
              [--input NAME=JSON]... [-c NAME=TEXT]... [--depth N] [--stop-before NAME]...
              [--stop-after NAME]... [--stop-count N]
              [--stop-when CELL,...=FUNCTION [--observer PACKAGE:DEFINITION]]
-             [--trace] [--coverage]
-             [--output pretty|kast|json|kore|end|none] [--color auto|always|never]
+             [--observe FILE] [--trace] [--coverage]
+             [--output pretty|kast|json|kore|end|observations|none] [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
              [--view-budget POLLS]
   krs search --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
@@ -91,14 +91,15 @@ Options:
                              that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
                              directory for the changed module files, whose paths stdout lists
-  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, end (run: the end document krs compare reads), none (run); human (default of cases and compare) or json for cases and compare
+  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, end (run: the end document krs compare reads), observations (run: the krs-observations/1 document of the declared observations), none (run); human (default of cases and compare) or json for cases and compare
   FILE|-                     With run and search, bind the main parameter: the file's bytes
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
                              parameter name; its file paths are relative to FILE's directory.
                              A case's run table gives the depth, stop rules, stop count and
-                             stop condition, in place of the flags (a flag beside what the
-                             case gives is refused); its instances table gives the starting
+                             stop condition, and its observe table the observations, in place
+                             of the flags (a flag beside what the case gives is refused); its
+                             instances table gives the starting
                              instances of optional and repeated cells; its expect table is
                              checked: met, unmet or inconclusive. --case FILE#NAME names the
                              case NAME of a document of named cases, as krs cases prints its id
@@ -163,6 +164,13 @@ Options:
                              rule's) FUNCTION, a Bool function of the CELLs in parameter order,
                              holds of; evaluated in --observer's definition; needs
                              --stop-before or --stop-after
+  --observe FILE             With run, record the observations FILE (.toml or .json) declares
+                             along the run's path: a document whose one key is `observe`, the
+                             table a case document gives (point classes sampled before or after
+                             the steps of named rules, with a stutter of collapse or count, and
+                             logs of List cells, their functions evaluated in its observer); an
+                             element with no value refuses the run; printed by --output
+                             observations, summarized by --output json
   --trace                    Print each rewrite step with its rule and source
   --coverage                 With run, list the rules and equations the run matched, applied
                              and committed, with their sources (--output json: the report's
@@ -212,7 +220,10 @@ expectation whose run has no end included), else 0. A completed run of a definit
 exit cell exits with that cell's value instead, the program's own status, which shares these
 numbers: --output json tells them apart. A run with an expectation (--case) exits by its
 verdict instead, 0 met, 1 unmet and 3 inconclusive, and with --output end, a run whose end has
-no end document exits 2, whatever its own status. krs kink exits by the same four (krs kink
+no end document exits 2, whatever its own status. With --output observations, the
+observations replace the run's own status: 0 where each element is known, the run's end, a stop
+or a depth bound closing or cutting the channels; 3 where an element is undecided or the run
+halted inconclusively; an expectation's verdict joins it as a batch's does. krs kink exits by the same four (krs kink
 --help). Every other command exits 0 on success, 2 on a usage error and 1 otherwise. A usage
 error prints its message, then the usage lines of the command it names (the list of commands
 when it names none or an unknown one) and the command that lists the options; an option value
@@ -882,6 +893,8 @@ struct ExecOptions {
     stop_count: Option<NonZeroU64>,
     /// `--stop-when`: the cells and the function.
     stop_when: Option<(Vec<String>, String)>,
+    /// `--observe`.
+    observe: Option<PathBuf>,
     trace: bool,
     coverage: bool,
     mode: Option<SearchMode>,
@@ -1156,7 +1169,7 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 31] = [
+const EXEC_LONG_OPTIONS: [&str; 32] = [
     "case",
     "case-name",
     "jobs",
@@ -1173,6 +1186,7 @@ const EXEC_LONG_OPTIONS: [&str; 31] = [
     "stop-after",
     "stop-count",
     "stop-when",
+    "observe",
     "max-solutions",
     "mode",
     "trace",
@@ -1227,14 +1241,7 @@ fn exec_option(
             exec.typed
                 .push(typed_input(&option_value(parser, "input")?)?);
         }
-        "depth" => {
-            exec.note("--depth");
-            let value = option_value(parser, "depth")?;
-            let depth = value
-                .parse::<u64>()
-                .map_err(|_| usage(format!("--depth `{value}` is not a non-negative integer")))?;
-            set_once(&mut exec.depth, depth, "--depth")?;
-        }
+        "depth" | "observe" => path_option(parser, exec, option)?,
         option if option.starts_with("stop-") => stop_option(parser, exec, option)?,
         "jobs" | "name" | "view-budget" => cases_option(parser, exec, option)?,
         option if COMPARE_OPTIONS.contains(&option) => compare_option(parser, exec, option)?,
@@ -1402,6 +1409,26 @@ fn compare_option(
         ),
     }
     Ok(())
+}
+
+/// Parse `--depth`, which bounds the path a run follows, or `--observe`, which declares what the
+/// run records along it.
+fn path_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    if option == "observe" {
+        exec.note("--observe");
+        let path = observe_path(&option_value(parser, "observation file")?)?;
+        return set_once(&mut exec.observe, path, "--observe");
+    }
+    exec.note("--depth");
+    let value = option_value(parser, "depth")?;
+    let depth = value
+        .parse::<u64>()
+        .map_err(|_| usage(format!("--depth `{value}` is not a non-negative integer")))?;
+    set_once(&mut exec.depth, depth, "--depth")
 }
 
 /// Parse one of the stop options of `krs run`.
@@ -1659,6 +1686,31 @@ fn worker_option(
 /// as `krs cases` prints the case's id and `krs compare` reads a side ([`SideFile::parse`]); FILE
 /// must be `.toml` or `.json`, its extension selecting how it is read. A refusal is about the
 /// value alone, so it is not followed by the usage ([`UsageError::Value`]).
+/// Refuses `--output observations` where nothing may declare observations (`declarable` false):
+/// no `--observe`, and no `--case`, whose document may declare them.
+fn observations_declared(declarable: bool, output: TermOutput) -> Result<(), UsageError> {
+    if output == TermOutput::Observations && !declarable {
+        return Err(usage(
+            "--output observations prints the observations the run declares; declare them with --observe FILE or give a case whose document has `observe`",
+        ));
+    }
+    Ok(())
+}
+
+/// The file `--observe FILE` names, a `.toml` or `.json` document read by its extension.
+fn observe_path(value: &str) -> Result<PathBuf, UsageError> {
+    let path = PathBuf::from(value);
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("toml" | "json") => Ok(path),
+        Some(extension) => Err(UsageError::Value(format!(
+            "--observe `{value}` has the extension `.{extension}`; an observation file is `.toml` or `.json`"
+        ))),
+        None => Err(UsageError::Value(format!(
+            "--observe `{value}` has no extension; an observation file is `.toml` or `.json`"
+        ))),
+    }
+}
+
 fn case_path(value: &str) -> Result<(PathBuf, Option<String>), UsageError> {
     if let Ok(side) = SideFile::parse(value) {
         return Ok((side.path, side.name));
@@ -1924,6 +1976,7 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--stop-count",
             "--stop-when",
             "--observer",
+            "--observe",
             "--trace",
             "--coverage",
             "--color",
@@ -2002,6 +2055,7 @@ fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput,
         ("kore", _) => Ok(TermOutput::Kore),
         ("none", CommandKind::Run) => Ok(TermOutput::None),
         ("end", CommandKind::Run) => Ok(TermOutput::End),
+        ("observations", CommandKind::Run) => Ok(TermOutput::Observations),
         ("jsonl", CommandKind::Prove) => Ok(TermOutput::JsonLines),
         ("program", CommandKind::Parse) => Ok(TermOutput::Program),
         ("pretty", CommandKind::Run | CommandKind::Search | CommandKind::Prove) => {
@@ -2049,6 +2103,7 @@ fn exec_command(
         }
     });
     let output = term_output(kind, output)?;
+    observations_declared(exec.observe.is_some() || exec.case.is_some(), output)?;
     let color = exec.color.unwrap_or_default();
     Ok(match kind {
         CommandKind::Parse => Command::Parse(ParseRequest {
@@ -2065,6 +2120,7 @@ fn exec_command(
             depth: exec.depth,
             stop,
             stop_unpaired,
+            observe: exec.observe,
             trace: exec.trace,
             coverage: exec.coverage,
             output,
@@ -3446,6 +3502,7 @@ mod tests {
                 depth: Some(3),
                 stop: StopCriterion::None,
                 stop_unpaired: None,
+                observe: None,
                 trace: true,
                 coverage: true,
                 output: TermOutput::Json,

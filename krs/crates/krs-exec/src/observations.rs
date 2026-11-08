@@ -118,6 +118,15 @@ impl ObservationSpec {
     pub fn is_empty(&self) -> bool {
         self.points.is_empty() && self.logs.is_empty()
     }
+
+    /// Whether it declares a function, which is evaluated in an observer: a view, a component, a
+    /// filter or an element function.
+    #[must_use]
+    pub fn declares_function(&self) -> bool {
+        self.points.iter().any(|class| {
+            !class.views.is_empty() || !class.components.is_empty() || class.when.is_some()
+        }) || self.logs.iter().any(|log| log.element.is_some())
+    }
 }
 
 /// A point class ([module documentation](self), "Channels").

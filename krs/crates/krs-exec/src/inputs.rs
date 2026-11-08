@@ -241,7 +241,7 @@
 //!
 //! A *case document* is a TOML or a JSON document, by its file's extension,
 //! that states one case or several named cases ([`CaseDocument`]).
-//! A *case* is a table of four keys, each of which may be absent:
+//! A *case* is a table of five keys, each of which may be absent:
 //!
 //! - `inputs`: a value for each input, by name
 //!   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -268,6 +268,8 @@
 //!   The condition needs a stop rule, at whose arrivals it is asked.
 //!   The count and the condition belong to the case, beside its rules,
 //!   since where a run is observed depends on the program it runs.
+//! - `observe`: the observations the case's run declares along its path
+//!   ([`ObservationSpec`](crate::ObservationSpec), "Observations", below).
 //! - `instances`: the instances the run starts with, of the optional and repeated cells it names
 //!   ("Instances", below).
 //! - `expect`: the end the case expects of its run ("Expectations", below).
@@ -275,7 +277,8 @@
 //! A document of one case holds these keys at its top, and no other.
 //! A document of named cases holds `case`, the *list* of its cases,
 //! and may hold `run`, the `run` of every case that has none of its own
-//! (a case's own `run` replaces it whole);
+//! (a case's own `run` replaces it whole),
+//! and `observe`, likewise the `observe` of every case that has none of its own;
 //! it holds no other key, so a document is of one kind or the other.
 //! A JSON document that is an array is a list, and a document of named cases.
 //! A list is an array (TOML's `[[case]]` tables) of named cases, each a case with a `name`,
@@ -293,6 +296,38 @@
 //! so that the document and the name identify a case (`<document>#<name>`).
 //! A front end selects a case of a document of named cases by its name;
 //! the one case of a document has no name, and is selected by none.
+//!
+//! ## Observations
+//!
+//! `observe` declares what the case's run shows along its path, beside its end
+//! ([`crate::observations`]): a table of three keys,
+//! `observer`, `point` and `log`, each of which may be absent.
+//! A declaration with no `point` and no `log` declares no channel, and the run is the run without it.
+//!
+//! - `observer`: the definition the declaration's functions are resolved and evaluated in,
+//!   `PACKAGE:DEFINITION` as an expectation names its observer, the run's own definition by default;
+//!   only a declaration with a function (a view, a component, a filter or an element function) names one.
+//! - `point`: an array of point classes (TOML's `[[observe.point]]` tables), each a table of
+//!   `name`, the channel's name, a non-empty string;
+//!   `before` and `after`, the rules on whose side of a step the class samples,
+//!   each an array of names of rules as `run`'s `stop_before` and `stop_after` name them;
+//!   `stutter`, which has no default: `collapse`, under which an element equal to the last one kept is dropped,
+//!   or `count`, under which every point is an element;
+//!   `cells`, the leaf cells whose values are components, by Rust field path;
+//!   `views`, a table of a function by cell of `cells`, whose value is that cell's component;
+//!   `components`, an array of tables `{ name, cells, function }`, each a function of the cells it names,
+//!   in the order of its parameters;
+//!   and `when`, a filter `{ function, cells }` of result sort `Bool`.
+//! - `log`: an array of logs (TOML's `[[observe.log]]` tables), each a table of
+//!   `name`, the channel's name;
+//!   `cell`, the `List` leaf cell, by Rust field path;
+//!   `element`, an optional element function, `Item -> List<_>`;
+//!   and `at`, the names of the point classes at whose points the log is read, besides the path's end.
+//!
+//! A function is named as a view names one: by its KRS path or a `::`-aligned suffix of it.
+//! Which rules, cells and functions a declaration may name is the run's to judge
+//! ([`crate::Semantics::observations`]); a case document refuses only what is no declaration,
+//! naming the key.
 //!
 //! ## Instances
 //!
@@ -433,6 +468,7 @@ use krs_ir_levels::{DefinitionIr, DefinitionSentence, DefinitionSortRef};
 use num_bigint::BigInt;
 use serde_json::Value as Json;
 
+use crate::observations::{Component, Filter, LogChannel, ObservationSpec, PointClass, Stutter};
 use crate::values::{CellNode, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 use crate::{ConfigValue, ProgramInput};
 
@@ -659,6 +695,9 @@ pub struct Case {
     /// How it is run: its own `run`, else its document's (named cases only); `None` when neither
     /// is given.
     pub run: Option<CaseRun>,
+    /// The observations its run declares: its own `observe`, else its document's (named cases
+    /// only); `None` when neither is given.
+    pub observe: Option<Box<ObservationSpec>>,
     /// The `instances` table, read against the definition by
     /// [`crate::Semantics::state_instances`]; `None` when the case states none.
     pub instances: Option<Json>,
@@ -725,7 +764,15 @@ pub struct Expectation {
 }
 
 /// The keys of a case, besides a named case's `name`.
-const CASE_KEYS: [&str; 4] = ["inputs", "run", "instances", "expect"];
+const CASE_KEYS: [&str; 5] = ["inputs", "run", "observe", "instances", "expect"];
+
+/// What a document of named cases gives every case that does not give its own: its `run` and its
+/// `observe`.
+#[derive(Clone, Copy, Default)]
+struct Shared<'a> {
+    run: Option<&'a CaseRun>,
+    observe: Option<&'a ObservationSpec>,
+}
 
 impl Case {
     /// The one case a TOML document states.
@@ -771,10 +818,10 @@ impl Case {
         }
         let Json::Object(top) = document else {
             return Err(InputError::document(
-                "a case document is a table: one case's `inputs`, `run`, `instances` and `expect`, or named cases under `case`".to_owned(),
+                "a case document is a table: one case's `inputs`, `run`, `observe`, `instances` and `expect`, or named cases under `case`".to_owned(),
             ));
         };
-        case_table(top, "", None, None, None)
+        case_table(top, "", None, Shared::default(), None)
     }
 }
 
@@ -839,16 +886,16 @@ impl CaseDocument {
             names: BTreeMap::new(),
         };
         match document {
-            Json::Array(_) => reader.list(&document, "", None)?,
+            Json::Array(_) => reader.list(&document, "", Shared::default())?,
             Json::Object(mut top) if top.contains_key("case") => {
                 if let Some(key) = top
                     .keys()
-                    .find(|key| !matches!(key.as_str(), "case" | "run"))
+                    .find(|key| !matches!(key.as_str(), "case" | "run" | "observe"))
                 {
                     return Err(at(
                         "",
                         format!(
-                            "a document of named cases holds `case` and `run` only; one case's `{key}` belongs in its table in `case`"
+                            "a document of named cases holds `case`, `run` and `observe` only; one case's `{key}` belongs in its table in `case`"
                         ),
                     ));
                 }
@@ -856,10 +903,20 @@ impl CaseDocument {
                     .remove("run")
                     .map(|run| case_run(&run, "run", false))
                     .transpose()?;
+                let observe = top
+                    .remove("observe")
+                    .map(|observe| observe_table(&observe, "observe"))
+                    .transpose()?;
                 let list = top.remove("case").unwrap_or(Json::Null);
-                reader.list(&list, "case", run.as_ref())?;
+                let shared = Shared {
+                    run: run.as_ref(),
+                    observe: observe.as_ref(),
+                };
+                reader.list(&list, "case", shared)?;
             }
-            Json::Object(top) => return case_table(top, "", None, None, None).map(Self::One),
+            Json::Object(top) => {
+                return case_table(top, "", None, Shared::default(), None).map(Self::One);
+            }
             _ => {
                 return Err(InputError::document(
                     "a case document is a table (one case, or named cases under `case`) or an array of named cases".to_owned(),
@@ -932,13 +989,13 @@ fn key_position(position: &str, key: &str) -> String {
 }
 
 /// The case the table `top` states at `position`: a named case when `name` lists the names
-/// taken so far, the one case of a document otherwise. `run` is its document's, `file` the data
-/// file it is written in.
+/// taken so far, the one case of a document otherwise. `shared` is what its document gives every
+/// case, `file` the data file it is written in.
 fn case_table(
     mut top: serde_json::Map<String, Json>,
     position: &str,
     name: Option<String>,
-    run: Option<&CaseRun>,
+    shared: Shared<'_>,
     file: Option<&str>,
 ) -> Result<Case, InputError> {
     let named = name.is_some();
@@ -950,11 +1007,11 @@ fn case_table(
             "a document of one case names none; named cases are listed under `case`".to_owned()
         } else if named {
             format!(
-                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `instances` and `expect`"
+                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
             )
         } else {
             format!(
-                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `instances` and `expect`"
+                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `observe`, `instances` and `expect`"
             )
         };
         return Err(at(position, message));
@@ -971,7 +1028,17 @@ fn case_table(
     };
     let own = top
         .remove("run")
-        .map(|document| case_run(&document, &key_position(position, "run"), run.is_some()))
+        .map(|document| {
+            case_run(
+                &document,
+                &key_position(position, "run"),
+                shared.run.is_some(),
+            )
+        })
+        .transpose()?;
+    let observe = top
+        .remove("observe")
+        .map(|document| observe_table(&document, &key_position(position, "observe")).map(Box::new))
         .transpose()?;
     let instances = match top.remove("instances") {
         Some(Json::Object(instances)) => Some(Json::Object(instances)),
@@ -998,7 +1065,8 @@ fn case_table(
     Ok(Case {
         name,
         inputs,
-        run: own.or_else(|| run.cloned()),
+        run: own.or_else(|| shared.run.cloned()),
+        observe: observe.or_else(|| shared.observe.cloned().map(Box::new)),
         instances,
         expect,
         file: file.map(str::to_owned),
@@ -1134,6 +1202,387 @@ fn stop_when(document: &Json, position: &str) -> Result<crate::StopWhen, InputEr
         }),
         _ => Err(at(position, SHAPE.to_owned())),
     }
+}
+
+/// What `stutter` is, said where it is missing or is neither.
+const STUTTER: &str = "`stutter` is `collapse` (an element equal to the last one kept is dropped, so the number of points is not observed) or `count` (every point is an element)";
+
+impl ObservationSpec {
+    /// The declaration a TOML text states: a document whose one key is `observe`, the table a
+    /// case document gives ([module documentation](self#observations)).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InputError`] for a text that is no TOML document, a value [`toml_document`]
+    /// refuses, and a document that is no declaration, naming the key.
+    pub fn from_toml(text: &str) -> Result<Self, InputError> {
+        Self::from_document(toml_text_document(text)?)
+    }
+
+    /// The declaration a JSON text states, as [`Self::from_toml`] reads a TOML one.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::from_toml`] does, for a text [`json_document`] refuses.
+    pub fn from_json(text: &str) -> Result<Self, InputError> {
+        Self::from_document(json_document(text)?)
+    }
+
+    /// The declaration `document` (of the JSON data model) states, as [`Self::from_toml`] reads
+    /// the document of a TOML text.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::from_toml`] does.
+    pub fn from_document(document: Json) -> Result<Self, InputError> {
+        const SHAPE: &str = "an observation document is a table whose one key is `observe`, the table a case document gives";
+        let Json::Object(mut top) = document else {
+            return Err(InputError::document(SHAPE.to_owned()));
+        };
+        if let Some(key) = top.keys().find(|key| key.as_str() != "observe") {
+            return Err(InputError::document(format!(
+                "unknown key `{key}`; {SHAPE}"
+            )));
+        }
+        let Some(observe) = top.remove("observe") else {
+            return Err(InputError::document(SHAPE.to_owned()));
+        };
+        observe_table(&observe, "observe")
+    }
+}
+
+/// The `observe` table `document` at `position` ([module documentation](self#observations)).
+fn observe_table(document: &Json, position: &str) -> Result<ObservationSpec, InputError> {
+    const KEYS: &str = "`observer`, `point` and `log`";
+    let Json::Object(table) = document else {
+        return Err(at(position, format!("`observe` is a table of {KEYS}")));
+    };
+    let mut spec = ObservationSpec::default();
+    for (key, value) in table {
+        match key.as_str() {
+            "observer" => {
+                spec.observer = Some(non_empty(value).ok_or_else(|| {
+                    at(
+                        position,
+                        "`observer` is the definition the declaration's functions are evaluated in, `PACKAGE:DEFINITION`".to_owned(),
+                    )
+                })?);
+            }
+            "point" => {
+                spec.points = tables(value, position, "point", "point classes")?
+                    .into_iter()
+                    .map(|(item, here)| point_class(item, &here))
+                    .collect::<Result<_, _>>()?;
+            }
+            "log" => {
+                spec.logs = tables(value, position, "log", "logs")?
+                    .into_iter()
+                    .map(|(item, here)| log_channel(item, &here))
+                    .collect::<Result<_, _>>()?;
+            }
+            _ => {
+                return Err(at(
+                    position,
+                    format!("unknown key `{key}` in `observe`; it has the keys {KEYS}"),
+                ));
+            }
+        }
+    }
+    if spec.observer.is_some() && !spec.declares_function() {
+        return Err(at(
+            position,
+            "`observer` names the definition the declaration's functions are evaluated in, and it declares none (no `views`, `components`, `when` or `element`)".to_owned(),
+        ));
+    }
+    Ok(spec)
+}
+
+/// The items of the array `value` of the key `key` of the table at `position`, each with its
+/// position: `{position}.{key}[{index}]`. `what` names the items.
+fn tables<'d>(
+    value: &'d Json,
+    position: &str,
+    key: &str,
+    what: &str,
+) -> Result<Vec<(&'d Json, String)>, InputError> {
+    let Json::Array(items) = value else {
+        return Err(at(
+            position,
+            format!("`{key}` is an array of {what}, each a table"),
+        ));
+    };
+    let base = key_position(position, key);
+    Ok(items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item, format!("{base}[{index}]")))
+        .collect())
+}
+
+/// The string `value`, where it is a non-empty one.
+fn non_empty(value: &Json) -> Option<String> {
+    value
+        .as_str()
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
+/// The array of strings `value`.
+fn strings(value: &Json) -> Option<Vec<String>> {
+    match value {
+        Json::Array(items) => items
+            .iter()
+            .map(|item| item.as_str().map(str::to_owned))
+            .collect(),
+        _ => None,
+    }
+}
+
+/// The `name` of a channel's table at `position`.
+fn channel_name(value: &Json, position: &str) -> Result<String, InputError> {
+    non_empty(value).ok_or_else(|| {
+        at(
+            position,
+            "`name` is the channel's name, a non-empty string".to_owned(),
+        )
+    })
+}
+
+/// The `cells` of a table at `position`: leaf cells by Rust field path.
+fn cell_paths(value: &Json, position: &str) -> Result<Vec<String>, InputError> {
+    strings(value).ok_or_else(|| {
+        at(
+            position,
+            "`cells` is an array of leaf cells by Rust field path, each a string".to_owned(),
+        )
+    })
+}
+
+/// The `function` of a table at `position`: a function's path.
+fn function_path(value: &Json, position: &str) -> Result<String, InputError> {
+    non_empty(value).ok_or_else(|| {
+        at(
+            position,
+            "`function` is a function's KRS path, or a `::`-aligned suffix of it".to_owned(),
+        )
+    })
+}
+
+/// A point class at `position`.
+fn point_class(document: &Json, position: &str) -> Result<PointClass, InputError> {
+    const KEYS: &str =
+        "`name`, `before`, `after`, `stutter`, `cells`, `views`, `components` and `when`";
+    let Json::Object(table) = document else {
+        return Err(at(position, format!("a point class is a table of {KEYS}")));
+    };
+    let mut name = None;
+    let mut class = PointClass {
+        name: String::new(),
+        before: Vec::new(),
+        after: Vec::new(),
+        stutter: Stutter::Count,
+        cells: Vec::new(),
+        views: BTreeMap::new(),
+        components: Vec::new(),
+        when: None,
+    };
+    let mut stutter = None;
+    for (key, value) in table {
+        match key.as_str() {
+            "name" => name = Some(channel_name(value, position)?),
+            "before" | "after" => {
+                let names = strings(value).ok_or_else(|| {
+                    at(
+                        position,
+                        format!(
+                            "`{key}` is an array of rule names (a KRS item or a K label), each a string"
+                        ),
+                    )
+                })?;
+                if key == "before" {
+                    class.before = names;
+                } else {
+                    class.after = names;
+                }
+            }
+            "stutter" => {
+                stutter = Some(
+                    value
+                        .as_str()
+                        .and_then(Stutter::parse)
+                        .ok_or_else(|| at(position, STUTTER.to_owned()))?,
+                );
+            }
+            "cells" => class.cells = cell_paths(value, position)?,
+            "views" => {
+                class.views = match value {
+                    Json::Object(views) => views
+                        .iter()
+                        .map(|(cell, function)| Some((cell.clone(), non_empty(function)?)))
+                        .collect::<Option<_>>(),
+                    _ => None,
+                }
+                .ok_or_else(|| {
+                    at(
+                        position,
+                        "`views` is a table of a function's path by cell of `cells`".to_owned(),
+                    )
+                })?;
+            }
+            "components" => {
+                class.components = tables(value, position, "components", "components")?
+                    .into_iter()
+                    .map(|(item, here)| component(item, &here))
+                    .collect::<Result<_, _>>()?;
+            }
+            "when" => class.when = Some(filter(value, position)?),
+            _ => {
+                return Err(at(
+                    position,
+                    format!("unknown key `{key}` in a point class; it has the keys {KEYS}"),
+                ));
+            }
+        }
+    }
+    class.name = name.ok_or_else(|| {
+        at(
+            position,
+            "a point class has a `name`, its channel's name".to_owned(),
+        )
+    })?;
+    class.stutter = stutter.ok_or_else(|| {
+        at(
+            position,
+            format!(
+                "a point class has a `stutter`, which has no default: {STUTTER}; which one a specification promises is its author's statement"
+            ),
+        )
+    })?;
+    Ok(class)
+}
+
+/// A component of a point class at `position`: `{ name, cells, function }`.
+fn component(document: &Json, position: &str) -> Result<Component, InputError> {
+    const SHAPE: &str = "a component is a table of `name`, `cells` (the cells it reads, an array of Rust field paths) and `function` (a function's path)";
+    let Json::Object(table) = document else {
+        return Err(at(position, SHAPE.to_owned()));
+    };
+    let (mut name, mut cells, mut function) = (None, None, None);
+    for (key, value) in table {
+        match key.as_str() {
+            "name" => {
+                name = Some(non_empty(value).ok_or_else(|| {
+                    at(
+                        position,
+                        "`name` is the component's name, a non-empty string".to_owned(),
+                    )
+                })?);
+            }
+            "cells" => cells = Some(cell_paths(value, position)?),
+            "function" => function = Some(function_path(value, position)?),
+            _ => {
+                return Err(at(
+                    position,
+                    format!("unknown key `{key}` in a component; {SHAPE}"),
+                ));
+            }
+        }
+    }
+    match (name, cells, function) {
+        (Some(name), Some(cells), Some(function)) => Ok(Component {
+            name,
+            cells,
+            function,
+        }),
+        _ => Err(at(position, SHAPE.to_owned())),
+    }
+}
+
+/// A point class's `when` table, at the class's `position`: `{ function, cells }`.
+fn filter(document: &Json, position: &str) -> Result<Filter, InputError> {
+    const SHAPE: &str = "`when` is a table of `function` (a function's path, of result sort `Bool`) and `cells` (the cells it reads, an array of Rust field paths)";
+    let Json::Object(table) = document else {
+        return Err(at(position, SHAPE.to_owned()));
+    };
+    let (mut function, mut cells) = (None, None);
+    for (key, value) in table {
+        match key.as_str() {
+            "function" => function = Some(function_path(value, position)?),
+            "cells" => cells = Some(cell_paths(value, position)?),
+            _ => {
+                return Err(at(
+                    position,
+                    format!("unknown key `{key}` in `when`; {SHAPE}"),
+                ));
+            }
+        }
+    }
+    match (function, cells) {
+        (Some(function), Some(cells)) => Ok(Filter { function, cells }),
+        _ => Err(at(position, SHAPE.to_owned())),
+    }
+}
+
+/// A log at `position`.
+fn log_channel(document: &Json, position: &str) -> Result<LogChannel, InputError> {
+    const KEYS: &str = "`name`, `cell`, `element` and `at`";
+    let Json::Object(table) = document else {
+        return Err(at(position, format!("a log is a table of {KEYS}")));
+    };
+    let (mut name, mut cell, mut element, mut read_at) = (None, None, None, Vec::new());
+    for (key, value) in table {
+        match key.as_str() {
+            "name" => name = Some(channel_name(value, position)?),
+            "cell" => {
+                cell = Some(non_empty(value).ok_or_else(|| {
+                    at(
+                        position,
+                        "`cell` is the log's `List` leaf cell, by Rust field path".to_owned(),
+                    )
+                })?);
+            }
+            "element" => {
+                element = Some(function_path(value, position).map_err(|_| {
+                    at(
+                        position,
+                        "`element` is the path of a function `Item -> List<_>`, applied to each appended item".to_owned(),
+                    )
+                })?);
+            }
+            "at" => {
+                read_at = strings(value).ok_or_else(|| {
+                    at(
+                        position,
+                        "`at` is an array of the names of the point classes at whose points the log is read".to_owned(),
+                    )
+                })?;
+            }
+            _ => {
+                return Err(at(
+                    position,
+                    format!("unknown key `{key}` in a log; it has the keys {KEYS}"),
+                ));
+            }
+        }
+    }
+    let name = name.ok_or_else(|| {
+        at(
+            position,
+            "a log has a `name`, its channel's name".to_owned(),
+        )
+    })?;
+    let cell = cell.ok_or_else(|| {
+        at(
+            position,
+            "a log has a `cell`, its `List` leaf cell by Rust field path".to_owned(),
+        )
+    })?;
+    Ok(LogChannel {
+        name,
+        cell,
+        element,
+        at: read_at,
+    })
 }
 
 /// One leaf cell's content that a case's `instances` states, read at the cell's declared type
@@ -1543,10 +1992,10 @@ impl CaseReader<'_> {
         &mut self,
         document: &Json,
         position: &str,
-        run: Option<&CaseRun>,
+        shared: Shared<'_>,
     ) -> Result<(), InputError> {
         if let Some(path) = Self::include(document, position)? {
-            return self.included(path, position, run);
+            return self.included(path, position, shared);
         }
         let Json::Array(items) = document else {
             return Err(at(
@@ -1557,13 +2006,13 @@ impl CaseReader<'_> {
         for (index, item) in items.iter().enumerate() {
             let here = format!("{position}[{index}]");
             if let Some(path) = Self::include(item, &here)? {
-                self.included(path, &here, run)?;
+                self.included(path, &here, shared)?;
                 continue;
             }
             let Json::Object(table) = item else {
                 return Err(at(
                     &here,
-                    "a named case is a table of `name`, `inputs`, `run`, `instances` and `expect`"
+                    "a named case is a table of `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
                         .to_owned(),
                 ));
             };
@@ -1591,7 +2040,7 @@ impl CaseReader<'_> {
             let mut table = table.clone();
             table.remove("name");
             let file = self.includes.last().map(String::as_str);
-            let case = case_table(table, &here, Some(name), run, file)?;
+            let case = case_table(table, &here, Some(name), shared, file)?;
             self.cases.push(case);
         }
         Ok(())
@@ -1620,7 +2069,7 @@ impl CaseReader<'_> {
         &mut self,
         path: &str,
         position: &str,
-        run: Option<&CaseRun>,
+        shared: Shared<'_>,
     ) -> Result<(), InputError> {
         let from = self.includes.last().map(String::as_str);
         let (name, bytes) = self
@@ -1654,7 +2103,7 @@ impl CaseReader<'_> {
             }
         };
         self.includes.push(name);
-        let read = self.list(&list, &here, run);
+        let read = self.list(&list, &here, shared);
         self.includes.pop();
         read
     }
@@ -3351,6 +3800,7 @@ mod tests {
                     stop_count: NonZeroU64::new(2),
                     stop_when: None,
                 }),
+                observe: None,
                 instances: None,
                 expect: Some(serde_json::json!({"halt": "stuck"})),
                 file: None,
@@ -3367,7 +3817,7 @@ mod tests {
         let refusal = |text: &str| Case::from_toml(text).unwrap_err().to_string();
         assert_eq!(
             refusal("[inputs]\n[other]\n"),
-            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `instances` and `expect`"
+            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances` and `expect`"
         );
         assert_eq!(
             refusal("name = \"boot\"\n"),
@@ -3533,7 +3983,7 @@ mod tests {
         };
         assert_eq!(
             refusal(r#"{"case": [], "inputs": {}}"#),
-            "a document of named cases holds `case` and `run` only; one case's `inputs` belongs in its table in `case`"
+            "a document of named cases holds `case`, `run` and `observe` only; one case's `inputs` belongs in its table in `case`"
         );
         assert_eq!(
             refusal(r#"{"case": [{"inputs": {}}]}"#),
@@ -3545,7 +3995,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r#"[{"name": "x", "other": 1}]"#),
-            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `instances` and `expect`"
+            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
         );
         assert_eq!(
             refusal(r#"[{"name": "x"}, {"$data-file": "a.json"}]"#),
@@ -3573,7 +4023,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r"[1]"),
-            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `instances` and `expect`"
+            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
         );
         assert_eq!(
             refusal("true"),

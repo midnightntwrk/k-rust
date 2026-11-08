@@ -17,11 +17,11 @@ use krs_diagnostic::{Code, codes};
 use krs_exec::{
     BackendOptions, Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue,
     Coverage, CoverageOptions, Difference, DifferenceAt, EndError, Ends, ExecError, Expectation,
-    Halt, InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
-    ProveOptions, RUN_REPORT_SCHEMA, ReadBack, Rendered, RunOptions, RunReport,
-    SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions, Semantics, Side, SolverReport, SourceText,
-    SpecStage, Step, StepOrigin, StopAt, StopCriterion, Term, Verdict, canonical_text,
-    json_document, open_values,
+    Halt, InputError, InputFiles, ObservationSpec, Observations, Observers, PrintStyle, Printed,
+    ProgramFile, ProgramInput, ProofReport, ProveOptions, RUN_REPORT_SCHEMA, ReadBack, Rendered,
+    RunOptions, RunReport, SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions, Semantics, Side,
+    SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion, Term, Verdict,
+    canonical_text, json_document, open_values,
 };
 use krs_ir::measure::{Measurement, Timings};
 use krs_ir_levels::DefinitionIr;
@@ -66,6 +66,9 @@ pub enum TermOutput {
     /// The run's end as an end document ([`krs_exec::ends`], "End documents"), on one line and
     /// alone, so that stdout is a document `krs compare` reads (`run` only).
     End,
+    /// The run's declared observations as a `krs-observations/1` document
+    /// ([`krs_exec::Observations::document`]), on one line and alone (`run` only).
+    Observations,
 }
 
 /// Colour selection for pretty output.
@@ -114,6 +117,10 @@ pub struct RunRequest {
     /// (`stop` is then none): a case whose `run` names stops refuses the flags beside its own,
     /// since only one may say where the run ends; a case that names none refuses them with this.
     pub stop_unpaired: Option<String>,
+    /// `--observe FILE`: a document whose one key is `observe`, the observations the run records
+    /// ([`krs_exec::ObservationSpec::from_toml`]); a case whose document declares its own refuses
+    /// it.
+    pub observe: Option<PathBuf>,
     /// `--trace`.
     pub trace: bool,
     /// `--coverage`.
@@ -301,20 +308,23 @@ pub(super) fn execute(
                     case,
                     observer,
                     condition,
+                    observations,
                 } = read;
-                // The stop condition's definition: the named observer, or another semantics of
-                // this definition from its stage, loaded before the stage is the run's.
-                let mut condition = match condition {
-                    None => None,
-                    Some(ConditionSource::Own) => Some(
+                // The stop condition's and the observations' definitions: each the named
+                // observer, or another semantics of this definition from its stage, loaded
+                // before the stage is the run's, and apart, since the run holds both at once.
+                let mut load = |source: Option<ConditionSource<ObserverDefinition>>| match source {
+                    None => Ok(None),
+                    Some(ConditionSource::Own) => {
                         load_condition(definition, &stage, None, command.solver(), timings)
-                            .map_err(Failure::Exec)?,
-                    ),
-                    Some(ConditionSource::Named(named)) => Some(
-                        load_observer(&named, reuse.restore, command.solver(), timings)
-                            .map_err(Failure::Exec)?,
-                    ),
+                            .map(Some)
+                    }
+                    Some(ConditionSource::Named(named)) => {
+                        load_observer(&named, reuse.restore, command.solver(), timings).map(Some)
+                    }
                 };
+                let mut condition = load(condition).map_err(Failure::Exec)?;
+                let mut observations = load(observations).map_err(Failure::Exec)?;
                 let mut semantics = Semantics::from_stage_with_solver(
                     definition,
                     stage,
@@ -342,7 +352,10 @@ pub(super) fn execute(
                 dispatch(
                     &mut semantics,
                     observer.as_mut(),
-                    condition.as_mut(),
+                    Observers {
+                        condition: condition.as_mut(),
+                        observations: observations.as_mut(),
+                    },
                     command,
                     case,
                 )
@@ -531,7 +544,7 @@ fn read_program_bytes(source: &ProgramSource) -> Result<(String, Vec<u8>), Failu
 fn dispatch(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
-    condition: Option<&mut Semantics>,
+    observers: Observers<'_>,
     command: &Command,
     case: Option<SelectedCase>,
 ) -> Result<CommandOutcome, Failure> {
@@ -556,13 +569,14 @@ fn dispatch(
                 | TermOutput::JsonLines
                 | TermOutput::None
                 | TermOutput::End
+                | TermOutput::Observations
                 | TermOutput::Pretty
                 | TermOutput::Program => semantics.print(&term, PrintStyle::Kast)?,
             }
             .text;
             Ok(outcome(format!("{stdout}\n"), String::new(), 0))
         }
-        Command::Run(request) => run(semantics, observer, condition, request, case),
+        Command::Run(request) => run(semantics, observer, observers, request, case),
         Command::Search(request) => search(semantics, observer, request, case),
         Command::Prove(request) => prove(semantics, request),
         _ => unreachable!("only run-family commands reach the run worker"),
@@ -866,6 +880,9 @@ pub(super) struct ReadCase {
     pub case: Option<SelectedCase>,
     /// The observer definition its expectation names, prepared.
     pub observer: Option<ObserverDefinition>,
+    /// The definition the run's observations are evaluated in, as [`Self::condition`] is the
+    /// stop condition's: `None` without observations or with none that declares a function.
+    pub observations: Option<ConditionSource<ObserverDefinition>>,
     /// The definition the run's stop condition is evaluated in: `None` without a condition;
     /// [`ConditionSource::Own`] for another [`Semantics`] of the run's own definition (no
     /// observer named, or the definition itself named); [`ConditionSource::Named`] for the named
@@ -889,6 +906,49 @@ pub(super) fn run_condition<'a>(
     flags
         .when()
         .or_else(|| case?.run.as_ref()?.stop_when.as_deref())
+}
+
+/// The observations a run declares: those of `--observe FILE` (`flag`) or its case's
+/// `observe`, which may not both be given, since each says what the run shows and a case's
+/// question is its own; `None` when neither is given.
+pub(super) fn run_observations(
+    flag: Option<&Path>,
+    case: Option<&SelectedCase>,
+) -> Result<Option<ObservationSpec>, Failure> {
+    let own = case.and_then(|case| case.case.observe.as_deref());
+    match (flag, own, case) {
+        (Some(_), Some(_), Some(case)) => Err(Failure::Usage(format!(
+            "--observe and the `observe` of the case `{}` both declare the run's observations; a flag may not change a case's question, so give one",
+            case.id()
+        ))),
+        (Some(path), _, _) => read_observations(path).map(Some),
+        (None, own, _) => Ok(own.cloned()),
+    }
+}
+
+/// The observations the file `path` declares, read by its extension (`.json`, else TOML, which
+/// the command line checked).
+pub(super) fn read_observations(path: &Path) -> Result<ObservationSpec, Failure> {
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        Failure::Read(format!(
+            "could not read the observations `{}`: {error}",
+            path.display()
+        ))
+    })?;
+    let declared = if path
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        ObservationSpec::from_json(&text)
+    } else {
+        ObservationSpec::from_toml(&text)
+    };
+    declared.map_err(|error| {
+        Failure::Exec(ExecError::Observe(format!(
+            "the observations `{}`: {error}",
+            path.display()
+        )))
+    })
 }
 
 /// The definition a stop condition is evaluated in, loaded: `observer` when it is named, else
@@ -1079,10 +1139,14 @@ fn read_console_input() -> Result<Vec<u8>, Failure> {
 fn run(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
-    mut condition: Option<&mut Semantics>,
+    observers: Observers<'_>,
     request: &RunRequest,
     read: Option<SelectedCase>,
 ) -> Result<CommandOutcome, Failure> {
+    let Observers {
+        mut condition,
+        observations,
+    } = observers;
     let smt = semantics.capabilities().smt;
     let (case, depth) = case_and_depth(
         read,
@@ -1097,6 +1161,16 @@ fn run(
             None => request.stop.clone(),
         },
     };
+    let observe = run_observations(request.observe.as_deref(), case.as_ref())?;
+    if request.output == TermOutput::Observations
+        && observe.is_none()
+        && let Some(case) = &case
+    {
+        return Err(Failure::Usage(format!(
+            "--output observations prints the observations the run declares, and the case `{}` declares none (`observe`); declare them in the case or with --observe FILE",
+            case.id()
+        )));
+    }
     let state = configure(semantics, Inputs::of_run(request, case.as_ref()), true)?;
     let mut expectation = SelectedCase::expectation_of(case.as_ref(), semantics)?;
     if let (Some(case), Some(expectation)) = (&case, &mut expectation) {
@@ -1108,10 +1182,18 @@ fn run(
         coverage: request.coverage.then(CoverageOptions::default),
         stop: stop.clone(),
         condition_budget: Some(request.view_budget),
+        observe,
         ..RunOptions::default()
     };
     let report = match (
-        semantics.run_observed(&state, options.clone(), condition.as_deref_mut()),
+        semantics.run_with(
+            &state,
+            options.clone(),
+            Observers {
+                condition: condition.as_deref_mut(),
+                observations,
+            },
+        ),
         &case,
         &expectation,
     ) {
@@ -1159,6 +1241,11 @@ fn run(
         (TermOutput::Json, None) => {
             json_line(&json!({"schema": RUN_REPORT_SCHEMA, "run": report}))?
         }
+        // A declaration with no channel records nothing, and its document has no channel.
+        (TermOutput::Observations, _) => json_line(&report.observations.as_ref().map_or_else(
+            || Observations::default().document(),
+            Observations::document,
+        ))?,
         // `--output end` prints its end document after the run's lines ([`run_outcome`]).
         (TermOutput::None | TermOutput::End, _) => String::new(),
         (output, _) => format!(
@@ -1191,7 +1278,14 @@ fn run(
     if let Some(checked) = &checked {
         checked.write(&mut stderr, "krs run");
     }
-    let exit_code = run_status(checked.as_ref(), report.halt, report.exit_code);
+    let exit_code = if request.output == TermOutput::Observations {
+        let status = observations_status(report.observations.as_ref(), report.halt);
+        checked.as_ref().map_or(status, |checked| {
+            exit_status::join(checked.exit_code(), status)
+        })
+    } else {
+        run_status(checked.as_ref(), report.halt, report.exit_code)
+    };
     Ok(run_outcome(
         report.stdout.as_deref(),
         request.output,
@@ -1227,7 +1321,9 @@ fn run_outcome(
     };
     let mut outcome = outcome(String::new(), String::new(), exit_code);
     match (console, output) {
-        (Some(console), TermOutput::End) => outcome.stderr.extend_from_slice(console),
+        (Some(console), TermOutput::End | TermOutput::Observations) => {
+            outcome.stderr.extend_from_slice(console);
+        }
         (Some(console), output) if output != TermOutput::Json => {
             outcome.stdout.extend_from_slice(console);
         }
@@ -1287,6 +1383,19 @@ fn run_status(checked: Option<&Checked>, halt: Halt, exit_code: Option<i64>) -> 
     }
 }
 
+/// The exit status of a run's observations under `--output observations` ([`exit_status`]),
+/// which replaces the run's own: yes where every element is known and the run ended as a run
+/// asked to may (its own end, a stop, or its depth bound, which ends only what is known: each
+/// element is a function of a prefix of the path); no answer where an element is undecided or
+/// the run halted inconclusively, since a run with more budget may know more.
+fn observations_status(observations: Option<&Observations>, halt: Halt) -> i32 {
+    if halt.is_complete() && !observations.is_some_and(Observations::undecided) {
+        exit_status::YES
+    } else {
+        exit_status::UNANSWERED
+    }
+}
+
 /// The notes on the terms with no value a run's state holds or its condition read, printed in
 /// `output`'s notation (pretty for none).
 fn write_valueless(
@@ -1296,7 +1405,7 @@ fn write_valueless(
     stderr: &mut String,
 ) -> Result<(), Failure> {
     let notation = match output {
-        TermOutput::None | TermOutput::End => TermOutput::Pretty,
+        TermOutput::None | TermOutput::End | TermOutput::Observations => TermOutput::Pretty,
         output => output,
     };
     for term in &report.valueless {
@@ -1317,8 +1426,8 @@ fn write_valueless(
     Ok(())
 }
 
-/// Refuse a case `krs search --mode mode` cannot check: one whose `run` names stop rules, and
-/// one with an expectation under a mode other than `final`.
+/// Refuse a case `krs search --mode mode` cannot check: one whose `run` names stop rules, one
+/// that declares observations, and one with an expectation under a mode other than `final`.
 fn searchable(case: &SelectedCase, mode: SearchMode) -> Result<(), Failure> {
     if case
         .case
@@ -1328,6 +1437,12 @@ fn searchable(case: &SelectedCase, mode: SearchMode) -> Result<(), Failure> {
     {
         return Err(Failure::Usage(format!(
             "the case `{}` names stop rules in `run`, which krs search does not apply: a search's final states are not the ends of runs cut at those rules; run the case with krs run",
+            case.id()
+        )));
+    }
+    if case.case.observe.is_some() {
+        return Err(Failure::Usage(format!(
+            "the case `{}` declares observations (`observe`), which krs search does not record: they are sampled along a run's one path, and a search's final states are no path; run the case with krs run",
             case.id()
         )));
     }
@@ -2189,7 +2304,11 @@ fn main_cell_head(
         return String::new();
     };
     let head = match output {
-        TermOutput::Pretty | TermOutput::Program | TermOutput::None | TermOutput::End => {
+        TermOutput::Pretty
+        | TermOutput::Program
+        | TermOutput::None
+        | TermOutput::End
+        | TermOutput::Observations => {
             semantics.unparse_computation_head(state).map(|head| {
                 head.map(|printed| {
                     // The head printed alone can say what the whole print did not: its own
@@ -2232,7 +2351,9 @@ fn print(
         }
         TermOutput::Kore => PrintStyle::Kore,
         TermOutput::Json | TermOutput::JsonLines => PrintStyle::Json,
-        TermOutput::Kast | TermOutput::None | TermOutput::End => PrintStyle::Kast,
+        TermOutput::Kast | TermOutput::None | TermOutput::End | TermOutput::Observations => {
+            PrintStyle::Kast
+        }
     };
     Ok(semantics.print(term, style)?.text)
 }

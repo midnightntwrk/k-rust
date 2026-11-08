@@ -616,7 +616,7 @@ fn composed_dependencies(
 ) -> Result<(Vec<FacetSelector>, Vec<FacetSelector>), CommandError> {
     let observes = match &request.command {
         Command::Compare(_) | Command::Cases(_) => true,
-        Command::Run(run) => run.case.is_some(),
+        Command::Run(run) => run.case.is_some() || run.observe.is_some(),
         Command::Search(search) => search.case.is_some(),
         _ => false,
     };
@@ -958,9 +958,10 @@ fn with_observers(
     result
 }
 
-/// The case of a `run` or `search`, read once, and the observer definition its views are
-/// evaluated in, prepared, when it names one other than the definition it runs on; a facet of
-/// `observer_dependencies` that the observer does not compose is refused.
+/// The case of a `run` or `search`, read once, and the observer definitions its views, its
+/// stop condition and its observations are evaluated in, prepared, when each names one other
+/// than the definition it runs on; a facet of `observer_dependencies` that no observer composes
+/// is refused.
 fn read_case(
     request: &CommandRequest,
     observer_dependencies: &[FacetSelector],
@@ -994,9 +995,26 @@ fn read_case(
             .map_err(|failure| failure.into_error(sources))?,
         None => None,
     };
+    // The observations a run declares, from its flag or its case, where they evaluate a
+    // function, and the observer they name. A declaration that cannot be read is read again by
+    // the run, which refuses it.
+    let observations = match &request.command {
+        Command::Run(run) => exec::run_observations(run.observe.as_deref(), case.as_ref())
+            .ok()
+            .flatten()
+            .filter(krs_exec::ObservationSpec::declares_function)
+            .map(|spec| spec.observer),
+        _ => None,
+    };
+    let observations_observer = match observations.as_ref().and_then(Option::as_deref) {
+        Some(name) => prepare_observer(request, name, workspace_root)
+            .map_err(|failure| failure.into_error(sources))?,
+        None => None,
+    };
     let composed = observer
         .iter()
         .chain(&condition_observer)
+        .chain(&observations_observer)
         .flat_map(|observer| observer.composed.iter().cloned())
         .collect::<Vec<_>>();
     refuse_unused_observer_dependencies(request, observer_dependencies, &composed)?;
@@ -1004,6 +1022,10 @@ fn read_case(
         case,
         observer: observer.map(|observer| observer.definition),
         condition: condition.map(|_| match condition_observer {
+            Some(observer) => exec::ConditionSource::Named(observer.definition),
+            None => exec::ConditionSource::Own,
+        }),
+        observations: observations.map(|_| match observations_observer {
             Some(observer) => exec::ConditionSource::Named(observer.definition),
             None => exec::ConditionSource::Own,
         }),
@@ -1062,7 +1084,7 @@ const OBSERVER_PACKAGE_HELP: &str = "the observer's package is one of the packag
 /// naming the observer.
 fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
     let note = format!(
-        "in the observer `{name}`, the definition krs composes to resolve and evaluate the views or the stop condition"
+        "in the observer `{name}`, the definition krs composes to resolve and evaluate the views, the stop condition or the observations"
     );
     match error.diagnostics() {
         Some(diagnostics) => {
