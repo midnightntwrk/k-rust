@@ -3,7 +3,9 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
   "argued": 0,
   "comparable": 4,
   "computed": 0,
+  "covered": 4,
   "mismatches": 0,
+  "needless_arguments": [],
   "open": 0,
   "per_family": {
     "requirements": {
