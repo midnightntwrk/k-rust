@@ -192,6 +192,14 @@ fn in_key_reading(position: Position) -> bool {
         && position.nesting.local.is_none()
 }
 
+/// Whether `position` lies in a key or a set's element that a sentence's subject looks up,
+/// computed there or not.
+const fn in_pattern_key(position: Position) -> bool {
+    (position.nesting.entries.contains(Entry::MapKey)
+        || position.nesting.entries.contains(Entry::SetElement))
+        && matches!(position.slot, Slot::Subject)
+}
+
 /// Whether `position` lies in a Map collection's instance in a pattern over evaluated terms,
 /// outside a key and a local pattern: matched, but written in the braces a Set collection's
 /// instance is written in, which a pattern looks up instead. Only the cell's declared type tells
@@ -518,6 +526,17 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         // `a | b` where a pattern is read is the alternatives' spelling, and means what they do.
         Construct::Notation(Notation::BitwiseOr)
             if matches!(position.kind, Kind::Matched | Kind::Evaluated) =>
+        {
+            alternatives(position)
+        }
+        // In a key a pattern looks up, `a | b` below a function's argument is the alternatives'
+        // spelling too, built there: the same spelling below a constructor matches, and reading
+        // it by the head's declaration would flip its meaning when a constructor becomes a
+        // function (R-K1). Bitwise OR there is spelled `a.bit_or::<Int>(b)`.
+        Construct::Notation(Notation::BitwiseOr)
+            if position.nesting.in_function_argument
+                && in_pattern_key(position)
+                && position.nesting.local.is_none() =>
         {
             alternatives(position)
         }

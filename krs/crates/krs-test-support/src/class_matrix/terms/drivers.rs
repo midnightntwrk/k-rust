@@ -496,7 +496,14 @@ impl Driver<'_> {
     /// spelling's value, looked up, where it denotes one; where it has none, nothing is looked
     /// up ([`Self::undefined_hole`]); and its witness otherwise.
     fn element(&self) -> Read {
-        if self.counter.is_none() {
+        // `x | 1` where a pattern reads the key is the alternatives' spelling, which selects the
+        // entries it matches, `x`'s or 1's, rather than the operator's value (R-K1).
+        let alternatives = self
+            .spelling
+            .nodes
+            .first()
+            .is_some_and(|node| node.construct == Construct::Notation(Notation::BitwiseOr));
+        if self.counter.is_none() && !alternatives {
             match self.spelling.value_at(&self.x) {
                 Meaning::Value(value) if value != Ground::Any => {
                     return Ok(Hole {

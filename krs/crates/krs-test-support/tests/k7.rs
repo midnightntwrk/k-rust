@@ -246,10 +246,10 @@ const STATUSES: &[&str] = &[
     "3 no witness: the program would hold a value the generator does not state",
     "1205 runs a counter-witness",
     "2136 runs at another input",
-    "1675 runs, liveness",
+    "1679 runs, liveness",
     "246 runs, undefined",
     "266 runs, undefined result",
-    "2794 runs, value",
+    "2790 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it

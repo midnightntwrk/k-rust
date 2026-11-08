@@ -475,7 +475,7 @@ kind = "diagnostic"
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
-# K-1, K-2 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
+# K-2, S0-14 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
 ["terms/readable/map-key/as-body/!(x < 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::function-in-pattern @ spelling"
@@ -484,43 +484,39 @@ deviation = "krs::analysis::function-in-pattern @ spelling"
 finding = "S0-14"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
-["terms/readable/map-key/as-body/x | 1"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/readable/map-key/beside-fresh/x | 1"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/readable/map-key/or-branch/Cmd::Hold(x)"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/readable/map-key/or-branch/Wrap::<KItem>(x)"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/readable/map-key/or-branch/k::builtin::set::item(x)"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/readable/map-key/or-branch/x"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/readable/map-key/or-branch/x | 1"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
 ["terms/readable/map-key/or-branch/y @ Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-pattern-or @ entry"
 
 ["k8/terms/readable/map-key/as-body/x / 2"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/-(x + 1)"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/x % 2"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/x & 1"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/x + 1"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/x << 1"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/x >> 1"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/readable/map-key/or-branch/x.add::<Int>(1)"]
 finding = "S0-14"
 deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
 
@@ -531,18 +527,6 @@ deviation = "krs::analysis::ambiguous-operator @ spelling"
 ["terms/readable/map-key/function-argument/[x, ..]"]
 finding = "K-2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
-
-["terms/readable/map-key/function-argument/x | 1"]
-finding = "K-2"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["notation/readable/map-key/or-branch/set![x]"]
-finding = "K-1"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
 
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
 # NT-3: a readable key beside a name bound nowhere else (`Cmd::Pair { a: HOLE, b: z }`) cannot spell

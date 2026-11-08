@@ -372,7 +372,7 @@ fn a_computation_subject_case_is_never_batched() {
 /// notation and the calls it denotes) that reads `x` and applies a function
 /// ([`reads_x_and_applies`]), as `k::builtin::int::add(x, 1)` does at the term family's same
 /// positions ([`OVERRIDDEN`]).
-const OVERRIDDEN_POSITIONS: [(&str, &str); 7] = [
+const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
     ("notation/constant/value", "constant-applies-function"),
     ("notation/constant/value-root", "constant-applies-function"),
     ("notation/local-rule/subject-root", "function-in-pattern"),
@@ -381,7 +381,6 @@ const OVERRIDDEN_POSITIONS: [(&str, &str); 7] = [
         "function-in-pattern",
     ),
     ("notation/rule/guard/matches-pattern", "function-in-pattern"),
-    ("notation/rule/subject/or-branch", "function-in-pattern"),
     (
         "notation/sort-rule/result/matches-pattern",
         "function-in-pattern",
@@ -413,7 +412,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 76] = [
+const OVERRIDDEN: [(&str, &str); 72] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -653,22 +652,6 @@ const OVERRIDDEN: [(&str, &str); 76] = [
     ),
     (
         "terms/rule/guard/matches-pattern/map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/rule/subject/or-branch/Size(x)",
-        "function-in-pattern",
-    ),
-    (
-        "terms/rule/subject/or-branch/k::builtin::int::add(x, 1)",
-        "function-in-pattern",
-    ),
-    (
-        "terms/rule/subject/or-branch/k::map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/rule/subject/or-branch/map![x -> 1]",
         "function-in-pattern",
     ),
     (
@@ -2359,73 +2342,56 @@ const NAME_AND_SORT_CLASSES: [&str; 12] = [
     "unbound-name",
 ];
 
-/// Why a readable key's alternative that reads `x` binds no name. A `k::matches!` pattern's names
-/// are its own wherever the test stands, a key's too, so the test there rebinds `x` as in a
-/// condition.
-const KEY_READS_ITS_NAMES: &str = "in a readable map key a name the pattern binds elsewhere is looked up (D2), so an alternative that reads it binds nothing; in a subject's it binds";
-
-/// The notation family's positions whose every case is a sibling exception, and why: each of the
-/// family's spellings reads `x` as `k::builtin::int::add(x, 1)` does ([`SIBLING_EXCEPTIONS`]).
-const SIBLING_EXCEPTION_POSITIONS: [(&str, &str, &str); 1] = [(
-    "notation/readable/map-key/or-branch",
-    "alternatives-bind-unequally",
-    KEY_READS_ITS_NAMES,
-)];
-
 /// Sibling cases a name or sort rule does not decide though it decides the spelling at another
 /// sibling, and why.
-const SIBLING_EXCEPTIONS: [(&str, &str, &str); 10] = [
+const SIBLING_EXCEPTIONS: [(&str, &str, &str); 8] = [
     (
         "terms/rule/subject-root-list/[x, ..]",
         "list-notation-sort",
         "the fn's whole subject is a `Term<List>`, a position of the sort list brackets denote, unlike its siblings' `KItem` (NT-18)",
     ),
     (
-        "terms/readable/map-key/or-branch/Size(x)",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells-claim/item-root/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
     (
-        "terms/readable/map-key/or-branch/k::builtin::int::add(x, 1)",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells-claim/subject/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
     (
-        "terms/readable/map-key/or-branch/Cmd::Hold(x)",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells/item-root/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
     (
-        "terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells/map-key/beside-fresh/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
     (
-        "terms/readable/map-key/or-branch/k::builtin::set::item(x)",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells/map-key/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
     (
-        "terms/readable/map-key/or-branch/k::map![x -> 1]",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells/map-value/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
     (
-        "terms/readable/map-key/or-branch/map![x -> 1]",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
-    ),
-    (
-        "terms/readable/map-key/or-branch/x",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
-    ),
-    (
-        "terms/readable/map-key/or-branch/x | 1",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
+        "terms/cells/subject/x | 1",
+        "binder-sort",
+        SUBJECT_ALTERNATIVES_USE_X,
     ),
 ];
+
+/// Why `x | 1` in a `cells!` subject is no binder-sort mistake where it is one in a result: in a
+/// subject it is alternatives, which use the declared `KItem` binder `x` at its sort (its
+/// subject binds `x` outside them, TRI-E); in a result it is the bitwise operator, whose operand
+/// needs `Int`.
+const SUBJECT_ALTERNATIVES_USE_X: &str = "in a subject `x | 1` is alternatives that use `x` at its declared sort; in a result it is the bitwise operator, whose operand needs `Int`";
 
 /// A spelling a name or sort rule refuses at one case is accepted at none of its siblings: an
 /// observation of the full tier writes the rules, and a sibling whose product refuses it for
@@ -2500,14 +2466,6 @@ fn a_name_or_sort_rule_refuses_a_spelling_at_every_sibling() {
             let Some(how) = open(case) else {
                 continue;
             };
-            if SIBLING_EXCEPTION_POSITIONS
-                .iter()
-                .any(|(position, excepted_class, _)| {
-                    case.id.starts_with(&format!("{position}/")) && excepted_class == class
-                })
-            {
-                continue;
-            }
             if SIBLING_EXCEPTIONS
                 .iter()
                 .any(|(id, excepted_class, _)| *id == case.id && excepted_class == class)

@@ -32,15 +32,10 @@ owner = "S5"
 kind = "diagnostic"
 what = "an initializer value of the wrong kind or sort is rustc's E0308 at the entry's value, not a KRS error"
 
-["K-1"]
-owner = "S5"
-kind = "bug"
-what = "alternatives over a name the sentence binds outside them (`x | 1` beside `cTAG(x, _)`) are refused as binding unequally. Ruling (orchestrator, from P5's nonlinear binders): such a name is a use in each branch, so `alternatives-bind-unequally` compares only the names a branch binds itself, at every position. The table's `x | 1` glob (38 positions, expected.toml) must be re-read case by case for whether `x` is bound outside, and the K of an accepted one is the alternatives over the shared variable. Tier 3: no real code writes it; deferred (README §13)"
-
 ["K-2"]
 owner = "S5"
-kind = "bug"
-what = "(the bug is the table's: its accepted BitOr row for `function-argument/x | 1` predates R-K1, so the red is an over-refusal against it until the row refuses; then the finding becomes a diagnostic) a map read's key below a function's application (`Wk(x | 1)`, `Wk(Cmd::Go() | Cmd::Hold(_))`, `Wk([x, ..])`) is refused, rightly: R-K1 makes `|` in a key alternatives at every depth (bitwise OR is `bit_or`), since reading it by the head's declaration would flip its meaning silently when a constructor becomes a function; a rest is likewise a pattern's. Owed: the table refuses these three (its accepted BitOr row for `function-argument/x | 1` predates R-K1) with a class whose advice names `bit_or` for `|`, and the product answers that class instead of `invalid-pattern-or`, `ambiguous-operator` and `invalid-list-notation`"
+kind = "diagnostic"
+what = "a map read's key below a function's application (`Wk(x | 1)`, `Wk(Cmd::Go() | Cmd::Hold(_))`, `Wk([x, ..])`) is refused, rightly: R-K1 makes `|` in a key alternatives at every depth (bitwise OR is `bit_or`), since reading it by the head's declaration would flip its meaning silently when a constructor becomes a function; a rest is likewise a pattern's. The table refuses all three (TRI-E: its BitOr row for `function-argument/x | 1` is alternatives, built, and conforms). Owed: one class whose advice names `bit_or` for `|`, which the other two answer instead of the class the table gives their inner `_` and `..` first, and of `invalid-list-notation`. With no binding of `x` outside the alternatives, `Wk(x | 1)` is told the binding message first: the expansion cannot tell a function's head from a constructor's"
 
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"

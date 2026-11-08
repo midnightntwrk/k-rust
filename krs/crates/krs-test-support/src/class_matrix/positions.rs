@@ -422,6 +422,9 @@ pub struct Nesting {
     pub rewrite: Option<RewriteSide>,
     /// Whether the position is inside a matching-logic predicate.
     pub in_predicate: bool,
+    /// Whether the position is below a function's application that is not matched where it
+    /// stands: whether `|` there is alternatives depends on no head's declaration (R-K1).
+    pub in_function_argument: bool,
 }
 
 /// A step from a construct to a position it opens, or from a slot's root into a collection.
@@ -514,6 +517,7 @@ impl Position {
                 local: None,
                 rewrite: None,
                 in_predicate: false,
+                in_function_argument: false,
             },
         }
     }
@@ -552,6 +556,8 @@ impl Position {
             Opening::FunctionArgument | Opening::SortTestOperand => {
                 if !matches!(self.kind, Kind::Matched) {
                     position.kind = Kind::Built;
+                    position.nesting.in_function_argument |=
+                        matches!(opening, Opening::FunctionArgument);
                 }
             }
             // Alternatives and an alias's pattern match what the construct does; in a key, they

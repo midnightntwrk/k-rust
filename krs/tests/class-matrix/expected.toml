@@ -1992,9 +1992,10 @@ at = "item"
 
 [accept]
 
-# alternatives-bind-unequally (NT-2): alternatives in a subject that bind other names
+# alternatives-bind-unequally (NT-2, TRI-E): alternatives in a subject that bind other fresh
+# names; the template's subject binds `x` outside the alternatives, where it is a use in each
 [[refuse]]
-match = 'terms/rule/subject/or-branch/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<dyn k::KItemSort>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x,y @ Cmd::Hold(_)}'
+match = 'terms/rule/subject/or-branch/y @ Cmd::Hold(_)'
 class = "alternatives-bind-unequally"
 at = "entry"
 
@@ -2069,7 +2070,7 @@ at = "spelling"
 
 # list-notation-sort (NT-2): list brackets at a `KItem` position
 [[refuse]]
-match = 'terms/{cells/map-key/beside-fresh,readable/map-key-child,readable/map-value-child,readable/set-instance-child,rule/subject/set-element-beside-fresh,cells-claim/item-root,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,context/subject-root,desugar/subject,desugar/subject-root,equation/subject,equation/subject-depth-2,local-rule/subject,local-rule/subject/rewrite-left,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/subject,readable/subject-depth-2,rule/guard/let-pattern,rule/subject,rule/subject-depth-2,rule/subject-root,rule/subject/as-body,simplification/subject,simplification/subject-root,sort-rule/result/let-pattern,sort-rule/subject,sort-rule/subject-depth-2,sort-rule/subject-root,sort-rule/subject-root-term,table/subject,table/subject-depth-2}/[x\, ..]'
+match = 'terms/{cells/map-key/beside-fresh,readable/map-key-child,readable/map-value-child,readable/set-instance-child,rule/subject/set-element-beside-fresh,cells-claim/item-root,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,context/subject-root,desugar/subject,desugar/subject-root,equation/subject,equation/subject-depth-2,local-rule/subject,local-rule/subject/rewrite-left,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/subject,readable/subject-depth-2,rule/guard/let-pattern,rule/subject,rule/subject-depth-2,rule/subject-root,rule/subject/as-body,rule/subject/or-branch,simplification/subject,simplification/subject-root,sort-rule/result/let-pattern,sort-rule/subject,sort-rule/subject-depth-2,sort-rule/subject-root,sort-rule/subject-root-term,table/subject,table/subject-depth-2}/[x\, ..]'
 class = "list-notation-sort"
 at = "spelling"
 
@@ -2147,14 +2148,6 @@ at = "spelling"
 match = 'notation/{constant/value,constant/value-root,init/item,init/item-depth-2,init/item-root}/*x*'
 class = "unbound-name"
 at = "spelling"
-
-# alternatives-bind-unequally (NT-5, NT-6): an alternative that reads `x` beside `Cmd::Go()`, which
-# binds no name, in a subject; the collection notation is the call it denotes there (the empty map
-# and set, the spellings without an `x`, read none)
-[[refuse]]
-match = 'notation/rule/subject/or-branch/*x*'
-class = "alternatives-bind-unequally"
-at = "entry"
 
 # condition-sort (NT-5): a collection method whose result is no Bool (a `Map`, an `Int`, a `List`)
 # in a condition, as the call it denotes
@@ -2268,10 +2261,19 @@ class = "unbound-name"
 at = "spelling"
 
 
-# alternatives-bind-unequally (NT-2 review): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first, and at the review's new positions
+# alternatives-bind-unequally (NT-2 review, TRI-E): `x | 1` where nothing outside the alternatives
+# binds `x`: an equation's subject that writes `x` only there; elsewhere the template's subject
+# binds `x`, a use in each alternative
 [[refuse]]
-match = 'terms/{cells/map-key/beside-fresh,readable/map-key-child,readable/map-value-child,readable/set-instance-child,rule/subject/set-element-beside-fresh,cells-claim/item-root,cells-claim/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,desugar/subject,equation/subject,equation/subject-depth-2,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/map-key,readable/map-key/matches-pattern,readable/subject,readable/subject-depth-2,rule/guard/matches-pattern,rule/subject,rule/subject-depth-2,rule/subject/as-body,rule/subject/or-branch,rule/subject/set-element,sort-rule/result/matches-pattern,sort-rule/subject,sort-rule/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
+match = 'terms/{equation/subject,equation/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
 class = "alternatives-bind-unequally"
+at = "spelling"
+
+# matches-pattern-binder (TRI-E): `x | 1` in a `k::matches!` pattern, whose names are its own
+# binders: its `x` binds a new variable, it never compares with the sentence's
+[[refuse]]
+match = 'terms/{readable/map-key/matches-pattern,rule/guard/matches-pattern,sort-rule/result/matches-pattern}/x | 1'
+class = "matches-pattern-binder"
 at = "spelling"
 
 # binder-sort (NT-2 review): a `cells!` binder declared `KItem` that a notation form's operand sorts more narrowly, at a sibling whose product refuses it for another reason first, and at the review's new positions
