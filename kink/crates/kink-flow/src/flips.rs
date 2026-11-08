@@ -63,7 +63,8 @@
 //! the mutant, which only the search asks.
 
 use crate::mutation::{EditSpec, Mutation};
-use kink_patch::SentenceRef;
+/// The sentence an occurrence names, re-exported for front ends that build the list.
+pub use kink_patch::SentenceRef;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 

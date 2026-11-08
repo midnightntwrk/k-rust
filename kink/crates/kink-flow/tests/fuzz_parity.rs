@@ -318,6 +318,7 @@ fn kink_flow_fuzz(
                 list: &list,
                 mutation,
                 path: None,
+                flip: false,
             },
             Job::Rule(rule) => FuzzJob::Rule { rule, fired: false },
             Job::Pattern(pattern) => {

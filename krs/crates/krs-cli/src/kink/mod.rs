@@ -17,7 +17,9 @@
 //! reason `stop-unresolved`), the stop condition `[stop] when` names with KRS's spellings,
 //! resolved as `krs run --stop-when` resolves one and handed to kink as the condition it asks at
 //! each arrival (the `condition` submodule; reason `stop-condition-unresolved`), and the
-//! mutations its own checks refuse (`checks`); on the way
+//! mutations its own checks refuse (`checks`), and the definition's condition flips, which
+//! `coverage` runs as its flips family and `fuzz --kill <flip-id>` names (`flips`, each with the
+//! guard nodes it changes, which `guards` places); on the way
 //! out, the labels each `[stop]` name selects (`stop.krs.items`), the compared cells by Rust path
 //! (`result.krs`), to every rule a document names, the KRS item and the Rust position the
 //! sentence was emitted from (`annotate`), and next steps spelled as `krs kink` commands
@@ -96,11 +98,6 @@ pub const MANIFEST_FILE: &str = "FLOW.toml";
 pub const DEFINITION_FILE: &str = "definition.k";
 /// The killer record's name inside the corpus directory (kink-flow `run --lock`).
 pub const LOCK_FILE: &str = kink_flow::lock::LOCK_FILE;
-/// The flips family's reason under krs's front end: krs derives a definition's condition flips
-/// and judges each ([`condition_flips`]), but its front end gives coverage none of them, so the
-/// family has `run: false` and this reason.
-pub const FLIPS_NOT_GIVEN: &str = "krs derives the definition's condition flips and judges each, \
-     but its front end gives coverage none of them";
 /// The coverage lock's name inside the corpus directory (kink-flow `coverage --lock`).
 pub const COVERAGE_LOCK_FILE: &str = kink_flow::lock::COVERAGE_LOCK_FILE;
 
@@ -555,12 +552,84 @@ fn flow_command(
     )
 }
 
-/// Whether `command` judges a mutation list, so that the front end's checks need the lowering
-/// the K is emitted from: `check --mutations`, `run`, a `fuzz` kill job.
+/// Whether `command` judges a mutation list or the definition's condition flips, so that the
+/// front end's checks need the lowering the K is emitted from: `check --mutations`, `run`, a
+/// `fuzz` kill job, `coverage`.
 fn judges_mutations(command: &FlowCommand) -> bool {
     match command {
         FlowCommand::Check(options) => options.mutations.is_some(),
-        command => checks::run_list(command).is_some(),
+        command => checks::run_list(command).is_some() || derives_flips(command),
+    }
+}
+
+/// Whether `command` reads the definition's condition flips: `coverage`, whose flips family they
+/// are (under `--tier 1` it shows how many there are), and a `fuzz` kill job of an id no list
+/// holds, which names a flip.
+fn derives_flips(command: &FlowCommand) -> bool {
+    match command {
+        FlowCommand::Coverage { .. } => true,
+        FlowCommand::Fuzz { request, .. } => {
+            matches!(request.job, FuzzJobRequest::Derived { .. })
+        }
+        _ => false,
+    }
+}
+
+/// The definition's condition flips as `command`'s front end hands them to kink-flow
+/// ([`flips::derived_list`]), each judged through the corpus's judge cache; `None` for a command
+/// that reads none ([`derives_flips`]), `Err` with why the definition derives none, or why they
+/// could not be derived.
+fn derived_flips(
+    command: &FlowCommand,
+    baseline: Option<&checks::Baseline<'_>>,
+    manifest: &kink_flow::FlowManifest,
+    measurement: &mut Measurement,
+) -> Option<Result<kink_flow::flips::DerivedList, String>> {
+    if !derives_flips(command) {
+        return None;
+    }
+    let baseline = baseline?;
+    tell_progress(
+        command,
+        "run: deriving and judging the definition's condition flips",
+    );
+    let loaded =
+        match kink_corpus::resolver::load_source(&kink_flow::admit::corpus_source(manifest)) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                return Some(Err(format!(
+                    "kink cannot load the specification, so no condition flip is judged: {error}"
+                )));
+            }
+        };
+    let derived = measurement.timings.span("kink.flips", |_| {
+        kink_flow::on_stack(|| {
+            let checks = judged_checks(baseline, manifest, command_cache(command));
+            flips::derive(baseline, &checks, manifest, &loaded)
+        })
+    });
+    let Some(derived) = derived else {
+        return Some(Err("the flip thread panicked".to_owned()));
+    };
+    let read = baseline.sources.clone();
+    let names = guards::GuardNames::new(
+        &baseline.emitted.definition,
+        &baseline.emitted.source_map,
+        &baseline.emitted.ir,
+        move |file| read.source_text(file),
+    );
+    Some(flips::derived_list(&derived, &names))
+}
+
+/// What the front end hands kink-flow of the flips [`derived_flips`] gave: the list, why there is
+/// none, or, for a command that reads none, kink-flow's own default.
+fn front_derived(
+    derived: Option<&Result<kink_flow::flips::DerivedList, String>>,
+) -> kink_flow::flips::Derived<'_> {
+    match derived {
+        Some(Ok(list)) => kink_flow::flips::Derived::Flips(list),
+        Some(Err(reason)) => kink_flow::flips::Derived::None(reason),
+        None => kink_flow::flips::Derived::default(),
     }
 }
 
@@ -672,6 +741,8 @@ fn run_flow(
         outcome.status = EXIT_UNASKED;
         return outcome;
     };
+    // `coverage` and a kill job of a flip: the condition flips, judged against the lowering.
+    let derived = derived_flips(&command, baseline.as_ref(), &manifest, measurement);
     // Every check that reads the lowering is made: the dispatch, which can hold a kill search's
     // mutants for minutes, runs without the retained theory and its second Definition IR.
     drop(kept);
@@ -687,7 +758,7 @@ fn run_flow(
         refused: refused_mutations,
         annotate: Some(&annotate as &(dyn Fn(&mut Value) + Sync)),
         progress: command.shows_progress().then_some(&print_progress),
-        derived: kink_flow::flips::Derived::None(FLIPS_NOT_GIVEN),
+        derived: front_derived(derived.as_ref()),
     };
     let span = format!("kink.{}", verb.as_str());
     let dispatched = measurement

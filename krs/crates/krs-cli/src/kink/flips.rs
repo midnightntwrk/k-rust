@@ -33,6 +33,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use kink_corpus::LoadedSource;
+use kink_flow::flips::SentenceRef;
 use kink_flow::{EditAction, EditSpec, FlowManifest, InvalidMutation, Mutation};
 use krs_compiler::{
     AtomKind, FamilySentence, FlipOperator, GuardAtom, GuardFamily, guard_families,
@@ -101,6 +102,9 @@ pub struct FlipSentence {
     pub label: String,
     /// The emitted K module that holds the sentence.
     pub module: String,
+    /// The sentence as kink-flow addresses it in `definition.k` (its module and index, as a
+    /// `coverage` rule item names it), when kink-flow reads a rule of this label.
+    pub at: Option<SentenceRef>,
     /// The KRS item that wrote the sentence, as a stop names it.
     pub item: Option<String>,
     /// The authored file, package-relative.
@@ -208,6 +212,7 @@ impl DerivedFlip {
             "sentences": self.sentences.iter().map(|sentence| json!({
                 "label": sentence.label,
                 "module": sentence.module,
+                "index": sentence.at.as_ref().map(|at| at.index),
                 "item": sentence.item,
                 "file": sentence.file,
                 "line": sentence.line,
@@ -230,7 +235,7 @@ impl FlipAtom {
         }
     }
 
-    fn value(&self) -> Value {
+    pub(crate) fn value(&self) -> Value {
         match self {
             Self::Boolean { head } => json!({"kind": "boolean", "head": head}),
             Self::Bit { column, bit } => json!({"kind": "bit", "column": column, "bit": bit}),
@@ -239,7 +244,7 @@ impl FlipAtom {
 }
 
 impl FlipNotGenerated {
-    fn value(&self) -> Value {
+    pub(crate) fn value(&self) -> Value {
         json!({
             "reason": self.reason,
             "atom": self.atom.as_ref().map(FlipAtom::value),
@@ -363,6 +368,8 @@ struct Speller<'a> {
     /// The K text of each rule of the specification kink-flow loaded, by its stored label: the
     /// text in which an edit's `find` must occur once.
     texts: Vec<(String, String)>,
+    /// The sentence of each rule of the specification kink-flow loaded, by its stored label.
+    sentences: Vec<(String, SentenceRef)>,
 }
 
 impl<'a> Speller<'a> {
@@ -379,7 +386,12 @@ impl<'a> Speller<'a> {
                 .or_default()
                 .push(definition);
         }
-        let texts = kink_flow::mutation::rule_texts(manifest, loaded)
+        let rules = kink_flow::mutation::rule_texts(manifest, loaded);
+        let sentences = rules
+            .iter()
+            .filter_map(|rule| Some((rule.label.clone()?, rule.at.clone())))
+            .collect();
+        let texts = rules
             .into_iter()
             .filter_map(|rule| Some((rule.label?, rule.text?)))
             .collect();
@@ -388,6 +400,7 @@ impl<'a> Speller<'a> {
             definition: &baseline.emitted.definition,
             definition_keys,
             texts,
+            sentences,
         }
     }
 
@@ -491,10 +504,19 @@ impl<'a> Speller<'a> {
         occurrences.sort_by_key(|node| (node.start, node.end));
         occurrences.dedup();
         let edit = self.edit(&range, rule, &edits)?;
+        let at = self
+            .sentences
+            .iter()
+            .find(|(label, _)| {
+                kink_flow::label_match(label, &rule.module, &rule.label)
+                    == Some(kink_flow::mutation::LabelMatch::Exact)
+            })
+            .map(|(_, at)| at.clone());
         Ok((
             FlipSentence {
                 label: rule.label.clone(),
                 module: rule.module.clone(),
+                at,
                 item: rule.item.clone(),
                 file: rule.file.clone(),
                 line: rule.line,
@@ -676,4 +698,105 @@ fn toggled(term: &SemanticTerm, bit: u32) -> Option<(&SemanticTerm, i128)> {
         }
         None => Some((token, flip(value, bit)?)),
     }
+}
+
+/// The flips family's obligations as kink-flow's `coverage` and `fuzz --kill <flip-id>` take them
+/// ([`kink_flow::flips::DerivedList`]), every flip in generation order, refused ones too; or why
+/// the definition derives none, where it has no flip and no flip not generated either.
+///
+/// Each flip names every occurrence it changes, which kink-flow's unreached deduction reads:
+///
+/// - a Boolean flip, one operand per node of `definition.k` that renders the atom in a flipped
+///   sentence ([`FlipSentence::occurrences`]), by the display path of that node in the sentence's
+///   guard ([`super::guards::GuardNames::condition_nodes`]); a node the walk does not place has
+///   the empty path, which no guard node has, so the occurrence counts as reached;
+/// - a bit flip, the match of each flipped arm: toggling a fixed bit changes which inputs the arm
+///   matches, and nothing else of it.
+///
+/// A flip with a sentence kink-flow does not address names no occurrence, so it runs: leaving one
+/// out would let the deduction call reached occurrences unreached.
+pub(crate) fn derived_list(
+    derived: &DerivedFlips,
+    names: &super::guards::GuardNames,
+) -> Result<kink_flow::flips::DerivedList, String> {
+    use kink_flow::flips::{DerivedEntry, DerivedList, Judged, Occurrence, Reach};
+    if derived.flips.is_empty() && derived.not_generated.is_empty() {
+        return Err(derived
+            .none_reason()
+            .unwrap_or_else(|| "the definition derives no flip".to_owned()));
+    }
+    let mut entries = Vec::with_capacity(derived.flips.len());
+    for flip in &derived.flips {
+        let mut occurrences = Vec::new();
+        let mut text = None;
+        let mut placed = true;
+        for sentence in &flip.sentences {
+            let Some(at) = &sentence.at else {
+                placed = false;
+                break;
+            };
+            match flip.atom {
+                FlipAtom::Boolean { .. } => {
+                    let nodes = names.condition_nodes(&sentence.label);
+                    for range in &sentence.occurrences {
+                        let node = nodes.get(&(range.start, range.end));
+                        if text.is_none() {
+                            text = node.and_then(|node| node.text.clone());
+                        }
+                        occurrences.push(Occurrence {
+                            sentence: at.clone(),
+                            reach: Reach::Operand {
+                                path: node.map(|node| node.path.clone()).unwrap_or_default(),
+                            },
+                        });
+                    }
+                }
+                FlipAtom::Bit { .. } => occurrences.push(Occurrence {
+                    sentence: at.clone(),
+                    reach: Reach::Match,
+                }),
+            }
+        }
+        if !placed {
+            occurrences.clear();
+        }
+        let text = match &flip.atom {
+            FlipAtom::Boolean { head } => text.unwrap_or_else(|| head.clone()),
+            FlipAtom::Bit { column, bit } => {
+                format!("bit {bit} of argument {}", column + 1)
+            }
+        };
+        let mut atom = flip.atom.value();
+        atom["rust"] = json!(text);
+        entries.push(DerivedEntry {
+            id: flip.id.clone(),
+            operator: flip.operator.to_owned(),
+            text,
+            atom,
+            occurrences,
+            judged: match &flip.status {
+                FlipStatus::Admitted { .. } => Judged::Admitted {
+                    edits: flip.edits.clone(),
+                },
+                FlipStatus::Refused {
+                    reason,
+                    next,
+                    detail,
+                } => Judged::Refused {
+                    reason: reason.clone(),
+                    next: next.clone(),
+                    detail: detail.clone(),
+                },
+            },
+        });
+    }
+    Ok(DerivedList {
+        entries,
+        not_generated: derived
+            .not_generated
+            .iter()
+            .map(FlipNotGenerated::value)
+            .collect(),
+        none: derived.none_reason(),
+    })
 }

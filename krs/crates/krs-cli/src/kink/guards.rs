@@ -933,7 +933,90 @@ impl Sentence {
     }
 }
 
+/// A node of a sentence's condition as a flip's occurrence reads it: kink-flow's display path of
+/// the node, and the Rust source the node renders, where it is readable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ConditionNode {
+    /// The display path (`0.1`), in the space of `guard.operands[].path`.
+    pub(crate) path: String,
+    /// The authored text the node renders, as an operand's `krs.text` gives it.
+    pub(crate) text: Option<String>,
+}
+
 impl GuardNames {
+    /// Every node of the condition of the sentence labelled `label` that kink-flow's display tree
+    /// shows, by its range in `definition.k` (start and end), with its display path: what a condition flip's
+    /// occurrence, a range of `definition.k`, reaches in a `coverage` rule item's guard.
+    ///
+    /// The walk is the correspondence the naming checks (module documentation,
+    /// "Correspondence"), read from the emission alone: the condition's root is the display
+    /// root, a Boolean connective's operands are its children (a left-nested chain of one
+    /// conjunction or disjunction read as one node), each at `<path>.<k>`, and casts are no nodes.
+    /// The root's path is `0`: KRS writes a sentence's condition as its one `requires`, which is
+    /// the compiled axiom's first conjunct `\equals(C, true)`, and kink-flow names a display root
+    /// by its conjunct's index. A node of a shape the walk does not read (a connective of another
+    /// arity) has no entry, and neither has anything below it, so an occurrence there is placed
+    /// by no guess.
+    pub(crate) fn condition_nodes(&self, label: &str) -> BTreeMap<(usize, usize), ConditionNode> {
+        let mut nodes = BTreeMap::new();
+        let Some(range) = self.sentences.get(label) else {
+            return nodes;
+        };
+        let sentence = Sentence::of(&self.nodes, range);
+        if let Some(root) = sentence.condition_root() {
+            self.walk(&sentence, root, "0", &mut nodes);
+        }
+        nodes
+    }
+
+    fn walk(
+        &self,
+        sentence: &Sentence,
+        map_index: usize,
+        path: &str,
+        nodes: &mut BTreeMap<(usize, usize), ConditionNode>,
+    ) {
+        let text = sentence
+            .covering(map_index)
+            .and_then(|range| self.position(&range).text);
+        // The node and every cast around the node it holds render the one display node.
+        let mut at = map_index;
+        loop {
+            nodes
+                .entry((sentence.nodes[at].range.start, sentence.nodes[at].range.end))
+                .or_insert_with(|| ConditionNode {
+                    path: path.to_owned(),
+                    text: text.clone(),
+                });
+            let next = self.through_casts(sentence, at);
+            if next == at {
+                let children = sentence.children(at);
+                let own = self.own_text(sentence, at);
+                if !CONNECTIVES.contains(&own.as_str()) {
+                    return;
+                }
+                let arity = if own == "notBool" { 1 } else { 2 };
+                if children.len() != arity {
+                    return;
+                }
+                let operands = if matches!(
+                    own.as_str(),
+                    "andBool" | "andThenBool" | "orBool" | "orElseBool"
+                ) {
+                    self.chain(sentence, at, &own)
+                } else {
+                    children
+                };
+                for (k, operand) in operands.into_iter().enumerate() {
+                    self.walk(sentence, operand, &format!("{path}.{k}"), nodes);
+                }
+                return;
+            }
+            // One cast step at a time, so that each cast's range is recorded.
+            at = sentence.children(at)[0];
+        }
+    }
+
     /// The text of `range` in its file, where the file is available.
     fn source_slice(&self, range: &SourceRange) -> Option<String> {
         let mut texts = self

@@ -865,3 +865,99 @@ mod kink_tier {
         assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }
 }
+
+/// `fuzz --kill FLIP` where no list holds the id: a flip the front end's judge refused is refused
+/// at stage `mutation` with the judge's reason and next step, and an id that is no derived flip
+/// either names what the list and the derived flips hold; kink-flow's own front end derives none
+/// and says why. None of these reads a template's program, so nothing runs.
+#[test]
+fn a_kill_job_of_a_refused_or_unknown_flip_is_refused() {
+    let dir = guards("fuzz-derived");
+    fs::write(
+        dir.join("TEMPLATES.toml"),
+        "[[template]]\nid = \"t\"\nprogram = \"irq\"\n",
+    )
+    .unwrap();
+    let list = DerivedList {
+        entries: vec![DerivedEntry {
+            id: "flip--wake--I".to_owned(),
+            operator: "flip".to_owned(),
+            text: "I".to_owned(),
+            atom: json!({"kind": "boolean", "head": "I"}),
+            occurrences: Vec::new(),
+            judged: Judged::Refused {
+                reason: "not-judged".to_owned(),
+                next: Some("report the flip".to_owned()),
+                detail: "the edit is not read back".to_owned(),
+            },
+        }],
+        not_generated: Vec::new(),
+        none: None,
+    };
+    let fuzz = |id: &str, derived: Derived<'_>| {
+        let command = FlowCommand::parse(
+            "fuzz",
+            CommandFiles {
+                templates: Some(dir.join("TEMPLATES.toml")),
+                ..CommandFiles::default()
+            },
+            &["--template", "t", "--kill", id]
+                .iter()
+                .map(|o| (*o).to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+        let front = FrontEnd {
+            derived,
+            ..FrontEnd::default()
+        };
+        dispatch(manifest, command, front).expect("the command's thread does not panic")
+    };
+    let (document, status) = fuzz("flip--wake--I", Derived::Flips(&list));
+    assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{document:#}");
+    assert_eq!(document["version"], 11, "{document:#}");
+    let job = &document["job"];
+    assert_eq!(
+        (&job["kind"], &job["flip"], &job["status"], &job["outcome"]),
+        (
+            &json!("kill"),
+            &json!(true),
+            &json!("refused"),
+            &json!("refused")
+        ),
+        "{document:#}"
+    );
+    assert_eq!(job["refusal"]["stage"], "mutation", "{document:#}");
+    assert_eq!(job["refusal"]["reason"], "not-judged", "{document:#}");
+    assert_eq!(
+        job["refusal"]["detail"], "the edit is not read back",
+        "{document:#}"
+    );
+    assert!(
+        document["action"]
+            .as_str()
+            .unwrap()
+            .ends_with(": report the flip"),
+        "{document:#}"
+    );
+    assert!(document["template"].is_null(), "{document:#}");
+
+    let (document, _) = fuzz("flip--nope", Derived::Flips(&list));
+    assert_eq!(document["job"]["flip"], false, "{document:#}");
+    assert_eq!(
+        document["job"]["refusal"]["reason"], "unknown-mutation",
+        "{document:#}"
+    );
+    assert_eq!(
+        document["job"]["refusal"]["detail"],
+        "no condition flip the front end derives has this id (1 flip)",
+        "{document:#}"
+    );
+    let (document, _) = fuzz("flip--nope", Derived::default());
+    assert_eq!(
+        document["job"]["refusal"]["detail"],
+        format!("no flip has this id: {}", kink_flow::flips::DERIVES_NONE),
+        "{document:#}"
+    );
+}

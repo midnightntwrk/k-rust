@@ -447,7 +447,8 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
     ),
     option(
         "--kill MUTATION",
-        "the job: hole values whose program kills this mutation of --mutations",
+        "the job: hole values whose program kills this mutation of --mutations, or, where no \
+         list holds the id, this condition flip the front end derives (an id of coverage's flips)",
     ),
     option(
         "--mutations MUTATIONS",
@@ -1618,11 +1619,21 @@ fn fuzz_command(
                     list: &list,
                     mutation,
                     path: Some(mutations),
+                    flip: false,
                 },
                 &request.options,
                 front,
             )
         }
+        FuzzJobRequest::Derived { mutation, list } => crate::fuzz::fuzz_derived(
+            manifest,
+            &templates,
+            &request.template,
+            mutation,
+            list.as_deref(),
+            &request.options,
+            front,
+        ),
         FuzzJobRequest::Rule { rule, fired } => crate::fuzz::fuzz_front(
             manifest,
             &templates,
@@ -1868,10 +1879,18 @@ pub struct FuzzRequest {
 /// The job a `kink-flow fuzz` command line names.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FuzzJobRequest {
-    /// `--kill MUTATION --mutations MUTATIONS.toml`.
+    /// `--kill MUTATION --mutations MUTATIONS.toml`, or `--kill MUTATION` where the front end's
+    /// list holds the mutation.
     Kill {
         mutation: String,
         mutations: PathBuf,
+    },
+    /// `--kill FLIP` where no list given holds the id: a condition flip the front end derives
+    /// ([`FrontEnd::derived`]), resolved when the command runs. `list` is the front end's list
+    /// that does not hold the id, which a refusal names when no derived flip has it either.
+    Derived {
+        mutation: String,
+        list: Option<PathBuf>,
     },
     /// `--matched RULE` (`fired` false) or `--fired RULE`: a rule's `matched_by` or `fired_by`.
     Rule { rule: String, fired: bool },
@@ -2023,12 +2042,31 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
             if patterns.is_some() {
                 return Err("--patterns belongs to --pattern".into());
             }
-            let mutations = mutations
-                .or_else(|| files.mutations.clone())
-                .ok_or("--kill needs --mutations MUTATIONS.toml")?;
-            FuzzJobRequest::Kill {
-                mutation,
-                mutations,
+            // `--mutations` names the list; else the front end's list names the mutation when it
+            // holds the id, and otherwise the id names a flip the front end derives, resolved
+            // when the command runs (only then is the definition's source read).
+            match (mutations, files.mutations.clone()) {
+                (Some(mutations), _) => FuzzJobRequest::Kill {
+                    mutation,
+                    mutations,
+                },
+                (None, Some(list))
+                    if MutationList::read(&list)
+                        .is_ok_and(|read| !read.mutations.iter().any(|m| m.id == mutation)) =>
+                {
+                    FuzzJobRequest::Derived {
+                        mutation,
+                        list: Some(list),
+                    }
+                }
+                (None, Some(mutations)) => FuzzJobRequest::Kill {
+                    mutation,
+                    mutations,
+                },
+                (None, None) => FuzzJobRequest::Derived {
+                    mutation,
+                    list: None,
+                },
             }
         }
         (None, Some(rule), None) => {

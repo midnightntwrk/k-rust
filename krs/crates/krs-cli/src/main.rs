@@ -245,7 +245,7 @@ Usage:
   krs kink emit    --package P --definition D [--corpus DIR] [--check]
   krs kink check   --package P --definition D [--corpus DIR] [--mutations PATH] [--cache DIR]
                    [--locked]
-  krs kink coverage --package P --definition D [--corpus DIR] [--tier 1] [--verify]
+  krs kink coverage --package P --definition D [--corpus DIR] [--tier 1|2] [--verify]
                    [--cache DIR] [--output json|text|verdicts] [--locked]
   krs kink run     --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]...
                    [--verify] [--full] [--lock FILE] [--compile-workers N] [--no-memo]
@@ -375,7 +375,7 @@ const KINK_VERB_USAGE: [(&str, &str); 7] = [
     ),
     (
         "coverage",
-        "krs kink coverage --package P --definition D [--corpus DIR] [--tier 1] [--verify] \
+        "krs kink coverage --package P --definition D [--corpus DIR] [--tier 1|2] [--verify] \
          [--cache DIR] [--output json|text|verdicts] [--locked]",
     ),
     (

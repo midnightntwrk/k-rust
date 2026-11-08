@@ -192,8 +192,13 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// (the last run's reason for the mutation) and `last-run-without-mutation` (the last run has no
 /// row for it), gives `global-witnesses` only where the template's own program does not reach an
 /// edited rule, and names the kill job's list and cache in every next step that runs `run`.
+/// Version 11 adds the kill job of a condition flip the front end derives (`--kill FLIP` where no
+/// list given holds the id, [`fuzz_derived`]): a kill job's `job.flip` says whether its mutation is
+/// such a flip; a flip the front end's judge refused is refused at stage `mutation` with
+/// `job.status` `refused` and the judge's reason; and a flip's next steps that would run `run`
+/// run `coverage`, whose flips family judges it.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 10;
+pub const FUZZ_VERSION: u32 = 11;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -1385,7 +1390,8 @@ fn push_warning(document: &mut Value, warning: Value) {
 /// it: this build's, this kink identity's, of the current specification and of the corpus's
 /// current programs) says about the template and the mutation: the template program's class
 /// (found by its program digest), the mutation's status and its `witnesses`, each suggested as a
-/// template; and the warnings these facts give. Nothing is run or written.
+/// template; and the warnings these facts give. Nothing is run or written. `mutation` is `None`
+/// for a derived flip, which no run document has a row of: only the template's class is read.
 ///
 /// A row's status and `witnesses` are facts about the programs that run judged: a killer is one
 /// of them, and a survivor survived exactly them. So the document is current only when its
@@ -1399,7 +1405,7 @@ fn last_run(
     options: &FuzzOptions,
     template: &Template,
     instance: &Instance,
-    mutation: &str,
+    mutation: Option<&str>,
     spelling: &dyn CommandSpelling,
     warnings: &mut Vec<Value>,
 ) -> Value {
@@ -1509,6 +1515,15 @@ fn last_run(
             ),
         ));
     }
+    // A derived flip has no row in any run document: the template's class is all it says.
+    let Some(mutation) = mutation else {
+        return json!({
+            "found": true,
+            "current": true,
+            "template": template_row,
+            "mutation": null,
+        });
+    };
     let mutations = document["mutations"]
         .as_array()
         .cloned()
@@ -1675,11 +1690,15 @@ fn last_run(
 pub enum FuzzJob<'a> {
     /// `--kill MUTATION --mutations MUTATIONS.toml`: hole values whose program kills the mutation.
     /// `path` is where the list was read from, which a next step that runs `run` names, so that
-    /// the run judges this list; `None` for a list that is no file.
+    /// the run judges this list; `None` for a list that is no file. `flip` says the mutation is a
+    /// condition flip the front end derives ([`fuzz_derived`]): `run` never judges it, so a next
+    /// step names `coverage`, whose flips family runs its kill search, and the last run document
+    /// has no row for it.
     Kill {
         list: &'a MutationList,
         mutation: &'a str,
         path: Option<&'a Path>,
+        flip: bool,
     },
     /// `--matched RULE` (`fired` false) or `--fired RULE`: hole values whose program's all-paths
     /// baseline run is comparable and matches the rule (begins to decide its condition: a rule's
@@ -1769,6 +1788,7 @@ pub fn kill(
             list,
             mutation,
             path: None,
+            flip: false,
         },
         options,
     )
@@ -1792,6 +1812,116 @@ pub fn fuzz_job(
     )
 }
 
+/// A kill job of the condition flip `mutation` the front end derives ([`FrontEnd::derived`],
+/// [`crate::flips`]), named where no list given holds the id (`list` is the front end's list that
+/// does not): an admitted flip is fuzzed as a kill job of its edits, as `coverage` runs it; a flip
+/// the front end's judge refused is refused at stage `mutation` with the judge's reason and next
+/// step, since no mutant stands for it; an id that is no derived flip either is refused as an
+/// unknown mutation, naming what the list and the derived flips hold.
+pub fn fuzz_derived(
+    manifest: &FlowManifest,
+    templates: &TemplateList,
+    template: &str,
+    mutation: &str,
+    list: Option<&Path>,
+    options: &FuzzOptions,
+    front: &FrontEnd<'_>,
+) -> (Value, bool) {
+    let derived = match front.derived {
+        crate::flips::Derived::Flips(derived) => Ok(derived),
+        crate::flips::Derived::None(reason) => Err(reason),
+    };
+    let entry = derived
+        .ok()
+        .and_then(|derived| derived.entries.iter().find(|entry| entry.id == mutation));
+    let refuse = |refusal: Refusal, status: Option<&str>, action: String| {
+        let mut document = document();
+        document["job"] = json!({
+            "kind": "kill",
+            "outcome": "refused",
+            "path_mode": match options.paths {
+                PathMode::AllPaths => "all-paths",
+                PathMode::OnePath => "one-path",
+            },
+            "mutation": mutation,
+            "flip": entry.is_some(),
+        });
+        if let Some(status) = status {
+            document["job"]["status"] = json!(status);
+            document["job"]["reason"] = json!(refusal.reason);
+            document["job"]["detail"] = json!(refusal.detail);
+        }
+        document["job"]["refusal"] = refusal.value();
+        document["stopped"] = json!("refused");
+        document["action"] = json!(action);
+        (document, false)
+    };
+    let Some(entry) = entry else {
+        let listed = list.map(|path| match MutationList::read(path) {
+            Ok(read) => format!(
+                "no mutation of {} has this id ({} mutation{})",
+                path.display(),
+                read.mutations.len(),
+                if read.mutations.len() == 1 { "" } else { "s" }
+            ),
+            Err(_) => format!("{} does not decode", path.display()),
+        });
+        let flips = match derived {
+            Ok(derived) => format!(
+                "no condition flip the front end derives has this id ({} flip{})",
+                derived.entries.len(),
+                if derived.entries.len() == 1 { "" } else { "s" }
+            ),
+            Err(reason) => format!("no flip has this id: {reason}"),
+        };
+        let detail = listed.map_or_else(|| flips.clone(), |listed| format!("{listed}; {flips}"));
+        return refuse(
+            Refusal::new("mutation", "unknown-mutation", detail),
+            None,
+            format!(
+                "name a mutation of the list (--mutations names another), or a flip `{}` lists \
+                 under its flips family",
+                front.spelling.command(Verb::Coverage)
+            ),
+        );
+    };
+    match &entry.judged {
+        crate::flips::Judged::Refused {
+            reason,
+            next,
+            detail,
+        } => refuse(
+            Refusal::new("mutation", reason.clone(), detail.clone()),
+            Some(crate::flips::REFUSED),
+            format!(
+                "no mutant stands for a refused flip (`{}` lists it refused){}",
+                front.spelling.command(Verb::Coverage),
+                next.as_ref()
+                    .map(|next| format!(": {next}"))
+                    .unwrap_or_default()
+            ),
+        ),
+        crate::flips::Judged::Admitted { .. } => {
+            let list = MutationList {
+                mutations: entry.mutation().into_iter().collect(),
+            };
+            fuzz_front(
+                manifest,
+                templates,
+                template,
+                FuzzJob::Kill {
+                    list: &list,
+                    mutation,
+                    path: None,
+                    flip: true,
+                },
+                options,
+                front,
+            )
+        }
+    }
+}
+
 /// [`fuzz_job`] for a front end ([`FrontEnd`]): next steps take its spelling, and a kill job of
 /// a mutation it refused ([`FrontEnd::refused`]) is refused as one of a mutation that does not
 /// resolve, with the front end's reason.
@@ -1806,7 +1936,12 @@ pub fn fuzz_front(
 ) -> (Value, bool) {
     // A kill job's next steps that run `run` name its list and its cache: a run of another list
     // would not judge the mutation, and one of another cache writes a document fuzz never reads.
+    // A flip's next steps that would run `run` run `coverage`, the verb that judges flips.
     let list_run = match job {
+        FuzzJob::Kill { flip: true, .. } => Some(ListRun {
+            inner: front.spelling,
+            run: front.spelling.command(Verb::Coverage),
+        }),
         FuzzJob::Kill {
             path: Some(path), ..
         } => Some(ListRun {
@@ -1828,8 +1963,9 @@ pub fn fuzz_front(
             PathMode::OnePath => "one-path",
         },
     });
-    if let FuzzJob::Kill { mutation, .. } = job {
+    if let FuzzJob::Kill { mutation, flip, .. } = job {
         document["job"]["mutation"] = json!(mutation);
+        document["job"]["flip"] = json!(flip);
     }
     // A pattern target reads no data end, so the campaign takes no assumed name (k-rust-fuzz
     // refuses names on such a target), not even the flow's.
@@ -1936,7 +2072,8 @@ pub fn fuzz_front(
              after it (kink's `time_ms` bounds each of its runs); no time limit bounds them",
         ));
     }
-    if let FuzzJob::Kill { mutation, .. } = job {
+    if let FuzzJob::Kill { mutation, flip, .. } = job {
+        // The last run document is `run`'s, which judges no flip: its spelling, not the flip's.
         document["template"]["last_run"] = last_run(
             manifest,
             &spec,
@@ -1944,8 +2081,8 @@ pub fn fuzz_front(
             options,
             template,
             &instance,
-            mutation,
-            spelling,
+            (!flip).then_some(mutation),
+            if flip { front.spelling } else { spelling },
             &mut warnings,
         );
     }
@@ -2718,6 +2855,11 @@ pub fn fuzz_front(
                 )
             } else {
                 let mut action = match job {
+                    FuzzJob::Kill { flip: true, .. } => format!(
+                        "{append}, then run `{}`: its flips family runs the flip's kill search, \
+                         which decides whether the program distinguishes it",
+                        spelling.command(Verb::Run)
+                    ),
                     FuzzJob::Kill { mutation, .. } => format!(
                         "{append}, then run `{} --only {mutation}`: kink's own run decides \
                          whether it kills, and a run that judges the whole list records it as \

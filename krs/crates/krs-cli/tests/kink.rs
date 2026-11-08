@@ -327,16 +327,29 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     assert_status(&output, 0);
     let document = json(&output);
     assert_eq!(document["krs"]["version"], 5, "{:#}", document["krs"]);
-    // krs's front end gives coverage no flips: the family says so, with krs's reason
-    // (`krs_cli::kink::FLIPS_NOT_GIVEN`), not kink-flow's for a front end that reads K alone.
+    // krs's front end gives coverage its condition flips: the family ran, and the flip of `irq`
+    // across the halted machine's two transitions, which test `halted` first, is unreached on a
+    // corpus that never halts, with no mutant run.
     let flips = &document["families"]["flips"];
-    assert_eq!(flips["run"], false, "{flips:#}");
-    assert!(
-        flips["reason"].as_str().is_some_and(
-            |reason| reason.starts_with("krs derives the definition's condition flips")
-        ),
-        "{flips:#}"
-    );
+    assert_eq!(flips["run"], true, "{flips:#}");
+    let irq = flips["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|flip| {
+            flip["text"] == "irq"
+                && strings(&json!(
+                    flip["sentences"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|sentence| sentence["rule"].clone())
+                        .collect::<Vec<_>>()
+                )) == ["rule:crate::boundary_halted", "rule:crate::boundary_wake"]
+        })
+        .unwrap_or_else(|| panic!("{flips:#}"));
+    assert_eq!(irq["status"], "unreached", "{irq:#}");
+    assert_eq!(irq["live_runs"], 0, "{irq:#}");
     assert!(
         document["krs"].get("unmatched_guards").is_none(),
         "{:#}",
@@ -1300,6 +1313,14 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
                "syntax": {"obligations": 2, "covered": 2, "argued": 0, "open": 0}})
     );
     assert_eq!(document["targets"], json!([]));
+    // The story's equations have no guard and no `k::bits!` argument, so krs derives no condition
+    // flip, and the flips family says why.
+    assert_eq!(
+        document["families"]["flips"],
+        json!({"tier": 2, "run": false, "obligations": null, "items": [],
+               "reason": "no sentence of the definition has a guard or a k::bits! argument, so \
+                          no sentences are kept apart by a condition a flip could negate"})
+    );
 
     // The verdicts rendering, as the docs-site's recorded `story-kink-coverage`: nothing open.
     let output = project.kink("coverage", &["--output", "verdicts"]);

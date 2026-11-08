@@ -137,10 +137,11 @@ fn kink_flow_options_parse_with_the_front_end_files() {
         )) && refused.contains("no-mul"),
         "{refused}"
     );
-    // A kill job's list may be a front end's default rather than the list the last run judged,
-    // so its refusal also names the option that names another.
+    // A kill job's id that the front end's default list does not hold names a condition flip the
+    // front end derives, resolved when the command runs; one `--mutations` names is the list's,
+    // and an id that list does not hold is refused naming the list read and the ids it has.
     let imp = flow("fuzz/imp");
-    let refused = FlowCommand::parse(
+    let FlowCommand::Fuzz { request, .. } = FlowCommand::parse(
         "fuzz",
         CommandFiles {
             mutations: Some(imp.join("MUTATIONS.toml")),
@@ -148,6 +149,31 @@ fn kink_flow_options_parse_with_the_front_end_files() {
             ..CommandFiles::default()
         },
         &strings(&["--template", "straight-holes", "--kill", "nope"]),
+    )
+    .unwrap() else {
+        panic!("fuzz");
+    };
+    assert_eq!(
+        request.job,
+        FuzzJobRequest::Derived {
+            mutation: "nope".into(),
+            list: Some(imp.join("MUTATIONS.toml")),
+        }
+    );
+    let refused = FlowCommand::parse(
+        "fuzz",
+        CommandFiles {
+            templates: Some(imp.join("TEMPLATES.toml")),
+            ..CommandFiles::default()
+        },
+        &strings(&[
+            "--template",
+            "straight-holes",
+            "--kill",
+            "nope",
+            "--mutations",
+            imp.join("MUTATIONS.toml").to_str().unwrap(),
+        ]),
     )
     .unwrap_err();
     assert!(
