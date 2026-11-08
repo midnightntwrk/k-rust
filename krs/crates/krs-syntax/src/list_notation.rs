@@ -41,8 +41,10 @@ fn list_error(reason: impl Into<String>, span: Span) -> SyntaxError {
 /// The reason given for a second rest in one bracket.
 pub(crate) const TWO_RESTS: &str = "a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`";
 
-/// The reason given for an anonymous `..` in a result's list notation, which names no list.
-pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result";
+/// The reason given for an anonymous `..` in a result's list notation, which names no list: a
+/// result's `..` keeps a rest only in a list cell's own brackets (a readable record's list cell,
+/// a `cells!` leaf's `Cell([x, ..])` or `Cell([..])`), where it is read before list notation is.
+pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result";
 
 /// Whether `error` is the refusal of an anonymous `..` in a result's list notation
 /// ([`ANONYMOUS_REST`]).
@@ -121,8 +123,8 @@ fn first_span(tokens: &impl quote::ToTokens) -> Span {
 /// # Errors
 ///
 /// Returns [`SyntaxErrorKind::InvalidListNotation`] for a second rest,
-/// `[..rest]`, an anonymous `..` (which keeps a rest only in a readable
-/// record cell), and `..=`.
+/// `[..rest]`, an anonymous `..` (which keeps a rest only in a list cell's
+/// own brackets, read before this), and `..=`.
 pub(crate) fn result_level(array: &ExprArray) -> Result<ExprCall, SyntaxError> {
     crate::term::reject_attributes(&array.attrs, array.span())?;
     let close = array.bracket_token.span.join();

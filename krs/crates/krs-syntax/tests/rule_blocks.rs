@@ -1054,23 +1054,23 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         // once the cell's kind admits the entry, in a term and in a present content alike.
         (
             "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
-            "an anonymous `..` keeps the rest only in a readable record cell",
+            "an anonymous `..` keeps the rest only in a list cell's own brackets",
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: C { cc: [n, ..], cn: 0 } };",
-            "an anonymous `..` keeps the rest only in a readable record cell",
+            "an anonymous `..` keeps the rest only in a list cell's own brackets",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], pc: [.., x] };",
-            "an anonymous `..` keeps the rest only in a readable record cell",
+            "an anonymous `..` keeps the rest only in a list cell's own brackets",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], counter: Some([..]) };",
-            "an anonymous `..` keeps the rest only in a readable record cell",
+            "an anonymous `..` keeps the rest only in a list cell's own brackets",
         ),
         (
             "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: Some([n, ..]) };",
-            "an anonymous `..` keeps the rest only in a readable record cell",
+            "an anonymous `..` keeps the rest only in a list cell's own brackets",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)

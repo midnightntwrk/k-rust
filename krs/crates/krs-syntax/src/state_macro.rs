@@ -2553,15 +2553,17 @@ fn parse_entry_value(
 /// it back as the unnamed rest ([`TermExpression::keeping_root_rest`]), so no term holds it.
 const KEPT_REST_MARKER: &str = "__krs_kept_rest";
 
-/// A result leaf's brackets, the whole content of a list cell, whose one bare `..` among two or
-/// more elements is the cell's unnamed rest, kept (P6, D2): the rest of the list the subject's
-/// `..` matched, as a `KCell(..)` entry's `..` keeps its computation's. The `..` is written
-/// `..marker` for the expression grammar, which reads the rest it ends the brackets with; the
-/// term then reads the marker back as the unnamed rest. A pattern's `..` already is one, the
-/// wildcard that ends its brackets. `None` for any other leaf, which is read as written: brackets
-/// nested deeper, a lone `[..]`, two rests, and a leaf that writes the reserved marker itself,
-/// which binder validation refuses as written. Whether the subject matched a rest for the result
-/// to keep is the compiler's to judge, and the entry pairing's, from the tokens as written.
+/// A result leaf's brackets, the whole content of a list cell, whose one bare `..` is the cell's
+/// unnamed rest, kept (P6, D2): the rest of the list the subject's `..` matched, as a
+/// `KCell(..)` entry's `..` keeps its computation's. Among other elements the `..` is written
+/// `..marker` for the expression grammar, which reads the rest it ends the brackets with; brackets
+/// holding only the `..` (`[..]`) are the rest itself, the marker alone (R2-B: the root is its own
+/// spine's end, so the list is the kept rest). The term then reads the marker back as the unnamed
+/// rest. A pattern's `..` already is one, the wildcard that ends its brackets. `None` for any
+/// other leaf, which is read as written: brackets nested deeper, two rests, and a leaf that
+/// writes the reserved marker itself, which binder validation refuses as written. Whether the
+/// subject matched a rest for the result to keep is the compiler's to judge, and the entry
+/// pairing's, from the tokens as written.
 fn kept_rest_marked(leaf: &TokenStream, context: StateMacroContext) -> Option<TokenStream> {
     fn reserved(tokens: TokenStream) -> bool {
         tokens.into_iter().any(|tree| match tree {
@@ -2603,8 +2605,18 @@ fn kept_rest_marked(leaf: &TokenStream, context: StateMacroContext) -> Option<To
         .iter()
         .filter(|(element, _)| !element.is_empty())
         .count();
-    if written < 2 || elements.iter().filter(|(element, _)| dots(element)).count() != 1 {
+    if elements.iter().filter(|(element, _)| dots(element)).count() != 1 {
         return None;
+    }
+    // Brackets holding only the `..`, `[..]`, write no item: the content is the rest itself,
+    // the marker alone, which the term reads back as brackets holding the unnamed rest.
+    if written == 1 {
+        let (element, _) = elements
+            .iter()
+            .find(|(element, _)| dots(element))
+            .expect("one element is the rest");
+        let rest = Ident::new(KEPT_REST_MARKER, element[0].span());
+        return Some(quote!(#rest));
     }
     let mut marked = TokenStream::new();
     for (element, comma) in elements {
@@ -3740,6 +3752,9 @@ mod kept_rest {
             quote!(stack: Cell([.., y])),
             quote!(stack: Cell([x, .., y])),
             quote!(stack: Some(Cell([y, ..]))),
+            // Brackets holding only the rest are the rest: the root is its own spine's end.
+            quote!(stack: Cell([..])),
+            quote!(stack: Some(Cell([..]))),
         ] {
             let term = result_term(tokens.clone());
             assert!(term.keeps_root_rest(), "{tokens}");
@@ -3761,6 +3776,8 @@ mod kept_rest {
                 term.spelling()
             );
         }
+        // The lone rest's source is the brackets as authored.
+        assert_eq!(result_term(quote!(stack: Cell([..]))).spelling(), "[..]");
         // A pattern's `..` already is the wildcard that ends its brackets.
         let cells = parse_cells_pattern(quote!(stack: Cell([x, ..]))).expect("the subject parses");
         let StateTerm::Term(term) = cells.entries()[0].value() else {
@@ -3772,10 +3789,8 @@ mod kept_rest {
 
     #[test]
     fn a_bare_rest_elsewhere_is_read_as_written() {
-        // A lone `[..]`, two rests and a nested list's rest are refused as the brackets are
-        // written.
+        // Two rests and a nested list's rest are refused as the brackets are written.
         for tokens in [
-            quote!(stack: Cell([..])),
             quote!(stack: Cell([x, .., y, ..])),
             quote!(stack: Cell([[x, ..], y])),
         ] {

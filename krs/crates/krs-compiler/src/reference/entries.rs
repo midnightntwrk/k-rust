@@ -88,9 +88,10 @@ impl From<IllegalEntry> for super::ReferenceExpansionError {
 /// # Errors
 ///
 /// [`IllegalEntry`] for an entry `k::cells!` refuses: an anonymous rest in a result map, whose
-/// `..` names no map the entries are written over; brackets that hold an anonymous rest and no
-/// item (`[..]`, which name no element); and items after a cons list's rest, since a cons list
-/// is built from its front.
+/// `..` names no map the entries are written over; subject brackets that hold an anonymous rest
+/// and no item (`[..]`, which name no element: `_` matches any list), where a result's keep the
+/// rest the subject's brackets matched whole; and items after a cons list's rest, since a cons
+/// list is built from its front.
 pub(crate) fn print_entry(
     field: &TokenStream,
     entry: &Entry,
@@ -113,11 +114,11 @@ pub(crate) fn print_value(entry: &Entry, side: Side) -> Result<TokenStream, Ille
                 "an anonymous `..` in a result map literal: a result names the map's rest",
             ));
         }
-        (Contents::List { items, back, .. }, Rest::Anonymous, _)
+        (Contents::List { items, back, .. }, Rest::Anonymous, Side::Subject)
             if items.is_empty() && back.is_empty() =>
         {
             return Err(IllegalEntry(
-                "brackets holding only an anonymous `..`: `[..]` names no element",
+                "subject brackets holding only an anonymous `..`: `[..]` names no element",
             ));
         }
         (
@@ -153,12 +154,13 @@ pub(crate) fn print_value(entry: &Entry, side: Side) -> Result<TokenStream, Ille
             quote!(k::configuration::Cell(map![#(#parts),*]))
         }
         // Brackets that hold only a named rest are the list it names (`[..r]` is `r`), and
-        // `r` alone, not `[r @ ..]`, is the pattern binding the whole list.
+        // `r` alone, not `[r @ ..]`, is the pattern binding the whole list. A result's brackets
+        // holding only the anonymous rest keep it whole (`[..]`).
         Contents::List { items, back, .. } if items.is_empty() && back.is_empty() => {
             match &entry.rest {
                 Rest::Named(rest) => quote!(k::configuration::Cell(#rest)),
                 Rest::Exact => quote!(k::configuration::Cell([])),
-                Rest::Anonymous => unreachable!("refused above"),
+                Rest::Anonymous => quote!(k::configuration::Cell([..])),
             }
         }
         Contents::List { items, back, .. } => {
@@ -283,6 +285,10 @@ mod tests {
             ),
             "k : k :: configuration :: Cell (r)"
         );
+        assert_eq!(
+            printed(list(Vec::new(), Vec::new()), Rest::Anonymous, Side::Result),
+            "k : k :: configuration :: Cell ([..])"
+        );
     }
 
     #[test]
@@ -331,6 +337,12 @@ mod tests {
             Side::Subject
         ));
         assert!(refused(
+            bare(ListKind::Builtin),
+            Rest::Anonymous,
+            Side::Subject
+        ));
+        // A result's `[..]` keeps the rest the subject's brackets matched.
+        assert!(!refused(
             bare(ListKind::Builtin),
             Rest::Anonymous,
             Side::Result

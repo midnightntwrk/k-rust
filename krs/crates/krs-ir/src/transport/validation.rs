@@ -78,8 +78,9 @@ fn marker_rest_argument(path: &str) -> Option<usize> {
 
 /// Whether every [`Term::KeptRest`] of `term` is the rest of its root brackets: the tail of
 /// the spine of list-notation levels that starts at the root, when `list_root` admits one at
-/// all. A kept rest is a list cell's unnamed rest, so it stands nowhere else: not as the
-/// whole entry, not in an element, and not in a list nested in one.
+/// all. The root is its own spine's end, so the whole entry may be the rest (`Cell([..])`, the
+/// brackets holding only it). A kept rest is a list cell's unnamed rest, so it stands nowhere
+/// else: not in an element, and not in a list nested in one.
 pub(crate) fn kept_rests_placed<S: ValidationStage>(term: &Term<S>, list_root: bool) -> bool {
     fn placed<S: ValidationStage>(term: &Term<S>, level: bool, rest: bool) -> bool {
         match term {
@@ -101,7 +102,7 @@ pub(crate) fn kept_rests_placed<S: ValidationStage>(term: &Term<S>, list_root: b
                 .all(|child| placed(child, false, false)),
         }
     }
-    placed(term, list_root, false)
+    placed(term, list_root, list_root)
 }
 
 /// Whether `path`, an authored application path, ends in `set::item`: the spelling the expander

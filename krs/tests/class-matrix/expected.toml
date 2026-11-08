@@ -470,7 +470,7 @@ advice = "none"
 
 [class.nested-anonymous-rest]
 code = "krs::syntax::invalid-list-notation"
-doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell, a readable instance update's List child (`A { al: [x, ..], ..me }`) and a `cells!` list cell's root brackets after an item: a group record's child (`H { hl: [x, ..], hb: 0 }`), an instance's `k` child (`T { tk: [x, ..], ..me }`), a fragment's child, inside a readable `Some([..])` (but over the subject's `Some([..])`, which keeps the present cell), or a `cells!` `Cell([..])` with no item; not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
+doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell, a readable instance update's List child (`A { al: [x, ..], ..me }`) and a `cells!` list cell's root brackets (`Cell([x, ..])`, `Cell([..])`): a group record's child (`H { hl: [x, ..], hb: 0 }`), an instance's `k` child (`T { tk: [x, ..], ..me }`), a fragment's child, inside a readable `Some([..])` (but over the subject's `Some([..])`, which keeps the present cell); not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
 advice = "none"
 
 [class.never-cools]
@@ -600,7 +600,7 @@ advice = "terms/desugar/subject/x"
 
 [class.rest-outside-pattern]
 code = "krs::syntax::invalid-list-notation"
-doc = "an anonymous `..` in list brackets outside a pattern (and outside a readable record cell, whose result keeps what its pattern's `..` matched): a built list has no rest it keeps"
+doc = "an anonymous `..` in list brackets outside a pattern (and outside a list cell's own brackets, whose result keeps what its pattern's `..` matched): a built list has no rest it keeps"
 advice = "none"
 
 [class.restriction-binder]
@@ -7273,16 +7273,6 @@ class = "nested-anonymous-rest"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/cells/written/seq/k::configuration::Cell([x\, ..])'
-class = "nested-anonymous-rest"
-at = "item"
-
-[[refuse]]
-match = 'sweep/cells/written/stack/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
-class = "nested-anonymous-rest"
-at = "item"
-
-[[refuse]]
 match = 'sweep/init/init/acct/Gm \{ ma: 0\, ..base \}'
 class = "template-record-update"
 at = "spelling"
@@ -13852,6 +13842,15 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."sweep/cells/written/seq/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."sweep/cells/written/seq/k::configuration::Cell(_)"]
 k = """
 rule [case-TAG]:
@@ -13884,6 +13883,24 @@ k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
 <set> V0:Set => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/stack/k::configuration::Cell([.., x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(V1:KItem) => V0:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/stack/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => V1:List </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -17795,7 +17812,7 @@ findings = ["S5-G1"]
 [limit.nested-anonymous-rest]
 code = "krs::syntax::invalid-list-notation"
 docs = "An anonymous `..` keeps a rest this way only in a cell of the record itself"
-findings = ["S5-F2", "S5-K1"]
+findings = ["S5-F2"]
 
 [limit.optional-group-defaults]
 code = "krs::analysis::invalid-term"

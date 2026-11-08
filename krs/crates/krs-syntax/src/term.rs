@@ -1718,8 +1718,9 @@ impl TermExpression {
     /// The result brackets `[e1, .., en]` of a list cell's root, read with their `..` written
     /// `..marker`: the `marker` reference that ends the root's spine of list-notation levels (a
     /// cons level's tail, a snoc level's init) is the unnamed rest itself, a wildcard at the
-    /// `..`'s range, and the source is the brackets as authored. `None` when no such
-    /// reference ends the spine.
+    /// `..`'s range, and the source is the brackets as authored. The marker alone is the root
+    /// brackets `[..]`, whose spine has no level: the root is the unnamed rest. `None` when no
+    /// such reference ends the spine.
     pub(crate) fn keeping_root_rest(mut self, marker: &str) -> Result<Option<Self>, SyntaxError> {
         fn rest(tree: &mut TermTree, marker: &str) -> Result<bool, SyntaxError> {
             match tree {
@@ -1750,6 +1751,24 @@ impl TermExpression {
         self.nodes
             .retain(|node| !matches!(node, TermNode::Reference(path) if is_marker(path)));
         self.symbols.retain(|symbol| !is_marker(&symbol.path));
+        // The marker alone stands for brackets holding only the rest (`[..]`), which is the
+        // source as authored.
+        if let TermSource::Expression(Expr::Path(path)) = &self.expression
+            && is_marker(&path.path)
+        {
+            let span = path.path.span();
+            self.expression = TermSource::Expression(Expr::Array(syn::ExprArray {
+                attrs: Vec::new(),
+                bracket_token: syn::token::Bracket(span),
+                elems: std::iter::once(Expr::Range(syn::ExprRange {
+                    attrs: Vec::new(),
+                    start: None,
+                    limits: syn::RangeLimits::HalfOpen(syn::Token![..](span)),
+                    end: None,
+                }))
+                .collect(),
+            }));
+        }
         if let TermSource::Expression(Expr::Array(array)) = &mut self.expression {
             for element in &mut array.elems {
                 if let Expr::Range(range) = element

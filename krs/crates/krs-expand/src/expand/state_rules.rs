@@ -787,8 +787,12 @@ impl<'a> StateRuleBuilder<'a> {
             StateTerm::Term(term) if list_root => {
                 let side = self.term_side();
                 Ok(ProtocolRuleStateTerm::Term(
-                    self.terms
-                        .expand_list_cell_wire(KeyedTerm::of(term), side, slots)?,
+                    self.terms.expand_list_cell_wire(
+                        KeyedTerm::of(term),
+                        term.keeps_root_rest(),
+                        side,
+                        slots,
+                    )?,
                 ))
             }
             StateTerm::Present(inner) if list_root => Ok(ProtocolRuleStateTerm::Present {

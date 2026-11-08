@@ -442,9 +442,10 @@ fn a_record_cells_anonymous_rest_is_one_shared_rest() {
 }
 
 /// A list cell's anonymous `..` reads the same in `k::cells!` as in a readable record: `krs
-/// expand` prints it `..` on both sides, and the print emits the readable rule's K, whose
-/// shared rest is the one variable both sides of the cell name, in a rule and a claim, and in a
-/// subject that reads the cell its result does not write.
+/// expand` prints it `..` on both sides, and a result holding only it `Cell([..])`, and the
+/// print emits the readable rule's K, whose shared rest is the one variable both sides of the
+/// cell name, in a rule and a claim, and in a subject that reads the cell its result does not
+/// write.
 #[test]
 fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
     let target = shared_fixture_target();
@@ -461,8 +462,16 @@ fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
         )
         .replace("word_stack: [1, 2, rest @ ..] }", "word_stack: [1, 2, ..] }")
         .replace("word_stack: [3, ..rest] }", "word_stack: [3, ..] }")
-        .replace("load: { k: [Load(", "load: { word_stack: [_, ..], k: [Load(");
-    assert!(source.contains("[3, ..] }") && source.contains("load: { word_stack: [_, ..]"));
+        .replace("load: { k: [Load(", "load: { word_stack: [_, ..], k: [Load(")
+        .replace(
+            "reset: { k: [Reset(), ..], word_stack: _ } => { k: [..], word_stack: [] };",
+            "reset: { k: [Reset(), ..], word_stack: [_, ..] } => { k: [..], word_stack: [..] };",
+        );
+    assert!(
+        source.contains("[3, ..] }")
+            && source.contains("load: { word_stack: [_, ..]")
+            && source.contains("word_stack: [..] };")
+    );
     let readable_k = definition_k(target.path(), readable.path(), "lists", &source);
     let manifest = package(readable.path(), "lists", &source);
     let (success, print, stderr) = krs(target.path(), &manifest, "expand", &[]);
@@ -474,6 +483,8 @@ fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
         "word_stack:k::configuration::Cell([_,..])",
         "word_stack:k::configuration::Cell([1,2,..])",
         "word_stack:k::configuration::Cell([3,..])",
+        // A result holding only the rest keeps the rest whole (R2-B).
+        "word_stack:k::configuration::Cell([..])",
     ] {
         assert!(collapsed.contains(entry), "{entry}:\n{print}");
     }
@@ -487,6 +498,7 @@ fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
         "<wordStack> A:Int : B:Int : Krs_RestWordStack:WordStack => B:Int : A:Int : Krs_RestWordStack:WordStack </wordStack>",
         "<wordStack> _ : Krs_RestWordStack:WordStack </wordStack>",
         "<wordStack> 1 : 2 : Krs_RestWordStack:WordStack => 3 : Krs_RestWordStack:WordStack </wordStack>",
+        "<wordStack> _ : Krs_RestWordStack:WordStack => Krs_RestWordStack:WordStack </wordStack>",
     ] {
         assert!(readable_k.contains(sentence), "{sentence}:\n{readable_k}");
     }
@@ -653,6 +665,8 @@ fn a_cells_list_rest_is_kept_only_from_the_subjects() {
             unmatched,
         ),
         ("", "[a, ..]", "[a]", dropped),
+        // A lone `[..]` keeps the rest whole, so only a rest the subject's `..` matched.
+        ("b: Term<Int>,", "[a, b]", "[..]", unmatched),
     ];
     for (binders, subject, result, claim) in entries {
         for (attribute, expected) in [
@@ -782,7 +796,7 @@ fn malformed_and_misplaced_lists_are_errors() {
             "error[krs::analysis::invalid-list-notation]: a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest",
             "error[krs::analysis::invalid-list-notation]: a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest",
             "error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, and the second is the binder `rest` itself",
-            "error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result",
+            "error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result",
             "error[krs::syntax::invalid-list-notation]: the entry of the cell `word_stack` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it",
             "error[krs::analysis::invalid-list-notation]: the cell `word_stack` holds a cons list, which is matched and built from its front, so its back is no constructor pattern: `..` only ends its brackets, after the elements before the rest",
             "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `Int`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",

@@ -1010,14 +1010,23 @@ impl<'a> TermBuilder<'a> {
 
     /// [`Self::expand_wire`] for a `cells!` rule's or claim's list cell entry, whose root
     /// brackets' `..` is the list's unnamed rest: the subject's matches the rest of the cell's
-    /// list, and the result's keeps it ([`krs_ir::Term::KeptRest`]).
+    /// list, and the result's keeps it ([`krs_ir::Term::KeptRest`]). A result whose brackets hold
+    /// only that `..` (`Cell([..])`, `keeps_root_rest` with the rest at the root) is the kept rest
+    /// itself: the root is its own spine's end, admitted as the rest a level's `..` is.
     pub(super) fn expand_list_cell_wire(
         &mut self,
         term: KeyedTerm<'_>,
+        keeps_root_rest: bool,
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        self.list_root = ListRoot::Root;
+        self.list_root = match term.tree {
+            TermTree::Wildcard(range) if keeps_root_rest => {
+                self.admit(side, Construct::Rest, *range)?;
+                ListRoot::Spine
+            }
+            _ => ListRoot::Root,
+        };
         let wire = self.expand_wire(term, side, slots);
         self.list_root = ListRoot::Not;
         wire

@@ -1612,158 +1612,6 @@ fn render_reference_token_term_type(
     Ok(quote!(k::Term<#token>))
 }
 
-/// The constructors of the cons list a list cell holds (F6).
-struct CellConsList {
-    sort: StableItemId,
-    cons: StableItemId,
-    empty: StableItemId,
-}
-
-/// The cons list the leaf cell `cell` holds, when its sort is one.
-fn cell_cons_list(
-    cell: &krs_ir::DescriptorCellIdentity,
-    bundle: &krs_ir::DescriptorBundle,
-) -> Option<CellConsList> {
-    let sort = bundle.descriptors().iter().find_map(|descriptor| {
-        if descriptor.id() != &cell.owner {
-            return None;
-        }
-        let declaration = match descriptor.payload() {
-            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
-            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
-            _ => return None,
-        };
-        declaration
-            .fields
-            .iter()
-            .find_map(|field| match &field.content {
-                krs_ir::ProtocolCellContent::Leaf { sort, .. }
-                    if field.rust_field == cell.field =>
-                {
-                    match &sort.sort {
-                        krs_ir::DescriptorSortRef::Declared(id) => Some(id.clone()),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            })
-    })?;
-    bundle.descriptors().iter().find_map(|descriptor| {
-        let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
-            return None;
-        };
-        let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
-            return None;
-        };
-        if production.result_sort.sort != krs_ir::DescriptorSortRef::Declared(sort.clone()) {
-            return None;
-        }
-        let empty = production
-            .attributes
-            .iter()
-            .find_map(|attribute| match attribute {
-                krs_ir::DescriptorProductionAttribute::ListCons {
-                    terminator: empty, ..
-                }
-                | krs_ir::DescriptorProductionAttribute::ConsList { empty, .. } => {
-                    match &empty.application {
-                        DescriptorApplicationRef::Declared(id) => Some(id.clone()),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            })?;
-        let krs_ir::DescriptorProductionOwner::Constructor { constructor } = &production.owner
-        else {
-            return None;
-        };
-        let DescriptorApplicationRef::Declared(cons) = &constructor.application else {
-            return None;
-        };
-        Some(CellConsList {
-            sort: sort.clone(),
-            cons: cons.clone(),
-            empty,
-        })
-    })
-}
-
-/// Renders one side of a list cell as the constructor term it denotes:
-/// `Cons(a, Cons(b, rest))`. Only a cell whose brackets hold just the anonymous rest (`[..]`)
-/// prints so; other list entries print their brackets through [`entries::print_entry`].
-fn render_list(
-    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
-    constructors: &CellConsList,
-    shared: Option<&Ident>,
-    pattern: bool,
-    package: PathScope<'_>,
-    bundle: &krs_ir::DescriptorBundle,
-) -> Result<TokenStream, ReferenceExpansionError> {
-    let mut rendered = match &list.rest {
-        krs_ir::ProtocolHeadRuleListRest::Exact => {
-            let empty = render_declared_application(&constructors.empty, package)?;
-            quote!(#empty())
-        }
-        krs_ir::ProtocolHeadRuleListRest::Shared(_) => {
-            let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
-            quote!(#rest)
-        }
-        krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
-            render_term(rest, pattern, package, bundle)?
-        }
-    };
-    let cons = render_declared_application(&constructors.cons, package)?;
-    for item in list.items.iter().rev() {
-        let item = render_term(item, pattern, package, bundle)?;
-        rendered = quote!(#cons(#item, #rendered));
-    }
-    Ok(rendered)
-}
-
-/// Renders one side of a builtin `List` cell as the term its brackets
-/// denote: `list::concat(list::item(a), rest)`, nested as
-/// [`render_builtin_list_level`] nests a term's brackets. Only a cell whose brackets hold just
-/// the anonymous rest (`[..]`) prints so; other list entries print their brackets through
-/// [`entries::print_entry`].
-fn render_builtin_list(
-    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
-    shared: Option<&Ident>,
-    pattern: bool,
-    package: PathScope<'_>,
-    bundle: &krs_ir::DescriptorBundle,
-) -> Result<TokenStream, ReferenceExpansionError> {
-    let item = render_facade_marker(krs_ir::ListOperation::Item.facade_marker());
-    let concat = render_facade_marker(krs_ir::ListOperation::Concat.facade_marker());
-    let mut rendered = match &list.rest {
-        krs_ir::ProtocolHeadRuleListRest::Exact => None,
-        krs_ir::ProtocolHeadRuleListRest::Shared(_) => {
-            let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
-            Some(quote!(#rest))
-        }
-        krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
-            Some(render_term(rest, pattern, package, bundle)?)
-        }
-    };
-    for element in &list.back {
-        let element = render_term(element, pattern, package, bundle)?;
-        rendered = Some(rendered.map_or_else(
-            || quote!(#item(#element)),
-            |init| quote!(#concat(#init, #item(#element))),
-        ));
-    }
-    for element in list.items.iter().rev() {
-        let element = render_term(element, pattern, package, bundle)?;
-        rendered = Some(rendered.map_or_else(
-            || quote!(#item(#element)),
-            |tail| quote!(#concat(#item(#element), #tail)),
-        ));
-    }
-    Ok(rendered.unwrap_or_else(|| {
-        let empty = render_facade_marker(krs_ir::ListOperation::Empty.facade_marker());
-        quote!(#empty())
-    }))
-}
-
 /// Renders one level of brackets at the builtin `List` as the term it
 /// denotes: `[a, ..tail]` is `list::concat(list::item(a), tail)`, or
 /// `list::item(a)` when the tail is the empty list, and `[..init, z]` is
@@ -2406,6 +2254,7 @@ fn render_rule(
             continue;
         };
         let name = binder(&binding.name)?;
+
         let ty = render_binding_type(&sort.sort, package)?;
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
     }
@@ -2420,8 +2269,6 @@ fn render_rule(
         root: &root,
         brackets: &brackets,
         value: value.as_ref(),
-        reserved: &mut reserved,
-        parameters: &mut parameters,
     };
     let results = printed
         .result
@@ -2840,10 +2687,6 @@ struct CellRendering<'a> {
     brackets: &'a ListBrackets<'a>,
     /// The fresh name a map read's `_` value prints by.
     value: Option<&'a Ident>,
-    /// Every name the rule's print writes so far.
-    reserved: &'a mut BTreeSet<String>,
-    /// The rule's typed parameters, which a bare list's rest joins.
-    parameters: &'a mut Vec<(String, TokenStream)>,
 }
 
 /// One cell of an elaborated rule's subject (`before`) and of its result (`after`, absent where
@@ -3049,113 +2892,82 @@ fn render_group_record(
 }
 
 /// A list cell's brackets on each side, `before` the subject's and `after` the result's.
+///
+/// The brackets are written as the author wrote them: each side's items, its rest (`..` on both
+/// sides when anonymous; bound `r @ ..` in the subject and written `..t` in the result when
+/// named) and, on a `List`, its back. They denote the constructor or `List` term the elaborated
+/// rule's levels do, front first: `cells!` names a list cell's anonymous rest as the elaboration
+/// does, one rest of the cell the subject matches and the result keeps, so a result holding only
+/// that rest is `Cell([..])` (R2-B).
 fn render_list_cell(
     cell: &krs_ir::DescriptorCellIdentity,
     field: &TokenStream,
     before: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     after: Option<&krs_ir::ProtocolHeadRuleList<DescriptorTerm>>,
-    rendering: &mut CellRendering<'_>,
+    rendering: &CellRendering<'_>,
 ) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
     let (package, bundle) = (rendering.package, rendering.bundle);
-    let constructors = cell_cons_list(cell, bundle);
-    let bare = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
-        matches!(list.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
-            && list.items.is_empty()
-            && list.back.is_empty()
+    let kind = list_kind(cell, rendering.descriptor_index);
+    let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+                 pattern: bool|
+     -> Result<entries::Entry, ReferenceExpansionError> {
+        let render = |terms: &[DescriptorTerm]| {
+            terms
+                .iter()
+                .map(|term| render_term(term, pattern, package, bundle))
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let rest = match &list.rest {
+            krs_ir::ProtocolHeadRuleListRest::Exact => entries::Rest::Exact,
+            krs_ir::ProtocolHeadRuleListRest::Shared(_) => entries::Rest::Anonymous,
+            krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+                entries::Rest::Named(render_term(rest, pattern, package, bundle)?)
+            }
+        };
+        Ok(entries::Entry {
+            contents: entries::Contents::List {
+                kind,
+                items: render(&list.items)?,
+                back: render(&list.back)?,
+            },
+            rest,
+        })
     };
-    // The brackets are written as the author wrote them: each side's items, its rest (`..` on
-    // both sides when anonymous; bound `r @ ..` in the subject and written `..t` in the result
-    // when named) and, on a `List`, its back. They denote the constructor or `List` term the
-    // elaborated rule's levels do, front first: `cells!` names a list cell's anonymous rest as
-    // the elaboration does, one rest of the cell the subject matches and the result keeps.
-    if !bare(before) && !after.is_some_and(bare) {
-        let kind = if constructors.is_some() {
-            entries::ListKind::Cons
-        } else {
-            entries::ListKind::Builtin
-        };
-        let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
-                     pattern: bool|
-         -> Result<entries::Entry, ReferenceExpansionError> {
-            let render = |terms: &[DescriptorTerm]| {
-                terms
-                    .iter()
-                    .map(|term| render_term(term, pattern, package, bundle))
-                    .collect::<Result<Vec<_>, _>>()
-            };
-            let rest = match &list.rest {
-                krs_ir::ProtocolHeadRuleListRest::Exact => entries::Rest::Exact,
-                krs_ir::ProtocolHeadRuleListRest::Shared(_) => entries::Rest::Anonymous,
-                krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
-                    entries::Rest::Named(render_term(rest, pattern, package, bundle)?)
-                }
-            };
-            Ok(entries::Entry {
-                contents: entries::Contents::List {
-                    kind,
-                    items: render(&list.items)?,
-                    back: render(&list.back)?,
-                },
-                rest,
-            })
-        };
-        let left = entries::print_entry(field, &entry(before, true)?, entries::Side::Subject)?;
-        let right = match after {
-            Some(after) => Some(entries::print_entry(
+    let left = entries::print_entry(field, &entry(before, true)?, entries::Side::Subject)?;
+    let right = after
+        .map(|after| -> Result<_, ReferenceExpansionError> {
+            Ok(entries::print_entry(
                 field,
                 &entry(after, false)?,
                 entries::Side::Result,
-            )?),
-            None => None,
-        };
-        return Ok((left, right));
+            )?)
+        })
+        .transpose()?;
+    Ok((left, right))
+}
+
+/// The list the leaf cell `cell` holds: a cons list where its declared sort is one, else K's
+/// `List`.
+fn list_kind(
+    cell: &krs_ir::DescriptorCellIdentity,
+    index: &DescriptorIndex<'_>,
+) -> entries::ListKind {
+    let cons = index.cell_owner(&cell.owner).is_ok_and(|owner| {
+        owner.fields.iter().any(|field| {
+            field.rust_field == cell.field
+                && matches!(
+                    &field.content,
+                    krs_ir::ProtocolCellContent::Leaf { sort, .. }
+                        if matches!(&sort.sort, krs_ir::DescriptorSortRef::Declared(id)
+                            if index.is_cons_list(id))
+                )
+        })
+    });
+    if cons {
+        entries::ListKind::Cons
+    } else {
+        entries::ListKind::Builtin
     }
-    // Brackets holding only the anonymous rest (`[..]`, the whole list) name no element, which
-    // `k::cells!` refuses: such a cell prints its constructor or `List` term over a rest
-    // parameter both sides name. A cell of the builtin `List` is the `list::item` and
-    // `list::concat` term its brackets denote; a cons-list cell is the constructor term it
-    // denotes (F6).
-    let shared = |sort: SemanticSortRef, rendering: &mut CellRendering<'_>| {
-        matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
-            .then(|| {
-                let rest = fresh_ident("rest", rendering.reserved)?;
-                let ty = render_sort_type(&sort, package)?;
-                rendering
-                    .parameters
-                    .push((rest.to_string(), quote!(#rest: #ty)));
-                Ok::<_, ReferenceExpansionError>(rest)
-            })
-            .transpose()
-    };
-    let (before, after) = match constructors {
-        None => {
-            let shared = shared(
-                SemanticSortRef::Builtin(krs_ir::BuiltinSort::List),
-                rendering,
-            )?;
-            (
-                render_builtin_list(before, shared.as_ref(), true, package, bundle)?,
-                after
-                    .map(|after| {
-                        render_builtin_list(after, shared.as_ref(), false, package, bundle)
-                    })
-                    .transpose()?,
-            )
-        }
-        Some(list) => {
-            let shared = shared(SemanticSortRef::Declared(list.sort.clone()), rendering)?;
-            (
-                render_list(before, &list, shared.as_ref(), true, package, bundle)?,
-                after
-                    .map(|after| render_list(after, &list, shared.as_ref(), false, package, bundle))
-                    .transpose()?,
-            )
-        }
-    };
-    Ok((
-        quote!(#field: k::configuration::Cell(#before)),
-        after.map(|after| quote!(#field: k::configuration::Cell(#after))),
-    ))
 }
 
 /// The type of a rule's `cells!` subject and result: what the rule is about.

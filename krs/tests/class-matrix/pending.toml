@@ -328,26 +328,6 @@ match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: 
 finding = "S5-F2"
 kind = "diagnostic"
 
-# S5-K1, diagnostic: 14 reds
-
-# sweep: 6
-[[family]]
-match = 'sweep/cells/written/seq/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell([..\, x]),k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..),k::configuration::KCell(x\, ..\, y),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
-finding = "S5-K1"
-kind = "diagnostic"
-
-# sweep: 6
-[[family]]
-match = 'sweep/cells/written/stack/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..),k::configuration::KCell(x\, ..\, y),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
-finding = "S5-K1"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/cells/written/{prog,seq}/k::configuration::Cell(k::map![y -> x\, ..])'
-finding = "S5-K1"
-kind = "diagnostic"
-
 # S5-Q1, diagnostic: 4 reds
 
 # S5-U1, diagnostic: 5 reds
@@ -836,6 +816,5 @@ finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
 
 # S5.3 part 5: the path sweep's reds (shard `sweep-paths`): a red takes its root twin's finding (the root sweep's case of the same
-# form, side, stack and spelling, pending with the same deviation), the `cells!` overwrite `Cell([..])` of a List
-# or cons leaf S5-K1's (its anonymous `..` is refused at the form, before the kind and the path), and every other
+# form, side, stack and spelling, pending with the same deviation), and every other
 # readable or claim red S5-S1's (the readable route's entry naming a cell below a marked ancestor, S5.2's).

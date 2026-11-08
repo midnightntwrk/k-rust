@@ -1118,7 +1118,7 @@ const OUTSIDE_LIST_ROOT: Result<(), StateTransportError> = Err(StateTransportErr
 
 /// A list cell entry's root brackets end in the list's unnamed rest, on either side of a rule
 /// with a result: a cons level's tail, a snoc level's init, at any depth of the root's spine,
-/// below `Some(..)` too.
+/// the root itself (`[..]`, a spine of no level), below `Some(..)` too.
 #[test]
 fn a_kept_rest_ends_a_list_cell_entrys_root_spine() {
     use crate::ListNotation::{Cons, Snoc};
@@ -1136,7 +1136,8 @@ fn a_kept_rest_ends_a_list_cell_entrys_root_spine() {
             )
         };
         let terms = [
-            // `[x, ..]`, `[.., x]` and `[x, .., y]`.
+            // `[..]`, `[x, ..]`, `[.., x]` and `[x, .., y]`.
+            kept_rest(validation, 0),
             list_level(validation, Cons, literal(0), kept_rest(validation, 0), 0),
             list_level(validation, Snoc, literal(0), kept_rest(validation, 0), 0),
             list_level(
@@ -1158,12 +1159,14 @@ fn a_kept_rest_ends_a_list_cell_entrys_root_spine() {
     }
 }
 
-/// The whole entry is no list's rest: `Cell(..)` names no element.
+/// The whole entry is the list's rest only where it is a list cell entry's root (`Cell([..])`):
+/// elsewhere, as an instance child's whole term, it is no list cell's rest.
 #[test]
-fn a_kept_rest_is_not_a_whole_entry() {
-    let state = ProtocolRuleStateTerm::Term(kept_rest(ValidationSide::Left, 0));
+fn a_kept_rest_is_a_whole_entry_only_at_a_list_cells_root() {
+    let state = ProtocolRuleStateTerm::Term(kept_rest(ValidationSide::Right, 0));
+    assert_eq!(list_entry(&state, RuleSide::Right, true, true), Ok(()));
     assert_eq!(
-        list_entry(&state, RuleSide::Left, true, true),
+        list_entry(&state, RuleSide::Right, false, true),
         OUTSIDE_LIST_ROOT
     );
 }
