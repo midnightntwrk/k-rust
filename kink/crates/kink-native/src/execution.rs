@@ -34,6 +34,11 @@
 //! answer ends the request at the point's observed state as a `probe-difference` leaf, its
 //! `Done` answer ends the path there as a `probe-done` leaf, and the adapter records on that
 //! leaf the point and the answer ([`AdaptedLeaf::probe`], [`ProbeEnd`]).
+//! A result run may also match every state it reaches against a pattern (k-rust `match_states`),
+//! which composes with its stop rules, count and condition within the one request: the execution
+//! then carries k-rust's summary of the verdicts ([`StateMatches`]), and its count of undecided
+//! solver answers sums the run's, the leaves' feasibility questions' and the matcher's
+//! ([`AdaptedExecution::undecided_answers`]).
 
 use std::{
     cell::Cell,
@@ -56,13 +61,13 @@ use k_rust::backend::{
     ExecutionStrategy, GuardCollection, HaltReasonOutput, InProcess, KoreExecutionLeaf,
     KoreExecutionResult, ObservationEventOutput, ObservedInOutput, ObservedRequest,
     PassedStopOutput, ResultModalityOutput, RunCoverageOutput, SearchFailureOutput,
-    ShortCircuitReadingOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
-    UnevaluatedHookOutput,
+    ShortCircuitReadingOutput, StateMatchOutput, StateMatchesOutput, TraceEntry,
+    TransitionClassOutput, TransitionIdOutput, UndecidedStateMatchesOutput, UnevaluatedHookOutput,
 };
 pub use k_rust::backend::{
     BinderSelection, BindingCollection, BindingsOutput, CellHandle, Probe, ProbeArrival,
-    ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath, ProbeRules, ProbeState, StopArrival,
-    StopCondition, StopDecision, StopSide,
+    ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath, ProbeRules, ProbeState, StateMatchRequest,
+    StopArrival, StopCondition, StopDecision, StopSide, UndecidedMatchReasonOutput,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -412,6 +417,9 @@ struct Requested<'a> {
     /// `run.bindings` asks for the fired instances' records and the tables hold a depth above 1
     /// ([`DefinitionTables::with_windows`]).
     windows: Option<NonZeroUsize>,
+    /// The pattern the request matches every reached state against (k-rust `match_states`),
+    /// when the caller asks for state matches ([`ExecutionAdapter::execute_result_probed`]).
+    matching: Option<&'a StateMatchRequest>,
 }
 
 impl Requested<'static> {
@@ -426,6 +434,7 @@ impl Requested<'static> {
             guards: None,
             bindings: None,
             windows: None,
+            matching: None,
         }
     }
 }
@@ -897,6 +906,130 @@ impl UndefinedStepRule {
     }
 }
 
+/// k-rust's summary of a run's state matches (`stateMatches`; docs/compatibility.md, "State
+/// matches"), for a run that asked for them ([`ExecutionAdapter::execute_result_probed`]), in the
+/// run's depth-first order.
+///
+/// The states matched are the states the run reached in normal form and did not merge into a
+/// recorded state of its depth: the initial configuration, every state it stepped or a bound
+/// stopped, and every successor a terminal rule ended. A cut-point rule's proposed successor is
+/// not reached, and a path takes no step past its stop, so under stop rules ([`StopRules`]) the
+/// states matched are the states of the truncated system the run explored. A state *reaches*
+/// when it is decided (no constraint, no variable), shown to exist (k-rust `ground_defined`) and
+/// matched with empty constraints; it is *refuted* when the matcher refutes it; otherwise its
+/// verdict is undecided, for one of k-rust's reasons. A reach is *clean* when the diagnostics of
+/// its path up to the state carry nothing the path's existence may rest on undecided
+/// ([`MatchedState::diagnostics`] holds them for a reach that is not). Matching stops after the
+/// first clean reach whose term holds no term-level `\and`; the run goes on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateMatches {
+    /// The first clean reach whose term holds no term-level `\and`, where one exists, and
+    /// otherwise the first clean reach.
+    pub first_clean_reach: Option<MatchedState>,
+    /// The first reach on a path whose diagnostics up to it are not clean.
+    pub first_dirty_reach: Option<MatchedState>,
+    /// How many matched states reached on a path that is not clean.
+    pub dirty_reaches: u64,
+    /// For each reason a matched state's verdict was undecided, the first such state and the
+    /// count, in k-rust's order of the reasons.
+    pub undecided: Vec<UndecidedMatches>,
+    /// The states matched.
+    pub matched: u64,
+    /// The states the matcher refuted.
+    pub refuted: u64,
+    /// The undecided answers the solver gave the matcher, which [`RunFacts::smt_unknowns`] leaves
+    /// out.
+    pub smt_unknowns: usize,
+    /// The matcher's stops for lack of native stack (each leaves its match undecided), which
+    /// [`AdaptedExecution::stack_stops`] leaves out.
+    pub stack_stops: usize,
+}
+
+/// One matched state of a [`StateMatches`]: its depth, the state, the diagnostics of the path
+/// that reached it up to it, and whether its term holds a term-level `\and`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchedState {
+    pub depth: u64,
+    pub state: Pattern,
+    pub diagnostics: Vec<BackendDiagnosticOutput<Pattern>>,
+    pub term_conjunction: bool,
+}
+
+/// The first matched state whose verdict was undecided for `reason`, and how many were.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UndecidedMatches {
+    pub reason: UndecidedMatchReasonOutput,
+    pub count: u64,
+    pub first: MatchedState,
+}
+
+impl StateMatches {
+    /// The summary k-rust reported. Every field is destructured, so a field k-rust adds does not
+    /// compile until it is read here.
+    fn of(output: StateMatchesOutput<Pattern>) -> Self {
+        let StateMatchesOutput {
+            first_clean_reach,
+            first_dirty_reach,
+            dirty_reaches,
+            undecided,
+            matched,
+            refuted,
+            smt_unknowns,
+            stack_stops,
+        } = output;
+        Self {
+            first_clean_reach: first_clean_reach.map(MatchedState::of),
+            first_dirty_reach: first_dirty_reach.map(MatchedState::of),
+            dirty_reaches,
+            undecided: undecided
+                .into_iter()
+                .map(
+                    |UndecidedStateMatchesOutput {
+                         reason,
+                         count,
+                         first,
+                     }| UndecidedMatches {
+                        reason,
+                        count,
+                        first: MatchedState::of(first),
+                    },
+                )
+                .collect(),
+            matched,
+            refuted,
+            smt_unknowns,
+            stack_stops,
+        }
+    }
+
+    /// Whether every state matched was refuted: no reach, clean or not, and no undecided verdict.
+    #[must_use]
+    pub fn all_refuted(&self) -> bool {
+        self.first_clean_reach.is_none()
+            && self.first_dirty_reach.is_none()
+            && self.dirty_reaches == 0
+            && self.undecided.is_empty()
+            && self.matched == self.refuted
+    }
+}
+
+impl MatchedState {
+    fn of(output: StateMatchOutput<Pattern>) -> Self {
+        let StateMatchOutput {
+            depth,
+            state,
+            diagnostics,
+            term_conjunction,
+        } = output;
+        Self {
+            depth,
+            state,
+            diagnostics,
+            term_conjunction,
+        }
+    }
+}
+
 /// The adapted leaves of one execution. Built only by [`ExecutionAdapter::execute`] and its
 /// siblings.
 #[derive(Clone, Debug, PartialEq)]
@@ -916,6 +1049,9 @@ pub struct AdaptedExecution {
     pub(crate) coverage: Option<RunCoverage>,
     /// k-rust's run-level facts (re-pin adoption A-1); empty for a timed-out run.
     pub(crate) facts: RunFacts,
+    /// k-rust's summary of the run's state matches, for a run that asked for them; `None` for
+    /// every other run and for a timed-out one.
+    pub(crate) state_matches: Option<StateMatches>,
 }
 
 /// An observation-layer failure of a stepped run. The execution itself can still be used
@@ -1045,6 +1181,33 @@ impl AdaptedExecution {
         &self.facts
     }
 
+    /// k-rust's summary of the states the run reached that match the pattern the run asked for
+    /// ([`ExecutionAdapter::execute_result_probed`]); `None` for a run that asked for none and
+    /// for a timed-out run, whose states are not read.
+    #[must_use]
+    pub const fn state_matches(&self) -> Option<&StateMatches> {
+        self.state_matches.as_ref()
+    }
+
+    /// The undecided solver answers the run's result rests on, summed over the three places that
+    /// count them apart: the run's own decisions ([`RunFacts::smt_unknowns`]), the adapter's
+    /// questions about its leaves' feasibility ([`RunFacts::decider_smt_unknowns`]) and the
+    /// matcher's, for a run that matched its states ([`StateMatches::smt_unknowns`]). Every
+    /// decision behind a reach, a refutation or an end is one of those, so a sum of 0 says that
+    /// none rests on an undecided answer; a sum above 0 says only that some might. Always 0 in a
+    /// build without a solver.
+    #[must_use]
+    pub fn undecided_answers(&self) -> usize {
+        self.facts
+            .smt_unknowns
+            .saturating_add(self.facts.decider_smt_unknowns)
+            .saturating_add(
+                self.state_matches
+                    .as_ref()
+                    .map_or(0, |matches| matches.smt_unknowns),
+            )
+    }
+
     /// This execution with `count` added to [`RunFacts::decider_smt_unknowns`]: the undecided
     /// solver answers that the caller of [`ExecutionAdapter::adapt_result`] took when it judged
     /// the leaf feasibility it gave there, which the result does not carry.
@@ -1144,8 +1307,12 @@ pub enum ExecutionAdapterFailure {
 ///   k-rust reports only when asked, and asking changes no other field of the result).
 /// - `collect_conditions: None`: no condition records are asked for (they are part of the
 ///   coverage k-rust reports only when asked, and asking changes no other field of the result).
-/// - `match_states: None`: kink matches no reached state inside the run; asking changes no other
-///   field of the result, so its absence keeps every run as before.
+/// - `match_states`: the caller's pattern on a run that asks for state matches
+///   ([`ExecutionAdapter::execute_result_probed`]), absent otherwise: the result then also reports
+///   which reached states match it ([`AdaptedExecution::state_matches`]). k-rust states that
+///   asking changes no other field of the result (docs/compatibility.md, "State matches"), with
+///   exceptions that only make a run fail, count a stack stop, or time a step out, so a run that
+///   asks is no other run; no campaign run asks.
 /// - `collect_committed: true` (KINK-R4): the run's coverage also reports the rewrite rules whose
 ///   successor it committed to ([`RunCoverage::committed`]), which kink-flow's `fired_by` reads.
 ///   k-rust states that asking changes no other field of the result (docs/compatibility.md,
@@ -1167,6 +1334,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         guards,
         bindings,
         windows,
+        matching,
         ..
     } = requested;
     ExecuteRequest {
@@ -1193,7 +1361,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
-        match_states: None,
+        match_states: matching.cloned(),
         collect_committed: true,
         collect_windows: windows,
         schema_version: BACKEND_SCHEMA_VERSION,
@@ -1258,6 +1426,11 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// no other field of the result, and nothing that decides a verdict or a schedule reads the
 /// windows; the one store that holds them, kink-flow's result records, moved its
 /// `RESULT_SCHEMA_VERSION`. A run that does not ask sends the request of v6, field for field.
+/// Within v7, a result run may also ask k-rust to match every state it reaches against a pattern
+/// (`match_states`, [`ExecutionAdapter::execute_result_probed`]): no campaign run, stepped run or
+/// stored result asks, k-rust states that asking changes no other field of the result, and what
+/// reads the summary answers a reachability question, not a verdict; a run that does not ask
+/// sends the request of v7, field for field.
 pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v7";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
@@ -1507,7 +1680,7 @@ impl ExecutionAdapter {
         condition: Option<&mut dyn StopCondition>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.execute_result_probed(
-            backend, tables, state, budget, run, stop, count, condition, None,
+            backend, tables, state, budget, run, stop, count, condition, None, None,
         )
     }
 
@@ -1540,11 +1713,25 @@ impl ExecutionAdapter {
     /// The request sent is the one without a probe, field for field, and without a probe (`None`)
     /// this is [`Self::execute_result_counted`], call for call. A probe that always continues
     /// leaves the leaves, coverage, facts and work as they are without it.
+    ///
+    /// With `matching`, the request also matches every state the run reaches against its pattern
+    /// (k-rust `match_states`, docs/compatibility.md "State matches"), and the execution carries
+    /// k-rust's summary ([`AdaptedExecution::state_matches`], [`StateMatches`]). The states
+    /// matched are the ones the run reached in normal form, so under stop rules and a count they
+    /// are the states of the truncated system its paths explored, up to each path's end: a
+    /// cut-point leaf's state is matched and its proposed successor is not, a terminal leaf's
+    /// successor is matched. The matcher is isolated from the run: k-rust states that asking
+    /// changes no other field of the result, with exceptions that only fail the run, count a
+    /// stack stop or time a step out, and counts its own undecided solver answers and stack stops
+    /// apart from the run's ([`AdaptedExecution::undecided_answers`]). A backend that does not
+    /// report state matches (its `state_matches` capability off) is
+    /// [`ExecutionAdapterFailure::Backend`], and nothing runs. Without it (`None`) the request is
+    /// the one without matches, field for field.
     #[expect(
         clippy::too_many_arguments,
         reason = "one request's inputs: the backend and its tables, the start, the budget, the run, \
-                  the stop rules, their count and their condition, and the probe, none of which \
-                  belong to another"
+                  the stop rules, their count and their condition, the probe and the pattern its \
+                  states are matched against, none of which belong to another"
     )]
     pub fn execute_result_probed(
         &self,
@@ -1557,6 +1744,7 @@ impl ExecutionAdapter {
         count: NonZeroU64,
         condition: Option<&mut dyn StopCondition>,
         probe: Option<RequestProbe<'_>>,
+        matching: Option<&StateMatchRequest>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let condition = condition.filter(|_| !stop.is_none());
@@ -1572,6 +1760,7 @@ impl ExecutionAdapter {
             guards: run.guards.then_some(&built.guarded),
             bindings: bindings.filter(|_| run.bindings),
             windows: windows.filter(|_| run.bindings),
+            matching,
         };
         stops_listed(requested, backend.capabilities())?;
         with_definition(backend, |definition| {
@@ -1861,6 +2050,18 @@ impl ExecutionAdapter {
         } else {
             RunFacts::take(&mut result, recorded)
         };
+        // A timed-out run's states are not read, its matched states included.
+        let state_matches = if timed_out {
+            None
+        } else {
+            result.state_matches.take().map(StateMatches::of)
+        };
+        if requested.matching.is_some() != state_matches.is_some() && !timed_out {
+            return Err(ExecutionAdapterFailure::Backend(
+                "a run reports state matches exactly when it asked for them, and this one did not"
+                    .to_owned(),
+            ));
+        }
         let leaves = result
             .leaves
             .into_iter()
@@ -1913,6 +2114,7 @@ impl ExecutionAdapter {
                 .coverage
                 .map(|coverage| RunCoverage::of(coverage, rewrites, requested.windows)),
             facts,
+            state_matches,
         })
     }
 
@@ -2053,7 +2255,9 @@ fn attach_followed_probe_ends(
 /// none, and its leaves could be read as ends of the truncated system they need not be. A
 /// request without stop rules passes none, so it needs nothing. Refuses a count past the first
 /// arrival ([`Requested::stop_count`]) on a backend that does not count arrivals
-/// (`BackendCapabilities::stop_count`), which would end every path at its first.
+/// (`BackendCapabilities::stop_count`), which would end every path at its first. Refuses a
+/// request for state matches on a backend that does not report them
+/// (`BackendCapabilities::state_matches`), which would reject the field.
 fn stops_listed(
     requested: Requested<'_>,
     capabilities: BackendCapabilities,
@@ -2065,6 +2269,10 @@ fn stops_listed(
     } else if requested.stop_count().is_some() && !capabilities.stop_count {
         Err(ExecutionAdapterFailure::Backend(
             "a run to a later stop than the first needs a backend that counts stops".to_owned(),
+        ))
+    } else if requested.matching.is_some() && !capabilities.state_matches {
+        Err(ExecutionAdapterFailure::Backend(
+            "a run that matches its states needs a backend that reports state matches".to_owned(),
         ))
     } else {
         Ok(())
@@ -2748,6 +2956,7 @@ mod tests {
                         guards: None,
                         bindings: None,
                         windows: None,
+                        matching: None,
                     },
                 );
                 assert_eq!(request.stop_count, sent);
@@ -2810,6 +3019,7 @@ mod tests {
             guards: None,
             bindings: None,
             windows: None,
+            matching: None,
         };
         assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
         assert_eq!(stops_listed(requested(&stop, 1), listing), Ok(()));
@@ -2936,6 +3146,7 @@ mod tests {
                     guards: None,
                     bindings: None,
                     windows: None,
+                    matching: None,
                 },
                 vec![LeafFeasibility::Syntactic],
                 &BTreeSet::new(),
@@ -3236,6 +3447,7 @@ mod tests {
             guards: None,
             bindings: None,
             windows: None,
+            matching: None,
         };
         for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
             for request in [requested(&NO_STOP_RULES, 3), requested(&stop, 1)] {
@@ -3556,6 +3768,7 @@ mod tests {
                     NonZeroU64::MIN,
                     condition,
                     probe,
+                    None,
                 )
                 .expect("the run is adapted")
         };
@@ -3771,6 +3984,7 @@ mod tests {
             guards: None,
             bindings: None,
             windows: None,
+            matching: None,
         };
         for halt in [HaltClass::ProbeDifference, HaltClass::ProbeDone] {
             assert!(halt.is_probe());
@@ -3859,6 +4073,7 @@ mod tests {
             work: 0,
             coverage: None,
             facts: RunFacts::default(),
+            state_matches: None,
         };
         let answer = |halt, depth| ProbeAnswer {
             halt,
@@ -3980,6 +4195,7 @@ mod tests {
                             guards: None,
                             bindings: None,
                             windows: None,
+                            matching: None,
                         };
                         assert_eq!(
                             format!("{:?}", request(constant("a"), budget, requested(true))),

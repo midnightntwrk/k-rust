@@ -465,6 +465,7 @@ mod tests {
                 work: 0,
                 coverage: None,
                 facts: crate::execution::RunFacts::default(),
+                state_matches: None,
             },
             BridgedPaths {
                 paths: vec![path],

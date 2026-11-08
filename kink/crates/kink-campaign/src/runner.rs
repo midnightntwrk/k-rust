@@ -199,8 +199,8 @@ use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, DefinitionTables, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
-    HaltClass, RequestProbe, ResultModality, ResultRun, SolverProfile, StepRunFailure,
-    SteppedExecution, StopRules,
+    HaltClass, RequestProbe, ResultModality, ResultRun, SolverProfile, StateMatchRequest,
+    StepRunFailure, SteppedExecution, StopRules,
 };
 
 use crate::condition::{KoreSignature, StopWhen};
@@ -869,13 +869,41 @@ impl Stop {
         Result<AdaptedExecution, ExecutionAdapterFailure>,
         Option<String>,
     ) {
+        self.execute_matching(
+            adapter, backend, tables, test_id, initial, budget, run, probe, None,
+        )
+    }
+
+    /// [`Self::execute_asking`] whose request also matches every state the run reaches against
+    /// `matching` when it is given (kink-native `ExecutionAdapter::execute_result_probed`,
+    /// [`crate::state_match`]).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Self::execute_asking's inputs and the pattern the run's states are matched \
+                  against"
+    )]
+    pub(crate) fn execute_matching(
+        self,
+        adapter: &ExecutionAdapter,
+        backend: &mut Backend,
+        tables: &mut DefinitionTables,
+        test_id: &str,
+        initial: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+        probe: Option<RequestProbe<'_>>,
+        matching: Option<&StateMatchRequest>,
+    ) -> (
+        Result<AdaptedExecution, ExecutionAdapterFailure>,
+        Option<String>,
+    ) {
         let (rules, count) = self
             .of_test(test_id)
             .unwrap_or((&NO_STOP, std::num::NonZeroU64::MIN));
         let Some(when) = self.when() else {
             return (
                 adapter.execute_result_probed(
-                    backend, tables, initial, budget, run, rules, count, None, probe,
+                    backend, tables, initial, budget, run, rules, count, None, probe, matching,
                 ),
                 None,
             );
@@ -891,6 +919,7 @@ impl Stop {
                 count,
                 Some(condition),
                 probe,
+                matching,
             )
         }) {
             Ok((execution, undecided)) => (execution, undecided),

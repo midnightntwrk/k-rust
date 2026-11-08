@@ -53,7 +53,9 @@ pub use replay::{
 };
 mod runner;
 pub mod selection;
+pub mod state_match;
 pub use selection::{CompiledEdit, Coupled, MutantSelection, Sel, SelectionPolicy, Witness};
+pub use state_match::{MatchAnswer, MatchUnknown, StoppedMatch, judge_matches};
 
 pub use campaign::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, ExecutionFailureKind, ManifestTest,
