@@ -103,8 +103,15 @@
 //!
 //! **A corpus with `[observe]`.** An observation channel compares two definitions' runs; it
 //! changes neither which states a run reaches, which rules it fires, nor where it ends. So the
-//! single-definition jobs (rule, coverage-gap and pattern jobs) admit the declaration and ignore
-//! it, saying why (`job.observe`). A kill job is refused (stage `observe`, reason
+//! single-definition jobs (rule, coverage-gap and pattern jobs) admit the declaration and run
+//! their cases as without it, saying why (`job.observe`). What it changes is which programs the
+//! corpus counts: `coverage` counts a program a deterministic bound cuts (`comparable-prefix`,
+//! by its channels) beside a `comparable` one. A fuzz goal is a program the corpus's own
+//! judgement counts, so a rule or coverage-gap job's confirmation accepts exactly the classes
+//! `coverage` counts, by its predicate (`ResultClass::can_kill`). The campaign still searches
+//! for `comparable` witnesses only: k-rust-fuzz reads a rule or coverage goal at a leaf, and a
+//! path a bound cut is no hit there, so a witness `coverage` counts only by its channels is
+//! confirmed when given (`confirm_program`), not searched for. A kill job is refused (stage `observe`, reason
 //! `unsupported-verb`): its campaign compares the two sides' ends only, while a kill of a corpus
 //! with `[observe]` is a decided difference of an observation sequence, so a search judged by
 //! ends would look for another kind of kill than the one `run` judges.
@@ -743,11 +750,16 @@ pub fn input_refused(file: &str, error: &dyn std::fmt::Display) -> Value {
     document
 }
 
-/// Why a single-definition job ignores `[observe]` (module documentation): `job.observe`'s
-/// `ignored`.
-pub const OBSERVE_IGNORED: &str = "this job asks what one definition's run reaches, matches or \
-     fires; observation channels compare two definitions' runs, and change neither which states a \
-     run reaches, which rules it fires, nor where it ends";
+/// Why a single-definition job ignores `[observe]` in its runs (module documentation):
+/// `job.observe`'s `ignored`.
+pub const OBSERVE_IGNORED: &str = "observation channels compare two definitions' runs: they \
+     change neither which states one definition's run reaches, which rules it matches or fires, \
+     nor where it ends, so this job's cases run as without them; they change only which programs \
+     the corpus counts (a program a deterministic bound cuts counts as comparable-prefix by its \
+     channels), which the confirmation reads with `coverage`'s own predicate";
+
+/// Why a pattern job ignores `[observe]`: `job.observe`'s `ignored`, `query`'s reason.
+const OBSERVE_IGNORED_PATTERN: &str = crate::query::OBSERVE_IGNORED;
 
 /// The refusal of a job `fuzz` cannot run on `manifest`'s corpus, before anything is admitted:
 /// a stop condition, which no case of the wire route can ask (stage `stop`), or a kill job under
@@ -1591,6 +1603,20 @@ fn last_run(
         ));
         return json!({"found": true, "current": false});
     }
+    // The stop is part of every program's meaning, and the specification's digest leaves it
+    // out: a run under another stop (other rules, or other counts) judged other runs.
+    if document["stop"] != manifest.stop_value().unwrap_or(Value::Null) {
+        warnings.push(warning(
+            "stale-run-document",
+            format!(
+                "the last run document is of another [stop] than FLOW.toml's (its rules or \
+                 counts differ), so its classes, statuses and witnesses are of other runs: run \
+                 `{}` again for the template's class and the mutation's witnesses",
+                spelling.verb(Verb::Run)
+            ),
+        ));
+        return json!({"found": true, "current": false});
+    }
     // The corpus's programs as `run` keys them: each id with its program digest, null for a
     // program whose inputs are refused (as its row's).
     let corpus = manifest
@@ -1646,7 +1672,20 @@ fn last_run(
     let program = template_program(template, instance);
     let digest = program_digest(&program, &template_inputs(instance)).to_string();
     let rows = document["programs"].as_array().cloned().unwrap_or_default();
-    let row = rows.iter().find(|row| row["digest"] == json!(digest));
+    // A row is the template's own program when it has the template's inputs and, under a stop,
+    // its count (the program digest leaves the count out): one input under another count is
+    // another case.
+    let template_count = instance.case_stop(manifest).map(|stop| stop.count.get());
+    let row_count = |row: &Value| {
+        let stop = &document["stop"];
+        row["id"]
+            .as_str()
+            .and_then(|id| stop["counts"][id].as_u64())
+            .or_else(|| stop["count"].as_u64())
+    };
+    let row = rows
+        .iter()
+        .find(|row| row["digest"] == json!(digest) && row_count(row) == template_count);
     let template_row = row.map(|row| {
         json!({
             "program": row["id"],
@@ -2174,7 +2213,11 @@ pub fn fuzz_front(
     }
     if manifest.observe.is_some() {
         // Only a kill job compares two definitions, and it is refused above.
-        document["job"]["observe"] = json!({"ignored": OBSERVE_IGNORED});
+        document["job"]["observe"] = json!({"ignored": if matches!(job, FuzzJob::Pattern { .. }) {
+            OBSERVE_IGNORED_PATTERN
+        } else {
+            OBSERVE_IGNORED
+        }});
     }
     // A pattern target reads no data end, so the campaign takes no assumed name (k-rust-fuzz
     // refuses names on such a target), not even the flow's.
@@ -2758,6 +2801,11 @@ pub fn fuzz_front(
         // A rule job: kink counts a program in `matched_by` (`fired_by`) only when its all-paths
         // baseline run is comparable, so the hit's run of every path must be (`comparable`),
         // which also needs data ends; so does a coverage goal, which kink counts the same way.
+        // Under `[observe]` kink also counts a program a deterministic bound cuts
+        // (`comparable-prefix`), which no setting of this target admits: k-rust-fuzz reads a
+        // rule or coverage goal at a leaf, and a path a bound cut is no hit
+        // (`reached-cut-path`), so such a witness is not searched for, only confirmed by
+        // `coverage`'s own predicate when given (`confirm_program`).
         Some(kind @ (TargetKind::Rule(_) | TargetKind::Coverage(_))) => Target {
             kind,
             run_to_completion: true,
@@ -3234,9 +3282,15 @@ pub fn fuzz_front(
                                 "the witness program's run of every path did not end within \
                                  the bounds ({}): it reaches the target, but as a test it may \
                                  not terminate, so every `run` and `coverage` would run it to \
-                                 the budget and kink would never count it comparable; prefer \
-                                 hole values or a template whose run ends",
-                                cuts.join(", ")
+                                 the budget and kink would {}; prefer hole values or a template \
+                                 whose run ends",
+                                cuts.join(", "),
+                                if manifest.observe.is_some() {
+                                    "count it only by its observation channels \
+                                     (comparable-prefix)"
+                                } else {
+                                    "never count it comparable"
+                                }
                             ),
                         ),
                     );
@@ -3265,10 +3319,10 @@ pub fn fuzz_front(
                     "{append}: kink's own {} confirmed it on the flow with this program alone",
                     match job {
                         FuzzJob::Kill { .. } => "run (killed, with the fragment as killer)",
-                        FuzzJob::Rule { .. } => "coverage (comparable, and listed for the rule)",
+                        FuzzJob::Rule { .. } => "coverage (counted, and listed for the rule)",
                         FuzzJob::Pattern { .. } => "query (the claim is confirmed)",
                         FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
-                            "coverage (comparable, and listed as covering the obligation)"
+                            "coverage (counted, and listed as covering the obligation)"
                         }
                     }
                 )
@@ -4072,7 +4126,9 @@ fn confirm(
                         .is_some_and(|programs| programs.iter().any(|p| p == id))
                 })
             });
-            let comparable = program["class"] == "comparable";
+            // The classes `coverage` counts, by its own predicate: `comparable`, and under
+            // `[observe]` `comparable-prefix` too.
+            let comparable = crate::results::ResultClass::can_kill(&program["class"]);
             // `coverage` lists no program that is not comparable under any rule's `matched_by` or
             // `fired_by`, whatever its run
             // matched or fired, so such a program's status says only that it is not counted.
@@ -4117,7 +4173,9 @@ fn confirm(
                 .and_then(|rows| rows.iter().find(|row| row["id"] == id))
                 .cloned()
                 .unwrap_or(Value::Null);
-            let comparable = program["class"] == "comparable";
+            // The classes `coverage` counts, by its own predicate: `comparable`, and under
+            // `[observe]` `comparable-prefix` too.
+            let comparable = crate::results::ResultClass::can_kill(&program["class"]);
             let covered = confirming
                 .item
                 .and_then(|item| crate::fuzz_goal::covered_by(&document, item, id));

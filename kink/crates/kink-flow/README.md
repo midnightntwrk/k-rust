@@ -348,7 +348,7 @@ For a run with several paths it is `{paths, real, channels: [{name, complete_to}
 The declaration keys what it changes: each program's result key and the tier-1 context hold `observe`, absent without `[observe]`, so a corpus without one keeps its keys.
 `query` admits a corpus with `[observe]` and ignores the declaration, and its document says why (`observe`, `{declaration, ignored}`): a pattern query asks which states one definition's run reaches, while an observation channel compares two definitions' runs and changes neither which states a run reaches nor where it ends.
 Its one effect on a query is indirect: a program a bound cuts is `comparable-prefix`, not `comparable`, and a `no` keeps requiring `comparable`.
-`fuzz` admits a corpus with `[observe]` for its single-definition jobs (rule, coverage-gap and pattern jobs), which ignore the declaration and say why (`job.observe`, `{ignored}`): they ask what one definition's run reaches, matches or fires, which no channel changes.
+`fuzz` admits a corpus with `[observe]` for its single-definition jobs (rule, coverage-gap and pattern jobs), which run their cases as without it and say why (`job.observe`, `{ignored}`): they ask what one definition's run reaches, matches or fires, which no channel changes, and a rule or coverage-gap witness is confirmed when `coverage` counts it, `comparable-prefix` included (the search itself finds `comparable` witnesses only).
 It refuses a kill job there (stage `observe`, reason `unsupported-verb`): its campaign compares the two definitions' ends, while a kill of such a corpus is a decided difference of a channel, so a search judged by ends would look for another kill than the one `run` judges.
 
 ## Exit status
@@ -1974,8 +1974,10 @@ The confirmation runs the overlay with the same stop, and the fragment writes th
 A kill job's mutant must have a rewrite rule of each label the stop names, or the job is refused at stage `mutant` (`job.status` `not-admitted`, reason `stop-unresolved`), as `run` does not admit such a mutant; an edit of a rule the stop stops before, on a template whose count is 1, is warned (`stop-hides-edit`), as `check --mutations` warns it.
 A stop condition (`[stop] when`) is refused (stage `stop`, reason `unsupported-verb`).
 
-The single-definition jobs admit `[observe]` and ignore it (`job.observe`, `{ignored}`, the reason): no channel changes which states one definition's run reaches, which rules it fires, or where it ends.
-What ignoring it gives up is a witness whose run a bound cuts, which `coverage` counts as `comparable-prefix` on such a corpus: the campaign's comparability is a complete run of every path.
+The single-definition jobs admit `[observe]` and run their cases as without it (`job.observe`, `{ignored}`, the reason): no channel changes which states one definition's run reaches, which rules it fires, or where it ends.
+What a channel changes is which programs the corpus counts: `coverage` counts a program a deterministic bound cuts as `comparable-prefix`, beside a `comparable` one.
+A fuzz goal is a program the corpus's own judgement counts, so the confirmation of a rule or coverage-gap job accepts exactly the classes `coverage` counts, by its own predicate.
+The campaign still searches for `comparable` witnesses only: k-rust-fuzz reads a rule or coverage goal at a leaf, and a path a bound cut is no hit there (`reached-cut-path`), so a program `coverage` counts only by its channels is confirmed when given, not searched for.
 A kill job is refused (stage `observe`, reason `unsupported-verb`), since its campaign judges ends and a kill of such a corpus is judged by its channels.
 
 ### The document

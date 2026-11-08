@@ -832,13 +832,129 @@ fn fuzz_kills_at_a_stops_end_and_its_mutant_must_resolve_the_stop() {
         "{document:#}"
     );
     let (document, _) = fuzz(&flow, "t", kill("frame-jump"));
-    let kinds = document["warnings"]
+    assert!(
+        warning_kinds(&document).contains(&"stop-hides-edit"),
+        "{document:#}"
+    );
+    // At count 2 the template's runs take the first frame's step, so the edit shows at their
+    // end: no warning, and a kill.
+    let (document, status) = fuzz(&flow, "twice", kill("frame-jump"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert!(
+        !warning_kinds(&document).contains(&"stop-hides-edit"),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["attempts"][0]["confirmation"]["status"], "killed",
+        "{document:#}"
+    );
+}
+
+/// The kinds of a fuzz document's warnings.
+fn warning_kinds(document: &Value) -> Vec<&str> {
+    document["warnings"]
         .as_array()
         .unwrap()
         .iter()
         .map(|warning| warning["kind"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert!(kinds.contains(&"stop-hides-edit"), "{document:#}");
+        .collect()
+}
+
+/// The coverage-gap and pattern jobs run under the stop too: `tick`'s condition is refuted at
+/// the stop, before the first frame, and `coverage` confirms it; `frame`'s step, which a rule
+/// item covers once fired, is taken only past the first stop, so at count 1 no case covers it,
+/// and at count 2 one does; `clock(3, 3)`, the state at the stop, is reached, and `query`
+/// confirms the hit, while `clock(4, 0)`, which only the first frame's step makes, is reached by
+/// no case.
+#[test]
+fn fuzz_covers_and_hits_only_before_the_stop() {
+    let dir = fixture("fuzz-cover", &[]);
+    let flow = dir.join("FLOW.toml");
+    let confirmed = |document: &Value| {
+        assert_eq!(
+            document["attempts"][0]["confirmation"]["confirmed"], true,
+            "{document:#}"
+        );
+    };
+    let unreached = |document: &Value, status: u8| {
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        assert!(
+            matches!(
+                document["stopped"].as_str(),
+                Some("budget" | "domain-exhausted")
+            ),
+            "{document:#}"
+        );
+    };
+    let refuted = FuzzJobRequest::Refuted {
+        rule: "CLOCK.tick".into(),
+    };
+    let (document, status) = fuzz(&flow, "t", refuted);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    confirmed(&document);
+    let cover = || FuzzJobRequest::Cover {
+        item: "rule:CLOCK.frame".into(),
+    };
+    let (document, status) = fuzz(&flow, "t", cover());
+    unreached(&document, status);
+    let (document, status) = fuzz(&flow, "twice", cover());
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    confirmed(&document);
+    fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
+    let pattern = |id: &str| FuzzJobRequest::Pattern {
+        id: id.into(),
+        patterns: dir.join("PATTERNS.toml"),
+    };
+    let (document, status) = fuzz(&flow, "t", pattern("at-stop"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    confirmed(&document);
+    assert_eq!(
+        document["attempts"][0]["confirmation"]["answer"], "hit",
+        "{document:#}"
+    );
+    let (document, status) = fuzz(&flow, "t", pattern("past-stop"));
+    unreached(&document, status);
+}
+
+/// The last run document is read only when it judged the runs the corpus states: the stop is
+/// part of every program's meaning, so a run under another count is stale, and its kill is not
+/// reported again.
+#[test]
+fn fuzz_reads_no_last_run_of_another_stop() {
+    let dir = fixture("fuzz-last-run", &[]);
+    let flow = dir.join("FLOW.toml");
+    let (document, _) = run(
+        &FlowManifest::read(&flow).unwrap(),
+        &MutationList::read(&dir.join("mutations/clock.toml")).unwrap(),
+        &RunOptions::default(),
+    );
+    assert_eq!(status(&document, "tick-twice").0, "killed", "{document:#}");
+    let kill = || FuzzJobRequest::Kill {
+        mutation: "tick-twice".into(),
+        mutations: dir.join("mutations/clock.toml"),
+    };
+    let (document, _) = fuzz(&flow, "t", kill());
+    assert_eq!(
+        document["template"]["last_run"]["current"], true,
+        "{document:#}"
+    );
+    assert!(
+        warning_kinds(&document).contains(&"already-killed"),
+        "{document:#}"
+    );
+    fs::write(
+        &flow,
+        stopped("[stop]\nbefore = [\"CLOCK.frame\"]\ncount = 2\n"),
+    )
+    .unwrap();
+    let (document, _) = fuzz(&flow, "t", kill());
+    assert_eq!(
+        document["template"]["last_run"]["current"], false,
+        "{document:#}"
+    );
+    let kinds = warning_kinds(&document);
+    assert!(kinds.contains(&"stale-run-document"), "{document:#}");
+    assert!(!kinds.contains(&"already-killed"), "{document:#}");
 }
 
 /// k-rust-fuzz runs its cases on the wire route, which asks no stop condition, so `fuzz`

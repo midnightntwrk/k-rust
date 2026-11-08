@@ -997,6 +997,49 @@ fn fuzz_ignores_the_observations_of_a_single_definition_job() {
     assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
 }
 
+/// A rule job asks what the baseline's run fires, which no channel changes; what the channels
+/// change is which programs `coverage` counts, and it counts the console's `run`, whose every
+/// run the depth bound cuts, as comparable-prefix. So a rule job's confirmation, `coverage`'s
+/// own predicate, confirms that program as a witness of `tick`'s firing. The campaign does not
+/// find it: k-rust-fuzz reads a rule goal at a leaf, and a path a bound cut is no hit there.
+#[test]
+fn a_rule_witness_coverage_counts_by_its_channels_is_confirmed() {
+    let dir = fixture("fuzz-rule", &[]);
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let confirmation = std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || {
+            kink_flow::fuzz::confirm_program(
+                &manifest,
+                &kink_flow::fuzz::FuzzOptions::default(),
+                kink_flow::fuzz::FuzzJob::Rule {
+                    rule: "CONSOLE.tick",
+                    fired: true,
+                },
+                &manifest.programs[0],
+            )
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
+    assert_eq!(confirmation["status"], "fired", "{confirmation:#}");
+    assert_eq!(
+        confirmation["class"], "comparable-prefix",
+        "{confirmation:#}"
+    );
+    let (fuzz, status) = fuzz(
+        &dir,
+        FuzzJobRequest::Rule {
+            rule: "CONSOLE.tick".into(),
+            fired: true,
+        },
+    );
+    assert_eq!(status, EXIT_UNANSWERED, "{fuzz:#}");
+    let ignored = fuzz["job"]["observe"]["ignored"].as_str().unwrap();
+    assert!(ignored.contains("which programs"), "{ignored}");
+}
+
 /// `query` admits a corpus with observations and ignores them, saying why: a pattern query asks
 /// which states one definition's run reaches, and an observation changes none of them. Its
 /// answers are those of the same corpus without `[observe]`: `<n> 2 </n>` is reached, and
