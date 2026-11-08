@@ -1010,3 +1010,363 @@ fn the_application_cache_changes_no_outcome() {
         assert_eq!(guards, expected, "{cache_keys} keys, size {max_value_size}");
     }
 }
+
+/// `\and` of two predicates over the sort `R` of an equation: a `requires` of two conjuncts.
+fn both_r(left: &str, right: &str) -> String {
+    format!(r"\and{{R}}({left}, {right})")
+}
+
+/// A function equation `head(X0) = rhs requires condition` whose argument is bound by
+/// `binding`, of argument sort `argument` and result sort `result`, as [`equation`] is.
+fn equation_over(
+    label: &str,
+    head: &str,
+    (argument, binding): (&str, &str),
+    result: &str,
+    rhs: &str,
+    condition: &str,
+) -> String {
+    format!(
+        r#"
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}({condition}, \and{{R}}(\in{{{argument}, R}}(X0:{argument}, {binding}), \top{{R}}())),
+                \equals{{{result}, R}}({head}{{}}(X0:{argument}), \and{{{result}}}({rhs}, \top{{{result}}}()))
+            ) [label{{}}("{label}")]"#
+    )
+}
+
+const MINT: &str = "SortMInt{Sort8{}}";
+
+/// A definition whose function groups exercise what the scan does not decide, each group
+/// declared in written order or, with `reversed`, in the reverse order:
+/// - `s`, one group: `sSet`, which a `symbolic` attribute sets aside on a ground argument, and
+///   `sApp`, which applies at 0;
+/// - `t`, the same pair above a lower group (`tLow`), so that the scan decides `tSet`'s guard;
+///   its guard reads `k`, which has no equation, so a tried entry and an untried one differ;
+/// - `mp`, one equation over a map pattern, `mp(K |-> V M) = 1 requires V ==Int 5 orBool V ==Int
+///   7`, which matches `1 |-> 5 2 |-> 7` in two ways, both applying;
+/// - `m`, `mZero` applying at 0 beside two equations of two conjuncts each, the first open
+///   (`k`) and the second false (`mMixed`) or false for an undefined operand (`mUndef`);
+/// - `om`, of `MInt{8}` values: `omZero` at 0, and `omNarrow` and `omWide` at positive
+///   arguments, whose results are a literal its width holds and one it cannot hold
+///   (`crate::literal`).
+///
+/// Each `cF(A)` rewrites to `val(F(A))` (`valm` for `om`), and `cmp(M)` to `val(mp(M))`.
+fn undecided_definition(reversed: bool) -> BackendDefinition {
+    let group = |mut equations: Vec<String>| {
+        if reversed {
+            equations.reverse();
+        }
+        equations
+    };
+    let open = holds_r(&format!("eqInt{{}}(k{{}}({X}), {})", int(1)));
+    let int_sort = ("SortInt{}", X);
+    let groups = [
+        group(vec![
+            equation(
+                "sSet",
+                "s",
+                &int(5),
+                &holds_r(&format!("geInt{{}}({X}, {})", int(0))),
+                ", symbolic{}()",
+            ),
+            equation("sApp", "s", &int(1), &holds_r(&eq_x(0)), ""),
+        ]),
+        group(vec![
+            equation("tSet", "t", &int(5), &open, ", symbolic{}()"),
+            equation("tApp", "t", &int(1), &holds_r(&eq_x(0)), ""),
+        ]),
+        vec![equation(
+            "tLow",
+            "t",
+            &int(2),
+            &holds_r(&format!("geInt{{}}({X}, {})", int(0))),
+            r#", priority{}("60")"#,
+        )],
+        vec![equation_over(
+            "mpEq",
+            "mp",
+            (
+                "SortC{}",
+                "cConcat{}(cItem{}(K:SortInt{}, V:SortInt{}), M:SortC{})",
+            ),
+            "SortInt{}",
+            &int(1),
+            &holds_r(&format!(
+                "orBool{{}}(eqInt{{}}(V:SortInt{{}}, {}), eqInt{{}}(V:SortInt{{}}, {}))",
+                int(5),
+                int(7)
+            )),
+        )],
+        group(vec![
+            equation("mZero", "m", &int(0), &holds_r(&eq_x(0)), ""),
+            equation(
+                "mMixed",
+                "m",
+                &int(1),
+                &both_r(&open, &holds_r(&eq_x(5))),
+                "",
+            ),
+            equation(
+                "mUndef",
+                "m",
+                &int(2),
+                &both_r(
+                    &open,
+                    &holds_r(&format!(
+                        "eqInt{{}}(divInt{{}}({}, {X}), {})",
+                        int(1),
+                        int(1)
+                    )),
+                ),
+                "",
+            ),
+        ]),
+        group(vec![
+            equation_over(
+                "omZero",
+                "om",
+                int_sort,
+                MINT,
+                &format!(r#"\dv{{{MINT}}}("-128p8")"#),
+                &holds_r(&eq_x(0)),
+            ),
+            equation_over(
+                "omNarrow",
+                "om",
+                int_sort,
+                MINT,
+                &format!(r#"\dv{{{MINT}}}("5p8")"#),
+                &holds_r(&format!("geInt{{}}({X}, {})", int(1))),
+            ),
+            equation_over(
+                "omWide",
+                "om",
+                int_sort,
+                MINT,
+                &format!(r#"\dv{{{MINT}}}("256p8")"#),
+                &holds_r(&format!("geInt{{}}({X}, {})", int(1))),
+            ),
+        ]),
+    ];
+    let mut calls = ["s", "t", "m"]
+        .iter()
+        .map(|function| {
+            rule(
+                &format!("call{function}"),
+                &format!("c{function}{{}}({A})"),
+                &format!("val{{}}({function}{{}}({A}))"),
+                "",
+                "",
+            )
+        })
+        .collect::<Vec<_>>();
+    calls.push(rule(
+        "callom",
+        &format!("com{{}}({A})"),
+        &format!("valm{{}}(om{{}}({A}))"),
+        "",
+        "",
+    ));
+    calls.push(rule(
+        "callmp",
+        "cmp{}(M:SortC{})",
+        "val{}(mp{}(M:SortC{}))",
+        "",
+        "",
+    ));
+    let source = format!(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            hooked-sort SortMInt{{S}} [hook{{}}("MINT.MInt"), hasDomainValues{{}}()]
+            sort Sort8{{}} []
+            hooked-sort SortC{{}} [hook{{}}("MAP.Map"), unit{{}}(cUnit{{}}()), element{{}}(cItem{{}}()), concat{{}}(cConcat{{}}())]
+            hooked-symbol cUnit{{}}() : SortC{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.unit")]
+            hooked-symbol cItem{{}}(SortInt{{}}, SortInt{{}}) : SortC{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.element")]
+            hooked-symbol cConcat{{}}(SortC{{}}, SortC{{}}) : SortC{{}}
+                [function{{}}(), hook{{}}("MAP.concat"), assoc{{}}(), comm{{}}(), unit{{}}(cUnit{{}}())]
+            sort SortS{{}} []
+            hooked-symbol geInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.ge"), smt-hook{{}}(">=")]
+            hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            hooked-symbol divInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), hook{{}}("INT.tdiv"), smt-hook{{}}("div")]
+            hooked-symbol orBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.or"), smt-hook{{}}("or")]
+            symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol s{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol t{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol m{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol mp{{}}(SortC{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol om{{}}(SortInt{{}}) : {MINT} [function{{}}(), total{{}}()]
+            symbol val{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol valm{{}}({MINT}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol cs{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol ct{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol cm{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol com{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol cmp{{}}(SortC{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            {axioms}
+        endmodule []"#,
+        axioms = groups
+            .iter()
+            .flatten()
+            .chain(&calls)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// The axioms of [`undecided_definition`] with a `requires`.
+const UNDECIDED: [&str; 12] = [
+    "sSet", "sApp", "tSet", "tApp", "tLow", "mpEq", "mZero", "mMixed", "mUndef", "omZero",
+    "omNarrow", "omWide",
+];
+
+/// The names of the axioms `guards` reports.
+fn names(guards: &[AxiomGuard]) -> Vec<&str> {
+    guards.iter().map(|guard| guard.axiom.as_str()).collect()
+}
+
+/// A set-aside instance the scan reads as unused without deciding it, in a group no lower group
+/// follows, gets an untried entry whether it is declared before or after the equation that
+/// applies: `sSet`'s guard holds at 0 either way.
+#[test]
+fn an_undecided_set_aside_instance_gets_an_entry_before_the_applied_equation_too() {
+    for reversed in [false, true] {
+        let definition = undecided_definition(reversed);
+        let guards = guards_of(&definition, call(&definition, "s", 0), &["sSet", "sApp"]);
+        assert_eq!(names(&guards), ["sApp", "sSet"], "reversed: {reversed}");
+        assert_eq!(guard(&guards, "sApp").outcomes, set(&[GuardOutcome::Held]));
+        assert_eq!(
+            guard(&guards, "sSet").outcomes,
+            set(&[GuardOutcome::Held]),
+            "reversed: {reversed}"
+        );
+    }
+}
+
+/// A set-aside instance the scan decides, in a group a lower group follows, keeps the entry its
+/// attempt made and gets no untried one beside it: declared before the equation that applies,
+/// `tSet` reports its attempt's verdict alone, never `undecided-untried`; declared after it, it
+/// is not tried and reports `undecided-untried` alone.
+#[test]
+fn a_decided_set_aside_instance_gets_no_second_entry() {
+    let tried = guards_of(
+        &undecided_definition(false),
+        call(&undecided_definition(false), "t", 0),
+        &["tSet"],
+    );
+    let tried = &guard(&tried, "tSet").outcomes;
+    assert_eq!(tried.len(), 1, "{tried:?}");
+    assert!(
+        !tried.contains(&GuardOutcome::Undecided(AttemptCause::Untried)),
+        "{tried:?}"
+    );
+    let definition = undecided_definition(true);
+    let untried = guards_of(&definition, call(&definition, "t", 0), &["tSet"]);
+    assert_eq!(
+        guard(&untried, "tSet").outcomes,
+        set(&[GuardOutcome::Undecided(AttemptCause::Untried)])
+    );
+}
+
+/// An equation whose map pattern matches the subject in two ways, both applying, reports both
+/// instances, whichever the matcher reaches first: the one the scan applies, and the other,
+/// untried. `V ==Int 5` is seen true (`V = 5`) and false (`V = 7`), and `V ==Int 7` true where
+/// it is reached.
+#[test]
+fn every_instance_of_the_applied_equation_has_an_entry() {
+    let definition = undecided_definition(false);
+    let initial = ground(
+        &definition,
+        &format!(
+            "cmp{{}}(cConcat{{}}(cItem{{}}({}, {}), cItem{{}}({}, {})))",
+            int(1),
+            int(5),
+            int(2),
+            int(7)
+        ),
+    );
+    let guards = guards_of(&definition, initial, &["mpEq"]);
+    let equation = guard(&guards, "mpEq");
+    assert_eq!(equation.outcomes, set(&[GuardOutcome::Held]));
+    assert_eq!(
+        reached(equation, &[0, 0, 0]),
+        set(&[NodeOutcome::True, NodeOutcome::False])
+    );
+    assert_eq!(reached(equation, &[0, 0, 1]), set(&[NodeOutcome::True]));
+    assert_eq!(equation.combinations.len(), 2, "{equation:?}");
+}
+
+/// An equation holding a literal whose element the definition leaves open gets no untried
+/// entry: after `omZero` applies at 0, `omNarrow`, whose literal is determined, is refuted
+/// there, and `omWide`, the same equation but for its literal, has none.
+#[test]
+fn an_equation_holding_an_open_literal_gets_no_untried_entry() {
+    let definition = undecided_definition(false);
+    let axioms = ["omZero", "omNarrow", "omWide"];
+    let guards = guards_of(&definition, call(&definition, "om", 0), &axioms);
+    assert_eq!(names(&guards), ["omNarrow", "omZero"]);
+    assert_eq!(
+        guard(&guards, "omNarrow").outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::False)])
+    );
+}
+
+/// Collecting the guards of every axiom, with the untried entries it makes, changes nothing
+/// else in the run: every call of both untried fixtures, in both declaration orders, gives the
+/// same leaves, halts, work and coverage as without guards (`guards_of` compares the whole
+/// result), the diverging `pDown` included under a small budget of polls.
+#[test]
+fn collecting_untried_guards_changes_nothing_else_in_the_run() {
+    let untried_axioms = [
+        "iv1", "iv2", "iv3", "iv4", "wLow", "wHigh", "uZero", "uOpen", "uDivides", "oHigh",
+        "oOwise", "oLower", "nZero", "nHelped", "hlEq", "pZero", "pDown",
+    ];
+    for reversed in [false, true] {
+        let definition = untried_definition(reversed);
+        for function in ["iv", "w", "u", "o", "n", "p"] {
+            // `p(A)` recurses to `p(A - 1)` in the run itself, with or without guards: forever
+            // at a negative argument, and `A` levels deep otherwise.
+            for argument in [-5, 0, 1, 2, 3, 4, 40_000]
+                .into_iter()
+                .filter(|argument| function != "p" || (0..=4).contains(argument))
+            {
+                let initial = call(&definition, function, argument);
+                let mut options = guarded(&untried_axioms);
+                options.collect_guards.as_mut().unwrap().record_polls = 2_000;
+                let mut with = execute(&definition, initial.clone(), options.clone());
+                let without = execute(
+                    &definition,
+                    initial,
+                    ExecutionOptions {
+                        collect_guards: None,
+                        ..options
+                    },
+                );
+                with.coverage
+                    .as_mut()
+                    .and_then(|coverage| coverage.guards.take())
+                    .expect("the run collected guards");
+                assert_results_equal(&with, &without);
+            }
+        }
+        let definition = undecided_definition(reversed);
+        for function in ["s", "t", "m", "om"] {
+            for argument in [-1, 0, 1, 5] {
+                guards_of(
+                    &definition,
+                    call(&definition, function, argument),
+                    &UNDECIDED,
+                );
+            }
+        }
+    }
+}

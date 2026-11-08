@@ -9157,7 +9157,7 @@ fn unspecified_function_scan(
         term,
         indeterminate,
         &untried,
-        |rule, set_aside| {
+        |rule, set_aside, applied_instance| {
             // An equation whose attempt failed on this application is not tried again; it was
             // not refuted, so it keeps lower-priority equations from applying in its place.
             if history
@@ -9177,6 +9177,7 @@ fn unspecified_function_scan(
                 active_conditions,
                 solver,
                 set_aside,
+                applied_instance,
             )?;
             match attempt {
                 // The `requires` holds, with whatever it reached left as it is, so it holds for
@@ -10564,7 +10565,7 @@ fn apply_theory<K: TermTheory>(
         term,
         indeterminate,
         &untried,
-        |rule, set_aside| {
+        |rule, set_aside, applied_instance| {
             apply_equation(
                 definition,
                 rule,
@@ -10574,6 +10575,7 @@ fn apply_theory<K: TermTheory>(
                 active_conditions,
                 solver,
                 set_aside,
+                applied_instance,
             )
         },
     )
@@ -10619,7 +10621,7 @@ fn apply_theory_noting_cuts<K: TermTheory>(
         term,
         indeterminate,
         &untried,
-        |rule, set_aside| {
+        |rule, set_aside, applied_instance| {
             let watch = CutWatch::start();
             let attempt = apply_equation(
                 definition,
@@ -10630,6 +10632,7 @@ fn apply_theory_noting_cuts<K: TermTheory>(
                 active_conditions,
                 solver,
                 set_aside,
+                applied_instance,
             )?;
             if let EquationAttempt::Indeterminate(_) = attempt {
                 *contingent = min_depth(*contingent, watch.lowest());
@@ -10740,6 +10743,10 @@ pub(crate) fn binds_element_variable_to_its_subject(
     })
 }
 
+/// Try the function or simplification equation `rule` on `term`, instance by instance in matcher
+/// order ([`scan_instances`]). Where an instance applies, `applied_instance` is set to its
+/// position, which the scan reads to know which instances it tried
+/// (`scan::enter_untried_guards`); it is left as it was otherwise.
 #[allow(clippy::too_many_arguments)]
 fn apply_equation(
     definition: &BackendDefinition,
@@ -10750,6 +10757,7 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
+    applied_instance: &Cell<usize>,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     measure::bump(Counter::SimplifyEquationAttempts);
     let (rule, mut instances, set_aside) = match instances_to_scan(
@@ -10783,30 +10791,39 @@ fn apply_equation(
             solver,
         );
     }
-    scan_instances(instances, |instance| match SetAsideInstance::of(instance) {
-        Ok(instance) => set_aside_instance(
-            definition,
-            &rule,
-            term,
-            instance,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-            set_aside,
-        ),
-        Err(instance) => instance.attempt(|substitution| {
-            apply_equation_instance(
+    let mut position = 0;
+    scan_instances(instances, |instance| {
+        let at = position;
+        position += 1;
+        let attempt = match SetAsideInstance::of(instance) {
+            Ok(instance) => set_aside_instance(
                 definition,
                 &rule,
                 term,
-                substitution,
+                instance,
                 known_predicates,
                 options,
                 active_conditions,
                 solver,
-            )
-        }),
+                set_aside,
+            ),
+            Err(instance) => instance.attempt(|substitution| {
+                apply_equation_instance(
+                    definition,
+                    &rule,
+                    term,
+                    substitution,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )
+            }),
+        }?;
+        if let EquationAttempt::Applied(_) = attempt {
+            applied_instance.set(at);
+        }
+        Ok(attempt)
     })
 }
 

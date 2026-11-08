@@ -8,7 +8,7 @@
 //! every group ended in a failed match of the equation's left-hand side
 //! ([`EquationAttempt::NotApplicable`] carrying a [`MatchFailed`]).
 
-use std::{marker::PhantomData, sync::Arc};
+use std::{cell::Cell, marker::PhantomData, sync::Arc};
 
 use crate::{
     coverage::{Selection, every},
@@ -16,12 +16,13 @@ use crate::{
     diagnostic::{self, Buffered, Subject},
     matching::MatchFailed,
     rule::{Predicate, RewriteRule, Theory, applicable_groups, term_index},
+    substitution::Substitution,
     term::Term,
 };
 
 use super::{
-    ConditionIndeterminacy, EquationInstances, Instance, Simplification, SimplificationOptions,
-    SimplifyResult, equation_instances, subject_equalities,
+    ConditionIndeterminacy, EquationInstances, EquationRule, Instance, Simplification,
+    SimplificationOptions, SimplifyResult, equation_instances, subject_equalities,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -132,9 +133,10 @@ pub(super) enum TheoryScan<K> {
 /// Inlined: each instance has one caller (its `attempt` is a closure of that caller), and the
 /// scan is a frame of a recursion through an equation's `requires` (`tests::recursion_stack`).
 ///
-/// In the function theory, when the run collects guards, the equations of the group that applied
-/// after the one that applied, which the scan does not try, get untried entries
-/// ([`enter_untried_guards`]), with what `untried` gives.
+/// In the function theory, when the run collects guards, the instances of the group that applied
+/// whose guard the scan did not enter get untried entries ([`enter_untried_guards`]), with what
+/// `untried` gives. `attempt` sets the cell it is given to the position, in matcher order, of
+/// the instance that applied when it applies; the scan resets it to 0 before each attempt.
 #[deny(clippy::wildcard_enum_match_arm)]
 #[inline]
 pub(super) fn scan_term_theory<K: TermTheory>(
@@ -145,6 +147,7 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     mut attempt: impl FnMut(
         &Arc<RewriteRule>,
         SetAsideRequires,
+        &Cell<usize>,
     ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>>,
 ) -> SimplifyResult<TheoryScan<K>> {
     let groups = applicable_groups(K::theory(definition), &term_index(term));
@@ -165,6 +168,7 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     let mut blocked = false;
     let mut not_cacheable = false;
     let last = groups.len().saturating_sub(1);
+    let applied_instance = Cell::new(0);
     for (position, (_, rules)) in selection.groups().enumerate() {
         let set_aside =
             if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block && position < last {
@@ -184,7 +188,8 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                     ConditionIndeterminacy::ImplicationIndeterminate,
                 ));
             }
-            Ok(match attempt(rule, set_aside)? {
+            applied_instance.set(0);
+            Ok(match attempt(rule, set_aside, &applied_instance)? {
                 EquationAttempt::Applied(result) => {
                     EquationAttempt::Applied((result, Arc::clone(rule)))
                 }
@@ -201,7 +206,15 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block
                     && crate::coverage::records_guards()
                 {
-                    enter_untried_guards(definition, term, groups[position].1, &rule, untried);
+                    enter_untried_guards(
+                        definition,
+                        term,
+                        groups[position].1,
+                        &rule,
+                        applied_instance.get(),
+                        set_aside,
+                        untried,
+                    );
                 }
                 return Ok(TheoryScan::Applied(result, rule));
             }
@@ -243,25 +256,38 @@ pub(super) struct UntriedGuards<'a> {
     pub(super) excluded: &'a [Arc<RewriteRule>],
 }
 
-/// The untried entries of the function application `term`, which the equation `applied` of
-/// `group` applied to (`coverage::guards`).
+/// The untried entries of the function application `term`, which the instance at position
+/// `instance` of the equation `applied` of `group` applied to, the scan of the group deciding
+/// set-aside instances as `set_aside` says (`coverage::guards`).
 ///
 /// An equation states its value at the arguments its left-hand side matches where its
 /// `requires` holds and no equation of a higher group applies, so its guard decides something
-/// at every application its left-hand side matches whose deciding group is its own. Every
-/// equation of that group before `applied` was tried; each one after it the run collects the
-/// guard of gets an entry for each instance whose matching is decided, under the path
-/// conditions and the conditions its match holds under (a usable instance, one a `concrete` or
-/// `symbolic` attribute set aside, and one that matches under equalities of the subject's
-/// variables), with the outcome its evaluation gives (`coverage::enter_untried`). So the guard
-/// outcomes of a group's equations do not depend on the order in which the scan tries them.
+/// at every application its left-hand side matches whose deciding group is its own, under each
+/// instance whose matching is decided: a usable instance, one a `concrete` or `symbolic`
+/// attribute set aside, and one that matches under equalities of the subject's variables. The
+/// scan enters the guard of some of those instances and not of others, by an order the
+/// definition does not state and by what deciding a set-aside instance can change:
+/// - the equations of the group after `applied`, and the instances of `applied` after the one
+///   that applied, are not tried (the group and the equation's instances stop at the first
+///   that applies, in declaration and matcher order);
+/// - a set-aside or conditional instance of an equation the scan tried is not decided where no
+///   lower function group follows or the equation has an undecided instance
+///   ([`SetAsideRequires::Unused`]), whatever its place in the group.
+///
+/// Each of those instances of an equation the run collects the guard of gets an untried entry,
+/// under the path conditions and the conditions its match holds under, with the outcome its
+/// evaluation gives (`coverage::enter_untried`); every other one has the entry its attempt
+/// made. So every instance of the group's equations has one entry, and the guard outcomes of a
+/// group's equations do not depend on the order in which the scan or the matcher reaches them.
 /// Lower groups, `owise` included, state nothing where this group applies, and get none.
 ///
 /// None is made for an equation the scan does not try at this application
 /// ([`UntriedGuards::excluded`]), nor for one holding a literal whose element the definition
 /// leaves open (`crate::literal`): an attempt of it would rest on k-rust's element, which an
-/// untried entry cannot mark. An undecided matching makes none. Out of line, so that its work
-/// is no part of the frame of a scan, which a recursion through an equation's `requires` passes
+/// untried entry cannot mark. An undecided matching makes none. The matching is work off the
+/// run's clock (`stop::off_the_clock`), as the entries' evaluations are, so that it does not
+/// move the point at which the run meets its step deadline. Out of line, so that its work is no
+/// part of the frame of a scan, which a recursion through an equation's `requires` passes
 /// through once per level (`tests::recursion_stack`).
 #[inline(never)]
 fn enter_untried_guards(
@@ -269,14 +295,20 @@ fn enter_untried_guards(
     term: &Term,
     group: &[Arc<RewriteRule>],
     applied: &Arc<RewriteRule>,
+    instance: usize,
+    set_aside: SetAsideRequires,
     untried: &UntriedGuards<'_>,
 ) {
     let Some(position) = group.iter().position(|rule| Arc::ptr_eq(rule, applied)) else {
         return;
     };
-    let after = group[position + 1..]
+    // Each candidate equation with the number of its instances, in matcher order, the scan
+    // tried: every one before `applied`, those of `applied` up to the one that applied, none
+    // after it.
+    let candidates = group
         .iter()
-        .filter(|rule| {
+        .enumerate()
+        .filter(|(_, rule)| {
             !rule.requires.is_empty()
                 && rule.computed_attributes.open_literals.is_empty()
                 && !untried
@@ -285,35 +317,42 @@ fn enter_untried_guards(
                     .any(|excluded| Arc::ptr_eq(excluded, rule))
                 && crate::coverage::collects_guard_of(&rule.attributes)
         })
+        .map(|(at, rule)| {
+            let tried = match at.cmp(&position) {
+                std::cmp::Ordering::Less => usize::MAX,
+                std::cmp::Ordering::Equal => instance + 1,
+                std::cmp::Ordering::Greater => 0,
+            };
+            (rule, tried)
+        })
         .collect::<Vec<_>>();
-    if after.is_empty() {
+    if candidates.is_empty() {
         return;
     }
     let known_predicates = untried.known_predicates;
     crate::coverage::untried_application(
         term,
         known_predicates,
-        position,
+        (position, instance),
         untried.excluded.is_empty(),
         || {
-            for rule in after {
-                let (rule, instances) =
-                    equation_instances(definition, rule, term, known_predicates);
-                let EquationInstances::Matched(instances) = instances else {
-                    continue;
-                };
-                for instance in instances {
-                    let (substitution, match_conditions) = match instance {
-                        Instance::Usable(substitution) | Instance::SetAside(substitution) => {
-                            (substitution, Vec::new())
-                        }
-                        Instance::Conditional(substitution) => {
-                            subject_equalities(&rule, substitution)
-                        }
-                        Instance::Unused | Instance::NonFunctionalBinding | Instance::Undecided => {
-                            continue;
-                        }
-                    };
+            let (entries, _) = crate::stop::off_the_clock(u64::MAX, || {
+                candidates
+                    .into_iter()
+                    .filter_map(|(rule, tried)| {
+                        untried_instances(
+                            definition,
+                            rule,
+                            term,
+                            known_predicates,
+                            tried,
+                            set_aside,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            });
+            for (rule, instances) in entries {
+                for (substitution, match_conditions) in instances {
                     let mut knowledge = known_predicates.to_vec();
                     knowledge.extend(match_conditions);
                     crate::coverage::enter_untried(
@@ -328,6 +367,49 @@ fn enter_untried_guards(
             }
         },
     );
+}
+
+/// An instance whose guard the scan did not enter: its substitution and the conditions its
+/// match holds under ([`untried_instances`]).
+type UntriedInstance = (Substitution, Vec<Predicate>);
+
+/// The instances of `rule` at `term` whose guard the scan did not enter ([`enter_untried_guards`]),
+/// each with the conditions its match holds under, and the equation they instantiate; `None`
+/// when there is none. `tried` is the number of instances, in matcher order, the scan tried,
+/// deciding set-aside instances as `set_aside` says.
+fn untried_instances<'r>(
+    definition: &BackendDefinition,
+    rule: &'r RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+    tried: usize,
+    set_aside: SetAsideRequires,
+) -> Option<(EquationRule<'r>, Vec<UntriedInstance>)> {
+    let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
+    let EquationInstances::Matched(instances) = instances else {
+        return None;
+    };
+    // The scan decides a tried set-aside instance only where a lower group follows and no
+    // instance of the equation is undecided (`simplify::instances_to_scan`).
+    let decided = set_aside == SetAsideRequires::Decide
+        && !instances
+            .iter()
+            .any(|instance| matches!(instance, Instance::Undecided));
+    let untried = instances
+        .into_iter()
+        .enumerate()
+        .filter_map(|(at, instance)| match instance {
+            Instance::Usable(substitution) => (at >= tried).then(|| (substitution, Vec::new())),
+            Instance::SetAside(substitution) => {
+                (at >= tried || !decided).then(|| (substitution, Vec::new()))
+            }
+            Instance::Conditional(substitution) => {
+                (at >= tried || !decided).then(|| subject_equalities(&rule, substitution))
+            }
+            Instance::Unused | Instance::NonFunctionalBinding | Instance::Undecided => None,
+        })
+        .collect::<Vec<_>>();
+    (!untried.is_empty()).then_some((rule, untried))
 }
 
 /// The probe of an equation a selection site selected for `term` and never tried
@@ -732,6 +814,98 @@ mod tests {
             scan_equations(&[EquationAttempt::Recurred, Unused, undecided()]),
             ("blocked".to_owned(), vec![], 2)
         );
+    }
+
+    /// An equation the scan does not try at an application, one whose attempt failed in an
+    /// earlier evaluation of it (`UntriedGuards::excluded`), gets no untried entry; beside the
+    /// same application without it, it gets its entry.
+    #[test]
+    fn an_excluded_equation_gets_no_untried_entry() {
+        use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+        use super::{SetAsideRequires, UntriedGuards, enter_untried_guards};
+        use crate::{
+            coverage::{GuardCollection, GuardOutcome},
+            definition::BackendDefinition,
+            rule::{applicable_groups, term_index},
+            simplify::SimplificationOptions,
+        };
+
+        let equation = |label: &str, rhs: &str, hook: &str| {
+            format!(
+                r#"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({hook}{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, X:SortInt{{}}), \top{{R}}())
+                    ),
+                    \equals{{SortInt{{}}, R}}(f{{}}(X0:SortInt{{}}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("{rhs}"), \top{{SortInt{{}}}}()))
+                ) [label{{}}("{label}")]"#
+            )
+        };
+        let source = format!(
+            r#"[] module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+                hooked-symbol geInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.ge"), smt-hook{{}}(">=")]
+                symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                {}
+                {}
+            endmodule []"#,
+            equation("a", "1", "eqInt"),
+            equation("b", "2", "geInt"),
+        );
+        let definition =
+            BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap();
+        let term = definition
+            .internalize_term(&parse_pattern(r#"f{}(\dv{SortInt{}}("0"))"#).unwrap(), &[])
+            .unwrap();
+        let groups = applicable_groups(definition.function_theory(), &term_index(&term));
+        let group = groups.values().next().expect("one group");
+        let labelled = |label: &str| {
+            group
+                .iter()
+                .find(|rule| rule.attributes.label.as_deref() == Some(label))
+                .expect("the equation is in the group")
+        };
+        let (a, b) = (labelled("a"), labelled("b"));
+        let entered = |excluded: &[Arc<crate::rule::RewriteRule>]| {
+            let ((), coverage) = crate::coverage::collect_recording(
+                false,
+                false,
+                false,
+                None,
+                Some(GuardCollection::new(["b"])),
+                || {
+                    enter_untried_guards(
+                        &definition,
+                        &term,
+                        group,
+                        a,
+                        0,
+                        SetAsideRequires::Unused,
+                        &UntriedGuards {
+                            known_predicates: &[],
+                            options: SimplificationOptions::default(),
+                            excluded,
+                        },
+                    );
+                },
+            );
+            coverage
+                .guards
+                .expect("the collection collected guards")
+                .into_iter()
+                .map(|guard| (guard.axiom, guard.outcomes))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            entered(&[]),
+            [("b".to_owned(), [GuardOutcome::Held].into_iter().collect())]
+        );
+        assert_eq!(entered(std::slice::from_ref(b)), []);
     }
 
     /// An alternative that matched and was set aside holds, or may hold, of the subject; one

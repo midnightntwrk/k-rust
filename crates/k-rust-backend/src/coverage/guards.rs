@@ -21,18 +21,24 @@
 //! `f(A) = .. requires A <Int 32768` and `f(A) = .. requires A >=Int 32768`, the one tried
 //! second would never be seen false.
 //!
-//! Where a function scan applies an equation, each named equation of the same group after it
-//! therefore gets an untried entry for each instance whose matching is decided
-//! (`simplify::scan::enter_untried_guards`, [`enter_untried`]). The equations before it were
-//! tried, and a group that blocks was tried in full, so every equation of the deciding group
-//! whose left-hand side matches has an entry, whatever the order. A lower group, `owise`
-//! included, states nothing where a higher group applies, and gets none. An untried entry is
-//! evaluated as a tried one is, with the same bounds and the same cache, so an entry's outcomes
-//! do not depend on whether the run tried it first. Its guard outcome is read from that
-//! evaluation, since there is no attempt: the first conjunct that is not `true` decides it,
-//! `held` where there is none, refuted where it is `false` or undefined (whatever the later
-//! conjuncts are), and `undecided` with cause [`AttemptCause::Untried`] where it is undecided.
-//! No solver is asked: the evaluation shares no solver state with the run.
+//! Where a function scan applies an equation, every instance of a named equation of that group
+//! whose matching is decided and whose guard the scan did not enter therefore gets an untried
+//! entry (`simplify::scan::enter_untried_guards`, [`enter_untried`]): those of the equations
+//! after the one that applied, those of the equation that applied after the instance that
+//! applied (the matcher's order is no more stated than the group's), and the instances a
+//! `concrete` or `symbolic` attribute set aside, or that match under equalities of the subject's
+//! variables, which the scan reads as unused without deciding them wherever the decision cannot
+//! change what the scan does, before the equation that applied as after it. Every other
+//! instance's guard was entered by its attempt, so every instance of the deciding group's
+//! equations has one entry, whatever the order. A lower group, `owise` included, states nothing
+//! where a higher group applies, and gets none. An untried entry is evaluated as a tried one
+//! is, with the same bounds and the same cache, so an entry's outcomes do not depend on whether
+//! the run tried it first. Its guard outcome is read from that evaluation, since there is no
+//! attempt: the first conjunct that is not `true` decides it, `held` where there is none,
+//! refuted where it is `false` or undefined (whatever the later conjuncts are), and `undecided`
+//! with cause [`AttemptCause::Untried`] where it is undecided. No solver is asked:
+//! the evaluation shares no solver state with the run. The work is off the run's clock and
+//! changes nothing the run does.
 //!
 //! A function applied inside an untried entry's evaluation is applied by the record, not by the
 //! run: the evaluation is isolated (`coverage::isolated`), so it reports to no coverage set and
@@ -361,12 +367,13 @@ pub(super) struct Sink {
 }
 
 /// What the untried entries of a function application are a function of: the application, the
-/// path conditions, and the position in its group of the equation that applied.
+/// path conditions, and the positions of the equation that applied in its group and of the
+/// instance of it that applied among its instances.
 #[derive(Eq, Hash, PartialEq)]
 struct ApplicationKey {
     term: Term,
     knowledge: Vec<Predicate>,
-    applied: usize,
+    applied: (usize, usize),
 }
 
 impl ApplicationKey {
@@ -672,17 +679,20 @@ pub(crate) fn collects_guard_of(attributes: &RuleAttributes) -> bool {
 }
 
 /// Make the untried entries of the function application `term`, decided under the path
-/// conditions `knowledge` by the equation at position `applied` of its group: `enter` makes
-/// them ([`enter_untried`]), isolated from the run as an offer probe is (`super::offer`), so
-/// that the matching it does reports to no coverage set, counts no work, emits no diagnostic,
-/// notes no path fact and leaves the counter of renamed-apart names as it was. `cacheable` says
+/// conditions `knowledge` by the equation and the instance of it at the positions `applied`, in
+/// its group and among its instances: `enter` makes them ([`enter_untried`]), isolated from the
+/// run as an offer probe is (`super::offer`), so that the matching it does reports to no
+/// coverage set, counts no work, emits no diagnostic, notes no path fact and leaves the counter
+/// of renamed-apart names as it was. `enter` runs that matching off the run's clock
+/// (`stop::off_the_clock`) apart from the entries, whose evaluations run off it on their own
+/// (`super::isolated`), since the clock's offsets do not nest. `cacheable` says
 /// whether the entries are a function of the key alone; where they are, an application whose
 /// entries were made already is recognized by a bounded cache, as entries are, and makes none
 /// again: entering them again would fold the same entries into the same sets.
 pub(crate) fn untried_application(
     term: &Term,
     knowledge: &[Predicate],
-    applied: usize,
+    applied: (usize, usize),
     cacheable: bool,
     enter: impl FnOnce(),
 ) {
