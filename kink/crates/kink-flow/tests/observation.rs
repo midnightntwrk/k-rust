@@ -1,0 +1,728 @@
+//! `[observe]`: observation channels every run is compared by besides its end, so that a program
+//! that never ends is a case, compared over the prefix its budget explores. The declaration
+//! decodes strictly and the K front end refuses what names a function of an observer; it keys
+//! every cached result and outcome it changes and no other; every document names it; a run's
+//! kill on a channel names its position and both elements, the baseline's re-derived by a capture
+//! run; a survivor that agrees only up to a horizon says so; `run --verify` re-derives every
+//! cached observation outcome; `query` and `fuzz` refuse a corpus with observations.
+//!
+//! The fixture is testdata/flow/console: `console.k` (testdata/k/console.k), a free-running
+//! console whose `tick` advances the count `<n>` and whose `emit` appends `show(n)` to the `<out>`
+//! log every third step; no run of `run` ends on its own, so the depth bound of 24 cuts it after
+//! 16 ticks and 8 emits, and the program is a prefix program. `FLOW.toml` observes the count
+//! before each tick (`clock`, collapse) and the log (`out`, read at each tick and at the end);
+//! `show(6)`, the log's third item, is no value, so the log's horizon is 2. Its mutations
+//! (`mutations/console.toml`) speed up `tick` (`tick-twice`), make every second step emit
+//! (`emit-every-second`), change `stall`, which no run of `run` takes within its budget
+//! (`stall-longer`),
+//! delete `tick` (`tick-deleted`) and halt the console before its fourth tick (`halt-early`).
+
+use kink_campaign::{
+    BaselineRecord, ChannelEnd, ChannelRecord, Element, ObservationVerdict, OracleOutcome, Position,
+};
+use kink_flow::{
+    FlowManifest,
+    cli::{CheckOptions, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check, check_with},
+    coverage::{CoverageOptions, coverage},
+    digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context},
+    manifest::{Budget, ManifestError},
+    mutation::MutationList,
+    query::QueryOptions,
+    results::{BaselineRunner, result_key},
+    search::{RunMode, RunOptions, run_with},
+};
+use serde_json::{Value, json};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
+
+const SPEC: &str = "[spec]\nentry = \"console.k\"\nmain_module = \"CONSOLE\"\n";
+const PROGRAM: &str = "[[program]]\nid = \"a\"\ntext = \"run\"\n";
+
+fn decode(text: &str) -> Result<FlowManifest, ManifestError> {
+    FlowManifest::decode(text, Path::new("corpus"))
+}
+
+fn flow() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/console")
+}
+
+/// A private copy of the fixture, with each `(name, text)` of `extra` written as
+/// `FLOW-<name>.toml` beside it.
+fn fixture(test: &str, extra: &[(&str, &str)]) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("kink-flow-observation-{}", std::process::id()))
+        .join(test);
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("mutations")).unwrap();
+    for name in ["console.k", "FLOW.toml", "mutations/console.toml"] {
+        fs::copy(flow().join(name), dir.join(name)).unwrap();
+    }
+    for (name, text) in extra {
+        fs::write(dir.join(format!("FLOW-{name}.toml")), text).unwrap();
+    }
+    dir
+}
+
+/// `FLOW.toml` with `from` replaced by `to`.
+fn edited(from: &str, to: &str) -> String {
+    let manifest = fs::read_to_string(flow().join("FLOW.toml")).unwrap();
+    assert!(manifest.contains(from), "{from}");
+    manifest.replace(from, to)
+}
+
+fn search(manifest: &Path, mode: RunMode) -> (Value, bool) {
+    run_with(
+        &FlowManifest::read(manifest).unwrap(),
+        &MutationList::read(&manifest.with_file_name("mutations")).unwrap(),
+        &RunOptions::default(),
+        mode,
+    )
+}
+
+/// Each mutation's row by id.
+fn row<'d>(document: &'d Value, id: &str) -> &'d Value {
+    document["mutations"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document:#}"))
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("no row {id}: {document:#}"))
+}
+
+/// The one executed entry of the row of mutation `id`.
+fn entry<'d>(document: &'d Value, id: &str) -> &'d Value {
+    let executed = row(document, id)["executed"].as_array().unwrap();
+    assert_eq!(executed.len(), 1, "{executed:#?}");
+    &executed[0]
+}
+
+fn status(document: &Value, id: &str) -> (String, Value) {
+    let row = row(document, id);
+    (
+        row["status"].as_str().unwrap().to_owned(),
+        row["reason"].clone(),
+    )
+}
+
+/// A printed value as the evidence gives it: K text, not cut.
+fn printed(text: &str) -> Value {
+    json!({"rendering": "k", "text": text, "truncated": false})
+}
+
+/// The declaration's tables decode into point classes and logs, their rules sorted, and every
+/// key that names a function of an observer is kept for a front end that evaluates one.
+#[test]
+fn observe_decodes_classes_and_logs() {
+    let manifest = decode(&format!(
+        "{SPEC}[observe]\nobserver = \"pkg:views\"\n\n\
+         [[observe.point]]\nname = \"clock\"\nbefore = [\"B.y\", \"B.x\"]\nafter = [\"A.z\"]\n\
+         stutter = \"count\"\ncells = [\"n\", \"phase\"]\nviews = {{ n = \"View\" }}\n\
+         components = [{{ name = \"c\" }}]\nwhen = {{ function = \"F\", cells = [\"n\"] }}\n\n\
+         [[observe.log]]\nname = \"out\"\ncell = \"out\"\nat = [\"clock\"]\nelement = \"Tier\"\n\n\
+         {PROGRAM}"
+    ))
+    .unwrap();
+    let observe = manifest.observe.as_ref().unwrap();
+    let point = &observe.points[0];
+    assert_eq!(point.before, ["B.x", "B.y"]);
+    assert_eq!(point.after, ["A.z"]);
+    assert_eq!(point.stutter, kink_campaign::Stutter::Count);
+    assert_eq!(point.cells, ["n", "phase"]);
+    assert_eq!(
+        observe.front_end_keys(),
+        [
+            "observe.observer",
+            "observe.point[0].components",
+            "observe.point[0].views",
+            "observe.point[0].when",
+            "observe.log[0].element",
+        ]
+    );
+    // A declaration with a front end's key states no observation kink-flow compares by.
+    assert_eq!(manifest.observe_value(), None);
+    let plain = decode(&format!(
+        "{SPEC}[[observe.point]]\nname = \"clock\"\nbefore = [\"CONSOLE.tick\"]\n\
+         stutter = \"collapse\"\ncells = [\"n\"]\n\n\
+         [[observe.log]]\nname = \"out\"\ncell = \"out\"\n\n{PROGRAM}"
+    ))
+    .unwrap();
+    assert_eq!(
+        plain.observe_value(),
+        Some(json!({
+            "points": [{"name": "clock", "before": ["CONSOLE.tick"], "after": [], "cells": ["n"],
+                        "stutter": "collapse"}],
+            "logs": [{"name": "out", "cell": "out", "at": []}],
+        }))
+    );
+    assert_eq!(decode(&format!("{SPEC}{PROGRAM}")).unwrap().observe, None);
+}
+
+/// Decoding refuses an unknown key, a declaration with no channel, a class with no rule, a rule
+/// on both sides, a missing or unknown stuttering mode, a repeated or empty name, two channels of
+/// one name, a log read at a class the declaration does not have, and a front end's key of the
+/// wrong shape.
+#[test]
+fn observe_decoding_refuses_what_it_cannot_read() {
+    let point = "[[observe.point]]\nname = \"c\"\nbefore = [\"X.a\"]\nstutter = \"count\"\n";
+    for (observe, key, message) in [
+        (
+            "[observe]\nwhatever = 1\n",
+            "observe.whatever",
+            "unknown key",
+        ),
+        ("[observe]\n", "observe", "declares no channel"),
+        (
+            "[observe]\npoint = 1\n",
+            "observe.point",
+            "expected [[observe.point]]",
+        ),
+        (
+            &format!("{point}views2 = 1\n"),
+            "observe.point[0].views2",
+            "unknown key",
+        ),
+        (
+            "[[observe.point]]\nname = \"c\"\nstutter = \"count\"\n",
+            "observe.point[0]",
+            "names no rule",
+        ),
+        (
+            "[[observe.point]]\nname = \"c\"\nbefore = [\"X.a\"]\nafter = [\"X.a\"]\n\
+             stutter = \"count\"\n",
+            "observe.point[0]",
+            "in both before and after",
+        ),
+        (
+            "[[observe.point]]\nname = \"c\"\nbefore = [\"X.a\"]\n",
+            "observe.point[0].stutter",
+            "has no default",
+        ),
+        (
+            "[[observe.point]]\nname = \"c\"\nbefore = [\"X.a\"]\nstutter = \"every\"\n",
+            "observe.point[0].stutter",
+            "expected \"collapse\" or \"count\"",
+        ),
+        (
+            "[[observe.point]]\nbefore = [\"X.a\"]\nstutter = \"count\"\n",
+            "observe.point[0].name",
+            "missing required key",
+        ),
+        (
+            "[[observe.point]]\nname = \"c\"\nbefore = [\"X.a\", \"X.a\"]\nstutter = \"count\"\n",
+            "observe.point[0].before",
+            "names `X.a` twice",
+        ),
+        (
+            "[[observe.point]]\nname = \"c\"\nbefore = [\"\"]\nstutter = \"count\"\n",
+            "observe.point[0].before[0]",
+            "expected a nonempty string",
+        ),
+        (
+            &format!("{point}cells = [\"n\", \"n\"]\n"),
+            "observe.point[0].cells",
+            "names `n` twice",
+        ),
+        (
+            &format!("{point}\n[[observe.log]]\nname = \"c\"\ncell = \"out\"\n"),
+            "observe",
+            "names the channel `c` twice",
+        ),
+        (
+            &format!("{point}\n[[observe.log]]\nname = \"out\"\ncell = \"out\"\nat = [\"d\"]\n"),
+            "observe.log[0].at",
+            "names `d`, which is no [[observe.point]]",
+        ),
+        (
+            "[[observe.log]]\nname = \"out\"\n",
+            "observe.log[0].cell",
+            "missing required key",
+        ),
+        (
+            &format!("{point}views = {{ n = 1 }}\n"),
+            "observe.point[0].views",
+            "a table of nonempty strings",
+        ),
+        (
+            &format!("{point}components = [1]\n"),
+            "observe.point[0].components",
+            "an array of tables",
+        ),
+        (
+            &format!("{point}when = \"F\"\n"),
+            "observe.point[0].when",
+            "expected a table",
+        ),
+        (
+            "[observe]\nobserver = \"\"\n\n[[observe.log]]\nname = \"out\"\ncell = \"out\"\n",
+            "observe.observer",
+            "a nonempty string",
+        ),
+        (
+            "[[observe.log]]\nname = \"out\"\ncell = \"out\"\nelement = 3\n",
+            "observe.log[0].element",
+            "a nonempty string",
+        ),
+    ] {
+        let error = decode(&format!("{SPEC}{observe}\n{PROGRAM}"))
+            .expect_err("the manifest must be refused");
+        assert_eq!(error.key, key, "{observe}: {error}");
+        assert!(error.message.contains(message), "{observe}: {error}");
+    }
+}
+
+/// The K front end refuses what it cannot state at stage `observe`: a function of an observer
+/// (`unsupported-front-end`), a rule no rewrite rule is labelled with (`point-unresolved`; an
+/// equation's label names no step), and a cell the configuration does not have or a log cell that
+/// holds no `List` (`cell-refused`). `coverage` refuses it alike, naming the declaration.
+#[test]
+fn the_k_front_end_refuses_what_it_cannot_observe() {
+    let dir = fixture(
+        "refused",
+        &[
+            (
+                "views",
+                &edited(
+                    "cells = [\"n\"]\n",
+                    "cells = [\"n\"]\nviews = { n = \"View\" }\n",
+                ),
+            ),
+            (
+                "equation",
+                &edited("before = [\"CONSOLE.tick\"]", "before = [\"CONSOLE.show\"]"),
+            ),
+            (
+                "nothing",
+                &edited(
+                    "before = [\"CONSOLE.tick\"]",
+                    "before = [\"CONSOLE.nothing\"]",
+                ),
+            ),
+            ("cell", &edited("cells = [\"n\"]", "cells = [\"count\"]")),
+            ("list", &edited("cell = \"out\"", "cell = \"n\"")),
+        ],
+    );
+    for (name, reason, named) in [
+        ("views", "unsupported-front-end", "observe.point[0].views"),
+        ("equation", "point-unresolved", "`CONSOLE.show`"),
+        ("nothing", "point-unresolved", "`CONSOLE.nothing`"),
+        ("cell", "cell-refused", "`count`"),
+        ("list", "cell-refused", "does not hold a List"),
+    ] {
+        let (document, status) = check(&dir.join(format!("FLOW-{name}.toml")));
+        assert_eq!(status, EXIT_UNASKED, "{name}: {document:#}");
+        assert_eq!(document["spec"]["stage"], "observe", "{name}: {document:#}");
+        assert_eq!(document["spec"]["reason"], reason, "{name}: {document:#}");
+        let detail = document["spec"]["detail"].as_str().unwrap();
+        assert!(detail.contains(named), "{name}: {detail}");
+    }
+    let manifest = FlowManifest::read(&dir.join("FLOW-nothing.toml")).unwrap();
+    let (document, ok) = coverage(&manifest, &CoverageOptions::default());
+    assert!(!ok, "{document:#}");
+    assert_eq!(document["spec"]["stage"], "observe", "{document:#}");
+    assert_eq!(
+        document["observe"]["points"][0]["before"],
+        json!(["CONSOLE.nothing"]),
+        "{document:#}"
+    );
+}
+
+/// The declaration keys exactly what it changes: a result key and a tier-1 context without one
+/// have exactly the members they had, and one adds only `observe`.
+#[test]
+fn a_key_and_a_context_without_observe_are_the_ones_before_observations() {
+    let build = kink_patch::sha256(b"kink build");
+    let execution = ExecutionDigest {
+        kind: EXECUTION_DIGEST_KIND,
+        digest: kink_patch::sha256(b"specification"),
+    };
+    let projection = kink_flow::ResultProjection {
+        state: kink_campaign::StateProjection::WholeTerm,
+        compared: None,
+        not_compared: Vec::new(),
+        unobservable: Vec::new(),
+    };
+    let program = kink_patch::sha256(b"program");
+    let observe = json!({"points": [], "logs": [{"name": "out", "cell": "out", "at": []}]});
+    let key = result_key(
+        execution,
+        program,
+        Budget::default(),
+        Some(build),
+        None,
+        None,
+        None,
+    );
+    let keys = |value: &Value| {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        keys(&key),
+        [
+            "budget",
+            "execution",
+            "kink",
+            "kink_build",
+            "program",
+            "schema_version"
+        ]
+    );
+    let observed = result_key(
+        execution,
+        program,
+        Budget::default(),
+        Some(build),
+        None,
+        None,
+        Some(observe.clone()),
+    );
+    let mut without = observed.clone();
+    without.as_object_mut().unwrap().remove("observe");
+    assert_eq!(without, key);
+    assert_eq!(observed["observe"], observe);
+    let context = |observe: Option<&Value>| {
+        outcome_context(
+            build,
+            execution,
+            Budget::default(),
+            &projection,
+            None,
+            None,
+            observe,
+        )
+    };
+    assert!(context(None).get("observe").is_none());
+    let mut without = context(Some(&observe));
+    assert_eq!(without["observe"], observe);
+    without.as_object_mut().unwrap().remove("observe");
+    assert_eq!(without, context(None));
+}
+
+/// The console's run is cut by its depth bound: under `[observe]` the program is
+/// `comparable-prefix`, its row names the channels its baseline recorded and their horizons, its
+/// record misses once the declaration changes, and an end expectation on it is inconclusive.
+#[test]
+fn a_prefix_program_is_recorded_under_its_declaration() {
+    let dir = fixture(
+        "results",
+        &[(
+            "count",
+            &edited("stutter = \"collapse\"", "stutter = \"count\""),
+        )],
+    );
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let (cold, ok) = coverage(&manifest, &CoverageOptions::default());
+    assert!(ok, "{cold:#}");
+    assert_eq!(cold["version"], 5);
+    assert_eq!(cold["observe"], manifest.observe_value().unwrap());
+    let program = &cold["programs"][0];
+    assert_eq!(program["class"], "comparable-prefix", "{program:#}");
+    assert_eq!(program["cached"], false, "{program:#}");
+    assert_eq!(
+        program["observations"]["horizon"],
+        json!({"clock": 16, "out": 2})
+    );
+    let channels = program["observations"]["channels"].as_array().unwrap();
+    assert_eq!(channels[0]["elements"], 16);
+    assert_eq!(channels[0]["closed"], Value::Null);
+    assert_eq!(channels[0]["open"]["index"], 16);
+    assert_eq!(channels[1]["elements"], 2);
+    let (warm, ok) = coverage(&manifest, &CoverageOptions::default());
+    assert!(ok, "{warm:#}");
+    assert_eq!(warm["programs"][0]["cached"], true, "{warm:#}");
+    assert_eq!(warm["programs"][0]["observations"], program["observations"]);
+    // Another stuttering mode is another declaration: the record misses, and under `count` the
+    // clock has an element per tick, as many as under `collapse` here since every tick moves it.
+    let count = FlowManifest::read(&dir.join("FLOW-count.toml")).unwrap();
+    let (counted, ok) = coverage(&count, &CoverageOptions::default());
+    assert!(ok, "{counted:#}");
+    assert_eq!(counted["programs"][0]["cached"], false, "{counted:#}");
+    assert_eq!(counted["programs"][0]["class"], "comparable-prefix");
+    // `check` names the declaration, and its exit status reads a prefix program as answered.
+    let (check, status) = check(&dir.join("FLOW.toml"));
+    assert_eq!(status, EXIT_YES, "{check:#}");
+    assert_eq!(check["version"], 13);
+    assert_eq!(check["observe"], manifest.observe_value().unwrap());
+}
+
+/// Each mutation is judged by the channels: a faster tick is killed at the clock's element 1 and
+/// a mutant that emits every second step at the log's element 1, each with its position and both
+/// elements, the baseline's from a capture run; a mutant whose difference lies past the log's
+/// horizon survives and says so; a mutant without the clock's rule is not admitted, and `check`
+/// warns of the deletion; a mutant that halts early is killed by its END.
+#[test]
+fn mutations_of_the_console_are_judged_by_its_channels() {
+    let dir = fixture("run", &[]);
+    let manifest = dir.join("FLOW.toml");
+    let (document, _) = search(&manifest, RunMode::Search);
+    assert_eq!(document["version"], 33);
+    assert_eq!(
+        document["observe"],
+        FlowManifest::read(&manifest)
+            .unwrap()
+            .observe_value()
+            .unwrap()
+    );
+    assert_eq!(document["programs"][0]["class"], "comparable-prefix");
+
+    assert_eq!(
+        status(&document, "console/tick-twice"),
+        ("killed".to_owned(), Value::Null)
+    );
+    let killed = entry(&document, "console/tick-twice");
+    assert_eq!(killed["outcome"], "distinguish", "{killed:#}");
+    assert_eq!(
+        killed["slots"]["observations"],
+        json!({"outcome": "distinguish",
+               "position": {"channel": "clock", "index": 1, "at_end": false},
+               "sides": {"baseline": {"cells": {"n": printed("1")}},
+                         "mutant": {"cells": {"n": printed("2")}}}}),
+        "{killed:#}"
+    );
+    // A prefix program's end slots compare nothing within its horizon.
+    assert_eq!(killed["slots"]["exit-stop"]["outcome"], "agree");
+    assert_eq!(
+        killed["difference"],
+        json!({
+            "format": "kink-k/1",
+            "position": {"channel": "clock", "index": 1, "at_end": false},
+            "baseline": {"element": {"cells": {"n": printed("1")}}},
+            "mutant": {"element": {"cells": {"n": printed("2")}}},
+        }),
+        "{killed:#}"
+    );
+
+    assert_eq!(status(&document, "console/emit-every-second").0, "killed");
+    assert_eq!(
+        entry(&document, "console/emit-every-second")["difference"],
+        json!({
+            "format": "kink-k/1",
+            "position": {"channel": "out", "index": 1, "at_end": false},
+            "baseline": {"element": {"item": printed("4")}},
+            "mutant": {"element": {"item": printed("3")}},
+        })
+    );
+
+    let survivor = row(&document, "console/stall-longer");
+    assert_eq!(survivor["status"], "survived", "{survivor:#}");
+    assert_eq!(
+        survivor["horizon"],
+        json!([{"program": "run", "horizon": {"clock": 16, "out": 2}}]),
+        "{survivor:#}"
+    );
+    assert!(
+        survivor["action"].as_str().unwrap().contains("horizon"),
+        "{survivor:#}"
+    );
+    assert_eq!(
+        entry(&document, "console/stall-longer")["slots"]["observations"],
+        json!({"outcome": "agree", "horizon": {"clock": 16, "out": 2}})
+    );
+
+    assert_eq!(
+        status(&document, "console/tick-deleted"),
+        ("not-admitted".to_owned(), json!("point-unresolved"))
+    );
+    assert!(
+        row(&document, "console/tick-deleted")["action"]
+            .as_str()
+            .unwrap()
+            .contains("point class"),
+    );
+
+    assert_eq!(status(&document, "console/halt-early").0, "killed");
+    let ended = entry(&document, "console/halt-early");
+    assert_eq!(ended["difference"]["position"]["at_end"], true, "{ended:#}");
+    assert_eq!(ended["difference"]["mutant"]["element"], "end", "{ended:#}");
+
+    // The verdicts rendering says which survivor rests on a horizon.
+    let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
+    assert!(verdicts.contains("version = 12"), "{verdicts}");
+    assert!(
+        verdicts.contains(
+            "horizon = [{ program = \"run\", channel = \"clock\", elements = 16 }, \
+             { program = \"run\", channel = \"out\", elements = 2 }]"
+        ),
+        "{verdicts}"
+    );
+
+    let (check, status) = check_with(
+        &manifest,
+        &CheckOptions {
+            mutations: Some(dir.join("mutations")),
+            ..CheckOptions::default()
+        },
+    );
+    assert_eq!(status, EXIT_YES, "{check:#}");
+    let deleted = check["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "console/tick-deleted")
+        .unwrap();
+    assert!(
+        deleted["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning["reason"] == "point-rule-deleted"),
+        "{deleted:#}"
+    );
+}
+
+/// `run --verify` re-derives every cached observation outcome: a second run decides from tier 1
+/// with each record's position and horizon, and a verifying run finds no record that differs from
+/// its live run.
+#[test]
+fn run_verify_rederives_observation_outcomes() {
+    let dir = fixture("verify", &[]);
+    let manifest = dir.join("FLOW.toml");
+    let (cold, _) = search(&manifest, RunMode::Search);
+    let (warm, _) = search(&manifest, RunMode::Search);
+    assert_eq!(
+        row(&warm, "console/tick-twice")["killer_source"],
+        "outcome-cache",
+        "{warm:#}"
+    );
+    for id in [
+        "console/tick-twice",
+        "console/stall-longer",
+        "console/halt-early",
+    ] {
+        let (cached, live) = (entry(&warm, id), entry(&cold, id));
+        assert_eq!(cached["cached"], true, "{id}: {cached:#}");
+        assert_eq!(cached["slots"], live["slots"], "{id}");
+        assert_eq!(cached["difference"], live["difference"], "{id}");
+    }
+    assert_eq!(
+        row(&warm, "console/stall-longer")["horizon"],
+        row(&cold, "console/stall-longer")["horizon"]
+    );
+    let (verified, ok) = search(&manifest, RunMode::Verify);
+    assert!(ok, "{verified:#}");
+    assert_eq!(verified["mismatches"], json!([]), "{verified:#}");
+}
+
+/// A difference is reported only when both sides' values re-derive it: the capture run of the
+/// baseline reads the element whose digest the record keeps, a record whose digest bytes the
+/// capture run's element does not have is an error, and so is a mutant element equal to the
+/// baseline's.
+#[test]
+fn a_capture_run_rederives_the_baselines_element() {
+    let dir = fixture("capture", &[]);
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let (_, admitted) = kink_flow::admit_spec(&manifest);
+    let (spec, mut inputs) = admitted.expect("the console is admitted");
+    let mut session = inputs.session(&spec);
+    let program = &manifest.programs[0];
+    let case = session.read(program).unwrap();
+    let mut test = session.test_case(program, &case).unwrap();
+    test.oracles = spec.result.oracles();
+    let runner = BaselineRunner::new(&spec, &manifest).unwrap();
+    let result = runner.run(test.clone());
+    // The record the baseline's run kept, read back from its row.
+    let record = &result.baseline.as_ref().unwrap()["observations"];
+    let digest = |hex: &Value| {
+        let hex = hex.as_str().unwrap();
+        let mut bytes = [0; 8];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&hex[2 * index..2 * index + 2], 16).unwrap();
+        }
+        Some(bytes)
+    };
+    let channel = |index: usize| ChannelRecord {
+        name: record["channels"][index]["name"]
+            .as_str()
+            .unwrap()
+            .to_owned(),
+        elements: record["channels"][index]["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(digest)
+            .collect(),
+        end: ChannelEnd::Open("the path was cut by a bound".to_owned()),
+    };
+    let mut baseline = BaselineRecord {
+        channels: vec![channel(0), channel(1)],
+        prefix: true,
+        crashed: false,
+        refusal: None,
+    };
+    let int = |value: i64| {
+        k_rust::kore::parser::parse_pattern(&format!("\\dv{{SortInt{{}}}}(\"{value}\")")).unwrap()
+    };
+    let verdict = |mutant: i64| ObservationVerdict {
+        outcome: OracleOutcome::Distinguish,
+        position: Some(Position {
+            channel: "clock".to_owned(),
+            index: 1,
+            at_end: false,
+        }),
+        horizon: BTreeMap::new(),
+        cause: None,
+        element: Some(Element::Content(vec![int(mutant)])),
+    };
+    let derived = runner
+        .observed_difference(&test, &baseline, &verdict(2))
+        .unwrap();
+    assert_eq!(derived.baseline, Element::Content(vec![int(1)]));
+    assert_eq!(derived.mutant, Element::Content(vec![int(2)]));
+    let equal = runner
+        .observed_difference(&test, &baseline, &verdict(1))
+        .unwrap_err();
+    assert!(equal.contains("are equal"), "{equal}");
+    baseline.channels[0].elements[1] = Some([0; 8]);
+    let mismatch = runner
+        .observed_difference(&test, &baseline, &verdict(2))
+        .unwrap_err();
+    assert!(
+        mismatch.contains("does not have the recorded digest"),
+        "{mismatch}"
+    );
+}
+
+/// `query` and `fuzz` search runs that compare no channel, so they refuse a corpus with
+/// observations.
+#[test]
+fn query_and_fuzz_refuse_a_corpus_with_observations() {
+    let dir = fixture("verbs", &[]);
+    let manifest = dir.join("FLOW.toml");
+    let (query, status) = kink_flow::cli::query(
+        &manifest,
+        &dir.join("PATTERNS.toml"),
+        &QueryOptions::default(),
+    );
+    assert_eq!(status, EXIT_UNASKED, "{query:#}");
+    assert_eq!(
+        (&query["spec"]["stage"], &query["spec"]["reason"]),
+        (&json!("observe"), &json!("unsupported-verb")),
+        "{query:#}"
+    );
+    let (fuzz, status) = kink_flow::cli::fuzz(
+        &manifest,
+        &dir.join("TEMPLATES.toml"),
+        &FuzzRequest {
+            template: "t".into(),
+            job: FuzzJobRequest::Rule {
+                rule: "CONSOLE.tick".into(),
+                fired: false,
+            },
+            options: kink_flow::fuzz::FuzzOptions::default(),
+        },
+    );
+    assert_eq!(status, EXIT_UNASKED, "{fuzz:#}");
+    assert_eq!(
+        (&fuzz["spec"]["stage"], &fuzz["spec"]["reason"]),
+        (&json!("observe"), &json!("unsupported-verb")),
+        "{fuzz:#}"
+    );
+    assert_eq!(fuzz["action"], "remove [observe] to fuzz this corpus");
+}

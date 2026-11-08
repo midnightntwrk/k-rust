@@ -1,0 +1,45 @@
+# kink-flow mutations of the free-running console, judged by its observation channels.
+
+[[mutation]]
+id = "tick-twice"
+misunderstanding = "a tick advances the count by two"
+
+  [[mutation.edit]]
+  rule = "tick"
+  find = "N => N +Int 1"
+  replace = "N => N +Int 2"
+
+[[mutation]]
+id = "emit-every-second"
+misunderstanding = "an emit resets the phase to 1, so every second step emits"
+
+  [[mutation.edit]]
+  rule = "emit"
+  find = "<phase> 2 => 0 </phase>"
+  replace = "<phase> 2 => 1 </phase>"
+
+[[mutation]]
+id = "stall-longer"
+misunderstanding = "a stall advances the phase by twenty: no run of `run` stalls within its budget"
+
+  [[mutation.edit]]
+  rule = "stall"
+  find = "P => P +Int 10"
+  replace = "P => P +Int 20"
+
+[[mutation]]
+id = "tick-deleted"
+misunderstanding = "the console has no tick rule: the clock class names no rule of the mutant"
+
+  [[mutation.edit]]
+  rule = "tick"
+  delete = true
+
+[[mutation]]
+id = "halt-early"
+misunderstanding = "the console halts once the count passes 2: it ends before its fourth tick"
+
+  [[mutation.edit]]
+  rule = "halt"
+  find = "N >Int 1000000"
+  replace = "N >Int 2"

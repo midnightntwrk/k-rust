@@ -82,7 +82,7 @@
 //! `{schema: "kink-flow-outcomes", version: 6, context, context_sha256, mutation_identity,
 //! mutation_id, removed_claims, witness, records: {<program digest>: {program_id,
 //! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, cause, open_application,
-//! smt_unknowns, decider_smt_unknowns, allowance_bytes, record_sha256}}}`.
+//! smt_unknowns, decider_smt_unknowns, allowance_bytes, observation?, record_sha256}}}`.
 //!
 //! `removed_claims` is the row's (`report::claims_value`):
 //! the claims the mutant every record ran on does not carry (re-pin R0c-fix-2).
@@ -140,6 +140,15 @@
 //! the key, outside the key and inside the record digest (domain v4). A row folds its `reason`
 //! `open-application` from it for a cached unknown as from the census for a live one; a version 5
 //! record, which does not keep it, is not current and is recomputed.
+//!
+//! `observation` is, under `[observe]` (whose declaration the context names), what the
+//! observation slot reported beside its outcome: `{position: {channel, index, at_end}}` on a
+//! record whose slot distinguished, `{horizon: {<channel>: n}}` on one whose slot agreed up to the
+//! baseline's horizons, `{cause}` on one whose slot was unknown. It is absent from a record whose
+//! context has no `observe`, and inside the record digest as a member of `report` only where
+//! present, so every record without it has the bytes and digest it had: no version moves, since
+//! no stored file has a context that names `observe`. A record under such a context has one slot
+//! more, the observation slot, after the end slots.
 //!
 //! [`OutcomeStore::read`] returns only the records that pass every check that needs no corpus
 //! (schema, version, context, record digest, outcome consistent with its slots, a cause exactly
@@ -312,6 +321,13 @@ pub struct OutcomeRecord {
     /// The writing process's memory allowance in bytes (k-rust `Allowance::of_process`), for
     /// diagnosis only: outside the key and the record digest; `None` in a record without it.
     pub allowance_bytes: Option<u64>,
+    /// Under `[observe]`, what the observation slot reported beside its outcome
+    /// ([`crate::report::observation_slot`]): `{position}` where it distinguished, `{horizon}`
+    /// where it agreed up to the baseline's horizons, `{cause}` where it was unknown; null
+    /// without `[observe]`. Outside the key (a function of it), inside the record digest, where
+    /// it is a member of the report only when not null, so a record without it has the digest it
+    /// had; read only by the report.
+    pub observation: Value,
 }
 
 impl OutcomeRecord {
@@ -347,12 +363,16 @@ impl OutcomeRecord {
     /// The record's report, as its digest holds it: `{cause, open_application, smt_unknowns,
     /// decider_smt_unknowns}`.
     pub fn report(&self) -> Value {
-        Self::report_of(
+        let mut report = Self::report_of(
             self.cause.as_ref(),
             self.open_application,
             self.smt_unknowns,
             self.decider_smt_unknowns,
-        )
+        );
+        if !self.observation.is_null() {
+            report["observation"] = self.observation.clone();
+        }
+        report
     }
 
     /// A report of these fields ([`Self::report`]).
@@ -378,16 +398,20 @@ impl OutcomeRecord {
     /// The report of a stored record's JSON value, for its digest (a test that reseals a record
     /// it edited reads it back this way).
     pub fn report_value(record: &Value) -> Value {
-        json!({
+        let mut report = json!({
             "cause": record["cause"],
             "open_application": record["open_application"],
             "smt_unknowns": record["smt_unknowns"],
             "decider_smt_unknowns": record["decider_smt_unknowns"],
-        })
+        });
+        if let Some(observation) = record.get("observation").filter(|value| !value.is_null()) {
+            report["observation"] = observation.clone();
+        }
+        report
     }
 
     fn value(&self, context_sha256: &str, mutation_identity: &str, program_digest: &str) -> Value {
-        json!({
+        let mut value = json!({
             "program_id": self.program_id,
             "baseline_run_sha256": self.baseline_run_sha256,
             "outcome": self.outcome.as_str(),
@@ -402,7 +426,11 @@ impl OutcomeRecord {
             "record_sha256": self
                 .digest(context_sha256, mutation_identity, program_digest)
                 .to_string(),
-        })
+        });
+        if !self.observation.is_null() {
+            value["observation"] = self.observation.clone();
+        }
+        value
     }
 }
 
@@ -534,7 +562,9 @@ impl OutcomeStore {
             .iter()
             .map(|slot| parse_slot(slot.as_str()?))
             .collect::<Option<Vec<_>>>()?;
-        if slots.len() != ORACLE_SLOTS.len() {
+        // Under `[observe]` (the context names it) the observation slot follows the end slots.
+        let observed = self.context.get("observe").is_some();
+        if slots.len() != ORACLE_SLOTS.len() + usize::from(observed) {
             return None;
         }
         let outcome = CachedOutcome::parse(&field("outcome")?)?;
@@ -564,6 +594,7 @@ impl OutcomeStore {
             smt_unknowns: value.get("smt_unknowns")?.as_u64()?,
             decider_smt_unknowns: value.get("decider_smt_unknowns")?.as_u64()?,
             allowance_bytes: value.get("allowance_bytes").and_then(Value::as_u64),
+            observation: value.get("observation").cloned().unwrap_or(Value::Null),
         };
         let digest = record.digest(&self.context_sha256, &identity.to_string(), program);
         (field("record_sha256")? == digest.to_string()).then_some(record)

@@ -186,10 +186,11 @@ use crate::{
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
-        MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action, action_spelled,
-        claims_value, executed_cause, matrix, open_application_cause, refused_action, rules_value,
-        slots_value, specification_diagnostics_value, survivors, typing_diagnostics_value,
-        untargeted_rules, unusable_programs,
+        HORIZON_REASON, MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action,
+        action_spelled, claims_value, executed_cause, matrix, observation_slot,
+        observation_verdict, open_application_cause, refused_action, rules_value, slots_value,
+        specification_diagnostics_value, survivor_horizons, survivors, typing_diagnostics_value,
+        untargeted_rules, unusable_programs, with_observation,
     },
     results::{
         BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory, kebab,
@@ -404,7 +405,10 @@ struct Candidate<'r> {
 }
 
 fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candidate<'r>> {
-    if row.class() != Some(ResultClass::Comparable.as_str()) {
+    if !row
+        .class()
+        .is_some_and(|class| ResultClass::can_kill(&Value::from(class)))
+    {
         return None;
     }
     let record = row.record.as_ref()?;
@@ -544,6 +548,72 @@ impl Search<'_, '_> {
         Ok(test)
     }
 
+    /// The kill evidence of each test of a live call that only its observation slot decided
+    /// (kink's observation evidence, [`crate::evidence`]), added to `differences`, the call's end
+    /// evidence: each such difference re-derived from both sides' values by a capture run of the
+    /// baseline (kink-campaign `observed_difference`). A test whose ends gave evidence keeps it;
+    /// its observation slot still shows its position.
+    ///
+    /// # Errors
+    ///
+    /// A difference that is not re-derived (the capture run's element does not have the recorded
+    /// digest, or the two elements are equal) is an error of the run that reported it, reason
+    /// `observation-capture:<program id>`: the run stops, and nothing is written to tier 1 for
+    /// the mutation.
+    fn observation_differences(
+        &self,
+        mutant: &MutantRun,
+        baseline: &[TestEvidence],
+        tests: &[TestCase],
+        differences: &mut BTreeMap<String, Value>,
+    ) -> Result<(), CorpusError> {
+        for evidence in &mutant.evidence {
+            if differences.contains_key(&evidence.test_id) {
+                continue;
+            }
+            let Some(verdict) = crate::report::observation_verdict(&evidence.notes)
+                .filter(|verdict| verdict.outcome == OracleOutcome::Distinguish)
+            else {
+                continue;
+            };
+            let record = baseline
+                .iter()
+                .find(|baseline| baseline.test_id == evidence.test_id)
+                .and_then(|baseline| match &baseline.notes.observation {
+                    Some(kink_campaign::Observation::Recorded(record)) => Some(record),
+                    _ => None,
+                });
+            let test = tests.iter().find(|test| test.id == evidence.test_id);
+            let derived = match (record, test) {
+                (Some(record), Some(test)) => {
+                    self.runner.observed_difference(test, record, verdict)
+                }
+                _ => Err("the call kept no baseline record or test for the program".to_owned()),
+            };
+            match derived {
+                Ok(difference) => {
+                    differences.insert(
+                        evidence.test_id.clone(),
+                        self.runner
+                            .end_reader()
+                            .observation_difference(&difference, self.manifest.observe.as_ref()),
+                    );
+                }
+                Err(detail) => {
+                    return Err(CorpusError {
+                        reason: format!("observation-capture:{}", evidence.test_id),
+                        detail: format!(
+                            "the observation slot's difference on {} is not re-derived from both \
+                             sides' values: {detail}",
+                            evidence.test_id
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// One campaign call over `order` (candidate indices), then the drift check: the call's
     /// wall time in milliseconds (outside every digest and key), and the live call or the
     /// corpus error.
@@ -627,7 +697,7 @@ impl Search<'_, '_> {
                 .baseline
                 .iter()
                 .find(|evidence| evidence.test_id == candidate.id)
-                .map(CampaignReport::baseline_row)
+                .map(crate::results::baseline_row)
                 .as_ref()
                 .and_then(run_digest)
                 .map(|digest| digest.to_string());
@@ -684,8 +754,10 @@ impl Search<'_, '_> {
                 .filter_map(|test| self.position(&test.test_id))
                 .collect()
         };
+        let mut differences = kill_differences(&mutant, &run.baseline, self.runner.end_reader());
+        self.observation_differences(&mutant, &run.baseline, &tests, &mut differences)?;
         Ok(LiveCall {
-            differences: kill_differences(&mutant, &run.baseline, self.runner.end_reader()),
+            differences,
             mutant,
             order: ran,
             witness,
@@ -743,6 +815,7 @@ impl Search<'_, '_> {
             "baseline_ms": null,
             "baseline_reused": null,
         });
+        with_observation(&mut entry["slots"], &record.observation);
         if record.smt_unknowns > 0 {
             entry["smt_unknowns"] = json!(record.smt_unknowns);
         }
@@ -878,7 +951,9 @@ impl Search<'_, '_> {
             .into_iter()
             .map(|test_id| ManifestTest {
                 test_id,
-                slot_count: self.spec.result.slots().len(),
+                // Under `[observe]` the observation slot follows the end slots.
+                slot_count: self.spec.result.slots().len()
+                    + usize::from(self.manifest.observe_value().is_some()),
             })
             .collect::<Vec<_>>();
         derive_mutant_report(&plan, &manifest, self.schedule)
@@ -1167,6 +1242,9 @@ impl Search<'_, '_> {
                         allowance_bytes: Some(
                             k_rust::k_rust_backend::allowance::Allowance::of_process().bytes(),
                         ),
+                        observation: notes
+                            .and_then(observation_verdict)
+                            .map_or(Value::Null, observation_slot),
                     },
                 ))
             })
@@ -2061,6 +2139,9 @@ impl Search<'_, '_> {
                     ] {
                         side[field] = report[field].clone();
                     }
+                    if let Some(observation) = report.get("observation") {
+                        side["observation"] = observation.clone();
+                    }
                     side
                 };
                 mismatches.push(json!({
@@ -2198,12 +2279,20 @@ impl Search<'_, '_> {
                 .map(|evidence| &evidence.notes);
             let outcome = cacheable(&test.run, notes);
             let unknown = outcome.is_some_and(|(outcome, _)| outcome == CachedOutcome::Unknown);
-            let report = OutcomeRecord::report_of(
+            let mut report = OutcomeRecord::report_of(
                 causes.get(&test.test_id).filter(|_| unknown),
                 unknown && opens.get(&test.test_id) == Some(&true),
                 notes.map_or(0, |notes| count(notes.smt_unknowns)),
                 notes.map_or(0, |notes| count(notes.decider_smt_unknowns)),
             );
+            // Under `[observe]`, what the observation slot reported, as a record keeps it
+            // ([`OutcomeRecord::report`]), so `--verify` re-derives it too.
+            if let Some(verdict) = notes.and_then(observation_verdict) {
+                let observation = observation_slot(verdict);
+                if !observation.is_null() {
+                    report["observation"] = observation;
+                }
+            }
             live.insert(
                 c,
                 Live::Ran(
@@ -2390,6 +2479,9 @@ fn executed_entries(
                     "cached": false,
                 }),
             };
+            if let Some(verdict) = notes.and_then(observation_verdict) {
+                with_observation(&mut entry["slots"], &observation_slot(verdict));
+            }
             entry["wall_ms"] = json!(run.map(|run| millis(run.wall)));
             entry["baseline_ms"] = json!(baseline_run.map(|b| millis(b.run.wall)));
             entry["baseline_reused"] = json!(baseline_run.map(|b| b.reused));
@@ -2442,6 +2534,7 @@ fn entry_cause(
             edited: &live.edited,
             reader,
         }),
+        found.and_then(|evidence| crate::report::observation_verdict(&evidence.notes)),
     )?;
     Some(match (found, &test.run) {
         (
@@ -2609,6 +2702,7 @@ pub fn run_front(
                 mismatches,
                 schedule: json!(schedule_name(options.schedule)),
                 stop: manifest.stop.as_ref().map(|_| manifest),
+                observe: manifest.observe_value(),
                 lock: lock
                     .as_ref()
                     .map_or(Value::Null, |lock| lock.not_written("refused")),
@@ -2897,7 +2991,12 @@ pub fn run_front(
                 .and_then(|refusal| refused_action(refusal.reason))
                 .or_else(|| action_spelled(
                     row["status"].as_str().unwrap_or_default(),
-                    row["reason"].as_str(),
+                    // A survivor that rests on a horizon (`horizon`) is told so.
+                    if row.get("horizon").is_some() {
+                        Some(HORIZON_REASON)
+                    } else {
+                        row["reason"].as_str()
+                    },
                     front.spelling,
                 ))
         );
@@ -2936,6 +3035,7 @@ pub fn run_front(
                 result: spec.result.value(),
                 execution: update.execution.value(),
                 stop: manifest.stop.as_ref().map(|_| manifest),
+                observe: manifest.observe_value(),
                 // Nothing is written to the lock before the run ends.
                 lock: lock.as_ref().map_or(Value::Null, Lock::pending),
                 coverage: Some(&stop_coverage),
@@ -2982,6 +3082,7 @@ pub fn run_front(
             result: spec.result.value(),
             execution: update.execution.value(),
             stop: manifest.stop.as_ref().map(|_| manifest),
+            observe: manifest.observe_value(),
             lock: Value::Null,
             coverage: Some(&stop_coverage),
         },
@@ -3172,6 +3273,7 @@ fn tier1_store(
             &spec.result,
             manifest.stop_value().as_ref(),
             evidence.as_ref(),
+            manifest.observe_value().as_ref(),
         ),
     ))
 }
@@ -3613,10 +3715,24 @@ fn finish(
             json!({"removed": [], "unsupported": []}),
         );
     }
+    // A survivor some program of which agreed only up to its baseline's horizon says so
+    // (`horizon`, absent otherwise), and so does its action.
+    let horizons = if row.get("status").and_then(Value::as_str) == Some("survived") {
+        survivor_horizons(&executed)
+    } else {
+        Vec::new()
+    };
     let action = action(
         row["status"].as_str().unwrap_or_default(),
-        row["reason"].as_str(),
+        if horizons.is_empty() {
+            row["reason"].as_str()
+        } else {
+            Some(HORIZON_REASON)
+        },
     );
+    if !horizons.is_empty() {
+        row.insert("horizon".into(), json!(horizons));
+    }
     row.insert("action".into(), json!(action));
     row.insert("killer".into(), json!(killer));
     row.insert("killer_source".into(), json!(source));
@@ -3787,6 +3903,9 @@ struct Accounting<'m> {
     /// The manifest, when it declares `[stop]`: the document names the stop (`stop`), and each
     /// survivor that edits a rule the stop stops before says so (`stop_hides_edit`).
     stop: Option<&'m FlowManifest>,
+    /// The manifest's observation declaration (`FlowManifest::observe_value`), which the document
+    /// names (`observe`); `None` without `[observe]`.
+    observe: Option<Value>,
     /// The document's `lock`: null without a lock ([`crate::lock`]).
     lock: Value,
     /// The coverage of the programs' current records (`crate::check::rows_coverage`), from which a
@@ -3807,6 +3926,7 @@ impl Accounting<'_> {
         result: Value::Null,
         execution: Value::Null,
         stop: None,
+        observe: None,
         lock: Value::Null,
         coverage: None,
     };
@@ -3899,6 +4019,9 @@ fn document(
     // Absent without a stop, so a document without one is the document it was before stops.
     if let Some(stop) = accounting.stop.and_then(FlowManifest::stop_value) {
         document["stop"] = stop;
+    }
+    if let Some(observe) = accounting.observe {
+        document["observe"] = observe;
     }
     document
 }
@@ -4106,6 +4229,7 @@ mod tests {
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
             allowance_bytes: None,
+            observation: serde_json::Value::Null,
         };
         let killed = |c| (c, record(CachedOutcome::Killed));
         let agree = |c| (c, record(CachedOutcome::Agree));

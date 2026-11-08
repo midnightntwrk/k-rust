@@ -255,7 +255,8 @@ impl Observe {
 
     /// The names of every point class's rules, which each side must label rewrite rules with
     /// ([`StopRules::unresolved`]).
-    pub(crate) fn rules(self) -> StopRules {
+    #[must_use]
+    pub fn rules(self) -> StopRules {
         let names = self
             .points()
             .iter()
@@ -296,6 +297,14 @@ impl Observe {
             })
             .collect::<Vec<_>>();
         Some(json!({"points": points, "logs": logs}))
+    }
+
+    /// Why a cell of the declaration states no observation of the configuration `layout` of the
+    /// definition whose KORE is `kore` ([`Self::resolve`]'s refusal), or `None`: what a front end
+    /// checks before any run, so that its refusal names the cell as the campaign would.
+    #[must_use]
+    pub fn cell_refusal(self, layout: &CellLayout, kore: &KoreDefinition) -> Option<String> {
+        self.resolve(layout, kore).err()
     }
 
     /// The declaration resolved on the baseline's configuration `layout` and KORE `kore`: each
@@ -507,6 +516,24 @@ pub enum Closure {
     Undefined,
 }
 
+impl Closure {
+    /// The record name: `"end"` or `"undefined"`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::End => "end",
+            Self::Undefined => "undefined",
+        }
+    }
+
+    const fn element(self) -> Element {
+        match self {
+            Self::End => Element::End,
+            Self::Undefined => Element::Undefined,
+        }
+    }
+}
+
 /// Where a recorded channel ends: closed by END or UNDEF after its elements, or open there.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChannelEnd {
@@ -552,6 +579,73 @@ pub struct BaselineRecord {
     pub refusal: Option<String>,
 }
 
+impl BaselineRecord {
+    /// The record as a result record keeps it: `{channels: [{name, elements, closed, open}],
+    /// prefix, crashed}`, each element the hex of its 8 digest bytes (null where it was undecided),
+    /// `closed` `"end"` or `"undefined"` for a closed channel (else null), and `open` `{index,
+    /// reason}` for an open one (else null), `index` its horizon. Every field is destructured, so a
+    /// new one does not compile until it is recorded here.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        let Self {
+            channels,
+            prefix,
+            crashed,
+            refusal,
+        } = self;
+        let channels = channels
+            .iter()
+            .map(|channel| {
+                let ChannelRecord {
+                    name,
+                    elements,
+                    end,
+                } = channel;
+                let elements = elements
+                    .iter()
+                    .map(|element| {
+                        element.map(|bytes| {
+                            bytes
+                                .iter()
+                                .map(|byte| format!("{byte:02x}"))
+                                .collect::<String>()
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let (closed, open) = match end {
+                    ChannelEnd::Closed(closure) => (json!(closure.name()), Value::Null),
+                    ChannelEnd::Open(reason) => (
+                        Value::Null,
+                        json!({"index": elements.len(), "reason": reason}),
+                    ),
+                };
+                json!({"name": name, "elements": elements, "closed": closed, "open": open})
+            })
+            .collect::<Vec<_>>();
+        let mut value = json!({"channels": channels, "prefix": prefix, "crashed": crashed});
+        if let Some(refusal) = refusal {
+            value["refusal"] = json!(refusal);
+        }
+        value
+    }
+}
+
+/// One side's element at a reported difference, as a reader is shown it
+/// ([`crate::ObservedDifference`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Element {
+    /// The values the element is made of: a point class's cells, in the class's order, or a log's
+    /// one item.
+    Content(Vec<Pattern>),
+    /// An element some part of which is no value (an element under [`Stutter::Count`], or one
+    /// against a closed channel).
+    Undecided,
+    /// The channel is closed there by END.
+    End,
+    /// The channel is closed there by UNDEF.
+    Undefined,
+}
+
 /// Where the slot found a difference: the channel, the index, and whether it was read where the
 /// mutant's path ended (an END or UNDEF, or a log item appended by the last step) rather than at
 /// a point.
@@ -573,6 +667,9 @@ pub struct ObservationVerdict {
     pub horizon: BTreeMap<String, usize>,
     /// On `Unknown`, why.
     pub cause: Option<String>,
+    /// On `Distinguish`, the mutant's element at the position: the content its probe read, or
+    /// END or UNDEF where its path closed the channel.
+    pub element: Option<Element>,
 }
 
 /// The facts of a run's one leaf the slot reads: whether its state is real (the path up to it
@@ -788,6 +885,9 @@ pub(crate) struct Trace {
     /// On the baseline, why its run refuses the campaign: a log that did not only grow by
     /// appending ([`BaselineRecord::refusal`]).
     refusal: Option<String>,
+    /// On a mutant, its element at the first difference its probe found (at a point, or read
+    /// where the path ended), for the reader ([`ObservationVerdict::element`]).
+    differing: Option<Box<Element>>,
 }
 
 /// The probe of one result run: records the baseline's channels, or compares a mutant's with the
@@ -797,6 +897,10 @@ pub(crate) struct ObservationProbe<'a> {
     decider: ObservationDecider<'a>,
     against: Option<&'a BaselineRecord>,
     trace: Trace,
+    /// A capture run's target ([`Self::capturing`]): the channel and the index of the element it
+    /// re-derives, and that element once read, with its recorded digest bytes.
+    capture: Option<(usize, usize)>,
+    captured: Option<(Element, Option<[u8; 8]>)>,
 }
 
 static NO_SOLVER: NoSolver = NoSolver;
@@ -844,7 +948,94 @@ impl<'a> ObservationProbe<'a> {
                 answer: None,
                 end_difference: None,
                 refusal: None,
+                differing: None,
             },
+            capture: None,
+            captured: None,
+        }
+    }
+
+    /// The probe of a capture run of the baseline ([`crate::observed_difference`]): it records
+    /// the run's channels as the baseline's probe does, and ends the path once it has read the
+    /// element `index` of the channel `channel`, which it keeps with its digest bytes.
+    pub(crate) fn capturing(
+        resolved: &'a Resolved,
+        shared: &'a BackendDefinition,
+        trusted: bool,
+        initial: &'a Pattern,
+        channel: usize,
+        index: usize,
+    ) -> Self {
+        let mut probe = Self::new(resolved, shared, trusted, initial, None);
+        probe.capture = Some((channel, index));
+        probe
+    }
+
+    /// The element a capture run read, with its digest bytes as the run recorded them: `None`
+    /// when the run did not reach it.
+    pub(crate) fn captured(self) -> Option<(Element, Option<[u8; 8]>)> {
+        self.captured
+    }
+
+    /// The values of the point class `channel`'s cells at `state`, for a reader: an element is
+    /// undecided where a part is no value.
+    fn values(&self, channel: usize, state: &ProbeState<'_>) -> Element {
+        let Resolution::Point { cells, .. } = &self.resolved.channels[channel] else {
+            unreachable!("only a point class has a content");
+        };
+        cells
+            .iter()
+            .map(|path| {
+                let symbol = path.last().map(String::as_str);
+                let path = path.iter().map(String::as_str).collect::<Vec<_>>();
+                // The cell's content: a handle holds the cell itself.
+                let cell = state.cell_handle(&path)?.kore();
+                let term = match &cell {
+                    Pattern::Application {
+                        symbol: head,
+                        arguments,
+                    } if Some(head.name.as_str()) == symbol && arguments.len() == 1 => {
+                        arguments[0].clone()
+                    }
+                    _ => cell.clone(),
+                };
+                term.free_variables()
+                    .is_empty()
+                    .then(|| self.decider.terminal_value(&term))
+                    .flatten()
+            })
+            .collect::<Option<Vec<_>>>()
+            .map_or(Element::Undecided, Element::Content)
+    }
+
+    /// The value of one log item, for a reader.
+    fn item_value(&self, item: &Pattern) -> Element {
+        item.free_variables()
+            .is_empty()
+            .then(|| self.decider.terminal_value(item))
+            .flatten()
+            .map_or(Element::Undecided, |value| Element::Content(vec![value]))
+    }
+
+    /// Whether the element just taken on `channel`, which had `before` elements, is a capture
+    /// run's target: it is then kept, as `element` gives it, with its recorded digest bytes.
+    fn capture_taken(
+        &mut self,
+        channel: usize,
+        before: usize,
+        element: impl FnOnce(&Self) -> Element,
+    ) {
+        let Some((target, index)) = self.capture else {
+            return;
+        };
+        let trace = &self.trace.channels[channel];
+        if target == channel
+            && before == index
+            && trace.elements.len() == index + 1
+            && self.captured.is_none()
+        {
+            let digest = trace.elements[index];
+            self.captured = Some((element(self), digest));
         }
     }
 
@@ -964,17 +1155,25 @@ impl<'a> ObservationProbe<'a> {
         };
         self.trace.channels[channel].handle = handle;
         for item in new {
-            let element = self.item(item);
+            let element = self.item(item.clone());
             if let Ok(digest) = &element
                 && self.against.is_none()
             {
                 self.trace.channels[channel].items.push(*digest);
             }
             self.trace.channels[channel].read += 1;
+            let before = self.trace.channels[channel].elements.len();
             if let Some(index) = self.take(channel, element) {
+                if self.trace.differing.is_none() {
+                    self.trace.differing = Some(Box::new(self.item_value(&item)));
+                }
                 return Some(index);
             }
-            if self.trace.channels[channel].open.is_some() || self.trace.channels[channel].reached {
+            self.capture_taken(channel, before, |probe| probe.item_value(&item));
+            if self.captured.is_some()
+                || self.trace.channels[channel].open.is_some()
+                || self.trace.channels[channel].reached
+            {
                 break;
             }
         }
@@ -1108,12 +1307,22 @@ impl Probe for ObservationProbe<'_> {
                     if open {
                         None
                     } else {
+                        let before = self.trace.channels[channel].elements.len();
                         let element = self.content(channel, point);
-                        self.take(channel, element)
+                        let difference = self.take(channel, element);
+                        if difference.is_some() {
+                            self.trace.differing = Some(Box::new(self.values(channel, point)));
+                        }
+                        self.capture_taken(channel, before, |probe| probe.values(channel, point));
+                        difference
                     }
                 }
                 Resolution::Log { .. } => self.read_log(channel, point),
             };
+            if self.captured.is_some() {
+                self.trace.answer = Some(Answer::Done);
+                return ProbeDecision::Done;
+            }
             if let Some(index) = difference {
                 self.trace.answer = Some(Answer::Differs { channel, index });
                 return ProbeDecision::Differs(format!(
@@ -1292,28 +1501,31 @@ pub(crate) fn judge(
 ) -> ObservationVerdict {
     let trace = &comparison.trace;
     let name = |channel: usize| baseline.channels[channel].name.clone();
-    let distinguish = |channel: usize, index: usize, at_end: bool| ObservationVerdict {
-        outcome: OracleOutcome::Distinguish,
-        position: Some(Position {
-            channel: name(channel),
-            index,
-            at_end,
-        }),
-        horizon: BTreeMap::new(),
-        cause: None,
-    };
+    let distinguish =
+        |channel: usize, index: usize, at_end: bool, element: Option<Element>| ObservationVerdict {
+            outcome: OracleOutcome::Distinguish,
+            position: Some(Position {
+                channel: name(channel),
+                index,
+                at_end,
+            }),
+            horizon: BTreeMap::new(),
+            cause: None,
+            element,
+        };
     let unknown = |cause: String| ObservationVerdict {
         outcome: OracleOutcome::Unknown,
         position: None,
         horizon: BTreeMap::new(),
         cause: Some(cause),
+        element: None,
     };
     let settled = comparison.leaf.is_some_and(LeafFacts::settled);
     let real = settled && sides.is_some();
     match trace.answer {
         Some(Answer::Differs { channel, index }) => {
             return if real {
-                distinguish(channel, index, false)
+                distinguish(channel, index, false, trace.differing.as_deref().cloned())
             } else {
                 unknown(format!(
                     "the channel `{}` differs at {index} in a state that is not decided",
@@ -1340,7 +1552,7 @@ pub(crate) fn judge(
         });
     if let Some((channel, index)) = trace.end_difference {
         return if closure.is_some() || real {
-            distinguish(channel, index, true)
+            distinguish(channel, index, true, trace.differing.as_deref().cloned())
         } else {
             unknown(format!(
                 "the channel `{}` differs at {index} where the path ended, in a state that is not \
@@ -1379,13 +1591,15 @@ pub(crate) fn judge(
             closure
         };
         match mutant_closure {
-            Some(_) if emitted < recorded_length => {
+            Some(kind) if emitted < recorded_length => {
                 // END or UNDEF against a content element.
-                return distinguish(channel, emitted, true);
+                return distinguish(channel, emitted, true, Some(kind.element()));
             }
             Some(kind) => match recorded.end {
                 ChannelEnd::Closed(other) if other == kind => {}
-                ChannelEnd::Closed(_) => return distinguish(channel, emitted, true),
+                ChannelEnd::Closed(_) => {
+                    return distinguish(channel, emitted, true, Some(kind.element()));
+                }
                 ChannelEnd::Open(_) => {
                     horizon.insert(name(channel), recorded_length);
                 }
@@ -1421,6 +1635,7 @@ pub(crate) fn judge(
             position: None,
             horizon,
             cause: None,
+            element: None,
         },
     }
 }
@@ -1537,6 +1752,7 @@ mod tests {
             answer: None,
             end_difference: None,
             refusal: None,
+            differing: None,
         }
     }
 

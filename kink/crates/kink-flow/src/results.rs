@@ -32,6 +32,15 @@
 //! unknown or failed run and supplies the cause, the final states and the coverage for the reader.
 //! The diagnostic run never makes a program comparable.
 //!
+//! Under `[observe]` every program's run carries the declaration (kink-campaign
+//! `RunOptions::observe`), and its baseline row holds the channels the run recorded
+//! (`observations`, kink-campaign `BaselineRecord::value`: each element's 8 digest bytes, and how
+//! each channel ends), which the run digest covers ([`run_digest`]). A run that a deterministic
+//! bound cut before it ended, every other path complete, is `comparable-prefix`: the campaign
+//! admits it for its channels, each compared up to its horizon, and it can kill by them. The
+//! record's `observations` summarizes the channels for the program's row, and the key names the
+//! declaration ([`result_key`]).
+//!
 //! The cache is plain JSON under `<cache>/results/<execution digest>/<program digest>.json`. A
 //! record holds each end once, as KORE text: a comparable program's ends in the whole-term (or
 //! cells) side of its baseline row, which the run digest covers, and an unknown program's
@@ -87,7 +96,7 @@ use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
     CampaignOptions, CampaignReport, CampaignRun, CrashPolicy, FinalResult, FirstTests,
     OracleDeclaration, OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun,
-    StateProjection, TestCase, run_campaign_multi_ordered, run_campaign_multi_with,
+    StateProjection, TestCase, TestEvidence, run_campaign_multi_ordered, run_campaign_multi_with,
 };
 use kink_corpus::{Store, StoreError, runner::all_normal};
 use kink_native::{
@@ -139,6 +148,11 @@ const BASELINE_ONLY_OPERATOR: &str = "kink-flow/baseline-only/v1";
 pub enum ResultClass {
     /// The baseline run is complete and every oracle side is a value: the program can kill.
     Comparable,
+    /// Under `[observe]`, the baseline run has no end within its deterministic bounds (its depth
+    /// bound or `[budget] baseline_max_work` cut it, and every other path of it is complete):
+    /// its end slots compare nothing, and it can kill by its observation channels, each compared
+    /// up to its horizon (kink-campaign `BaselineRecord::prefix`).
+    ComparablePrefix,
     /// The run did not finish within the budget's time.
     Timeout,
     /// The run produced no comparable value (for example a collection with a Bytes key,
@@ -151,9 +165,17 @@ pub enum ResultClass {
 }
 
 impl ResultClass {
+    /// Whether `class`, a row's or a record's class, names a program that can kill: `comparable`,
+    /// or `comparable-prefix` (compared by its observation channels up to their horizons).
+    #[must_use]
+    pub fn can_kill(class: &Value) -> bool {
+        *class == Self::Comparable.as_str() || *class == Self::ComparablePrefix.as_str()
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Comparable => "comparable",
+            Self::ComparablePrefix => "comparable-prefix",
             Self::Timeout => "timeout",
             Self::Unknown => "unknown",
             Self::Refused => "refused",
@@ -215,7 +237,10 @@ pub fn execution_budget(budget: Budget) -> ExecutionBudget {
 /// digest names, so without a front end's the key has no `syntax`. A record
 /// written by another build, or by one before CACHE-ID-fix-1 (whose key has no `kink_build`),
 /// misses and is recomputed. `kink_build` is `None` when the executable cannot be read; such a
-/// key is never read or written ([`update_results`]).
+/// key is never read or written ([`update_results`]). Where the manifest declares observation
+/// channels, the key names the declaration (`observe`, `FlowManifest::observe_value`), on which
+/// the record's channels and whether the program is a prefix program depend; without one the key
+/// has no `observe`, and is the key it was before observations existed.
 pub fn result_key(
     execution: ExecutionDigest,
     program: Sha256Digest,
@@ -223,6 +248,7 @@ pub fn result_key(
     kink_build: Option<Sha256Digest>,
     stop: Option<Value>,
     syntax: Option<Value>,
+    observe: Option<Value>,
 ) -> Value {
     let mut key = json!({
         "schema_version": RESULT_SCHEMA_VERSION,
@@ -237,6 +263,9 @@ pub fn result_key(
     }
     if let Some(syntax) = syntax {
         key["syntax"] = syntax;
+    }
+    if let Some(observe) = observe {
+        key["observe"] = observe;
     }
     key
 }
@@ -347,7 +376,7 @@ pub fn host_dependence(
     diagnostic: Option<Exclusion>,
 ) -> Option<HostDependence> {
     match class {
-        ResultClass::Comparable | ResultClass::Refused => None,
+        ResultClass::Comparable | ResultClass::ComparablePrefix | ResultClass::Refused => None,
         ResultClass::Timeout => Some(HostDependence::Time),
         ResultClass::Error => Some(HostDependence::Failure),
         ResultClass::Unknown => match (exclusion, live_stop) {
@@ -414,7 +443,54 @@ pub fn diagnostic_host_exclusion(
 /// any other test of the campaign. `None` when the row has no `run`.
 pub fn run_digest(row: &Value) -> Option<Sha256Digest> {
     let run = row.get("run")?;
-    Some(payload_digest(RUN_DOMAIN, canonical_json(run).as_bytes()))
+    // A row with an observation record ([`baseline_row`]) digests both, so that a record whose
+    // channels differ is another run; a row without one digests its run as before observations.
+    let payload = match row.get("observations") {
+        Some(observations) => canonical_json(&json!({"run": run, "observations": observations})),
+        None => canonical_json(run),
+    };
+    Some(payload_digest(RUN_DOMAIN, payload.as_bytes()))
+}
+
+/// The baseline row of a run's evidence: kink-campaign's row (`CampaignReport::baseline_row`),
+/// with the run's observation record (kink-campaign `BaselineRecord::value`) under
+/// `observations` when the run recorded one, which [`run_digest`] covers. A run without an
+/// observation declaration has the row it had before observations existed.
+pub fn baseline_row(evidence: &TestEvidence) -> Value {
+    let mut row = CampaignReport::baseline_row(evidence);
+    if let Some(kink_campaign::Observation::Recorded(record)) = &evidence.notes.observation {
+        row["observations"] = record.value();
+    }
+    row
+}
+
+/// The observation summary a program's row shows (`observations`), from its baseline row's record
+/// ([`baseline_row`]): `{channels: [{name, elements, closed, open}], horizon}`, `elements` the
+/// number recorded, `closed` and `open` as the record has them, and `horizon` each open channel's
+/// horizon by name; `None` for a row without a record.
+fn observations_summary(row: &Value) -> Option<Value> {
+    let record = row.get("observations")?;
+    let channels = record["channels"].as_array()?;
+    let mut horizon = serde_json::Map::new();
+    let channels = channels
+        .iter()
+        .map(|channel| {
+            let elements = channel["elements"].as_array().map_or(0, Vec::len);
+            if channel["open"].is_object() {
+                horizon.insert(
+                    channel["name"].as_str().unwrap_or_default().to_owned(),
+                    json!(elements),
+                );
+            }
+            json!({
+                "name": channel["name"],
+                "elements": elements,
+                "closed": channel["closed"],
+                "open": channel["open"],
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(json!({"channels": channels, "horizon": horizon}))
 }
 
 /// What one program's baseline run produced.
@@ -464,6 +540,18 @@ pub struct ProgramResult {
     /// Why the result is not a function of its key ([`host_dependence`]); `None` when it is.
     /// Outside the record: a result with a host dependence is never written.
     pub host: Option<HostDependence>,
+}
+
+impl ProgramResult {
+    /// The observation summary of the result's baseline row (`observations`, under
+    /// `[observe]`): null without a record.
+    #[must_use]
+    pub fn observations(&self) -> Value {
+        self.baseline
+            .as_ref()
+            .and_then(observations_summary)
+            .unwrap_or(Value::Null)
+    }
 }
 
 impl ProgramResult {
@@ -550,6 +638,9 @@ pub struct BaselineRunner<'a> {
     /// `[stop]`: where every result run of the command ends besides its own end, each program
     /// with its own count (`FlowManifest::campaign_stop`).
     stop: kink_campaign::Stop,
+    /// `[observe]`: the observation channels every result run of the command is compared by
+    /// (`FlowManifest::campaign_observe`).
+    observe: kink_campaign::Observe,
     authors: RuleAuthors,
     /// The command's session (every call uses the all-normal classifier; the session re-applies
     /// a call's classifier on every reused baseline run, flow F-16).
@@ -588,6 +679,7 @@ impl<'a> BaselineRunner<'a> {
             baseline_max_work: manifest.budget.baseline_max_work,
             smt_resource_limit: manifest.budget.smt_resource_limit,
             stop: manifest.campaign_stop(),
+            observe: manifest.campaign_observe(),
             authors: RuleAuthors::of(&spec.compiled),
             session: RefCell::new(
                 BaselineSession::new(&spec.validator)
@@ -695,6 +787,7 @@ impl<'a> BaselineRunner<'a> {
         options.run.baseline_max_work = self.baseline_max_work;
         options.run.smt_resource_limit = self.smt_resource_limit;
         options.run.stop = self.stop;
+        options.run.observe = self.observe;
         let options = &options;
         let campaign = Campaign {
             validator: &self.spec.validator,
@@ -729,6 +822,7 @@ impl<'a> BaselineRunner<'a> {
         // would write an outcome its key does not name (CF-33d review).
         options.run.smt_resource_limit = self.smt_resource_limit;
         options.run.stop = self.stop;
+        options.run.observe = self.observe;
         let campaign = Campaign {
             validator: &self.spec.validator,
             module: &self.module,
@@ -744,6 +838,38 @@ impl<'a> BaselineRunner<'a> {
             &mut self.session.borrow_mut(),
             first,
         )
+    }
+
+    /// The two elements of the observation difference `verdict` reports for `test` (a test of a
+    /// call of this command, with the specification's oracles), whose baseline's run recorded
+    /// `record`: kink-campaign `observed_difference` under the options every call of the command
+    /// runs with, so the capture run of the baseline is the baseline's request.
+    ///
+    /// # Errors
+    ///
+    /// Why the difference is not re-derived (kink-campaign `observed_difference`).
+    pub fn observed_difference(
+        &self,
+        test: &TestCase,
+        record: &kink_campaign::BaselineRecord,
+        verdict: &kink_campaign::ObservationVerdict,
+    ) -> Result<kink_campaign::ObservedDifference, String> {
+        let options = kink_campaign::RunOptions {
+            baseline_max_work: self.baseline_max_work,
+            smt_resource_limit: self.smt_resource_limit,
+            stop: self.stop,
+            observe: self.observe,
+            ..kink_campaign::RunOptions::default()
+        };
+        let campaign = Campaign {
+            validator: &self.spec.validator,
+            module: &self.module,
+            observation: &[],
+            classify: &classify,
+            tests: std::slice::from_ref(test),
+            budget: self.budget,
+        };
+        kink_campaign::observed_difference(&campaign, &options, test, record, verdict)
     }
 
     /// The compiled baseline's rule authors: the baseline sentences behind each compiled id.
@@ -801,10 +927,20 @@ impl<'a> BaselineRunner<'a> {
                     result.wall_ms = wall_ms;
                     return result;
                 }
+                // Under `[observe]`, a run its deterministic bounds cut is compared by its
+                // channels up to their horizons ([`ResultClass::ComparablePrefix`]).
+                let prefix = matches!(
+                    &evidence.notes.observation,
+                    Some(kink_campaign::Observation::Recorded(record)) if record.prefix
+                );
                 ProgramResult {
-                    class: ResultClass::Comparable,
+                    class: if prefix {
+                        ResultClass::ComparablePrefix
+                    } else {
+                        ResultClass::Comparable
+                    },
                     cause: None,
-                    baseline: Some(CampaignReport::baseline_row(evidence)),
+                    baseline: Some(baseline_row(evidence)),
                     final_configuration: None,
                     ends: final_ends(&evidence.run).map(|ends| {
                         if self.stop.is_none() {
@@ -1676,7 +1812,7 @@ fn record_facts(
     result: &ProgramResult,
     coverage: Value,
 ) -> Value {
-    json!({
+    let mut facts = json!({
         "schema": RECORD_SCHEMA,
         "key": key,
         "spec_digest": spec_digest.to_string(),
@@ -1691,7 +1827,14 @@ fn record_facts(
         "smt_unknowns": result.smt_unknowns,
         "decider_smt_unknowns": result.decider_smt_unknowns,
         "short_circuit_readings": result.short_circuit_readings,
-    })
+    });
+    // Under `[observe]`, the channels the baseline recorded and their horizons; absent without a
+    // record, so a record without `[observe]` has the members it had.
+    let observations = result.observations();
+    if !observations.is_null() {
+        facts["observations"] = observations;
+    }
+    facts
 }
 
 /// The members of a result record that hold its ends: the baseline row (comparable only) and the
@@ -1811,7 +1954,7 @@ fn read_record(path: &Path, key: &Value) -> Option<Option<Value>> {
     Some(kink_patch::parse_json(&text).ok().filter(|record| {
         record["schema"] == RECORD_SCHEMA
             && record["key"] == *key
-            && (record["class"] == ResultClass::Comparable.as_str()
+            && (ResultClass::can_kill(&record["class"])
                 || record["class"] == ResultClass::Unknown.as_str())
     }))
 }
@@ -2074,6 +2217,11 @@ fn program_row(
             .get("short_circuit_readings")
             .cloned()
             .unwrap_or_else(|| json!([]));
+        // Under `[observe]`, the channels the baseline recorded and their horizons; absent
+        // without a record, so a row without `[observe]` is the row it was.
+        if let Some(observations) = record.get("observations").filter(|value| !value.is_null()) {
+            row["observations"] = observations.clone();
+        }
         row
     };
     // A case's expectation, checked against its baseline record or inconclusive for why it has
@@ -2131,6 +2279,7 @@ fn program_row(
             .syntax
             .as_ref()
             .map(crate::manifest::SyntaxSelection::key_value),
+        manifest.observe_value(),
     );
     let path = context.directory.join(format!("{digest}.json"));
     // Where the store is off (no build identity, an unnamed Z3 build or a solver the clock
@@ -2301,6 +2450,7 @@ pub fn current_record(
             .syntax
             .as_ref()
             .map(crate::manifest::SyntaxSelection::key_value),
+        manifest.observe_value(),
     );
     let path = cache
         .join("results")
@@ -2316,7 +2466,7 @@ pub fn current_record(
 pub fn data_marked(mut rows: Vec<Value>, data: &kink_native::data::DataFacts) -> Vec<Value> {
     if kink_native::data::data_ends(data) == kink_native::data::DataEnds::None {
         for row in &mut rows {
-            if row["class"] == ResultClass::Comparable.as_str() {
+            if ResultClass::can_kill(&row["class"]) {
                 row["unable_to_kill"] = json!("baseline-findings");
             }
         }

@@ -26,8 +26,8 @@ pub use identity::{
     writer_difference,
 };
 pub use observation::{
-    BaselineRecord, ChannelEnd, ChannelRecord, Closure, Comparison, Log, OBSERVATION_VERSION,
-    Observation, ObservationVerdict, Observe, PointClass, Position, Stutter,
+    BaselineRecord, ChannelEnd, ChannelRecord, Closure, Comparison, Element, Log,
+    OBSERVATION_VERSION, Observation, ObservationVerdict, Observe, PointClass, Position, Stutter,
 };
 mod manifest;
 mod oracle;
@@ -64,9 +64,10 @@ pub use oracle::{
 pub use runner::{
     AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
     CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, FirstTests, LeafCensus,
-    MutantAdmission, MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, OneSided,
-    OracleDeclaration, Projection, RunNotes, RunOptions, RunRecording, RunStop, STOP_VERSION,
-    SideRun, StateProjection, Stop, Tally, TestCase, TestEvidence, WorkBudget, claim_free_mutant,
-    mutant_compiles, pattern_side, run_campaign, run_campaign_multi, run_campaign_multi_ordered,
-    run_campaign_multi_with, run_campaign_with, slot_outcome, state_side, tally,
+    MutantAdmission, MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, ObservedDifference,
+    OneSided, OracleDeclaration, Projection, RunNotes, RunOptions, RunRecording, RunStop,
+    STOP_VERSION, SideRun, StateProjection, Stop, Tally, TestCase, TestEvidence, WorkBudget,
+    claim_free_mutant, mutant_compiles, observed_difference, pattern_side, run_campaign,
+    run_campaign_multi, run_campaign_multi_ordered, run_campaign_multi_with, run_campaign_with,
+    slot_outcome, state_side, tally,
 };

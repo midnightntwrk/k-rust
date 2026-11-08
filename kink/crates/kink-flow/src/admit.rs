@@ -342,6 +342,10 @@ pub struct FlowAdmission {
     /// The manifest's stop as documents name it (`FlowManifest::stop_value`), whether or not the
     /// specification is admitted; `None` without `[stop]`.
     pub stop: Option<serde_json::Value>,
+    /// The manifest's observation declaration as documents name it
+    /// (`FlowManifest::observe_value`), whether or not the specification is admitted; `None`
+    /// without `[observe]`.
+    pub observe: Option<serde_json::Value>,
 }
 
 impl FlowAdmission {
@@ -378,6 +382,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             spec: None,
             programs: Vec::new(),
             stop: manifest.stop_value(),
+            observe: manifest.observe_value(),
         };
     };
     let mut session = inputs.session(&spec);
@@ -391,6 +396,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
         spec: Some(spec),
         programs,
         stop: manifest.stop_value(),
+        observe: manifest.observe_value(),
     }
 }
 
@@ -1056,6 +1062,9 @@ fn admit_definition(
         stop_resolved(stop, &mut backend)?;
         stop_condition_bound(stop, &manifest.stop_when)?;
     }
+    if let Some(observe) = &manifest.observe {
+        observe_resolved(observe, &mut backend, &compiled, &kore)?;
+    }
     let (data, exclusions) = baseline_data(
         &mut backend,
         &kore,
@@ -1194,6 +1203,78 @@ fn stop_condition_bound(
             ),
         }),
         _ => Ok(()),
+    }
+}
+
+/// `[observe]` states an observation of the specification, or the specification is refused at
+/// stage `observe`:
+/// - `unsupported-front-end`: a key that names a function of an observer (`observer`, a class's
+///   `views`, `components` or `when`, a log's `element`). kink-flow's K front end reads terms of a
+///   K definition and has no observer to evaluate a function in; every channel it compares is a
+///   cell's content as the cell holds it, which is sound by the end projection's argument.
+/// - `point-unresolved`: a class names a rule no rewrite rule of the specification is labelled
+///   with (an equation's label names no step), so the class has no events
+///   (`backend-error` when the backend cannot list the rules).
+/// - `cell-refused`: a cell the configuration does not have, one declared `unobservable`, one
+///   that is not a leaf cell of multiplicity 1 below cells of multiplicity 1, or a log cell that
+///   does not hold a `List` (kink-campaign `Observe::cell_refusal`), each as the campaign would
+///   refuse it before any run.
+fn observe_resolved(
+    observe: &crate::manifest::ObserveSection,
+    backend: &mut Backend,
+    compiled: &ValidatedDefinition,
+    kore: &k_rust::kore::ast::Definition,
+) -> Result<(), AdmissionRefusal> {
+    let refused = |reason: &str, detail: String| AdmissionRefusal {
+        stage: "observe".into(),
+        reason: reason.into(),
+        detail,
+    };
+    let keys = observe.front_end_keys();
+    if !keys.is_empty() {
+        return Err(refused(
+            "unsupported-front-end",
+            format!(
+                "{}: a function of an observer is evaluated on the values of the cells it reads, \
+                 and kink-flow's K front end reads terms of a K definition with no observer to \
+                 evaluate it in; run the corpus through a front end that states values (`krs \
+                 kink`), or observe the cells as they are",
+                keys.join(", ")
+            ),
+        ));
+    }
+    let declared = observe
+        .campaign()
+        .map_err(|reason| refused("declaration", reason))?;
+    let unresolved = declared.rules().unresolved(backend).map_err(|failure| {
+        refused(
+            "backend-error",
+            format!(
+                "the specification's rewrite rules could not be read from its backend, so the \
+                 observation's rules could not be checked: {failure:?}"
+            ),
+        )
+    })?;
+    if !unresolved.is_empty() {
+        return Err(refused(
+            "point-unresolved",
+            format!(
+                "[observe] {}: no rewrite rule of the specification has this label (a point \
+                 class names a rewrite rule by its exact K label, `MODULE.label`; an equation's \
+                 label names no step)",
+                unresolved
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
+    let layout = kink_campaign::CellLayout::of_parsed(compiled, kore)
+        .map_err(|refusal| refused("cell-refused", format!("{refusal:?}")))?;
+    match declared.cell_refusal(&layout, kore) {
+        Some(reason) => Err(refused("cell-refused", format!("[observe] {reason}"))),
+        None => Ok(()),
     }
 }
 

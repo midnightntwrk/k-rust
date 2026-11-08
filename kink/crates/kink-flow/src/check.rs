@@ -60,6 +60,11 @@
 //!   label with it, so the stop names no rule of the mutant, and `run` reports the mutant
 //!   `not-admitted` (`stop-unresolved`) instead of judging it; the edit's other changes are never
 //!   observed. Given in place of `stop-hides-edit` for that rule.
+//! - `point-rule-deleted`: the mutation deletes a rule a point class of `[observe]` names. The
+//!   class then has no rule on the mutant, so `run` reports it `not-admitted`
+//!   (`point-unresolved`) instead of judging it: no kill may rest on an edit of a label. A
+//!   point rule's right-hand side needs no such warning: its step is taken, so an edit of it is
+//!   visible.
 //!
 //! The two coverage warnings, `unmatched-rule` and `unapplied-rule`, are given only when every
 //! program has a current result record and every comparable program's coverage is complete;
@@ -337,6 +342,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
             spec: None,
             programs: Vec::new(),
             stop: manifest.stop_value(),
+            observe: manifest.observe_value(),
         };
     };
     let programs = {
@@ -355,6 +361,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
         spec: Some(spec),
         programs,
         stop: manifest.stop_value(),
+        observe: manifest.observe_value(),
     }
 }
 
@@ -425,7 +432,7 @@ pub fn corpus_coverage(
             coverage.without_record.push(program.id.clone());
             continue;
         };
-        if record["class"] != ResultClass::Comparable.as_str() {
+        if !ResultClass::can_kill(&record["class"]) {
             continue;
         }
         if record["coverage"]["complete"] != true {
@@ -464,7 +471,7 @@ pub(crate) fn rows_coverage(rows: &[crate::results::ProgramRow]) -> CorpusCovera
                 .push(row.row["id"].as_str().unwrap_or_default().to_owned());
             continue;
         };
-        if record["class"] != ResultClass::Comparable.as_str() {
+        if !ResultClass::can_kill(&record["class"]) {
             continue;
         }
         if record["coverage"]["complete"] != true {
@@ -751,6 +758,38 @@ fn warnings(
                     Some(rule.at.clone()),
                     hides.detail(&label),
                     Some(hides.next(&label)),
+                ));
+            }
+        }
+    }
+    if let (Some(resolved), Some(observe)) = (resolved, manifest.observe.as_ref()) {
+        for rule in &resolved.rules {
+            // A deleted rule takes its label with it: a class naming it has no rule of the
+            // mutant, so `run` does not admit the mutant.
+            if let (None, Some(label)) = (&rule.after, rule.label.as_deref())
+                && let Some(point) = observe.points.iter().find(|point| {
+                    point
+                        .before
+                        .iter()
+                        .chain(&point.after)
+                        .any(|name| name == label)
+                })
+            {
+                findings.push(Finding::warning(
+                    "point-rule-deleted",
+                    rule.edits.first().copied(),
+                    Some(rule.at.clone()),
+                    format!(
+                        "the mutation deletes {label}, which the point class `{}` of [observe] \
+                         names: no rule of the mutant has the label, so the class has no events \
+                         on it and `run` reports it not-admitted (point-unresolved) rather than \
+                         judging it",
+                        point.name
+                    ),
+                    Some(format!(
+                        "edit {label} rather than deleting it (`requires false` keeps the label \
+                         and states that the rule never fires), or observe another rule"
+                    )),
                 ));
             }
         }

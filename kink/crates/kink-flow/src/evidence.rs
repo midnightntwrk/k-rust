@@ -95,6 +95,20 @@
 //! keeps one leaf of the two, so which halt the run reports for such an end can depend on the
 //! order the run explored them.
 //!
+//! # Observation evidence
+//!
+//! Under `[observe]` a test can be killed by its observation slot alone (a prefix program's end
+//! slots compare nothing). Its evidence is the difference the slot reported: `{format, position:
+//! {channel, index, at_end}, baseline: {element}, mutant: {element}}`
+//! ([`EndReader::observation_difference`]). An element is `{cells: {<cell>: value}}` for a point
+//! class's content, by the class's cells in order, `{item: value}` for a log's, each value printed
+//! as above and cut at [`VALUE_CAP`], or `"end"`, `"undefined"` or `"undecided"`. The baseline's
+//! record keeps no values, so its element is re-derived by a capture run of the baseline's request
+//! that ends the path at the reported element, whose digest must be the recorded one
+//! (kink-campaign `observed_difference`); the mutant's is its probe's. A test whose ends also
+//! distinguished keeps its end evidence, and its observation slot still shows its position. The
+//! evidence is kink's own in every front end: a front end's renderer reads ends only.
+//!
 //! # The format of the evidence
 //!
 //! Every kill evidence object names its format, `format`. kink's own evidence, above, is
@@ -141,7 +155,10 @@ use k_rust::{
     kast::identifier::{encode, label_or_name},
     kore::{ast::Pattern, walk},
 };
-use kink_campaign::{CellProjection, FinalResult, OracleSide, OracleValue, SideRun, TestEvidence};
+use kink_campaign::{
+    CellProjection, Element, FinalResult, ObservedDifference, OracleSide, OracleValue, SideRun,
+    TestEvidence,
+};
 use kink_native::ValidatedDefinition;
 use krs_unparse::{ListSpelling, Mode, Options, Unparser};
 use serde_json::{Value, json};
@@ -686,6 +703,65 @@ impl EndReader {
         }
     }
 
+    /// kink's evidence of a difference of observation channels (module documentation, "Observation
+    /// evidence"): `{format, position: {channel, index, at_end}, baseline: {element},
+    /// mutant: {element}}`, each element as [`Self::element`] prints it under the declaration
+    /// `observe` (the manifest's, which names each class's cells).
+    #[must_use]
+    pub fn observation_difference(
+        &self,
+        difference: &ObservedDifference,
+        observe: Option<&crate::manifest::ObserveSection>,
+    ) -> Value {
+        let position = &difference.position;
+        let cells = observe.and_then(|observe| {
+            observe
+                .points
+                .iter()
+                .find(|point| point.name == position.channel)
+                .map(|point| point.cells.as_slice())
+        });
+        json!({
+            "format": K_EVIDENCE_VERSION,
+            "position": {
+                "channel": position.channel,
+                "index": position.index,
+                "at_end": position.at_end,
+            },
+            "baseline": {"element": self.element(&difference.baseline, cells)},
+            "mutant": {"element": self.element(&difference.mutant, cells)},
+        })
+    }
+
+    /// One element of an observation difference printed for a reader: `{cells: {<cell>: value}}`
+    /// for a point class's content, by the class's cells `cells` in order, `{item: value}` for a
+    /// log's, each value as [`Self::print`] prints it (cut at [`VALUE_CAP`]); `"end"`,
+    /// `"undefined"` or `"undecided"` otherwise.
+    fn element(&self, element: &Element, cells: Option<&[String]>) -> Value {
+        match element {
+            Element::Content(values) => match cells {
+                Some(cells) if cells.len() == values.len() => {
+                    let cells = cells
+                        .iter()
+                        .zip(values)
+                        .map(|(cell, value)| (cell.clone(), self.print(value, VALUE_CAP)))
+                        .collect::<serde_json::Map<_, _>>();
+                    json!({"cells": cells})
+                }
+                _ => match values.as_slice() {
+                    [item] => json!({"item": self.print(item, VALUE_CAP)}),
+                    values => json!({"values": values
+                        .iter()
+                        .map(|value| self.print(value, VALUE_CAP))
+                        .collect::<Vec<_>>()}),
+                },
+            },
+            Element::End => json!("end"),
+            Element::Undefined => json!("undefined"),
+            Element::Undecided => json!("undecided"),
+        }
+    }
+
     /// The computation head of an end (module documentation, "An end's summary"): the first item
     /// of its first main cell in pre-order over its cells, or the cell's content when that is no
     /// sequence.
@@ -1216,6 +1292,7 @@ mod tests {
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
             allowance_bytes: None,
+            observation: serde_json::Value::Null,
         };
         outcomes
             .write(
@@ -1397,6 +1474,7 @@ mod tests {
                 },
                 None,
                 evidence,
+                None,
             )
         };
         let own = context(None);

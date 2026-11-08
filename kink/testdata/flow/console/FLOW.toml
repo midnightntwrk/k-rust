@@ -1,0 +1,25 @@
+# kink-flow corpus manifest for observations: console.k never ends on its own, so every run of
+# `run` is cut by the depth bound, and the program is compared by its observation channels up to
+# the horizon the baseline reached: the count `<n>` before each tick, and the `<out>` log.
+[spec]
+entry = "console.k"
+main_module = "CONSOLE"
+syntax_module = "CONSOLE-SYNTAX"
+
+[budget]
+max_depth = 24
+
+[[observe.point]]
+name = "clock"
+before = ["CONSOLE.tick"]
+stutter = "collapse"
+cells = ["n"]
+
+[[observe.log]]
+name = "out"
+cell = "out"
+at = ["clock"]
+
+[[program]]
+id = "run"
+text = "run"

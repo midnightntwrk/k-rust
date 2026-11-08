@@ -384,7 +384,12 @@ pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> Executi
 /// inputs (`Renderer::evidence`, `{format, identity}`), on which the evidence a `killed` record
 /// stores depends: absent for kink's own evidence, so a store written with one renderer, or with
 /// one renderer over other names, never serves another's evidence, and a context without a front
-/// end's renderer is the context it was before renderers existed.
+/// end's renderer is the context it was before renderers existed. `observe` is the manifest's
+/// observation declaration (`FlowManifest::observe_value`: each point class's rules, sides, cells
+/// and stuttering mode, each log's cell and classes), on which every observation outcome depends;
+/// absent without one, so a context without `[observe]` is the context it was before
+/// observations existed.
+#[allow(clippy::too_many_arguments)]
 pub fn outcome_context(
     kink_build: Sha256Digest,
     execution: ExecutionDigest,
@@ -392,6 +397,7 @@ pub fn outcome_context(
     result: &ResultProjection,
     stop: Option<&Value>,
     evidence: Option<&Value>,
+    observe: Option<&Value>,
 ) -> Value {
     // The budget object of the result key, so both keys name the same bounds, and the mutants'
     // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
@@ -430,6 +436,9 @@ pub fn outcome_context(
     }
     if let Some(evidence) = evidence {
         context["evidence"] = evidence.clone();
+    }
+    if let Some(observe) = observe {
+        context["observe"] = observe.clone();
     }
     context
 }

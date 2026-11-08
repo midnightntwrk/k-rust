@@ -507,6 +507,7 @@ fn the_outcome_context_names_the_cells_left_out() {
             &spec.result,
             None,
             None,
+            None,
         )
     };
     let declared = context("FLOW.toml");

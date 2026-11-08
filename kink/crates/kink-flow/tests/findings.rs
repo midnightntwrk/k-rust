@@ -536,6 +536,7 @@ mod kink_tier {
                     &spec.result,
                     None,
                     None,
+                    None,
                 ),
             );
             let record = OutcomeRecord {
@@ -553,6 +554,7 @@ mod kink_tier {
                 smt_unknowns: 0,
                 decider_smt_unknowns: 0,
                 allowance_bytes: None,
+                observation: serde_json::Value::Null,
             };
             store
                 .write(

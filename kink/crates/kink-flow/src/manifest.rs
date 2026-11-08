@@ -28,6 +28,14 @@
 //! ([`StopWhenSection`]), which only a front end that reads the definition's values states
 //! ([`FlowManifest::with_stop_when`]); kink-flow's own K front end refuses it at stage `stop`.
 //!
+//! `[observe]` declares observation channels every run is compared by besides its end
+//! ([`ObserveSection`]): point classes (rules on their before or after side, cells, a stuttering
+//! mode with no default) and logs (a `List` cell read at named classes' events and where the
+//! path ends). A K corpus names each rule by its exact K label and each cell by its K cell name.
+//! Its keys that name functions of an observer (`observer`, a class's `views`, `components` and
+//! `when`, a log's `element`) are decoded for a front end that evaluates functions of values;
+//! kink-flow's own K front end refuses them at stage `observe` (`crate::admit`).
+//!
 //! One schema serves both front ends. `[spec]` declares the specification in one of two ways
 //! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
 //! written, or a KRS package's emitted K (`krs = { definition = "main" }`), which the krs front
@@ -79,6 +87,9 @@ pub struct FlowManifest {
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
     pub stop: Option<StopSection>,
+    /// `[observe]`: the observation channels every run is compared by besides its end, when the
+    /// manifest declares some; `None`: every run is compared by its end only.
+    pub observe: Option<ObserveSection>,
     /// `[coverage]`: what `coverage` asks of the corpus ([`CoverageSection`]); its defaults
     /// without the section.
     pub coverage: CoverageSection,
@@ -267,6 +278,111 @@ pub struct StopSection {
     pub when: Option<StopWhenSection>,
 }
 
+/// `[observe]`: the observation channels every program's run is compared by besides its end
+/// (kink-campaign `Observe`), as written. A program that never ends is then a case, compared over
+/// the prefix its budget explores, and a mutant is killed by the first decided difference of a
+/// channel (README, "What a run observes").
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObserveSection {
+    /// `[[observe.point]]`, in the order written.
+    pub points: Vec<PointSection>,
+    /// `[[observe.log]]`, in the order written.
+    pub logs: Vec<LogSection>,
+    /// `observer`: the definition every function of the declaration is evaluated in, as a front
+    /// end names it; `None`: the baseline. kink-flow's K front end evaluates no function.
+    pub observer: Option<String>,
+}
+
+/// One `[[observe.point]]`: a point class.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PointSection {
+    /// `name`: the channel's name, unique among the declaration's channels.
+    pub name: String,
+    /// `before`: the rules whose events are observed in the state before their step, each by its
+    /// exact K label in a K corpus; sorted, without repeats.
+    pub before: Vec<String>,
+    /// `after`: the rules whose events are observed in their normalized successor, likewise.
+    pub after: Vec<String>,
+    /// `stutter`: whether an element equal to the previous one is dropped; required.
+    pub stutter: kink_campaign::Stutter,
+    /// `cells`: the cells whose contents, in this order, are each event's element, each by its
+    /// K cell name in a K corpus; without repeats.
+    pub cells: Vec<String>,
+    /// The keys a front end that evaluates functions of values reads (`views`, `components`,
+    /// `when`), as written; empty in a corpus that names none.
+    pub front_end: BTreeMap<String, serde_json::Value>,
+}
+
+/// One `[[observe.log]]`: a log.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogSection {
+    /// `name`: the channel's name, unique among the declaration's channels.
+    pub name: String,
+    /// `cell`: the `List` cell, by its K cell name in a K corpus.
+    pub cell: String,
+    /// `at`: the point classes at whose events the log is read; it is also read where the path
+    /// ends.
+    pub at: Vec<String>,
+    /// The keys a front end that evaluates functions of values reads (`element`), as written.
+    pub front_end: BTreeMap<String, serde_json::Value>,
+}
+
+impl ObserveSection {
+    /// Each key a front end that evaluates functions of values reads, as the manifest spells its
+    /// place (`observe.observer`, `observe.point[0].views`), in the order written.
+    #[must_use]
+    pub fn front_end_keys(&self) -> Vec<String> {
+        let mut keys = Vec::new();
+        if self.observer.is_some() {
+            keys.push("observe.observer".to_owned());
+        }
+        for (index, point) in self.points.iter().enumerate() {
+            keys.extend(
+                point
+                    .front_end
+                    .keys()
+                    .map(|key| format!("observe.point[{index}].{key}")),
+            );
+        }
+        for (index, log) in self.logs.iter().enumerate() {
+            keys.extend(
+                log.front_end
+                    .keys()
+                    .map(|key| format!("observe.log[{index}].{key}")),
+            );
+        }
+        keys
+    }
+
+    /// The declaration as kink-campaign compares runs by it, its names as written.
+    ///
+    /// # Errors
+    ///
+    /// kink-campaign's refusal (`Observe::new`), which decoding has already ruled out.
+    pub fn campaign(&self) -> Result<kink_campaign::Observe, String> {
+        kink_campaign::Observe::new(
+            self.points
+                .iter()
+                .map(|point| kink_campaign::PointClass {
+                    name: point.name.clone(),
+                    before: point.before.iter().cloned().collect(),
+                    after: point.after.iter().cloned().collect(),
+                    cells: point.cells.clone(),
+                    stutter: point.stutter,
+                })
+                .collect(),
+            self.logs
+                .iter()
+                .map(|log| kink_campaign::Log {
+                    name: log.name.clone(),
+                    cell: log.cell.clone(),
+                    at: log.at.clone(),
+                })
+                .collect(),
+        )
+    }
+}
+
 /// `[stop] when = { function, cells, observer? }`: a stop condition, as written. A stop event is
 /// an arrival (a step by a stop rule that is its state's one successor) whose stop state (the
 /// state before a `before` rule's step, the successor of an `after` rule's) satisfies `function`
@@ -450,6 +566,8 @@ pub struct ManifestFile {
     pub result: Option<ResultSection>,
     /// `[stop]`, as [`FlowManifest::stop`], its rules as written.
     pub stop: Option<StopSection>,
+    /// `[observe]`, as [`FlowManifest::observe`], its names as written.
+    pub observe: Option<ObserveSection>,
     /// `[coverage]`, as [`FlowManifest::coverage`].
     pub coverage: CoverageSection,
 }
@@ -501,7 +619,9 @@ impl ManifestFile {
         known_keys(
             &top,
             "",
-            &["spec", "budget", "result", "stop", "coverage", "program"],
+            &[
+                "spec", "budget", "result", "stop", "observe", "coverage", "program",
+            ],
         )?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
         let budget = match top.get("budget") {
@@ -510,6 +630,7 @@ impl ManifestFile {
         };
         let result = top.get("result").map(result).transpose()?;
         let stop = top.get("stop").map(stop).transpose()?;
+        let observe = top.get("observe").map(observe).transpose()?;
         let coverage = top
             .get("coverage")
             .map(coverage)
@@ -551,6 +672,7 @@ impl ManifestFile {
             programs,
             result,
             stop,
+            observe,
             coverage,
         })
     }
@@ -591,6 +713,7 @@ impl ManifestFile {
             programs: self.programs,
             result: self.result,
             stop: self.stop,
+            observe: self.observe,
             coverage: self.coverage,
             stop_when: StopWhenSlot::default(),
             input_decoder: Decoder::default(),
@@ -680,6 +803,26 @@ impl FlowManifest {
             stop["when"] = when.identity().clone();
         }
         Some(stop)
+    }
+
+    /// The observation declaration every program's run is compared by (kink-campaign `Observe`):
+    /// `[observe]`'s channels; [`kink_campaign::Observe::NONE`] without `[observe]`, and for a
+    /// declaration with a front end's key, which admission refuses (stage `observe`).
+    #[must_use]
+    pub fn campaign_observe(&self) -> kink_campaign::Observe {
+        self.observe
+            .as_ref()
+            .filter(|section| section.front_end_keys().is_empty())
+            .and_then(|section| section.campaign().ok())
+            .unwrap_or(kink_campaign::Observe::NONE)
+    }
+
+    /// The declaration every document and key names (`observe`): `{points: [{name, before, after,
+    /// cells, stutter}], logs: [{name, cell, at}]}` (kink-campaign `Observe::value`); `None`
+    /// without `[observe]`, and then no document or key has the member.
+    #[must_use]
+    pub fn observe_value(&self) -> Option<serde_json::Value> {
+        self.campaign_observe().value()
     }
 
     /// This manifest with `when` asking its `[stop] when` at each arrival: a front end that reads
@@ -1174,6 +1317,270 @@ fn stop_when(value: &Value) -> Result<StopWhenSection, ManifestError> {
         function,
         cells,
         observer,
+    })
+}
+
+/// An array of nonempty strings without repeats at `key` of `section`, empty when absent; `what`
+/// says what each string names.
+fn names(
+    section: &Table,
+    prefix: &str,
+    name: &str,
+    what: &str,
+) -> Result<Vec<String>, ManifestError> {
+    let key = join(prefix, name);
+    let entries = match section.get(name) {
+        None => return Ok(Vec::new()),
+        Some(Value::Array(entries)) => entries,
+        Some(_) => {
+            return Err(ManifestError::new(
+                key,
+                format!("expected an array of {what}"),
+            ));
+        }
+    };
+    let mut names = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let name = match entry {
+            Value::String(name) if !name.trim().is_empty() => name.clone(),
+            _ => {
+                return Err(ManifestError::new(
+                    format!("{key}[{index}]"),
+                    format!("expected a nonempty string, one of the {what}"),
+                ));
+            }
+        };
+        if names.contains(&name) {
+            return Err(ManifestError::new(key, format!("names `{name}` twice")));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
+/// A key of `[observe]` a front end that evaluates functions of values reads, as JSON: `observer`
+/// and `element`, a nonempty string; `views`, a table of nonempty strings; `components`, an array
+/// of tables; `when`, a table. Its meaning is the front end's; kink-flow checks only its shape.
+fn front_end_key(
+    section: &Table,
+    prefix: &str,
+    name: &str,
+) -> Result<Option<serde_json::Value>, ManifestError> {
+    let Some(value) = section.get(name) else {
+        return Ok(None);
+    };
+    let key = join(prefix, name);
+    let shaped = match name {
+        "observer" | "element" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
+        "views" => value.as_table().is_some_and(|views| {
+            views
+                .values()
+                .all(|view| view.as_str().is_some_and(|text| !text.trim().is_empty()))
+        }),
+        "components" => value
+            .as_array()
+            .is_some_and(|components| components.iter().all(Value::is_table)),
+        "when" => value.is_table(),
+        _ => unreachable!("only the front end's keys"),
+    };
+    if !shaped {
+        let expected = match name {
+            "observer" | "element" => "a nonempty string",
+            "views" => "a table of nonempty strings, a function by cell",
+            "components" => "an array of tables",
+            _ => "a table",
+        };
+        return Err(ManifestError::new(key, format!("expected {expected}")));
+    }
+    serde_json::to_value(value)
+        .map(Some)
+        .map_err(|e| ManifestError::new(key, format!("cannot be read: {e}")))
+}
+
+/// The keys of a point class a front end reads ([`front_end_key`]).
+const POINT_FRONT_END_KEYS: [&str; 3] = ["views", "components", "when"];
+
+/// `[observe]`: `point` and `log`, arrays of tables, at least one channel in all, each channel's
+/// name unique; `observer`, a front end's ([`front_end_key`]).
+fn observe(value: &Value) -> Result<ObserveSection, ManifestError> {
+    let section = table(value, "observe")?;
+    known_keys(section, "observe", &["observer", "point", "log"])?;
+    let observer = front_end_key(section, "observe", "observer")?
+        .map(|value| value.as_str().unwrap_or_default().to_owned());
+    let entries = |name: &str| -> Result<Vec<&Table>, ManifestError> {
+        let key = join("observe", name);
+        match section.get(name) {
+            None => Ok(Vec::new()),
+            Some(Value::Array(entries)) => entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| table(entry, &format!("{key}[{index}]")))
+                .collect(),
+            Some(_) => Err(ManifestError::new(
+                key,
+                format!("expected [[observe.{name}]] tables"),
+            )),
+        }
+    };
+    let mut points = Vec::new();
+    for (index, entry) in entries("point")?.into_iter().enumerate() {
+        points.push(point_class(entry, &format!("observe.point[{index}]"))?);
+    }
+    let mut logs = Vec::new();
+    for (index, entry) in entries("log")?.into_iter().enumerate() {
+        logs.push(log_entry(entry, &format!("observe.log[{index}]"))?);
+    }
+    if points.is_empty() && logs.is_empty() {
+        return Err(ManifestError::new(
+            "observe",
+            "declares no channel: give [[observe.point]] or [[observe.log]] the observations \
+             every run is compared by; without [observe] every run is compared by its end only",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for name in points
+        .iter()
+        .map(|point| &point.name)
+        .chain(logs.iter().map(|log| &log.name))
+    {
+        if !seen.insert(name) {
+            return Err(ManifestError::new(
+                "observe",
+                format!("names the channel `{name}` twice: each channel's name is its own"),
+            ));
+        }
+    }
+    for (index, log) in logs.iter().enumerate() {
+        if let Some(class) = log
+            .at
+            .iter()
+            .find(|class| !points.iter().any(|point| &point.name == *class))
+        {
+            return Err(ManifestError::new(
+                format!("observe.log[{index}].at"),
+                format!(
+                    "names `{class}`, which is no [[observe.point]] of the declaration: a log is \
+                     read at the events of the declaration's point classes"
+                ),
+            ));
+        }
+    }
+    let section = ObserveSection {
+        points,
+        logs,
+        observer,
+    };
+    section
+        .campaign()
+        .map_err(|reason| ManifestError::new("observe", reason))?;
+    Ok(section)
+}
+
+/// One `[[observe.point]]` at `key`: `name`; `before` and `after`, arrays of rule names, at least
+/// one in all and none in both; `stutter`, `"collapse"` or `"count"`, required; `cells`, an array
+/// of cell names; and the front end's keys ([`POINT_FRONT_END_KEYS`]).
+fn point_class(entry: &Table, key: &str) -> Result<PointSection, ManifestError> {
+    known_keys(
+        entry,
+        key,
+        &[
+            "name",
+            "before",
+            "after",
+            "stutter",
+            "cells",
+            "views",
+            "components",
+            "when",
+        ],
+    )?;
+    let name = required_string(entry, key, "name")?;
+    let mut before = names(
+        entry,
+        key,
+        "before",
+        "rule names (exact K labels in a K corpus)",
+    )?;
+    let mut after = names(
+        entry,
+        key,
+        "after",
+        "rule names (exact K labels in a K corpus)",
+    )?;
+    before.sort();
+    after.sort();
+    if before.is_empty() && after.is_empty() {
+        return Err(ManifestError::new(
+            key,
+            "names no rule: give `before` or `after` the rules whose steps are this class's events",
+        ));
+    }
+    if let Some(rule) = before.iter().find(|rule| after.contains(rule)) {
+        return Err(ManifestError::new(
+            key,
+            format!(
+                "names `{rule}` in both before and after: name it on the side whose state each \
+                 event observes, or declare two classes"
+            ),
+        ));
+    }
+    let stutter = match entry.get("stutter") {
+        None => {
+            return Err(ManifestError::new(
+                join(key, "stutter"),
+                "missing required key: say whether an element equal to the previous one is an \
+                 element (`count`: how many events there were is observed) or is dropped \
+                 (`collapse`: only changes are observed); which is meant is a property of the \
+                 specification, so it has no default",
+            ));
+        }
+        Some(Value::String(mode)) if mode == "collapse" => kink_campaign::Stutter::Collapse,
+        Some(Value::String(mode)) if mode == "count" => kink_campaign::Stutter::Count,
+        Some(_) => {
+            return Err(ManifestError::new(
+                join(key, "stutter"),
+                "expected \"collapse\" or \"count\"",
+            ));
+        }
+    };
+    let cells = names(
+        entry,
+        key,
+        "cells",
+        "cell names (K cell names in a K corpus)",
+    )?;
+    let mut front_end = BTreeMap::new();
+    for name in POINT_FRONT_END_KEYS {
+        if let Some(value) = front_end_key(entry, key, name)? {
+            front_end.insert(name.to_owned(), value);
+        }
+    }
+    Ok(PointSection {
+        name,
+        before,
+        after,
+        stutter,
+        cells,
+        front_end,
+    })
+}
+
+/// One `[[observe.log]]` at `key`: `name`; `cell`, a cell name; `at`, an array of point class
+/// names, empty when absent; and the front end's `element` ([`front_end_key`]).
+fn log_entry(entry: &Table, key: &str) -> Result<LogSection, ManifestError> {
+    known_keys(entry, key, &["name", "cell", "at", "element"])?;
+    let name = required_string(entry, key, "name")?;
+    let cell = required_string(entry, key, "cell")?;
+    let at = names(entry, key, "at", "point class names")?;
+    let mut front_end = BTreeMap::new();
+    if let Some(value) = front_end_key(entry, key, "element")? {
+        front_end.insert("element".to_owned(), value);
+    }
+    Ok(LogSection {
+        name,
+        cell,
+        at,
+        front_end,
     })
 }
 

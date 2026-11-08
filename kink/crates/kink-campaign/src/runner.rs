@@ -205,7 +205,8 @@ use kink_native::execution::{
 
 use crate::condition::{KoreSignature, StopWhen};
 use crate::observation::{
-    BaselineRecord, Comparison, LeafFacts, Observation, ObservationProbe, Observe, Resolved, Trace,
+    BaselineRecord, Comparison, Element, LeafFacts, Observation, ObservationProbe, Observe,
+    Resolved, Trace,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
@@ -2269,6 +2270,159 @@ fn observing(
         shared,
         trusted: runtime.exclusions.collections_trusted(),
     })
+}
+
+/// A difference the observation slot reported, re-derived from both sides' values
+/// ([`observed_difference`]): the position, and each side's element there.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObservedDifference {
+    pub position: crate::observation::Position,
+    /// The baseline's element at the position: the content a capture run of the baseline read,
+    /// or END or UNDEF where its record closes the channel there.
+    pub baseline: Element,
+    /// The mutant's element at the position, as its probe read it
+    /// ([`crate::ObservationVerdict::element`]).
+    pub mutant: Element,
+}
+
+/// The two elements of the difference `verdict` reports for the test `test` of `campaign` run
+/// under `options` (the options of the call that judged it), whose baseline's run recorded
+/// `record` ([`crate::observation`], "The slot").
+///
+/// The record keeps no values, only 8 bytes of each element's digest. The baseline's element is
+/// re-derived by a capture run: the baseline's request for the test again, on a fresh load of
+/// the baseline, with a probe that records its channels as the baseline's probe does and ends
+/// the path at the reported element. The element's digest bytes must be the recorded ones: the
+/// run is then the recorded run up to that element (the record is a function of the request),
+/// and the value read is the one whose digest was compared. Where the baseline's channel is
+/// closed at the position, its element is END or UNDEF, from the record. The mutant's element is
+/// its probe's ([`crate::ObservationVerdict::element`]). The two must differ.
+///
+/// # Errors
+///
+/// Why the difference is not re-derived: the verdict reports none, the record has no such
+/// channel or is open there, the capture run failed or did not reach the element, its digest
+/// bytes are not the recorded ones, or the two elements are equal. Each is an error of the run
+/// that reported the difference, never a verdict.
+pub fn observed_difference(
+    campaign: &Campaign<'_>,
+    options: &RunOptions,
+    test: &TestCase,
+    record: &BaselineRecord,
+    verdict: &crate::ObservationVerdict,
+) -> Result<ObservedDifference, String> {
+    let position = verdict
+        .position
+        .clone()
+        .ok_or("the slot reports no difference")?;
+    let mutant = verdict
+        .element
+        .clone()
+        .ok_or("the slot reports no element of the mutant")?;
+    let channel = record
+        .channels
+        .iter()
+        .position(|channel| channel.name == position.channel)
+        .ok_or_else(|| format!("the record has no channel `{}`", position.channel))?;
+    let recorded = &record.channels[channel];
+    let baseline = match (recorded.elements.get(position.index), &recorded.end) {
+        (Some(Some(digest)), _) => {
+            let (element, captured) =
+                capture_element(campaign, options, test, channel, position.index)?;
+            if captured != Some(*digest) {
+                return Err(format!(
+                    "the capture run's element {} of `{}` does not have the recorded digest: the \
+                     capture run is not the recorded run",
+                    position.index, position.channel
+                ));
+            }
+            element
+        }
+        (Some(None), _) => {
+            return Err(format!(
+                "the record's element {} of `{}` is undecided",
+                position.index, position.channel
+            ));
+        }
+        (None, crate::ChannelEnd::Closed(closure)) => match closure {
+            crate::Closure::End => Element::End,
+            crate::Closure::Undefined => Element::Undefined,
+        },
+        (None, crate::ChannelEnd::Open(_)) => {
+            return Err(format!(
+                "the record's channel `{}` is open before {}",
+                position.channel, position.index
+            ));
+        }
+    };
+    if baseline == mutant {
+        return Err(format!(
+            "both sides' elements {} of `{}` are equal: the difference is not re-derived",
+            position.index, position.channel
+        ));
+    }
+    Ok(ObservedDifference {
+        position,
+        baseline,
+        mutant,
+    })
+}
+
+/// The element `index` of the channel `channel` of a capture run of the baseline for `test`
+/// ([`observed_difference`]), with its digest bytes as the run recorded them.
+fn capture_element(
+    campaign: &Campaign<'_>,
+    options: &RunOptions,
+    test: &TestCase,
+    channel: usize,
+    index: usize,
+) -> Result<(Element, Option<[u8; 8]>), String> {
+    let baseline = campaign
+        .validator
+        .compile_baseline()
+        .map_err(|_| "the baseline does not compile".to_owned())?;
+    let mut runtime = Runtime::prepare_with(campaign, &baseline, options.backend_options(), true)
+        .map_err(|_| "the baseline does not load".to_owned())?;
+    runtime.modality = options.result_modality;
+    runtime.stop = options.stop;
+    let observing = observing(campaign, &baseline, options.observe, &mut runtime)
+        .map_err(|failure| failure.to_string())?;
+    let trusted = observing.trusted && runtime.exclusions.collections_trusted();
+    let mut probe = ObservationProbe::capturing(
+        &observing.resolved,
+        &observing.shared,
+        trusted,
+        &test.initial_state,
+        channel,
+        index,
+    );
+    // The baseline's request (`Runtime::execute_against` on the runtime that reads coverage):
+    // its modality, work bound and stop; the guard outcomes and bindings it records do not move
+    // the run.
+    let run = ResultRun {
+        modality: runtime.modality,
+        max_work: options.baseline_max_work,
+        guards: true,
+        bindings: false,
+    };
+    let request = RequestProbe {
+        rules: probe.rules(),
+        probe: &mut probe,
+    };
+    let (execution, _) = runtime.stop.execute_asking(
+        &runtime.adapter,
+        &mut runtime.backend,
+        &mut runtime.tables,
+        &test.id,
+        &test.initial_state,
+        campaign.budget,
+        run,
+        Some(request),
+    );
+    execution.map_err(|failure| format!("the capture run failed: {failure:?}"))?;
+    probe
+        .captured()
+        .ok_or_else(|| format!("the capture run did not reach the element {index} of its channel"))
 }
 
 /// Why the mutant whose runtime is `mutant` is not admitted under the observation `observing`,

@@ -1241,6 +1241,9 @@ pub fn run_command(
         FlowCommand::Query { .. } | FlowCommand::Fuzz { .. } if manifest.stop.is_some() => {
             (stop_unsupported(command), EXIT_UNASKED)
         }
+        FlowCommand::Query { .. } | FlowCommand::Fuzz { .. } if manifest.observe.is_some() => {
+            (observe_unsupported(command), EXIT_UNASKED)
+        }
         FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
             Err(error) => (pattern_list_refused(&error), EXIT_UNASKED),
             Ok(list) => {
@@ -1336,12 +1339,14 @@ fn record_status(row: &Value) -> u8 {
 }
 
 /// The status of a program's baseline row of a `coverage` document by its class
-/// ([`crate::results::ResultClass`]): `comparable` [`EXIT_YES`]; `timeout` and `unknown`
+/// ([`crate::results::ResultClass`]): `comparable` and `comparable-prefix` [`EXIT_YES`] (a
+/// prefix program answers what the baseline computes for the declared observation, up to its
+/// horizons); `timeout` and `unknown`
 /// [`EXIT_UNANSWERED`], since the run has no end kink compares; `refused` and `error`
 /// [`EXIT_UNASKED`]; joined with [`EXIT_UNASKED`] for a result record it could not write.
 fn program_status(row: &Value) -> u8 {
     let class = match row["class"].as_str() {
-        Some("comparable") => EXIT_YES,
+        Some("comparable" | "comparable-prefix") => EXIT_YES,
         Some("timeout" | "unknown") => EXIT_UNANSWERED,
         _ => EXIT_UNASKED,
     };
@@ -1566,6 +1571,34 @@ fn stop_unsupported(command: &FlowCommand) -> Value {
     };
     if let Some(spec) = document.get_mut("spec").and_then(Value::as_object_mut) {
         spec.insert("stage".into(), json!("stop"));
+        spec.insert("reason".into(), json!("unsupported-verb"));
+        spec.insert("detail".into(), json!(detail));
+    }
+    document
+}
+
+/// The document of `query` or `fuzz` on a corpus with `[observe]`: refused at stage `observe`,
+/// reason `unsupported-verb`. Both search runs of the specification with their own requests,
+/// which carry no observation probe and compare no channel, so their answers would be about the
+/// definition's ends alone, not the observation the corpus states. Within the query and fuzz
+/// documents' versions: a corpus without `[observe]` has the document it had.
+fn observe_unsupported(command: &FlowCommand) -> Value {
+    let detail = format!(
+        "{} does not run a corpus with observations yet: its searches compare no observation \
+         channel, so its answers would not be about the observation this corpus states; use \
+         `check`, `coverage` and `run`, or a manifest without [observe]",
+        command.verb().as_str()
+    );
+    let mut document = match command {
+        FlowCommand::Fuzz { .. } => {
+            let mut document = crate::fuzz::stop_refused(&detail);
+            document["action"] = json!("remove [observe] to fuzz this corpus");
+            document
+        }
+        _ => command.manifest_refused(&ManifestError::new("observe", &detail)),
+    };
+    if let Some(spec) = document.get_mut("spec").and_then(Value::as_object_mut) {
+        spec.insert("stage".into(), json!("observe"));
         spec.insert("reason".into(), json!("unsupported-verb"));
         spec.insert("detail".into(), json!(detail));
     }
@@ -2298,6 +2331,7 @@ pub fn check_corpus_mutations(
                 spec: None,
                 programs: Vec::new(),
                 stop: manifest.stop_value(),
+                observe: manifest.observe_value(),
             },
             list,
             mutations: None,
@@ -2326,6 +2360,7 @@ pub fn check_corpus_mutations(
             spec: Some(spec),
             programs,
             stop: manifest.stop_value(),
+            observe: manifest.observe_value(),
         },
         list,
         mutations,
@@ -2429,8 +2464,14 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// when`: a stop with a condition names it in `stop` (`when`, the condition's identity as the
 /// front end resolved it), a specification whose front end states no condition is refused at
 /// stage `stop` (`unsupported-front-end`), and under a condition `stop-hides-edit` is given for
-/// a rule no comparable program's run took the step of, read from coverage that decides.
-pub const CHECK_VERSION: u64 = 12;
+/// a rule no comparable program's run took the step of, read from coverage that decides; 13
+/// since `[observe]`: a corpus with observation channels names the declaration (`observe`, as
+/// every run compares by it; absent without one), a specification on which a class's rule labels
+/// no rewrite rule or a cell states no observation is refused at stage `observe`
+/// (`point-unresolved`, `cell-refused`, `backend-error`), a key that names a function of an
+/// observer is refused there too (`unsupported-front-end`), and a mutation that deletes a rule a
+/// point class names is warned `point-rule-deleted`.
+pub const CHECK_VERSION: u64 = 13;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({
@@ -2565,6 +2606,10 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
     // Absent without a stop, so a document without one is the document it was before stops.
     if let Some(stop) = &admission.stop {
         document["stop"] = stop.clone();
+    }
+    // The resolved observation declaration; absent without `[observe]`.
+    if let Some(observe) = &admission.observe {
+        document["observe"] = observe.clone();
     }
     document
 }

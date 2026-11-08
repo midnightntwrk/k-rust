@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 11
+//! version = 12
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -77,7 +77,9 @@
 //! `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
-//! corpus order), and, when a corpus error stopped it, the mutation and the reason under
+//! corpus order), a survivor that rests on a horizon its `horizon` (each program whose
+//! observation channels agreed only up to its baseline's horizon, with each channel and the
+//! number of elements agreed on: a function of the budget, not of the host), and, when a corpus error stopped it, the mutation and the reason under
 //! `[stopped]` (the mutations after it have no status). A refused specification has its `stage`
 //! and `reason` under `[spec]`, a refused mutation list its `outcome` under `[mutation_list]` (a
 //! run document of a list that does not decode has no `[spec]`), and a refused lock its `outcome`
@@ -128,8 +130,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// obligations of the syntax family (`[syntax]`), so that a lock that gains the section shows a
 /// new version, not a moved verdict; 11 since a `coverage` rendering whose flips ran lists each
 /// flip (`[[flip]]`) with its status, a refused flip's reason and a distinguished flip's killer,
-/// the recorded one while it kills, so that a `coverage.lock` records the flips' verdicts.
-pub const VERDICTS_VERSION: u64 = 11;
+/// the recorded one while it kills, so that a `coverage.lock` records the flips' verdicts; 12 since
+/// a survivor some program of which agreed only up to its baseline's observation horizon (`[observe]`)
+/// has `horizon`, each such program's channels and the number of elements they agreed on, so that
+/// a lock shows when a survivor rests on a budgeted prefix.
+pub const VERDICTS_VERSION: u64 = 12;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -399,6 +404,27 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
         );
         if let Some(reason) = rendered_reason(row).as_str() {
             line(text, "reason", &string(reason));
+        }
+        // A survivor some program of which agreed only up to its baseline's horizon: each such
+        // program's channels and the elements they agreed on.
+        if let Some(horizons) = row["horizon"].as_array() {
+            let items = horizons
+                .iter()
+                .flat_map(|entry| {
+                    let program = entry["program"].as_str().unwrap_or_default();
+                    entry["horizon"].as_object().into_iter().flatten().map(
+                        move |(channel, elements)| {
+                            format!(
+                                "{{ program = {}, channel = {}, elements = {} }}",
+                                string(program),
+                                string(channel),
+                                elements.as_u64().unwrap_or_default()
+                            )
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            line(text, "horizon", &format!("[{}]", items.join(", ")));
         }
         if row["status"] != "killed" {
             continue;

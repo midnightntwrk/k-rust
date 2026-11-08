@@ -126,8 +126,8 @@ use crate::{
     search::REPORT_FILE,
 };
 use kink_campaign::{
-    CrossCause, CrossEnd, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus,
-    OracleOutcome, OracleSide, OracleValue, SideRun, TestEvidence, TestRun,
+    CrossCause, CrossEnd, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus, Observation,
+    ObservationVerdict, OracleOutcome, OracleSide, OracleValue, SideRun, TestEvidence, TestRun,
 };
 use kink_native::{bridge::OpenApplication, execution::SolverProfile};
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
@@ -222,8 +222,88 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// empty), since its mutant is the specification's theory; 32 since under the Z3 profile the
 /// document names the Z3 build its verdicts were decided on (`z3`, [`crate::with_z3_build`]), and a
 /// lock compared with its rendering names each header key whose value differs
-/// (`lock.header_changes`), so that `--locked` says when a lock was recorded on another Z3 build.
-pub const RUN_VERSION: u64 = 32;
+/// (`lock.header_changes`), so that `--locked` says when a lock was recorded on another Z3 build;
+/// 33 since `[observe]`: a corpus with observation channels names the declaration (`observe`,
+/// absent without one), a program row carries the channels its baseline recorded
+/// (`observations`) and may be `comparable-prefix`, an executed entry has the slot
+/// `observations` after the end slots, with `position` where it distinguished, `horizon` where it
+/// agreed up to the baseline's horizons and `cause` where it was unknown, a kill only the channels
+/// decided has kink's observation evidence (`difference.position` and both sides' elements,
+/// [`crate::evidence`]), a survivor some program of which agreed only up to a horizon carries
+/// `horizon` and says so in its action, and a mutant on which a point class's rule labels no
+/// rewrite rule, or whose declarations of the observed cells' sorts are not the specification's,
+/// is `not-admitted`, reason `point-unresolved` or `observation-incompatible`.
+pub const RUN_VERSION: u64 = 33;
+
+/// The name of the observation slot of an executed entry's `slots`, after the end slots
+/// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
+pub const OBSERVATION_SLOT: &str = "observations";
+
+/// The observation slot's verdict of a run's notes (kink-campaign `RunNotes::observation`), when
+/// the pair judged it.
+#[must_use]
+pub fn observation_verdict(notes: &kink_campaign::RunNotes) -> Option<&ObservationVerdict> {
+    match &notes.observation {
+        Some(Observation::Compared(comparison)) => comparison.verdict.as_ref(),
+        _ => None,
+    }
+}
+
+/// What the observation slot reports beside its outcome, as an executed entry's slot and an
+/// outcome record keep it: `{position: {channel, index, at_end}}` where it distinguished,
+/// `{horizon: {<channel>: n}}` where it agreed and some channel's agreement rests on the
+/// baseline's horizon, `{cause}` where it was unknown; null otherwise (an agreement to every
+/// channel's end).
+#[must_use]
+pub fn observation_slot(verdict: &ObservationVerdict) -> Value {
+    match verdict.outcome {
+        OracleOutcome::Distinguish => verdict.position.as_ref().map_or(Value::Null, |position| {
+            json!({"position": {
+                "channel": position.channel,
+                "index": position.index,
+                "at_end": position.at_end,
+            }})
+        }),
+        OracleOutcome::Agree if !verdict.horizon.is_empty() => {
+            json!({"horizon": verdict.horizon})
+        }
+        OracleOutcome::Unknown => verdict
+            .cause
+            .as_ref()
+            .map_or(Value::Null, |cause| json!({"cause": cause})),
+        _ => Value::Null,
+    }
+}
+
+/// `slots` (an executed entry's) with the members of `observation` ([`observation_slot`]) added to
+/// its observation slot; unchanged when `observation` is null or there is no such slot.
+pub fn with_observation(slots: &mut Value, observation: &Value) {
+    let (Some(slot), Some(members)) = (
+        slots
+            .get_mut(OBSERVATION_SLOT)
+            .and_then(Value::as_object_mut),
+        observation.as_object(),
+    ) else {
+        return;
+    };
+    for (name, value) in members {
+        slot.insert(name.clone(), value.clone());
+    }
+}
+
+/// The agreements up to a horizon of a survivor's executed entries: `[{program, horizon}]`, each
+/// program whose observation slot agreed only up to the baseline's horizons, in the entries'
+/// order; empty when none did.
+#[must_use]
+pub fn survivor_horizons(executed: &[Value]) -> Vec<Value> {
+    executed
+        .iter()
+        .filter_map(|entry| {
+            let horizon = entry["slots"][OBSERVATION_SLOT].get("horizon")?;
+            Some(json!({"program": entry["program"], "horizon": horizon}))
+        })
+        .collect()
+}
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -400,11 +480,20 @@ pub fn refused_action(reason: InvalidReason) -> Option<String> {
     }
 }
 
+/// The pseudo-reason [`action`] reads for a `survived` row some program of which agreed only up to
+/// a horizon (the row's `horizon`); the row's own `reason` stays null.
+pub const HORIZON_REASON: &str = "horizon";
+
 /// What a status asks of the LLM, as `kink-flow` spells its commands
 /// ([`action_spelled`]); `None` for `killed`. `reason` refines `error`.
 pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
     Some(match status {
         "killed" => return None,
+        "survived" if reason == Some(HORIZON_REASON) => {
+            "raise the bound or write another program: every executed program agreed, and some \
+             agreed only up to the horizon its baseline's observation channels reached within the \
+             budget (horizon): the mutant may differ past it, which no program observed"
+        }
         "survived" => {
             "write a program that matches an edited rule and whose final configuration the edit \
              changes outside the cells result.not_compared lists: every executed program \
@@ -477,6 +566,18 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              rule of [stop] names, or turns that rule into an equation, so the observation the \
              stop states is not defined on the mutant; edit the rule's sides instead, or name \
              another rule in [stop]"
+        }
+        "not-admitted" if reason == Some("point-unresolved") => {
+            "keep each point rule a labelled rewrite rule: the edit removes or renames the label a \
+             point class of [observe] names, or turns that rule into an equation, so the class has \
+             no events on the mutant; edit the rule's sides instead (`requires false` keeps the \
+             label and states that the rule never fires), or observe another rule"
+        }
+        "not-admitted" if reason == Some("observation-incompatible") => {
+            "keep the declarations of the observed cells' sorts: the edit declares otherwise a \
+             sort or symbol the cells [observe] reads reach, or makes a constructor of one head an \
+             axiom, so a cell's content could denote another value on the mutant; edit rules \
+             instead, or observe other cells"
         }
         "not-admitted" if reason == Some("stop-condition-incompatible") => {
             "keep the declarations of the stop condition's cells: the edit declares otherwise a \
@@ -553,7 +654,8 @@ pub fn slots_value(
     let names = slots;
     let mut slots = serde_json::Map::new();
     for (slot, outcome) in outcomes.iter().enumerate() {
-        let name = names.get(slot).copied().unwrap_or("slot");
+        // The observation slot follows the end slots (kink-campaign `RunOptions::observe`).
+        let name = names.get(slot).copied().unwrap_or(OBSERVATION_SLOT);
         let mut value = json!({"outcome": slot_name(*outcome)});
         if *outcome == OracleOutcome::Distinguish {
             value["sides"] =
@@ -615,6 +717,18 @@ fn slot_sides(
 /// exit stop, which under the flow's classifier distinguishes only a side with no end from one
 /// with some, has no sides in it; a document of another shape gives none.
 fn difference_sides(slot: &str, difference: &Value) -> Value {
+    // The observation slot's sides are the two elements of kink's observation evidence
+    // ([`crate::evidence`]); null where the kill's evidence is its ends'.
+    if slot == OBSERVATION_SLOT {
+        return if difference["position"].is_object() {
+            json!({
+                "baseline": difference["baseline"]["element"],
+                "mutant": difference["mutant"]["element"],
+            })
+        } else {
+            Value::Null
+        };
+    }
     if difference["format"] != crate::evidence::K_EVIDENCE_VERSION {
         let (baseline, mutant) = (&difference["left"], &difference["right"]);
         if !matches!(slot, "whole-term" | "cells")
@@ -826,7 +940,8 @@ pub const OPEN_APPLICATION_REASON: &str = "open-application";
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
 /// that run and, when the session recorded it, the leaf census of the mutant's run: `None` when
 /// the outcome is `agree` or `distinguish` (or the test was skipped). `slots` names the slots
-/// ([`slots_value`]).
+/// ([`slots_value`]); `observation` is the observation slot's verdict, under `[observe]`, whose
+/// cause is that slot's.
 pub fn executed_cause(
     slots: &[&str],
     run: &TestRun,
@@ -834,6 +949,7 @@ pub fn executed_cause(
     across: &[CrossRefusal],
     budget: Budget,
     census: Option<MutantCensus<'_>>,
+    observation: Option<&ObservationVerdict>,
 ) -> Option<String> {
     match run {
         TestRun::SkippedAfterKill => None,
@@ -880,7 +996,18 @@ pub fn executed_cause(
                 if *outcome == OracleOutcome::Agree {
                     continue;
                 }
-                let name = slots.get(slot).copied().unwrap_or("slot");
+                let name = slots.get(slot).copied().unwrap_or(OBSERVATION_SLOT);
+                if slot >= slots.len() {
+                    // The observation slot: its verdict says why it is not decided.
+                    let cause = observation
+                        .and_then(|verdict| verdict.cause.clone())
+                        .unwrap_or_else(|| slot_cause(*outcome, None, budget));
+                    match groups.iter_mut().find(|(_, existing)| *existing == cause) {
+                        Some((names, _)) => names.push(name),
+                        None => groups.push((vec![name], cause)),
+                    }
+                    continue;
+                }
                 // The mutant's own refusal first; the baseline's only when the mutant's side is
                 // otherwise a value.
                 let cross = refused(slot, false).or_else(|| {
@@ -1119,7 +1246,7 @@ pub fn survivors(mutations: &[Value]) -> Vec<Value> {
 
 /// The kill matrix of a full run (`run --full`), from its program rows (the `coverage` rows, in
 /// corpus order) and its mutation rows: `{programs: [{id, kills, sole_killer_of, undecided}]}`,
-/// one entry per program whose class is `comparable`, in corpus order (a list, since a JSON
+/// one entry per program that can kill (`comparable` or `comparable-prefix`), in corpus order (a list, since a JSON
 /// object would order the ids by name). `kills` are the mutations (in row order) whose
 /// `killed_by` holds the program, `sole_killer_of` those whose `killed_by` is exactly the
 /// program, and `undecided` those whose `executed` has an entry of the program with an outcome
@@ -1130,7 +1257,7 @@ pub fn survivors(mutations: &[Value]) -> Vec<Value> {
 pub fn matrix(programs: &[Value], mutations: &[Value]) -> Value {
     let comparable = programs
         .iter()
-        .filter(|row| row["class"] == ResultClass::Comparable.as_str())
+        .filter(|row| ResultClass::can_kill(&row["class"]))
         .map(|row| {
             let id = &row["id"];
             let ids = |keep: &dyn Fn(&Value) -> bool| {
@@ -1169,7 +1296,7 @@ pub fn matrix(programs: &[Value], mutations: &[Value]) -> Value {
 pub fn unusable_programs(programs: &[Value]) -> Vec<Value> {
     programs
         .iter()
-        .filter(|row| row["class"] != ResultClass::Comparable.as_str())
+        .filter(|row| !ResultClass::can_kill(&row["class"]))
         .map(|row| json!({"id": row["id"], "class": row["class"], "cause": row["cause"]}))
         .collect()
 }

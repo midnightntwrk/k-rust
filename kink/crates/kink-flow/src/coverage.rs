@@ -156,8 +156,12 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// end derives the flips (`settings.tiers` `[1, 2]`, the family's items, counts, measure and
 /// search, its targets and `summary.per_family.flips`); 4 since the document has its coverage
 /// lock (`lock`, null without `--lock`) and each flip its `recorded_killer` and `killer_change`,
-/// and `settings.depth` is the depth computed (`--depth`, else `[coverage] depth`).
-pub const COVERAGE_VERSION: u64 = 4;
+/// and `settings.depth` is the depth computed (`--depth`, else `[coverage] depth`); 5 since
+/// `[observe]`: a corpus with observation channels names the declaration (`observe`, absent
+/// without one), a program row carries the channels its baseline recorded and their horizons
+/// (`observations`), and a program whose baseline its deterministic bounds cut is
+/// `comparable-prefix`, a program that can kill by its channels.
+pub const COVERAGE_VERSION: u64 = 5;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -374,6 +378,9 @@ pub fn coverage_front(
         if let Some(stop) = manifest.stop_value() {
             document["stop"] = stop;
         }
+        if let Some(observe) = manifest.observe_value() {
+            document["observe"] = observe;
+        }
         document
     };
     // Tier 2 is computed only where it runs: the front end derives the flips and tier 1 alone
@@ -519,7 +526,10 @@ fn run_flips(
         .programs
         .iter()
         .zip(&context.update.rows)
-        .filter(|(_, row)| row.class() == Some(ResultClass::Comparable.as_str()))
+        .filter(|(_, row)| {
+            row.class()
+                .is_some_and(|class| ResultClass::can_kill(&json!(class)))
+        })
         .filter(|(_, row)| {
             row.record
                 .as_ref()
@@ -940,7 +950,7 @@ fn rule_items(
         let Some(record) = &row.record else {
             continue;
         };
-        let counted = record["class"] == ResultClass::Comparable.as_str();
+        let counted = ResultClass::can_kill(&record["class"]);
         if counted {
             comparable.push((program.id.as_str(), record));
         } else {
@@ -1288,7 +1298,7 @@ fn syntax_family(
         let Some(record) = &row.record else {
             continue;
         };
-        let slot = usize::from(record["class"] != ResultClass::Comparable.as_str());
+        let slot = usize::from(!ResultClass::can_kill(&record["class"]));
         let coverage = &record["coverage"];
         let mut seen: [BTreeSet<&str>; 3] = Default::default();
         for at in coverage["fired_sentences"]
@@ -2065,7 +2075,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     let programs = document["programs"].as_array().cloned().unwrap_or_default();
     let summary_programs = json!({
         "programs": programs.len(),
-        "comparable": programs.iter().filter(|p| p["class"] == "comparable").count(),
+        "comparable": programs.iter().filter(|p| ResultClass::can_kill(&p["class"])).count(),
         "computed": programs.iter().filter(|p| p["cached"] == false).count(),
         "mismatches": document["mismatches"].as_array().map_or(0, Vec::len),
     });
@@ -2828,7 +2838,7 @@ pub fn text(document: &Value) -> Result<String, String> {
         }
     }
     for program in document["programs"].as_array().into_iter().flatten() {
-        if program["class"] != "comparable" {
+        if !ResultClass::can_kill(&program["class"]) {
             out.push_str(&format!(
                 "program {}: {}, counts for nothing: {}\n",
                 program["id"].as_str().unwrap_or("?"),

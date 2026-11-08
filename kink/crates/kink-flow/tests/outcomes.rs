@@ -479,6 +479,7 @@ fn an_outcome_written_under_another_identity_is_ignored() {
         },
         None,
         None,
+        None,
     );
     assert_eq!(context["kink"], kink_campaign::kink_identity());
     let identity = kink_patch::sha256(b"mutation");
@@ -498,6 +499,7 @@ fn an_outcome_written_under_another_identity_is_ignored() {
         smt_unknowns: 0,
         decider_smt_unknowns: 0,
         allowance_bytes: None,
+        observation: serde_json::Value::Null,
     };
     let records = [(program.clone(), record)];
     let here = OutcomeStore::new(&cache, context.clone());
@@ -576,6 +578,7 @@ fn the_outcome_file_keeps_the_compiled_edit() {
                 smt_unknowns: 0,
                 decider_smt_unknowns: 0,
                 allowance_bytes: None,
+                observation: serde_json::Value::Null,
             },
         )
     };
@@ -729,6 +732,7 @@ fn an_unknown_record_says_why_and_no_other_record_has_a_cause() {
         smt_unknowns: 2,
         decider_smt_unknowns: 1,
         allowance_bytes: None,
+        observation: serde_json::Value::Null,
     };
     let unknown = record(
         CachedOutcome::Unknown,

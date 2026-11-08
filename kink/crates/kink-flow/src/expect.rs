@@ -218,6 +218,14 @@ fn check(
     stop: Option<&StopSection>,
 ) -> Result<CheckedExpectation, String> {
     let class = baseline.class;
+    if class == ResultClass::ComparablePrefix.as_str() {
+        return Err(
+            "the baseline run is `comparable-prefix`: its bounds cut it before it ended, so it \
+             has no end to check an end expectation against; it is compared by its observation \
+             channels only"
+                .to_owned(),
+        );
+    }
     if class != ResultClass::Comparable.as_str() {
         let cause = baseline
             .cause
