@@ -1296,11 +1296,21 @@ fn infer_readable_state(
                 builder.infer(&item.value, expected.as_ref(), subject)?;
             }
         }
-        State::Record(_) => {
-            return Err(DescriptorLoweringError::invalid_term(
-                builder.descriptor.id(),
-                "a group record of entries is not lowered yet",
-            ));
+        // A group record's children, each at its own cell's sort, as an instance's are; its
+        // head names the record and is no term the rule matches or writes.
+        State::Record(record) => {
+            let ProtocolCellContent::Nested { declaration } = &field.content else {
+                return Ok(());
+            };
+            let children = &declarations.cell(&declaration.declaration)?.fields;
+            for child in &record.fields {
+                if let Some(declared) = children
+                    .iter()
+                    .find(|candidate| candidate.rust_field == child.field)
+                {
+                    infer_readable_state(builder, declarations, declared, &child.value, subject)?;
+                }
+            }
         }
         State::Instances(instances) => {
             let ProtocolCellContent::Nested { declaration } = &field.content else {

@@ -62,7 +62,7 @@ by_test = { k8 = "S5" }
 ["S5-B1"]
 owner = "S5"
 kind = "bug"
-what = "a readable map below an entry's head, as a group record's Map child (`M { mm: { y -> x, .. }, .. }`, `M { mm: { y -> x }, .. }`), is the child's entry (P1, P2; S5.0g fixes review F-1; ruling R4), which the descriptor cannot carry: a group record's fields are terms. TRI-D carries the child's spelling to the collector, which answers the table's class first, and refuses an admitted one as not supported yet (`invalid-state-macro`); lowering it needs the cell term's field to carry an entry state, a schema step. `Some({ z -> y, .. })` on an optional Map leaf is read since TRI-D. Open: an instance update's exact map child (`aenv: { x -> 1 }`, g1-e)"
+what = "a readable map below an entry's head is the child's entry (P1, P2; S5.0g fixes review F-1; ruling R4). Since TRI-D2 a group record's Map child (`M { mm: { y -> x, .. }, .. }`, `M { mm: { y -> x }, .. }`) is read as the group record of its children's entries (`ProtocolRuleStateTerm::Record`) and lowered as the children's own cells; `Some({ z -> y, .. })` on an optional Map leaf is read since TRI-D. Since TRI-D2 an instance child's exact map (`aenv: { x -> 1 }`, g1-e) is its map state too; g1-e is then refused because `..me` names a stack element, not a labelled instance of the collection, which the table admits for g1-e while it refuses g1-c's same base as `instance-update-base-elsewhere`: open as a table question"
 
 ["S5-C2"]
 owner = "S5"
@@ -72,7 +72,7 @@ what = "a second computation cell (`code: [x, ..]` below a plain group) is refus
 ["S5-F2"]
 owner = "S5"
 kind = "bug"
-what = "a `cells!` group fragment's child is its cell's entry (ruling R4, TRI-D), which the descriptor carries as a term. A result child's `k::map![y -> x, ..]` answers the literal's `invalid-expression-notation`, a result child's `Some(..)`/`None` is read without the child and refused as not supported yet after the table answers (`collection-entry`), and a pattern child's map read is the limit (`invalid-state-macro`), said before a result entry's class since leaving the child out would unbind its names. Admitting a map child (`mm: k::map![y -> x, ..]`, `mm: k::map![y -> x]`, read today as the literal's calls, `function-in-pattern`) needs the cell term's field to carry an entry state, a schema step. Open: a nested group record's `..` in a result (`wg: Gw { wa: x, .. }`, c28)"
+what = "a `cells!` group fragment's child is its cell's entry (ruling R4, TRI-D). Since TRI-D2 a fragment with a `k::map![..]` child is the group record of its children's entries, so a pattern child's map read and a map child on either side are admitted, as the readable twins are; a result child's `k::map![y -> x, ..]` answers the literal's `invalid-expression-notation`, and a result child's `Some(..)`/`None` is read without the child and refused as not supported yet after the table answers (`collection-entry`). Open: a nested group record's `..` in a result (`wg: Gw { wa: x, .. }`, c28)"
 
 ["S5-G3"]
 owner = "S5"

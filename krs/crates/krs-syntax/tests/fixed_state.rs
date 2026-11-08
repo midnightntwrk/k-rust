@@ -1532,15 +1532,20 @@ fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
         "{:?}",
         list_rest.kind()
     );
-    let map_read = SyntaxErrorKind::InvalidStateMacro {
-        macro_name: "cells",
-        reason: "a `k::fragment!` child is its cell's entry, and a map read there, `k::map![k -> v, ..]`, is not supported yet",
-    };
+    // A map read in a pattern's child is the child's entry: the fragment is the group record of
+    // its children's entries (TRI-D2), the map child a map state.
     let source = "mcell: k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]";
-    let error =
+    let cells =
         krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
-            .unwrap_err();
-    assert_eq!(error.kind(), &map_read, "{source}");
+            .unwrap();
+    let krs_syntax::StateTerm::Record(record) = cells.entries()[0].value() else {
+        panic!("{source} is no group record");
+    };
+    assert!(record.is_open(), "{source}");
+    assert!(
+        matches!(record.fields()[0].value(), krs_syntax::StateTerm::Map(_)),
+        "{source}"
+    );
     let source = "mcell: k::fragment![crate::M { mm: k::map![y -> x, ..], mn: 0 }]";
     let error =
         krs_syntax::parse_cells_expression(krs_syntax::parse::tokens_from_source(source).unwrap())

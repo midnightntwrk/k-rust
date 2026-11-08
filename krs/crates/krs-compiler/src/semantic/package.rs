@@ -586,6 +586,10 @@ fn collect_initializer_state_packages(
 fn collect_rule_cells_packages(cells: &DescriptorRuleCells, packages: &mut BTreeSet<PackageId>) {
     for cell in &cells.cells {
         packages.insert(cell.field.cell.owner.package().clone());
+        // A record's head names a declaration of its package.
+        for head in cell.value.heads() {
+            collect_term_packages(head, packages);
+        }
         match &cell.value {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent

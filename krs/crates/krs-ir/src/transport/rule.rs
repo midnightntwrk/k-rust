@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::detail::{StateCellContentReason, StateTermReason, TransportField, TransportItemKind};
 use super::keys::{KeyFailure, WireKeys};
-use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
+use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shape};
 
 use super::validation::{TermValidation, ValidationStage, validate_term};
 use crate::host::HostTypeReference;
@@ -465,6 +465,36 @@ impl<T> ProtocolRuleStateTerm<T> {
     }
 }
 
+impl<T> ProtocolRuleStateTerm<T> {
+    /// The heads of the records the state holds (TRI-D2), in traversal order: a group record's,
+    /// each instance's that has one, and those of the records their children hold. A head names
+    /// the struct its record is of, so a pass that resolves or records declarations reads it,
+    /// though it is no term of the state ([`Self::terms`]).
+    #[must_use]
+    pub fn heads(&self) -> Vec<&T> {
+        match self {
+            Self::Record(record) => std::iter::once(&record.head)
+                .chain(record.fields.iter().flat_map(|field| field.value.heads()))
+                .collect(),
+            Self::Instances(instances) => instances
+                .front
+                .iter()
+                .chain(&instances.back)
+                .flat_map(|instance| {
+                    instance
+                        .head
+                        .iter()
+                        .chain(instance.fields.iter().flat_map(|field| field.value.heads()))
+                })
+                .collect(),
+            Self::Present { value } => value.heads(),
+            Self::Term(_) | Self::Group(_) | Self::KSequence(_) | Self::Map(_) | Self::Absent => {
+                Vec::new()
+            }
+        }
+    }
+}
+
 /// The delimiter of a collection-cell entry (KF-023, R8): braces for Set and
 /// Map collections, brackets for List collections.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -546,7 +576,7 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleRecord<T => term_map => T2> {
-        /// Exact record provenance.
+        /// The record's provenance: its head's node, the record's path.
         pub key: ProvenanceKey => [keep],
         /// The record's path read as the item-less pattern `P { .. }`: what
         /// the record names, never a term the rule matches or writes. The
@@ -557,6 +587,126 @@ protocol_shape! {
         pub fields: Vec<ProtocolRuleInstanceField<T>> => [vec nested term_map],
         /// The record's rest.
         pub rest: ProtocolRecordRest => [keep],
+    }
+}
+
+impl ProtocolRuleRecord<DescriptorTerm> {
+    /// The record of the group `group` that the cell term `term` is at a configuration position
+    /// of that group (ruling R4, TRI-D2): `term` read as its children's entries, each a term of
+    /// its child's content, and a fixed group child's own cell term its record in turn. `None`
+    /// for any other term: a binder, `_`, an alias, an update `Group { .., ..base }` (a term
+    /// built from its base), or the term of another declaration, which keeps its own reading.
+    #[must_use]
+    pub fn of_group_term(
+        term: &DescriptorTerm,
+        group: &StableItemId,
+        declarations: &crate::DescriptorIndex<'_>,
+    ) -> Option<Self> {
+        let Term::Cell {
+            key,
+            path_key,
+            declaration,
+            fields,
+            open,
+            update: None,
+        } = term
+        else {
+            return None;
+        };
+        if declaration != group {
+            return None;
+        }
+        let children = &declarations.cell(group).ok()?.fields;
+        let fields = fields
+            .iter()
+            .map(|field| {
+                let child = children
+                    .iter()
+                    .find(|child| child.rust_field == field.field.as_str())
+                    .and_then(|child| match &child.content {
+                        crate::ProtocolCellContent::Nested { declaration }
+                            if crate::cell_kind::CellView::multiplicity(
+                                &crate::cell_kind::DescriptorCell::new(child, declarations),
+                            ) == crate::cell_kind::Multiplicity::One =>
+                        {
+                            Some(&declaration.declaration)
+                        }
+                        _ => None,
+                    });
+                let value = match child {
+                    Some(child) => Self::of_group_term(&field.value, child, declarations)
+                        .map_or_else(
+                            || ProtocolRuleStateTerm::Group((*field.value).clone()),
+                            ProtocolRuleStateTerm::Record,
+                        ),
+                    None => ProtocolRuleStateTerm::Term((*field.value).clone()),
+                };
+                ProtocolRuleInstanceField {
+                    key: field.key.clone(),
+                    field: field.field.as_str().to_owned(),
+                    value,
+                }
+            })
+            .collect();
+        Some(Self {
+            key: key.clone(),
+            head: Term::Cell {
+                key: key.clone(),
+                path_key: path_key.clone(),
+                declaration: declaration.clone(),
+                fields: Vec::new(),
+                open: true,
+                update: None,
+            },
+            fields,
+            rest: if *open {
+                ProtocolRecordRest::Open
+            } else {
+                ProtocolRecordRest::Exact
+            },
+        })
+    }
+
+    /// The group cell term the record is when every child's entry is a term of its content:
+    /// the cell term over those terms, the children's own records included, which
+    /// [`Self::of_group_term`] reads back to the record. `None` when a child's entry is no term
+    /// (a map, a `?` cell's presence), or the head names no cell struct.
+    #[must_use]
+    pub fn group_term(&self) -> Option<DescriptorTerm> {
+        let Term::Cell {
+            path_key,
+            declaration,
+            ..
+        } = &self.head
+        else {
+            return None;
+        };
+        let fields = self
+            .fields
+            .iter()
+            .map(|field| {
+                let value = match &field.value {
+                    ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
+                        term.clone()
+                    }
+                    ProtocolRuleStateTerm::Record(record) => record.group_term()?,
+                    _ => return None,
+                };
+                Some(crate::CellTermField {
+                    key: field.key.clone(),
+                    field: crate::ProductionFieldId::new(field.field.clone()).ok()?,
+                    value: Box::new(value),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Term::Cell {
+            key: self.key.clone(),
+            path_key: path_key.clone(),
+            declaration: declaration.clone(),
+            fields,
+            open: matches!(self.rest, ProtocolRecordRest::Open),
+            update: None,
+        })
     }
 }
 
@@ -1247,15 +1397,28 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
         ProtocolRuleStateTerm::Present { value } => collect_state_keys(value, side, keys, term)?,
         ProtocolRuleStateTerm::Absent => {}
         ProtocolRuleStateTerm::Record(record) => {
-            define(keys, &record.key, RuleRole::CellsInstance)?;
+            // The record's node is its head's, the pattern `P { .. }` naming its struct, whose
+            // nodes carry the term roles of its side as every term the state holds does: a
+            // record read from its group's cell term keeps that term's
+            // ([`ProtocolRuleRecord::of_group_term`]).
+            term(&record.head, keys)?;
+            // A record's children are named as a record term's fields are, whichever spelling
+            // wrote the record.
+            let field_role = match side {
+                RuleSide::Left => ProvenanceRole::RuleLeftRecordFieldName,
+                RuleSide::Right => ProvenanceRole::RuleRightRecordFieldName,
+            };
             for field in &record.fields {
-                define(keys, &field.key, RuleRole::CellsInstanceField)?;
+                keys.define(&field.key, field_role)?;
                 collect_state_keys(&field.value, side, keys, term)?;
             }
         }
         ProtocolRuleStateTerm::Instances(instances) => {
             for instance in instances.front.iter().chain(&instances.back) {
                 define(keys, &instance.key, RuleRole::CellsInstance)?;
+                if let Some(head) = &instance.head {
+                    term(head, keys)?;
+                }
                 for field in &instance.fields {
                     define(keys, &field.key, RuleRole::CellsInstanceField)?;
                     collect_state_keys(&field.value, side, keys, term)?;
@@ -2397,9 +2560,16 @@ fn validate_rule_state<S: RuleValidationStage>(
         ProtocolRuleStateTerm::Instances(instances) => {
             validate_rule_instances::<S>(instances, side, bindings, discovered, walk, keys)
         }
-        // A group record's head names the record; it is no term the rule matches or writes, so
-        // only its children are validated, each named once and each its own cell's entry.
+        // A group record's head names the record; it is no term the rule matches or writes,
+        // only keyed as the item-less pattern it is. Its children are each named once and each
+        // its own cell's entry.
         ProtocolRuleStateTerm::Record(record) => {
+            if !is_record_head(&record.head) {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::InvalidInstanceEntry,
+                ));
+            }
+            validate_rule_term::<S>(&record.head, side.into(), bindings, discovered, walk, keys)?;
             let mut names = BTreeSet::new();
             for field in &record.fields {
                 if field.field.is_empty() || !names.insert(field.field.as_str()) {
@@ -2560,10 +2730,17 @@ fn validate_rule_instances<S: RuleValidationStage>(
             (ProtocolInstanceRest::Exact | ProtocolInstanceRest::Open, _) => true,
         };
         if !rest_valid
+            || instance
+                .head
+                .as_ref()
+                .is_some_and(|head| !is_record_head(head))
             || (side == RuleSide::Right && instance.label.is_some())
             || instance.label.as_ref().is_some_and(String::is_empty)
         {
             return Err(invalid());
+        }
+        if let Some(head) = &instance.head {
+            validate_rule_term::<S>(head, side.into(), bindings, discovered, walk, keys)?;
         }
         let mut names = BTreeSet::new();
         for field in &instance.fields {
@@ -2621,6 +2798,28 @@ fn validate_rule_instances<S: RuleValidationStage>(
         validate_instance(instance, discovered, walk, keys)?;
     }
     Ok(())
+}
+
+/// Whether `head` is a record's head (TRI-D2): the item-less pattern `P { .. }` its path reads
+/// as, a `k::fragment!` cell term or a record application naming no field and updating nothing.
+/// It says only which struct the record names, so it holds no field a rule could match or write.
+fn is_record_head<S: Stage>(head: &Term<S>) -> bool {
+    match head {
+        Term::Cell {
+            fields,
+            open,
+            update,
+            ..
+        } => fields.is_empty() && *open && update.is_none(),
+        Term::Application {
+            arguments,
+            instance,
+            open,
+            update,
+            ..
+        } => arguments.is_empty() && instance.is_empty() && *open && update.is_none(),
+        _ => false,
+    }
 }
 
 fn validate_k_shell<T>(sequence: &ProtocolRuleKSequence<T>) -> Result<(), StateTransportError> {

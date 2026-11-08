@@ -357,6 +357,10 @@ fn validate_rule_cells_references(
 ) -> Result<(), DescriptorLoweringError> {
     for cell in &cells.cells {
         require_cell_field(&cell.field.cell, declarations)?;
+        // A record's head names a declaration, which must exist as every reference's does.
+        for head in cell.value.heads() {
+            validate_structured_term_references(head, declarations)?;
+        }
         match &cell.value {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent

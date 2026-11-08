@@ -577,12 +577,30 @@ impl Patterns<'_> {
                 ProtocolRuleMapBody::Empty { .. } => Ok(()),
             },
             ProtocolRuleStateTerm::Present { value } => self.state(cell, value),
-            // A group record's children, each its own cell's state; its head is no term of the
-            // state.
-            ProtocolRuleStateTerm::Record(record) => record
-                .fields
-                .iter()
-                .try_for_each(|field| self.state(None, &field.value)),
+            // A group record's children, each its own cell's state, as if written as its own
+            // cell (a Set collection child among them); its head is no term of the state.
+            ProtocolRuleStateTerm::Record(record) => {
+                let children = cell
+                    .zip(self.declarations)
+                    .and_then(|(cell, declarations)| {
+                        let declared =
+                            super::references::require_cell_field(cell, declarations).ok()?;
+                        let krs_ir::ProtocolCellContent::Nested { declaration } = &declared.content
+                        else {
+                            return None;
+                        };
+                        Some(&declarations.cell(&declaration.declaration).ok()?.fields)
+                    });
+                record.fields.iter().try_for_each(|field| {
+                    let child = children.and_then(|children| {
+                        children
+                            .iter()
+                            .find(|child| child.rust_field == field.field)
+                            .map(|child| &child.reference.cell)
+                    });
+                    self.state(child, &field.value)
+                })
+            }
             ProtocolRuleStateTerm::Instances(instances) => self.instances(cell, instances),
             ProtocolRuleStateTerm::Absent => Ok(()),
         }

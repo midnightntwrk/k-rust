@@ -356,7 +356,7 @@ impl<'a> StateRuleTerms<'a> {
             )),
             ProtocolRuleStateTerm::Record(_) => Err(DescriptorLoweringError::invalid_term(
                 descriptor.id(),
-                "a group record of entries is not lowered yet",
+                "a group record stands where a cell's content belongs: it is a group cell's entry",
             )),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
@@ -801,6 +801,8 @@ pub(super) fn lower_configuration_rule_descriptor(
         "configuration rule",
         "configuration rules require a fixed configuration",
     )?;
+    let grouped = super::group_records::with_group_records(descriptor, rule, declarations)?;
+    let rule = grouped.as_ref().unwrap_or(rule);
     let overwritten = with_overwritten_cells(rule, declarations)?;
     let rule = overwritten.as_ref().unwrap_or(rule);
     let named = with_named_list_rests(descriptor, rule, declarations)?;

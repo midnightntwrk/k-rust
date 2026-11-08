@@ -13378,6 +13378,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/result/f05-mcell/k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<mm> V1:KItem |-> V2:KItem => V2:KItem |-> V0:Int </mm>
+<mn> _ => 0 </mn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/f12-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
 k = """
@@ -13506,8 +13514,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/subject/f00-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<mm> V0:KItem |-> V1:KItem ... </mm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/f01-mcell/k::fragment![crate::M { mm: k::map![y -> x], .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<mm> V0:KItem |-> V1:KItem </mm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/f07-hcell/k::fragment![crate::H { hl: [y, ..], .. }]"]
 k = """
@@ -14132,6 +14154,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<mm> V1:KItem |-> V2:KItem => V2:KItem |-> V0:Int </mm>
+<mn> _ => 0 </mn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/result/f12-hcell/H { hl: [x], hb: 0 }"]
 k = """
@@ -14367,8 +14397,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<mm> V0:KItem |-> V1:KItem ... </mm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/f01-mcell/M { mm: { y -> x }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<mm> V0:KItem |-> V1:KItem </mm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/f07-hcell/H { hl: [y, ..], .. }"]
 k = """
@@ -16058,6 +16102,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<mm> V1:KItem |-> V2:KItem => V2:KItem |-> V0:Int </mm>
+<mn> _ => 0 </mn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/result/f12-hcell/H { hl: [x], hb: 0 }"]
 k = """
@@ -16293,8 +16345,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<mm> V0:KItem |-> V1:KItem ... </mm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/f01-mcell/M { mm: { y -> x }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<mm> V0:KItem |-> V1:KItem </mm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/f07-hcell/H { hl: [y, ..], .. }"]
 k = """

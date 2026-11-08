@@ -236,7 +236,10 @@ mod tests {
             StateTerm::Map(map) => {
                 round_trip.sentence(label, map.provenance(), |nodes| map.keyed_nodes(nodes));
             }
-            StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+            StateTerm::Present(_)
+            | StateTerm::Absent(_)
+            | StateTerm::Instances(_)
+            | StateTerm::Record(_) => {
                 for nested in state.nested_states() {
                     embedded_state(nested, label, round_trip);
                 }

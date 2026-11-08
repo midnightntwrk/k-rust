@@ -216,23 +216,11 @@ match = 'k8/terms/readable/map-key/or-branch/{!(x < 1),Cmd::Go,Cmd::Go(),Cmd::Ho
 finding = "S0-14"
 kind = "k8"
 
-# S0-9, diagnostic: 210 reds
+# S0-9, diagnostic: 208 reds
 
 # sweep: 2
 [[family]]
 match = 'sweep/cells/written/olist/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/f02-mcell/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/f04-mcell/k::fragment![crate::M \{ mm: k::map![y -> x]\, mn: 0 \}]'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -754,7 +742,7 @@ deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
@@ -774,7 +762,7 @@ deviation = "krs::expand::parse @ spelling"
 
 ["readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 # S5.3 part 2: readable and claim reds the sentence-order rulings move (a readable route is S5.2's):
 # a result case on a cell below a marked ancestor whose subject now matches the cell through the ancestor
@@ -798,30 +786,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/readable/written/job/[x, r @ ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
-finding = "S5-B1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/claim/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
-finding = "S5-B1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/claim/subject/f01-mcell/M { mm: { y -> x }, .. }"]
-finding = "S5-B1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/readable/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
-finding = "S5-B1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/readable/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
-finding = "S5-B1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/readable/subject/f01-mcell/M { mm: { y -> x }, .. }"]
-finding = "S5-B1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/c12-tjob/[k::fragment![crate::T { tk: [x], tn: 0 }], ..]"]
 finding = "S5-C2"
@@ -855,21 +819,9 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
-["sweep/cells/result/f05-mcell/k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::function-in-pattern @ item"
-
 ["sweep/cells/result/f19-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/cells/subject/f00-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]"]
-finding = "S5-F2"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/subject/f01-mcell/k::fragment![crate::M { mm: k::map![y -> x], .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::function-in-pattern @ spelling"
 
 ["sweep/cells/subject/f14-ccell/k::fragment![crate::C { cc: [y, ..], .. }]"]
 finding = "S5-C2"

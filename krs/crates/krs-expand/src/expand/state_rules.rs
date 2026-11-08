@@ -821,6 +821,31 @@ impl<'a> StateRuleBuilder<'a> {
             StateTerm::Instances(list) => Ok(ProtocolRuleStateTerm::Instances(
                 self.expand_instances(list, slots)?,
             )),
+            // A group record of entries: its head names the struct, as an instance's does, and
+            // each child is that child cell's entry.
+            StateTerm::Record(record) => {
+                let ledger = self.terms.ledger;
+                let head = self.expand_head(record.head(), slots)?;
+                let key = head_key(&head)?;
+                let mut fields = Vec::new();
+                for field in record.fields() {
+                    fields.push(krs_ir::ProtocolRuleInstanceField {
+                        key: ledger.define(field.name_key())?,
+                        field: field.name().to_string(),
+                        value: self.expand_state(field.value(), slots)?,
+                    });
+                }
+                Ok(ProtocolRuleStateTerm::Record(krs_ir::ProtocolRuleRecord {
+                    key,
+                    head,
+                    fields,
+                    rest: if record.is_open() {
+                        krs_ir::ProtocolRecordRest::Open
+                    } else {
+                        krs_ir::ProtocolRecordRest::Exact
+                    },
+                }))
+            }
         }
     }
 
@@ -873,6 +898,10 @@ impl<'a> StateRuleBuilder<'a> {
     ) -> crate::Result<krs_ir::ProtocolRuleInstance<WireTerm>> {
         let ledger = self.terms.ledger;
         let key = ledger.define(item.key())?;
+        let head = item
+            .head()
+            .map(|head| self.expand_head(head, slots))
+            .transpose()?;
         let mut fields = Vec::new();
         for field in item.fields() {
             // A `?` cell's `Some(..)` or `None` inside a record a readable claim's instance child
@@ -890,7 +919,7 @@ impl<'a> StateRuleBuilder<'a> {
         Ok(krs_ir::ProtocolRuleInstance {
             key,
             label: item.label().map(ToString::to_string),
-            head: None,
+            head,
             fields,
             rest: instance_rest(item.rest()),
         })
@@ -943,6 +972,17 @@ impl<'a> StateRuleBuilder<'a> {
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
         let side = self.term_side();
         map_wire(&mut self.terms, side, map, slots)
+    }
+
+    /// Expands a record's head, the pattern `P { .. }` naming its struct: a pattern on either
+    /// side, since it matches and writes nothing.
+    fn expand_head(
+        &mut self,
+        head: &krs_syntax::TermExpression,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        self.terms
+            .expand_wire(KeyedTerm::of(head), TermSide::Left, slots)
     }
 
     /// Expands one term the configuration holds, at the side's slot.
@@ -1028,6 +1068,20 @@ pub(super) fn map_wire(
         },
     };
     Ok(ProtocolRuleMap { payload_key, body })
+}
+
+/// A group record's key, its head's node ([`krs_ir::ProtocolRuleRecord::key`]): the path of
+/// the item-less pattern `P { .. }`, a `k::fragment!` cell term's or a record application's.
+pub(super) fn head_key(head: &WireTerm) -> crate::Result<krs_ir::ProvenanceKey> {
+    match head {
+        krs_ir::Term::Cell { key, .. } => Ok(key.clone()),
+        krs_ir::Term::Application { reference, .. } => Ok(reference.key.clone()),
+        _ => Err(ExpandError::new(
+            expand::CELL_STATE_FAMILY_MISMATCH,
+            proc_macro2::Span::call_site(),
+            "a record's head is the pattern `P { .. }` its path reads as",
+        )),
+    }
 }
 
 /// The wire form of an instance record's rest (KF-023).

@@ -94,8 +94,13 @@ impl<'a> MapBase<'a> {
         let Some(IrTermKind::Map(operands)) = before.map(SemanticTerm::kind) else {
             return Ok(Self::Unmatched);
         };
-        let MapOperands::Items(entries) = &**operands else {
-            return Ok(Self::Unmatched);
+        // A subject that names no entry, only its rest (`map![rest @ ..]`), matches the whole
+        // map as that rest: its keys are none, and a result is written over the rest as over
+        // the rest of a map read.
+        let keys = match &**operands {
+            MapOperands::Items(entries) => entries.iter().map(|entry| &entry.key).collect(),
+            MapOperands::Empty if subject.and_then(subject_map_frame).is_some() => Vec::new(),
+            _ => return Ok(Self::Unmatched),
         };
         let whole_content = result.is_some_and(|result| {
             !matches!(
@@ -124,10 +129,7 @@ impl<'a> MapBase<'a> {
             }),
             _ => None,
         };
-        Ok(Self::Matched {
-            keys: entries.iter().map(|entry| &entry.key).collect(),
-            remainder,
-        })
+        Ok(Self::Matched { keys, remainder })
     }
 
     /// Whether the subject leaves a remainder the result is written over.

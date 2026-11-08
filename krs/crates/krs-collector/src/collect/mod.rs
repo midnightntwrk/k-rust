@@ -624,6 +624,7 @@ fn resolve_pending_descriptors(
                     .map_err(|failure| descriptor_contract_error(*failure, misreads))
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let resolved = with_group_records(resolved)?;
         let settings = contexts.iter().map(|context| PackageSettings {
             package: context.package.clone(),
             crate_name: Some(context.crate_root.clone()),
@@ -644,6 +645,81 @@ fn resolve_pending_descriptors(
         warnings.extend(cell_entries::judge(&bundle, &authored_cells)?);
         Ok(Collected { bundle, warnings })
     })
+}
+
+/// `descriptors` with each `cells!` rule's group record read as the record of its children's
+/// entries (ruling R4, TRI-D2): a `k::fragment![Group { .. }]` that names its cell's own group,
+/// the entry's value or the content of `Some(..)`, is that group's
+/// [`krs_ir::ProtocolRuleStateTerm::Record`], which a fragment with a child entry no term spells
+/// already is. A group record at a configuration position then has one representation. A binder,
+/// `_`, an alias, an update `Group { .., ..base }`, and the fragment of another struct keep their
+/// term, which only names the group whole or is refused as it is.
+fn with_group_records(descriptors: Vec<Descriptor>) -> Result<Vec<Descriptor>, CollectionError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let index = krs_ir::DescriptorIndex::from_descriptors(&descriptors);
+    let record = |cell: &krs_ir::ProtocolRuleCell<
+        krs_ir::DescriptorCellReference,
+        krs_ir::DescriptorTerm,
+    >,
+                  term: &krs_ir::DescriptorTerm| {
+        let declared = index
+            .cell_owner(&cell.field.cell.owner)
+            .ok()?
+            .fields
+            .iter()
+            .find(|field| field.reference.cell == cell.field.cell)?;
+        let krs_ir::ProtocolCellContent::Nested { declaration } = &declared.content else {
+            return None;
+        };
+        krs_ir::ProtocolRuleRecord::of_group_term(term, &declaration.declaration, &index)
+    };
+    let mut rebuilt = Vec::new();
+    for (position, descriptor) in descriptors.iter().enumerate() {
+        let krs_ir::DescriptorPayload::ConfigurationRule(rule) = descriptor.payload() else {
+            continue;
+        };
+        let mut rule = rule.clone();
+        let mut changed = false;
+        for cell in rule
+            .subject
+            .cells
+            .iter_mut()
+            .chain(rule.result.iter_mut().flat_map(|result| &mut result.cells))
+        {
+            let read = match &cell.value {
+                State::Group(term) => record(cell, term).map(State::Record),
+                State::Present { value } => match &**value {
+                    State::Group(term) => record(cell, term).map(|record| State::Present {
+                        value: Box::new(State::Record(record)),
+                    }),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(read) = read {
+                cell.value = read;
+                changed = true;
+            }
+        }
+        if changed {
+            rebuilt.push((position, rule));
+        }
+    }
+    if rebuilt.is_empty() {
+        return Ok(descriptors);
+    }
+    let mut descriptors = descriptors;
+    for (position, rule) in rebuilt {
+        let descriptor = &descriptors[position];
+        descriptors[position] = Descriptor::new_located(
+            descriptor.id().clone(),
+            descriptor.cfg().clone(),
+            descriptor.provenance().clone(),
+            krs_ir::DescriptorPayload::ConfigurationRule(rule),
+        )
+        .map_err(|failure| descriptor_contract_error(*failure, false))?;
+    }
+    Ok(descriptors)
 }
 
 /// The provenance of a resolved descriptor: the anchors of a reading the

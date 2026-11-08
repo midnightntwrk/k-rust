@@ -591,8 +591,18 @@ impl Elaborator<'_> {
         let content = |field: &krs_ir::DescriptorCellReference, term: &DescriptorTerm| {
             let declared = require_cell_field(&field.cell, self.declarations)
                 .map_err(|_| Unelaborated("a cell the declarations lack"))?;
-            let value = if matches!(declared.content, ProtocolCellContent::Nested { .. }) {
-                ProtocolRuleStateTerm::Group(term.clone())
+            // A group's record there is the record of its children's entries (R4), one
+            // representation for every group record at a configuration position.
+            let value = if let ProtocolCellContent::Nested { declaration } = &declared.content {
+                super::group_records::record_of_cell(
+                    term,
+                    &declaration.declaration,
+                    self.declarations,
+                )
+                .map_or_else(
+                    || ProtocolRuleStateTerm::Group(term.clone()),
+                    ProtocolRuleStateTerm::Record,
+                )
             } else {
                 ProtocolRuleStateTerm::Term(term.clone())
             };
@@ -702,6 +712,12 @@ impl Elaborator<'_> {
                 // against the cell's multiplicity as it judges an authored entry.
                 let state = |state: &ProtocolRuleStateTerm<DescriptorTerm>| match state {
                     ProtocolRuleStateTerm::Absent => Ok(ProtocolRuleStateTerm::Absent),
+                    // A group record of entries stays as written; the group's result term it
+                    // pairs with is the group's entry, as a rewritten cell's is.
+                    ProtocolRuleStateTerm::Record(record) => {
+                        Ok(ProtocolRuleStateTerm::Record(record.clone()))
+                    }
+                    ProtocolRuleStateTerm::Term(term) => content(field, term),
                     ProtocolRuleStateTerm::Present { value } => match &**value {
                         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
                             let declared = require_cell_field(&field.cell, self.declarations)

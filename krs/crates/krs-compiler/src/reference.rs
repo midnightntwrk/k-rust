@@ -2979,10 +2979,73 @@ fn render_leaf_state(
             quote!(Some(#value))
         }
         State::Absent => quote!(None),
-        State::KSequence(_) | State::Map(_) | State::Record(_) | State::Instances(_) => {
+        // A group record whose children are all terms is the group's cell term, written as a
+        // group entry is; one with a child entry no term spells is written as the record of its
+        // children's entries.
+        State::Record(record) => match crate::semantic::group_records::record_term(record) {
+            Some(term) => render_term(&term, pattern, package, bundle)?,
+            None => render_group_record(record, pattern, package, bundle)?,
+        },
+        State::KSequence(_) | State::Map(_) | State::Instances(_) => {
             return Err(ReferenceExpansionError::UnsupportedState);
         }
     })
+}
+
+/// A group record of entries, `k::fragment![Group { child: entry, .. }]`: each child written as
+/// a `cells!` fragment writes its cell's content, a map child `k::map![..]`, which re-reads to
+/// the same record ([`render_leaf_state`]).
+fn render_group_record(
+    record: &krs_ir::ProtocolRuleRecord<DescriptorTerm>,
+    pattern: bool,
+    package: PathScope<'_>,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let DescriptorTerm::Cell { declaration, .. } = &record.head else {
+        return Err(ReferenceExpansionError::UnsupportedState);
+    };
+    let owner = render_declared_path(declaration, package)?;
+    let fields = record
+        .fields
+        .iter()
+        .map(|field| {
+            let name = rust_ident(&field.field)?;
+            let value = match &field.value {
+                State::Term(term) | State::Group(term) => {
+                    render_term(term, pattern, package, bundle)?
+                }
+                State::Record(record) => {
+                    match crate::semantic::group_records::record_term(record) {
+                        Some(term) => render_term(&term, pattern, package, bundle)?,
+                        None => render_group_record(record, pattern, package, bundle)?,
+                    }
+                }
+                State::Map(krs_ir::ProtocolRuleMap {
+                    body: krs_ir::ProtocolRuleMapBody::Items { items, remainder },
+                    ..
+                }) => {
+                    let entries = items
+                        .iter()
+                        .map(|item| {
+                            let key = render_term(&item.key, pattern, package, bundle)?;
+                            let value = render_term(&item.value, pattern, package, bundle)?;
+                            Ok(quote!(#key -> #value))
+                        })
+                        .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+                    let parts = entries.into_iter().chain(render_frame(remainder)?);
+                    quote!(k::map![#(#parts),*])
+                }
+                _ => return Err(ReferenceExpansionError::UnsupportedState),
+            };
+            Ok((quote!(#name), value))
+        })
+        .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+    Ok(entries::print_record(
+        &owner,
+        &fields,
+        matches!(record.rest, krs_ir::ProtocolRecordRest::Open),
+    ))
 }
 
 /// A list cell's brackets on each side, `before` the subject's and `after` the result's.
@@ -3464,7 +3527,14 @@ fn render_instance(
             fields.push(quote!(..#label));
         }
     }
-    let path = &owner.path;
+    // The record names the struct its head names, which the collection's instances are.
+    let named = match &instance.head {
+        Some(DescriptorTerm::Cell { declaration, .. }) => {
+            Some(render_declared_path(declaration, package)?)
+        }
+        _ => None,
+    };
+    let path = named.as_ref().unwrap_or(&owner.path);
     let record = quote!(k::fragment![#path { #(#fields),* }]);
     Ok(match &instance.label {
         Some(label) => {

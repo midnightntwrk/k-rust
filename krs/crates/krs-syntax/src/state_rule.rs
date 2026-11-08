@@ -1721,7 +1721,10 @@ fn count_term_binding_occurrences_in_cells(cells: &CellsExpression, binding: &Id
 
 fn count_term_binding_occurrences_in_state(state: &StateTerm, binding: &Ident) -> usize {
     match state {
-        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => state
+        StateTerm::Present(_)
+        | StateTerm::Absent(_)
+        | StateTerm::Instances(_)
+        | StateTerm::Record(_) => state
             .nested_states()
             .into_iter()
             .map(|nested| count_term_binding_occurrences_in_state(nested, binding))
@@ -1776,6 +1779,12 @@ fn collect_state_term_bindings(
                 for field in instance.fields() {
                     collect_state_term_bindings(field.value(), output)?;
                 }
+            }
+            Ok(())
+        }
+        StateTerm::Record(record) => {
+            for field in record.fields() {
+                collect_state_term_bindings(field.value(), output)?;
             }
             Ok(())
         }
@@ -1961,6 +1970,11 @@ fn validate_state_reuses(
             }
             remainder(list.rest(), StateRuleBindingKind::InstancesFrame)?;
         }
+        StateTerm::Record(_) => {
+            for nested in state.nested_states() {
+                validate_state_reuses(nested, bindings, check)?;
+            }
+        }
         StateTerm::Term(term) | StateTerm::Group(term) => terms(term)?,
         StateTerm::KSequence(sequence) => {
             for item in sequence.items() {
@@ -2112,6 +2126,10 @@ fn allocate_state_term_keys(
             }
             Ok(())
         }
+        // The record, its head, then each child's name followed by its state.
+        StateTerm::Record(record) => record.allocate_keys(keys, position, &mut |keys, state| {
+            allocate_state_term_keys(keys, state, side)
+        }),
         StateTerm::Term(term) | StateTerm::Group(term) => allocate_term_keys(keys, term, side),
         StateTerm::KSequence(sequence) => {
             sequence.allocate_keys(keys, position)?;
@@ -2410,7 +2428,10 @@ fn append_state_terms<'a>(state: &'a StateTerm, output: &mut Vec<&'a TermExpress
         StateTerm::Term(term) | StateTerm::Group(term) => output.push(term),
         StateTerm::KSequence(sequence) => output.extend(sequence.items().iter()),
         StateTerm::Map(map) => output.extend(map_terms(map)),
-        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+        StateTerm::Present(_)
+        | StateTerm::Absent(_)
+        | StateTerm::Instances(_)
+        | StateTerm::Record(_) => {
             for nested in state.nested_states() {
                 append_state_terms(nested, output);
             }

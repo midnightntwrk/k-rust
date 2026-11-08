@@ -48,6 +48,8 @@ pub enum ExpSyntax {
     Hex { a: Int },
     #[k::syntax("whole({a},{b})")]
     Whole { a: Int, b: Int },
+    #[k::syntax("rest({a},{b})")]
+    Rest { a: Int, b: Int },
     #[k::syntax("opt({a})")]
     Opt { a: Int },
     #[k::syntax("slot({a})")]
@@ -208,6 +210,25 @@ fn whole(
     k::cells! {
         k: k::configuration::KCell(ExpSyntax::Whole(a, b), tail @ ..),
         env: k::configuration::Cell(e),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 1, b -> 2, ..e]),
+        ..state
+    }
+}
+
+/// `map![e @ ..]` names no entry, only the map's rest: `e` is the whole map, as `Cell(e)` binds
+/// it in `whole`.
+#[k::rule(label = "rest")]
+fn rest(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Rest(a, b), tail @ ..),
+        env: k::configuration::Cell(map![e @ ..]),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -666,6 +687,8 @@ fn a_built_cell_map_emits_the_join_where_it_has_the_value_and_the_chain_otherwis
         <env> A:Int |-> V:Int Rest:Map => A:Int |-> 10 Rest:Map </env>
         rule [put]:
         <env> E:Map => E:Map [ A:Int <- V:Int ] </env>
+        rule [rest]:
+        <env> .Map E:Map => E:Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>
         rule [slot]:
         <slots> A:Int |-> V:Int Rest:Map => A:Int |-> 5 Rest:Map </slots>
         rule [slotb]:
@@ -766,6 +789,8 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
         ("two(3,4)", "5", "6"),
         ("whole(5,5)", "5", "6"),
         ("whole(3,4)", "5", "6"),
+        ("rest(5,5)", "5", "6"),
+        ("rest(3,4)", "5", "6"),
         ("moved(3,4)", "3", "4"),
         ("moved(3,5)", "3", "4"),
         ("moved(3,3)", "3", "4"),
@@ -826,6 +851,8 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
             "two(3,4) with A=5 B=6 => env: 3 |-> 1 4 |-> 2",
             "whole(5,5) with A=5 B=6 => env: 5 |-> 2 6 |-> 2",
             "whole(3,4) with A=5 B=6 => env: 3 |-> 1 4 |-> 2 5 |-> 1 6 |-> 2",
+            "rest(5,5) with A=5 B=6 => env: 5 |-> 2 6 |-> 2",
+            "rest(3,4) with A=5 B=6 => env: 3 |-> 1 4 |-> 2 5 |-> 1 6 |-> 2",
             "moved(3,4) with A=3 B=4 => env: 3 |-> 10 4 |-> 1",
             "moved(3,5) with A=3 B=4 => env: 3 |-> 10 4 |-> 2 5 |-> 1",
             "moved(3,3) with A=3 B=4 => env: 3 |-> 1 4 |-> 2",

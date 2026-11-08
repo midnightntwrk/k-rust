@@ -479,6 +479,7 @@ pub(super) fn lower_optional_clause(
 /// One collection instance's resolved children: the declaration's fields by
 /// Rust name.
 struct InstanceDeclaration<'a> {
+    id: StableItemId,
     name: String,
     fields: &'a [DescriptorCellField],
 }
@@ -550,6 +551,7 @@ pub(super) fn lower_instances_clause(
         }
     }
     let instance_declaration = InstanceDeclaration {
+        id: declaration.declaration.clone(),
         name: declaration.declaration.item_name().to_owned(),
         fields: &declarations.cell(&declaration.declaration)?.fields,
     };
@@ -825,6 +827,34 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         }
     }
 
+    /// Refuses an instance record whose head names another struct than the collection's
+    /// instance cell: the record says which struct it is of, and a collection holds instances of
+    /// one (TRI-D2).
+    fn head(
+        &self,
+        instance: &ProtocolRuleInstance<DescriptorTerm>,
+    ) -> Result<(), DescriptorLoweringError> {
+        let Some(head) = &instance.head else {
+            return Ok(());
+        };
+        let named = match head {
+            DescriptorTerm::Cell { declaration, .. } if *declaration == self.declaration.id => {
+                return Ok(());
+            }
+            DescriptorTerm::Cell { declaration, .. } => format!("`{}`", declaration.item_name()),
+            _ => "no `#[k::cell]` struct".to_owned(),
+        };
+        Err(collection_error(
+            self.descriptor,
+            codes::analysis::COLLECTION_ENTRY,
+            &instance.key,
+            format!(
+                "the instance record names {named}, and `{}`'s instances are `{}`",
+                self.collection.cell.field, self.declaration.name
+            ),
+        ))
+    }
+
     fn child<'d>(
         &self,
         instance: &ProtocolRuleInstance<DescriptorTerm>,
@@ -870,6 +900,10 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         result: Option<&ProtocolRuleInstance<DescriptorTerm>>,
     ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
         let descriptor = self.descriptor;
+        self.head(subject)?;
+        if let Some(result) = result {
+            self.head(result)?;
+        }
         // A child the result writes and the pattern instance does not name is overwritten
         // inside the matched instance (Q1): the pattern matches it by any content, `<c> _ => v
         // </c>`. A Map collection's key is the instance's identity, so writing it is the key
@@ -1072,6 +1106,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         &mut self,
         subject: &ProtocolRuleInstance<DescriptorTerm>,
     ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+        self.head(subject)?;
         Ok(InstanceClause::Removed {
             origin: semantic_origin(self.descriptor, subject.key.clone(), "rule-instance")?,
             label: subject.label.clone(),
@@ -1086,6 +1121,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         result: &ProtocolRuleInstance<DescriptorTerm>,
     ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
         let descriptor = self.descriptor;
+        self.head(result)?;
         let named = result
             .fields
             .iter()

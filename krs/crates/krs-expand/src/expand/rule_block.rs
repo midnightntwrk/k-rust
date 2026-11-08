@@ -887,6 +887,34 @@ fn readable_state_wire(
                 super::state_rules::map_wire(builder, term_side, map, context.slots)
             })?)
         }
+        // A group record of entries: its head names the struct, as an instance's does, and each
+        // child is that child cell's entry.
+        StateTerm::Record(record) => {
+            let head = context.builder.expand_wire(
+                KeyedTerm::of(record.head()),
+                TermSide::Left,
+                context.slots,
+            )?;
+            let key = super::state_rules::head_key(&head)?;
+            let mut fields = Vec::new();
+            for field in record.fields() {
+                fields.push(krs_ir::ProtocolRuleInstanceField {
+                    key: ledger.define(field.name_key())?,
+                    field: field.name().to_string(),
+                    value: readable_state_wire(field.value(), context)?,
+                });
+            }
+            State::Record(krs_ir::ProtocolRuleRecord {
+                key,
+                head,
+                fields,
+                rest: if record.is_open() {
+                    krs_ir::ProtocolRecordRest::Open
+                } else {
+                    krs_ir::ProtocolRecordRest::Exact
+                },
+            })
+        }
         StateTerm::Instances(list) => {
             let instance = |item: &krs_syntax::InstanceItem,
                             context: &mut ReadableStateContext<'_, '_>|
@@ -894,6 +922,18 @@ fn readable_state_wire(
                 krs_ir::ProtocolRuleInstance<krs_ir::wire::WireTerm>,
             > {
                 let key = ledger.define(item.key())?;
+                // The head names the record's struct; it is the pattern `P { .. }` on either
+                // side, matching and writing nothing.
+                let head = item
+                    .head()
+                    .map(|head| {
+                        context.builder.expand_wire(
+                            KeyedTerm::of(head),
+                            TermSide::Left,
+                            context.slots,
+                        )
+                    })
+                    .transpose()?;
                 let mut fields = Vec::new();
                 for field in item.fields() {
                     // `Some(..)` or `None` inside a record an instance child writes is a `?`
@@ -913,7 +953,7 @@ fn readable_state_wire(
                 Ok(krs_ir::ProtocolRuleInstance {
                     key,
                     label: item.label().map(ToString::to_string),
-                    head: None,
+                    head,
                     fields,
                     rest: super::state_rules::instance_rest(item.rest()),
                 })

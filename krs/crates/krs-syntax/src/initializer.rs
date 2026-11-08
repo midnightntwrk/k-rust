@@ -1525,7 +1525,10 @@ fn allocate_state_term_keys(
 ) -> Result<(), SyntaxError> {
     match value {
         // Initializers hold templates only, never `Some`/`None` or instance lists.
-        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
+        StateTerm::Present(_)
+        | StateTerm::Absent(_)
+        | StateTerm::Instances(_)
+        | StateTerm::Record(_) => Ok(()),
         StateTerm::Term(term) | StateTerm::Group(term) => allocate_term_keys(keys, term),
         StateTerm::KSequence(sequence) => {
             sequence.allocate_keys(keys, StatePosition::Standalone)?;

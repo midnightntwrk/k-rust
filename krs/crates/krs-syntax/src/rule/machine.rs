@@ -104,13 +104,15 @@ struct KPattern {
 enum StateFamily {
     Optional,
     Instances,
+    /// A group record of entries, which pairs with a result record or a result term.
+    Record,
 }
 
 fn state_family(state: &StateTerm) -> StateFamily {
-    if matches!(state, StateTerm::Instances(_)) {
-        StateFamily::Instances
-    } else {
-        StateFamily::Optional
+    match state {
+        StateTerm::Instances(_) => StateFamily::Instances,
+        StateTerm::Record(_) => StateFamily::Record,
+        _ => StateFamily::Optional,
     }
 }
 
@@ -284,6 +286,10 @@ fn parse_readable_result_state(
                 StateMacroContext::Expression,
             )?))
         }
+        StateFamily::Record => Err(readable_error(
+            input.span(),
+            "a group cell's result is the group's record or a term of its cell sort",
+        )),
     }
 }
 
@@ -560,7 +566,7 @@ fn parse_readable_instance(
             parse_readable_child(name, value, context, braced)?,
         ));
     }
-    Ok(InstanceItem::new(range, label, owner, fields, rest))
+    Ok(InstanceItem::new(range, label, owner, fields, rest)?)
 }
 
 /// One readable instance child `name`: `[items.., ..]` for a computation cell
@@ -617,6 +623,18 @@ fn parse_readable_child(
             )
             .into());
         }
+        return Ok(StateTerm::Map(crate::state_macro::parse_map(
+            group.stream(),
+            context,
+            Some(TokenRange::for_tokens(&tokens)?),
+        )?));
+    }
+    // A map cell's entries, all of them, `{ k -> v }`: the map the child holds, on either side,
+    // as a `cells!` instance writes `map![k -> v]`.
+    if let [TokenTree::Group(group)] = trees.as_slice()
+        && group.delimiter() == proc_macro2::Delimiter::Brace
+        && contains_top_level_arrow(group)
+    {
         return Ok(StateTerm::Map(crate::state_macro::parse_map(
             group.stream(),
             context,
@@ -778,6 +796,8 @@ fn parse_machine_pattern_record(
         } else if let Some(error) = record_child_entry(&content, true) {
             skip_value(&content)?;
             MachinePatternCell::Refused(Box::new(error))
+        } else if let Some(record) = readable_record(&content, StateMacroContext::Pattern)? {
+            MachinePatternCell::State(Box::new(StateTerm::Record(Box::new(record))))
         } else {
             let (pattern, signs) = parse_pattern_with_signs(&content)?;
             let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
@@ -917,6 +937,10 @@ fn item_less_presences(record: &TokenTree) -> Vec<Ident> {
         .collect()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One reading per result value spelling, tried in the table's order."
+)]
 fn parse_machine_result_record(
     input: ParseStream<'_>,
     states: &[(Ident, StateFamily)],
@@ -1034,6 +1058,8 @@ fn parse_machine_result_record(
         } else if let Some(error) = record_child_entry(&content, false) {
             skip_value(&content)?;
             MachineResultCell::Refused(Box::new(error))
+        } else if let Some(record) = readable_record(&content, StateMacroContext::Expression)? {
+            MachineResultCell::State(Box::new(StateTerm::Record(Box::new(record))))
         } else {
             MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
         };
@@ -1049,15 +1075,14 @@ fn parse_machine_result_record(
     Ok(cells)
 }
 
-/// The refusal a readable record value carries when it is a group record `Group { .. }` one of
-/// whose children is spelled as that child cell's entry, which no term spells: a map
-/// `{ k -> v, .. }` or `{ k -> v }`, or a `?` cell's `Some(..)` or `None`. At a configuration
-/// position a group record's child is its cell's entry, read by the child's declared kind
-/// (ruling R4), which the collector judges from the authored spelling, before this. The
-/// descriptor carries a record's children as terms, so no reading writes such a child yet, a
-/// stated limitation: the cell is neither read nor written, and the refusal carried
-/// ([`read_with_pairing_deferred`]). A map read in a result is a pattern where a value is built,
-/// the class `map-read-in-result`. `None` for every other value, which is read as a term.
+/// The refusal a readable record value `Group { .. }` carries when one of its children is
+/// spelled as an entry that no reading writes: a `?` cell's `Some(..)` or `None` (no term, and
+/// in a group record the `?` child's entry, which a group record does not name yet), or a map
+/// read `{ k -> v, .. }` in a result, a pattern where a value is built (`map-read-in-result`). The
+/// collector judges the authored spelling first, by the child's declared kind (ruling R4), so
+/// the cell is neither read nor written and the refusal is carried
+/// ([`read_with_pairing_deferred`]). A map child otherwise is the child's map entry, which
+/// [`readable_record`] reads. `None` for every other value.
 fn record_child_entry(content: ParseStream<'_>, pattern: bool) -> Option<crate::SyntaxError> {
     let fork = content.fork();
     let mut value = Vec::new();
@@ -1088,24 +1113,20 @@ fn record_child_entry(content: ParseStream<'_>, pattern: bool) -> Option<crate::
                 if map.delimiter() == proc_macro2::Delimiter::Brace
                     && contains_top_level_arrow(map) =>
             {
+                // A map read in a pattern and an exact map anywhere are the child's entry, which
+                // the record's reading as a group record of entries reads ([`readable_record`]).
                 let read = top_level_items(map.stream()).last().is_some_and(is_dots);
-                let kind = if read && !pattern {
-                    crate::SyntaxErrorKind::RustSyntax(
-                        crate::cell_entries::Refusal::MapReadInResult.reason(
-                            crate::cell_entry::EntryForm::Readable,
-                            &child,
-                            &crate::cell_entries::EntryKind::default(),
-                            None,
-                        ),
-                    )
-                } else {
-                    crate::SyntaxErrorKind::InvalidStateMacro {
-                        macro_name: "rules",
-                        reason: "a map written as a record's field, `{ k -> v, .. }`, is no term: \
-                                 in a group record it is the child cell's entry, which a group \
-                                 record does not name yet",
-                    }
-                };
+                if pattern || !read {
+                    return None;
+                }
+                let kind = crate::SyntaxErrorKind::RustSyntax(
+                    crate::cell_entries::Refusal::MapReadInResult.reason(
+                        crate::cell_entry::EntryForm::Readable,
+                        &child,
+                        &crate::cell_entries::EntryKind::default(),
+                        None,
+                    ),
+                );
                 (kind, map.span())
             }
             [TokenTree::Ident(head), TokenTree::Group(inside)]
@@ -1124,6 +1145,90 @@ fn record_child_entry(content: ParseStream<'_>, pattern: bool) -> Option<crate::
         };
         Some(crate::SyntaxError::new(kind, span))
     })
+}
+
+/// The group record of entries a readable record value `Group { .. }` is when one of its
+/// children is spelled as that child cell's map entry, which no term spells (ruling R4): a map
+/// read `{ k -> v, .. }` in a pattern, or a map `{ k -> v }` that names every entry. The value is
+/// consumed. Whether `Group` names the cell's group or a constructor is its path's question, which
+/// the collector answers from the record's head; a constructor's field holds no map entry.
+/// `None`, consuming nothing, for any other value, read as a term.
+fn readable_record(
+    content: ParseStream<'_>,
+    reading: StateMacroContext,
+) -> Result<Option<crate::GroupRecord>, ParseError> {
+    let fork = content.fork();
+    let mut value = Vec::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.push(fork.parse::<TokenTree>()?);
+    }
+    let Some((TokenTree::Group(body), owner)) = value.split_last() else {
+        return Ok(None);
+    };
+    if body.delimiter() != proc_macro2::Delimiter::Brace || owner.is_empty() {
+        return Ok(None);
+    }
+    let Ok(owner) = syn::parse2::<Path>(owner.iter().cloned().collect()) else {
+        return Ok(None);
+    };
+    let map_child = |value: &[TokenTree]| match value {
+        [TokenTree::Group(map)] => {
+            map.delimiter() == proc_macro2::Delimiter::Brace && contains_top_level_arrow(map)
+        }
+        _ => false,
+    };
+    let items = top_level_items(body.stream());
+    let maps = items.iter().any(|item| {
+        let trees = item.clone().into_iter().collect::<Vec<_>>();
+        matches!(trees.as_slice(),
+            [TokenTree::Ident(_), TokenTree::Punct(colon), value @ ..]
+                if colon.as_char() == ':' && map_child(value))
+    });
+    if !maps || !is_plain_path(&owner) {
+        return Ok(None);
+    }
+    let count = items.len();
+    let mut fields: Vec<InstanceField> = Vec::new();
+    let mut open = None;
+    for (index, item) in items.into_iter().enumerate() {
+        let trees = item.clone().into_iter().collect::<Vec<_>>();
+        if is_dots(&item) && index + 1 == count {
+            open = Some(TokenRange::for_tokens(&item)?);
+            continue;
+        }
+        let (name, value) = match trees.as_slice() {
+            [TokenTree::Ident(name)] if name != "_" => (name, item.clone()),
+            [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..]
+                if colon.as_char() == ':' && !value.is_empty() =>
+            {
+                (name, value.iter().cloned().collect::<TokenStream>())
+            }
+            _ => return Ok(None),
+        };
+        if fields.iter().any(|field| field.name() == name) {
+            return Ok(None);
+        }
+        let state = match value.clone().into_iter().collect::<Vec<_>>().as_slice() {
+            [TokenTree::Group(map)]
+                if map.delimiter() == proc_macro2::Delimiter::Brace
+                    && contains_top_level_arrow(map) =>
+            {
+                // A map read's `..` is the map's anonymous rest, as at a record's top level.
+                StateTerm::Map(crate::state_macro::parse_map(
+                    map.stream(),
+                    reading,
+                    Some(TokenRange::for_tokens(&value)?),
+                )?)
+            }
+            _ => StateTerm::Term(readable_term(value, reading)?),
+        };
+        fields.push(InstanceField::new(name.clone(), state));
+    }
+    let range = TokenRange::for_tokens(&value.iter().cloned().collect::<TokenStream>())?;
+    content.advance_to(&fork);
+    Ok(Some(crate::GroupRecord::new(
+        range, &owner, false, fields, open,
+    )?))
 }
 
 /// Skips a record value whose reading is refused: its tokens up to the `,` that ends it.
@@ -2263,9 +2368,9 @@ impl BracketAlternative {
                 after,
             } if state_cell.unraw() == cell.unraw() => Some(Box::new(Self {
                 cell: state_cell,
-                before: *before,
+                before: before.without_instance_heads(),
                 result_cell,
-                after: after.map(|after| *after),
+                after: after.map(|after| after.without_instance_heads()),
                 bindings: bindings.clone(),
                 cell_key: None,
                 result_cell_key: None,
@@ -2510,6 +2615,17 @@ fn assemble_machine_clause(
                     {
                         (Some(result_cell.clone()), Some(after.clone()))
                     }
+                    // A group record of entries pairs with the group's result term, a record
+                    // whose children are terms or a binder: the cell's entry on each side.
+                    Some((result_cell, MachineResultCell::Term(after)))
+                        if state_family(before) == StateFamily::Record =>
+                    {
+                        let after = TermExpression::from_expression((**after).clone())?;
+                        (
+                            Some(result_cell.clone()),
+                            Some(Box::new(StateTerm::Term(after))),
+                        )
+                    }
                     Some((result_cell, _)) => {
                         unpaired(
                             syn::Error::new(
@@ -2601,14 +2717,20 @@ fn assemble_machine_clause(
                 {
                     Some((_, MachineResultCell::Term(result))) => result,
                     found => {
-                        if let Some((result_cell, _)) = found {
-                            unpaired(
-                                syn::Error::new(
-                                    result_cell.span(),
-                                    "an ordinary fixed cell's result is one term; `[..]` writes only the computation cell or a List collection",
-                                )
-                                .into(),
-                            )?;
+                        if let Some((result_cell, after)) = found {
+                            // A result group record of entries pairs with the subject's record
+                            // of entries only: a subject term matches the group whole, which
+                            // the result's children, lowered as their own cells, cannot keep.
+                            let reason = if matches!(
+                                after,
+                                MachineResultCell::State(state)
+                                    if matches!(**state, StateTerm::Record(_))
+                            ) {
+                                "not supported yet: a result group record whose child is a map entry, over a subject that matches the group as a term; match the group with a record of its children"
+                            } else {
+                                "an ordinary fixed cell's result is one term; `[..]` writes only the computation cell or a List collection"
+                            };
+                            unpaired(syn::Error::new(result_cell.span(), reason).into())?;
                         }
                         // A cell the result leaves out keeps its content: the
                         // rule only reads it. An entry that constrains and binds

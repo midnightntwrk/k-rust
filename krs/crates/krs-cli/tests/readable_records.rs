@@ -478,3 +478,210 @@ fn a_label_used_twice_is_refused_with_its_reason() {
         );
     }
 }
+
+/// Two groups, a Map collection of `Acct`, and commands the record cases match.
+const GROUP_RECORDS: &str = r#"
+use k::builtin::{Int, KSequence, List, Map, list, map};
+use k::{KItem, KResult};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Go, Put, Ct))]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("put({x})")]
+    Put { x: Int },
+    #[k::syntax("ct")]
+    Ct(),
+}
+
+#[k::cell]
+pub struct H {
+    #[k::cell]
+    pub hl: List,
+    #[k::cell]
+    pub hb: Int,
+}
+
+#[k::cell]
+pub struct M {
+    #[k::cell]
+    pub mm: Map,
+    #[k::cell]
+    pub mn: Int,
+}
+
+#[k::cell]
+pub struct Acct {
+    #[k::cell]
+    pub aid: Int,
+    #[k::cell]
+    pub abal: Int,
+}
+
+#[k::cell]
+pub struct Bank {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub acct: Acct,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub hcell: H,
+    #[k::cell(nested)]
+    pub mcell: M,
+    #[k::cell(nested)]
+    pub bank: Bank,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            hcell: H { hl: list::empty(), hb: 0 },
+            mcell: M { mm: map::empty(), mn: 0 },
+            bank: Bank { acct: Acct { aid: 0, abal: 0 } },
+        }
+    }
+}
+"#;
+
+/// An instance record names its struct (TRI-D2): `acct`'s instances are `Acct`, so a record
+/// of `H`, another `#[k::cell]` struct, is refused on both routes, whatever children it names.
+#[test]
+fn an_instance_record_of_another_struct_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (name, rules) in [
+        (
+            "readable-head",
+            "k::rules! {\n    for Machine;\n    use Cmd::*;\n    ct: { k: [Ct(), ..], acct: { H { aid: 1, .. }, .. } } => { k: [..] };\n}\n",
+        ),
+        (
+            "cells-head",
+            "#[k::rule(label = \"ct\")]\npub fn ct(\n    k::cells! {\n        k: k::configuration::KCell(Cmd::Ct(), tail @ ..),\n        crate::Bank::acct: { k::fragment![crate::H { aid: 1, .. }], .. },\n        state @ ..\n    }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n",
+        ),
+    ] {
+        let manifest = package_over(temporary.path(), name, GROUP_RECORDS, rules);
+        let errors = check_errors(target.path(), &manifest);
+        assert!(
+            errors.iter().any(|error| error
+                == "error[krs::analysis::collection-entry]: the instance record names `H`, and `acct`'s instances are `Acct`"),
+            "{name}: {errors:#?}"
+        );
+    }
+}
+
+/// A group record's Map child at a configuration position is the child's entry (ruling R4,
+/// TRI-D2): a map read, an exact map in a subject, and an exact map written over one, in
+/// readable rules and their `cells!` twins. Such a record is lowered as its children's own
+/// cells, exactly as `M::mm: Cell(map![..])` is, so both routes emit the same K; a record whose
+/// children are terms keeps its whole group clause; and `krs expand` writes each record as the
+/// `cells!` fragment of its children's entries.
+#[test]
+fn a_group_record_map_child_is_the_child_entry_on_both_routes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = r"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    go: { k: [Go(), ..], mcell: M { mm: { y -> x, .. }, .. } } => { k: [..] };
+    put: { k: [Put { x }, ..], mcell: M { mm: { z -> y }, .. } } => { k: [..], mcell: M { mm: { y -> x }, mn: 0 } };
+    ct: { k: [Ct(), ..], hcell: H { hl: h, hb: b } } => { k: [..], hcell: H { hl: h, hb: int::add(b, 1) } };
+}
+";
+    let cells = r#"
+#[k::rule(label = "go")]
+pub fn go(
+    y: KItem,
+    x: KItem,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Go(), tail @ ..),
+        mcell: k::fragment![crate::M { mm: k::map![y -> x, ..], .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), ..state }
+}
+
+#[k::rule(label = "put")]
+pub fn put(
+    x: Int,
+    z: KItem,
+    y: KItem,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Put { x }, tail @ ..),
+        mcell: k::fragment![crate::M { mm: k::map![z -> y], .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        mcell: k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }],
+        ..state
+    }
+}
+
+#[k::rule(label = "ct")]
+pub fn ct(
+    h: List,
+    b: Int,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Ct(), tail @ ..),
+        hcell: k::fragment![crate::H { hl: h, hb: b }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        hcell: k::fragment![crate::H { hl: h, hb: k::builtin::int::add(b, 1) }],
+        ..state
+    }
+}
+"#;
+    let preamble = GROUP_RECORDS.replace("list, map};", "int, list, map};");
+    let readable = package_over(temporary.path(), "records-readable", &preamble, readable);
+    let cells = package_over(temporary.path(), "records-cells", &preamble, cells);
+    let flat = |k: &str| k.split_whitespace().collect::<Vec<_>>().join(" ");
+    let readable_k = flat(&emitted_k(target.path(), &readable));
+    let cells_k = flat(&emitted_k(target.path(), &cells));
+    for sentence in [
+        "<mm> Y:KItem |-> X:KItem ... </mm>",
+        "<mm> Z:KItem |-> Y:KItem => Y:KItem |-> X:Int </mm> <mn> _ => 0 </mn>",
+        "(<hcell> <hl> H:List </hl> <hb> B:Int </hb> </hcell> => <hcell> <hl> H:List </hl> <hb> B:Int +Int 1 </hb> </hcell>)",
+    ] {
+        assert!(
+            readable_k.contains(sentence),
+            "no `{sentence}` in {readable_k}"
+        );
+        assert!(cells_k.contains(sentence), "no `{sentence}` in {cells_k}");
+    }
+    let rules = |k: &str| {
+        k[k.find("rule [ct]").unwrap()..]
+            .replace("~> Tail:K ", "")
+            .replace("records-readable/", "")
+            .replace("records-cells/", "")
+    };
+    let readable_rules = rules(&readable_k).replace("... </k>", "</k>");
+    let cells_rules = rules(&cells_k).replace("... </k>", "</k>");
+    assert_eq!(readable_rules, cells_rules);
+    let expanded = flat(&expanded(target.path(), &readable));
+    for record in [
+        "mcell : k::fragment![crate ::M { mm : k::map![y -> x, ..], .. }]",
+        "mcell : k::fragment![crate ::M { mm : k::map![y -> x], mn : 0 }]",
+    ] {
+        assert!(expanded.contains(record), "no `{record}` in {expanded}");
+    }
+}

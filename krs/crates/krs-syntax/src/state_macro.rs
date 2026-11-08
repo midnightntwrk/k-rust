@@ -614,9 +614,36 @@ pub enum StateTerm {
     Absent(TokenRange),
     /// The instances of a collection (`*`) cell (KF-023, R8).
     Instances(InstanceList),
+    /// A group record at a configuration position some child of which is an entry no term
+    /// spells, a map (ruling R4, TRI-D2): the record of the group's children, each that child
+    /// cell's entry.
+    Record(Box<GroupRecord>),
 }
 
 impl StateTerm {
+    /// The state with its instances' heads left out: a reading whose children are another
+    /// reading's terms (a List collection's bracket alternative), which that reading's record
+    /// names ([`InstanceItem::without_head`]).
+    #[must_use]
+    pub(crate) fn without_instance_heads(self) -> Self {
+        match self {
+            Self::Instances(mut list) => {
+                list.front = list
+                    .front
+                    .into_iter()
+                    .map(InstanceItem::without_head)
+                    .collect();
+                list.back = list
+                    .back
+                    .into_iter()
+                    .map(InstanceItem::without_head)
+                    .collect();
+                Self::Instances(list)
+            }
+            other => other,
+        }
+    }
+
     /// The state inside any `Some(..)` wrappers.
     #[must_use]
     pub fn unwrap_present(&self) -> &Self {
@@ -642,7 +669,7 @@ impl StateTerm {
                     .collect(),
                 MapBody::Update { base, key, value } => vec![base, key, value],
             },
-            Self::Present(_) | Self::Absent(_) | Self::Instances(_) => self
+            Self::Present(_) | Self::Absent(_) | Self::Instances(_) | Self::Record(_) => self
                 .nested_states()
                 .into_iter()
                 .flat_map(Self::terms)
@@ -663,6 +690,7 @@ impl StateTerm {
                 .into_iter()
                 .flat_map(Self::terms_mut)
                 .collect(),
+            Self::Record(record) => record.states_mut().flat_map(Self::terms_mut).collect(),
         }
     }
 
@@ -676,6 +704,7 @@ impl StateTerm {
             Self::Present(inner) => inner.clear_keys(),
             Self::Absent(_) => {}
             Self::Instances(list) => list.clear_keys(),
+            Self::Record(record) => record.clear_keys(),
         }
     }
 
@@ -685,7 +714,7 @@ impl StateTerm {
     pub fn map_islands(&self) -> Vec<&Path> {
         match self {
             Self::Map(map) => map.island_path().into_iter().collect(),
-            Self::Present(_) | Self::Instances(_) => self
+            Self::Present(_) | Self::Instances(_) | Self::Record(_) => self
                 .nested_states()
                 .into_iter()
                 .flat_map(Self::map_islands)
@@ -700,10 +729,8 @@ impl StateTerm {
     pub fn nested_states(&self) -> Vec<&Self> {
         match self {
             Self::Present(inner) => vec![inner],
-            Self::Instances(list) => list
-                .instances()
-                .flat_map(|instance| instance.fields().iter().map(InstanceField::value))
-                .collect(),
+            Self::Instances(list) => list.instances().flat_map(InstanceItem::states).collect(),
+            Self::Record(record) => record.states().collect(),
             Self::Term(_)
             | Self::KSequence(_)
             | Self::Map(_)
@@ -711,6 +738,135 @@ impl StateTerm {
             | Self::Absent(_) => Vec::new(),
         }
     }
+}
+
+/// A group record at a configuration position whose children are entries (ruling R4, TRI-D2):
+/// `k::fragment![Group { child: k::map![k -> v, ..], .. }]`, or readable
+/// `Group { child: { k -> v, .. }, .. }`. Each child is that child cell's entry, read as an
+/// instance's child is, and the head names the struct the record is of.
+#[derive(Clone, Debug)]
+pub struct GroupRecord {
+    range: TokenRange,
+    head: Box<StateTerm>,
+    fields: Vec<InstanceField>,
+    open: Option<TokenRange>,
+}
+
+impl GroupRecord {
+    /// The record of `owner`'s children `fields`, ending in `..` when `open`, written inside
+    /// `k::fragment![..]` when `fragment`.
+    pub(crate) fn new(
+        range: TokenRange,
+        owner: &Path,
+        fragment: bool,
+        fields: Vec<InstanceField>,
+        open: Option<TokenRange>,
+    ) -> Result<Self, SyntaxError> {
+        Ok(Self {
+            range,
+            head: Box::new(record_head(owner, fragment)?),
+            fields,
+            open,
+        })
+    }
+
+    /// The complete record range.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
+    /// The record's head, the item-less pattern `P { .. }` its path reads as ([`record_head`]).
+    #[must_use]
+    pub fn head(&self) -> &TermExpression {
+        let StateTerm::Term(head) = &*self.head else {
+            unreachable!("a record's head is a term")
+        };
+        head
+    }
+
+    /// The named children in source order.
+    #[must_use]
+    pub fn fields(&self) -> &[InstanceField] {
+        &self.fields
+    }
+
+    /// Whether the record ends in `..`.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+
+    fn states(&self) -> impl Iterator<Item = &StateTerm> {
+        std::iter::once(&*self.head).chain(self.fields.iter().map(InstanceField::value))
+    }
+
+    fn states_mut(&mut self) -> impl Iterator<Item = &mut StateTerm> {
+        std::iter::once(&mut *self.head).chain(self.fields.iter_mut().map(|field| &mut field.value))
+    }
+
+    fn clear_keys(&mut self) {
+        self.head.clear_keys();
+        for field in &mut self.fields {
+            field.name_key = None;
+            field.value.clear_keys();
+        }
+    }
+
+    /// Keys the record's head with `child`, then each child's name under the roles of
+    /// `position`, each name followed by what `child` keys in that child's state. The record's
+    /// node is its head's, the path the record names its struct by.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+        child: &mut dyn FnMut(&mut KeyAllocator, &mut StateTerm) -> Result<(), SyntaxError>,
+    ) -> Result<(), SyntaxError> {
+        child(keys, &mut self.head)?;
+        // A record's children are named as a record term's fields are: a `cells!` fragment's
+        // record is that term's, read as its children's entries.
+        let role = match position {
+            StatePosition::Rule(crate::RuleSide::Right) => ProvenanceRole::RuleRightRecordFieldName,
+            _ => ProvenanceRole::RuleLeftRecordFieldName,
+        };
+        for field in &mut self.fields {
+            let range = TokenRange::for_tokens(&field.name)?;
+            field.name_key = Some(keys.key(role, range)?);
+            child(keys, &mut field.value)?;
+        }
+        Ok(())
+    }
+}
+
+/// The head of a record of `owner`'s children (TRI-D2): the item-less pattern `owner { .. }`,
+/// inside `k::fragment![..]` when the record is written so, on the path's own tokens. It is read
+/// as the term its path names, which the collector resolves as every record path, so it says
+/// which struct the record is of and nothing else: it names no field, so it matches and writes
+/// nothing, and it stands only in a record's `head`, never where a rule's terms are.
+pub(crate) fn record_head(owner: &Path, fragment: bool) -> Result<StateTerm, SyntaxError> {
+    let span = owner.span();
+    let mut dots = TokenStream::new();
+    for spacing in [proc_macro2::Spacing::Joint, proc_macro2::Spacing::Alone] {
+        let mut dot = proc_macro2::Punct::new('.', spacing);
+        dot.set_span(span);
+        dots.extend([TokenTree::Punct(dot)]);
+    }
+    let mut body = proc_macro2::Group::new(Delimiter::Brace, dots);
+    body.set_span(span);
+    let mut record = quote::quote!(#owner);
+    record.extend([TokenTree::Group(body)]);
+    let tokens = if fragment {
+        let mut invocation = proc_macro2::Group::new(Delimiter::Bracket, record);
+        invocation.set_span(span);
+        let mut tokens = quote::quote_spanned!(span=> k::fragment!);
+        tokens.extend([TokenTree::Group(invocation)]);
+        tokens
+    } else {
+        record
+    };
+    Ok(StateTerm::Term(TermExpression::parse_pattern_tokens(
+        tokens,
+    )?))
 }
 
 /// The delimiter of a collection entry (KF-023, R8).
@@ -919,6 +1075,9 @@ pub struct InstanceItem {
     range: TokenRange,
     label: Option<Ident>,
     owner: Option<Path>,
+    /// The record's path read as the item-less pattern `P { .. }` ([`record_head`]); `None`
+    /// for a whole instance written as a name or `_`.
+    head: Option<Box<StateTerm>>,
     fields: Vec<InstanceField>,
     rest: InstanceRest,
     fragment: bool,
@@ -935,6 +1094,9 @@ impl InstanceItem {
         child: &mut dyn FnMut(&mut KeyAllocator, &mut StateTerm) -> Result<(), SyntaxError>,
     ) -> Result<(), SyntaxError> {
         self.key = Some(key_at(keys, position, RuleRole::CellsInstance, self.range)?);
+        if let Some(head) = &mut self.head {
+            child(keys, head)?;
+        }
         for field in &mut self.fields {
             let range = TokenRange::for_tokens(&field.name)?;
             field.name_key = Some(key_at(keys, position, RuleRole::CellsInstanceField, range)?);
@@ -943,22 +1105,58 @@ impl InstanceItem {
         Ok(())
     }
 
-    pub(crate) const fn new(
+    pub(crate) fn new(
         range: TokenRange,
         label: Option<Ident>,
         owner: Path,
         fields: Vec<InstanceField>,
         rest: InstanceRest,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SyntaxError> {
+        Ok(Self {
             range,
             label,
+            head: Some(Box::new(record_head(&owner, false)?)),
             owner: Some(owner),
             fields,
             rest,
             fragment: false,
             key: None,
+        })
+    }
+
+    /// The instance without its head: a reading whose children are another reading's terms
+    /// (a List collection's bracket alternative), whose record the other reading names.
+    #[must_use]
+    pub(crate) fn without_head(mut self) -> Self {
+        self.head = None;
+        self
+    }
+
+    /// The record's head, the item-less pattern `P { .. }` its path reads as: which struct the
+    /// record names, checked against the collection's instance cell. `None` for a whole
+    /// instance written as a name or `_`.
+    #[must_use]
+    pub fn head(&self) -> Option<&TermExpression> {
+        match self.head.as_deref() {
+            Some(StateTerm::Term(head)) => Some(head),
+            _ => None,
         }
+    }
+
+    /// The head's state and the children's states, in source order: what the enclosing
+    /// sentence keys and walks.
+    fn states(&self) -> impl Iterator<Item = &StateTerm> {
+        self.head
+            .as_deref()
+            .into_iter()
+            .chain(self.fields.iter().map(InstanceField::value))
+    }
+
+    fn states_mut(&mut self) -> impl Iterator<Item = &mut StateTerm> {
+        self.head
+            .as_deref_mut()
+            .into_iter()
+            .chain(self.fields.iter_mut().map(|field| &mut field.value))
     }
 
     /// The instance an instance-list item that is exactly one name `x` or `_` stands for, read
@@ -1000,6 +1198,7 @@ impl InstanceItem {
             range,
             label,
             owner: None,
+            head: None,
             fields: Vec::new(),
             rest,
             fragment: false,
@@ -1121,6 +1320,9 @@ impl InstanceList {
         self.rest_key = None;
         for item in self.front.iter_mut().chain(&mut self.back) {
             item.key = None;
+            if let Some(head) = &mut item.head {
+                head.clear_keys();
+            }
             for field in &mut item.fields {
                 field.name_key = None;
                 field.value.clear_keys();
@@ -1174,7 +1376,7 @@ impl InstanceList {
         self.front
             .iter_mut()
             .chain(&mut self.back)
-            .flat_map(|instance| instance.fields.iter_mut().map(|field| &mut field.value))
+            .flat_map(InstanceItem::states_mut)
             .collect()
     }
 }
@@ -2636,6 +2838,7 @@ fn parse_instance_item(
     Ok(InstanceItem {
         range: TokenRange::for_tokens(&tokens)?,
         label,
+        head: Some(Box::new(record_head(&owner, fragment)?)),
         owner: Some(owner),
         fields,
         rest,
@@ -2844,24 +3047,22 @@ fn parse_group_entry(
         return Err(refusal);
     }
     let fragment = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment");
+    if let Some(record) = fragment_record(&tokens, context)? {
+        return Ok(StateTerm::Record(Box::new(record)));
+    }
     let term = state_term_tokens(tokens, context).map_err(|error| match error.kind() {
-        // A fragment's child at a configuration position is its cell's entry (ruling R4), which
-        // the descriptor carries as a term. A result's anonymous `..` in a child's list keeps no
-        // rest, a stated limitation the term reader names; a result's `k::map![k -> v, ..]` is
-        // built, so its anonymous `..` names no map the entries are written over, the literal's
-        // own refusal whichever reading it has. A map read in a pattern's child, which the term
-        // reader refuses as a literal's notation, is the child's entry, not supported yet.
+        // A fragment's child at a configuration position is its cell's entry (ruling R4); a
+        // fragment whose children are terms is read as the group's term. A result's anonymous
+        // `..` in a child's list keeps no rest, a stated limitation the term reader names; a
+        // result's `k::map![k -> v, ..]` is built, so its anonymous `..` names no map the entries
+        // are written over, the literal's own refusal whichever reading it has. A map child is
+        // read as the child's entry first ([`fragment_record`]).
         SyntaxErrorKind::InvalidListNotation { .. } if fragment => error,
         SyntaxErrorKind::InvalidExpressionNotation { .. }
             if fragment && context == StateMacroContext::Expression =>
         {
             error
         }
-        SyntaxErrorKind::InvalidExpressionNotation { .. } if fragment => state_error(
-            "cells",
-            "a `k::fragment!` child is its cell's entry, and a map read there, `k::map![k -> v, ..]`, is not supported yet",
-            span,
-        ),
         _ => invalid(span),
     })?;
     match term.tree() {
@@ -2872,6 +3073,75 @@ fn parse_group_entry(
         TermTree::Cell(_) => Ok(StateTerm::Group(term)),
         _ => Err(invalid(span)),
     }
+}
+
+/// The group record a whole nested-cell entry `k::fragment![Group { .. }]` is when one of its
+/// children is written as that child cell's map entry, `child: k::map![..]` (ruling R4): a map
+/// written as a fragment's child is the child's entry, which no term of a pattern spells, so the
+/// record's children are read as an instance's are, each that child cell's entry. `None` for a
+/// fragment whose children are all terms, which is read as the group's term, and for an update
+/// `Group { .., ..base }`, which builds a term from its base.
+fn fragment_record(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<GroupRecord>, SyntaxError> {
+    let Some(("fragment", payload)) = qualified_macro_payload(tokens)
+        .as_ref()
+        .map(|(name, payload)| (name.as_str(), payload.clone()))
+    else {
+        return Ok(None);
+    };
+    let trees = crate::parse::strip_trailing_comma(payload)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let Some((TokenTree::Group(body), owner)) = trees.split_last() else {
+        return Ok(None);
+    };
+    if body.delimiter() != Delimiter::Brace {
+        return Ok(None);
+    }
+    let Ok(owner) = syn::parse2::<Path>(owner.iter().cloned().collect()) else {
+        return Ok(None);
+    };
+    let mut maps = false;
+    let mut items = vec![Vec::new()];
+    for tree in body.stream() {
+        match (&tree, items.last_mut()) {
+            (TokenTree::Punct(comma), _) if comma.as_char() == ',' => items.push(Vec::new()),
+            (_, Some(item)) => item.push(tree),
+            (_, None) => {}
+        }
+    }
+    for item in &items {
+        match item.as_slice() {
+            [TokenTree::Punct(dot), TokenTree::Punct(_), _, ..] if dot.as_char() == '.' => {
+                return Ok(None);
+            }
+            [TokenTree::Ident(_), TokenTree::Punct(colon), value @ ..]
+                if colon.as_char() == ':' =>
+            {
+                maps |= qualified_macro_payload(&value.iter().cloned().collect())
+                    .is_some_and(|(name, _)| name == "map");
+            }
+            _ => {}
+        }
+    }
+    if !maps || !crate::path::is_plain_path(&owner) {
+        return Ok(None);
+    }
+    let (fields, rest) = parse_instance_record(body, context, false)?;
+    let open = match rest {
+        InstanceRest::Exact => None,
+        InstanceRest::Open(range) => Some(range),
+        InstanceRest::Update { .. } => return Ok(None),
+    };
+    Ok(Some(GroupRecord::new(
+        TokenRange::for_tokens(tokens)?,
+        &owner,
+        true,
+        fields,
+        open,
+    )?))
 }
 
 /// The refusal of a whole nested-cell entry value that only a pattern holds, outside one: `_`,
@@ -3361,15 +3631,26 @@ mod keyed {
                 Self::Present(inner) => inner.keyed_nodes(nodes),
                 Self::Absent(_) => Ok(()),
                 Self::Instances(list) => list.keyed_nodes(nodes),
+                Self::Record(record) => {
+                    record.head.keyed_nodes(nodes)?;
+                    for field in &record.fields {
+                        nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
+                        field.value.keyed_nodes(nodes)?;
+                    }
+                    Ok(())
+                }
             }
         }
     }
 
     impl InstanceItem {
-        /// Records the instance's keyed nodes: the instance record, then
-        /// each field's name and value.
+        /// Records the instance's keyed nodes: the instance record, its head, then each
+        /// field's name and value.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
             nodes.push(self.key.as_ref(), self.range);
+            if let Some(head) = &self.head {
+                head.keyed_nodes(nodes)?;
+            }
             for field in &self.fields {
                 nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
                 field.value.keyed_nodes(nodes)?;

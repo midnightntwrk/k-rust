@@ -518,7 +518,10 @@ impl<'a> InitializerBuilder<'a> {
         state: &StateTerm,
     ) -> crate::Result<ProtocolInitializerStateTerm<WireTerm>> {
         match state {
-            StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+            StateTerm::Present(_)
+            | StateTerm::Absent(_)
+            | StateTerm::Instances(_)
+            | StateTerm::Record(_) => {
                 unreachable!("initializers hold templates only")
             }
             StateTerm::Term(term) | StateTerm::Group(term) => {

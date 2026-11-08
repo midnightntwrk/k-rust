@@ -732,7 +732,9 @@ fn validate_fresh<S: crate::Stage>(
 }
 
 /// A readable optional or collection extra pairs states of one family: `Some`
-/// or `None` on both sides, or an instance list on both sides.
+/// or `None` on both sides, or an instance list on both sides. A group record
+/// of entries (TRI-D2) pairs with a result record or with the group's result
+/// term, and a subject term never stands beside a result record.
 fn readable_state_extra<T>(
     before: &crate::ProtocolRuleStateTerm<T>,
     after: Option<&crate::ProtocolRuleStateTerm<T>>,
@@ -740,7 +742,8 @@ fn readable_state_extra<T>(
     use crate::ProtocolRuleStateTerm as State;
     let optional = |state: &State<T>| matches!(state, State::Present { .. } | State::Absent);
     match (before, after) {
-        (State::Instances(_), None | Some(State::Instances(_))) => true,
+        (State::Instances(_), None | Some(State::Instances(_)))
+        | (State::Record(_), None | Some(State::Record(_) | State::Term(_))) => true,
         (before, after) => optional(before) && after.is_none_or(optional),
     }
 }

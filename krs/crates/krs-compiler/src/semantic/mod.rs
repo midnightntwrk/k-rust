@@ -19,6 +19,7 @@ mod family_precedence;
 mod fresh;
 mod function_patterns;
 mod grammar;
+pub(crate) mod group_records;
 mod infer;
 mod lexicals;
 mod list_patterns;

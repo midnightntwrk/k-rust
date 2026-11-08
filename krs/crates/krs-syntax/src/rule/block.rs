@@ -1249,6 +1249,12 @@ fn allocate_readable_state_keys(
                 item.allocate_keys(keys, position, &mut child)?;
             }
         }
+        // Each child's state is keyed right after its name, the head first.
+        crate::StateTerm::Record(record) => {
+            record.allocate_keys(keys, position, &mut |keys, state| {
+                allocate_readable_state_keys(keys, state, side)
+            })?;
+        }
     }
     Ok(())
 }
