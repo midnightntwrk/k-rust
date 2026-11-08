@@ -50,6 +50,14 @@
 //! instance touched, which kink-flow's syntax family reads. Neither is part of the canonical
 //! value ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
 //!
+//! [`TestCoverage::windows`] are the rule windows the run took (k-rust `coverage.windows`, which
+//! a baseline result run whose tables hold a depth above 1 asks for,
+//! [`crate::execution::DefinitionTables::with_windows`]), by the baseline sentence behind each
+//! step's rule, with the depth asked for; [`may_follow`] gives, from the definition alone, the
+//! graph of which authored rewrite rule may take the step after which, whose walks are the
+//! windows a run can take. Neither is part of the canonical value, so [`COVERAGE_DOMAIN`] did not
+//! move.
+//!
 //! A run is complete ([`TestCoverage::complete`]) when it explored every state its system reaches
 //! from its initial state, so its coverage is a fact of the run and not of where it was cut
 //! short. A run with stop rules computes the truncated system of its rules, the system that ends
@@ -82,6 +90,10 @@
 //! leaves one out (kink-campaign `selection`).
 
 use std::collections::{BTreeMap, BTreeSet};
+
+mod may_follow;
+
+pub use may_follow::{MayFollow, may_follow};
 
 use k_rust::backend::{AxiomGuardOutput, BackendDiagnosticOutput, BindingsOutput};
 use k_rust::kore::{
@@ -388,6 +400,67 @@ pub struct TestCoverage {
     /// same author, so `sentences` cannot tell which argument position a run heated, and the
     /// ids can ([`strictness_rules`]). Not in [`Self::value`]: no schedule reads them.
     pub strictness: StrictnessCoverage,
+    /// The rule windows the run took (k-rust `coverage.windows`, asked for by a baseline result
+    /// run whose tables hold a depth above 1, `crate::execution::DefinitionTables::with_windows`),
+    /// by the baseline sentences behind each step's rule; `None` when the run asked for none.
+    /// Not in [`Self::value`]: no schedule reads them.
+    pub windows: Option<SentenceWindows>,
+}
+
+/// The rule windows of a run by the baseline sentences behind their rules
+/// ([`TestCoverage::windows`]).
+///
+/// A window is a sequence of rewrite rules some path of the run took as consecutive committed
+/// steps (k-rust `coverage.windows`). Each step's rule is read as the baseline sentences behind
+/// it, so a window of rule ids is the windows of every choice of one sentence per step. A window
+/// with a step whose rule has no baseline sentence, or is a heating or cooling rule (whose
+/// sentence is the production or `context` it was generated from, not a rule), is left out:
+/// no sequence of authored rules was taken as those consecutive steps, since a generated step
+/// stands between them.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SentenceWindows {
+    /// The longest window the run's request asked for: every window of length `1..=depth` the
+    /// run took is listed, so the record answers a question about any length up to it.
+    pub depth: usize,
+    /// The windows, each a list of sentences in step order.
+    pub sequences: BTreeSet<Vec<SentenceRef>>,
+}
+
+impl SentenceWindows {
+    fn of(windows: &crate::execution::RunWindows, authors: &RuleAuthors) -> Self {
+        let strictness = authors.strictness_ids();
+        let mut sequences = BTreeSet::new();
+        'window: for window in &windows.sequences {
+            let mut steps = Vec::with_capacity(window.len());
+            for id in window {
+                match authors.get(id) {
+                    Some(Authorship::Sentences(sentences)) if !strictness.contains(id) => {
+                        steps.push(sentences);
+                    }
+                    _ => continue 'window,
+                }
+            }
+            // Every choice of one sentence per step.
+            let mut choices = vec![Vec::with_capacity(steps.len())];
+            for sentences in steps {
+                choices = choices
+                    .into_iter()
+                    .flat_map(|prefix: Vec<SentenceRef>| {
+                        sentences.iter().map(move |sentence| {
+                            let mut next = prefix.clone();
+                            next.push(sentence.clone());
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            sequences.extend(choices);
+        }
+        Self {
+            depth: windows.depth.get(),
+            sequences,
+        }
+    }
 }
 
 /// The heating and cooling rules a run matched and fired ([`TestCoverage::strictness`]), by
@@ -657,6 +730,10 @@ impl TestCoverage {
                 .as_ref()
                 .map(|bindings| SentenceBindings::of(bindings, authors)),
             strictness,
+            windows: coverage
+                .windows
+                .as_ref()
+                .map(|windows| SentenceWindows::of(windows, authors)),
         }
     }
 
@@ -676,6 +753,7 @@ impl TestCoverage {
             guards: BTreeMap::new(),
             bindings: None,
             strictness: StrictnessCoverage::default(),
+            windows: None,
         }
     }
 

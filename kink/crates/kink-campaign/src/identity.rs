@@ -155,8 +155,12 @@ use std::{path::Path, sync::OnceLock};
 /// branch, which would read as a prefix that observed nothing. v22: a record's program summary
 /// `observations` of a run with several paths gives its prefix sets' facts (`paths`, `real`, each
 /// channel's `complete_to`); a v21 record of such a run summarizes it as channels open at 0 by
-/// the branch.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v22";
+/// the branch. v23: a record's coverage holds `windows`, the rule windows the run took up to the
+/// depth it asked for, with that depth (`{depth, sequences}`, null for a run that asked for none,
+/// whose windows of length 1 are its fired rules), from which `coverage`'s rule windows family
+/// reads what a comparable program covered and whether the record answers a depth; a v22 record
+/// has none, so every window would read open.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v23";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

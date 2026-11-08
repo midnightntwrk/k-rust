@@ -1512,6 +1512,9 @@ pub struct BaselineSession<'v> {
     /// The binding collection every baseline result run of the session's calls asks with
     /// ([`Self::with_bindings`]); `None`: the runs collect no bindings.
     bindings: Option<kink_native::execution::BindingCollection>,
+    /// The length up to which every baseline result run of the session's calls collects rule
+    /// windows ([`Self::with_windows`]); 1 collects none.
+    windows: std::num::NonZeroUsize,
 }
 
 impl<'v> BaselineSession<'v> {
@@ -1528,6 +1531,7 @@ impl<'v> BaselineSession<'v> {
             assume_joined: Vec::new(),
             baseline_data: None,
             bindings: None,
+            windows: std::num::NonZeroUsize::MIN,
         }
     }
 
@@ -1539,6 +1543,17 @@ impl<'v> BaselineSession<'v> {
     #[must_use]
     pub fn with_bindings(mut self, bindings: kink_native::execution::BindingCollection) -> Self {
         self.bindings = Some(bindings);
+        self
+    }
+
+    /// The session, every baseline result run of its calls that collects bindings also
+    /// collecting the rule windows of length up to `depth` (kink-native
+    /// `DefinitionTables::with_windows`), which the run's coverage carries
+    /// (`TestCoverage::windows`); a depth of 1 collects none. k-rust states that asking changes
+    /// no other field of the result; a mutant's runs never ask.
+    #[must_use]
+    pub const fn with_windows(mut self, depth: std::num::NonZeroUsize) -> Self {
+        self.windows = depth;
         self
     }
 
@@ -1870,7 +1885,9 @@ fn run_campaign_session(
     .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     if let Some(bindings) = &session.bindings {
-        runtime.tables = DefinitionTables::new().with_bindings(bindings.clone());
+        runtime.tables = DefinitionTables::new()
+            .with_bindings(bindings.clone())
+            .with_windows(session.windows);
     }
     runtime.modality = options.run.result_modality;
     runtime.baseline_max_work = options.run.baseline_max_work;

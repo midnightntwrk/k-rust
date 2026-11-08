@@ -80,7 +80,30 @@
 //!   of its universe, with its status, its target's text, and the binder it reads with the
 //!   binder's values at which the field has the value (`binder = {axiom, variable, encodings}`,
 //!   the encodings hexadecimal points and runs `0xA-0xB`), before [`derive`].
-//! - `rule_windows` and `syntax_paths` (depth above 1) are not built; each is `null`.
+//! - `rule_windows` (depth `d` above 1, `[coverage] depth` or `--depth`; `null` at depth 1): each
+//!   window of length `2..=d` of the may-follow graph of the rules family's authored rewrite
+//!   rules, covered or open. A window is a sequence of rewrite rules some path takes as
+//!   consecutive committed steps; its windows of length 1 are the rules family's fired rules, so
+//!   the family starts at 2. Equations take no step, so none is in a window. Rule `B` may follow
+//!   rule `A` when `A`'s right-hand side unifies with `B`'s left-hand side, every function
+//!   application, builtin-domain value and collection read as a fresh variable, conditions
+//!   ignored (kink-native `coverage::may_follow`): the successor of a step of `A` keeps every
+//!   free constructor of `A`'s right-hand side, so a rule that can take the next step has a
+//!   left-hand side that unifies with it, and the universe over-approximates what can be taken.
+//!   A window that no run can take is argued (`[[coverage.argued]]`); a window containing a part
+//!   that is argued while open (a rule, or a shorter window) is `argued` by it (`argued_by`),
+//!   since a path that takes the window takes the part. The universe is a function of the
+//!   definition; its size is computed before any program runs, and a universe above
+//!   `[coverage] max_obligations` is refused (reason `max-obligations`) with its counts by
+//!   length. A window is covered when a comparable program's record holds it (the record's
+//!   `coverage.windows`, which k-rust collects exactly, a state-set run's merged arrivals
+//!   included). The measure is covered / obligations over every length (`counts.by_length` per
+//!   length). A record collected at depth `D` lists every window up to `D`, so it answers every
+//!   depth up to `D`; a command of a greater depth runs the program again and replaces the
+//!   record (`crate::results::record_answers`). A window of authored rules that a comparable
+//!   record holds and the graph lacks would be a failure of the over-approximation; it is listed
+//!   as `outside_universe` and not counted.
+//! - `syntax_paths` (depth above 1) is not built; it is `null`.
 //! - `flips` (tier 2, condition flips; [`crate::flips`]): each flip a front end derives from the
 //!   definition's source ([`crate::cli::FrontEnd::derived`]) is an obligation, `distinguished`
 //!   where the kill search kills its mutant (with its `killer`), `undistinguished` where it runs
@@ -94,9 +117,11 @@
 //!   with no status.
 //!
 //! The measure is per family. No weighted total is given, since nothing weighs a rule against an
-//! operand's truth; `summary.open`, the count of open obligations, is the one scalar, and zero
-//! means done. Every item has a stable `id`: `rule:<name>`, `requirement:<name>:<detail>` and
-//! `syntax:<production>`, the rule's name being its KRS item where the front end named it, else
+//! operand's truth; `summary.open`, the count of open targets, is the one scalar, and zero
+//! means done (an open rule window off the frontier has no target of its own: it extends an open
+//! rule or window, whose target comes first). Every item has a stable `id`: `rule:<name>`,
+//! `requirement:<name>:<detail>`, `syntax:<production>` and `window:<rule>,<rule>,...` (each rule
+//! by its name), the rule's name being its KRS item where the front end named it, else
 //! its label, else its `file:line` (with `:<label>` added where two rules share a name), a
 //! heating rule's its production's (`<production>:heat:<position>`) or its context's
 //! (`<context>:heat`, [`rule_name`]), the
@@ -131,6 +156,15 @@
 //! left-hand side as a `PATTERNS.toml` pattern ([`rule_pattern`]), which `query` and
 //! `fuzz --pattern` take; `null` for every other target, and where the rule's text cannot be
 //! read or a front end matched the sentence through templates.
+//!
+//! A rule window's target is listed only on the frontier: an open window whose window of its
+//! first rules is covered (for a window of two rules, whose first rule fired), so that a target
+//! extends what the corpus already does; the measure counts every window. It asks for a case whose
+//! run takes a step of the window's last rule right after its other rules, names the programs that
+//! took those (the templates), and carries as `pattern` the unifier of the right-hand side of its
+//! last rule but one with the left-hand side of its last rule, printed as K: the configurations a
+//! step of the one leaves that the other can match. Its `fuzz` is `null`: no fuzz job's facts
+//! name a window.
 //!
 //! # Argued obligations
 //!
@@ -216,6 +250,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod windows;
+
 /// The `schema` of the coverage document.
 pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// The version of the coverage document: 1, the first, which replaces the results document (its
@@ -253,8 +289,12 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `branch` whatever was explored; 11 since a target's `fuzz` spells `fuzz --cover <item>` for
 /// every open requirement but a unique-cause one, every unreached production, every unreached
 /// field value whose item names its `binder` (`{axiom, variable, encodings}`, a front end's),
-/// every open heating rule and every open function equation, where version 10 had `null`.
-pub const COVERAGE_VERSION: u64 = 11;
+/// every open heating rule and every open function equation, where version 10 had `null`; 12
+/// since a document of depth above 1 is computed instead of refused (`depth-unsupported`): it has
+/// the rule windows family (`families.rule_windows`, its items, counts, measure, frontier
+/// targets and `summary.per_family.rule_windows`), and a universe above `[coverage]
+/// max_obligations` is refused (`max-obligations`).
+pub const COVERAGE_VERSION: u64 = 12;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -328,33 +368,6 @@ impl CoverageOptions {
     pub fn depth(&self, manifest: &FlowManifest) -> NonZeroU64 {
         self.depth.unwrap_or(manifest.coverage.depth)
     }
-}
-
-/// The refusal of a `[coverage]` value this build cannot honour, or `None`: a depth above 1
-/// (rule windows and syntax paths are not built). It is given before the specification is
-/// admitted, so nothing runs.
-fn unsupported(manifest: &FlowManifest, depth: NonZeroU64) -> Option<AdmissionRefusal> {
-    let section = &manifest.coverage;
-    let refusal = |reason: &str, detail: String| AdmissionRefusal {
-        stage: "coverage".into(),
-        reason: reason.into(),
-        detail,
-    };
-    if depth.get() > 1 {
-        let asked = if depth == section.depth {
-            format!("[coverage] depth = {depth}")
-        } else {
-            format!("--depth {depth}")
-        };
-        return Some(refusal(
-            "depth-unsupported",
-            format!(
-                "{asked}: this build counts single items only (depth 1); the families of \
-                 sequences (rule windows, syntax paths) are not built"
-            ),
-        ));
-    }
-    None
 }
 
 /// `kink-flow coverage`: the coverage document and whether the command found no corpus or
@@ -497,18 +510,26 @@ pub fn coverage_front(
             Value::Null,
         ))
     };
-    if let Some(refusal) = unsupported(manifest, depth) {
-        let mut record = AdmissionRecord::new(crate::admit::SPEC_RECORD_NAME);
-        record.refusal = Some(refusal);
-        return (refused(&record), false);
-    }
     let (mut record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
         return (refused(&record), false);
     };
+    // Above depth 1, the rule windows family's universe, from the definition alone; a universe
+    // larger than `[coverage] max_obligations` is refused with its counts before any program
+    // runs.
+    let window_depth = usize::try_from(depth.get()).unwrap_or(usize::MAX);
+    let universe = (window_depth > 1).then(|| windows::Universe::of(&spec, window_depth));
+    if let Some(refusal) = universe
+        .as_ref()
+        .and_then(|universe| universe.as_ref().ok())
+        .and_then(|universe| universe.refusal(manifest.coverage.max_obligations.get()))
+    {
+        record.refusal = Some(refusal);
+        return (refused(&record), false);
+    }
     let mut inputs = inputs.session(&spec);
     let cache = cache_directory(manifest, options.cache.as_deref());
-    let runner = match BaselineRunner::new(&spec, manifest) {
+    let runner = match BaselineRunner::with_depth(&spec, manifest, depth) {
         Ok(runner) => runner,
         Err(e) => {
             record.refusal = Some(runner_refusal(e));
@@ -548,6 +569,22 @@ pub fn coverage_front(
     document["spec"]["exclusion"] = runner.definition_exclusion();
     document["spec"]["short_circuit"] = runner.short_circuit();
     let mut document = front.annotated(document);
+    // The rule windows read the rules as the front end annotated them: which single rules fired.
+    if let Some(universe) = &universe {
+        document["families"]["rule_windows"] = match universe {
+            Ok(universe) => windows::family(
+                universe,
+                window_depth,
+                &update.rows,
+                &manifest.programs,
+                document["families"]["rules"]["items"]
+                    .as_array()
+                    .map_or(&[][..], Vec::as_slice),
+                &runner,
+            ),
+            Err(reason) => windows::unread(window_depth, reason),
+        };
+    }
     if let Some(refusal) = stale_argued(&document, manifest, front.derived, front.spelling)
         .or_else(|| stale_mcdc(&document, manifest, front.spelling))
     {
@@ -815,7 +852,7 @@ fn stale_argued(
     let mut probe = document.clone();
     derive(&mut probe, spelling);
     let mut listed = BTreeSet::new();
-    for family in ["rules", "requirements", "syntax"] {
+    for family in ["rules", "requirements", "syntax", "rule_windows"] {
         for item in probe["families"][family]["items"]
             .as_array()
             .into_iter()
@@ -3105,10 +3142,27 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         });
     }
     let (syntax_counts, syntax_targets) = derive_syntax(&mut families["syntax"], &rule_ids, &fuzz);
-    families["rule_windows"] = Value::Null;
+    // The rule windows family, where the document built it (depth above 1); `null` otherwise.
+    let rule_items_now = families["rules"]["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let window_derived = if families["rule_windows"].is_object() {
+        Some(windows::derive(
+            &mut families["rule_windows"],
+            &rule_items_now,
+            &argued_entries,
+        ))
+    } else {
+        families["rule_windows"] = Value::Null;
+        None
+    };
     families["syntax_paths"] = Value::Null;
     targets.extend(requirement_targets);
     targets.extend(syntax_targets);
+    if let Some(derived) = &window_derived {
+        targets.extend(derived.targets.iter().cloned());
+    }
     let rule_names = document["families"]["rules"]["items"]
         .as_array()
         .map_or(&[][..], Vec::as_slice)
@@ -3171,6 +3225,15 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "requirements".into(),
         per_family("requirements", requirement_covered, requirement_obligations),
     );
+    if let Some(derived) = &window_derived {
+        per.insert(
+            "rule_windows".into(),
+            derived.counts.map_or_else(
+                || json!({"obligations": null, "covered": null, "argued": 0, "open": null}),
+                |(covered, obligations)| per_family("rule_windows", covered, obligations),
+            ),
+        );
+    }
     per.insert(
         "syntax".into(),
         syntax_counts.map_or_else(
@@ -3204,7 +3267,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
 }
 
 /// The families whose items an argued entry can name, in target order.
-const ARGUABLE: [&str; 4] = ["rules", "requirements", "syntax", "flips"];
+const ARGUABLE: [&str; 5] = ["rules", "requirements", "syntax", "rule_windows", "flips"];
 
 /// The `[[coverage.argued]]` entries a document's settings state, argument by item id.
 fn argued_entries(document: &Value) -> BTreeMap<String, String> {
@@ -3324,6 +3387,14 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
             .filter(|item| item["status"] == ARGUED)
             .map(|item| item["kind"].as_str() == Some(FIELD_VALUE))
             .collect::<Vec<_>>();
+        // A window argued by a part it contains (`argued_by`, `windows::derive`) is argued with
+        // no entry of its own.
+        for item in items.iter().filter(|item| item["argued_by"].is_string()) {
+            if let Some(id) = item["id"].as_str() {
+                applied.argued.insert(id.to_owned());
+                *applied.counts.entry(family).or_default() += 1;
+            }
+        }
         let argued = applied.counts.get(family).copied().unwrap_or(0);
         value["argued"] = json!(argued);
         let counts = &mut value["counts"];
@@ -3345,6 +3416,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
                     }
                 }
                 "requirements" => less(counts, status.as_str().unwrap_or("open")),
+                "rule_windows" => less(counts, windows::OPEN),
                 _ => less(counts, "unreached"),
             }
         }
@@ -3846,6 +3918,35 @@ pub fn text(document: &Value) -> Result<String, String> {
         ));
         out.push('\n');
     }
+    let windows = &families["rule_windows"];
+    if let Some(reason) = windows["reason"].as_str() {
+        out.push_str(&format!("rule_windows: not read: {reason}\n"));
+    } else if windows.is_object() {
+        let counts = &windows["counts"];
+        let lengths = counts["by_length"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(length, count)| {
+                format!(
+                    "length {length} {} of {}",
+                    count["covered"], count["obligations"]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "rule_windows: {} of {} covered ({}){}; {lengths}; {} on the frontier; may-follow \
+             graph of {} rules, {} edges\n",
+            windows["covered"],
+            windows["obligations"],
+            percent(&windows["measure"]),
+            argued_note(windows),
+            counts["frontier"],
+            windows["nodes"],
+            windows["edges"],
+        ));
+    }
     for family in ["syntax", "rule_windows", "syntax_paths"] {
         if families[family].is_null() {
             out.push_str(&format!("{family}: not built\n"));
@@ -3984,8 +4085,11 @@ fn tier_one_ids(
     document: &Value,
     keep: impl Fn(&Value) -> bool,
 ) -> Vec<(&'static str, Vec<String>)> {
-    ["rules", "requirements", "syntax"]
+    ["rules", "requirements", "syntax", "rule_windows"]
         .into_iter()
+        // The rule windows only where the document built them (depth above 1), so that a
+        // rendering of depth 1 is what it was.
+        .filter(|family| *family != "rule_windows" || document["families"][family].is_object())
         .map(|family| {
             let ids = document["families"][family]["items"]
                 .as_array()

@@ -53,7 +53,7 @@ use crate::evidence::Renderer;
 pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{Decoder, FlowManifest, Program};
 use crate::observed::{ResultProjection, result_projection};
-use k_rust::{backend::Backend, kast::Term};
+use k_rust::{backend::Backend, k_rust_backend::definition::BackendDefinition, kast::Term};
 use kink_campaign::TestCase;
 use kink_corpus::{
     CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
@@ -82,7 +82,10 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -269,6 +272,11 @@ pub struct AdmittedSpec {
     /// what a fired sentence touched are functions of the definition ([`crate::coverage`]).
     /// `Err` holds why the backend's definition could not be selected to read them.
     pub syntax: Result<kink_native::coverage::SyntaxFacts, String>,
+    /// The definition the input backend selected for the main module, the one every program runs
+    /// on, kept for what a command reads of it only when asked: the may-follow graph of the rule
+    /// windows family (kink-native `coverage::may_follow`), which a coverage document of depth
+    /// above 1 reads ([`crate::coverage`]). `Err` holds why it could not be selected.
+    pub definition: Result<Arc<BackendDefinition>, String>,
     /// Which admission produced this specification; the [`ProgramInputs`] admitted beside it
     /// carry the same value, and only this specification opens a session on them.
     admission: AdmissionId,
@@ -1104,6 +1112,9 @@ fn admit_definition(
             result,
             guard_skeletons,
             syntax,
+            definition: selected.map_err(|error| {
+                format!("the backend's definition could not be selected: {error}")
+            }),
             admission: AdmissionId::fresh(),
         },
         backend,

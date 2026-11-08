@@ -690,10 +690,31 @@ pub struct BaselineRunner<'a> {
     ends: OnceCell<EndReader>,
     /// The front end's renderer of kill evidence (`FlowManifest::end_renderer`).
     renderer: crate::evidence::Renderer,
+    /// The length up to which every baseline run of the command collects rule windows
+    /// ([`Self::with_depth`]); a stored record answers only where it collected at least as far
+    /// ([`record_answers`]).
+    depth: std::num::NonZeroUsize,
 }
 
 impl<'a> BaselineRunner<'a> {
+    /// The runner of a command at the manifest's `[coverage] depth`.
     pub fn new(spec: &'a AdmittedSpec, manifest: &'a FlowManifest) -> Result<Self, String> {
+        Self::with_depth(spec, manifest, manifest.coverage.depth)
+    }
+
+    /// The runner of a command whose baseline runs collect rule windows up to `depth`
+    /// (`coverage --depth`, else `[coverage] depth`): every run it makes records them, and a
+    /// stored record collected at a smaller depth does not answer, so its program runs again and
+    /// its record is replaced by one at `depth` (kink-native `TestCoverage::windows`).
+    pub fn with_depth(
+        spec: &'a AdmittedSpec,
+        manifest: &'a FlowManifest,
+        depth: std::num::NonZeroU64,
+    ) -> Result<Self, String> {
+        let depth = usize::try_from(depth.get())
+            .ok()
+            .and_then(std::num::NonZeroUsize::new)
+            .ok_or_else(|| format!("the depth {depth} does not fit this host's word"))?;
         // The runner needs a generation. A checked empty discovery yields zero candidates,
         // so no operator code and no mutant can be reached (kink-corpus `baseline_only`).
         let discovery = Discovery::empty(spec.validator.baseline(), false, false);
@@ -720,13 +741,20 @@ impl<'a> BaselineRunner<'a> {
                 BaselineSession::new(&spec.validator)
                     .assuming(manifest.spec.assume_joined.clone())
                     .with_baseline_data(spec.data.clone())
-                    .with_bindings(crate::coverage::binding_collection(spec, manifest)),
+                    .with_bindings(crate::coverage::binding_collection(spec, manifest))
+                    .with_windows(depth),
             ),
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
             ends: OnceCell::new(),
             renderer: manifest.end_renderer.clone(),
+            depth,
         })
+    }
+
+    /// The length up to which the command's baseline runs collect rule windows.
+    pub const fn depth(&self) -> std::num::NonZeroUsize {
+        self.depth
     }
 
     /// What the last campaign call of this command ran: wall times, leaf censuses and baseline
@@ -1822,7 +1850,10 @@ fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 /// run collected none (a diagnostic run); and `strictness` (result schema v20) the heating and
 /// cooling rules it matched and fired, by compiled id (`{matched, fired}`, kink-native
 /// `TestCoverage::strictness`), since every such rule of one production has the production as
-/// its sentence, so the sentences cannot say which argument position a run heated.
+/// its sentence, so the sentences cannot say which argument position a run heated; and
+/// `windows` (result schema v23) the rule windows it took, `{depth, sequences}`: the longest
+/// length its request asked for and every window up to it, each a list of `{module, index}` in
+/// step order (kink-native `TestCoverage::windows`), null for a run that asked for none.
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
@@ -1844,6 +1875,42 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
             .bindings
             .as_ref()
             .map_or(Value::Null, |bindings| bindings_value(spec, bindings)),
+        "windows": coverage.windows.as_ref().map_or(Value::Null, |windows| {
+            json!({
+                "depth": windows.depth,
+                "sequences": windows
+                    .sequences
+                    .iter()
+                    .map(|window| {
+                        window
+                            .iter()
+                            .map(|at| json!({"module": at.module, "index": at.index}))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        }),
+    })
+}
+
+/// The longest rule window a record's run collected (its coverage's `windows.depth`; 1 for a run
+/// that asked for none, whose windows of length 1 are its `fired_sentences`), or `None` for a
+/// record without coverage, which holds no window at any depth.
+pub fn record_depth(record: &Value) -> Option<u64> {
+    let coverage = &record["coverage"];
+    if !coverage.is_object() {
+        return None;
+    }
+    Some(coverage["windows"]["depth"].as_u64().unwrap_or(1))
+}
+
+/// Whether a stored record answers a command whose runs collect rule windows up to `depth`: it
+/// collected every window up to at least that length, or it holds no coverage, which a new run
+/// of the same key would not hold either. A record collected at `D` lists every window of length
+/// `1..=D`, so it answers every depth up to `D`.
+pub fn record_answers(record: &Value, depth: std::num::NonZeroUsize) -> bool {
+    record_depth(record).is_none_or(|collected| {
+        usize::try_from(collected).is_ok_and(|collected| collected >= depth.get())
     })
 }
 
@@ -2390,11 +2457,14 @@ fn program_row(
     let path = context.directory.join(format!("{digest}.json"));
     // Where the store is off (no build identity, an unnamed Z3 build or a solver the clock
     // bounds: `result_store`), no record is honoured (packet CACHE-ID-fix-1).
+    // A record collected at a smaller window depth than the command's does not answer: the
+    // program runs again and its record is replaced.
     let stored = context
         .store
         .ok()
         .and_then(|_| read_record(&path, &key))
-        .flatten();
+        .flatten()
+        .filter(|record| record_answers(record, runner.depth()));
     let stop = manifest.stop.as_ref();
     if let (Some(record), false) = (&stored, context.verify) {
         return ProgramRow {

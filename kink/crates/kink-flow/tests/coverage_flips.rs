@@ -255,12 +255,12 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
-            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\n".to_owned(),
+            "schema = \"kink-flow-verdicts\"\nversion = 17\ndocument = \"run\"\n".to_owned(),
             "its document is not \"coverage\"",
         ),
         (
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 17\ndocument = \"coverage\"\n\n\
                  {flip}\n{flip}"
             ),
             "the flip \"f\" is listed twice",
@@ -701,7 +701,7 @@ mod kink_tier {
         // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
         // keep but rewrite (its header and open obligations are a hand's).
         let text = format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"coverage\"\n\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 17\ndocument = \"coverage\"\n\n\
              [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
         );
         fs::write(&lock, &text).unwrap();
@@ -714,15 +714,22 @@ mod kink_tier {
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), text);
 
-        // `[coverage] depth = 2`, which this build refuses, explored at `--depth 1`.
+        // A refused specification (an `mcdc` name that selects no rule) leaves the lock.
         let manifest = dir.join("FLOW.toml");
-        let mut flow = fs::read_to_string(&manifest).unwrap();
-        flow.push_str("\n[coverage]\ndepth = 2\n");
-        fs::write(&manifest, flow).unwrap();
+        let original = fs::read_to_string(&manifest).unwrap();
+        fs::write(
+            &manifest,
+            format!("{original}\n[coverage]\nmcdc = [\"GUARDS.nowhere\"]\n"),
+        )
+        .unwrap();
         let (refused, status) = run(&[]);
         assert_eq!(status, EXIT_UNASKED, "{refused:#}");
-        assert_eq!(refused["spec"]["reason"], "depth-unsupported");
+        assert_eq!(refused["spec"]["reason"], "mcdc-stale");
         assert_eq!(refused["lock"]["reason"], "refused");
+        assert_eq!(fs::read_to_string(&lock).unwrap(), text);
+
+        // `[coverage] depth = 2`, explored at `--depth 1`.
+        fs::write(&manifest, format!("{original}\n[coverage]\ndepth = 2\n")).unwrap();
         let (explored, status) = run(&["--depth", "1"]);
         assert_eq!(status, EXIT_YES, "{explored:#}");
         assert_eq!(explored["settings"]["depth"], 1);

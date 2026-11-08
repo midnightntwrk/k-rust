@@ -1024,26 +1024,37 @@ mod kink_tier {
         );
     }
 
-    /// `[coverage]` is decoded by every command and refused by `coverage` where this build cannot
-    /// honour it, or where an `mcdc` name selects no rule, before any mutant runs.
+    /// `[coverage]` is decoded by every command and refused by `coverage` where an `mcdc` name
+    /// selects no rule, before any program runs; a depth above 1 is computed (this fixture's
+    /// rules leave states no rule matches, so its may-follow graph has no edge and no window).
     #[test]
     #[ignore = "kink"]
     fn unsupported_coverage_settings_are_refused_with_their_reason() {
         let dir = fixture("guards", "guards-settings");
         let manifest = dir.join("FLOW.toml");
         let text = fs::read_to_string(&manifest).unwrap();
-        for (section, reason) in [
-            ("[coverage]\ndepth = 2\n", "depth-unsupported"),
-            ("[coverage]\nmcdc = [\"GUARDS.nowhere\"]\n", "mcdc-stale"),
-        ] {
-            write(&manifest, &format!("{section}\n{text}"));
-            let (document, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_UNASKED, "{document:#}");
-            assert_eq!(document["spec"]["stage"], "coverage");
-            assert_eq!(document["spec"]["reason"], reason);
-            assert_eq!(document["programs"], json!([]));
-            assert_eq!(document["families"], Value::Null);
-        }
+        write(
+            &manifest,
+            &format!("[coverage]\nmcdc = [\"GUARDS.nowhere\"]\n\n{text}"),
+        );
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
+        assert_eq!(document["spec"]["stage"], "coverage");
+        assert_eq!(document["spec"]["reason"], "mcdc-stale");
+        assert_eq!(document["programs"], json!([]));
+        assert_eq!(document["families"], Value::Null);
+        write(
+            &manifest,
+            &format!("[coverage]\ndepth = 2\nmax_obligations = 1\n\n{text}"),
+        );
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let windows = &document["families"]["rule_windows"];
+        assert_eq!(
+            (&windows["edges"], &windows["obligations"]),
+            (&json!(0), &json!(0)),
+            "{windows:#}"
+        );
         write(
             &manifest,
             &format!("[coverage]\ndepth = 1\nmax_obligations = 10\n\n{text}"),
@@ -1579,9 +1590,10 @@ text = 'h(opaque(1), 2)'
         // seventh names each horizon's opening; its eighth reads the unique-cause selection; its
         // ninth lists the heating rules in the rules family; its tenth gives a run with several
         // paths its prefix sets' facts; its eleventh spells `fuzz --cover` in the targets of
-        // requirements, productions, field values, heating rules and equations.
+        // requirements, productions, field values, heating rules and equations; its twelfth is
+        // computed at a depth above 1, with the rule windows.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["version"], 12);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2293,8 +2305,9 @@ endmodule
         // because a run with an observation declaration may be a comparable prefix program. v19,
         // because a record's bindings hold the alternatives a fired instance took and only the
         // operand heads of variables the axiom reads. v20, because a record's coverage holds the
-        // heating and cooling rules it matched and fired by id.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v22");
+        // heating and cooling rules it matched and fired by id. v23, because a record's coverage
+        // holds the rule windows its run took, with the depth it collected them to.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v23");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

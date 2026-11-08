@@ -204,6 +204,7 @@ fn complete_coverage() -> TestCoverage {
         fired_sentences: BTreeSet::new(),
         unmapped: BTreeMap::new(),
         strictness: kink_native::coverage::StrictnessCoverage::default(),
+        windows: None,
     }
 }
 fn assert_global(validator: &NativeValidator, patch: &Patch, row: &str) {

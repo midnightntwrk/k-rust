@@ -408,6 +408,10 @@ struct Requested<'a> {
     /// The bindings the request collects, when `run.bindings` asks for them and the tables hold
     /// a collection ([`DefinitionTables::with_bindings`]).
     bindings: Option<&'a BindingCollection>,
+    /// The length up to which the request collects rule windows (k-rust `collect_windows`), when
+    /// `run.bindings` asks for the fired instances' records and the tables hold a depth above 1
+    /// ([`DefinitionTables::with_windows`]).
+    windows: Option<NonZeroUsize>,
 }
 
 impl Requested<'static> {
@@ -421,6 +425,7 @@ impl Requested<'static> {
             probed: false,
             guards: None,
             bindings: None,
+            windows: None,
         }
     }
 }
@@ -504,10 +509,30 @@ pub struct RunCoverage {
     /// `UNIQUE_ID`, the collection's symbols that were the head of an operand, and the values of
     /// the selected binders; `None` when the run did not collect them.
     pub bindings: Option<BindingsOutput>,
+    /// The rule windows the run took ([`DefinitionTables::with_windows`]): the length the request
+    /// asked for, which k-rust's result does not repeat, and every sequence of at most that many
+    /// rewrite rules, by `UNIQUE_ID`, that some path committed to as consecutive steps; `None`
+    /// when the run did not ask.
+    pub windows: Option<RunWindows>,
+}
+
+/// The rule windows of one run ([`RunCoverage::windows`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunWindows {
+    /// The longest window the request asked for (k-rust `collect_windows`).
+    pub depth: NonZeroUsize,
+    /// Every window of length `1..=depth` the run took, each a list of rewrite rule ids in step
+    /// order (k-rust `coverage.windows`).
+    pub sequences: Vec<Vec<String>>,
 }
 
 impl RunCoverage {
-    fn of(output: RunCoverageOutput<Pattern>, rewrites: &BTreeSet<String>) -> Self {
+    /// The coverage of `output`, whose request asked for windows up to `windows`.
+    fn of(
+        output: RunCoverageOutput<Pattern>,
+        rewrites: &BTreeSet<String>,
+        windows: Option<NonZeroUsize>,
+    ) -> Self {
         let applied = output.applied.into_iter().collect::<BTreeSet<_>>();
         let applied_rewrites = applied.intersection(rewrites).cloned().collect();
         Self {
@@ -517,6 +542,9 @@ impl RunCoverage {
             committed: output.committed.into_iter().flatten().collect(),
             guards: output.guards.unwrap_or_default(),
             bindings: output.bindings,
+            windows: windows
+                .zip(output.windows)
+                .map(|(depth, sequences)| RunWindows { depth, sequences }),
         }
     }
 }
@@ -1123,6 +1151,11 @@ pub enum ExecutionAdapterFailure {
 ///   k-rust states that asking changes no other field of the result (docs/compatibility.md,
 ///   "Committed transitions"), so no leaf, list, `applied` or `matched` set, and so no verdict or
 ///   schedule, differs from a run without it.
+/// - `collect_windows`: the tables' window length ([`DefinitionTables::with_windows`]) on a run
+///   that asks for the bindings of its fired instances (a baseline's result run that records
+///   coverage), absent otherwise: the run's coverage then also reports every rule window of
+///   length up to it ([`RunCoverage::windows`]). k-rust states that asking changes no other
+///   field of the result (docs/compatibility.md, "Rule windows").
 ///
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
@@ -1133,6 +1166,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         stop,
         guards,
         bindings,
+        windows,
         ..
     } = requested;
     ExecuteRequest {
@@ -1161,7 +1195,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         cancelled_result: CancelledResultOutput::Error,
         match_states: None,
         collect_committed: true,
-        collect_windows: None,
+        collect_windows: windows,
         schema_version: BACKEND_SCHEMA_VERSION,
     }
 }
@@ -1217,8 +1251,14 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// and a mutant's run and a stepped run never do. k-rust states that asking changes no other
 /// field of the result, and nothing that decides a verdict or a schedule reads the bindings; the
 /// one store that holds them, kink-flow's result records, moved its `RESULT_SCHEMA_VERSION`. A
-/// run that does not ask sends the request of v5, field for field.
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v6";
+/// run that does not ask sends the request of v5, field for field. v7: a result run that asks
+/// for the bindings of its fired instances may also ask for the rule windows of length up to the
+/// depth its tables hold (`collect_windows`, [`DefinitionTables::with_windows`]), where that
+/// depth is above 1; a mutant's run and a stepped run never do. k-rust states that asking changes
+/// no other field of the result, and nothing that decides a verdict or a schedule reads the
+/// windows; the one store that holds them, kink-flow's result records, moved its
+/// `RESULT_SCHEMA_VERSION`. A run that does not ask sends the request of v6, field for field.
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v7";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
 const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
@@ -1244,10 +1284,14 @@ const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
 /// ([`Self::with_bindings`], [`ResultRun::bindings`]): which symbols are authored and which
 /// variables are template binders is the front end's reading of the definition, not a table k-rust
 /// gives, so the caller that owns the backend sets it.
+///
+/// It may also hold the length up to which such a run collects rule windows
+/// ([`Self::with_windows`]): the length is the caller's question, not a fact of the definition.
 #[derive(Clone, Debug, Default)]
 pub struct DefinitionTables {
     built: Option<BuiltTables>,
     bindings: Option<BindingCollection>,
+    windows: Option<NonZeroUsize>,
 }
 
 #[derive(Clone, Debug)]
@@ -1265,6 +1309,7 @@ impl DefinitionTables {
         Self {
             built: None,
             bindings: None,
+            windows: None,
         }
     }
 
@@ -1276,12 +1321,29 @@ impl DefinitionTables {
         self
     }
 
+    /// These tables with `depth` as the length up to which a result run that asks for bindings
+    /// also collects rule windows (k-rust `collect_windows`, [`RunCoverage::windows`]). A depth of
+    /// 1 asks for none: the windows of length 1 are the run's `committed` rules, which every run
+    /// reports.
+    #[must_use]
+    pub fn with_windows(mut self, depth: NonZeroUsize) -> Self {
+        self.windows = (depth.get() > 1).then_some(depth);
+        self
+    }
+
     /// The tables of `backend`'s definition, built on the first call, with the binding
-    /// collection these tables hold.
+    /// collection and the window length these tables hold.
     fn of(
         &mut self,
         backend: &mut Backend,
-    ) -> Result<(&BuiltTables, Option<&BindingCollection>), ExecutionAdapterFailure> {
+    ) -> Result<
+        (
+            &BuiltTables,
+            Option<&BindingCollection>,
+            Option<NonZeroUsize>,
+        ),
+        ExecutionAdapterFailure,
+    > {
         if self.built.is_none() {
             let built = with_definition(backend, |definition| {
                 Ok(BuiltTables {
@@ -1295,6 +1357,7 @@ impl DefinitionTables {
         Ok((
             self.built.as_ref().expect("built above"),
             self.bindings.as_ref(),
+            self.windows,
         ))
     }
 }
@@ -1497,7 +1560,7 @@ impl ExecutionAdapter {
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let condition = condition.filter(|_| !stop.is_none());
-        let (built, bindings) = tables.of(backend)?;
+        let (built, bindings, windows) = tables.of(backend)?;
         let requested = Requested {
             run,
             stop,
@@ -1508,6 +1571,7 @@ impl ExecutionAdapter {
                 .is_some_and(|probe| !probe.rules.is_empty() || probe.probe.cycle_states() > 0),
             guards: run.guards.then_some(&built.guarded),
             bindings: bindings.filter(|_| run.bindings),
+            windows: windows.filter(|_| run.bindings),
         };
         stops_listed(requested, backend.capabilities())?;
         with_definition(backend, |definition| {
@@ -1769,7 +1833,7 @@ impl ExecutionAdapter {
             stack_stops: result.stack_stops,
             coverage: result
                 .coverage
-                .map(|coverage| RunCoverage::of(coverage, &rewrites)),
+                .map(|coverage| RunCoverage::of(coverage, &rewrites, None)),
             facts,
         })
     }
@@ -1847,7 +1911,7 @@ impl ExecutionAdapter {
             work: result.work,
             coverage: result
                 .coverage
-                .map(|coverage| RunCoverage::of(coverage, rewrites)),
+                .map(|coverage| RunCoverage::of(coverage, rewrites, requested.windows)),
             facts,
         })
     }
@@ -2683,6 +2747,7 @@ mod tests {
                         probed: false,
                         guards: None,
                         bindings: None,
+                        windows: None,
                     },
                 );
                 assert_eq!(request.stop_count, sent);
@@ -2744,6 +2809,7 @@ mod tests {
             probed: false,
             guards: None,
             bindings: None,
+            windows: None,
         };
         assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
         assert_eq!(stops_listed(requested(&stop, 1), listing), Ok(()));
@@ -2869,6 +2935,7 @@ mod tests {
                     probed: false,
                     guards: None,
                     bindings: None,
+                    windows: None,
                 },
                 vec![LeafFeasibility::Syntactic],
                 &BTreeSet::new(),
@@ -3168,6 +3235,7 @@ mod tests {
             probed: false,
             guards: None,
             bindings: None,
+            windows: None,
         };
         for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
             for request in [requested(&NO_STOP_RULES, 3), requested(&stop, 1)] {
@@ -3702,6 +3770,7 @@ mod tests {
             probed,
             guards: None,
             bindings: None,
+            windows: None,
         };
         for halt in [HaltClass::ProbeDifference, HaltClass::ProbeDone] {
             assert!(halt.is_probe());
@@ -3910,6 +3979,7 @@ mod tests {
                             probed,
                             guards: None,
                             bindings: None,
+                            windows: None,
                         };
                         assert_eq!(
                             format!("{:?}", request(constant("a"), budget, requested(true))),

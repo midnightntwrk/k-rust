@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 16
+//! version = 17
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -71,7 +71,8 @@
 //!
 //! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
 //! family the ids of its open obligations and of its argued ones, in item order (`[rules]`,
-//! `[requirements]`, `[syntax]`; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
+//! `[requirements]`, `[syntax]`, and `[rule_windows]` where the document has the family, at a
+//! depth above 1; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
 //! and, where it has any, of its undecided ones (`undecided`; [`crate::coverage::undecided_ids`]),
 //! and for the flips family whether it ran and, when it ran, each flip (`[[flip]]`, in item order)
 //! with its status (`argued` for an argued one), a refused flip's reason, a distinguished flip's
@@ -157,8 +158,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `coverage` rendering's `[rules]` lists the heating rules the compile generates from `strict`
 /// and `seqstrict` productions and `context` sentences by their ids
 /// (`rule:<production>:heat:<position>`), so that a lock that gains them shows a new version,
-/// not a moved verdict.
-pub const VERDICTS_VERSION: u64 = 16;
+/// not a moved verdict; 17 since a `coverage` rendering of a depth above 1 lists the open and
+/// argued rule windows (`[rule_windows]`, every open window, on the frontier or not), where such a
+/// document was refused before.
+pub const VERDICTS_VERSION: u64 = 17;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run

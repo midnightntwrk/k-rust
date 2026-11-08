@@ -1576,6 +1576,64 @@ fn coverage_names_heating_rules_by_the_strict_variant_and_field() {
     );
 }
 
+/// At `--depth 2`, `krs kink coverage` names each rule window by the Rust items of its rules:
+/// the counter steps down with `step` and stops with `stop`, and its may-follow graph has those two
+/// windows, both covered. The verdicts rendering lists `[rule_windows]` with nothing open.
+#[test]
+fn coverage_names_rule_windows_by_their_rust_items() {
+    // A package of its own: its records are collected at depth 2, which no other test reads.
+    let project = project_of(
+        "krs-cli-kink-windows",
+        "COUNTER",
+        &[
+            ("src/lib.rs".to_owned(), COUNTER.as_bytes().to_vec()),
+            (
+                "kink/FLOW.toml".to_owned(),
+                b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"c3\"\nfile = \"cases/c3.cnt\"\n"
+                    .to_vec(),
+            ),
+            ("kink/cases/c3.cnt".to_owned(), b"count(3)\n".to_vec()),
+        ],
+    );
+    let output = project.kink("coverage", &["--tier", "1", "--depth", "2"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let family = &document["families"]["rule_windows"];
+    let ids = family["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document:#}"))
+        .iter()
+        .map(|item| {
+            (
+                item["id"].as_str().unwrap(),
+                item["status"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        [
+            ("window:crate::step,crate::step", "covered"),
+            ("window:crate::step,crate::stop", "covered"),
+        ],
+        "{family:#}"
+    );
+    assert_eq!(
+        family["items"][0]["rule_ids"],
+        json!(["rule:crate::step", "rule:crate::step"])
+    );
+    let output = project.kink(
+        "coverage",
+        &["--tier", "1", "--depth", "2", "--output", "verdicts"],
+    );
+    assert_status(&output, 0);
+    let verdicts = stdout(&output);
+    assert!(
+        verdicts.contains("\n[rule_windows]\nopen = []\nargued = []\n"),
+        "{verdicts}"
+    );
+}
+
 /// `krs run --coverage` names each rule of the story's results `document` by the string the
 /// document names it by, and a stop reads that string as the same item.
 fn coverage_and_stops_name_rules_as_the_document_does(project: &Project, document: &Value) {
@@ -3260,7 +3318,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 11);
+    assert_eq!(document["version"], 12);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -6291,7 +6349,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 17\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );
