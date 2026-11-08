@@ -569,7 +569,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<execution digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v19`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
+(result schema version `kink-flow/result/v20`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
 the writer's specification digest `spec_digest` (outside the key: it only tells a reader that a record was written under other bytes),
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), whose whole-term (or `cells`) side holds the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), each end once: since v12 a comparable record does not repeat them in `final_configuration`, which holds the final state of each leaf of an `unknown` program's diagnostic run (`results::record_final_configuration` reads either), the rule
@@ -687,6 +687,19 @@ No program text reaches it, but that does not set it apart: no program text reac
 Only a front end that sees the claims beside the definition names the claim helpers (`FlowManifest::with_claim_helpers`; the krs front end names the sentences its emission marks so, and a K corpus has none).
 A function nothing applies stays `unmatched`: neither a run nor a claim accounts for it.
 A typed input can apply any function, so a claim helper some comparable program matches or fires has that status; one that none matches is `claim-helper`.
+
+The family also has the heating rules the compile generates, each an item of `kind` `heating` (an authored rule's `kind` is `rule`) at the authored sentence it was generated from: a `strict` or `seqstrict` production has one per argument position its attribute names and per context alias it uses, and a `context` sentence has one.
+A context says: evaluate the subterm at the hole before the construct around it.
+The compile states it as two rewrite rules, heating, which moves the subterm to the front of the computation while it is not a result, and cooling, which plugs the result back.
+The obligation is the heating rule: it fires exactly where a run put a term that is not a result at the position, the one situation the attribute governs, so a corpus whose runs never heat a position cannot tell the definition from one without that position's strictness.
+Cooling follows from heating wherever the subterm's evaluation reaches a result, and where it does not, the step after it (the authored rule that reads the result) is open on its own, so the cooling rule is shown and not counted.
+The item's status is its heating rule's: `fired` where some comparable program took the step, `matched` where some matched its left-hand side and its condition never held (the subterm was a result there, or, for `seqstrict`, a position before it was not yet one), `unmatched` where no comparable program brought the construct to the front of the computation.
+An item is `{id, kind, module, index, label, file, start_line, end_line, status, obligation, covered, matched_by, fired_by, touched_only_by, uncounted, rewrite, pattern, heating, reason?}` with `heating` `{attribute, production, position, alias, heat: {axiom, label}, cool: {axiom, label, matched_by, fired_by, uncounted}}`: `attribute` `strict`, `seqstrict` or `context`, `production` the production's K label and `position` its 1-based argument position (both `null` for a `context`), `alias` the context alias sentence (`null` for the default one), `cool` `null` where no cooling rule pairs with it.
+Its id is `rule:<production>:heat:<position>` (with `:<alias>` where it uses one), a front end's name of the production and the position where it gives them (`rule:crate::Arith::Add:heat:lhs`), and `rule:<context>:heat` for a context, the context named as a rule is.
+The two rules of one context share their input sentences, and their labels differ only in the suffix (`-heat`, `-cool`); the label the compile gives a production's context, `MODULE.label` followed by the position, names the position, and a context without a label has one heating and one cooling rule, so its sentence alone pairs them.
+Every heating rule of one production has the production as its sentence, so the sentences a record lists cannot say which position a run heated: a record keeps the heating and cooling rules its run matched and fired by compiled id (`coverage.strictness`, `{matched, fired}`).
+`counts.heating` (`{obligations, fired}`) gives the heating items apart, and the text rendering's rules line says `heating N of M fired`.
+A heating item does not count in the syntax family: its step touches its own production by construction, which the item already states; what the syntax family adds is whether the definition's rules took a step with the production.
 
 **Requirements.** For each guarded rule of the rules family whose condition has an authored conjunct ("Guard outcomes"), each distinct pair of a node and a truth: the condition's root with each outcome (`held`, `refuted`) and each authored operand node with outcomes of its own (an atom, or an exclusive connective) with each truth (`true`, `false`), each an item `{id, rule, node, truth, text, file, line, status, covered, covered_by, undecided_by, touched_only_by, entered_by, reaching?, node_truth?}`.
 A node's truth is covered when some comparable program reached the node with that truth, a node being reached, in written order, only where the operands before it decide nothing yet: in a conjunction where every operand before it is `true`, in a disjunction where every one before it is `false`, the right operand of an implication where the left one is `true`.
@@ -811,6 +824,7 @@ The verdicts rendering lists each family's argued ids beside its open ones, and 
 
 - An `unmatched` rule asks for `a case whose run reaches a state that <rule> matches`, with `fuzz`, the `fuzz --matched` job of a rewrite rule, and `pattern`, the rewrite rule's left-hand side as a `PATTERNS.toml` pattern (below).
 - A `matched` rule asks for `a case where <rule> is entered and its condition holds`, naming its open requirement `held`, with the programs that entered it (`programs`, the templates of a fuzz job) and the `fuzz --fired` job of a rewrite rule.
+- An open heating rule asks for `a case whose run brings <production> to the front of the computation with a term that is not a result as its argument <position>, so that heating evaluates it` (for `seqstrict`, with results as the arguments before it; for a context, `reaches a state the context <context> matches with a term that is not a result in its hole`), adding, for a `matched` one, that the comparable runs that reached it did not, with those programs; the fuzz's rule jobs target authored rules, so `fuzz` and `pattern` are `null`.
 - A requirement asks for `a case that enters <rule> with <valuation>`: the truths of `reaching`, then the node's own; for the root, its condition holding or false, with the valuation of its node where it has one.
 - An unreached production asks for `a case in which a step takes <production> as an operand, or inspects or builds it`, naming the rules that inspect it and those that build it (`rules`, both), each a thing to make fire; a production no rule writes says that only a step that takes it as an operand reaches it. A field value states the front end's text.
 - An item with `touched_only_by` adds the programs that touch it but are not comparable, and asks to make one comparable.
@@ -853,7 +867,7 @@ A corpus commits `coverage.lock` beside `verdicts.lock`, and a CI runs `coverage
 
 ### The document
 
-`{schema: "kink-flow-coverage", version: 6, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
+`{schema: "kink-flow-coverage", version: 9, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
 Version 2 builds the syntax family, where version 1 had `null`.
 Version 3 runs the flips family where a front end derives the flips: `settings.tiers` `[1, 2]`, the family's items, counts, measure and search, its targets, and `summary.per_family.flips`.
@@ -862,6 +876,7 @@ Version 5 adds `observe` for a corpus with `[observe]`, each program row's `obse
 Version 6 reads `[[coverage.argued]]` ("Argued obligations"): `settings.argued`, an argued item's status `argued` with its `argument` and `unargued_status`, a needless argument's `argument` and `argument_needless`, each family's `argued` and `counts.argued`, and the summary's `covered` and `needless_arguments`.
 Version 7 names why each horizon's channel opened ("What a run observes"): a program row's `observations.horizon` is `{<channel>: {elements, opening}}` and each open channel's `open` has `opening`, each flip has `horizon` (an undistinguished flip's agreements up to a horizon, null otherwise), and a prefix program none of whose channels kept an element within its budget or closed by a cycle is `unknown`; a program row's channel can be `closed` by `cycle`.
 Version 8 reads `[coverage] mcdc` ("Unique-cause MC/DC"): `settings.mcdc` may be `true`, and under a selection the selected guards' `combinations`, the unique-cause requirements, the status `undecided`, the requirements family's `mcdc` and `counts.undecided`; without one, the document is version 7's.
+Version 9 lists the heating rules in the rules family ("Families"): each rules item's `kind`, the heating items with `heating`, and the family's `counts.heating`.
 `settings` is `{tiers, depth, mcdc, max_obligations, argued, source}` (`mcdc` the names as written, or `true`; `argued` the entries as written, `{item, argument}`) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, argued, measure, counts, items}` where built.
@@ -1537,12 +1552,12 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 15
+version = 16
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
-krs_annotation = 7            # coverage: a document the KRS front end annotated, its krs.version
+krs_annotation = 8            # coverage: a document the KRS front end annotated, its krs.version
 
 [spec]
 outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below

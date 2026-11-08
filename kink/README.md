@@ -122,7 +122,10 @@ In scope:
   The operand heads and the alternatives a fired instance took are recorded by k-rust at the fired instance (`collectBindings`, kink-native `ResultRun::bindings`); what each alternative of a sentence inspects and builds is read from the definition once.
   Values of a `k::bits!` template's fields are a front end's to add: K has no such templates, so kink-flow builds no field-value item ([kink-flow's README](crates/kink-flow/README.md), "Syntax").
 
-- **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits. Not built yet: `coverage` lists `rule` sentences only, so they have no item.
+- **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits.
+  Built in `coverage`'s rules family: one heating item per argument position a production's attribute names (and per context alias it uses), and one per `context`, named by the production and the position (`rule:add:heat:1`) or by the context, covered where some comparable run heated it, that is, put a term that is no result at the position.
+  The cooling rule is shown with its heating item and not counted: it follows wherever the heated term's evaluation reaches a result, and where it does not, the rule that reads the result is open on its own.
+  Every heating rule of one production has the production as its sentence, so a run's record keeps the heating and cooling rules it matched and fired by compiled id (`coverage.strictness`).
 
 Out of scope, each for its reason:
 
