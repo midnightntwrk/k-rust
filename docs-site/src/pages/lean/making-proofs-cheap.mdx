@@ -1,72 +1,9 @@
 ---
 title: Making proofs cheap
 description: The frozen and the checked layer, a judge that accepts any proof the kernel accepts and nothing else, the changes it must reject, and an unattended run that lowered the proof cost of peano's statements and two synthetic definitions.
+layout: blank
 ---
 
-import { Provenance } from '../../components/lean/Provenance'
-import { loopNumbers } from '../../components/lean/numbers'
-import { GrowthScene, LayersScene, LoopRunScene, NegativeScene } from '../../components/lean/CheapScenes'
+import { LeanCourse } from '../../components/lean/Course'
 
-# Making proofs cheap
-
-Lesson 7 of [A K definition in Lean](/lean).
-
-[Lesson 5](/lean/proving-a-property) proved five properties of peano and four witnesses.
-Those proofs are not the first ones written for these statements. Over all the statements of the run below, the first proofs cost about {loopNumbers.ratio} times more.
-This lesson explains why a proof can be replaced without anyone reading the replacement, what decides whether a replacement is accepted, and what happened when an agent was left to make the proofs cheaper on its own.
-
-For a user of the package this is the second half of the work.
-Once the statements are written and reviewed, their proofs, and their cost, can be improved by a loop that nobody watches, because nothing the loop can do changes what is proved.
-
-## What may change
-
-<LayersScene />
-
-## What the judge rejects
-
-<NegativeScene />
-
-## An unattended run
-
-<LoopRunScene />
-
-The agent ran {loopNumbers.iterations} iterations; {loopNumbers.rejected} was rejected because the total went up.
-It stopped when what remained was mostly the kernel evaluating the frozen definitions themselves: string comparisons inside lookups by name, which no change of proof can remove.
-
-The proofs it produced for peano are the ones in the package now.
-There, with peano's facts in their own kernel decision (the run had shared one decision between all three definitions), the whole proof file costs {loopNumbers.peanoFile} thousand heartbeats.
-
-## Growth with the size of a definition
-
-<GrowthScene />
-
-## What a user runs
-
-The judge is generic: it takes a list of target theorems and the frozen statements they must prove, and treats one set of modules as editable.
-To run the loop on your own statements:
-
-1. write and review the statements (lesson 6 says what to read), and freeze them with the judge's hash list;
-2. give the judge the targets, one line per theorem: its name and the name of the statement it must prove;
-3. edit the editable modules, run the judge, keep the change if it passes and the total goes down, restore otherwise.
-
-The judge's verdict is the only feedback the loop needs, and its records are the evidence: a log line per iteration and a summary per judged run.
-
-## What is machine-checked here
-
-- Every state the run kept passed the judge: kernel replay of every new declaration, each target's type equal to its frozen statement, axioms `propext`, `Classical.choice` and `Quot.sound` only. The final state was judged again afterwards, by a separate session, with the same total.
-- The {loopNumbers.negative} rejections were produced by the same judge, on the earlier hand-driven run's proofs, and recorded before the unattended run.
-- Not checked: that the agent followed the instruction not to read earlier attempts. Nothing enforced it, and nothing depends on it: the judge accepts a proof for what it proves, wherever it came from.
-- The growth table is from an earlier run of the same kind, driven by hand, with the same judge.
-
-## Reproduce
-
-In the loop's package, with the frozen layer built:
-
-```sh
-judge/run.sh mystate          # JUDGE PASS or JUDGE FAIL: reason, and the total
-cat runs/mystate/summary.json # the cost per group of targets
-```
-
-<Provenance />
-
-Next: [Theorem A](/lean/theorem-a).
+<LeanCourse lesson="making-proofs-cheap" />

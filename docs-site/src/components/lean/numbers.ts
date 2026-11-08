@@ -1,6 +1,5 @@
-// Numbers the Lean lessons quote in prose and in scenes: the review cone's sizes and the cost of
-// the kernel check of the emitted KORE. Kept out of the 'use client' scene modules so that the
-// pages (server components) can read them.
+// Numbers the Lean lessons quote in narration and in scenes: the review cone's sizes and the cost
+// of the kernel check of the emitted KORE.
 
 import { type Cone, fmt, lean } from './data'
 
@@ -79,10 +78,28 @@ export const loopNumbers = {
   peanoFile: fmt(Math.round(Object.values(lean.heartbeats).reduce((sum, h) => sum + h, 0) / 1000)),
 }
 
-const draft = lean.m2Cone.totals
-/** The next fragment's draft: its review cone (i) for peano, against the current one. */
-export const draftNumbers = {
-  total: draft.total.coneLines,
-  nowTotal: coneNumbers.total,
+/** F1, beside F0: its review cones, the F1 execution differential, the audit of its fixed texts. */
+export const f1Numbers = {
+  user: lean.f1Cones.user.totals.total.coneLines,
+  emit: fmt(lean.f1Cones.emit.totals.total.coneLines),
+  root: fmt(lean.f1Cones.root.totals.total.coneLines),
+  f0User: coneNumbers.total,
+  subjects: lean.diffF1.subjects,
+  configs: fmt(lean.diffF1.compared),
+  transitions: fmt(lean.diffF1.transitions),
+  branching: lean.diffF1.branching,
+  differences: lean.diffF1.differences + lean.diffF1.errors,
+  unexplored: lean.diffF1.unexplored,
+  refSampled: fmt(lean.diffF1.refSampled),
+  refAgree: fmt(lean.diffF1.refAgree),
+  refDifferences: lean.diffF1.refDifferences,
+  auditTotal: lean.audit.total,
+  auditBool: lean.audit.axioms.bool,
+  auditInt: lean.audit.axioms.int,
+  auditFalse: lean.audit.falseAxioms,
+  auditCurated: lean.audit.curated,
+}
+if (lean.audit.axioms.bool + lean.audit.axioms.int + lean.audit.axioms.none !== lean.audit.total) {
+  throw new Error('lean lessons: the audit counts do not add up')
 }
 

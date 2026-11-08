@@ -2,8 +2,6 @@
 
 // The scenes' shared playback: a scene is a list of phases, and the player steps through them.
 // Phase 0 is what a reader sees before pressing anything, so every scene is complete at rest.
-// The Lean lessons use the same player with a speed factor and with `next`/`back`, which stop
-// at the ends instead of wrapping (components/lean/LessonScene.tsx).
 
 import { type ReactNode, useEffect, useState } from 'react'
 
@@ -14,13 +12,11 @@ export type Player = {
   playing: boolean
   toggle: () => void
   step: () => void
-  next: () => void
-  back: () => void
   reset: () => void
   go: (index: number) => void
 }
 
-export function usePlayer(count: number, delay: number | readonly number[], speed = 1): Player {
+export function usePlayer(count: number, delay: number | readonly number[]): Player {
   const [at, setAt] = useState(0)
   const [playing, setPlaying] = useState(false)
 
@@ -30,11 +26,11 @@ export function usePlayer(count: number, delay: number | readonly number[], spee
       setPlaying(false)
       return
     }
-    const wanted = (typeof delay === 'number' ? delay : (delay[at] ?? delay[delay.length - 1])) / speed
+    const wanted = (typeof delay === 'number' ? delay : (delay[at] ?? delay[delay.length - 1]))
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const timer = window.setTimeout(() => setAt((current) => current + 1), reduce ? Math.min(wanted, 600) : wanted)
     return () => window.clearTimeout(timer)
-  }, [at, count, delay, playing, speed])
+  }, [at, count, delay, playing])
 
   return {
     at,
@@ -47,14 +43,6 @@ export function usePlayer(count: number, delay: number | readonly number[], spee
     step: () => {
       setPlaying(false)
       setAt((current) => (current + 1) % count)
-    },
-    next: () => {
-      setPlaying(false)
-      setAt((current) => Math.min(current + 1, count - 1))
-    },
-    back: () => {
-      setPlaying(false)
-      setAt((current) => Math.max(current - 1, 0))
     },
     reset: () => {
       setPlaying(false)

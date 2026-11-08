@@ -36,6 +36,11 @@ Twoslash result-cache reuse is intentionally disabled by using a fresh cache dir
 This avoids the upstream cache key, which does not include the Cargo manifest, lockfile, tool versions, or dependency sources.
 The fail-closed gate also runs on every enabled build rather than trusting cached success.
 
+The Lean course (`src/pages/lean/`) is one application on ten routes, with no Vocs chrome (`layout: blank`).
+Each page names a lesson of `src/components/lean/lessons/`, and `Course.tsx` plays it: one timeline per lesson, across scenes that keep their panes fixed, with annotations inside the code panes, narration as strings in a small markup for what is not about one thing on the stage, shown inside the stage as an annotation with no target, questions that stop playback, and an end section of check-yourself questions, what is checked and commands to try.
+Everything a scene shows as output comes from `src/generated/lean-lessons.json`, written by the generator beside the kcore-spec package; the lookups in `data.ts` and the guards at the top of each lesson throw when a scene asks for something the data no longer has, and `lessons/index.ts` checks every annotation's line and token against the text its frame shows, so a stale highlight or annotation fails the build.
+Because a lesson's text lives in those modules, the site's search finds a lesson by its title and description only.
+
 ## Browser lesson assets
 
 `/lessons/tour-minimal` compiles the `tour-minimal` fixture in the reader's browser with the compiler worker in `../krs/browser/worker`.

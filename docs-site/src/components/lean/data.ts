@@ -92,6 +92,23 @@ export type Cone = {
   trusted?: { prefix: string; count: number; names: string[] }[]
 }
 
+/** A binding of an F1 match: variable index, its declared sort, its value as Lean rendered it. */
+export type F1Binding = { var: number; sort: string; value: string }
+export type F1Config = {
+  name: string
+  text: string
+  isConfig: boolean
+  rules: { rule: string; matches: F1Binding[][] }[]
+  successors: string[]
+}
+export type FactsF1 = {
+  configs: F1Config[]
+  mapPattern: { pattern: string; map: string; free: F1Binding[][]; keyBound: F1Binding[][]; keyAbsent: F1Binding[][] }
+  canonical: { entries: string; sorted: boolean; unsorted: boolean }
+  storeInF1: boolean
+  storeParsedCoreIsExample: boolean
+}
+
 type Data = {
   provenance: {
     kcoreSpecCommit: string
@@ -148,7 +165,23 @@ type Data = {
     judgeHeader: Source
     targets: number
   }
-  m2Cone: { title: string; roots: string[]; modules: { module: string; decls: number; lines: number }[]; totals: Record<string, { coneLines: number; decls: number; fileLines: number }> }
+  f1Cones: Record<'user' | 'emit' | 'root', { title: string; roots: string[]; modules: { module: string; decls: number; lines: number }[]; totals: Record<string, { coneLines: number; decls: number; fileLines: number }> }>
+  factsF1: FactsF1
+  storeK: string
+  diffF1: {
+    rows: { subject: string; compared: number; transitions: number; branching: number; differences: number; errors: number; unexplored: number; refSampled: number; refAgree: number; refDifferences: number }[]
+    subjects: number
+    compared: number
+    transitions: number
+    branching: number
+    differences: number
+    errors: number
+    unexplored: number
+    refSampled: number
+    refAgree: number
+    refDifferences: number
+  }
+  audit: { axioms: Record<'none' | 'bool' | 'int', number>; sentences: Record<'none' | 'bool' | 'int', number>; total: number; falseAxioms: number; curated: number }
   refKompile: { rows: { difference: string; sentences: string; readByStep: string }[]; krustSentences: number; refSentences: number }
 }
 
@@ -202,6 +235,12 @@ export function koreAxiom(kind: 'rule' | 'equation', index: number): Source {
 }
 
 // ---- facts ----------------------------------------------------------------------------------
+
+export function configF1(name: string): F1Config {
+  const found = lean.factsF1.configs.find((c) => c.name === name)
+  if (!found) throw new Error(`lean lessons: no computed F1 configuration ${name}`)
+  return found
+}
 
 export function config(name: string): ConfigFact {
   const found = lean.facts.configs.find((c) => c.name === name)

@@ -1,72 +1,9 @@
 ---
 title: Matching logic from scratch
 description: Patterns as sets, truth in a model and Γ ⊧ φ, the theory Γ_D that peano's KORE translates to, and steps as the symbol • with the closure axiom, on the Lean definitions the package uses.
+layout: blank
 ---
 
-import { Provenance } from '../../components/lean/Provenance'
-import { GammaScene, NextScene, PatternsScene, TruthScene } from '../../components/lean/LogicScenes'
+import { LeanCourse } from '../../components/lean/Course'
 
-# Matching logic from scratch
-
-Lesson 2 of [A K definition in Lean](/lean).
-
-[Lesson 1](/lean/a-definition-and-its-steps) ended with a question: what is a step, precisely?
-K has an official answer.
-A K definition, once compiled to KORE, is a theory in matching logic, and a configuration steps to another when the theory says so in every one of its models.
-This lesson builds that answer from nothing: what a pattern is, what it means for a pattern to hold, what peano's theory looks like, and how it talks about steps.
-
-The Lean in the panes is the matching-logic library the package builds on (the `MatchingLogic` modules) and the package's translation of KORE into it.
-
-## Patterns denote sets
-
-In first-order logic, a term denotes one element and a formula is true or false.
-Matching logic has one kind of thing instead, the pattern, and a pattern denotes a set of elements: the elements that match it.
-
-<PatternsScene />
-
-## When a pattern holds
-
-<TruthScene />
-
-## peano's theory
-
-The KORE file of lesson 1 is a list of declarations and axioms.
-The package translates it, mechanically, into a set of matching-logic patterns, Γ_D ("the theory of the definition").
-Lesson 1's question now has a precise form: which steps does Γ_D entail?
-
-<GammaScene />
-
-## Steps
-
-<NextScene />
-
-## What K's meaning gives, and what it does not
-
-This answer to "what is a step" has two properties that matter for the rest of the series.
-
-- It is the meaning K's documentation and papers give a definition: the theory of its KORE, read in matching logic. The package's version of it is in the panes above, and lesson 6 counts its lines.
-- It is not something a proof assistant can compute with. "Holds in every model" quantifies over all sets and all interpretations, so even "`run(s(z))` steps to `run(z)`" needs a proof, and none of the peano statements in the last scene has one yet.
-
-So the proofs of lessons 4 to 7 use a second definition of a step, written in Lean as a relation that can be computed with ([lesson 4](/lean/what-a-step-means)).
-[Lesson 8](/lean/theorem-a) states the theorem that would make the two definitions agree, Theorem A, and what stands in for it until it is proved.
-
-## What is checked here
-
-- The Lean panes are the files at the recorded commit; the Γ_D panes are the package's own printing of peano's theory, regenerated from its KORE by the package's translator.
-- The five-element model of the first two scenes is an illustration. Its sets were computed for this page by the clauses of `Pattern.interpret` shown beside it, not by Lean.
-- The peano statements of the last scene are stated in Lean and type-checked; their proofs are `sorry`. The build marks each one as unproved.
-
-## Reproduce
-
-In the kcore-spec package directory:
-
-```sh
-lake build
-lake exe gammad > GAMMA_D.txt   # peano's Γ_D, printed in the notation of the Γ_D panes
-```
-
-The statements of the last scene are in `KcoreSpec/PeanoSpec.lean`; `lake env lean KcoreSpec/PeanoSpec.lean` reports each `sorry`.
-
-<Provenance />
-
-Next: [The definition as a Lean value](/lean/the-definition-as-a-value).
+<LeanCourse lesson="matching-logic" />

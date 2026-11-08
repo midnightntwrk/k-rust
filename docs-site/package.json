@@ -18,6 +18,9 @@
     "sync:snippets": "python3 scripts/sync-k-rust.py --write && python3 ../krs/tests/tour-imp/sync.py --write && node scripts/sync-snippets.mjs --write && python3 scripts/sync-story.py --write"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "5",
+    "@fontsource/ibm-plex-sans": "5",
+    "@fontsource/ibm-plex-sans-condensed": "5",
     "@vocs/twoslash-rust": "0.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

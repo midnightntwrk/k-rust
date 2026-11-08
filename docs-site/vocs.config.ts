@@ -89,7 +89,8 @@ export default defineConfig({
         { text: '5. Proving a property', link: '/lean/proving-a-property' },
         { text: '6. What you have to read', link: '/lean/what-you-have-to-read' },
         { text: '7. Making proofs cheap', link: '/lean/making-proofs-cheap' },
-        { text: '8. Theorem A', link: '/lean/theorem-a' },
+        { text: '8. Step is sound and complete', link: '/lean/sound-and-complete' },
+        { text: '9. Beyond peano: F1', link: '/lean/beyond-peano' },
       ],
     },
     {
