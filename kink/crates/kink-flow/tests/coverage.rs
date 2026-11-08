@@ -1591,9 +1591,10 @@ text = 'h(opaque(1), 2)'
         // ninth lists the heating rules in the rules family; its tenth gives a run with several
         // paths its prefix sets' facts; its eleventh spells `fuzz --cover` in the targets of
         // requirements, productions, field values, heating rules and equations; its twelfth is
-        // computed at a depth above 1, with the rule windows.
+        // computed at a depth above 1, with the rule windows; its thirteenth gives every family
+        // one static scope; its fourteenth adds the syntax paths at a depth above 1.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 13);
+        assert_eq!(document["version"], 14);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2333,7 +2334,7 @@ endmodule
         // operand heads of variables the axiom reads. v20, because a record's coverage holds the
         // heating and cooling rules it matched and fired by id. v23, because a record's coverage
         // holds the rule windows its run took, with the depth it collected them to.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v23");
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v24");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

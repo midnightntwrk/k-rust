@@ -272,7 +272,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 13);
+        assert_eq!(after["version"], 14);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),
@@ -539,7 +539,7 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{plain:#}");
         let recorded = fs::read_to_string(&lock).unwrap();
         assert_eq!(recorded, verdicts(&plain).unwrap());
-        assert!(recorded.contains("\nversion = 17\n"), "{recorded}");
+        assert!(recorded.contains("\nversion = 18\n"), "{recorded}");
         assert!(
             recorded.contains(&format!("\n[rules]\nopen = [\"{WAKE}\", ")),
             "{recorded}"

@@ -426,7 +426,7 @@ fn a_prefix_program_is_recorded_under_its_declaration() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let (cold, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{cold:#}");
-    assert_eq!(cold["version"], 13);
+    assert_eq!(cold["version"], 14);
     assert_eq!(cold["observe"], manifest.observe_value().unwrap());
     let program = &cold["programs"][0];
     assert_eq!(program["class"], "comparable-prefix", "{program:#}");
@@ -558,7 +558,7 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
 
     // The verdicts rendering says which survivor rests on a horizon.
     let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
-    assert!(verdicts.contains("version = 17"), "{verdicts}");
+    assert!(verdicts.contains("version = 18"), "{verdicts}");
     assert!(
         verdicts.contains(
             "horizon = [{ program = \"run\", channel = \"clock\", elements = 16, \
