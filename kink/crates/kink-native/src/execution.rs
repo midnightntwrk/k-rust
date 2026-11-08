@@ -61,8 +61,8 @@ use k_rust::backend::{
 };
 pub use k_rust::backend::{
     BinderSelection, BindingCollection, BindingsOutput, CellHandle, Probe, ProbeArrival,
-    ProbeCycle, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival, StopCondition,
-    StopDecision, StopSide,
+    ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath, ProbeRules, ProbeState, StopArrival,
+    StopCondition, StopDecision, StopSide,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -783,6 +783,26 @@ impl Probe for Recording<'_> {
 
     fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
         self.probe.ended(leaf);
+    }
+
+    fn follows_paths(&self) -> bool {
+        self.probe.follows_paths()
+    }
+
+    fn fork(&mut self, from: ProbePath, into: ProbePath) {
+        self.probe.fork(from, into);
+    }
+
+    fn split(&mut self, path: ProbePath, depth: u64, into: &[ProbePath]) {
+        self.probe.split(path, depth, into);
+    }
+
+    fn merged(&mut self, path: ProbePath, depth: u64) {
+        self.probe.merged(path, depth);
+    }
+
+    fn history(&self, path: ProbePath) -> [u8; 32] {
+        self.probe.history(path)
     }
 }
 

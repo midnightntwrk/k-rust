@@ -12,6 +12,10 @@
 //! count, effects and console, with no diagnostic the other lacks: the final merge would absorb
 //! every one of them. Its expansion is skipped.
 //!
+//! Under a probe that follows paths (`probe`, "Merging") a state's subtree also gives the probe's
+//! answers, which rest on the probe's history of the state's path as well: an arriving state is
+//! merged only into a recorded state with an equal history, read when each arrived.
+//!
 //! Path facts (`BackendDiagnostic::ImplementationChosenValue`) are left out of the comparison of
 //! diagnostics: they record which paths read a value the definition leaves open, not what a
 //! leaf means, so a mark never causes or prevents a merge and the run explores what an unmarked
@@ -54,6 +58,9 @@ pub(super) struct Arrival {
     /// What the state matcher keeps of this state's verdict, once it is recorded
     /// (`state_match::MatchMark`): an arrival merged into it has the same verdict.
     pub(super) mark: MatchMark,
+    /// The probe's history of the state's path, under a probe that follows paths
+    /// (`probe::Probe::history`); `None` otherwise.
+    pub(super) history: Option<[u8; 32]>,
     /// The pattern's shape hash, once a state of its depth was met.
     shape: Option<u64>,
     /// The pattern's key, once a recorded state of its shape was met.
@@ -79,6 +86,7 @@ impl Arrival {
             io_enabled,
             diagnostics,
             mark: MatchMark::Other,
+            history: None,
             shape: None,
             key: OnceCell::new(),
         }
@@ -95,6 +103,7 @@ impl Arrival {
     fn absorbed_by(&self, recorded: &Self, names: &RequestNames) -> bool {
         recorded.io_enabled == self.io_enabled
             && recorded.stops == self.stops
+            && recorded.history == self.history
             && recorded.effects.fingerprint() == self.effects.fingerprint()
             && self
                 .diagnostics

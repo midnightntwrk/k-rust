@@ -39,17 +39,70 @@
 //!
 //! # One path
 //!
-//! The probe observes one path. A run's path splits where the state being expanded leaves more
-//! than one path: several successors (applied candidates or a remainder), a successor beside
-//! leaves of the same step (an undefined step's instances), or a branch leaf reporting several
-//! successors. There the probe is told once ([`Probe::branched`]), and from then on it is asked
-//! nothing: its callbacks name no path, so the points of several paths, in the order the run
-//! explores them, are no sequence of one path. Where the path ends first, at any leaf other than
-//! the probe's own, the probe is told once ([`Probe::ended`]) and reads the leaf's state.
+//! A probe that does not follow paths ([`Probe::follows_paths`], the default) observes one
+//! path. A run's path splits where the state being expanded leaves more than one path: several
+//! successors (applied candidates or a remainder), a successor beside leaves of the same step (an
+//! undefined step's instances), or a branch leaf reporting several successors. There the probe is
+//! told once ([`Probe::branched`]), and from then on it is asked nothing: its callbacks name no
+//! path it can tell apart, so the points of several paths, in the order the run explores them,
+//! are no sequence of one path. Where the path ends first, at any leaf other than the probe's
+//! own, the probe is told once ([`Probe::ended`]) and reads the leaf's state.
 //! Under strategy `any` each instance of a state takes the successors of one rule at most, but
 //! a state still leaves several paths where its instances take different rules or a remainder
 //! (a symbolic state), or where the rule's right-hand side has several alternatives; the probe
 //! is told of a split there as under `all`.
+//!
+//! # Several paths
+//!
+//! A probe that follows paths is asked along every path the run explores, each named by a
+//! [`ProbePath`]: every point ([`ProbeArrival::path`]), every end ([`ProbeLeaf::path`]) and a
+//! return ([`ProbeCycle::path`]) names the path it is of. The run starts on
+//! [`ProbePath::ROOT`]. Where the state being expanded on a path leaves anything but one
+//! successor and no leaf, the path splits, in this order:
+//! 1. each path it leaves, a successor or a leaf, gets a new name, and the probe is told that the
+//!    new path starts as the old one stands ([`Probe::fork`]), before any point of it is asked;
+//! 2. the probe is told the old path's state at that depth left exactly those paths
+//!    ([`Probe::split`]), and is asked nothing more of the old path;
+//! 3. each leaf among them is told as the end of its own path ([`Probe::ended`]), unless the
+//!    probe's own answer made it.
+//!
+//! A split into no path is a state the run found to have no instance (its normalization is
+//! `\bottom`), or whose step it found undefined where a leaf of another path already stands for
+//! those instances: no path of the definition goes on from it. A split into one path renames it, where a point of a terminal rule's step was
+//! asked within the expansion: its path is forked before that point, since the run does not yet
+//! know there what else the expansion leaves. The initial states are the paths the root splits
+//! into at depth 0 when there are several. A leaf a breadth bound makes of a pending state is told
+//! as the end of that state's path.
+//!
+//! The points of a step are asked once its successor's normalization shows it defined, on the
+//! successor's path, so a step's points are always asked after the split of its state is told.
+//!
+//! An answer of a path is that path's: `Done` ends that path only, and the run goes on with the
+//! others; `Differs` ends the request. A path the run stops exploring without a leaf of its own
+//! (the work budget reached on another path, a stop that ends the run, a difference) is told
+//! nothing more: what the probe holds of it is where the run left it.
+//!
+//! ## Merging
+//!
+//! A state-set run that explores every branch merges an arriving state into an equal state of its
+//! depth whose expansion completed (`exploration_merge`): the arriving state's subtree would give
+//! the same leaves. Under a probe that follows paths it gives the same answers too only where the
+//! probe's state of both paths is the same, so the probe's history of the arriving state's path
+//! ([`Probe::history`], read once the points of the step into it were asked) is part of what the
+//! two states must share. Two states whose histories differ are never merged, and both are
+//! expanded. A merged state's path is told so ([`Probe::merged`]): its continuation is the
+//! recorded state's, on the path the probe was told of that state, which the probe sees there.
+//!
+//! The history is the probe's: equal histories of two paths must say that the probe answers alike
+//! on both from equal states, and that what it keeps of either it keeps of the other. A digest of
+//! everything a path's later answers rest on is one. A probe whose history is the same on every
+//! path leaves the run's merging as it is without the probe.
+//!
+//! ## Cycles on several paths
+//!
+//! A probe that follows paths is told of a return ("Cycles") only before the run's first split:
+//! a return proves that its path runs forever only where that path left each state up to it by its
+//! one successor, which nothing checks once several paths interleave.
 //!
 //! # What the run records of a step with a point
 //!
@@ -66,8 +119,9 @@
 //!
 //! # Continue changes nothing
 //!
-//! A probe that always continues leaves the run as it is without the probe: the same leaves,
-//! coverage, traces and work. The probe is asked at a point of the successor's normalization
+//! A probe that always continues, and whose history is the same on every path where it follows
+//! paths ("Merging"), leaves the run as it is without the probe: the same leaves, coverage, traces
+//! and work. The probe is asked at a point of the successor's normalization
 //! the run reaches anyway and costs the run no state visit; nothing the probe does is the run's
 //! (below).
 //!
@@ -166,6 +220,24 @@ impl ProbeRules {
     }
 }
 
+/// A path of a run, as a probe that follows paths is told of it ([module documentation](self),
+/// "Several paths"). The run names each path once; a probe that does not follow paths sees only
+/// [`Self::ROOT`].
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProbePath(pub(crate) u64);
+
+impl ProbePath {
+    /// The path the run starts on.
+    pub const ROOT: Self = Self(0);
+
+    /// The path's number: [`Self::ROOT`] is 0, and every other path is numbered after every
+    /// path the run named before it.
+    #[must_use]
+    pub const fn index(self) -> u64 {
+        self.0
+    }
+}
+
 /// What a [`Probe`] answers at a point.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProbeDecision {
@@ -184,14 +256,54 @@ pub trait Probe {
     fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision;
 
     /// The path split at the state at `depth`: from here the run has more than one path, and
-    /// the probe is asked nothing more. Asked at most once.
+    /// the probe is asked nothing more. Asked at most once, and only of a probe that does not
+    /// follow paths.
     fn branched(&mut self, depth: u64) {
         let _ = depth;
     }
 
-    /// The path ended at `leaf`, a leaf other than one the probe's own answer made, before it
-    /// split. Asked at most once, and never after [`Self::branched`].
+    /// The path [`ProbeLeaf::path`] ended at `leaf`, a leaf other than one the probe's own answer
+    /// made. Asked at most once of each path; of a probe that does not follow paths, only before
+    /// its path split, and never after [`Self::branched`].
     fn ended(&mut self, leaf: &ProbeLeaf<'_>);
+
+    /// Whether the probe follows every path of the run ([module documentation](self), "Several
+    /// paths"), rather than one path up to its first split. Read once, when the run starts.
+    fn follows_paths(&self) -> bool {
+        false
+    }
+
+    /// The new path `into` starts as the path `from` stands: the probe's state of `into` is its
+    /// state of `from` now. Asked only of a probe that follows paths, before any question of
+    /// `into`.
+    fn fork(&mut self, from: ProbePath, into: ProbePath) {
+        let _ = (from, into);
+    }
+
+    /// The state at `depth` of the path `path` left exactly the paths `into`, each forked from
+    /// `path` ([`Self::fork`]); none where no path of the definition goes on from it. The probe
+    /// is asked nothing more of `path`. Asked only of a probe that follows paths.
+    fn split(&mut self, path: ProbePath, depth: u64, into: &[ProbePath]) {
+        let _ = (path, depth, into);
+    }
+
+    /// The state at `depth` of the path `path` was merged into an equal state of that depth, of
+    /// a path with an equal history ([`Self::history`]), whose expansion completed: its
+    /// continuation is that state's, and the probe is asked nothing more of `path`. Asked only of
+    /// a probe that follows paths, under a state-set run that explores every branch.
+    fn merged(&mut self, path: ProbePath, depth: u64) {
+        let _ = (path, depth);
+    }
+
+    /// The probe's history of the path `path`, which a state of it must share with a recorded
+    /// state to be merged into it ([module documentation](self), "Merging"): equal histories say
+    /// that the probe answers alike on both paths from equal states. Read, isolated, at each state
+    /// the merge table compares, once the points of the step into it were asked. Asked only of a
+    /// probe that follows paths.
+    fn history(&self, path: ProbePath) -> [u8; 32] {
+        let _ = path;
+        [0; 32]
+    }
 
     /// How many states of the path, reached since the probe's progress last changed, the run
     /// keeps to recognize a return to one of them ([module documentation](self), "Cycles"). Read
@@ -291,10 +403,17 @@ impl ProbeState<'_> {
 pub struct ProbeArrival<'a> {
     pub(crate) rule: &'a str,
     pub(crate) side: StopSide,
+    pub(crate) path: ProbePath,
     pub(crate) state: ProbeState<'a>,
 }
 
 impl<'a> ProbeArrival<'a> {
+    /// The path of the point ([`ProbePath::ROOT`] for a probe that does not follow paths).
+    #[must_use]
+    pub fn path(&self) -> ProbePath {
+        self.path
+    }
+
     /// The rule, by the name the request selected it by.
     #[must_use]
     pub fn rule(&self) -> &str {
@@ -325,10 +444,17 @@ impl<'a> std::ops::Deref for ProbeArrival<'a> {
 /// The leaf a path ended at, as [`Probe::ended`] is told of it.
 pub struct ProbeLeaf<'a> {
     pub(crate) halt: &'a HaltReason,
+    pub(crate) path: ProbePath,
     pub(crate) state: ProbeState<'a>,
 }
 
 impl<'a> ProbeLeaf<'a> {
+    /// The path that ended ([`ProbePath::ROOT`] for a probe that does not follow paths).
+    #[must_use]
+    pub fn path(&self) -> ProbePath {
+        self.path
+    }
+
     /// The leaf's halt.
     #[must_use]
     pub fn halt(&self) -> &HaltReason {
@@ -354,10 +480,18 @@ impl<'a> std::ops::Deref for ProbeLeaf<'a> {
 pub struct ProbeCycle<'a> {
     pub(crate) first: u64,
     pub(crate) rule: &'a str,
+    pub(crate) path: ProbePath,
     pub(crate) state: ProbeState<'a>,
 }
 
 impl<'a> ProbeCycle<'a> {
+    /// The path that returned ([`ProbePath::ROOT`]: a return is recognized only before the run's
+    /// first split).
+    #[must_use]
+    pub fn path(&self) -> ProbePath {
+        self.path
+    }
+
     /// The depth of the earlier state equal to this one.
     #[must_use]
     pub fn first(&self) -> u64 {

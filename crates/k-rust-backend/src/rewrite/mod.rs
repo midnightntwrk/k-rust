@@ -42,7 +42,8 @@ pub(crate) use predicates::{
     quantify_introduced_variables, violates_finite_constructor_domain,
 };
 pub use probe::{
-    CellHandle, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
+    CellHandle, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath, ProbeRules,
+    ProbeState,
 };
 use recover::{
     GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,

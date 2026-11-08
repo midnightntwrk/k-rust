@@ -1821,6 +1821,99 @@ fn a_successor_beside_the_leaf_of_its_steps_undefined_instances_is_a_split_for_a
     }
 }
 
+/// A probe that follows paths (`probe`, "Several paths") is asked along both paths of that step:
+/// the step from `wrap(X)` at depth 0 splits the root into the `Trivial` leaf's path, which ends
+/// there, and the `fallback` successor's, on which both points of `fallback` are asked; a probe
+/// with one history leaves the result as it is.
+#[test]
+fn a_successor_beside_the_leaf_of_its_steps_undefined_instances_is_two_followed_paths() {
+    #[derive(Debug, PartialEq)]
+    enum Told {
+        Point(u64, StopSide, u64),
+        Fork(u64, u64),
+        Split(u64, u64, Vec<u64>),
+        Ended(u64, u64, bool),
+    }
+    struct Recorder(Vec<Told>);
+    impl Probe for Recorder {
+        fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+            self.0.push(Told::Point(
+                point.path().index(),
+                point.side(),
+                point.depth(),
+            ));
+            ProbeDecision::Continue
+        }
+
+        fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+            let trivial = matches!(leaf.halt(), HaltReason::Trivial { .. });
+            self.0
+                .push(Told::Ended(leaf.path().index(), leaf.depth(), trivial));
+        }
+
+        fn follows_paths(&self) -> bool {
+            true
+        }
+
+        fn fork(&mut self, from: ProbePath, into: ProbePath) {
+            self.0.push(Told::Fork(from.index(), into.index()));
+        }
+
+        fn split(&mut self, path: ProbePath, depth: u64, into: &[ProbePath]) {
+            let into = into.iter().map(|path| path.index()).collect();
+            self.0.push(Told::Split(path.index(), depth, into));
+        }
+    }
+    let definition = symbolic_trivial_definition(true);
+    let solver = indeterminate_sat_solver();
+    let fallback: BTreeSet<String> = ["fallback".to_owned()].into();
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let options = ExecutionOptions {
+            mode,
+            probe_rules: ProbeRules {
+                before: fallback.clone(),
+                after: fallback.clone(),
+            },
+            ..ExecutionOptions::default()
+        };
+        let mut probe = Recorder(Vec::new());
+        let probed = execute_with_probe(
+            &definition,
+            symbolic_subject(&definition),
+            options.clone(),
+            &solver,
+            None,
+            None,
+            &mut probe,
+        )
+        .unwrap();
+        let plain =
+            execute_with_solver(&definition, symbolic_subject(&definition), options, &solver);
+        assert_eq!(probed, plain, "{mode:?}");
+        let [
+            Told::Fork(0, 1),
+            Told::Fork(0, 2),
+            Told::Split(0, 0, into),
+            rest @ ..,
+        ] = probe.0.as_slice()
+        else {
+            panic!("{mode:?}: {:?}", probe.0);
+        };
+        assert_eq!(into, &[1, 2], "{mode:?}");
+        // The leaf is the expansion's, so its path is the first; the successor's points are
+        // asked on the other once it is expanded.
+        assert_eq!(rest[0], Told::Ended(1, 0, true), "{mode:?}: {rest:?}");
+        assert_eq!(
+            rest[1..3],
+            [
+                Told::Point(2, StopSide::Before, 0),
+                Told::Point(2, StopSide::After, 1)
+            ],
+            "{mode:?}: {rest:?}"
+        );
+    }
+}
+
 #[test]
 fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
     let definition = definition(
