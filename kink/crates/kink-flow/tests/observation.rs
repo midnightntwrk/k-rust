@@ -577,6 +577,84 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
     );
 }
 
+/// The console started from a count of -1003 (in a private copy of `console.k`) reaches -1000
+/// after three ticks and idles there: the baseline's path returns to an earlier state with nothing
+/// new observed, so both channels are closed by the cycle, complete after three clock elements
+/// and one log item, and the program states no horizon. A mutant that emits every second step
+/// ticks at the same counts and idles alike: it agrees on everything and survives with no
+/// horizon. A mutant whose `idle` waits for a count of 3 ticks on, and its clock's element 3 is a
+/// difference against the baseline's silence, the baseline's side of which is `cycle`.
+#[test]
+fn a_baseline_closed_by_a_cycle_states_no_horizon() {
+    let dir = fixture("cycle", &[]);
+    let console = fs::read_to_string(dir.join("console.k")).unwrap();
+    let from = "<n> 0 </n>";
+    assert!(console.contains(from));
+    fs::write(
+        dir.join("console.k"),
+        console.replace(from, "<n> -1003 </n>"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("mutations/console.toml"),
+        r#"[[mutation]]
+id = "emit-every-second"
+misunderstanding = "an emit resets the phase to 1, so every second step emits"
+
+  [[mutation.edit]]
+  rule = "emit"
+  find = "<phase> 2 => 0 </phase>"
+  replace = "<phase> 2 => 1 </phase>"
+
+[[mutation]]
+id = "idle-at-three"
+misunderstanding = "the console idles once the count is 3"
+
+  [[mutation.edit]]
+  rule = "idle"
+  find = "N ==Int -1000"
+  replace = "N ==Int 3"
+"#,
+    )
+    .unwrap();
+    let (document, _) = search(&dir.join("FLOW.toml"), RunMode::Search);
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "comparable-prefix", "{program:#}");
+    assert_eq!(program["observations"]["horizon"], json!({}), "{program:#}");
+    let channels = program["observations"]["channels"].as_array().unwrap();
+    assert_eq!(
+        channels
+            .iter()
+            .map(|channel| (channel["elements"].clone(), channel["closed"].clone()))
+            .collect::<Vec<_>>(),
+        [(json!(3), json!("cycle")), (json!(1), json!("cycle"))],
+        "{program:#}"
+    );
+    assert!(channels.iter().all(|channel| channel["open"].is_null()));
+
+    let survivor = row(&document, "console/emit-every-second");
+    assert_eq!(survivor["status"], "survived", "{survivor:#}");
+    assert!(
+        survivor.get("horizon").is_none_or(Value::is_null),
+        "{survivor:#}"
+    );
+    assert_eq!(
+        entry(&document, "console/emit-every-second")["slots"]["observations"],
+        json!({"outcome": "agree"})
+    );
+
+    assert_eq!(status(&document, "console/idle-at-three").0, "killed");
+    assert_eq!(
+        entry(&document, "console/idle-at-three")["difference"],
+        json!({
+            "format": "kink-k/1",
+            "position": {"channel": "clock", "index": 3, "at_end": false},
+            "baseline": {"element": "cycle"},
+            "mutant": {"element": {"cells": {"n": printed("-1000")}}},
+        })
+    );
+}
+
 /// `run --verify` re-derives every cached observation outcome: a second run decides from tier 1
 /// with each record's position and horizon, and a verifying run finds no record that differs from
 /// its live run.
@@ -669,6 +747,7 @@ fn a_capture_run_rederives_the_baselines_element() {
         horizon: BTreeMap::new(),
         cause: None,
         element: Some(Element::Content(vec![int(mutant)])),
+        cycle: None,
     };
     let derived = runner
         .observed_difference(&test, &baseline, &verdict(2))

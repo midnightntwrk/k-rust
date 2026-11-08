@@ -59,6 +59,43 @@
 //! values ([`LeafFeasibility::Syntactic`]) denotes that state, so the step into it was defined, and
 //! it supplies the elements read there as any other real leaf does.
 //!
+//! # Cycles
+//!
+//! A path that returns to an earlier state of itself with nothing new observed runs forever and
+//! adds no element: each channel that is neither open nor past the baseline's horizon there is
+//! complete, closed by the cycle ([`Closure::Cycle`]). This proves that the path diverges, which
+//! a bound never does: the slot reads it as a fact of the path, not as the end of a budget.
+//!
+//! k-rust recognizes the return (k-rust-backend `rewrite::probe`, "Cycles"). The run keeps, up to
+//! [`Observe::cycle_states`], the states of its path reached since the probe's channels last
+//! changed, and compares each later state with them. Two states are one where their
+//! configurations are the same ground term with no constraint and their stop counts, effects and
+//! console are alike, under strategy `all`: a ground term with no constraint is one element in
+//! every model, and a symbolic state is never compared, so an equality not decided in every model
+//! is never a return. The definition's step of a state is a function of the state, and the path
+//! left the earlier state by one successor at each state up to the later one, so it repeats those
+//! steps forever. The probe's progress ([`Probe::progress`]) only grows with what it keeps
+//! (elements, items read, opened or reached channels, undecided elements, an answer), so an equal
+//! progress at both states says that no channel changed between them, and so none changes on any
+//! later pass: each point of a pass is asked in the probe state and of the observed state it was
+//! asked in and of on the first. Each log is read once more at the state of the return, which
+//! holds every item the path appends, ever. A return to a state reached past the room is not
+//! recognized, and no cycle is claimed for it.
+//!
+//! The return is read where the slot reads any answer of the probe: the leaf is the state of the
+//! return, and only a settled leaf ([`LeafFacts::settled`]) with sides makes it decided, so every
+//! state of the path up to it, the repeated steps included, is real and every step decided without
+//! a diagnostic.
+//! - On a mutant, a channel closed by a cycle has no element at its length, ever: a baseline element
+//!   there, or the baseline's END or UNDEF there, is a decided difference, and the request ends at
+//!   the first one; otherwise nothing more can be learned and the path ends.
+//! - On the baseline, the run goes on as without the probe, which heeds nothing more of it, so its
+//!   leaves, coverage and work are those of the run without a probe; its channels are recorded
+//!   closed by the cycle. A mutant element past one is a difference, a mutant END or UNDEF there
+//!   is a difference (the baseline never ends), a mutant closed alike at the same length agrees to
+//!   the end with no horizon, and a mutant that holds all its elements and then opens agrees up to
+//!   that horizon.
+//!
 //! # The slot
 //!
 //! A test of a campaign with a declaration has one slot more, after its end slots
@@ -90,8 +127,8 @@ use k_rust::kore::ast::{Definition as KoreDefinition, Pattern, Sentence};
 use k_rust::kore::printer::Printer;
 use k_rust::names::KoreAttribute;
 use kink_native::execution::{
-    AdaptedLeaf, CellHandle, HaltClass, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules,
-    ProbeState, StopRules, StopSide,
+    AdaptedLeaf, CellHandle, HaltClass, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf,
+    ProbeRules, ProbeState, StopRules, StopSide,
 };
 use kink_native::feasibility::{LeafFeasibility, TestInitialState};
 use kink_native::step_events::ObservationDecider;
@@ -107,8 +144,12 @@ use k_rust::definition::configuration::CellMultiplicity;
 /// programs, which mutants are admitted, and when the slot distinguishes. A component of kink's
 /// semantics identity ([`crate::identity::KINK_IDENTITY`], key `observation`). A campaign without
 /// a declaration is outside all of it. v1: K-level declarations, one path per side (a channel
-/// opens where its path first branches).
-pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v1";
+/// opens where its path first branches). v2: a path that returns to an earlier state of itself
+/// with nothing new observed closes its channels complete and silent ([`Closure::Cycle`]), so a
+/// mutant that idles forever where the baseline still emits is killed, and one that agrees with
+/// a baseline closed so and returns too survives with no horizon (module documentation,
+/// "Cycles").
+pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v2";
 
 /// The domain of an element's digest.
 const ELEMENT_DOMAIN: &str = "kink-campaign/observation/element/v1";
@@ -162,12 +203,19 @@ pub struct Log {
     pub at: Vec<String>,
 }
 
-/// The channels of an [`Observe`] that declares some.
+/// The channels of an [`Observe`] that declares some, and the room its runs keep to recognize a
+/// return of their path ([`Observe::cycle_states`]).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct Declaration {
     points: Vec<PointClass>,
     logs: Vec<Log>,
+    cycle_states: usize,
 }
+
+/// The number of states a run with a declaration keeps, reached since its channels last changed,
+/// to recognize a return of its path to one of them ([`Observe::cycle_states`]), unless the
+/// declaration sets another ([`Observe::with_cycle_states`]).
+pub const CYCLE_STATES: usize = 4096;
 
 /// A campaign's observation declaration ([module documentation](self)), held interned as
 /// [`crate::Stop`] is, so that [`crate::RunOptions`] stays `Copy`: equal declarations are one
@@ -218,7 +266,33 @@ impl Observe {
                 }
             }
         }
-        Ok(Self::interned(Declaration { points, logs }))
+        Ok(Self::interned(Declaration {
+            points,
+            logs,
+            cycle_states: CYCLE_STATES,
+        }))
+    }
+
+    /// This declaration, its runs keeping at most `states` states to recognize a return of their
+    /// path ([`Self::cycle_states`]); 0 recognizes none. [`Self::NONE`] stays as it is.
+    #[must_use]
+    pub fn with_cycle_states(self, states: usize) -> Self {
+        match self.0 {
+            None => self,
+            Some(declaration) => Self::interned(Declaration {
+                cycle_states: states,
+                ..declaration.clone()
+            }),
+        }
+    }
+
+    /// How many states of a run's path, reached since its channels last changed, the run keeps
+    /// to recognize a return to one of them (module documentation, "Cycles"); 0 for
+    /// [`Self::NONE`]. The room bounds the memory and the work, and a return to a state reached
+    /// past it is not recognized: a larger room can only decide more.
+    #[must_use]
+    pub fn cycle_states(self) -> usize {
+        self.0.map_or(0, |declaration| declaration.cycle_states)
     }
 
     fn interned(declaration: Declaration) -> Self {
@@ -270,11 +344,16 @@ impl Observe {
     }
 
     /// The declaration as a JSON object, `{points: [{name, before, after, cells, stutter}],
-    /// logs: [{name, cell, at}]}`; `None` for [`Self::NONE`]. Every field is destructured, so a
-    /// new one does not compile until it is recorded here.
+    /// logs: [{name, cell, at}]}`, with `cycle_states` where it is not [`CYCLE_STATES`]; `None`
+    /// for [`Self::NONE`]. Every field is destructured, so a new one does not compile until it is
+    /// recorded here.
     #[must_use]
     pub fn value(self) -> Option<Value> {
-        let Declaration { points, logs } = self.0?;
+        let Declaration {
+            points,
+            logs,
+            cycle_states,
+        } = self.0?;
         let points = points
             .iter()
             .map(|point| {
@@ -296,7 +375,11 @@ impl Observe {
                 json!({"name": name, "cell": cell, "at": at})
             })
             .collect::<Vec<_>>();
-        Some(json!({"points": points, "logs": logs}))
+        let mut value = json!({"points": points, "logs": logs});
+        if *cycle_states != CYCLE_STATES {
+            value["cycle_states"] = json!(cycle_states);
+        }
+        Some(value)
     }
 
     /// Why a cell of the declaration states no observation of the configuration `layout` of the
@@ -401,6 +484,7 @@ impl Observe {
             channels,
             rules,
             cells: cells.into_iter().collect(),
+            cycle_states: self.cycle_states(),
         })
     }
 }
@@ -447,6 +531,8 @@ pub(crate) struct Resolved {
     rules: ProbeRules,
     /// Every cell read, as its path of KORE cell symbols.
     cells: Vec<Vec<String>>,
+    /// The room a run keeps to recognize a return of its path ([`Observe::cycle_states`]).
+    cycle_states: usize,
 }
 
 impl Resolved {
@@ -514,15 +600,21 @@ pub enum Closure {
     End,
     /// The path's last step was undefined.
     Undefined,
+    /// The path returned to an earlier state of itself with nothing new observed between the two
+    /// (module documentation, "Cycles"): it runs forever and adds no element, so the channel is
+    /// complete and silent. Unlike END and UNDEF this is no element: the channel has no element at
+    /// its length, ever.
+    Cycle,
 }
 
 impl Closure {
-    /// The record name: `"end"` or `"undefined"`.
+    /// The record name: `"end"`, `"undefined"` or `"cycle"`.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             Self::End => "end",
             Self::Undefined => "undefined",
+            Self::Cycle => "cycle",
         }
     }
 
@@ -530,11 +622,13 @@ impl Closure {
         match self {
             Self::End => Element::End,
             Self::Undefined => Element::Undefined,
+            Self::Cycle => Element::Cycle,
         }
     }
 }
 
-/// Where a recorded channel ends: closed by END or UNDEF after its elements, or open there.
+/// Where a recorded channel ends: closed by END or UNDEF after its elements, complete and silent
+/// after a return of its path ([`Closure::Cycle`]), or open there.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChannelEnd {
     Closed(Closure),
@@ -582,7 +676,7 @@ pub struct BaselineRecord {
 impl BaselineRecord {
     /// The record as a result record keeps it: `{channels: [{name, elements, closed, open}],
     /// prefix, crashed}`, each element the hex of its 8 digest bytes (null where it was undecided),
-    /// `closed` `"end"` or `"undefined"` for a closed channel (else null), and `open` `{index,
+    /// `closed` `"end"`, `"undefined"` or `"cycle"` for a closed channel (else null), and `open` `{index,
     /// reason}` for an open one (else null), `index` its horizon. Every field is destructured, so a
     /// new one does not compile until it is recorded here.
     #[must_use]
@@ -644,6 +738,9 @@ pub enum Element {
     End,
     /// The channel is closed there by UNDEF.
     Undefined,
+    /// The channel has no element there, ever: its path returned to an earlier state of itself
+    /// with nothing new observed (module documentation, "Cycles").
+    Cycle,
 }
 
 /// Where the slot found a difference: the channel, the index, and whether it was read where the
@@ -670,6 +767,9 @@ pub struct ObservationVerdict {
     /// On `Distinguish`, the mutant's element at the position: the content its probe read, or
     /// END or UNDEF where its path closed the channel.
     pub element: Option<Element>,
+    /// Where the mutant's path returned to an earlier state of itself, when it did (module
+    /// documentation, "Cycles"): the depth of the earlier state and of the state of the return.
+    pub cycle: Option<(u64, u64)>,
 }
 
 /// The facts of a run's one leaf the slot reads: whether its state is real (the path up to it
@@ -810,7 +910,8 @@ impl LeafFacts {
 /// verdict once [`judge`] read it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Comparison {
-    pub(crate) trace: Trace,
+    /// The probe's channels, boxed: a baseline's record, the other kind of observation, is small.
+    pub(crate) trace: Box<Trace>,
     /// The run's one leaf, when it has exactly one.
     pub(crate) leaf: Option<LeafFacts>,
     pub verdict: Option<ObservationVerdict>,
@@ -849,6 +950,9 @@ pub(crate) struct ChannelTrace {
     /// the channel: they read the path's last state, which is real only where its leaf is
     /// settled ([`LeafFacts::settled`]).
     at_end: Option<usize>,
+    /// The path returned to an earlier state of itself while the channel was neither open nor
+    /// past the baseline's horizon: it has no element past those it holds, ever.
+    silent: bool,
 }
 
 /// A held handle, compared by node identity only.
@@ -888,6 +992,9 @@ pub(crate) struct Trace {
     /// On a mutant, its element at the first difference its probe found (at a point, or read
     /// where the path ended), for the reader ([`ObservationVerdict::element`]).
     differing: Option<Box<Element>>,
+    /// The depths of the earlier state and of the state where the path returned to it (module
+    /// documentation, "Cycles"); the probe heeds nothing after it.
+    cycled: Option<(u64, u64)>,
 }
 
 /// The probe of one result run: records the baseline's channels, or compares a mutant's with the
@@ -949,6 +1056,7 @@ impl<'a> ObservationProbe<'a> {
                 end_difference: None,
                 refusal: None,
                 differing: None,
+                cycled: None,
             },
             capture: None,
             captured: None,
@@ -1206,6 +1314,48 @@ impl<'a> ObservationProbe<'a> {
                 .iter()
                 .all(|channel| channel.reached || channel.open.is_some())
     }
+
+    /// The path returned to an earlier state of itself with the probe's progress unchanged, at
+    /// `state` (module documentation, "Cycles"): every channel neither open nor past the
+    /// baseline's horizon is complete. Each log is read once more at `state`, which holds the
+    /// items the path appended since its last read and appends none from here on. On a mutant,
+    /// the index of the first channel's difference: an element the baseline has where the
+    /// mutant's channel has none, ever, or the baseline's END or UNDEF there; the mutant's element
+    /// there is [`Element::Cycle`].
+    fn close_silent(&mut self, state: &ProbeState<'_>) -> Option<(usize, usize)> {
+        for channel in 0..self.resolved.channels.len() {
+            if matches!(self.resolved.channels[channel], Resolution::Log { .. })
+                && let Some(index) = self.read_log(channel, state)
+            {
+                return Some((channel, index));
+            }
+        }
+        let mut difference = None;
+        for (channel, trace) in self.trace.channels.iter_mut().enumerate() {
+            if trace.open.is_some() || trace.reached {
+                continue;
+            }
+            trace.silent = true;
+            let Some(against) = self.against else {
+                continue;
+            };
+            let recorded = &against.channels[channel];
+            let length = trace.elements.len();
+            let differs = length < recorded.elements.len()
+                || matches!(
+                    recorded.end,
+                    ChannelEnd::Closed(Closure::End | Closure::Undefined)
+                );
+            if differs && difference.is_none() {
+                difference = Some((channel, length));
+            }
+        }
+        // The mutant's element at the difference, for the reader: none there, ever.
+        if difference.is_some() && self.trace.differing.is_none() {
+            self.trace.differing = Some(Box::new(Element::Cycle));
+        }
+        difference
+    }
 }
 
 /// Compares `element` on the channel `resolution`, whose trace is `trace`, with the baseline's
@@ -1295,6 +1445,9 @@ fn record_element(
 
 impl Probe for ObservationProbe<'_> {
     fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+        if self.trace.cycled.is_some() {
+            return ProbeDecision::Continue;
+        }
         let (rule, side) = (point.rule().to_owned(), point.side());
         for channel in 0..self.resolved.channels.len() {
             if !self.resolved.channels[channel].selects(&rule, side) {
@@ -1339,6 +1492,9 @@ impl Probe for ObservationProbe<'_> {
     }
 
     fn branched(&mut self, depth: u64) {
+        if self.trace.cycled.is_some() {
+            return;
+        }
         self.trace.branched = Some(depth);
         for channel in &mut self.trace.channels {
             channel
@@ -1348,6 +1504,9 @@ impl Probe for ObservationProbe<'_> {
     }
 
     fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
+        if self.trace.cycled.is_some() {
+            return;
+        }
         self.trace.ended = true;
         for channel in 0..self.resolved.channels.len() {
             if !matches!(self.resolved.channels[channel], Resolution::Log { .. }) {
@@ -1372,6 +1531,61 @@ impl Probe for ObservationProbe<'_> {
                 self.trace.end_difference = Some((channel, index));
             }
         }
+    }
+
+    fn cycle_states(&self) -> usize {
+        self.resolved.cycle_states
+    }
+
+    /// The sum of what the probe keeps that its answers rest on: each channel's elements, items
+    /// read and whether it opened, passed the baseline's horizon or met an undecided element, and
+    /// whether the probe answered or refused. Each only grows, so an equal sum is an equal state:
+    /// the last element kept, which collapse compares with, changes only with the elements, and
+    /// the handles held only spare conversions.
+    fn progress(&self) -> u64 {
+        let channels = self
+            .trace
+            .channels
+            .iter()
+            .map(|channel| {
+                channel.elements.len()
+                    + channel.read
+                    + usize::from(channel.open.is_some())
+                    + usize::from(channel.reached)
+                    + usize::from(channel.unknown.is_some())
+            })
+            .sum::<usize>();
+        let answered =
+            usize::from(self.trace.answer.is_some()) + usize::from(self.trace.refusal.is_some());
+        u64::try_from(channels + answered).unwrap_or(u64::MAX)
+    }
+
+    /// The path runs forever from here and the probe sees nothing new on it, so every channel
+    /// neither open nor past the baseline's horizon is complete ([`Self::close_silent`]). The
+    /// baseline's run goes on as without the probe, which heeds nothing more of it; a mutant's
+    /// request ends at its first difference, and its path otherwise, since nothing more can be
+    /// learned.
+    fn cycled(&mut self, cycle: &ProbeCycle<'_>) -> ProbeDecision {
+        if self.trace.cycled.is_some() || self.trace.answer.is_some() {
+            return ProbeDecision::Continue;
+        }
+        self.trace.cycled = Some((cycle.first(), cycle.depth()));
+        let difference = self.close_silent(cycle);
+        if self.against.is_none() {
+            return ProbeDecision::Continue;
+        }
+        if let Some((channel, index)) = difference {
+            self.trace.answer = Some(Answer::Differs { channel, index });
+            return ProbeDecision::Differs(format!(
+                "the channel `{}` differs at {index}: the path returned at depth {} to its state at \
+                 depth {}",
+                self.resolved.names[channel],
+                cycle.depth(),
+                cycle.first()
+            ));
+        }
+        self.trace.answer = Some(Answer::Done);
+        ProbeDecision::Done
     }
 }
 
@@ -1443,6 +1657,11 @@ pub(crate) fn record(
                 channel.elements.clear();
                 channel.open = Some(format!("the path is not settled: {unsettled}"));
             }
+            let closure = if channel.silent {
+                Some(Closure::Cycle)
+            } else {
+                closure
+            };
             ChannelRecord {
                 name: name.clone(),
                 elements: channel.elements,
@@ -1487,12 +1706,19 @@ pub(crate) fn record(
 ///   a value or a crash, and so is the END or UNDEF of the path (the one-sided rule's leaf
 ///   conditions: the path's end is final in every model). The channel it is read on never agrees:
 ///   its element at the index differs from the baseline's, decided or not.
+/// - A difference the probe found where the mutant's path returned to an earlier state (module
+///   documentation, "Cycles") rests on the same two facts: the leaf is the state of the return,
+///   and a settled leaf makes every state and step of the path up to it real and decided, the
+///   steps between the two equal states included. The channel is then complete, so a baseline
+///   element at its length, or the baseline's END or UNDEF there, is a decided difference.
 /// - Without a decided difference, a channel agrees when the two sides close it alike at the same
-///   index, and agrees up to the baseline's horizon when the baseline's channel is open and the
-///   mutant reached that point, closed it there or later, or opened there or later; anything else
-///   is not known. The slot agrees when every channel does, with the horizons of those that agree
-///   on a prefix, except on a prefix program whose every horizon is 0: it observed nothing within
-///   its budget, so an agreement would be agreement on nothing, and the slot is unknown.
+///   index (END, UNDEF, or complete and silent after a return), and agrees up to a horizon when
+///   the baseline's channel is open and the mutant reached that point, closed it there or later,
+///   or opened there or later, or when the baseline's channel is complete and silent and the
+///   mutant holds all its elements and opened after them; anything else is not known. The slot
+///   agrees when every channel does, with the horizons of those that agree on a prefix, except on
+///   a prefix program with no channel closed alike and every horizon 0: it observed nothing
+///   within its budget, so an agreement would be agreement on nothing, and the slot is unknown.
 pub(crate) fn judge(
     baseline: &BaselineRecord,
     comparison: &Comparison,
@@ -1512,6 +1738,7 @@ pub(crate) fn judge(
             horizon: BTreeMap::new(),
             cause: None,
             element,
+            cycle: trace.cycled,
         };
     let unknown = |cause: String| ObservationVerdict {
         outcome: OracleOutcome::Unknown,
@@ -1519,6 +1746,7 @@ pub(crate) fn judge(
         horizon: BTreeMap::new(),
         cause: Some(cause),
         element: None,
+        cycle: trace.cycled,
     };
     let settled = comparison.leaf.is_some_and(LeafFacts::settled);
     let real = settled && sides.is_some();
@@ -1563,6 +1791,7 @@ pub(crate) fn judge(
     }
     let mut horizon = BTreeMap::new();
     let mut open = None;
+    let mut closed_alike = false;
     for (channel, (mutant, recorded)) in trace.channels.iter().zip(&baseline.channels).enumerate() {
         let recorded_length = recorded.elements.len();
         if let Some(length) = mutant.at_end
@@ -1583,9 +1812,16 @@ pub(crate) fn judge(
             });
             continue;
         }
-        let agrees_to_horizon = matches!(recorded.end, ChannelEnd::Open(_));
+        // A complete and silent baseline channel has no element past its own: a mutant that holds
+        // them all and opened after them agrees with it up to the mutant's own open point.
+        let agrees_to_horizon = matches!(
+            recorded.end,
+            ChannelEnd::Open(_) | ChannelEnd::Closed(Closure::Cycle)
+        );
         // Where the mutant's channel ends.
-        let mutant_closure = if mutant.open.is_some() || mutant.reached {
+        let mutant_closure = if mutant.silent {
+            Some(Closure::Cycle)
+        } else if mutant.open.is_some() || mutant.reached {
             None
         } else {
             closure
@@ -1596,7 +1832,7 @@ pub(crate) fn judge(
                 return distinguish(channel, emitted, true, Some(kind.element()));
             }
             Some(kind) => match recorded.end {
-                ChannelEnd::Closed(other) if other == kind => {}
+                ChannelEnd::Closed(other) if other == kind => closed_alike = true,
                 ChannelEnd::Closed(_) => {
                     return distinguish(channel, emitted, true, Some(kind.element()));
                 }
@@ -1621,7 +1857,11 @@ pub(crate) fn judge(
             }
         }
     }
-    if open.is_none() && baseline.prefix && horizon.values().all(|length| *length == 0) {
+    if open.is_none()
+        && baseline.prefix
+        && !closed_alike
+        && horizon.values().all(|length| *length == 0)
+    {
         open = Some(
             "every channel's horizon is 0: the baseline's prefix observed nothing within its \
              budget"
@@ -1636,6 +1876,7 @@ pub(crate) fn judge(
             horizon,
             cause: None,
             element: None,
+            cycle: trace.cycled,
         },
     }
 }
@@ -1753,6 +1994,7 @@ mod tests {
             end_difference: None,
             refusal: None,
             differing: None,
+            cycled: None,
         }
     }
 
@@ -1763,7 +2005,7 @@ mod tests {
 
     fn compared(trace: Trace, leaf: LeafFacts) -> Comparison {
         Comparison {
-            trace,
+            trace: Box::new(trace),
             leaf: Some(leaf),
             verdict: None,
         }
@@ -1929,6 +2171,65 @@ mod tests {
         assert_eq!(verdict.horizon, BTreeMap::from([("clock".to_owned(), 1)]));
     }
 
+    /// A channel complete and silent after a return: the baseline's prefix program holds 1, 2
+    /// and then never another element.
+    /// - A mutant whose channel is silent after the same elements agrees with it to its end,
+    ///   with no horizon, even with no element at all on either side: two silent channels agree
+    ///   on everything.
+    /// - A mutant whose path ended (END) after them is distinguished: the baseline never ends.
+    /// - A mutant cut by a bound after them agrees up to 2, its own open point; one cut before
+    ///   them is open, and the slot unknown.
+    #[test]
+    fn a_complete_and_silent_channel_agrees_only_with_silence() {
+        let silent = ChannelEnd::Closed(Closure::Cycle);
+        let record = baseline(vec![channel("clock", &[1, 2], silent.clone())], true);
+        let quiet = |items: &[u8]| ChannelTrace {
+            silent: true,
+            ..emitted(items, false)
+        };
+        let verdict = judge(
+            &record,
+            &compared(trace(vec![quiet(&[1, 2])]), SETTLED),
+            Some(UNDETERMINED),
+            false,
+        );
+        assert_eq!(verdict.outcome, OracleOutcome::Agree);
+        assert!(verdict.horizon.is_empty());
+        let nothing = baseline(vec![channel("clock", &[], silent)], true);
+        let verdict = judge(
+            &nothing,
+            &compared(trace(vec![quiet(&[])]), SETTLED),
+            Some(UNDETERMINED),
+            false,
+        );
+        assert_eq!(verdict.outcome, OracleOutcome::Agree);
+        let ended = Trace {
+            ended: true,
+            ..trace(vec![emitted(&[1, 2], false)])
+        };
+        let end = determined_end();
+        let verdict = judge(&record, &compared(ended, SETTLED), Some(&end), false);
+        assert_eq!(verdict.outcome, OracleOutcome::Distinguish);
+        assert_eq!(verdict.position, position("clock", 2, true));
+        let cut_after = trace(vec![emitted(&[1, 2], false)]);
+        let verdict = judge(
+            &record,
+            &compared(cut_after, SETTLED),
+            Some(UNDETERMINED),
+            false,
+        );
+        assert_eq!(verdict.outcome, OracleOutcome::Agree);
+        assert_eq!(verdict.horizon, BTreeMap::from([("clock".to_owned(), 2)]));
+        let cut_before = trace(vec![emitted(&[1], false)]);
+        let verdict = judge(
+            &record,
+            &compared(cut_before, SETTLED),
+            Some(UNDETERMINED),
+            false,
+        );
+        assert_eq!(verdict.outcome, OracleOutcome::Unknown);
+    }
+
     /// A prefix program whose every horizon is 0 observed nothing within its budget: a mutant
     /// that agrees with it agrees on nothing, and the slot is unknown, naming the empty horizon.
     /// A program that ended is judged by its end slots too, so its open channel's horizon of 0
@@ -1960,6 +2261,7 @@ mod tests {
             channels: names.iter().map(|_| class(Stutter::Count)).collect(),
             rules: ProbeRules::default(),
             cells: Vec::new(),
+            cycle_states: CYCLE_STATES,
         }
     }
 

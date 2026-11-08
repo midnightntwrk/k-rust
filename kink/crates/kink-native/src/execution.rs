@@ -61,8 +61,8 @@ use k_rust::backend::{
 };
 pub use k_rust::backend::{
     BinderSelection, BindingCollection, BindingsOutput, CellHandle, Probe, ProbeArrival,
-    ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival, StopCondition, StopDecision,
-    StopSide,
+    ProbeCycle, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival, StopCondition,
+    StopDecision, StopSide,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -98,7 +98,8 @@ pub enum HaltClass {
     /// which judges the wire request alone. It never completes a run.
     StopUndecided,
     /// k-rust's `probe-difference` halt: an in-process probe found a difference at a point and
-    /// the request ended there, the leaf's state the point's observed state. Only a request with
+    /// the request ended there, the leaf's state the point's observed state (or, where the probe
+    /// answered at a return of the path to an earlier state, that state). Only a request with
     /// a probe has it ([`ExecutionAdapter::execute_result_probed`]): the adapter admits it
     /// exactly for such a request ([`Requested::admits`]), never by [`HaltClass::admitted_by`],
     /// and records the point and the reason on the leaf ([`AdaptedLeaf::probe`]). It is no end
@@ -390,7 +391,8 @@ static NO_STOP_RULES: StopRules = StopRules::NONE;
 /// What one request asks for besides its [`ExecutionBudget`]: `run`'s modality and work budget,
 /// the stop rules `stop`, the arrival at a stop at which a path ends, `count`, whether an
 /// in-process stop condition is asked at the arrivals (`conditioned`), and whether an in-process
-/// probe is asked at the points of some selected rule (`probed`). The request is built from it
+/// probe is asked at the points of some selected rule or keeps states to be told of a return of
+/// its path (`probed`). The request is built from it
 /// ([`request`]; neither the condition nor the probe is a field of it), and the halts its result
 /// may hold and the arrivals each leaf reports are read from it ([`Self::admits`],
 /// [`Self::admits_arrivals`]).
@@ -435,8 +437,9 @@ impl Requested<'_> {
     /// Whether the request can yield a leaf of halt `halt` under `budget`: as
     /// [`HaltClass::admitted_by`] judges the wire request, a `stop-undecided` leaf exactly when a
     /// stop condition was asked, which only that halt reveals, and a `probe-difference` or
-    /// `probe-done` leaf exactly when a probe was asked at some selected rule's points, the only
-    /// place its answer can end a path.
+    /// `probe-done` leaf exactly when a probe was asked at some selected rule's points or keeps
+    /// states to be told of a return of its path (k-rust `Probe::cycle_states`), the only places
+    /// its answer can end a path.
     const fn admits(self, halt: HaltClass, budget: &ExecutionBudget) -> bool {
         match halt {
             HaltClass::StopUndecided => self.conditioned && !self.stop.is_none(),
@@ -667,6 +670,11 @@ pub struct AdaptedLeaf {
 /// for a `probe-difference` leaf, the reason the probe gave. The leaf's state is the point's
 /// observed state (the state before the step for a before point, the normalized successor for an
 /// after point) and its depth the point's depth.
+///
+/// Where the probe answered at a return of the path to an earlier state of itself (k-rust
+/// `Probe::cycled`), the rule is the one whose step reached the state, by its label or else its
+/// `UNIQUE_ID`, the side is after, the leaf's state is the state of the return, and `cycle` is
+/// the depth of the earlier equal state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProbeEnd {
     /// The rule of the point, by the name the request selected it by.
@@ -675,6 +683,8 @@ pub struct ProbeEnd {
     pub side: StopSide,
     /// The probe's reason for a difference: present exactly on a `probe-difference` leaf.
     pub reason: Option<String>,
+    /// The depth of the earlier state the path returned to, where the probe answered at a return.
+    pub cycle: Option<u64>,
 }
 
 /// An in-process probe a result run carries ([`ExecutionAdapter::execute_result_probed`]): the
@@ -730,6 +740,37 @@ impl Probe for Recording<'_> {
                     rule: point.rule().to_owned(),
                     side: point.side(),
                     reason: reason.cloned(),
+                    cycle: None,
+                },
+            });
+        }
+        decision
+    }
+
+    fn cycle_states(&self) -> usize {
+        self.probe.cycle_states()
+    }
+
+    fn progress(&self) -> u64 {
+        self.probe.progress()
+    }
+
+    fn cycled(&mut self, cycle: &ProbeCycle<'_>) -> ProbeDecision {
+        let decision = self.probe.cycled(cycle);
+        let ended = match &decision {
+            ProbeDecision::Continue => None,
+            ProbeDecision::Differs(reason) => Some((HaltClass::ProbeDifference, Some(reason))),
+            ProbeDecision::Done => Some((HaltClass::ProbeDone, None)),
+        };
+        if let Some((halt, reason)) = ended {
+            self.answers.push(ProbeAnswer {
+                halt,
+                depth: cycle.depth(),
+                end: ProbeEnd {
+                    rule: cycle.rule().to_owned(),
+                    side: StopSide::After,
+                    reason: reason.cloned(),
+                    cycle: Some(cycle.first()),
                 },
             });
         }
@@ -1406,8 +1447,11 @@ impl ExecutionAdapter {
     /// with a probe's leaf beside another leaf, without the probe having answered so, or at
     /// another depth than the point's, is outside k-rust's contract
     /// ([`ExecutionAdapterFailure::ContractViolation`]). The two halts are admitted exactly when
-    /// `probe` selects some rule; a probe that selects none is never asked about a point, only
-    /// told where the path splits or ends.
+    /// `probe` selects some rule or keeps states to be told of a return of its path (k-rust
+    /// `Probe::cycle_states`, `Probe::cycled`), whose answer is read as at an after point of the
+    /// rule whose step reached the state and recorded with the earlier state's depth
+    /// ([`ProbeEnd::cycle`]); a probe that does neither is never asked about a point, only told
+    /// where the path splits or ends.
     ///
     /// The request sent is the one without a probe, field for field, and without a probe (`None`)
     /// this is [`Self::execute_result_counted`], call for call. A probe that always continues
@@ -1438,7 +1482,9 @@ impl ExecutionAdapter {
             stop,
             count,
             conditioned: condition.is_some(),
-            probed: probe.as_ref().is_some_and(|probe| !probe.rules.is_empty()),
+            probed: probe
+                .as_ref()
+                .is_some_and(|probe| !probe.rules.is_empty() || probe.probe.cycle_states() > 0),
             guards: run.guards.then_some(&built.guarded),
             bindings: bindings.filter(|_| run.bindings),
         };
@@ -3395,6 +3441,7 @@ mod tests {
                 rule: rule.to_owned(),
                 side,
                 reason: reason.map(str::to_owned),
+                cycle: None,
             })
         };
 
@@ -3682,6 +3729,7 @@ mod tests {
                 rule: "r".to_owned(),
                 side: StopSide::Before,
                 reason: (halt == HaltClass::ProbeDifference).then(|| "why".to_owned()),
+                cycle: None,
             },
         };
         let (d, n, s) = (

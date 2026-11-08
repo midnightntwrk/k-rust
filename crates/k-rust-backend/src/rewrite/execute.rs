@@ -91,7 +91,10 @@ use crate::{
     },
 };
 
-use super::probe::{self, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeState};
+use super::probe::{
+    self, CycleWatch, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbeState,
+    Watched,
+};
 use super::refutation_memo::RefutationMemo;
 use super::stop_condition::{
     self, Arrival as StopArrival, InProcess, StopCondition, StopConditionRefusal, StopDecision,
@@ -397,6 +400,9 @@ struct Execution<'a> {
     /// Whether the probe is still asked: it is, until the path splits, ends, or the probe's
     /// own answer ends it (`probe`, "One path").
     probing: bool,
+    /// The states the probe's path keeps to recognize a return, while the probe keeps some and
+    /// has not been told of one (`probe`, "Cycles").
+    cycles: Option<CycleWatch>,
     /// The number of leaves before the expansion of the state being expanded: a leaf pushed
     /// since is the expansion's own, so the state has split once its step leaves another path.
     expansion_leaves: usize,
@@ -512,6 +518,12 @@ impl<'a> Execution<'a> {
         let merge = (options.result_modality == ResultModality::StateSet
             && options.branch_mode == ExecutionBranchMode::ExploreAll)
             .then(ExplorationMerge::default);
+        // Under strategy `any` a state the path leaves by one successor may have others in the
+        // definition, so no return is recognized there (`probe`, "Cycles").
+        let cycles = probe
+            .as_deref()
+            .filter(|_| options.mode == ExecutionMode::All)
+            .and_then(|probe| CycleWatch::new(probe::isolated(|| probe.cycle_states())));
         Self {
             definition,
             options,
@@ -539,6 +551,7 @@ impl<'a> Execution<'a> {
             refusal: None,
             probing: probe.is_some(),
             probe,
+            cycles,
             expansion_leaves: 0,
             #[cfg(test)]
             merge_census: Vec::new(),
@@ -846,6 +859,7 @@ impl<'a> Execution<'a> {
                 arrival.mark = mark;
             }
         }
+        let state = self.watch_cycle(state)?;
         // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
         // result halts the state, whose leaf takes the step's whole collection.
         //
@@ -1911,6 +1925,60 @@ impl<'a> Execution<'a> {
                 state: ProbeState { depth, term },
             })
         })
+    }
+
+    /// Compare `state`, reached, normalized and about to take its step, with the states the
+    /// probe's path keeps (`probe`, "Cycles"). Where it returns to one, the probe is told, and its
+    /// answer, read as at an after point of the rule whose step reached `state`, may end the path
+    /// or the request with a leaf of `state`; either way the probe is not told of a return again.
+    fn watch_cycle(&mut self, state: ExecutionState) -> Phase<ExecutionState> {
+        if !self.probing
+            || state.is_initial_input
+            || !matches!(state.kind, ExecutionStateKind::Rewritable)
+            || !state.pattern.constraints.is_empty()
+            || !state.defined_where.is_empty()
+            || !state.pattern.term.attributes().variables.is_empty()
+        {
+            return Ok(state);
+        }
+        let (Some(watch), Some(probe)) = (self.cycles.as_mut(), self.probe.as_deref_mut()) else {
+            return Ok(state);
+        };
+        let progress = probe::isolated(|| probe.progress());
+        let watched = Watched {
+            depth: state.depth,
+            term: &state.pattern.term,
+            stops: (state.stops, state.arrivals),
+            effects: &state.effects,
+            io: state.io_enabled.then_some(&state.io),
+        };
+        let Some(first) = watch.returns(&watched, progress) else {
+            return Ok(state);
+        };
+        self.cycles = None;
+        // A reached state that is no initial input was reached by a step, which its trace keeps.
+        let Some(rule) = state.trace.last_rewrite().map(|entry| {
+            entry
+                .label
+                .clone()
+                .unwrap_or_else(|| entry.unique_id.clone())
+        }) else {
+            return Ok(state);
+        };
+        let decision = probe::isolated(|| {
+            probe.cycled(&ProbeCycle {
+                first,
+                rule: &rule,
+                state: ProbeState {
+                    depth: state.depth,
+                    term: &state.pattern.term,
+                },
+            })
+        });
+        match self.probe_end(rule, StopSide::After, decision) {
+            Some(halt) => Err(Box::new(state.leaf(halt, &self.observation_log))),
+            None => Ok(state),
+        }
     }
 
     /// The halt a probe's `decision` at the point of `rule` on `side` ends the path with, if
@@ -7801,7 +7869,7 @@ mod tests {
         use super::stop_condition::{state, steps, steps_then};
         use super::*;
         use crate::rewrite::{
-            Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
+            Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
             StateMatchOptions, StopArrival, StopDecision, StopSide,
         };
 
@@ -9020,6 +9088,277 @@ mod tests {
                     }
                 }
             }
+        }
+
+        /// What a watching probe was told of a return: the earlier state's depth, the state's
+        /// depth and value, and the rule whose step reached it.
+        type Told = Vec<(u64, u64, String, String)>;
+
+        /// A probe that keeps `room` states, whose progress is the number of points it was asked
+        /// about at the rules of `progressing`, and that answers a return with `answer`.
+        struct Watcher<'a> {
+            room: usize,
+            progressing: BTreeSet<String>,
+            points: u64,
+            answer: ProbeDecision,
+            told: &'a RefCell<Told>,
+        }
+
+        impl Probe for Watcher<'_> {
+            fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+                if self.progressing.contains(point.rule()) {
+                    self.points += 1;
+                }
+                ProbeDecision::Continue
+            }
+
+            fn ended(&mut self, _: &ProbeLeaf<'_>) {}
+
+            fn cycle_states(&self) -> usize {
+                self.room
+            }
+
+            fn progress(&self) -> u64 {
+                self.points
+            }
+
+            fn cycled(&mut self, cycle: &ProbeCycle<'_>) -> ProbeDecision {
+                self.told.borrow_mut().push((
+                    cycle.first(),
+                    cycle.depth(),
+                    value(cycle),
+                    cycle.rule().to_owned(),
+                ));
+                self.answer.clone()
+            }
+        }
+
+        /// The steps `0` to `6`, then `loop-a` from `6` to `7` and `loop-b` back to `6`, forever.
+        fn looping() -> BackendDefinition {
+            let step = |from: &str, to: &str, label: &str| {
+                format!(
+                    r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                        \and{{SortS{{}}}}(\dv{{SortS{{}}}}("{from}"), \top{{SortS{{}}}}()),
+                        \dv{{SortS{{}}}}("{to}")
+                    ) [label{{}}("{label}")]"#
+                )
+            };
+            steps_then(
+                false,
+                &[step("6", "7", "loop-a"), step("7", "6", "loop-b")].join("\n"),
+            )
+        }
+
+        const TICKS: [&str; 3] = ["tick-a", "tick-b", "tick-c"];
+
+        /// [`probing`] the ticks before their steps and `after` after theirs, to depth 20.
+        fn watching(after: &[&str]) -> ExecutionOptions {
+            ExecutionOptions {
+                max_depth: 20,
+                ..probing(&TICKS, after)
+            }
+        }
+
+        /// A run from `initial` under `options` with a [`Watcher`]; also what it was told.
+        fn watch(
+            definition: &BackendDefinition,
+            initial: Pattern,
+            options: ExecutionOptions,
+            room: usize,
+            progressing: &[&str],
+            answer: ProbeDecision,
+        ) -> (ExecutionResult, Told) {
+            let told = RefCell::new(Vec::new());
+            let mut probe = Watcher {
+                room,
+                progressing: names(progressing),
+                points: 0,
+                answer,
+                told: &told,
+            };
+            let result = crate::rewrite::execute_with_probe(
+                definition,
+                initial,
+                options,
+                &crate::smt::NoSolver,
+                None,
+                None,
+                &mut probe,
+            )
+            .unwrap();
+            (result, told.into_inner())
+        }
+
+        fn told(first: u64, depth: u64, value: &str, rule: &str) -> (u64, u64, String, String) {
+            (first, depth, value.to_owned(), rule.to_owned())
+        }
+
+        /// The path `0`, …, `6`, `7`, `6` returns at depth 8 to its state at depth 6, with the
+        /// probe's progress unchanged since `tick-c`'s point. The probe is told once, with the
+        /// rule whose step reached the state, and its answer is read as at that rule's after
+        /// point: `Done` ends the path and `Differs` the request, each with a leaf of the state.
+        /// `Continue` changes nothing: the result is the run's without the probe.
+        #[test]
+        fn a_return_with_unchanged_progress_is_told_once_and_answered_at_the_state() {
+            let definition = looping();
+            for answer in [ProbeDecision::Done, ProbeDecision::Differs("loops".into())] {
+                let (result, told_) = watch(
+                    &definition,
+                    state(&definition, "0"),
+                    watching(&[]),
+                    8,
+                    &TICKS,
+                    answer.clone(),
+                );
+                assert_eq!(told_, [told(6, 8, "6", "loop-b")], "{answer:?}");
+                let (halt, rule, side) = match &result.leaves[0].halt_reason {
+                    HaltReason::ProbeDone { rule, side } => ("probe-done", rule, side),
+                    HaltReason::ProbeDifference { rule, side, .. } => {
+                        ("probe-difference", rule, side)
+                    }
+                    other => panic!("{other:?}"),
+                };
+                assert_eq!(ends(&result), [("6".into(), 8, halt)], "{answer:?}");
+                assert_eq!((rule.as_str(), *side), ("loop-b", StopSide::After));
+            }
+            let (result, told_) = watch(
+                &definition,
+                state(&definition, "0"),
+                watching(&[]),
+                8,
+                &TICKS,
+                ProbeDecision::Continue,
+            );
+            assert_eq!(told_, [told(6, 8, "6", "loop-b")]);
+            let plain =
+                crate::rewrite::execute(&definition, state(&definition, "0"), watching(&[]));
+            assert_eq!(result, plain);
+            assert_eq!(ends(&result), [("6".into(), 20, "depth-bound")]);
+        }
+
+        /// A change of the probe's progress forgets the states kept before it: a probe whose
+        /// progress moves at each `loop-a` point is in another state at every pass, and is never
+        /// told of a return.
+        #[test]
+        fn a_change_of_progress_forgets_the_kept_states() {
+            let definition = looping();
+            let (result, told_) = watch(
+                &definition,
+                state(&definition, "0"),
+                watching(&["loop-a"]),
+                8,
+                &["tick-a", "tick-b", "tick-c", "loop-a"],
+                ProbeDecision::Done,
+            );
+            assert_eq!(told_, Told::new());
+            assert_eq!(ends(&result), [("6".into(), 20, "depth-bound")]);
+        }
+
+        /// After `tick-c`'s point the path reaches `5`, `6`, `7`, `6`, … with the progress
+        /// unchanged. With room for two states `5` and `6` are kept, and the second `6` returns.
+        /// With room for one only `5` is kept: `6` and `7` are compared past the room but not
+        /// kept, so no later state returns to a kept one and no return is claimed. With no room
+        /// nothing is compared.
+        #[test]
+        fn past_the_room_no_return_is_claimed() {
+            let definition = looping();
+            let watched = |room: usize| {
+                watch(
+                    &definition,
+                    state(&definition, "0"),
+                    watching(&[]),
+                    room,
+                    &TICKS,
+                    ProbeDecision::Done,
+                )
+            };
+            let (result, told_) = watched(2);
+            assert_eq!(told_, [told(6, 8, "6", "loop-b")]);
+            assert_eq!(ends(&result), [("6".into(), 8, "probe-done")]);
+            for room in [1, 0] {
+                let (result, told_) = watched(room);
+                assert_eq!(told_, Told::new(), "{room}");
+                assert_eq!(ends(&result), [("6".into(), 20, "depth-bound")], "{room}");
+            }
+        }
+
+        /// Equal configurations with different stop events or arrivals are two states: with
+        /// `loop-a` a terminal rule whose count is never reached, each pass arrives at the stop
+        /// once more, so no state returns. Under strategy `any` nothing is compared. In both the
+        /// result is the run's without the probe.
+        #[test]
+        fn stop_arrivals_between_equal_configurations_and_strategy_any_claim_no_return() {
+            let definition = looping();
+            let arriving = ExecutionOptions {
+                terminal_rules: names(&["loop-a"]),
+                stop_count: NonZeroU64::new(1000).unwrap(),
+                ..watching(&[])
+            };
+            let any = ExecutionOptions {
+                mode: ExecutionMode::Any,
+                ..watching(&[])
+            };
+            for options in [arriving, any] {
+                let (result, told_) = watch(
+                    &definition,
+                    state(&definition, "0"),
+                    options.clone(),
+                    8,
+                    &TICKS,
+                    ProbeDecision::Done,
+                );
+                assert_eq!(told_, Told::new());
+                let plain = crate::rewrite::execute(&definition, state(&definition, "0"), options);
+                assert_eq!(result, plain);
+            }
+        }
+
+        /// `wrap(X)` rewrites to itself: from the ground `wrap(3)` the path returns at depth 2
+        /// to its state at depth 1 (the initial input is not kept), and from `wrap(X)` it repeats
+        /// the same symbolic state forever, which is never compared: an equality the run does
+        /// not decide in every model is no return.
+        #[test]
+        fn a_symbolic_repeat_is_never_a_return() {
+            let definition = prelude_definition();
+            let pattern = |text: &str| Pattern {
+                term: definition
+                    .internalize_term(&parse_pattern(text).unwrap(), &[])
+                    .unwrap(),
+                constraints: Vec::new(),
+            };
+            let options = ExecutionOptions {
+                max_depth: 6,
+                ..ExecutionOptions::default()
+            };
+            let (result, told_) = watch(
+                &definition,
+                pattern(r#"wrap{}(\dv{SortInt{}}("3"))"#),
+                options.clone(),
+                8,
+                &[],
+                ProbeDecision::Done,
+            );
+            assert_eq!(
+                told_
+                    .iter()
+                    .map(|(first, depth, _, rule)| (*first, *depth, rule.as_str()))
+                    .collect::<Vec<_>>(),
+                [(1, 2, "wrap")]
+            );
+            assert_eq!(result.leaves[0].depth, 2);
+            let (result, told_) = watch(
+                &definition,
+                pattern("wrap{}(X:SortInt{})"),
+                options,
+                8,
+                &[],
+                ProbeDecision::Done,
+            );
+            assert_eq!(told_, Told::new());
+            assert!(matches!(
+                result.leaves.as_slice(),
+                [leaf] if leaf.halt_reason == HaltReason::DepthBound && leaf.depth == 6
+            ));
         }
     }
 

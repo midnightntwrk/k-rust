@@ -80,6 +80,56 @@
 //! proof evaluation scope without a console and outside the run's definition scope. A
 //! cancellation of the request stays visible inside it and ends the run at its next poll.
 //!
+//! # Cycles
+//!
+//! A probe that keeps states ([`Probe::cycle_states`]) is told when its path returns to an
+//! earlier state of itself with the probe's progress unchanged ([`Probe::cycled`]). Such a return
+//! proves that the path runs forever, repeating the steps between the two states, and that the
+//! probe sees nothing new on it. The run recognizes the return; the probe decides what it means.
+//!
+//! The run compares each state of the path, once its normalization is done and before its step,
+//! with the states it keeps. Two states are one state where their configurations are the same
+//! ground term with no constraint, and their stop events and arrivals at a stop
+//! ([`ExecutionOptions::stop_count`](super::ExecutionOptions::stop_count)), committed effects and
+//! console are alike. Only such states are compared and kept:
+//! - A ground term with no constraint denotes one element in every model, so two equal ones are
+//!   one state in every model. A state with a variable or a constraint denotes a set of states,
+//!   and two syntactically equal ones need not be one state of one path, so a symbolic state is
+//!   never compared: an equality the run cannot decide is never a return.
+//! - An initial input is not kept: the run treats its definedness otherwise than a reached
+//!   state's.
+//! - The run compares under strategy `all` only, where a state the path leaves by one successor
+//!   has that successor and no other in the definition.
+//!
+//! What a state's path does next rests on the state alone. Its successors are the definition's
+//! rewrites of its configuration, cut by the stops its stop events and arrivals select, and its
+//! console reads read the console as it stands. The depth, the work and the clock only cut a path,
+//! and the merge table plays no part on one path. So where the path left the earlier state by one
+//! successor at each state up to the later one, the path from the later state is the path from the
+//! earlier one again, forever. This rests on the definition's step of a state being a function of
+//! the state and on the run having decided each of those steps, not on what the run would decide
+//! on a second pass. Whether each step was decided without a diagnostic, and whether the states
+//! are real, are facts of the leaf the probe's answer makes, which the probe's caller reads.
+//!
+//! The probe's progress ([`Probe::progress`]) stands for everything its later answers rest on
+//! besides the states it observes. It is read at each compared state, after the points of the step
+//! into it and before those of the step out of it, and the kept states are those reached since
+//! the progress last changed. An equal progress at both states says the probe's state did not
+//! change between them. So at each point of the next pass the probe is in the state it was in at
+//! that point of the first, observes the state it observed there, and answers as it did.
+//!
+//! The run keeps at most `cycle_states` states since the progress last changed. A state is
+//! compared with the kept states and then kept if there is room; a state reached once the room is
+//! full is compared but not kept. So a return to a state reached past the room is not recognized,
+//! and no cycle is claimed for it. The room bounds the memory, and a state costs a lookup by its
+//! configuration's stored hash.
+//!
+//! The probe is told of a return at most once, isolated as at a point, with the state, the depth
+//! of the earlier equal state, and the rule whose step reached the state. Its answer is read as
+//! at an after point of that rule, whose observed state is the state:
+//! - `Differs` ends the request, and `Done` the path, each with a leaf of the state.
+//! - `Continue` lets the run go on as without the probe, which is not told of a return again.
+//!
 //! # Reading a state
 //!
 //! The observed state is read through [`ProbeState`]: a cell by its path of cell symbols, its
@@ -92,9 +142,11 @@
 use std::collections::BTreeSet;
 
 use k_rust_kore::kore::ast as kore;
+use rustc_hash::FxHashMap;
 
 use super::{HaltReason, StopSide};
 use crate::term::{Term, TermKind};
+use crate::transition::{EffectJournal, ExecutionIoState};
 
 /// The rules whose steps a probe observes, by label or `UNIQUE_ID`, on each side of the step
 /// ([module documentation](self)).
@@ -140,6 +192,32 @@ pub trait Probe {
     /// The path ended at `leaf`, a leaf other than one the probe's own answer made, before it
     /// split. Asked at most once, and never after [`Self::branched`].
     fn ended(&mut self, leaf: &ProbeLeaf<'_>);
+
+    /// How many states of the path, reached since the probe's progress last changed, the run
+    /// keeps to recognize a return to one of them ([module documentation](self), "Cycles"). Read
+    /// once, when the run starts. 0, the default, keeps none: the probe is never told of a return,
+    /// and the run does no work for it.
+    fn cycle_states(&self) -> usize {
+        0
+    }
+
+    /// The probe's progress: a number that changes whenever anything its later answers and its
+    /// own state rest on changes, other than the states it observes. Two equal readings say that
+    /// nothing the probe's answers rest on changed between them. A count of every change the probe
+    /// made to what it keeps is one; the probe must not answer by the clock or by chance. Read at
+    /// each state the run compares, isolated as a point is.
+    fn progress(&self) -> u64 {
+        0
+    }
+
+    /// The path returned to an earlier state of itself with the probe's progress unchanged, so it
+    /// runs forever and the probe sees nothing new on it ([module documentation](self),
+    /// "Cycles"). Asked at most once, only while the path has not split or ended; the answer is
+    /// read as at an after point of [`ProbeCycle::rule`].
+    fn cycled(&mut self, cycle: &ProbeCycle<'_>) -> ProbeDecision {
+        let _ = cycle;
+        ProbeDecision::Continue
+    }
 }
 
 /// A state as a probe reads it: its depth and its configuration.
@@ -269,6 +347,127 @@ impl<'a> std::ops::Deref for ProbeLeaf<'a> {
 
     fn deref(&self) -> &Self::Target {
         &self.state
+    }
+}
+
+/// A return of the path to an earlier state of itself, as [`Probe::cycled`] is told of it.
+pub struct ProbeCycle<'a> {
+    pub(crate) first: u64,
+    pub(crate) rule: &'a str,
+    pub(crate) state: ProbeState<'a>,
+}
+
+impl<'a> ProbeCycle<'a> {
+    /// The depth of the earlier state equal to this one.
+    #[must_use]
+    pub fn first(&self) -> u64 {
+        self.first
+    }
+
+    /// The rule whose step reached the state, by its label, or its `UNIQUE_ID` where it has none.
+    #[must_use]
+    pub fn rule(&self) -> &str {
+        self.rule
+    }
+
+    /// The state: the later of the two, and its depth.
+    #[must_use]
+    pub fn state(&self) -> &ProbeState<'a> {
+        &self.state
+    }
+}
+
+impl<'a> std::ops::Deref for ProbeCycle<'a> {
+    type Target = ProbeState<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+/// The states a probed path keeps to recognize a return to one of them ([module
+/// documentation](self), "Cycles").
+pub(super) struct CycleWatch {
+    /// The most states kept ([`Probe::cycle_states`]).
+    room: usize,
+    /// The probe's progress when the kept states were reached; `None` before the first state.
+    progress: Option<u64>,
+    /// The kept states, by configuration.
+    kept: FxHashMap<Term, Vec<Kept>>,
+    len: usize,
+}
+
+/// A kept state: what besides its configuration its path's continuation rests on, and its depth.
+struct Kept {
+    depth: u64,
+    stops: (u64, u64),
+    effects: EffectJournal,
+    io: Option<ExecutionIoState>,
+}
+
+impl Kept {
+    fn alike(&self, state: &Watched<'_>) -> bool {
+        self.stops == state.stops
+            && self.effects.fingerprint() == state.effects.fingerprint()
+            && self.effects == *state.effects
+            && match (&self.io, state.io) {
+                (None, None) => true,
+                (Some(kept), Some(io)) => kept.observed_alike(io),
+                _ => false,
+            }
+    }
+}
+
+/// A state as [`CycleWatch::returns`] compares it.
+pub(super) struct Watched<'s> {
+    pub(super) depth: u64,
+    pub(super) term: &'s Term,
+    /// The stop events and the arrivals at a stop the state's path passed.
+    pub(super) stops: (u64, u64),
+    pub(super) effects: &'s EffectJournal,
+    /// The console, where it is available to the path.
+    pub(super) io: Option<&'s ExecutionIoState>,
+}
+
+impl CycleWatch {
+    /// A watch keeping at most `room` states, or `None` where `room` is 0.
+    pub(super) fn new(room: usize) -> Option<Self> {
+        (room > 0).then(|| Self {
+            room,
+            progress: None,
+            kept: FxHashMap::default(),
+            len: 0,
+        })
+    }
+
+    /// The depth of the kept state `state` returns to, given the probe's `progress` at it; where
+    /// there is none, `state` is kept if there is room. A change of progress forgets every kept
+    /// state first. The caller passes only a reached, normalized, ground state with no
+    /// constraint, which is no initial input ([module documentation](self), "Cycles").
+    pub(super) fn returns(&mut self, state: &Watched<'_>, progress: u64) -> Option<u64> {
+        if self.progress != Some(progress) {
+            self.kept.clear();
+            self.len = 0;
+            self.progress = Some(progress);
+        }
+        debug_assert!(state.term.attributes().variables.is_empty());
+        if let Some(earlier) = self
+            .kept
+            .get(state.term)
+            .and_then(|kept| kept.iter().find(|kept| kept.alike(state)))
+        {
+            return Some(earlier.depth);
+        }
+        if self.len < self.room {
+            self.kept.entry(state.term.clone()).or_default().push(Kept {
+                depth: state.depth,
+                stops: state.stops,
+                effects: state.effects.clone(),
+                io: state.io.cloned(),
+            });
+            self.len += 1;
+        }
+        None
     }
 }
 

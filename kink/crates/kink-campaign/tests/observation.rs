@@ -130,6 +130,7 @@ const TICK: &str = "CONSOLE.tick";
 const EMIT: &str = "CONSOLE.emit";
 const HALT: &str = "CONSOLE.halt";
 const STALL: &str = "CONSOLE.stall";
+const IDLE: &str = "CONSOLE.idle";
 
 /// An end at `done` is a crash; every other end is normal.
 fn done_crashes(end: &Pattern) -> ExecutionTerminalKind {
@@ -534,6 +535,102 @@ fn silent_divergence_after_agreement_is_unknown() {
             );
             assert_eq!(verdict(&run).outcome, OracleOutcome::Unknown, "{stutter:?}");
         }
+    });
+}
+
+/// idle's -1000 becomes 3: after its third tick the mutant's count is 3, where `idle` sets the
+/// phase to 7 and then rewrites 7 to 7. Its path returns at depth 6 to its state at depth 5 with
+/// nothing new observed, so it runs forever and its clock never has another element; a run to the
+/// bound alone could only say `unknown`, as for a silent divergence. The baseline's clock has its
+/// element 3 within its prefix, a decided difference: killed at clock 3 under either stuttering
+/// mode. A declaration of the out log alone, read where the path ends, is decided alike: the
+/// return reads the log once more, its one item 2 agrees, and the baseline's item 1 is a decided
+/// difference. With room for one state only the state at depth 4 is kept, the return to depth 5
+/// is past the room, no cycle is claimed, and the mutant is `unknown`.
+#[test]
+fn an_idle_forever_mutant_is_killed_by_its_return_where_the_baseline_still_emits() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("console")];
+        let campaign = campaign(&validator, &tests, DEPTH);
+        let generation = replaced(validator.baseline(), IDLE, "-1000", "3");
+        for stutter in [Stutter::Collapse, Stutter::Count] {
+            let run = run(
+                &campaign,
+                &generation,
+                observe(vec![clock(stutter)], Vec::new()),
+            );
+            assert_eq!(
+                run.mutants[0].report.status,
+                MutantStatus::Killed,
+                "{stutter:?}"
+            );
+            let verdict = verdict(&run);
+            assert_eq!(verdict.position, position("clock", 3, false), "{stutter:?}");
+            assert_eq!(verdict.cycle, Some((5, 6)), "{stutter:?}");
+        }
+        let logged = run(
+            &campaign,
+            &generation,
+            observe(Vec::new(), vec![out_at(&[])]),
+        );
+        assert_eq!(logged.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(verdict(&logged).position, position("out", 1, false));
+        let roomless = RunOptions {
+            observe: Observe::new(vec![clock(Stutter::Collapse)], Vec::new())
+                .unwrap()
+                .with_cycle_states(1),
+            ..RunOptions::default()
+        };
+        let run = run(&campaign, &generation, roomless);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        let verdict = verdict(&run);
+        assert_eq!(verdict.outcome, OracleOutcome::Unknown);
+        assert_eq!(verdict.cycle, None);
+    });
+}
+
+/// From -1003 the baseline's count reaches -1000 after three ticks and idles there: its path
+/// returns at depth 6 to its state at depth 5 with nothing new observed, so its clock is complete
+/// and silent after -1003, -1002 and -1001, though its run goes on to its depth bound as without
+/// the probe, a prefix program.
+/// - emit's phase reset 0 becomes 1: the mutant ticks at the same counts, idles alike and returns
+///   too, so it agrees on everything and survives with no horizon.
+/// - idle's -1000 becomes 3: the mutant ticks on, and its clock's element 3 against the
+///   baseline's silence is a decided difference.
+#[test]
+fn a_baseline_that_returns_closes_its_channels_complete_and_silent() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test_from("idle", -1003, CrashPolicy::Reject)];
+        let campaign = campaign(&validator, &tests, DEPTH);
+        let options = observe(vec![clock(Stutter::Collapse)], Vec::new());
+        let alike = run(
+            &campaign,
+            &replaced(validator.baseline(), EMIT, "0", "1"),
+            options,
+        );
+        let Some(Observation::Recorded(record)) = &alike.baseline[0].notes.observation else {
+            panic!("the baseline records its channels");
+        };
+        assert!(record.prefix);
+        assert_eq!(record.channels[0].elements.len(), 3);
+        assert_eq!(
+            record.channels[0].end,
+            ChannelEnd::Closed(kink_campaign::Closure::Cycle)
+        );
+        assert_eq!(alike.mutants[0].report.status, MutantStatus::Survived);
+        let agreed = verdict(&alike);
+        assert_eq!(agreed.outcome, OracleOutcome::Agree);
+        assert!(agreed.horizon.is_empty());
+        assert_eq!(agreed.cycle, Some((5, 6)));
+        let onwards = run(
+            &campaign,
+            &replaced(validator.baseline(), IDLE, "-1000", "3"),
+            options,
+        );
+        assert_eq!(onwards.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(verdict(&onwards).position, position("clock", 3, false));
     });
 }
 

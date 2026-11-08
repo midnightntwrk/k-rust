@@ -736,7 +736,8 @@ impl EndReader {
     /// One element of an observation difference printed for a reader: `{cells: {<cell>: value}}`
     /// for a point class's content, by the class's cells `cells` in order, `{item: value}` for a
     /// log's, each value as [`Self::print`] prints it (cut at [`VALUE_CAP`]); `"end"`,
-    /// `"undefined"` or `"undecided"` otherwise.
+    /// `"undefined"`, `"cycle"` (the side's path returned to an earlier state, so its channel has
+    /// no element there, ever) or `"undecided"` otherwise.
     fn element(&self, element: &Element, cells: Option<&[String]>) -> Value {
         match element {
             Element::Content(values) => match cells {
@@ -758,6 +759,7 @@ impl EndReader {
             },
             Element::End => json!("end"),
             Element::Undefined => json!("undefined"),
+            Element::Cycle => json!("cycle"),
             Element::Undecided => json!("undecided"),
         }
     }

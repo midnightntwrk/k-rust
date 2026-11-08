@@ -2347,6 +2347,7 @@ pub fn observed_difference(
         (None, crate::ChannelEnd::Closed(closure)) => match closure {
             crate::Closure::End => Element::End,
             crate::Closure::Undefined => Element::Undefined,
+            crate::Closure::Cycle => Element::Cycle,
         },
         (None, crate::ChannelEnd::Open(_)) => {
             return Err(format!(
@@ -4702,7 +4703,7 @@ impl Runtime {
             .unwrap_or_default();
         if compared {
             return Some(Observation::Compared(Comparison {
-                trace,
+                trace: Box::new(trace),
                 leaf: match leaves {
                     [leaf] => Some(LeafFacts::of(
                         leaf,

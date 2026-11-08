@@ -42,7 +42,7 @@ pub(crate) use predicates::{
     quantify_introduced_variables, violates_finite_constructor_domain,
 };
 pub use probe::{
-    CellHandle, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
+    CellHandle, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
 };
 use recover::{
     GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,
@@ -915,8 +915,11 @@ pub enum HaltReason {
     /// An in-process probe answered that the run differs at a point of `rule` on `side`
     /// (`probe`, [`ProbeDecision::Differs`]), with `reason`: the request ended there. The leaf
     /// is the point's observed state: the state before the step for a before point, the
-    /// normalized successor for an after point. It is no end of the system, only a request with
-    /// a probe has it, and it is never merged with another leaf.
+    /// normalized successor for an after point. Where the probe answered at a return of the path
+    /// to an earlier state (`probe`, "Cycles", [`Probe::cycled`]), `rule` is the rule whose step
+    /// reached the state, by its label or else its `UNIQUE_ID`, `side` is after, and the leaf is
+    /// that state. It is no end of the system, only a request with a probe has it, and it is never
+    /// merged with another leaf.
     ProbeDifference {
         rule: String,
         side: StopSide,
@@ -924,8 +927,9 @@ pub enum HaltReason {
     },
     /// An in-process probe answered that it needs nothing more of the path at a point of `rule`
     /// on `side` (`probe`, [`ProbeDecision::Done`]): the path ended there. The leaf is the
-    /// point's observed state, as for [`Self::ProbeDifference`]. It is no end of the system,
-    /// only a request with a probe has it, and it is never merged with another leaf.
+    /// point's observed state, or the state of a return, as for [`Self::ProbeDifference`]. It is
+    /// no end of the system, only a request with a probe has it, and it is never merged with
+    /// another leaf.
     ProbeDone {
         rule: String,
         side: StopSide,

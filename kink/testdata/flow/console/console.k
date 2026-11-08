@@ -5,16 +5,19 @@
 // `emit`, which resets the phase and appends `show(N)` to the `<out>` log. No run of `run` ends on
 // its own, so a run is compared over the prefix its depth bound explores. `show` is declared total
 // but has a value only below 5, so `show(6)`, the third item a run of `run` appends, stays in the
-// log as a residue, an item that is no value. `halt`, `stall`, `jump`, `fall` and `rewrite` are
-// guarded so that no run of `run` from a count of 0 takes them; a test that starts elsewhere
-// reaches them: from 1000001 `halt` ends the run at once; from -50 `fall` beside `tick` makes a
-// sibling path that ends at once; from -22 `rewrite` replaces the log's first item after the first
-// emit, so the log does not only grow by appending. The mutations the tests make: tick's count
-// step 1 becomes 2, 0 or 3 (with 3 the first item is the residue `show(6)`); emit's phase reset 0
-// becomes 1 (every second step emits, and the second item is 3); halt's bound becomes 2 (the run
-// ends before its fourth tick), 999999 or 1000001; stall's bound becomes 2 (the count stops and the
-// phase runs on unobserved); jump's -1 becomes 1 (the second tick has a sibling); tick is deleted;
-// an `anywhere` rule heading `done` is inserted. `f` is partial, defined below 10 by its `#Ceil`
+// log as a residue, an item that is no value. `halt`, `stall`, `jump`, `fall`, `rewrite` and
+// `idle` are guarded so that no run of `run` from a count of 0 takes them; a test that starts
+// elsewhere reaches them: from 1000001 `halt` ends the run at once; from -50 `fall` beside `tick`
+// makes a sibling path that ends at once; from -22 `rewrite` replaces the log's first item after
+// the first emit, so the log does not only grow by appending; from -1003 the count reaches -1000
+// after three ticks, where `idle` sets the phase to 7 and then rewrites 7 to 7 forever, a step to
+// an equal configuration. The mutations the tests make: tick's count step 1 becomes 2, 0 or 3
+// (with 3 the first item is the residue `show(6)`); emit's phase reset 0 becomes 1 (every second
+// step emits, and the second item is 3); halt's bound becomes 2 (the run ends before its fourth
+// tick), 999999 or 1000001; stall's bound becomes 2 (the count stops and the phase runs on
+// unobserved); jump's -1 becomes 1 (the second tick has a sibling); idle's -1000 becomes 3 (the run
+// idles forever after its third tick); tick is deleted; an `anywhere` rule heading `done` is
+// inserted. `f` is partial, defined below 10 by its `#Ceil`
 // lemma, and no run of `run` reads `f` or `h`; a test that starts with `f(h(0))` in `<phase>` and
 // `h(0)` in `<out>` runs as from a count of 0 with the log's first item 1, until h's step 1 becomes
 // 20: the initial configuration then holds `f(20)`, which has no instance, and the run is vacuous.
@@ -44,4 +47,5 @@ module CONSOLE
   rule [jump]: <k> run </k> <n> N => N +Int 100 </n> requires N ==Int -1
   rule [fall]: <k> run => done </k> <n> N </n> requires N ==Int -50
   rule [rewrite]: <k> run </k> <n> N => N +Int 1 </n> <out> ListItem(_) L => ListItem(0) L </out> requires N ==Int -20 [priority(10)]
+  rule [idle]: <k> run </k> <n> N </n> <phase> _ => 7 </phase> requires N ==Int -1000 [priority(10)]
 endmodule

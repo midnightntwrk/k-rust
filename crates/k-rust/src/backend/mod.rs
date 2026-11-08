@@ -224,9 +224,9 @@ pub use k_rust_backend::definition::{
 };
 pub use k_rust_backend::nesting::SegmentRefused;
 pub use k_rust_backend::rewrite::{
-    CellHandle, InProcess, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState,
-    StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide, SuccessorCandidate,
-    SuccessorReading,
+    CellHandle, InProcess, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbeRules,
+    ProbeState, StopArrival, StopCondition, StopConditionRefusal, StopDecision, StopSide,
+    SuccessorCandidate, SuccessorReading,
 };
 pub use k_rust_backend::stop::{
     CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,

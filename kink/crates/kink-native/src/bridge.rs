@@ -2300,6 +2300,7 @@ mod tests {
             rule: "r".to_owned(),
             side: crate::execution::StopSide::After,
             reason: reason.map(str::to_owned),
+            cycle: None,
         };
         let sorts = sorts();
         let bridge = |execution: &AdaptedExecution| {
