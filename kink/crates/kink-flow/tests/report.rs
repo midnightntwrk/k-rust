@@ -875,7 +875,7 @@ mod kink_tier {
         }
         // The section shows every input file and every command of the loop.
         for kind in [
-            "file", "write", "append", "run", "output", "check", "results", "report",
+            "file", "write", "append", "run", "output", "check", "coverage", "report",
         ] {
             assert!(
                 kinds.iter().any(|k| k == kind),

@@ -5,7 +5,7 @@
 //! A record holds, per baseline sentence with a guarded compiled axiom, each axiom's nodes (its
 //! written `requires` in preorder: path, shape, and the outcomes the node took where it was
 //! reached), its guard outcomes, and its valuation combinations. Atom terms are compact KORE
-//! text, as a record's ends are. The `results` rendering reads them ([`crate::results`]).
+//! text, as a record's ends are. The coverage document reads them ([`crate::coverage`]).
 
 use k_rust::backend::{AxiomGuardOutput, GuardShapeOutput};
 use k_rust::kore::ast::Pattern;
@@ -358,86 +358,73 @@ impl Rendering<'_, '_> {
     }
 }
 
-/// A row's `guard` (module documentation of [`crate::results`]): the guard outcomes of a
-/// sentence with a condition over the comparable programs, each node of its written condition
-/// with the outcomes it took where it was reached, and the conjuncts the compile added apart.
-/// `entries` are the sentence's entries; `None` when no program entered it.
-pub(crate) fn row_guard(entries: Option<&SentenceGuards<'_>>, printer: &dyn AtomPrinter) -> Value {
-    let mut guard = json!({
-        "held_by": [], "refuted_by": [], "undefined_by": [], "solver_refuted_by": [],
-        "undecided_by": [], "stopped_by": [], "never": ["held", "refuted"],
-        "operands": [], "compiled": [], "operands_reason": null,
-    });
-    let Some(entries) = entries.filter(|entries| !entries.entries.is_empty()) else {
-        guard["operands_reason"] = json!("no comparable program entered the condition");
-        return guard;
-    };
-    let mut entries = entries.entries.clone();
-    entries.sort_by_key(|(_, axiom)| axiom["axiom"].as_str().map(str::to_owned));
-    // Guard outcomes.
-    let (mut held, mut refuted, mut undefined, mut solver, mut stopped) = (
-        Programs::default(),
-        Programs::default(),
-        Programs::default(),
-        Programs::default(),
-        Programs::default(),
-    );
-    let mut undecided = Undecided::default();
-    for (program, axiom) in &entries {
-        for outcome in axiom["outcomes"].as_array().into_iter().flatten() {
-            let outcome = outcome.as_str().unwrap_or_default();
-            let into: Option<&mut Programs> = match outcome {
-                "held" => Some(&mut held),
-                "stopped" => Some(&mut stopped),
-                "refuted-false" => Some(&mut refuted),
-                "refuted-undefined" => {
-                    undefined.add(program);
-                    Some(&mut refuted)
+/// The record values of a sentence's static skeletons (kink-native `coverage::guard_skeletons`),
+/// as a record holds its axioms, in axiom order.
+pub(crate) fn skeleton_values(skeletons: &[AxiomGuardOutput<Pattern>]) -> Vec<Value> {
+    let mut values = skeletons.iter().map(axiom_value).collect::<Vec<_>>();
+    values.sort_by_key(|axiom| axiom["axiom"].as_str().map(str::to_owned));
+    values
+}
+
+/// The guard outcomes of `entries` (program, axiom): the programs of each class, in corpus
+/// order.
+#[derive(Default)]
+struct GuardOutcomes {
+    held: Programs,
+    refuted: Programs,
+    undefined: Programs,
+    solver: Programs,
+    stopped: Programs,
+    undecided: Undecided,
+}
+
+impl GuardOutcomes {
+    fn of(entries: &[(&str, &Value)]) -> Self {
+        let mut outcomes = Self::default();
+        for (program, axiom) in entries {
+            for outcome in axiom["outcomes"].as_array().into_iter().flatten() {
+                let outcome = outcome.as_str().unwrap_or_default();
+                let into: Option<&mut Programs> = match outcome {
+                    "held" => Some(&mut outcomes.held),
+                    "stopped" => Some(&mut outcomes.stopped),
+                    "refuted-false" => Some(&mut outcomes.refuted),
+                    "refuted-undefined" => {
+                        outcomes.undefined.add(program);
+                        Some(&mut outcomes.refuted)
+                    }
+                    "refuted-decided" => {
+                        outcomes.solver.add(program);
+                        Some(&mut outcomes.refuted)
+                    }
+                    other => {
+                        outcomes
+                            .undecided
+                            .add(program, other.strip_prefix("undecided-").unwrap_or(other));
+                        None
+                    }
+                };
+                if let Some(into) = into {
+                    into.add(program);
                 }
-                "refuted-decided" => {
-                    solver.add(program);
-                    Some(&mut refuted)
-                }
-                other => {
-                    undecided.add(program, other.strip_prefix("undecided-").unwrap_or(other));
-                    None
-                }
-            };
-            if let Some(into) = into {
-                into.add(program);
             }
         }
+        outcomes
     }
-    let never = [("held", &held), ("refuted", &refuted)]
-        .into_iter()
-        .filter(|(_, programs)| programs.0.is_empty())
-        .map(|(name, _)| name)
-        .collect::<Vec<_>>();
-    guard["held_by"] = json!(held.0);
-    guard["refuted_by"] = json!(refuted.0);
-    guard["undefined_by"] = json!(undefined.0);
-    guard["solver_refuted_by"] = json!(solver.0);
-    guard["undecided_by"] = undecided.value();
-    guard["stopped_by"] = json!(stopped.0);
-    guard["never"] = json!(never);
-    // The skeleton: every axiom of the sentence must have the first one's.
-    let nodes = skeleton(entries[0].1);
-    let same = entries.iter().all(|(_, axiom)| {
-        let other = skeleton(axiom);
-        other.len() == nodes.len()
-            && other
-                .iter()
-                .zip(&nodes)
-                .all(|(a, b)| a.path == b.path && a.shape == b.shape)
-    });
-    if !same {
-        guard["operands_reason"] = json!("the sentence compiles to conditions of different shapes");
-        return guard;
-    }
-    let mut outcomes = (0..nodes.len())
+}
+
+/// The entries of `entries`, by axiom.
+fn sorted<'r>(entries: Option<&SentenceGuards<'r>>) -> Vec<(&'r str, &'r Value)> {
+    let mut entries = entries.map(|e| e.entries.clone()).unwrap_or_default();
+    entries.sort_by_key(|(_, axiom)| axiom["axiom"].as_str().map(str::to_owned));
+    entries
+}
+
+/// The outcomes each skeleton node took over `entries`, by preorder index.
+fn node_outcomes(entries: &[(&str, &Value)], nodes: usize) -> Vec<NodeOutcomes> {
+    let mut outcomes = (0..nodes)
         .map(|_| NodeOutcomes::default())
         .collect::<Vec<_>>();
-    for (program, axiom) in &entries {
+    for (program, axiom) in entries {
         for (index, node) in axiom["nodes"].as_array().into_iter().flatten().enumerate() {
             for outcome in node["reached"].as_array().into_iter().flatten() {
                 if let (Some(slot), Some(outcome)) = (outcomes.get_mut(index), outcome.as_str()) {
@@ -446,6 +433,88 @@ pub(crate) fn row_guard(entries: Option<&SentenceGuards<'_>>, printer: &dyn Atom
             }
         }
     }
+    outcomes
+}
+
+/// A row's `guard` (module documentation of [`crate::coverage`]): the guard outcomes of a
+/// sentence with a condition over the comparable programs, each node of its written condition
+/// with the outcomes it took where it was reached, and the conjuncts the compile added apart.
+/// `entries` are the sentence's entries by comparable programs (`None` when none entered it),
+/// `others` its entries by programs that are not comparable, and `skeletons` the record values
+/// of the sentence's static skeletons ([`skeleton_values`]), which give the nodes whether or not
+/// a program entered the condition, or why the definition's skeleton of it cannot be read: the
+/// guard then shows no node, whichever programs entered it, so that the nodes it shows never
+/// depend on the programs. The outcomes the programs of `others` saw are listed apart, as
+/// `uncounted` (null when none entered it): they count for no outcome of the guard.
+pub(crate) fn row_guard(
+    entries: Option<&SentenceGuards<'_>>,
+    others: Option<&SentenceGuards<'_>>,
+    skeletons: Result<&[Value], &str>,
+    printer: &dyn AtomPrinter,
+) -> Value {
+    let mut guard = json!({
+        "held_by": [], "refuted_by": [], "undefined_by": [], "solver_refuted_by": [],
+        "undecided_by": [], "stopped_by": [], "never": ["held", "refuted"],
+        "operands": [], "compiled": [], "operands_reason": null, "uncounted": null,
+    });
+    let entries = sorted(entries);
+    let others = sorted(others);
+    let outcomes = GuardOutcomes::of(&entries);
+    let never = [("held", &outcomes.held), ("refuted", &outcomes.refuted)]
+        .into_iter()
+        .filter(|(_, programs)| programs.0.is_empty())
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    guard["held_by"] = json!(outcomes.held.0);
+    guard["refuted_by"] = json!(outcomes.refuted.0);
+    guard["undefined_by"] = json!(outcomes.undefined.0);
+    guard["solver_refuted_by"] = json!(outcomes.solver.0);
+    guard["undecided_by"] = outcomes.undecided.value();
+    guard["stopped_by"] = json!(outcomes.stopped.0);
+    guard["never"] = json!(never);
+    let skeletons = match skeletons {
+        Ok(skeletons) => skeletons,
+        Err(reason) => {
+            if !others.is_empty() {
+                let other = GuardOutcomes::of(&others);
+                guard["uncounted"] = json!({
+                    "held_by": other.held.0,
+                    "refuted_by": other.refuted.0,
+                    "nodes": {},
+                });
+            }
+            guard["operands_reason"] = json!(reason);
+            return guard;
+        }
+    };
+    // The skeleton: the static one where the definition gives it, else the first entry's; every
+    // axiom of the sentence, entered or not, must have it.
+    let Some(first) = skeletons
+        .first()
+        .or_else(|| entries.first().map(|(_, axiom)| *axiom))
+        .or_else(|| others.first().map(|(_, axiom)| *axiom))
+    else {
+        guard["operands_reason"] = json!("no comparable program entered the condition");
+        return guard;
+    };
+    let nodes = skeleton(first);
+    let same = skeletons
+        .iter()
+        .chain(entries.iter().chain(&others).map(|(_, axiom)| *axiom))
+        .all(|axiom| {
+            let other = skeleton(axiom);
+            other.len() == nodes.len()
+                && other
+                    .iter()
+                    .zip(&nodes)
+                    .all(|(a, b)| a.path == b.path && a.shape == b.shape)
+        });
+    if !same {
+        guard["operands_reason"] = json!("the sentence compiles to conditions of different shapes");
+        return guard;
+    }
+    let outcomes = node_outcomes(&entries, nodes.len());
+    let uncounted = node_outcomes(&others, nodes.len());
     let mut rendering = Rendering {
         nodes: &nodes,
         printer,
@@ -480,6 +549,7 @@ pub(crate) fn row_guard(entries: Option<&SentenceGuards<'_>>, printer: &dyn Atom
         }
     }
     let mut operands = rendering.operands;
+    let mut uncounted_nodes = serde_json::Map::new();
     for operand in &mut operands {
         let path = operand["path"].as_str().unwrap_or_default().to_owned();
         if let Some(index) = rendering
@@ -489,10 +559,25 @@ pub(crate) fn row_guard(entries: Option<&SentenceGuards<'_>>, printer: &dyn Atom
         {
             let own = own_outcomes(operand["kind"].as_str().unwrap_or_default());
             outcomes[index].fill(operand, own);
+            let other = &uncounted[index];
+            if !other.true_by.0.is_empty() || !other.false_by.0.is_empty() {
+                uncounted_nodes.insert(
+                    path,
+                    json!({"true_by": other.true_by.0, "false_by": other.false_by.0}),
+                );
+            }
         }
     }
     guard["operands"] = json!(operands);
     guard["compiled"] = json!(compiled);
+    if !others.is_empty() {
+        let other = GuardOutcomes::of(&others);
+        guard["uncounted"] = json!({
+            "held_by": other.held.0,
+            "refuted_by": other.refuted.0,
+            "nodes": uncounted_nodes,
+        });
+    }
     if authored == 0 {
         let quantified = conjuncts.iter().any(|(index, _)| {
             nodes[*index].shape["kore"]
@@ -654,7 +739,7 @@ mod tests {
             {"module": "M", "index": 0, "axioms": [chain("a", &["false"])]},
         ]}});
         let guards = SentenceGuards::of([("p", &record)]);
-        let guard = row_guard(guards.get(&("M".to_owned(), 0)), &Verbatim);
+        let guard = row_guard(guards.get(&("M".to_owned(), 0)), None, Ok(&[]), &Verbatim);
         let operands = guard["operands"].as_array().unwrap();
         let paths = operands
             .iter()
@@ -675,6 +760,37 @@ mod tests {
         assert_eq!(guard["operands_reason"], Value::Null);
     }
 
+    /// The definition's skeleton gives a guard no comparable program entered its nodes, each with
+    /// no outcome; a program that is not comparable is listed apart, as `uncounted`, and counts
+    /// for no outcome.
+    #[test]
+    fn a_skeleton_names_the_nodes_of_an_unentered_guard() {
+        let mut skeleton = chain("a", &[]);
+        for node in skeleton["nodes"].as_array_mut().unwrap() {
+            node["reached"] = json!([]);
+        }
+        skeleton["outcomes"] = json!([]);
+        let unknown = json!({"coverage": {"guards": [
+            {"module": "M", "index": 0, "axioms": [chain("a", &["false"])]},
+        ]}});
+        let others = SentenceGuards::of([("u", &unknown)]);
+        let guard = row_guard(
+            None,
+            others.get(&("M".to_owned(), 0)),
+            Ok(&[skeleton]),
+            &Verbatim,
+        );
+        let operands = guard["operands"].as_array().unwrap();
+        assert_eq!(operands.len(), 4, "{guard:#}");
+        assert_eq!(operands[1]["never"], json!(["true", "false"]));
+        assert_eq!(guard["never"], json!(["held", "refuted"]));
+        assert_eq!(guard["refuted_by"], json!([]));
+        assert_eq!(guard["operands_reason"], Value::Null);
+        assert_eq!(guard["uncounted"]["refuted_by"], json!(["u"]));
+        assert_eq!(guard["uncounted"]["nodes"]["0.0"]["true_by"], json!(["u"]));
+        assert_eq!(guard["uncounted"]["nodes"]["0.1"]["false_by"], json!(["u"]));
+    }
+
     /// Two axioms of one sentence whose skeletons differ give no operands, with the reason; a
     /// sentence no program entered has the reason too; a condition that is one existential is
     /// one compiled conjunct, with the reason.
@@ -686,25 +802,36 @@ mod tests {
             {"module": "M", "index": 0, "axioms": [chain("a", &["false"]), other]},
         ]}});
         let guards = SentenceGuards::of([("p", &record)]);
-        let differing = row_guard(guards.get(&("M".to_owned(), 0)), &Verbatim);
+        let differing = row_guard(guards.get(&("M".to_owned(), 0)), None, Ok(&[]), &Verbatim);
         assert_eq!(differing["operands"], json!([]));
         assert_eq!(
             differing["operands_reason"],
             "the sentence compiles to conditions of different shapes"
         );
-        let unentered = row_guard(None, &Verbatim);
+        let unentered = row_guard(None, None, Ok(&[]), &Verbatim);
         assert_eq!(
             unentered["operands_reason"],
             "no comparable program entered the condition"
         );
         assert_eq!(unentered["never"], json!(["held", "refuted"]));
+        // A skeleton the definition cannot give: no node, although a program entered it, so the
+        // nodes a guard shows never depend on which programs entered it.
+        let unreadable = row_guard(
+            guards.get(&("M".to_owned(), 0)),
+            None,
+            Err("the skeleton cannot be read"),
+            &Verbatim,
+        );
+        assert_eq!(unreadable["operands"], json!([]));
+        assert_eq!(unreadable["operands_reason"], "the skeleton cannot be read");
+        assert_eq!(unreadable["refuted_by"], json!(["p"]));
         let quantified = json!({"coverage": {"guards": [{"module": "M", "index": 1, "axioms": [{
             "axiom": "q",
             "nodes": [node(&[0], json!({"node": "predicate", "kore": "\\exists{R}(X, P)"}), &["true"])],
             "outcomes": ["held"], "combinations": [], "combinations_truncated": false,
         }]}]}});
         let guards = SentenceGuards::of([("p", &quantified)]);
-        let guard = row_guard(guards.get(&("M".to_owned(), 1)), &Verbatim);
+        let guard = row_guard(guards.get(&("M".to_owned(), 1)), None, Ok(&[]), &Verbatim);
         assert_eq!(guard["compiled"][0]["true_by"], json!(["p"]));
         assert!(
             guard["operands_reason"]

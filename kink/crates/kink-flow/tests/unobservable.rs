@@ -15,11 +15,11 @@ use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
     cli::{EXIT_UNASKED, EXIT_YES, check},
+    coverage::{CoverageOptions, coverage},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context, spec_digest},
     manifest::Budget,
     mutation::MutationList,
     report::{ReportOptions, report},
-    results::{ResultsOptions, results},
     search::{RunOptions, run},
 };
 use serde_json::{Value, json};
@@ -123,9 +123,9 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
     assert_eq!(document["version"], 12);
     assert_eq!(document["result"], expected);
 
-    let (document, ok) = results(
+    let (document, ok) = coverage(
         &FlowManifest::read(&manifest).unwrap(),
-        &ResultsOptions::default(),
+        &CoverageOptions::default(),
     );
     assert!(ok, "{document:#}");
     assert_eq!(document["result"], expected);

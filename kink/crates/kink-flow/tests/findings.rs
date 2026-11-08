@@ -29,12 +29,12 @@ use kink_flow::{
     FlowManifest, MutationList,
     admit::admit,
     cli::{CheckOptions, EXIT_NO, EXIT_YES, check, check_with},
+    coverage::{CoverageOptions, coverage},
     digest::{execution_digest, mutation_identity, outcome_context},
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore},
     pattern::PatternList,
     query::{QueryOptions, query},
     resolve,
-    results::{ResultsOptions, results},
     search::{RunOptions, run},
 };
 use serde_json::{Value, json};
@@ -306,7 +306,7 @@ mod kink_tier {
 
                 // `results` lists the findings and marks the comparable row.
                 let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
-                let (listed, ok) = results(&manifest, &ResultsOptions::default());
+                let (listed, ok) = coverage(&manifest, &CoverageOptions::default());
                 assert!(ok, "{name}: {listed:#}");
                 assert_eq!(named(&listed["data"]["findings"]), expected(names));
                 assert_eq!(listed["programs"][0]["unable_to_kill"], "baseline-findings");
@@ -426,7 +426,7 @@ mod kink_tier {
             ] {
                 let dir = repro("r3-plainq", "unmatched", Some(&[premise]));
                 let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
-                let (document, ok) = results(&manifest, &ResultsOptions::default());
+                let (document, ok) = coverage(&manifest, &CoverageOptions::default());
                 assert!(!ok);
                 assert_eq!(document["spec"]["outcome"], "refused", "{document:#}");
                 assert_eq!(document["spec"]["stage"], "assume-joined");
@@ -455,7 +455,7 @@ mod kink_tier {
             );
             let manifest_path = dir.join("FLOW.toml");
             let manifest = FlowManifest::read(&manifest_path).unwrap();
-            let (first, ok) = results(&manifest, &ResultsOptions::default());
+            let (first, ok) = coverage(&manifest, &CoverageOptions::default());
             assert!(ok, "{first:#}");
             assert_eq!(first["programs"][0]["cached"], false);
             let spec = dir.join("spec.k");
@@ -465,7 +465,7 @@ mod kink_tier {
                 format!("// a line above the named equations\n{text}"),
             )
             .unwrap();
-            let (moved, ok) = results(&manifest, &ResultsOptions::default());
+            let (moved, ok) = coverage(&manifest, &CoverageOptions::default());
             assert!(!ok);
             assert_eq!(moved["spec"]["stage"], "assume-joined", "{moved:#}");
             assert_eq!(moved["spec"]["reason"], "name-refused");
@@ -476,7 +476,7 @@ mod kink_tier {
             )
             .unwrap();
             let manifest = FlowManifest::read(&manifest_path).unwrap();
-            let (renamed, ok) = results(&manifest, &ResultsOptions::default());
+            let (renamed, ok) = coverage(&manifest, &CoverageOptions::default());
             assert!(ok, "{renamed:#}");
             assert_ne!(renamed["spec"]["digest"], first["spec"]["digest"]);
             assert_eq!(
@@ -496,7 +496,7 @@ mod kink_tier {
             .unwrap();
             let manifest = FlowManifest::read(&manifest_path).unwrap();
             assert!(manifest.spec.assume_joined.is_empty());
-            let (bare, ok) = results(&manifest, &ResultsOptions::default());
+            let (bare, ok) = coverage(&manifest, &CoverageOptions::default());
             assert!(ok, "{bare:#}");
             assert_ne!(
                 bare["spec"]["execution_digest"],
@@ -515,7 +515,7 @@ mod kink_tier {
         on_stack(|| {
             let dir = repro("r3-plainq", "warm", None);
             let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
-            let (listed, ok) = results(&manifest, &ResultsOptions::default());
+            let (listed, ok) = coverage(&manifest, &CoverageOptions::default());
             assert!(ok, "{listed:#}");
             let program = &listed["programs"][0];
             let cache = dir.join(kink_flow::results::CACHE_DIRECTORY);

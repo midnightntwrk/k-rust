@@ -170,8 +170,8 @@ mod tests {
             "krs kink run --package story-plus --definition main --cfg k_backend=llvm"
         );
         assert_eq!(
-            spelling.verb(Verb::Results),
-            spelling.command(Verb::Results)
+            spelling.verb(Verb::Coverage),
+            spelling.command(Verb::Coverage)
         );
         assert_eq!(
             spelling.emit(),

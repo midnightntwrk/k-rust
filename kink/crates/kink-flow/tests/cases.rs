@@ -8,9 +8,9 @@ use kink_corpus::ProgramSource;
 use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
-    cli::{check, results, run},
+    cli::{check, coverage, run},
+    coverage::CoverageOptions,
     manifest::{ManifestError, Program},
-    results::ResultsOptions,
     search::RunOptions,
 };
 use serde_json::Value;
@@ -980,13 +980,13 @@ fn a_pattern_corpus_is_reported_as_its_listed_programs() {
     let documents = |dir: &Path| {
         let manifest = dir.join("FLOW.toml");
         let (check, check_status) = check(&manifest);
-        let results_options = ResultsOptions {
+        let results_options = CoverageOptions {
             verify: false,
             cache: None,
-            mutations: None,
+            ..CoverageOptions::default()
         };
-        let (first, results_status) = results(&manifest, &results_options);
-        let (again, _) = results(&manifest, &results_options);
+        let (first, results_status) = coverage(&manifest, &results_options);
+        let (again, _) = coverage(&manifest, &results_options);
         let (run, run_status) = run(
             &manifest,
             &dir.join("MUTATIONS.toml"),
@@ -1421,11 +1421,11 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
     ];
     let checking = manifest.clone();
     let (results, results_ok) =
-        on_stack(move || kink_flow::results::results(&manifest, &ResultsOptions::default()));
+        on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
     assert!(results_ok, "{results:#}");
     assert_eq!(expectations(&results), reported, "{results:#}");
     assert_eq!(
-        kink_flow::cli::results_status(&results),
+        kink_flow::cli::coverage_status(&results),
         kink_flow::cli::EXIT_NO,
         "{results:#}"
     );

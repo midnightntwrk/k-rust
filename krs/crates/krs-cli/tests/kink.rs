@@ -28,7 +28,7 @@ const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
 /// The story's corpus (`docs-site/story/plus/kink`), the one the introduction's pages show:
 /// its manifest and four cases (story.toml `[[test]]`). The expectations below are what the
 /// pages show for these programs, which the docs-site derives from its recorded outputs: the
-/// coverage from `krs kink results` (story-kink-results), and the tests that catch each edit from
+/// coverage from `krs kink coverage` (story-kink-coverage), and the tests that catch each edit from
 /// `krs kink run --full` (story-kink-run).
 const STORY_FLOW: &str = include_str!("../../../../docs-site/story/plus/kink/FLOW.toml");
 const STORY_CASES: [(&str, &str); 4] = [
@@ -321,13 +321,12 @@ fn authored<'d>(guard: &'d Value, text: &str) -> &'d Value {
     clippy::too_many_lines,
     reason = "One assertion per acceptance line of FB-33."
 )]
-fn results_report_each_guards_outcomes_per_operand() {
+fn coverage_reports_each_guards_outcomes_per_operand() {
     let project = guarded();
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
-    assert!(!output.stdout.windows(9).any(|w| w == b"\"covered\""));
-    assert_eq!(document["krs"]["version"], 4, "{:#}", document["krs"]);
+    assert_eq!(document["krs"]["version"], 5, "{:#}", document["krs"]);
     assert!(
         document["krs"].get("unmatched_guards").is_none(),
         "{:#}",
@@ -341,7 +340,7 @@ fn results_report_each_guards_outcomes_per_operand() {
         assert_eq!(strings(&row["guard"]["krs"]["never"]), ["held"], "{item}");
         assert!(row["krs"]["line"].as_u64().is_some(), "{item}: {row:#}");
     }
-    let low = document["rules"]
+    let low = document["families"]["rules"]["items"]
         .as_array()
         .unwrap()
         .iter()
@@ -487,7 +486,7 @@ fn results_report_each_guards_outcomes_per_operand() {
     assert_eq!(load["krs"]["refuted_by"], json!(["load-six"]), "{load:#}");
     assert_eq!(load["krs"]["never"], json!([]), "{load:#}");
     // 4.
-    for row in document["rules"].as_array().unwrap() {
+    for row in document["families"]["rules"]["items"].as_array().unwrap() {
         if let Some(guard) = row.get("guard").filter(|guard| guard["krs"].is_object()) {
             assert!(row["krs"]["item"].is_string(), "{row:#}");
             for operand in guard["krs"]["authored"].as_array().unwrap() {
@@ -529,23 +528,8 @@ fn results_report_each_guards_outcomes_per_operand() {
         rule(&document, "crate::decode_ld_r_r")["krs"]["matched_by"],
         json!(["load", "load-six"])
     );
-    // The summary counts the authored operands.
-    let summary = &document["summary"]["guards"];
-    let counted = document["rules"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|row| row["guard"]["krs"]["authored"].as_array())
-        .flatten()
-        .filter(|operand| !operand["never"].as_array().unwrap().is_empty())
-        .count();
-    assert_eq!(
-        summary["operands_missing_an_outcome"], counted,
-        "{summary:#}"
-    );
-    // ... and the guards with an authored conjunct; every guard is grouped, also one whose
-    // condition has no node (an `else` branch's).
-    let guards = document["rules"]
+    // Every guard is grouped, also one whose condition has no node (an `else` branch's).
+    let guards = document["families"]["rules"]["items"]
         .as_array()
         .unwrap()
         .iter()
@@ -555,69 +539,171 @@ fn results_report_each_guards_outcomes_per_operand() {
         guards.iter().all(|guard| guard["krs"].is_object()),
         "{guards:#?}"
     );
-    let reported = guards
+    // The families name every item by KRS item and Rust text: a rule by its item, a requirement
+    // by its item and its authored operand's source text; the tests KRS inserted and the
+    // templates are no requirements, and a condition with no authored conjunct states none.
+    assert_eq!(
+        rule(&document, "crate::boundary_wake")["id"],
+        "rule:crate::boundary_wake"
+    );
+    let ids = requirement_ids(&document);
+    for id in [
+        "requirement:crate::boundary_wake:held",
+        "requirement:crate::boundary_dispatch:halted:true",
+        "requirement:crate::boundary_dispatch:halted:false",
+        "requirement:crate::scale:100 / a > 1:true",
+        "requirement:crate::scale:m[a] > 0:false",
+        "requirement:crate::decode_ld_r_r:refuted",
+    ] {
+        assert!(ids.contains(&id.to_owned()), "{id}: {ids:#?}");
+    }
+    // A condition's outcome that is an operand's reached truth is one obligation, the root's:
+    // `decode_ld_r_r`'s one authored conjunct `r != 6` is its condition, so its truths are the
+    // condition's `held` and `refuted`; `scale` holds where its last conjunct `m[a] > 0` is
+    // reached true.
+    let refuted = requirement_of(&document, "requirement:crate::decode_ld_r_r:refuted");
+    assert_eq!(
+        (&refuted["text"], &refuted["node_truth"]),
+        (&json!("r != 6"), &json!("false")),
+        "{refuted:#}"
+    );
+    for id in [
+        "requirement:crate::decode_ld_r_r:r != 6:false",
+        "requirement:crate::decode_ld_r_r:r != 6:true",
+        "requirement:crate::scale:m[a] > 0:true",
+    ] {
+        assert!(!ids.contains(&id.to_owned()), "{id}: {ids:#?}");
+    }
+    let held = requirement_of(&document, "requirement:crate::scale:held");
+    assert_eq!(
+        (&held["text"], &held["node_truth"], &held["covered_by"]),
+        (&json!("m[a] > 0"), &json!("true"), &json!(["scale"])),
+        "{held:#}"
+    );
+    for id in &ids {
+        assert!(
+            !id.contains("=/=Int") && !id.contains("bitRangeInt"),
+            "{id}: {ids:#?}"
+        );
+        for item in ["crate::fetch:", "crate::decode_alu:", "crate::decode_xor:"] {
+            assert!(!id.contains(item), "{id}");
+        }
+    }
+    let requirement = requirement_of(
+        &document,
+        "requirement:crate::boundary_dispatch:halted:true",
+    );
+    assert_eq!(requirement["status"], "open", "{requirement:#}");
+    assert_eq!(requirement["file"], "src/lib.rs");
+    let requirement = requirement_of(&document, "requirement:crate::scale:100 / a > 1:true");
+    assert_eq!(
+        requirement["covered_by"],
+        json!(["scale"]),
+        "{requirement:#}"
+    );
+    // A target per open obligation, named by KRS item and Rust text, at its Rust position.
+    let targets = document["targets"].as_array().unwrap();
+    assert_eq!(document["summary"]["open"], json!(targets.len()));
+    let wake = targets
         .iter()
-        .filter(|guard| !guard["krs"]["held_by"].is_null())
-        .collect::<Vec<_>>();
-    assert_eq!(summary["sentences"], reported.len(), "{summary:#}");
-    let never_refuted = reported
+        .find(|target| target["item"] == "rule:crate::boundary_wake")
+        .unwrap_or_else(|| panic!("{targets:#?}"));
+    assert!(
+        wake["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("a case where crate::boundary_wake is entered and its condition holds"),
+        "{wake:#}"
+    );
+    assert_eq!(wake["file"], "src/lib.rs");
+    assert_eq!(
+        wake["line"],
+        rule(&document, "crate::boundary_wake")["krs"]["line"]
+    );
+    let halted_true = targets
         .iter()
-        .filter(|guard| strings(&guard["krs"]["never"]).contains(&"refuted"))
-        .count();
-    assert_eq!(summary["never_refuted"], never_refuted, "{summary:#}");
+        .find(|target| target["item"] == "requirement:crate::boundary_dispatch:halted:true")
+        .unwrap_or_else(|| panic!("{targets:#?}"));
+    assert_eq!(
+        halted_true["text"],
+        "a case that enters crate::boundary_dispatch with halted true"
+    );
+    let rules = &document["families"]["rules"];
+    assert_eq!(
+        rules["obligations"],
+        json!(
+            rules["counts"]["fired"].as_u64().unwrap()
+                + rules["counts"]["matched"].as_u64().unwrap()
+                + rules["counts"]["unmatched"].as_u64().unwrap()
+        )
+    );
 
-    let verdicts = project.kink("results", &["--output", "verdicts"]);
+    let verdicts = project.kink("coverage", &["--output", "verdicts"]);
     assert_status(&verdicts, 0);
     let verdicts = stdout(&verdicts);
-    assert!(verdicts.contains("krs_annotation = 4"), "{verdicts}");
+    assert!(verdicts.contains("krs_annotation = 5"), "{verdicts}");
     assert!(
-        verdicts.contains("[[guard]]\nrule = \"crate::boundary_wake\"\nnever = [\"held\"]"),
+        verdicts.contains("\"rule:crate::boundary_wake\""),
         "{verdicts}"
     );
     assert!(
-        verdicts.contains("[[guard.operand]]\ntext = \"halted\"\nnever = [\"true\"]"),
+        verdicts.contains("\"requirement:crate::boundary_dispatch:halted:true\""),
         "{verdicts}"
     );
-    // Neither the inserted tests nor a template's conjuncts are guard gaps, and a sentence whose
-    // template no case matched is no fired or matched rule.
+    // Neither the inserted tests nor a template's conjuncts are requirements, and no case is
+    // listed: the rendering moves only when a gap opens or closes.
     assert!(!verdicts.contains("=/=Int 0"), "{verdicts}");
     assert!(!verdicts.contains("bitRangeInt"), "{verdicts}");
+    assert!(!verdicts.contains("[[case]]"), "{verdicts}");
     assert!(
-        !verdicts.contains("rule = \"crate::decode_xor\""),
+        !verdicts.contains("requirement:crate::fetch:"),
         "{verdicts}"
     );
-    // A condition with no authored conjunct is no guard gap.
-    let gaps = verdicts
-        .split_once("\n[[guard]]")
-        .map_or("", |(_, gaps)| gaps);
-    for item in ["crate::decode_alu", "crate::fetch"] {
-        assert!(
-            !gaps.contains(&format!("rule = \"{item}\"\n")),
-            "{item}: {verdicts}"
-        );
-    }
+
+    let text = project.kink("coverage", &["--output", "text"]);
+    assert_status(&text, 0);
+    let text = stdout(&text);
     assert!(
-        gaps.contains("rule = \"crate::scale\"\nnever = [\"refuted\"]"),
-        "{verdicts}"
+        text.contains("  requirement:crate::boundary_dispatch:halted:true (src/lib.rs:"),
+        "{text}"
     );
-    let cases = verdicts.split("\n[[guard]]").next().unwrap();
-    let other_case = cases
-        .split("[[case]]")
-        .find(|case| case.contains("id = \"other\""))
-        .unwrap();
-    assert!(!other_case.contains("decode_ld_r_r"), "{other_case}");
+}
+
+/// The ids of a coverage document's requirements.
+fn requirement_ids(document: &Value) -> Vec<String> {
+    document["families"]["requirements"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The requirement of a coverage document whose id is `id`.
+fn requirement_of<'d>(document: &'d Value, id: &str) -> &'d Value {
+    document["families"]["requirements"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == id)
+        .unwrap_or_else(|| panic!("no requirement {id}"))
 }
 
 /// Which conjuncts of a condition are the author's is a fact of the definition, not of the cases
 /// that reached it: over a corpus that never fetches, peeks or decodes, every guard is grouped,
 /// the sentences with no authored conjunct (`fetch`'s lookup guard, the `decode_alu` and
-/// `decode_xor` templates) have `held_by` and `refuted_by` `null` and are no sentences of the
-/// summary's `guards`, and those with one (`peek`'s `v > 3` behind its lookup guard,
-/// `decode_ld_r_r`'s `r != 6` behind its template) were never held and never refuted.
+/// `decode_xor` templates) have `held_by` and `refuted_by` `null` and state no requirement, and
+/// those with one (`peek`'s `v > 3` behind its lookup guard, `decode_ld_r_r`'s `r != 6` behind
+/// its template) were never held and never refuted: the nodes come from the definition's
+/// skeleton, so their requirements are all open.
 #[test]
-fn results_group_the_guards_no_case_entered() {
+#[expect(
+    clippy::too_many_lines,
+    reason = "One corpus: every guard's grouping and the requirements it states."
+)]
+fn coverage_groups_the_guards_no_case_entered() {
     let project = guarded();
-    let output = project.kink("results", &["--corpus", "corpora/unentered"]);
+    let output = project.kink("coverage", &["--corpus", "corpora/unentered"]);
     assert_status(&output, 0);
     let document = json(&output);
     assert!(
@@ -633,15 +719,62 @@ fn results_group_the_guards_no_case_entered() {
         "crate::decode_ld_r_r",
     ] {
         let guard = guard_of(&document, item);
-        assert_eq!(guard["operands"], json!([]), "{item}: {guard:#}");
+        // The nodes come from the definition's skeleton of the condition, so a guard no case
+        // entered shows them, with no outcome.
+        assert!(
+            !guard["operands"].as_array().unwrap().is_empty(),
+            "{item}: {guard:#}"
+        );
         assert_eq!(
             strings(&guard["never"]),
             ["held", "refuted"],
             "{item}: {guard:#}"
         );
-        assert_eq!(guard["krs"]["authored"], json!([]), "{item}: {guard:#}");
-        assert_eq!(guard["krs"]["generated"], json!([]), "{item}: {guard:#}");
+        for operand in guard["krs"]["authored"].as_array().unwrap() {
+            assert_eq!(operand["true_by"], json!([]), "{item}: {guard:#}");
+            assert_eq!(operand["false_by"], json!([]), "{item}: {guard:#}");
+        }
     }
+    for item in ["crate::fetch", "crate::decode_alu", "crate::decode_xor"] {
+        let guard = guard_of(&document, item);
+        assert_eq!(guard["krs"]["authored"], json!([]), "{item}: {guard:#}");
+    }
+    let authored_texts = |item: &str| {
+        guard_of(&document, item)["krs"]["authored"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|operand| operand["text"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(authored_texts("crate::peek"), ["v > 3"]);
+    assert_eq!(authored_texts("crate::decode_ld_r_r"), ["r != 6"]);
+    // So the requirements are a function of the definition: every one of an unentered guard is
+    // open, and a condition with no authored conjunct states none.
+    let ids = requirement_ids(&document);
+    for id in [
+        "requirement:crate::peek:held",
+        "requirement:crate::peek:refuted",
+        "requirement:crate::decode_ld_r_r:held",
+        "requirement:crate::decode_ld_r_r:refuted",
+    ] {
+        assert!(ids.contains(&id.to_owned()), "{id}: {ids:#?}");
+        assert_eq!(requirement_of(&document, id)["status"], "open");
+    }
+    // `peek`'s one authored conjunct `v > 3` is its condition: two obligations, not four.
+    assert_eq!(
+        ids.iter()
+            .filter(|id| id.starts_with("requirement:crate::peek:"))
+            .collect::<Vec<_>>(),
+        [
+            "requirement:crate::peek:held",
+            "requirement:crate::peek:refuted"
+        ]
+    );
+    assert!(
+        !ids.iter()
+            .any(|id| id.starts_with("requirement:crate::fetch:"))
+    );
     for item in ["crate::fetch", "crate::decode_alu", "crate::decode_xor"] {
         let guard = guard_of(&document, item);
         assert_eq!(guard["krs"]["held_by"], Value::Null, "{item}: {guard:#}");
@@ -679,8 +812,8 @@ fn results_group_the_guards_no_case_entered() {
         assert_eq!(row["krs"]["status"], "unmatched", "{item}: {row:#}");
         assert_eq!(row["krs"]["matched_by"], json!([]), "{item}: {row:#}");
     }
-    // Every guard is grouped, and the summary counts those with an authored conjunct.
-    let guards = document["rules"]
+    // Every guard is grouped.
+    let guards = document["families"]["rules"]["items"]
         .as_array()
         .unwrap()
         .iter()
@@ -693,18 +826,8 @@ fn results_group_the_guards_no_case_entered() {
     let reported = guards
         .iter()
         .filter(|guard| !guard["krs"]["held_by"].is_null())
-        .collect::<Vec<_>>();
-    let never = |outcome: &str| {
-        reported
-            .iter()
-            .filter(|guard| strings(&guard["krs"]["never"]).contains(&outcome))
-            .count()
-    };
-    let summary = &document["summary"]["guards"];
-    assert_eq!(summary["sentences"], reported.len(), "{summary:#}");
-    assert_eq!(summary["never_held"], never("held"), "{summary:#}");
-    assert_eq!(summary["never_refuted"], never("refuted"), "{summary:#}");
-    assert_eq!(reported.len() + 3, guards.len(), "{summary:#}");
+        .count();
+    assert_eq!(reported + 3, guards.len(), "{guards:#?}");
 }
 
 /// A definition that never ends on its own: `tick(n)` steps to `tick(n + 1)` forever, so a run's
@@ -1080,12 +1203,17 @@ fn line_of(source: &str, text: &str) -> u64 {
 
 /// The rule of a results document whose `krs.item` is `item`.
 fn rule<'d>(document: &'d Value, item: &str) -> &'d Value {
-    document["rules"]
+    document["families"]["rules"]["items"]
         .as_array()
         .unwrap()
         .iter()
         .find(|rule| rule["krs"]["item"] == item)
-        .unwrap_or_else(|| panic!("no rule names {item}: {:#}", document["rules"]))
+        .unwrap_or_else(|| {
+            panic!(
+                "no rule names {item}: {:#}",
+                document["families"]["rules"]["items"]
+            )
+        })
 }
 
 fn strings(value: &Value) -> Vec<&str> {
@@ -1097,15 +1225,15 @@ fn strings(value: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// `results` reports each case's class and the rules it fires, each rule named by its Rust item
+/// `coverage` reports each case's class and the rules it fires, each rule named by its Rust item
 /// and position: the story's own coverage table.
 #[test]
-fn results_name_each_rule_by_its_rust_item_and_position() {
+fn coverage_names_each_rule_by_its_rust_item_and_position() {
     let project = story();
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
-    assert_eq!(document["schema"], "kink-flow-results");
+    assert_eq!(document["schema"], "kink-flow-coverage");
     assert!(
         matches!(
             document["definition"]["status"].as_str(),
@@ -1146,38 +1274,36 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     }
     assert_eq!(
         document["krs"],
-        serde_json::json!({"version": 4}),
-        "every rule is named, by version 4 of the annotation"
+        serde_json::json!({"version": 5}),
+        "every rule is named, by version 5 of the annotation"
     );
+    // The story's two equations fire and have no condition: nothing is open.
+    assert_eq!(
+        rule(&document, "crate::plus_zero")["id"],
+        "rule:crate::plus_zero"
+    );
+    assert_eq!(
+        document["summary"]["per_family"],
+        json!({"rules": {"obligations": 2, "covered": 2, "argued": 0, "open": 0},
+               "requirements": {"obligations": 0, "covered": 0, "argued": 0, "open": 0}})
+    );
+    assert_eq!(document["targets"], json!([]));
 
-    // The verdicts rendering names the rules by the same items, as the docs-site's recorded
-    // `story-kink-results` does.
-    let output = project.kink("results", &["--output", "verdicts"]);
+    // The verdicts rendering, as the docs-site's recorded `story-kink-coverage`: nothing open.
+    let output = project.kink("coverage", &["--output", "verdicts"]);
     assert_status(&output, 0);
     let verdicts = stdout(&output);
     // Its header says which annotation version spells the names.
     assert!(
-        verdicts.lines().any(|line| line == "krs_annotation = 4"),
+        verdicts.lines().any(|line| line == "krs_annotation = 5"),
         "{verdicts}"
     );
-    // The story's rules are equations, each fired where it applies, and each case matches
-    // exactly the rules it fires.
-    for predicate in ["fired", "matched"] {
-        let lines = verdicts
-            .lines()
-            .filter_map(|line| line.strip_prefix(predicate)?.strip_prefix(" = "))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            lines,
-            [
-                "[\"crate::plus_zero\"]",
-                "[\"crate::plus_zero\"]",
-                "[\"crate::plus_succ\", \"crate::plus_zero\"]",
-                "[\"crate::plus_succ\", \"crate::plus_zero\"]",
-            ],
-            "{predicate}: {verdicts}"
-        );
-    }
+    assert!(
+        verdicts.ends_with(
+            "\n[rules]\nopen = []\n\n[requirements]\nopen = []\n\n[flips]\nrun = false\n"
+        ),
+        "{verdicts}"
+    );
 
     coverage_and_stops_name_rules_as_the_document_does(&project, &document);
 }
@@ -1195,7 +1321,7 @@ fn coverage_and_stops_name_rules_as_the_document_does(project: &Project, documen
             .iter()
             .find(|rule| rule["label"] == label)
             .unwrap_or_else(|| panic!("{label} is not covered: {run:#}"));
-        let named = document["rules"]
+        let named = document["families"]["rules"]["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -2001,6 +2127,14 @@ fn a_stale_definition_is_written_or_refused() {
         lines[2].starts_with("`krs kink check --help` lists its options"),
         "{lines:#?}"
     );
+    // Tier 1 is the only tier this build computes: `--tier 2` is a usage error that says why.
+    let tier_two = project.kink("coverage", &["--tier", "2"]);
+    assert_status(&tier_two, 2);
+    assert!(
+        stderr(&tier_two).starts_with("krs kink: --tier 2: tier 2's condition flips need"),
+        "{}",
+        stderr(&tier_two)
+    );
 
     let emit = project.kink("emit", &[]);
     assert_status(&emit, 0);
@@ -2019,7 +2153,7 @@ fn a_stale_definition_is_written_or_refused() {
     assert_eq!(json(&check)["definition"]["status"], "stale");
     assert_eq!(project.read("kink/definition.k"), emitted);
 
-    let locked = project.kink("results", &["--locked"]);
+    let locked = project.kink("coverage", &["--tier", "1", "--locked"]);
     assert_status(&locked, 2);
     let document = json(&locked);
     assert_eq!(document["spec"]["stage"], "definition", "{document:#}");
@@ -2036,13 +2170,13 @@ fn a_stale_definition_is_written_or_refused() {
     );
     assert_eq!(project.read("kink/definition.k"), emitted);
 
-    let results = project.kink("results", &[]);
+    let results = project.kink("coverage", &[]);
     assert_status(&results, 0);
     let document = json(&results);
     assert_eq!(document["definition"]["status"], "written", "{document:#}");
     assert_ne!(project.read("kink/definition.k"), emitted);
     assert_status(&project.kink("emit", &["--check"]), 0);
-    let again = project.kink("results", &["--locked"]);
+    let again = project.kink("coverage", &["--locked"]);
     assert_status(&again, 0);
     assert_eq!(json(&again)["definition"]["status"], "unchanged");
 }
@@ -2070,7 +2204,7 @@ fn the_front_end_refuses_another_front_ends_corpus() {
         "corpora/other/FLOW.toml",
         "[spec]\nkrs = { definition = \"other\" }\n",
     );
-    let output = project.kink("results", &["--corpus", "corpora/other"]);
+    let output = project.kink("coverage", &["--corpus", "corpora/other"]);
     assert_status(&output, 2);
     let document = json(&output);
     let detail = document["spec"]["detail"].as_str().unwrap();
@@ -2082,10 +2216,10 @@ fn the_front_end_refuses_another_front_ends_corpus() {
     );
 
     // A package krs refuses while selecting it is answered by krs's diagnostics and the verb's
-    // document, refused at stage krs-build: with the corpus's layout (results), and without it
+    // document, refused at stage krs-build: with the corpus's layout (coverage), and without it
     // (query, whose PATTERNS.toml the corpus lacks).
     for (verb, schema) in [
-        ("results", "kink-flow-results"),
+        ("coverage", "kink-flow-coverage"),
         ("query", "kink-flow-query"),
     ] {
         let output = {
@@ -2241,7 +2375,7 @@ entry = { Load = { addr = 2, len = 3 } }
         assert_eq!(program["class"], "comparable", "{document:#}");
         program
     };
-    let first_output = project.kink("results", &[]);
+    let first_output = project.kink("coverage", &[]);
     // The result cache is on in both profiles (kink-flow `result_store`).
     let cache_on = json(&first_output)["result_cache"]["enabled"] == true;
     assert!(cache_on, "{}", json(&first_output));
@@ -2251,7 +2385,7 @@ entry = { Load = { addr = 2, len = 3 } }
         "kink/cases/data/memory.toml",
         "\"257\" = 195\n\"256\" = 0\n",
     );
-    let reformatted = program(&project.kink("results", &[]));
+    let reformatted = program(&project.kink("coverage", &[]));
     assert_eq!(reformatted["digest"], first["digest"]);
     assert_eq!(reformatted["cached"], cache_on, "{reformatted:#}");
     // Another map.
@@ -2259,7 +2393,7 @@ entry = { Load = { addr = 2, len = 3 } }
         "kink/cases/data/memory.toml",
         "\"0x0100\" = 1\n\"0x0101\" = 195\n",
     );
-    let changed = program(&project.kink("results", &[]));
+    let changed = program(&project.kink("coverage", &[]));
     assert_ne!(changed["digest"], first["digest"]);
     assert_eq!(changed["cached"], false, "{changed:#}");
 }
@@ -2383,7 +2517,7 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
     let project = checked();
     // `check` reads the stored results, which the other tests of this shared project write as
     // they run: the corpus's results come first, so its warnings do not depend on their order.
-    assert_status(&project.kink("results", &[]), 0);
+    assert_status(&project.kink("coverage", &[]), 0);
     // Each test of this shared project reads a list of its own.
     project.write("kink/check-mutations.toml", checked_mutations());
     let output = project.kink("check", &["--mutations", "kink/check-mutations.toml"]);
@@ -2820,16 +2954,16 @@ fn a_refused_mutants_rust_source_is_refused_by_krs_check() {
     }
 }
 
-/// A claim helper is no program's coverage: `results` gives the equation of `Expected`, which
+/// A claim helper is no program's coverage: `coverage` gives the equation of `Expected`, which
 /// only the claim applies, the status `claim-helper` (summary `claim_helper`), not `uncovered`,
 /// so the uncovered rules are the ones a case can reach.
 #[test]
-fn results_give_a_claim_helper_its_own_status() {
+fn coverage_gives_a_claim_helper_its_own_status() {
     let project = checked();
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
-    let rules = document["rules"].as_array().unwrap();
+    let rules = document["families"]["rules"]["items"].as_array().unwrap();
     let helpers = rules
         .iter()
         .filter(|rule| rule["krs"]["claim_helper"] == true)
@@ -2855,13 +2989,10 @@ fn results_give_a_claim_helper_its_own_status() {
         }
     }
     let count = |status: &str| rules.iter().filter(|rule| rule["status"] == status).count();
-    assert_eq!(
-        document["summary"]["claim_helper"], 1,
-        "{:#}",
-        document["summary"]
-    );
-    assert_eq!(document["summary"]["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 11);
+    let counts = &document["families"]["rules"]["counts"];
+    assert_eq!(counts["claim_helper"], 1, "{counts:#}");
+    assert_eq!(counts["unmatched"], count("unmatched"));
+    assert_eq!(document["version"], 1);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -2926,7 +3057,7 @@ impl Machine {
             ("kink/cases/sib0.exp".to_owned(), b"sib(0)\n".to_vec()),
         ],
     );
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 3);
     let document = json(&output);
     let program = &document["programs"][0];
@@ -2950,7 +3081,7 @@ impl Machine {
         record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert_eq!(document["krs"], serde_json::json!({"version": 4}));
+    assert_eq!(document["krs"], serde_json::json!({"version": 5}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
@@ -2993,7 +3124,7 @@ programs = ["roms/b.bin"]
             ("kink/roms/u.bin".to_owned(), b"ab".to_vec()),
         ],
     );
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 2);
     let document = json(&output);
     let programs = document["programs"].as_array().unwrap();
@@ -3080,7 +3211,7 @@ fn a_program_file_is_stray_without_a_main_parameter() {
             ("kink/cases/x.txt".to_owned(), b"go\n".to_vec()),
         ],
     );
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 2);
     let document = json(&output);
     assert_eq!(document["programs"][0]["class"], "refused", "{document:#}");
@@ -3109,7 +3240,7 @@ fn a_program_file_binds_a_text_main_parameter_not_named_pgm() {
             ("kink/cases/go.txt".to_owned(), b"go\n".to_vec()),
         ],
     );
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
     assert_eq!(document["programs"][0]["id"], "go", "{document:#}");
@@ -3745,7 +3876,7 @@ fn an_edit_of_a_rule_for_a_nested_instance_is_judged_beside_the_keys_krs_adds() 
 #[test]
 fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
     let project = ticker();
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
     let stop = &document["stop"];
@@ -3815,7 +3946,7 @@ fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
     assert!(warnings.contains(&"stop-hides-edit"), "{check:#}");
 
     // An item that wrote no rule selects nothing: the corpus is refused before kink-flow runs.
-    let output = project.kink("results", &["--corpus", "corpora/unknown"]);
+    let output = project.kink("coverage", &["--corpus", "corpora/unknown"]);
     assert_status(&output, 2);
     let refused = json(&output);
     assert_eq!(refused["spec"]["stage"], "stop", "{refused:#}");
@@ -3985,7 +4116,7 @@ fn stopwatch() -> Arc<Project> {
 #[test]
 fn a_stop_condition_names_where_the_runs_of_a_corpus_end() {
     let project = stopwatch();
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
     let stop = &document["stop"];
@@ -4028,7 +4159,7 @@ fn a_stop_condition_names_where_the_runs_of_a_corpus_end() {
         "{difference:#}"
     );
 
-    let output = project.kink("results", &["--corpus", "corpora/unknown"]);
+    let output = project.kink("coverage", &["--corpus", "corpora/unknown"]);
     assert_status(&output, 2);
     let refused = json(&output);
     assert_eq!(refused["spec"]["stage"], "stop", "{refused:#}");
@@ -4044,7 +4175,7 @@ fn a_stop_condition_names_where_the_runs_of_a_corpus_end() {
     // that an edit of only its right-hand side changes no end; from 1 the run takes the step at
     // the arrivals where the condition fails, and it does not.
     for (corpus, hidden) in [("corpora/hidden", true), ("corpora/taken", false)] {
-        assert_status(&project.kink("results", &["--corpus", corpus]), 0);
+        assert_status(&project.kink("coverage", &["--corpus", corpus]), 0);
         let output = project.kink(
             "check",
             &[
@@ -4080,7 +4211,7 @@ fn a_stop_condition_names_where_the_runs_of_a_corpus_end() {
 fn a_stop_condition_is_evaluated_in_its_named_observer() {
     let project = stopwatch();
     let observer = format!("{STOPWATCH_OBSERVER_PACKAGE}:main");
-    let output = project.kink("results", &["--corpus", "corpora/observed"]);
+    let output = project.kink("coverage", &["--corpus", "corpora/observed"]);
     assert_status(&output, 0);
     let document = json(&output);
     let when = &document["stop"]["when"];
@@ -4102,7 +4233,7 @@ fn a_stop_condition_is_evaluated_in_its_named_observer() {
     );
     // The observer's digest, not the definition's, which a condition the definition itself
     // evaluates names.
-    let baseline = json(&project.kink("results", &[]));
+    let baseline = json(&project.kink("coverage", &[]));
     let digest = &when["observer"]["definition_ir"];
     assert!(digest.is_string(), "{when:#}");
     assert_ne!(
@@ -4140,7 +4271,7 @@ fn a_stop_condition_is_evaluated_in_its_named_observer() {
 fn a_baseline_run_whose_condition_has_no_value_is_not_judged_and_not_cached() {
     let project = stopwatch();
     for _ in 0..2 {
-        let output = project.kink("results", &["--corpus", "corpora/partial"]);
+        let output = project.kink("coverage", &["--corpus", "corpora/partial"]);
         let document = json(&output);
         let program = &document["programs"][0];
         assert_eq!(program["class"], "unknown", "{program:#}");
@@ -4164,7 +4295,7 @@ fn a_baseline_run_whose_condition_has_no_value_is_not_judged_and_not_cached() {
 fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     let project = console();
     let dependency = ["--dependency", "lang-core:main"];
-    let output = project.kink("results", &dependency);
+    let output = project.kink("coverage", &dependency);
     assert_status(&output, 0);
     let document = json(&output);
     let stop = &document["stop"];
@@ -4210,7 +4341,7 @@ fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     // A rule a document names is named as the stop names it: a dependency's item by its
     // library's crate name, the console's by `crate::`. `krs run --coverage` names the rules the run took by the
     // same strings.
-    let items = document["rules"]
+    let items = document["families"]["rules"]["items"]
         .as_array()
         .unwrap()
         .iter()
@@ -4385,7 +4516,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
         "EXPECTATIONS",
         &expectation_files(),
     );
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 1);
     let results = json(&output);
     let expected = [
@@ -4454,7 +4585,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
 /// inconclusive and ends that differ on them unmet, and a halt no end of the truncated system has
 /// differs at the class.
 fn expectations_under_a_stop(project: &Project) {
-    let output = project.kink("results", &["--corpus", "corpora/stopped"]);
+    let output = project.kink("coverage", &["--corpus", "corpora/stopped"]);
     assert_status(&output, 1);
     let results = json(&output);
     assert_eq!(
@@ -4706,7 +4837,7 @@ fn run_case_verdict(project: &Project, file: &str, case: &str) -> (Option<&'stat
 #[test]
 fn a_case_expectation_is_checked_through_its_views_as_krs_run_checks_it() {
     let project = project_of("krs-cli-kink-views", "VIEWS", &viewed_files());
-    let output = project.kink("results", &[]);
+    let output = project.kink("coverage", &[]);
     assert_status(&output, 1);
     let results = json(&output);
     let expected = [
@@ -5249,7 +5380,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

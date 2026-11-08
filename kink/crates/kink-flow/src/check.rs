@@ -311,10 +311,10 @@ impl CorpusCoverage {
                 "no unmatched-rule or unapplied-rule warning is given: it needs a current result \
                  record of every program and complete coverage of every comparable program. A \
                  program without a record has not run under this specification (run `{}`), or its result is never \
-                 cached (a timeout, an error, or an unknown the host caused; its row in `results` \
+                 cached (a timeout, an error, or an unknown the host caused; its row in `coverage` \
                  says `not_cached`): bound baselines by work with [budget] baseline_max_work, so \
                  that a run that does not finish is a cached unknown, and fix an error",
-                spelling.command(Verb::Results)
+                spelling.command(Verb::Coverage)
             ))
         };
         json!({
@@ -360,7 +360,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
 
 /// Why the check document has no baseline to check a case's expectation against.
 const NO_RECORD: &str = "the case has no current result record to check the expectation \
-     against: it has not run under this specification and build (run `results`), or its result is \
+     against: it has not run under this specification and build (run `coverage`), or its result is \
      never cached (a timeout, an error, or an unknown the host caused)";
 
 /// Each admission of `programs` (one per manifest program, in order) whose program has `expect`,

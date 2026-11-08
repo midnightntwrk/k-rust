@@ -614,7 +614,7 @@ impl Search<'_, '_> {
                 "the campaign runner refused the call over {:?}: {failure}; the cached \
                          results no longer describe the baseline runs: run `{} --verify`",
                 self.ids(order),
-                self.spelling.verb(Verb::Results)
+                self.spelling.verb(Verb::Coverage)
             ),
         })?;
         // The drift check (README 5.4): every program's baseline row of this call must have
@@ -661,7 +661,7 @@ impl Search<'_, '_> {
                 detail: format!(
                     "{}; run `{} --verify`",
                     details.join("; "),
-                    self.spelling.verb(Verb::Results)
+                    self.spelling.verb(Verb::Coverage)
                 ),
             });
         }
@@ -2783,8 +2783,8 @@ pub fn run_front(
     // targets is kink-flow's resolution alone: a mutation a front end refused gets the row of its
     // refusal and is neither memoised nor run, but it still targets the rules its edits resolve
     // to, since a rule with a refused mutation has one aimed at it, which the refusal row asks
-    // the user to repair. So the list is the same for a full run, under `--only` and in `results
-    // --mutations`, whichever mutations a front end judged.
+    // the user to repair. So the list is the same for a full run and under `--only`, whichever
+    // mutations a front end judged.
     //
     // Re-pin L1-4: a mutation whose resolution memo record holds its facts under exactly the
     // current key, and that tier 1 decides with no call, is not resolved: its row is built from

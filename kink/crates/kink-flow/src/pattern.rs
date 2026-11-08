@@ -598,7 +598,7 @@ pub struct Facts<'a> {
     pub no_data: Option<String>,
 }
 
-/// [`Facts::no_data`] of `data`: the gate `run` and `results` read for an end
+/// [`Facts::no_data`] of `data`: the gate `run` and `coverage` read for an end
 /// (kink-native `data_ends`), so a `no` rests on the same facts a kill does (final review K3).
 pub fn no_data(data: &kink_native::data::DataFacts) -> Option<String> {
     if data.has_data() {

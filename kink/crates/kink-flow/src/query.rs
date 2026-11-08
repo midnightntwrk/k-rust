@@ -1,7 +1,7 @@
 //! `kink-flow query FLOW.toml PATTERNS.toml` (flow F-18): the per-input pattern checks of
 //! [`crate::pattern`], with a cache of their definitive answers.
 //!
-//! The command admits the specification, brings the result cache up to date (`results` without
+//! The command admits the specification, brings the result cache up to date (`coverage` without
 //! `--verify`, or with it under `query --verify`), lowers every selected pattern once, and asks
 //! each pattern of each program it names (its claimed programs, or the whole corpus): one
 //! `search_pattern_kore` per (pattern, program), unless a cached answer stands.

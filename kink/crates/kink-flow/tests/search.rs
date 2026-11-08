@@ -10,9 +10,10 @@ mod flow_support;
 
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_UNASKED, EXIT_YES, results},
+    cli::{EXIT_UNASKED, EXIT_YES, coverage},
+    coverage::CoverageOptions,
     outcomes::OUTCOMES_DIRECTORY,
-    results::{CACHE_DIRECTORY, ResultsOptions},
+    results::CACHE_DIRECTORY,
     search::{REPORT_FILE, RunOptions, run},
     verdicts::lock_text,
 };
@@ -1326,7 +1327,7 @@ note = "right-hand side"
         // baseline run no longer has its cached run digest.
         let manifest = fixture("calc", "mismatch-cold").join("FLOW.toml");
         let mutations = manifest.with_file_name("MUTATIONS.toml");
-        let (filled, status) = results(&manifest, &ResultsOptions::default());
+        let (filled, status) = coverage(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_YES);
         let filled = json!({"spec": filled["spec"], "programs": filled["programs"]});
         corrupt_run_digest(&manifest, &filled, "add");

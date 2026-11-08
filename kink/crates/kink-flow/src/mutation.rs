@@ -1115,6 +1115,9 @@ pub struct RuleText {
     /// The rule's text in its file's K view, exactly as a mutation's `before` slices it; `None`
     /// when the file's view or the rule's span is not usable.
     pub text: Option<String>,
+    /// The byte offset of `text` in its file's K view, which the spans of the rule's terms
+    /// index; `None` with `text`.
+    pub start: Option<usize>,
 }
 
 /// Every authored rule of the specification `loaded`, in sentence order, with its K text
@@ -1143,12 +1146,13 @@ pub fn rule_texts(manifest: &FlowManifest, loaded: &LoadedSource) -> Vec<RuleTex
                 .map(str::to_owned);
             let location = attributes.location();
             let label = attributes.string(AttributeKey::Label).map(str::to_owned);
-            let text = file.as_deref().and_then(|name| {
+            let sliced = file.as_deref().and_then(|name| {
                 let view = views.view(name).ok()?;
                 indexes_view(sentence, view, name).ok()?;
                 let span = view_span(sentence, &view.text, name).ok()?;
-                Some(view.text[span].to_owned())
+                Some((view.text[span.clone()].to_owned(), span.start))
             });
+            let (text, start) = sliced.unzip();
             RuleText {
                 at,
                 file,
@@ -1156,6 +1160,7 @@ pub fn rule_texts(manifest: &FlowManifest, loaded: &LoadedSource) -> Vec<RuleTex
                 start_line: location.map(|l| l.start_line),
                 end_line: location.map(|l| l.end_line),
                 text,
+                start,
             }
         })
         .collect()

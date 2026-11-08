@@ -8,8 +8,9 @@
 use kink_flow::{
     FlowManifest,
     admit::admit,
-    cli::{EXIT_UNANSWERED, EXIT_YES, results},
-    results::{CACHE_DIRECTORY, ResultsOptions},
+    cli::{EXIT_UNANSWERED, EXIT_YES, coverage},
+    coverage::CoverageOptions,
+    results::CACHE_DIRECTORY,
 };
 use serde_json::Value;
 use std::{
@@ -34,16 +35,16 @@ fn fixture(manifest: &str, test: &str) -> PathBuf {
     to.join(manifest)
 }
 
-/// `kink-flow results` of `manifest`, its status checked: 3 when a program has no comparable
+/// `kink-flow coverage` of `manifest`, its status checked: 3 when a program has no comparable
 /// end (`unknown` or `timeout`), else 0.
 #[track_caller]
 fn classes(manifest: &Path) -> Value {
-    let (document, status) = results(
+    let (document, status) = coverage(
         manifest,
-        &ResultsOptions {
+        &CoverageOptions {
             verify: false,
             cache: None,
-            mutations: None,
+            ..CoverageOptions::default()
         },
     );
     let unanswered = document["programs"]

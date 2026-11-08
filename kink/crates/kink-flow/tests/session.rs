@@ -7,9 +7,10 @@ mod flow_support;
 
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_YES, results},
+    cli::{EXIT_YES, coverage},
+    coverage::CoverageOptions,
     outcomes::OUTCOMES_DIRECTORY,
-    results::{CACHE_DIRECTORY, ResultsOptions},
+    results::CACHE_DIRECTORY,
     search::{RunMode, RunOptions, run_with},
 };
 use serde_json::{Value, json};
@@ -73,12 +74,11 @@ fn run(manifest: &Path, mode: RunMode) -> (Value, bool) {
 }
 
 fn results_with(manifest: &Path, verify: bool) -> Value {
-    let (document, code) = results(
+    let (document, code) = coverage(
         manifest,
-        &ResultsOptions {
+        &CoverageOptions {
             verify,
-            cache: None,
-            mutations: None,
+            ..CoverageOptions::default()
         },
     );
     assert_eq!(code, EXIT_YES, "{document:#}");

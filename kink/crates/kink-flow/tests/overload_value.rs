@@ -29,8 +29,8 @@ mod flow_support;
 use flow_support::copy_dir;
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_YES, results},
-    results::ResultsOptions,
+    cli::{EXIT_YES, coverage},
+    coverage::CoverageOptions,
     search::{RunOptions, run},
 };
 use serde_json::Value;
@@ -50,15 +50,15 @@ fn fixture(test: &str) -> PathBuf {
     to
 }
 
-/// `kink-flow results` of `manifest`, its status checked.
+/// `kink-flow coverage` of `manifest`, its status checked.
 #[track_caller]
 fn classes(manifest: &Path) -> Value {
-    let (document, status) = results(
+    let (document, status) = coverage(
         manifest,
-        &ResultsOptions {
+        &CoverageOptions {
             verify: false,
             cache: None,
-            mutations: None,
+            ..CoverageOptions::default()
         },
     );
     assert_eq!(status, EXIT_YES, "{document:#}");

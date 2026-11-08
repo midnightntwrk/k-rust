@@ -8,8 +8,8 @@
 
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_UNANSWERED, results},
-    results::ResultsOptions,
+    cli::{EXIT_UNANSWERED, coverage},
+    coverage::CoverageOptions,
     search::{RunOptions, run},
 };
 use serde_json::Value;
@@ -140,12 +140,12 @@ mod kink_tier {
             ),
         )
         .unwrap();
-        let (document, exit) = results(
+        let (document, exit) = coverage(
             &dir.join("FLOW.toml"),
-            &ResultsOptions {
+            &CoverageOptions {
                 verify: false,
                 cache: None,
-                mutations: None,
+                ..CoverageOptions::default()
             },
         );
         assert_eq!(exit, EXIT_UNANSWERED, "{document:#}");
@@ -199,12 +199,12 @@ mod kink_tier {
              syntax_module = \"REFUSALS-SYNTAX\"\n\n[[program]]\nid = \"runh-1\"\ntext = \"runh(1)\"\n",
         )
         .unwrap();
-        let (document, exit) = results(
+        let (document, exit) = coverage(
             &dir.join("FLOW.toml"),
-            &ResultsOptions {
+            &CoverageOptions {
                 verify: false,
                 cache: None,
-                mutations: None,
+                ..CoverageOptions::default()
             },
         );
         assert_eq!(exit, EXIT_UNANSWERED, "{document:#}");
@@ -228,12 +228,12 @@ mod kink_tier {
     fn records_are_reported_as_specification_diagnostics() {
         let dir = scratch("records");
         let manifest_path = dir.join("FLOW.toml");
-        let (document, exit) = results(
+        let (document, exit) = coverage(
             &manifest_path,
-            &ResultsOptions {
+            &CoverageOptions {
                 verify: false,
                 cache: None,
-                mutations: None,
+                ..CoverageOptions::default()
             },
         );
         assert_eq!(exit, EXIT_UNANSWERED, "{document:#}");

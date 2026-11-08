@@ -685,16 +685,16 @@ fn run_flow(
     finish(outcome, &document, status_code, output)
 }
 
-/// `annotator`, naming the guard nodes of the rows by KRS construct where `command` is `results`,
-/// the one command whose document has guards ([`guards`]), reading authored files from
-/// `sources`.
+/// `annotator`, naming the guard nodes of the rows by KRS construct where `command` is
+/// `coverage`, the one command whose document has guards ([`guards`]), reading authored files
+/// from `sources`.
 fn naming_guards(
     annotator: annotate::Annotator,
     command: &FlowCommand,
     emitted: &EmittedDefinition,
     sources: &DiagnosticSources,
 ) -> annotate::Annotator {
-    if !matches!(command, FlowCommand::Results { .. }) {
+    if !matches!(command, FlowCommand::Coverage { .. }) {
         return annotator;
     }
     let read = sources.clone();
@@ -769,7 +769,7 @@ fn judged_checks<'a>(
 fn command_cache(command: &FlowCommand) -> Option<&Path> {
     match command {
         FlowCommand::Check(options) => options.cache.as_deref(),
-        FlowCommand::Results { options, .. } => options.cache.as_deref(),
+        FlowCommand::Coverage { options, .. } => options.cache.as_deref(),
         FlowCommand::Run { options, .. } => options.cache.as_deref(),
         FlowCommand::Report { options, .. } => options.cache.as_deref(),
         FlowCommand::Query { options, .. } => options.cache.as_deref(),
@@ -951,13 +951,13 @@ fn emit_command(
 
 /// The flag by which `krs kink <verb>` names a list that kink-flow's verb takes as an operand:
 /// `run --mutations`, `query --patterns`, `fuzz --templates`. kink-flow's own parser takes the
-/// other list flags (`check` and `results --mutations`, `fuzz --mutations` and `--patterns`).
+/// other list flags (`check --mutations`, `fuzz --mutations` and `--patterns`).
 const fn operand_flag(verb: Verb) -> Option<&'static str> {
     match verb {
         Verb::Run => Some("--mutations"),
         Verb::Query => Some("--patterns"),
         Verb::Fuzz => Some("--templates"),
-        Verb::Check | Verb::Results | Verb::Report => None,
+        Verb::Check | Verb::Coverage | Verb::Report => None,
     }
 }
 
@@ -1168,6 +1168,18 @@ fn finish(
     );
     match output {
         OutputFormat::Json => outcome.json(document, status),
+        OutputFormat::Text => match kink_flow::coverage::text(document) {
+            Ok(text) => {
+                outcome.stdout = text.into_bytes();
+                outcome.status = status;
+                outcome
+            }
+            Err(message) => {
+                outcome.notes.push(format!("krs kink: {message}"));
+                outcome.status = EXIT_UNASKED;
+                outcome
+            }
+        },
         OutputFormat::Verdicts => match kink_flow::verdicts(document) {
             Ok(text) => {
                 outcome.notes.extend(

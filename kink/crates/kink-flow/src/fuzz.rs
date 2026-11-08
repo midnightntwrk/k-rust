@@ -5,7 +5,7 @@
 //! (`TEMPLATES.toml`, [`TemplateList`]), and one job ([`FuzzJob`]). T3a builds the kill job: look
 //! for hole values that make the template kill one mutation of the flow's list, so that the
 //! program can join the corpus and kink's own `run` proves the kill. T5 adds the rule jobs (a
-//! program `results` would list in a rule's `matched_by`, `--matched`, or `fired_by`, `--fired`:
+//! program `coverage` would list in a rule's `matched_by`, `--matched`, or `fired_by`, `--fired`:
 //! its all-paths run must be comparable, since kink counts only comparable programs) and the pattern job (a program
 //! whose run reaches a configuration matching a pattern of `PATTERNS.toml`, as a `query` hit:
 //! matched at any state, with the facts a complete search could stop at refused). Both run on
@@ -92,7 +92,7 @@
 //! **Confirmation** (T4). Unless `--no-confirm` is given ([`FuzzOptions::confirm`]), kink's own
 //! code confirms the candidate on an overlay of the flow held in memory, with the fragment as its
 //! only program and a scratch cache removed on every path (`confirm`): `run` for a kill,
-//! `results` for a rule job, `query` for a pattern. When kink refuses the shrunk case and the first
+//! `coverage` for a rule job, `query` for a pattern. When kink refuses the shrunk case and the first
 //! is another program, the first is confirmed too; there is no seed retry. A candidate kink
 //! refuses is not offered (`stopped: unconfirmed`). Nothing under the flow's directory or the
 //! cache is written.
@@ -1626,7 +1626,7 @@ fn last_run(
                  program is a witness by default, not because its coverage reaches an edited \
                  rule: a changed pattern can match terms no baseline run tried, so the template \
                  is a witness whatever it reaches; prefer one whose program reaches the edited \
-                 rule, one that the `results` document lists in that rule's `matched_by`",
+                 rule, one that the `coverage` document lists in that rule's `matched_by`",
             ));
         }
     } else if template_id.is_none_or(|id| !witnesses.iter().any(|r| r == id)) {
@@ -1705,7 +1705,7 @@ impl FuzzJob<'_> {
 /// Whether the corpus program `id`'s current result record (its baseline run, read from the cache
 /// without running anything) is `comparable` and matched a sentence of `rules`, a run row's
 /// edited rules (`{module, index, ...}`): its coverage's `sentences`, k-rust's `matched`, the
-/// predicate the `results` document's `matched_by` lists, which counts comparable records only.
+/// predicate the `coverage` document's `matched_by` lists, which counts comparable records only.
 /// False without a record or rules, or for a record of another class.
 fn template_reaches(
     manifest: &FlowManifest,
@@ -1952,7 +1952,7 @@ pub fn fuzz_front(
     document["warnings"] = json!(warnings);
 
     // The job's own target, resolved against the baseline before any campaign; a rule job's
-    // authored rule is the one whose `results` entry its confirmation reads.
+    // authored rule is the one whose `coverage` entry its confirmation reads.
     let mut rule_at = None;
     let kind = match job {
         FuzzJob::Kill { .. } => None,
@@ -2643,7 +2643,7 @@ pub fn fuzz_front(
                      Try another template, seed or hole range",
                     match job {
                         FuzzJob::Kill { .. } => "run",
-                        FuzzJob::Rule { .. } => "results",
+                        FuzzJob::Rule { .. } => "coverage",
                         FuzzJob::Pattern { .. } => "query",
                     },
                     last["status"].as_str().unwrap_or("refused"),
@@ -2655,7 +2655,7 @@ pub fn fuzz_front(
                 return (document, true);
             };
             // A witness whose run of every path a bound or a clock cut may not terminate: as a
-            // corpus program it runs to the budget in every `run` and `results`, and is never
+            // corpus program it runs to the budget in every `run` and `coverage`, and is never
             // comparable (final review ux S8). Only a pattern witness can be one: a rule
             // job's witness's run is comparable, and a kill's two runs end.
             if let Some(comparable) = offered_case.and_then(|case| case.comparable.as_ref()) {
@@ -2680,7 +2680,7 @@ pub fn fuzz_front(
                             format!(
                                 "the witness program's run of every path did not end within \
                                  the bounds ({}): it reaches the target, but as a test it may \
-                                 not terminate, so every `run` and `results` would run it to \
+                                 not terminate, so every `run` and `coverage` would run it to \
                                  the budget and kink would never count it comparable; prefer \
                                  hole values or a template whose run ends",
                                 cuts.join(", ")
@@ -2712,7 +2712,7 @@ pub fn fuzz_front(
                     "{append}: kink's own {} confirmed it on the flow with this program alone",
                     match job {
                         FuzzJob::Kill { .. } => "run (killed, with the fragment as killer)",
-                        FuzzJob::Rule { .. } => "results (comparable, and listed for the rule)",
+                        FuzzJob::Rule { .. } => "coverage (comparable, and listed for the rule)",
                         FuzzJob::Pattern { .. } => "query (the claim is confirmed)",
                     }
                 )
@@ -2727,7 +2727,7 @@ pub fn fuzz_front(
                     FuzzJob::Rule { fired, .. } => format!(
                         "{append}, then run `{}`: the rule's {} lists the program once kink's \
                          own run of it is comparable",
-                        spelling.command(Verb::Results),
+                        spelling.command(Verb::Coverage),
                         if fired { "fired_by" } else { "matched_by" }
                     ),
                     FuzzJob::Pattern { id: pattern, .. } => format!(
@@ -2945,7 +2945,7 @@ pub fn fuzz_front(
 struct TargetRule {
     /// The targeted rewrite id.
     id: String,
-    /// The authored rule the id belongs to: `results` lists programs under authored rules only.
+    /// The authored rule the id belongs to: `coverage` lists programs under authored rules only.
     at: RuleText,
     /// Equation ids of the same sentence, which the target does not read.
     untargeted: Vec<String>,
@@ -2978,7 +2978,7 @@ fn is_rule_id(text: &str) -> bool {
 
 /// The ids of the baseline's rewrite axioms: a rewrite axiom is a `\rewrites` (k-rust
 /// classifies every other `UNIQUE_ID` axiom as an equation of some kind).
-fn rewrite_ids(validated: &ValidatedDefinition) -> BTreeSet<String> {
+pub(crate) fn rewrite_ids(validated: &ValidatedDefinition) -> BTreeSet<String> {
     let Ok(definition) = parse_definition(&validated.artifacts().definition_kore) else {
         return BTreeSet::new();
     };
@@ -3035,13 +3035,13 @@ fn resolve_rule(
             .find(|text| authors.ids_of(&text.at).any(|id| id == rule))
             .cloned()
         else {
-            // `results` lists programs under the specification's authored rules only, so no
+            // `coverage` lists programs under the specification's authored rules only, so no
             // program is ever listed for this id and no rule job on it can be confirmed.
             return Err(refused(
                 "no-authored-rule",
                 format!(
                     "the axiom {rule} was written by no authored rule of the specification (a \
-                     prelude rule, or a sentence that is not a rule), and kink's `results` lists \
+                     prelude rule, or a sentence that is not a rule), and kink's `coverage` lists \
                      programs under authored rules only"
                 ),
             ));
@@ -3311,7 +3311,7 @@ pub fn confirm_program(
 /// `[budget]`, and `program` (the candidate's fragment) as the only `[[program]]`, with a fresh
 /// scratch cache removed on every path, so nothing under the flow's directory or `--cache`
 /// changes. A kill is confirmed when `run` kills the mutation with the program as killer; a rule
-/// job when `results` gives the program class `comparable` and lists it in the `matched_by`
+/// job when `coverage` gives the program class `comparable` and lists it in the `matched_by`
 /// (`fired_by`) of the targeted rule, `rule_at`, the authored rule the job resolved (final
 /// review S1: a listing under any other rule confirms nothing about the target); a pattern when
 /// `query`, asked with `programs = [program]`, confirms the claim. The value is `{confirmed,
@@ -3336,6 +3336,10 @@ fn confirm(
     };
     let mut overlay = manifest.clone();
     overlay.programs = vec![program.clone()];
+    // A rule job reads the rule's `matched_by` and `fired_by`, which no `[coverage]` value
+    // changes; the section's deeper families are what `coverage` may refuse, so the overlay
+    // asks for none of them.
+    overlay.coverage = crate::manifest::CoverageSection::default();
     let mut names = manifest.spec.assume_joined.clone();
     names.extend(options.assume_joined.iter().cloned());
     names.sort();
@@ -3392,11 +3396,12 @@ fn confirm(
             })
         }
         FuzzJob::Rule { fired, .. } => {
-            let (document, _) = crate::results::results(
+            let (document, _) = crate::coverage::coverage(
                 &overlay,
-                &crate::results::ResultsOptions {
+                &crate::coverage::CoverageOptions {
                     cache,
-                    ..crate::results::ResultsOptions::default()
+                    tier: crate::coverage::Tier::One,
+                    ..crate::coverage::CoverageOptions::default()
                 },
             );
             let program = document["programs"]
@@ -3405,21 +3410,18 @@ fn confirm(
                 .cloned()
                 .unwrap_or(Value::Null);
             let key = if fired { "fired_by" } else { "matched_by" };
-            // The targeted rule's own entry: `results` lists each authored rule once, by its
+            // The targeted rule's own item: `coverage` lists each authored rule once, by its
             // `(module, index)`. Without the resolved rule nothing is listed for the target.
             let listed = rule_at.is_some_and(|at| {
-                document["rules"].as_array().is_some_and(|rules| {
-                    rules.iter().any(|rule| {
-                        rule["module"] == at.module.as_str()
-                            && rule["index"] == u64::from(at.index)
-                            && rule[key]
-                                .as_array()
-                                .is_some_and(|programs| programs.iter().any(|p| p == id))
-                    })
+                crate::coverage::rule_item(&document, at).is_some_and(|rule| {
+                    rule.get(key)
+                        .and_then(Value::as_array)
+                        .is_some_and(|programs| programs.iter().any(|p| p == id))
                 })
             });
             let comparable = program["class"] == "comparable";
-            // `results` lists no program that is not comparable under any rule, whatever its run
+            // `coverage` lists no program that is not comparable under any rule's `matched_by` or
+            // `fired_by`, whatever its run
             // matched or fired, so such a program's status says only that it is not counted.
             json!({
                 "confirmed": comparable && listed,

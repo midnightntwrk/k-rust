@@ -1,4 +1,5 @@
-//! Digests, the result cache and `kink-flow results` (flow F-03 deliverables 1-6).
+//! Digests, the result cache and `kink-flow coverage` (flow F-03 deliverables 1-6; the coverage
+//! families, their targets and renderings).
 
 use kink_campaign::{
     Campaign, CampaignOptions, CampaignReport, ScheduleMode, TestCase, run_campaign_multi,
@@ -8,15 +9,16 @@ use kink_corpus::{load_source, runner::all_normal};
 use kink_flow::{
     CaseInputs, FlowManifest, Program, SpecSection, admit,
     admit::{admit_spec, corpus_source},
-    cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, results},
+    cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, coverage},
+    coverage::{CoverageOptions, Tier},
     digest::{
         ExecutionDigest, definition_value, execution_digest, execution_payload, program_digest,
         spec_digest, spec_payload,
     },
     results::{
-        BaselineRunner, CACHE_DIRECTORY, RESULT_SCHEMA_VERSION, ResultClass, ResultsOptions,
-        TIMEOUT_BOUND_BY_WORK, TIMEOUT_NOT_CACHED, execution_budget, fixed_oracles,
-        record_final_configuration, run_digest,
+        BaselineRunner, CACHE_DIRECTORY, RESULT_SCHEMA_VERSION, ResultClass, TIMEOUT_BOUND_BY_WORK,
+        TIMEOUT_NOT_CACHED, execution_budget, fixed_oracles, record_final_configuration,
+        run_digest,
     },
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -37,7 +39,7 @@ fn flow(name: &str) -> PathBuf {
 /// A fresh directory for one test, under the target's temporary directory.
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("kink-flow-results-{}", std::process::id()))
+        .join(format!("kink-flow-coverage-{}", std::process::id()))
         .join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -80,14 +82,20 @@ fn append(path: &Path, text: &str) {
 
 #[track_caller]
 fn run(manifest: &Path, verify: bool) -> (Value, u8) {
-    results(
+    coverage(
         manifest,
-        &ResultsOptions {
+        &CoverageOptions {
             verify,
-            cache: None,
-            mutations: None,
+            ..CoverageOptions::default()
         },
     )
+}
+
+/// The rules family's items of a coverage document.
+fn rules(document: &Value) -> &Vec<Value> {
+    document["families"]["rules"]["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no rules: {document:#}"))
 }
 
 /// `(id, class, cached)` of every program row.
@@ -579,8 +587,8 @@ mod kink_tier {
     /// and `halted` are matched (their conditions entered) and never fired, with no `held_by`,
     /// and `wake`'s operand `H` is never `true`; `dispatch`'s `notBool H` is never `false` and
     /// its `I` is reached only where `notBool H` is `true`; no program writes a high address, so
-    /// the equation `low` is never refuted. The verdicts rendering lists each fired or matched
-    /// rule whose guard misses an outcome, without program lists.
+    /// the equation `low` is never refuted. The requirements family states each distinct
+    /// (node, truth) pair once, the root's outcomes standing for the node truths they are.
     #[test]
     #[ignore = "kink"]
     fn guards_report_each_operand_and_statuses_name_their_predicate() {
@@ -588,9 +596,7 @@ mod kink_tier {
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_YES, "{document:#}");
         let rule = |label: &str| {
-            document["rules"]
-                .as_array()
-                .unwrap()
+            rules(&document)
                 .iter()
                 .find(|rule| rule["label"] == format!("GUARDS.{label}"))
                 .unwrap_or_else(|| panic!("no rule {label}: {document:#}"))
@@ -608,10 +614,6 @@ mod kink_tier {
                 ("low", "fired".to_owned()),
                 ("writing", "fired".to_owned()),
             ]
-        );
-        assert!(
-            !document.to_string().contains("\"covered\""),
-            "no status reads covered"
         );
         for label in ["wake", "halted"] {
             let guard = &rule(label)["guard"];
@@ -664,22 +666,447 @@ mod kink_tier {
                 .contains("32768"),
             "{low:#}"
         );
-        assert!(
-            document["summary"]["guards"]["never_held"]
-                .as_u64()
+        // The requirements family: per guarded rule the condition's root and each authored
+        // atom, each truth. `wake`'s `H` was seen false only, and its `I` never reached.
+        let requirement = |id: &str| {
+            document["families"]["requirements"]["items"]
+                .as_array()
                 .unwrap()
-                >= 2,
-            "wake, halted: {document:#}"
+                .iter()
+                .find(|item| item["id"] == id)
+                .unwrap_or_else(|| panic!("no requirement {id}: {document:#}"))
+                .clone()
+        };
+        let h_text = operands[1]["text"].as_str().unwrap();
+        let i_text = operands[2]["text"].as_str().unwrap();
+        // `H andThenBool I` holds exactly where `I` is reached true, its last conjunct: one
+        // obligation, the root's `held`, with the node.
+        let held = requirement("requirement:GUARDS.wake:held");
+        assert_eq!(
+            (&held["status"], &held["covered_by"]),
+            (&json!("open"), &json!([]))
         );
+        assert_eq!(held["rule"], "rule:GUARDS.wake");
+        assert_eq!(
+            (&held["node"], &held["node_truth"]),
+            (&json!("0.1"), &json!("true"))
+        );
+        assert_eq!(held["text"], i_text);
+        assert_eq!(held["reaching"], json!([{"text": h_text, "truth": true}]));
+        let h_false = requirement(&format!("requirement:GUARDS.wake:{h_text}:false"));
+        assert_eq!(h_false["covered_by"], json!(["irq", "idle"]));
+        let i_false = requirement(&format!("requirement:GUARDS.wake:{i_text}:false"));
+        assert_eq!(i_false["status"], "open");
+        assert_eq!(
+            i_false["reaching"],
+            json!([{"text": h_text, "truth": true}])
+        );
+        // Each distinct (node, truth) once: `wake` has `held` (I true), `refuted`, H true, H
+        // false and I false; `halted` (`H andThenBool notBool I`) holds where I is reached false.
+        let of_rule = |rule: &str| {
+            document["families"]["requirements"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["rule"] == rule)
+                .map(|item| item["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            of_rule("rule:GUARDS.wake"),
+            [
+                "requirement:GUARDS.wake:held".to_owned(),
+                "requirement:GUARDS.wake:refuted".to_owned(),
+                format!("requirement:GUARDS.wake:{h_text}:true"),
+                format!("requirement:GUARDS.wake:{h_text}:false"),
+                format!("requirement:GUARDS.wake:{i_text}:false"),
+            ]
+        );
+        let halted = requirement("requirement:GUARDS.halted:held");
+        assert_eq!(
+            (&halted["node"], &halted["node_truth"]),
+            (&json!("0.1.0"), &json!("false"))
+        );
+        assert!(
+            !of_rule("rule:GUARDS.halted")
+                .contains(&format!("requirement:GUARDS.halted:{i_text}:false")),
+            "{document:#}"
+        );
+        // A condition that is one atom has two obligations, its `held` (the atom true) and its
+        // `refuted` (the atom false), not four.
+        assert_eq!(
+            of_rule("rule:GUARDS.low"),
+            [
+                "requirement:GUARDS.low:held",
+                "requirement:GUARDS.low:refuted"
+            ]
+        );
+        let low = requirement("requirement:GUARDS.low:refuted");
+        assert_eq!(low["status"], "open");
+        assert_eq!(
+            (&low["node"], &low["node_truth"]),
+            (&json!("0"), &json!("false"))
+        );
+        assert_eq!(
+            requirement("requirement:GUARDS.low:held")["covered_by"],
+            json!(["write"])
+        );
+        // A matched rule is open, and its target asks for its condition to hold, naming the open
+        // requirement and the programs that entered it as fuzz templates.
+        let targets = document["targets"].as_array().unwrap();
+        let wake_target = targets
+            .iter()
+            .find(|target| target["item"] == "rule:GUARDS.wake")
+            .unwrap();
+        assert_eq!(
+            wake_target["text"],
+            "a case where GUARDS.wake is entered and its condition holds, so that its right-hand \
+             side is built on a path (requirement requirement:GUARDS.wake:held is open)"
+        );
+        assert_eq!(wake_target["programs"], json!(["irq", "idle"]));
+        assert_eq!(
+            wake_target["fuzz"],
+            "kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --fired GUARDS.wake"
+        );
+        let held_target = targets
+            .iter()
+            .find(|target| target["item"] == held["id"])
+            .unwrap();
+        assert_eq!(
+            held_target["text"],
+            format!(
+                "a case that enters GUARDS.wake with its condition holding ({h_text} true and \
+                 {i_text} true)"
+            )
+        );
+        let i_target = targets
+            .iter()
+            .find(|target| target["item"] == i_false["id"])
+            .unwrap();
+        assert_eq!(
+            i_target["text"],
+            format!("a case that enters GUARDS.wake with {h_text} true and {i_text} false")
+        );
+        // An unmatched rewrite rule's target carries its left-hand side as a pattern; the
+        // equation `high` has none (an equation's left-hand side is no configuration).
+        let high_target = targets
+            .iter()
+            .find(|target| target["item"] == "rule:GUARDS.high")
+            .unwrap();
+        assert_eq!(high_target["pattern"], Value::Null);
+        // Targets follow tier, family, then sentence order: every rule target first.
+        let families = targets
+            .iter()
+            .map(|target| target["family"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        let first_requirement = families.iter().position(|f| *f == "requirements").unwrap();
+        assert!(
+            families[first_requirement..]
+                .iter()
+                .all(|f| *f == "requirements")
+        );
+        // Counts and measures.
+        let family = &document["families"]["rules"];
+        // No program's run matches `high` (the store of a low address is decided by `low`).
+        assert_eq!(family["counts"]["fired"], 4);
+        assert_eq!(family["counts"]["matched"], 2);
+        assert_eq!(family["counts"]["unmatched"], 1);
+        assert_eq!(family["measure"], json!(4.0 / 7.0));
+        let requirements = &document["families"]["requirements"];
+        let items = requirements["items"].as_array().unwrap();
+        let covered = items.iter().filter(|item| item["covered"] == true).count();
+        assert_eq!(requirements["obligations"], json!(items.len()));
+        assert_eq!(requirements["covered"], json!(covered));
+        assert_eq!(requirements["counts"]["open"], json!(items.len() - covered));
+        let ratio = covered as f64 / items.len() as f64;
+        assert_eq!(requirements["measure"], json!(ratio));
+        assert_eq!(
+            document["summary"]["open"],
+            json!(targets.len()),
+            "{document:#}"
+        );
+        // The flips family runs nothing in this build, and says why.
+        assert_eq!(document["families"]["flips"]["run"], false);
+        assert_eq!(
+            document["families"]["flips"]["reason"],
+            kink_flow::coverage::FLIPS_NOT_BUILT
+        );
+        assert_eq!(document["settings"]["tiers"], json!([1]));
+        // The verdicts rendering lists each family's open ids, without program lists.
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
         assert!(
-            verdicts.contains("\n[[guard]]\nrule = \"GUARDS.wake\"\nnever = [\"held\"]\n"),
+            verdicts.contains(
+                "\n[rules]\nopen = [\"rule:GUARDS.wake\", \"rule:GUARDS.halted\", \"rule:GUARDS.high\"]\n"
+            ),
             "{verdicts}"
         );
-        assert!(verdicts.contains("never = [\"refuted\"]"), "{verdicts}");
         assert!(
-            !verdicts.contains("irq\", \"idle"),
-            "no program list: {verdicts}"
+            verdicts.contains("\"requirement:GUARDS.wake:held\""),
+            "{verdicts}"
+        );
+        assert!(verdicts.contains("\n[flips]\nrun = false\n"), "{verdicts}");
+        assert!(!verdicts.contains("irq"), "no program list: {verdicts}");
+        // The text rendering lists the targets in the document's order.
+        let text = kink_flow::coverage::text(&document).unwrap();
+        let listed = text
+            .lines()
+            .skip_while(|line| *line != "targets:")
+            .skip(1)
+            .filter(|line| !line.starts_with("    "))
+            .collect::<Vec<_>>();
+        let expected = targets
+            .iter()
+            .map(|target| {
+                format!(
+                    "  {} ({}:{}): {}",
+                    target["item"].as_str().unwrap(),
+                    target["file"].as_str().unwrap(),
+                    target["line"],
+                    target["text"].as_str().unwrap()
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(listed, expected, "{text}");
+    }
+
+    /// An unmatched rewrite rule's target carries its left-hand side as a pattern `query` takes:
+    /// the rule's body with each rewrite's left side, each variable with the sort the rule's
+    /// parse inferred (here from the right side: `- I1 => 0 -Int I1` makes `I1` an `Int`), in the
+    /// main cell where the compile places a cell-free rule. `query` admits each, and no program
+    /// reaches it, as the rule's status says.
+    #[test]
+    #[ignore = "kink"]
+    fn an_unmatched_rewrite_rules_target_is_a_pattern_query_takes() {
+        let dir = fixture("fuzz/impu", "unmatched-pattern");
+        let manifest = dir.join("FLOW.toml");
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let patterns = document["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|target| target["family"] == "rules")
+            .map(|target| (target["item"].clone(), target["pattern"].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            patterns,
+            [
+                (json!("rule:imp.k:47"), json!("<k> - I1:Int ...</k>")),
+                (json!("rule:imp.k:50"), json!("<k> ! T:Bool ...</k>")),
+                (json!("rule:imp.k:52"), json!("<k> false && _:BExp ...</k>")),
+            ]
+        );
+        let mut list = String::new();
+        for (index, (_, pattern)) in patterns.iter().enumerate() {
+            list.push_str(&format!(
+                "[[pattern]]\nid = \"p{index}\"\npattern = {pattern}\n\n"
+            ));
+        }
+        let list_path = dir.join("PATTERNS.toml");
+        write(&list_path, &list);
+        let (answers, status) = {
+            let (manifest, list_path) = (manifest.clone(), list_path.clone());
+            std::thread::Builder::new()
+                .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+                .spawn(move || {
+                    kink_flow::cli::query(
+                        &manifest,
+                        &list_path,
+                        &kink_flow::query::QueryOptions::default(),
+                    )
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        assert_eq!(status, EXIT_YES, "{answers:#}");
+        for pattern in answers["patterns"].as_array().unwrap() {
+            assert_eq!(pattern["outcome"], "valid", "{pattern:#}");
+        }
+        for row in answers["rows"].as_array().unwrap() {
+            assert_eq!(row["answer"], "no", "{row:#}");
+        }
+    }
+
+    /// A case that covers nothing new leaves the verdicts rendering byte-identical; a case that
+    /// closes a gap moves it. `--tier 1`, the only tier this build computes, runs no mutant: the
+    /// flips family says so.
+    #[test]
+    #[ignore = "kink"]
+    fn the_verdicts_move_only_when_a_gap_opens_or_closes() {
+        let manifest = fixture("guards", "guards-verdicts").join("FLOW.toml");
+        let (before, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{before:#}");
+        let before = kink_flow::verdicts::verdicts(&before).unwrap();
+        append(
+            &manifest,
+            "\n[[program]]\nid = \"idle-again\"\nfile = \"programs/idle.guards\"\n",
+        );
+        let (same, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{same:#}");
+        assert_eq!(same["summary"]["programs"], 4);
+        assert_eq!(kink_flow::verdicts::verdicts(&same).unwrap(), before);
+        append(
+            &manifest,
+            "\n[[program]]\nid = \"halting\"\ntext = \"step(true, true)\"\n",
+        );
+        let (closed, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{closed:#}");
+        let after = kink_flow::verdicts::verdicts(&closed).unwrap();
+        assert_ne!(after, before);
+        assert!(!after.contains("\"rule:GUARDS.wake\""), "{after}");
+        let (tier_one, status) = coverage(
+            &manifest,
+            &CoverageOptions {
+                tier: Tier::One,
+                ..CoverageOptions::default()
+            },
+        );
+        assert_eq!(status, EXIT_YES, "{tier_one:#}");
+        assert_eq!(tier_one["settings"]["tiers"], json!([1]));
+        assert_eq!(
+            tier_one["families"]["flips"],
+            json!({"tier": 2, "run": false, "obligations": null, "items": [],
+                   "reason": kink_flow::coverage::FLIPS_NOT_BUILT})
+        );
+    }
+
+    /// A simplification is out of scope by status: no obligation, never a target, whatever its
+    /// coverage.
+    #[test]
+    #[ignore = "kink"]
+    fn a_simplification_is_out_of_scope() {
+        let dir = fixture("guards", "guards-simplification");
+        let source = dir.join("guards.k");
+        let text = fs::read_to_string(&source).unwrap();
+        let anchor = "  rule [writing]:";
+        assert!(text.contains(anchor));
+        fs::write(
+            &source,
+            text.replace(
+                anchor,
+                &format!("  rule [lemma]: store(A) +Int 0 => store(A) [simplification]\n{anchor}"),
+            ),
+        )
+        .unwrap();
+        let (document, status) = run(&dir.join("FLOW.toml"), false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let lemma = rules(&document)
+            .iter()
+            .find(|rule| rule["label"] == "GUARDS.lemma")
+            .unwrap_or_else(|| panic!("{document:#}"));
+        assert_eq!(lemma["status"], "out-of-scope");
+        assert_eq!(lemma["obligation"], false);
+        assert!(lemma["reason"].as_str().unwrap().contains("simplification"));
+        assert_eq!(document["families"]["rules"]["counts"]["out_of_scope"], 1);
+        assert_eq!(document["families"]["rules"]["obligations"], 7);
+        assert!(
+            document["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|target| target["item"] != "rule:GUARDS.lemma"),
+            "{document:#}"
+        );
+    }
+
+    /// `[coverage]` is decoded by every command and refused by `coverage` where this build cannot
+    /// honour it, before anything runs.
+    #[test]
+    #[ignore = "kink"]
+    fn unsupported_coverage_settings_are_refused_with_their_reason() {
+        let dir = fixture("guards", "guards-settings");
+        let manifest = dir.join("FLOW.toml");
+        let text = fs::read_to_string(&manifest).unwrap();
+        for (section, reason) in [
+            ("[coverage]\ndepth = 2\n", "depth-unsupported"),
+            ("[coverage]\nmcdc = [\"GUARDS.wake\"]\n", "mcdc-unsupported"),
+        ] {
+            write(&manifest, &format!("{section}\n{text}"));
+            let (document, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_UNASKED, "{document:#}");
+            assert_eq!(document["spec"]["stage"], "coverage");
+            assert_eq!(document["spec"]["reason"], reason);
+            assert_eq!(document["programs"], json!([]));
+            assert_eq!(document["families"], Value::Null);
+        }
+        write(
+            &manifest,
+            &format!("[coverage]\ndepth = 1\nmax_obligations = 10\n\n{text}"),
+        );
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        assert_eq!(
+            document["settings"],
+            json!({"tiers": [1], "depth": 1, "mcdc": [], "max_obligations": 10,
+                   "source": "manifest"})
+        );
+        write(&manifest, &format!("[coverage]\nwidth = 1\n\n{text}"));
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
+        assert_eq!(document["spec"]["stage"], "manifest");
+    }
+
+    /// A rule only a program that is not comparable fires is open, and lists that program as
+    /// `touched_only_by`: its target is to make the program comparable.
+    #[test]
+    #[ignore = "kink"]
+    fn an_item_touched_only_by_an_unknown_program_names_it() {
+        let dir = scratch("touched-only");
+        write(
+            &dir.join("contra.k"),
+            r"module CONTRA-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= tdiv(Int) [symbol(tdiv)]
+                | odd(Int) [symbol(odd)]
+                | val(Int) [symbol(val)]
+  syntax Int ::= td(Int) [function, total, symbol(td)]
+endmodule
+
+module CONTRA
+  imports CONTRA-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 1)
+  rule [tdiv]: <k> tdiv(I) => val(td(I)) </k>
+  rule [odd]: <k> odd(I) => val(td(I)) </k>
+endmodule
+",
+        );
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"contra.k\"\nmain_module = \"CONTRA\"\nsyntax_module = \"CONTRA-SYNTAX\"\n\n\
+             [[program]]\nid = \"base\"\ntext = \"odd(-1)\"\n\n[[program]]\nid = \"kill\"\ntext = \"tdiv(1)\"\n",
+        );
+        let (document, status) = run(&dir.join("FLOW.toml"), false);
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        assert_eq!(
+            rows(&document),
+            expect(&[("base", "unknown", false), ("kill", "comparable", false)])
+        );
+        let odd = rules(&document)
+            .iter()
+            .find(|rule| rule["label"] == "CONTRA.odd")
+            .unwrap();
+        assert_eq!(odd["status"], "unmatched");
+        assert_eq!(odd["touched_only_by"], json!(["base"]));
+        let tdiv = rules(&document)
+            .iter()
+            .find(|rule| rule["label"] == "CONTRA.tdiv")
+            .unwrap();
+        assert_eq!(tdiv["touched_only_by"], json!([]));
+        let target = document["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|target| target["item"] == "rule:CONTRA.odd")
+            .unwrap();
+        assert!(
+            target["text"]
+                .as_str()
+                .unwrap()
+                .ends_with("; base touches it but is not comparable: make one comparable (its row's cause says why)"),
+            "{target:#}"
         );
     }
 
@@ -694,7 +1121,7 @@ mod kink_tier {
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
-        assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
+        assert_eq!(rules(&document)[0]["matched_by"], json!(["store"]));
         let record = stored_record(&manifest, &document, "store");
         assert_eq!(record["class"], "comparable");
         assert!(
@@ -824,7 +1251,7 @@ text = 'h(opaque(1), 2)'
         .unwrap();
         let (document, status) = run(&dir.join("FLOW.toml"), false);
         assert_eq!(status, EXIT_YES, "{document:#}");
-        let rules = document["rules"].as_array().unwrap();
+        let rules = rules(&document);
         let listed = rules
             .iter()
             .map(|r| (r["label"].clone(), r["status"].clone()))
@@ -832,16 +1259,18 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             listed,
             [
-                (json!("LOOP.spin"), json!("unmatched")),
-                (json!("LOOP.unused"), json!("unmatched")),
                 (json!(null), json!("fired")),
+                (json!("LOOP.neDouble"), json!("no-coverage-signal")),
+                (json!("LOOP.spin"), json!("unmatched")),
                 (json!("LOOP.countdown"), json!("fired")),
                 (json!("LOOP.done"), json!("fired")),
                 (json!("LOOP.twice"), json!("fired")),
-                (json!("LOOP.neDouble"), json!("no-coverage-signal")),
+                (json!("LOOP.unused"), json!("unmatched")),
             ]
         );
-        let row = rules.last().unwrap();
+        let row = &rules[1];
+        assert_eq!(row["obligation"], false);
+        assert_eq!(row["covered"], Value::Null);
         assert_eq!(row["start_line"], 20);
         assert_eq!(
             (&row["matched_by"], &row["fired_by"]),
@@ -851,12 +1280,15 @@ text = 'h(opaque(1), 2)'
             row["reason"],
             "a non-executable rule: k-rust never runs it, so no program can match it"
         );
+        let family = &document["families"]["rules"];
         assert_eq!(
-            document["summary"],
-            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "unmatched": 2,
-                   "matched": 0, "guards": {"sentences": 1, "never_held": 0, "never_refuted": 0,
-                               "operands_missing_an_outcome": 0},
-                   "fired": 4, "claim_helper": 0, "no_coverage_signal": 1, "mismatches": 0})
+            (&family["obligations"], &family["covered"]),
+            (&json!(6), &json!(4))
+        );
+        assert_eq!(
+            family["counts"],
+            json!({"fired": 4, "matched": 0, "unmatched": 2, "out_of_scope": 0,
+                   "claim_helper": 0, "no_coverage_signal": 1})
         );
     }
 
@@ -893,9 +1325,7 @@ text = 'h(opaque(1), 2)'
             expect(&[("zero", "comparable", false), ("five", "comparable", false)])
         );
         let rule = |label: &str| {
-            document["rules"]
-                .as_array()
-                .unwrap()
+            rules(&document)
                 .iter()
                 .find(|rule| rule["label"] == label)
                 .cloned()
@@ -913,9 +1343,7 @@ text = 'h(opaque(1), 2)'
             lists("PICK.good"),
             (json!(["zero", "five"]), json!(["zero", "five"]))
         );
-        let half = document["rules"]
-            .as_array()
-            .unwrap()
+        let half = rules(&document)
             .iter()
             .find(|rule| rule["label"].is_null())
             .cloned()
@@ -976,7 +1404,7 @@ text = 'h(opaque(1), 2)'
             let manifest = fixture(name, &format!("fill-{name}")).join("FLOW.toml");
             let (first, status) = run(&manifest, false);
             assert_eq!(status, EXIT_YES, "{first:#}");
-            assert_eq!(first["schema"], "kink-flow-results");
+            assert_eq!(first["schema"], "kink-flow-coverage");
             assert_eq!(first["result_schema_version"], RESULT_SCHEMA_VERSION);
             assert_eq!(
                 rows(&first),
@@ -1042,13 +1470,11 @@ text = 'h(opaque(1), 2)'
 
     #[test]
     #[ignore = "kink"]
-    fn rules_no_comparable_program_reaches_are_listed_first() {
+    fn rules_are_listed_in_sentence_order_and_each_open_one_is_a_target() {
         let manifest = fixture("loop", "rules").join("FLOW.toml");
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_YES, "{document:#}");
-        let listed = document["rules"]
-            .as_array()
-            .unwrap()
+        let listed = rules(&document)
             .iter()
             .map(|r| {
                 (
@@ -1079,38 +1505,71 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             listed,
             [
-                rule("LOOP.spin", 20, "unmatched", &[]),
-                rule("LOOP.unused", 24, "unmatched", &[]),
                 rule("-", 19, "fired", &["twice"]),
+                rule("LOOP.spin", 20, "unmatched", &[]),
                 rule("LOOP.countdown", 21, "fired", &["countdown"]),
                 rule("LOOP.done", 22, "fired", &["countdown"]),
                 rule("LOOP.twice", 23, "fired", &["twice"]),
+                rule("LOOP.unused", 24, "unmatched", &[]),
             ]
         );
-        assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
-        assert!(document["rules"][2]["reason"].is_null());
-        // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`;
-        // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`; 8 (CF-45) gives an
-        // unmatched claim helper its own status; 9 adds a stopped corpus's `stop` and ends' `halt`;
-        // 10 names cells inside `?` and `*` cells in `result`; 11 names statuses for their
-        // predicate (`fired`, `matched`, `unmatched`) and adds a guarded rule's `guard`.
-        assert_eq!(document["version"], 11);
+        assert_eq!(rules(&document)[0]["fired_by"], json!(["twice"]));
+        assert!(rules(&document)[0]["reason"].is_null());
+        // Each open rule is a target, in sentence order, with its id and position; a rewrite rule's
+        // target spells the fuzz job that looks for a program matching it.
+        let targets = document["targets"].as_array().unwrap();
+        let rule_targets = targets
+            .iter()
+            .filter(|target| target["family"] == "rules")
+            .map(|target| target["item"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rule_targets, ["rule:LOOP.spin", "rule:LOOP.unused"]);
+        assert_eq!(
+            targets[0]["text"],
+            "a case whose run reaches a state that LOOP.spin matches"
+        );
+        assert_eq!(
+            (&targets[0]["file"], &targets[0]["line"]),
+            (&json!("loop.k"), &json!(20))
+        );
+        assert_eq!(
+            targets[0]["fuzz"],
+            "kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --matched LOOP.spin"
+        );
+        assert_eq!(rules(&document)[1]["id"], "rule:LOOP.spin");
+        assert_eq!(rules(&document)[1]["covered"], false);
+        assert_eq!(rules(&document)[0]["id"], "rule:loop.k:19");
+        // The coverage document's first version replaces the results document's version 11.
+        assert_eq!(document["schema"], "kink-flow-coverage");
+        assert_eq!(document["version"], 1);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
+        let summary = &document["summary"];
         assert_eq!(
-            document["summary"],
-            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "unmatched": 2,
-                   "matched": 0, "guards": {"sentences": 1, "never_held": 0, "never_refuted": 0,
-                               "operands_missing_an_outcome": 0},
-                   "fired": 4, "claim_helper": 0, "no_coverage_signal": 0, "mismatches": 0})
+            (
+                &summary["programs"],
+                &summary["comparable"],
+                &summary["computed"],
+                &summary["mismatches"],
+                &summary["argued"],
+            ),
+            (&json!(2), &json!(2), &json!(2), &json!(0), &json!(0))
         );
+        assert_eq!(
+            summary["per_family"]["rules"],
+            json!({"obligations": 6, "covered": 4, "argued": 0, "open": 2})
+        );
+        assert_eq!(
+            summary["open"],
+            json!(targets.len()),
+            "one target per open obligation: {document:#}"
+        );
+        assert_eq!(document["families"]["rules"]["measure"], json!(4.0 / 6.0));
         // calc: every rule fires, the unlabelled one by `sub` alone.
         let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);
         assert_eq!(
-            calc["rules"]
-                .as_array()
-                .unwrap()
+            rules(&calc)
                 .iter()
                 .map(|r| (
                     r["label"].clone(),
@@ -1163,18 +1622,11 @@ text = 'h(opaque(1), 2)'
                 ("LOOP".to_owned(), "LOOP.double".to_owned()),
                 ("LOOP".to_owned(), "nothing".to_owned()),
             ]);
-        let (document, ok) = kink_flow::results::results(
-            &manifest,
-            &ResultsOptions {
-                verify: false,
-                cache: None,
-                mutations: None,
-            },
-        );
+        let (mut document, ok) =
+            kink_flow::coverage::coverage(&manifest, &CoverageOptions::default());
+        kink_flow::coverage::derive(&mut document, &kink_flow::KinkFlowSpelling);
         assert!(ok, "{document:#}");
-        let listed = document["rules"]
-            .as_array()
-            .unwrap()
+        let listed = rules(&document)
             .iter()
             .map(|r| {
                 (
@@ -1188,6 +1640,7 @@ text = 'h(opaque(1), 2)'
             listed,
             [
                 (json!("LOOP.double"), json!("fired"), json!(["twice"])),
+                (json!("LOOP.spin"), json!("claim-helper"), json!([])),
                 (
                     json!("LOOP.countdown"),
                     json!("fired"),
@@ -1195,18 +1648,22 @@ text = 'h(opaque(1), 2)'
                 ),
                 (json!("LOOP.done"), json!("fired"), json!(["countdown"])),
                 (json!("LOOP.twice"), json!("fired"), json!(["twice"])),
-                (json!("LOOP.spin"), json!("claim-helper"), json!([])),
                 (json!("LOOP.unused"), json!("claim-helper"), json!([])),
             ]
         );
         assert_eq!(
-            document["summary"],
-            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "unmatched": 0,
-                   "matched": 0, "guards": {"sentences": 1, "never_held": 0, "never_refuted": 0,
-                               "operands_missing_an_outcome": 0},
-                   "fired": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
+            document["summary"]["per_family"]["rules"],
+            json!({"obligations": 4, "covered": 4, "argued": 0, "open": 0})
         );
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["families"]["rules"]["counts"]["claim_helper"], 2);
+        assert!(
+            document["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|target| target["family"] != "rules"),
+            "{document:#}"
+        );
     }
 
     #[test]
@@ -1310,9 +1767,7 @@ text = 'h(opaque(1), 2)'
         );
         assert_eq!(layout["summary"]["computed"], 0);
         let line = |document: &Value| {
-            document["rules"]
-                .as_array()
-                .unwrap()
+            rules(document)
                 .iter()
                 .find(|rule| rule["label"].as_str().is_some_and(|l| l.ends_with("add")))
                 .unwrap_or_else(|| panic!("no rule add in {document:#}"))["start_line"]
@@ -1320,10 +1775,7 @@ text = 'h(opaque(1), 2)'
                 .unwrap()
         };
         assert_eq!(line(&layout), line(&first) + 3);
-        assert_eq!(
-            layout["rules"].as_array().unwrap().len(),
-            first["rules"].as_array().unwrap().len()
-        );
+        assert_eq!(rules(&layout).len(), rules(&first).len());
         // A record names the bytes it was written under, outside its key.
         assert_eq!(
             read_json(&record_path(&manifest, &layout, "add"))["spec_digest"],
@@ -1468,7 +1920,7 @@ module MU
             assert_ne!(status, EXIT_UNASKED, "{document:#}");
             assert_eq!(
                 status,
-                kink_flow::cli::results_status(&document),
+                kink_flow::cli::coverage_status(&document),
                 "{document:#}"
             );
             (manifest, document)
@@ -1575,8 +2027,8 @@ endmodule
         assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert!(document["programs"][0]["cause"].is_null());
-        assert_eq!(document["rules"][0]["status"], "fired");
-        assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
+        assert_eq!(rules(&document)[0]["status"], "fired");
+        assert_eq!(rules(&document)[0]["matched_by"], json!(["store"]));
         let path = record_path(&manifest, &document, "store");
         let mut record = stored_record(&manifest, &document, "store");
         assert_eq!(record["class"], "comparable");
@@ -1735,13 +2187,13 @@ endmodule
 
     #[test]
     #[ignore = "kink"]
-    fn the_binarys_results_command() {
+    fn the_binarys_coverage_command() {
         let binary = env!("CARGO_BIN_EXE_kink-flow");
         let dir = fixture("calc", "binary");
         let manifest = dir.join("FLOW.toml");
         let cache = scratch("binary-cache");
         let output = Command::new(binary)
-            .args(["results", manifest.to_str().unwrap(), "--cache"])
+            .args(["coverage", manifest.to_str().unwrap(), "--cache"])
             .arg(&cache)
             .output()
             .unwrap();
@@ -1756,7 +2208,12 @@ endmodule
         );
         assert!(!dir.join(CACHE_DIRECTORY).exists());
         let output = Command::new(binary)
-            .args(["results", manifest.to_str().unwrap(), "--verify", "--cache"])
+            .args([
+                "coverage",
+                manifest.to_str().unwrap(),
+                "--verify",
+                "--cache",
+            ])
             .arg(&cache)
             .output()
             .unwrap();
@@ -1764,10 +2221,43 @@ endmodule
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert!(rows(&document).iter().all(|(_, _, cached)| *cached));
 
-        // A refused program is a corpus error; the others still get results.
+        // The text rendering: one line per family, then the targets.
         let output = Command::new(binary)
             .args([
-                "results",
+                "coverage",
+                manifest.to_str().unwrap(),
+                "--output",
+                "text",
+                "--cache",
+            ])
+            .arg(&cache)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            text.starts_with("coverage: 0 open, 0 argued; 4 programs, 4 comparable\n"),
+            "{text}"
+        );
+        assert!(text.contains("\nrules: 3 of 3 fired (100.0%)"), "{text}");
+
+        // `results` is no verb: the usage error names the verb that replaced it.
+        let output = Command::new(binary)
+            .args(["results", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("`results` is no longer a verb: `coverage` replaced it"),
+            "{stderr}"
+        );
+
+        // A refused program is a corpus error; the others still get their rows.
+        let output = Command::new(binary)
+            .args([
+                "coverage",
                 dir.join("FLOW-bad-program.toml").to_str().unwrap(),
             ])
             .output()
@@ -1793,12 +2283,12 @@ endmodule
         let broken = dir.join("broken.toml");
         write(&broken, "[spec]\nentry = \"calc.k\"\n");
         let output = Command::new(binary)
-            .args(["results", broken.to_str().unwrap()])
+            .args(["coverage", broken.to_str().unwrap()])
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["schema"], "kink-flow-results");
+        assert_eq!(document["schema"], "kink-flow-coverage");
         assert_eq!(document["spec"]["stage"], "manifest");
         let (document, status) = run(&flow("compile-error").join("FLOW.toml"), false);
         assert_eq!(status, EXIT_UNASKED);
@@ -1807,16 +2297,25 @@ endmodule
 
         // Usage errors.
         for args in [
-            vec!["results"],
+            vec!["coverage"],
             vec![
-                "results",
+                "coverage",
                 manifest.to_str().unwrap(),
                 "--verify",
                 "--verify",
             ],
-            vec!["results", manifest.to_str().unwrap(), "--cache"],
-            vec!["results", manifest.to_str().unwrap(), "--other"],
-            vec!["results", dir.join("missing.toml").to_str().unwrap()],
+            vec!["coverage", manifest.to_str().unwrap(), "--cache"],
+            vec!["coverage", manifest.to_str().unwrap(), "--other"],
+            vec!["coverage", manifest.to_str().unwrap(), "--tier", "3"],
+            vec!["coverage", manifest.to_str().unwrap(), "--tier", "2"],
+            vec!["coverage", manifest.to_str().unwrap(), "--output", "kore"],
+            vec![
+                "coverage",
+                manifest.to_str().unwrap(),
+                "--mutations",
+                "m.toml",
+            ],
+            vec!["coverage", dir.join("missing.toml").to_str().unwrap()],
         ] {
             let output = Command::new(binary).args(&args).output().unwrap();
             assert_eq!(
@@ -1987,7 +2486,7 @@ endmodule
         assert_ne!(binary_build, this_build);
         let results_by_binary = || {
             let output = Command::new(binary)
-                .arg("results")
+                .arg("coverage")
                 .arg(&manifest)
                 .output()
                 .unwrap();

@@ -55,7 +55,7 @@ Usage:
              [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
              [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
-  krs kink <emit|check|results|run|report|query|fuzz> --package P --definition D [OPTIONS]
+  krs kink <emit|check|coverage|run|report|query|fuzz> --package P --definition D [OPTIONS]
              (krs kink --help lists the corpus loop's options)
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
@@ -76,8 +76,8 @@ Commands:
                             report each case's verdict against its expectation
   compare                   Compare two ends of the definition, each an end document or the
                             end of a case's run, or check an end against a case's expectation
-  kink                      The corpus loop over the package's kink/ corpus: results and
-                            coverage per case, mutations killed or survived, query and fuzz
+  kink                      The corpus loop over the package's kink/ corpus: what the cases
+                            cover, mutations killed or survived, query and fuzz
   fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
 
 Options:
@@ -239,8 +239,8 @@ Usage:
   krs kink emit    --package P --definition D [--corpus DIR] [--check]
   krs kink check   --package P --definition D [--corpus DIR] [--mutations PATH] [--cache DIR]
                    [--locked]
-  krs kink results --package P --definition D [--corpus DIR] [--verify] [--mutations PATH]
-                   [--cache DIR] [--output json|verdicts] [--locked]
+  krs kink coverage --package P --definition D [--corpus DIR] [--tier 1] [--verify]
+                   [--cache DIR] [--output json|text|verdicts] [--locked]
   krs kink run     --package P --definition D [--corpus DIR] [--mutations PATH] [--only ID]...
                    [--verify] [--full] [--lock FILE] [--compile-workers N] [--no-memo]
                    [--progress] [--cache DIR] [--output json|verdicts] [--locked]
@@ -271,14 +271,16 @@ The corpus is <package>/kink (or --corpus DIR):
                     holding /.kink-flow/ keeps them out)
 
 The loop:
-  1. write cases (FLOW.toml, cases/); krs kink results until every rule in scope fires
-     and every guard outcome is seen or argued unreachable: its JSON document's
-     rules[].status is fired, matched (matched, never fired: write a case that takes its
-     step), unmatched (write a case that reaches the rule), claim-helper (the claims
-     serve it: krs prove checks them) or no-coverage-signal (no run can show it matched:
-     a macro or alias), a guarded rule's guard lists the outcomes no case saw, and a
-     simplification equation needs no case; the verdicts rendering lists the guard gaps
-     and cases, not rule statuses
+  1. write cases (FLOW.toml, cases/); krs kink coverage --output text until nothing is
+     open: it lists each family (rules: every rule in scope fires; requirements: each
+     authored operand of a rule's condition seen true and false where reached, the
+     condition seen holding and refuted) with covered / obligations, then one target per
+     open obligation, named by Rust item and text: a case to write; a rule's status in
+     the JSON document is fired, matched (never fired: write a case that takes its step),
+     unmatched (write a case that reaches the rule), out-of-scope (a simplification,
+     symbolic or ceil equation), claim-helper (the claims serve it: krs prove checks
+     them) or no-coverage-signal (a macro or alias); the verdicts rendering lists each
+     family's open ids, so it moves only when a gap opens or closes
   2. write mutations (mutations/<topic>.toml); krs kink check until it exits 0
   3. krs kink run; for each survivor write a case that kills it, or argue that no case
      can and drop the mutation, or keep it with the argument in its misunderstanding
@@ -318,12 +320,12 @@ baseline runner's preparation), as each case's baseline and each mutation is dec
 without the flag when stderr is a terminal); stdout stays the document.
 
 Exit status, by what the caller does next, as krs run's (krs --help):
-  0  yes: every case is comparable and meets its expectation (results), every mutation
+  0  yes: every case is comparable and meets its expectation (coverage), every mutation
      got a verdict, killed, survived, equivalent or unkillable (run, report), every pattern
      answered (query), the fuzz found a witness or proved the mutant equivalent, verdicts
      are possible (check), definition.k is fresh (emit)
   1  a finding: a --verify mismatch, a verdicts.lock run --locked would change (run), an
-     unmet expectation (results), a refuted pattern claim (query), a case excluded on the
+     unmet expectation (coverage), a refuted pattern claim (query), a case excluded on the
      baseline or a baseline without data (check)
   2  the question could not be asked: a usage error, a package krs refuses, a stale
      definition.k (--locked, emit --check), a refused manifest, specification, case,
@@ -361,9 +363,9 @@ const KINK_VERB_USAGE: [(&str, &str); 7] = [
          DIR] [--locked]",
     ),
     (
-        "results",
-        "krs kink results --package P --definition D [--corpus DIR] [--verify] [--mutations PATH] \
-         [--cache DIR] [--output json|verdicts] [--locked]",
+        "coverage",
+        "krs kink coverage --package P --definition D [--corpus DIR] [--tier 1] [--verify] \
+         [--cache DIR] [--output json|text|verdicts] [--locked]",
     ),
     (
         "run",
@@ -582,10 +584,7 @@ fn kink_verb_help(verb: &str) -> String {
             flow.as_str(),
             kink_flow::cli::options_text(flow.options())
         );
-        if matches!(
-            flow,
-            kink_flow::Verb::Check | kink_flow::Verb::Results | kink_flow::Verb::Fuzz
-        ) {
+        if matches!(flow, kink_flow::Verb::Check | kink_flow::Verb::Fuzz) {
             let _ = writeln!(
                 text,
                 "  (--mutations defaults to the corpus's mutations/, else its MUTATIONS.toml, \
@@ -2349,9 +2348,8 @@ fn parse_kink_verb(
                     )));
                 }
                 if argument != "emit" && kink_flow::Verb::parse(&argument).is_none() {
-                    return Err(kink(format!(
-                        "unknown verb `{argument}`; expected emit, {}",
-                        kink_verbs()
+                    return Err(kink(kink_flow::Verb::retired(&argument).unwrap_or_else(
+                        || format!("unknown verb `{argument}`; expected emit, {}", kink_verbs()),
                     )));
                 }
                 *verb = Some(argument);
@@ -2375,7 +2373,7 @@ fn unlisted_option(verb: kink_flow::Verb, args: &[String]) -> Option<&str> {
         kink_flow::Verb::Run => Some("--mutations"),
         kink_flow::Verb::Query => Some("--patterns"),
         kink_flow::Verb::Fuzz => Some("--templates"),
-        kink_flow::Verb::Check | kink_flow::Verb::Results | kink_flow::Verb::Report => None,
+        kink_flow::Verb::Check | kink_flow::Verb::Coverage | kink_flow::Verb::Report => None,
     };
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -2853,6 +2851,10 @@ mod tests {
                 "unknown verb `walk`",
             ),
             (
+                &["kink", "results", "--package", "p"][..],
+                "`results` is no longer a verb: `coverage` replaced it",
+            ),
+            (
                 &[
                     "kink",
                     "emit",
@@ -2994,7 +2996,7 @@ mod tests {
             "{fuzz}"
         );
         assert!(!kink_verb_help("emit").contains("--locked"));
-        assert!(kink_usage_tail(None).contains("VERB one of emit, check, results"));
+        assert!(kink_usage_tail(None).contains("VERB one of emit, check, coverage"));
     }
 
     fn run(args: &[&str]) -> (CommandRequest, MeasureOptions) {

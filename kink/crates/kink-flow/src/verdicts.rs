@@ -1,4 +1,4 @@
-//! The verdicts of a `results` or `run` document as deterministic TOML (`--output verdicts`):
+//! The verdicts of a `coverage` or `run` document as deterministic TOML (`--output verdicts`):
 //! what the corpus and the specification decide, and nothing that depends on the host, the build,
 //! the cache or the order the work was done in. It is the format of recorded outputs and, without
 //! `killed_by`, of a corpus's `verdicts.lock` ([`lock_text`], [`crate::lock`]), which `run --lock`
@@ -7,21 +7,29 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 8
-//! document = "results"
+//! version = 9
+//! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-//! krs_annotation = 4
+//! krs_annotation = 5
 //!
 //! [spec]
 //! outcome = "admitted"
 //!
-//! [[case]]
-//! id = "t1"
-//! class = "comparable"
-//! fired = ["crate::plus_zero"]
-//! matched = ["crate::plus_zero"]
+//! [settings]
+//! tiers = [1]
+//! depth = 1
+//! mcdc = []
+//!
+//! [rules]
+//! open = ["rule:crate::plus_succ"]
+//!
+//! [requirements]
+//! open = []
+//!
+//! [flips]
+//! run = false
 //! ```
 //!
 //! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
@@ -38,28 +46,19 @@
 //! is there so that a reader sees which release moved. A build that cannot name its library (a
 //! shared library replaced since it was mapped, a static link whose archive the build could not
 //! name) has no `z3_library_sha256` line, the caches being off for it for the same reason
-//! (kink-native `UNNAMED_Z3_BUILD`). The portable profile renders neither line. A `results`
+//! (kink-native `UNNAMED_Z3_BUILD`). The portable profile renders neither line. A `coverage`
 //! document the KRS
 //! front end annotated also has `krs_annotation`, the version of that annotation (the document's
-//! `krs.version`), since a rule's KRS item is spelled as the annotation spells it: from version 2
-//! as a stop reads it (`crate::plus_zero`, `lang::step`), before it as the `// KRS` line names it
-//! (`plus_zero`); version 3 adds the stop condition as the corpus wrote it and spells items as
-//! version 2 does, and version 4 names a guard's nodes by KRS construct, which a `[[guard]]`
-//! operand's text follows, and spells items as version 2 does. Two renderings of the same verdicts under different annotation versions differ
-//! in that line and in the names, not in a class, a rule set or a status. A run rendering names no
-//! rule, so it has no `krs_annotation` line, which could only move a lock without any verdict
-//! moving.
+//! `krs.version`), since an item's id spells its rule's KRS item as the annotation spells it: two
+//! renderings of the same coverage under different annotation versions differ in that line and in
+//! the ids, not in what is open. A run rendering names no rule, so it has no `krs_annotation`
+//! line, which could only move a lock without any verdict moving.
 //!
-//! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
-//! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`, or the
-//! front end's `krs.matched_by` where it reads the match at its own level), each rule named by
-//! its KRS item when a front end annotated it (`krs.item`), else its label, else its
-//! `file:line`, ordered by module name, then by position in the module; then each fired or
-//! matched rule whose guard misses an outcome (`[[guard]]`, in the same order): the guard
-//! outcomes no program saw (`never`) and each operand that misses `true` or `false`
-//! (`[[guard.operand]]`, its text and `never`; the front end's authored operands, by source
-//! text, where it grouped the guard), without program lists, so that a lock moves when a gap
-//! opens or closes. A `run` document
+//! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
+//! family the ids of its open obligations, in item order (`[rules]`, `[requirements]`;
+//! [`crate::coverage::open_ids`]), and for the flips family whether it ran. It lists no programs
+//! and no counts, so that it moves only when a gap opens or closes: a case that covers nothing new
+//! renders the same bytes. A `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), and, when a corpus error stopped it, the mutation and the reason under
@@ -107,10 +106,12 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// lists each fired or matched rule whose guard misses an outcome (`[[guard]]`); 8 since the
 /// header names the Z3 build under the Z3 profile (`z3_version`, `z3_library_sha256`), so that a
 /// lock whose verdicts moved with the solver build says why, and one recorded on another build is
-/// a finding under `--locked` ([`crate::lock`]).
-pub const VERDICTS_VERSION: u64 = 8;
+/// a finding under `--locked` ([`crate::lock`]); 9 since the `coverage` document replaces the
+/// `results` document: its rendering (`document = "coverage"`) gives the settings and each
+/// family's open obligations by id, and no case.
+pub const VERDICTS_VERSION: u64 = 9;
 
-/// The rendering of a `results` or `run` document (module documentation). The error names what
+/// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
 /// document (`kink-flow-report`), why there is none, so that `report --output verdicts` states
 /// the reason where the rendering would have been.
@@ -131,7 +132,7 @@ pub fn lock_text(document: &Value) -> Result<String, String> {
 
 fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     let kind = match document["schema"].as_str() {
-        Some("kink-flow-results") => "results",
+        Some(crate::coverage::COVERAGE_SCHEMA) => "coverage",
         Some(crate::report::RUN_SCHEMA) => "run",
         Some(crate::report::MISSING_SCHEMA) => {
             return Err(match document["outcome"].as_str() {
@@ -149,7 +150,7 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
         }
         other => {
             return Err(format!(
-                "--output verdicts renders a results or run document, not {}",
+                "--output verdicts renders a coverage or run document, not {}",
                 other.map_or_else(|| "a document with no schema".to_owned(), str::to_owned)
             ));
         }
@@ -169,7 +170,7 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     if let Some(digest) = document["z3"]["library_sha256"].as_str() {
         line(&mut text, "z3_library_sha256", &string(digest));
     }
-    if kind == "results"
+    if kind == "coverage"
         && let Some(annotation) = document["krs"]["version"].as_u64()
     {
         line(&mut text, "krs_annotation", &annotation.to_string());
@@ -190,9 +191,8 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
             }
         }
     }
-    if kind == "results" {
-        cases(&mut text, document);
-        guards(&mut text, document);
+    if kind == "coverage" {
+        coverage(&mut text, document);
     } else {
         mutations(&mut text, document, killed_by);
     }
@@ -268,101 +268,47 @@ pub fn refusal_details(document: &Value) -> Vec<String> {
     details
 }
 
-fn cases(text: &mut String, document: &Value) {
-    let mut rules = document["rules"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-        .iter()
-        .collect::<Vec<_>>();
-    rules.sort_by_key(|rule| (rule["module"].as_str(), rule["index"].as_u64()));
-    let names = |key: &str, id: &str| {
-        let mut names = Vec::<String>::new();
-        for rule in &rules {
-            // A front end that reads a sentence's match at its own level (krs: a pattern's
-            // templates, which the K moved into the condition) lists it as `krs.matched_by`.
-            let programs = rule["krs"][key]
+/// A coverage document's settings, each family's open ids and whether the flips ran (module
+/// documentation); nothing for a refused specification, which has no families.
+fn coverage(text: &mut String, document: &Value) {
+    let settings = &document["settings"];
+    if settings.is_object() {
+        text.push_str("\n[settings]\n");
+        let numbers = |value: &Value| {
+            let items = value
                 .as_array()
-                .filter(|_| key == "matched_by")
-                .or_else(|| rule[key].as_array());
-            let listed =
-                programs.is_some_and(|programs| programs.iter().any(|program| program == id));
-            let name = rule_name(rule);
-            if listed && !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        names
-    };
-    for program in document["programs"].as_array().into_iter().flatten() {
-        let id = program["id"].as_str().unwrap_or_default();
-        text.push_str("\n[[case]]\n");
-        line(text, "id", &string(id));
-        line(
-            text,
-            "class",
-            &string(program["class"].as_str().unwrap_or("refused")),
-        );
-        line(text, "fired", &strings(&names("fired_by", id)));
-        line(text, "matched", &strings(&names("matched_by", id)));
-    }
-}
-
-/// Each fired or matched rule whose guard misses an outcome (`crate::guards::gaps`), ordered by
-/// module and position: the guard outcomes no comparable program saw (`never`, of `held` and
-/// `refuted`), then each operand that misses `true` or `false`, by its text. Where a front end
-/// grouped the guard by its own constructs (`guard.krs`), its status (`krs.status`), its `never`
-/// and its authored operands, named by their source text, are read; the tests it inserted and a
-/// pattern's templates are not guard gaps. `undecided = true` marks a gap beside which some
-/// program left the guard or the operand undecided, so that the gap may be the report's and not
-/// the corpus's. Program lists are left out, so a lock moves when a gap opens or closes, not
-/// with every new case.
-fn guards(text: &mut String, document: &Value) {
-    let mut rules = document["rules"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-        .iter()
-        .filter(|rule| matches!(rule_status(rule), Some("fired" | "matched")))
-        .filter(|rule| rule.get("guard").is_some_and(crate::guards::misses))
-        .collect::<Vec<_>>();
-    rules.sort_by_key(|rule| (rule["module"].as_str(), rule["index"].as_u64()));
-    let names = |values: &Value| {
-        values
+                .into_iter()
+                .flatten()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            format!("[{}]", items.join(", "))
+        };
+        line(text, "tiers", &numbers(&settings["tiers"]));
+        line(text, "depth", &settings["depth"].to_string());
+        let mcdc = settings["mcdc"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
             .map(str::to_owned)
-            .collect::<Vec<_>>()
-    };
-    let undecided = |value: &Value| {
-        value["undecided_by"]
-            .as_array()
-            .is_some_and(|programs| !programs.is_empty())
-    };
-    for rule in rules {
-        let guard = &rule["guard"];
-        let (never, operands) = crate::guards::gaps(guard);
-        text.push_str("\n[[guard]]\n");
-        line(text, "rule", &string(&rule_name(rule)));
-        line(text, "never", &strings(&names(never)));
-        if undecided(guard) && !names(never).is_empty() {
-            line(text, "undecided", "true");
-        }
-        for operand in operands {
-            let never = names(&operand["never"]);
-            if never.is_empty() {
-                continue;
-            }
-            text.push_str("\n[[guard.operand]]\n");
-            let shown = operand["text"].as_str().unwrap_or_default();
-            line(text, "text", &string(shown));
-            line(text, "never", &strings(&never));
-            if undecided(operand) {
-                line(text, "undecided", "true");
-            }
-        }
+            .collect::<Vec<_>>();
+        line(text, "mcdc", &strings(&mcdc));
+    }
+    if !document["families"].is_object() {
+        return;
+    }
+    for (family, open) in crate::coverage::open_ids(document) {
+        let _ = write!(text, "\n[{family}]\n");
+        line(text, "open", &strings(&open));
+    }
+    let flips = &document["families"]["flips"];
+    if flips.is_object() {
+        text.push_str("\n[flips]\n");
+        line(
+            text,
+            "run",
+            &flips["run"].as_bool().unwrap_or(false).to_string(),
+        );
     }
 }
 
@@ -415,33 +361,6 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
                 .collect::<Vec<_>>();
             line(text, "killed_by", &strings(&killers));
         }
-    }
-}
-
-/// A rule's name: its KRS item, as the document's annotation version spells it (the header's
-/// `krs_annotation`), its label, or its `file:line` (`module#index` without a file).
-/// A rule's status: the front end's (`krs.status`, which reads a sentence's match at its own
-/// level) where it gave one, else kink-flow's.
-fn rule_status(rule: &Value) -> Option<&str> {
-    rule["krs"]["status"]
-        .as_str()
-        .or_else(|| rule["status"].as_str())
-}
-
-fn rule_name(rule: &Value) -> String {
-    if let Some(item) = rule["krs"]["item"].as_str() {
-        return item.to_owned();
-    }
-    if let Some(label) = rule["label"].as_str() {
-        return label.to_owned();
-    }
-    match (rule["file"].as_str(), rule["start_line"].as_u64()) {
-        (Some(file), Some(line)) => format!("{file}:{line}"),
-        _ => format!(
-            "{}#{}",
-            rule["module"].as_str().unwrap_or_default(),
-            rule["index"]
-        ),
     }
 }
 

@@ -1,5 +1,7 @@
 //! The `kink-flow` command line. Every command prints one JSON document on stdout, or with
-//! `--output verdicts` (`results` and `run`) its deterministic rendering ([`crate::verdicts`]).
+//! `--output verdicts` (`coverage`, `run` and `report`) its deterministic rendering
+//! ([`crate::verdicts`]), or with `coverage --output text` a summary for a reader
+//! ([`crate::coverage::text`]).
 //!
 //! Exit status: what the caller does next, one of four: [`EXIT_YES`] when the
 //! command answered its question (rely on the answer), [`EXIT_NO`] when the answer is a finding
@@ -8,7 +10,7 @@
 //! when the command ran and has no answer (retry with more budget or another approach). A
 //! command that answers for several parts (programs, mutations, (pattern, program) pairs) exits
 //! with the [`exit_join`] of the parts' statuses. Each verb's statuses are its function's
-//! (`check_with`, `results`, `run`, `report`, `query`, `fuzz`).
+//! (`check_with`, `coverage`, `run`, `report`, `query`, `fuzz`).
 //!
 //! A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` file or a mutations directory of
 //! `<topic>.toml` files ([`MutationList::read`]).
@@ -26,6 +28,7 @@
 use crate::{
     admit::{FlowAdmission, admit_spec},
     check::{CorpusCoverage, Finding, MutationCheck, check_mutations, corpus_coverage},
+    coverage::{CoverageOptions, Tier},
     fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
@@ -33,7 +36,7 @@ use crate::{
     pattern::PatternList,
     query::{QueryOptions, pattern_list_refused},
     report::{ReportOptions, render},
-    results::{ResultsOptions, cache_directory},
+    results::cache_directory,
     search::{RunMode, RunOptions, mutation_list_refused},
 };
 use kink_campaign::ScheduleMode;
@@ -63,8 +66,8 @@ macro_rules! usage_line {
     () => {
         "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
          MUTATIONS] [--cache DIR] | kink-flow \
-         results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
-         [--output json|verdicts] | kink-flow run \
+         coverage FLOW.toml [--tier 1] [--verify] [--cache DIR] \
+         [--output json|text|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
          [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
@@ -93,8 +96,8 @@ pub const HELP: &str = concat!(
     "
 
 The loop:
-  1. write programs in FLOW.toml; kink-flow results FLOW.toml until every rule in scope fires
-     and every guard outcome is seen or argued unreachable
+  1. write programs in FLOW.toml; kink-flow coverage FLOW.toml --output text until nothing is
+     open: every rule in scope fires, and every requirement of its condition is covered
   2. write mutations (MUTATIONS.toml, or one <topic>.toml per topic in a directory);
      kink-flow check FLOW.toml --mutations MUTATIONS until it exits 0
   3. kink-flow run FLOW.toml MUTATIONS: it reports the survivors, mutations no program kills
@@ -128,7 +131,7 @@ Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-
 /// What a usage error prints on stderr after its message when the command line names no verb:
 /// the shape of every command line, and where the rest is.
 const GENERAL_USAGE: &str = "usage: kink-flow --version | kink-flow VERB FLOW.toml [OPERAND] \
-     [OPTIONS], VERB one of check, results, run, report, query, fuzz\n`kink-flow --help` \
+     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz\n`kink-flow --help` \
      explains the loop; `kink-flow VERB --help` lists a verb's options";
 
 /// Run one command; returns the process exit status.
@@ -170,7 +173,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                     if first == "--version" {
                         "--version takes no operand or option".to_owned()
                     } else {
-                        format!("unknown verb {first:?}")
+                        Verb::retired(first).unwrap_or_else(|| format!("unknown verb {first:?}"))
                     }
                 },
             ),
@@ -214,6 +217,13 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     }
     let text = match output {
         OutputFormat::Json => format!("{}\n", render(&document)),
+        OutputFormat::Text => match crate::coverage::text(&document) {
+            Ok(text) => text,
+            Err(message) => {
+                eprintln!("kink-flow: {message}");
+                return EXIT_UNASKED;
+            }
+        },
         OutputFormat::Verdicts => match crate::verdicts::verdicts(&document) {
             Ok(text) => {
                 // The rendering names a refusal or a stop by its reason; its text goes to stderr.
@@ -254,7 +264,7 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
             }
             rest
         }
-        Verb::Check | Verb::Results | Verb::Report => rest,
+        Verb::Check | Verb::Coverage | Verb::Report => rest,
     };
     Some((verb, PathBuf::from(manifest), files, rest))
 }
@@ -356,14 +366,19 @@ const CHECK_OPTIONS: &[VerbOption] = &[
     ),
 ];
 
-const RESULTS_OPTIONS: &[VerbOption] = &[
-    VERIFY,
+const COVERAGE_OPTIONS: &[VerbOption] = &[
     option(
-        "--mutations MUTATIONS",
-        "also list the rules no mutation of this list targets (untargeted_rules)",
+        "--tier 1",
+        "the families read from the baseline runs, the only tier this build computes (the \
+         default; tier 2's condition flips need a front end that judges them)",
     ),
+    VERIFY,
     CACHE,
-    OUTPUT,
+    option(
+        "--output json|text|verdicts",
+        "print the JSON document (default), a summary with one line per open target, or the \
+         deterministic verdicts rendering",
+    ),
 ];
 
 const RUN_OPTIONS: &[VerbOption] = &[
@@ -535,7 +550,7 @@ pub fn on_stack<T: Send>(body: impl FnOnce() -> T + Send) -> Option<T> {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Verb {
     Check,
-    Results,
+    Coverage,
     Run,
     Report,
     Query,
@@ -546,7 +561,7 @@ impl Verb {
     /// Every verb, in the order the usage lists them.
     pub const ALL: [Self; 6] = [
         Self::Check,
-        Self::Results,
+        Self::Coverage,
         Self::Run,
         Self::Report,
         Self::Query,
@@ -556,12 +571,23 @@ impl Verb {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Check => "check",
-            Self::Results => "results",
+            Self::Coverage => "coverage",
             Self::Run => "run",
             Self::Report => "report",
             Self::Query => "query",
             Self::Fuzz => "fuzz",
         }
+    }
+
+    /// Why `name` is no verb when a verb of an earlier kink-flow had that name, with the verb that
+    /// replaced it: `results`, which `coverage` replaced.
+    #[must_use]
+    pub fn retired(name: &str) -> Option<String> {
+        (name == "results").then(|| {
+            "`results` is no longer a verb: `coverage` replaced it, and lists the same programs \
+             and rules with each obligation covered or open and a target for each open one"
+                .to_owned()
+        })
     }
 
     /// The verb spelled `name`.
@@ -575,9 +601,9 @@ impl Verb {
     pub const fn synopsis(self) -> &'static str {
         match self {
             Self::Check => "check FLOW.toml [--mutations MUTATIONS] [--cache DIR]",
-            Self::Results => {
-                "results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] [--output \
-                 json|verdicts]"
+            Self::Coverage => {
+                "coverage FLOW.toml [--tier 1] [--verify] [--cache DIR] [--output \
+                 json|text|verdicts]"
             }
             Self::Run => {
                 "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] [--lock FILE \
@@ -605,9 +631,10 @@ impl Verb {
                 "Whether every verdict the corpus promises is possible, before any mutant runs; \
                  with --mutations, also each mutation's resolution, shown before and after."
             }
-            Self::Results => {
-                "What each program's baseline run computes: its class, the rules it matches and \
-                 fires, and whether it meets its expectation."
+            Self::Coverage => {
+                "What the corpus covers of the obligations the specification states (its rules, \
+                 the requirements of their conditions), each covered or open with a target, and \
+                 each program's baseline class and expectation."
             }
             Self::Run => {
                 "Each mutation's verdict: is there a program of the corpus whose result the \
@@ -637,7 +664,7 @@ impl Verb {
     pub const fn options(self) -> &'static [VerbOption] {
         match self {
             Self::Check => CHECK_OPTIONS,
-            Self::Results => RESULTS_OPTIONS,
+            Self::Coverage => COVERAGE_OPTIONS,
             Self::Run => RUN_OPTIONS,
             Self::Report => REPORT_OPTIONS,
             Self::Query => QUERY_OPTIONS,
@@ -649,7 +676,7 @@ impl Verb {
     const fn reference(self) -> &'static str {
         match self {
             Self::Check => "kink-flow check",
-            Self::Results => "kink-flow results",
+            Self::Coverage => "kink-flow coverage",
             Self::Run => "kink-flow run",
             Self::Report => "kink-flow report",
             Self::Query => "Checking a pattern",
@@ -660,7 +687,7 @@ impl Verb {
     /// The operands `kink-flow <verb>` takes before its options.
     pub const fn operands(self) -> &'static str {
         match self {
-            Self::Check | Self::Results | Self::Report => "FLOW.toml",
+            Self::Check | Self::Coverage | Self::Report => "FLOW.toml",
             Self::Run => "FLOW.toml MUTATIONS.toml",
             Self::Query => "FLOW.toml PATTERNS.toml",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
@@ -676,17 +703,17 @@ impl Verb {
         let schema = match self {
             Self::Check => return manifest_refused(error),
             Self::Fuzz => return crate::fuzz::input_refused("FLOW.toml", error),
-            Self::Results => "kink-flow-results",
+            Self::Coverage => crate::coverage::COVERAGE_SCHEMA,
             Self::Run => crate::report::RUN_SCHEMA,
             Self::Report => crate::report::MISSING_SCHEMA,
             Self::Query => crate::query::QUERY_SCHEMA,
         };
         let mut document = manifest_refused(error);
         document["schema"] = json!(schema);
-        // A refused `results` or `run` document is rendered (`--output verdicts`), and every
+        // A refused `coverage` or `run` document is rendered (`--output verdicts`), and every
         // rendering under the Z3 profile names the build (`crate::with_z3_build`).
         match self {
-            Self::Results | Self::Run => crate::with_z3_build(document),
+            Self::Coverage | Self::Run => crate::with_z3_build(document),
             _ => document,
         }
     }
@@ -695,7 +722,7 @@ impl Verb {
     const fn task(self) -> &'static str {
         match self {
             Self::Check => "admission",
-            Self::Results => "results",
+            Self::Coverage => "coverage",
             Self::Run => "run",
             Self::Report => "report",
             Self::Query => "query",
@@ -704,8 +731,8 @@ impl Verb {
     }
 }
 
-/// How a front end spells its commands in the next steps documents give ("run `kink-flow results
-/// --verify`", "run `krs kink results --verify`"). A front end implements it with whatever
+/// How a front end spells its commands in the next steps documents give ("run `kink-flow coverage
+/// --verify`", "run `krs kink coverage --verify`"). A front end implements it with whatever
 /// selects the corpus it runs on (a package path, a definition facet), so that a next step
 /// reproduces the step for that corpus; kink-flow's own is [`KinkFlowSpelling`]. The texts a
 /// document appends, such as ` --verify` or ` --only ID`, are the verb's own options, so both
@@ -789,8 +816,10 @@ pub enum OutputFormat {
     /// The JSON document.
     #[default]
     Json,
-    /// The deterministic rendering of a `results` or `run` document ([`crate::verdicts`]).
+    /// The deterministic rendering of a `coverage` or `run` document ([`crate::verdicts`]).
     Verdicts,
+    /// The summary of a `coverage` document for a reader ([`crate::coverage::text`]).
+    Text,
 }
 
 /// The files a verb reads besides the manifest, as the front end finds them: kink-flow's
@@ -823,8 +852,8 @@ fn ids<'a>(ids: impl Iterator<Item = &'a str>) -> String {
 #[derive(Clone, Debug)]
 pub enum FlowCommand {
     Check(CheckOptions),
-    Results {
-        options: ResultsOptions,
+    Coverage {
+        options: CoverageOptions,
         output: OutputFormat,
     },
     Run {
@@ -857,7 +886,9 @@ impl FlowCommand {
     /// must be one of its list when the list decodes (a list that does not decode is the
     /// command's refusal, not a usage error). The error is the usage message.
     pub fn parse(verb: &str, files: CommandFiles, options: &[String]) -> Result<Self, String> {
-        let verb = Verb::parse(verb).ok_or_else(|| format!("unknown command {verb:?}"))?;
+        let verb = Verb::parse(verb).ok_or_else(|| {
+            Verb::retired(verb).unwrap_or_else(|| format!("unknown command {verb:?}"))
+        })?;
         let not_found = |path: &Path| format!("{} is not a file or directory", path.display());
         let not_file = |path: &Path| format!("{} is not a file", path.display());
         match verb {
@@ -869,13 +900,9 @@ impl FlowCommand {
                 }
                 Ok(Self::Check(options))
             }
-            Verb::Results => {
-                let (mut options, output) = results_options(options)?;
-                options.mutations = options.mutations.or(files.mutations);
-                if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
-                    return Err(not_found(list));
-                }
-                Ok(Self::Results { options, output })
+            Verb::Coverage => {
+                let (options, output) = coverage_options(options)?;
+                Ok(Self::Coverage { options, output })
             }
             Verb::Run => {
                 let mutations = files.mutations.ok_or("run needs a mutation list")?;
@@ -991,7 +1018,7 @@ impl FlowCommand {
     pub const fn verb(&self) -> Verb {
         match self {
             Self::Check(_) => Verb::Check,
-            Self::Results { .. } => Verb::Results,
+            Self::Coverage { .. } => Verb::Coverage,
             Self::Run { .. } => Verb::Run,
             Self::Report { .. } => Verb::Report,
             Self::Query { .. } => Verb::Query,
@@ -1014,12 +1041,12 @@ impl FlowCommand {
         document
     }
 
-    /// What the command prints: `--output` of `results`, `run` and `report`, the JSON document
+    /// What the command prints: `--output` of `coverage`, `run` and `report`, the JSON document
     /// otherwise.
     #[must_use]
     pub const fn output(&self) -> OutputFormat {
         match self {
-            Self::Results { output, .. }
+            Self::Coverage { output, .. }
             | Self::Run { output, .. }
             | Self::Report { output, .. } => *output,
             _ => OutputFormat::Json,
@@ -1153,9 +1180,13 @@ pub fn run_command(
                 check_mutations_document(&checked, front.spelling)
             }
         },
-        FlowCommand::Results { options, .. } => {
-            let (document, ok) = crate::results::results(manifest, options);
-            let status = completed(results_status(&document), ok);
+        FlowCommand::Coverage { options, .. } => {
+            // The derived part reads the rules as the front end named them, so it follows the
+            // annotation; `derive` and the annotation are idempotent.
+            let (document, ok) = crate::coverage::coverage(manifest, options);
+            let mut document = front.annotated(document);
+            crate::coverage::derive(&mut document, front.spelling);
+            let status = completed(coverage_status(&document), ok);
             (document, status)
         }
         FlowCommand::Run {
@@ -1285,7 +1316,7 @@ fn record_status(row: &Value) -> u8 {
     }
 }
 
-/// The status of a program's baseline row of a `results` document by its class
+/// The status of a program's baseline row of a `coverage` document by its class
 /// ([`crate::results::ResultClass`]): `comparable` [`EXIT_YES`]; `timeout` and `unknown`
 /// [`EXIT_UNANSWERED`], since the run has no end kink compares; `refused` and `error`
 /// [`EXIT_UNASKED`]; joined with [`EXIT_UNASKED`] for a result record it could not write.
@@ -1310,13 +1341,15 @@ fn baseline_status(row: &Value) -> u8 {
     }
 }
 
-/// The exit status of a `results` document: `results` asks what each program's baseline run
-/// computes and, for a case with an expectation, whether it meets it. The join of each program's
-/// class ([`program_status`]) and expectation ([`expectation_status`]), [`EXIT_NO`] for a
-/// `--verify` mismatch, and [`EXIT_UNASKED`] for a refused specification or mutation list.
+/// The exit status of a `coverage` document: the corpus ran, every program is comparable and
+/// every expectation is met. The join of each program's class ([`program_status`]: a timeout or
+/// unknown program covers nothing, so the answer is incomplete) and expectation
+/// ([`expectation_status`]), [`EXIT_NO`] for a `--verify` mismatch, and [`EXIT_UNASKED`] for a
+/// refused specification. An open obligation is no finding: coverage states the gap, and the
+/// corpus's author decides what to write.
 #[must_use]
-pub fn results_status(document: &Value) -> u8 {
-    if spec_refused(document) || document["mutation_list"]["outcome"] == "refused" {
+pub fn coverage_status(document: &Value) -> u8 {
+    if spec_refused(document) {
         return EXIT_UNASKED;
     }
     let programs = document["programs"]
@@ -1478,7 +1511,7 @@ pub fn fuzz_status(document: &Value) -> u8 {
 fn stop_unsupported(command: &FlowCommand) -> Value {
     let detail = format!(
         "{} does not run a stopped corpus yet: its searches end no path at [stop], so its answers \
-         would not be about the runs this corpus observes; use `check`, `results` and `run`, or \
+         would not be about the runs this corpus observes; use `check`, `coverage` and `run`, or \
          a manifest without [stop]",
         command.verb().as_str()
     );
@@ -1630,26 +1663,49 @@ fn output_format(value: Option<&String>) -> Result<OutputFormat, String> {
     }
 }
 
-fn results_options(args: &[String]) -> Result<(ResultsOptions, OutputFormat), String> {
-    let mut options = ResultsOptions::default();
+fn coverage_options(args: &[String]) -> Result<(CoverageOptions, OutputFormat), String> {
+    let mut options = CoverageOptions::default();
+    let mut tier = None;
     let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
-        listed(Verb::Results, arg)?;
+        listed(Verb::Coverage, arg)?;
         match arg.as_str() {
-            "--output" if output.is_none() => output = Some(output_format(args.next())?),
+            "--output" if output.is_none() => {
+                let value = args.next().ok_or("--output needs json, text or verdicts")?;
+                output = Some(match value.as_str() {
+                    "json" => OutputFormat::Json,
+                    "text" => OutputFormat::Text,
+                    "verdicts" => OutputFormat::Verdicts,
+                    _ => {
+                        return Err(format!(
+                            "--output {value:?}: expected json, text or verdicts"
+                        ));
+                    }
+                });
+            }
+            "--tier" if tier.is_none() => {
+                let value = args.next().ok_or("--tier needs 1")?;
+                tier = Some(match value.as_str() {
+                    "1" => Tier::One,
+                    "2" => {
+                        return Err("--tier 2: tier 2's condition flips need a front end that \
+                             gives coverage the flips it generates, each judged as a mutation, \
+                             which no front end of this build does; coverage computes tier 1"
+                            .into());
+                    }
+                    _ => return Err(format!("--tier {value:?}: expected 1")),
+                });
+            }
             "--verify" if !options.verify => options.verify = true,
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
-            "--mutations" if options.mutations.is_none() => {
-                let list = args.next().ok_or("--mutations needs a file or directory")?;
-                options.mutations = Some(PathBuf::from(list));
-            }
             _ => return Err(repeated(arg)),
         }
     }
+    options.tier = tier.unwrap_or_default();
     Ok((options, output.unwrap_or_default()))
 }
 
@@ -2068,17 +2124,17 @@ pub fn invalid_mutations(document: &Value) -> u64 {
         .sum()
 }
 
-/// `kink-flow results FLOW.toml [--verify] [--cache DIR]`: the results document (README 5.3)
-/// and the exit status ([`results_status`]): [`EXIT_YES`] when every program is comparable and
-/// meets its expectation, if it has one; [`EXIT_NO`] when an expectation is unmet or `--verify`
-/// found a mismatch; [`EXIT_UNANSWERED`] for a program that times out or is unknown, or an
-/// expectation that is inconclusive; [`EXIT_UNASKED`] when the manifest, the specification, the
-/// mutation list or a program is refused, a run failed or a record could not be written.
-/// A timeout or unknown program is not an error: it is reported, and it cannot kill.
-pub fn results(manifest: &Path, options: &ResultsOptions) -> (Value, u8) {
+/// `kink-flow coverage FLOW.toml [--tier 1] [--verify] [--cache DIR]`: the coverage document
+/// ([`crate::coverage`]) and the exit status ([`coverage_status`]): [`EXIT_YES`] when every
+/// program is comparable and meets its expectation, if it has one; [`EXIT_NO`] when an
+/// expectation is unmet or `--verify` found a mismatch; [`EXIT_UNANSWERED`] for a program that
+/// times out or is unknown, or an expectation that is inconclusive; [`EXIT_UNASKED`] when the
+/// manifest, the specification, a `[coverage]` value or a program is refused, a run failed or a
+/// record could not be written. An open obligation is not a finding.
+pub fn coverage(manifest: &Path, options: &CoverageOptions) -> (Value, u8) {
     on_manifest(
         manifest,
-        &FlowCommand::Results {
+        &FlowCommand::Coverage {
             options: options.clone(),
             output: OutputFormat::Json,
         },
@@ -2308,7 +2364,7 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
 /// `refused` (stage, reason and detail of the refusal), or `excluded`: admitted, but every run of
 /// it on the baseline is excluded before it runs (stage `definition` or `initial-state`, the
 /// exclusion's name as reason, and why). `data` is the baseline's full critical-pair check under
-/// `[spec] assume_joined`, as the run, `results` and `query` documents print it (kink-native
+/// `[spec] assume_joined`, as the run, `coverage` and `query` documents print it (kink-native
 /// `DataFacts::value`), and `spec.baseline_findings` says why the baseline has no data
 /// ([`baseline_findings`]); `result` names the slots and the cells the programs' second slot
 /// compares ([`crate::observed::ResultProjection::value`]); all three are null when the
@@ -2520,7 +2576,8 @@ mod tests {
     fn value(name: &str) -> &'static str {
         match name {
             "cost|corpus" => "cost",
-            "json|verdicts" => "json",
+            "json|verdicts" | "json|text|verdicts" => "json",
+            "1|2" => "1",
             "N" | "W" | "S" | "T" => "1",
             _ => "value",
         }
@@ -2540,7 +2597,7 @@ mod tests {
                 }
                 let error = match verb {
                     Verb::Check => check_options(&args).err(),
-                    Verb::Results => results_options(&args).err(),
+                    Verb::Coverage => coverage_options(&args).err(),
                     Verb::Run => run_options(&args).err(),
                     Verb::Report => report_options(&args).err(),
                     Verb::Query => query_options(&args).err(),
@@ -2558,7 +2615,7 @@ mod tests {
             let unlisted = ["--unlisted".to_owned()];
             let error = match verb {
                 Verb::Check => check_options(&unlisted).err(),
-                Verb::Results => results_options(&unlisted).err(),
+                Verb::Coverage => coverage_options(&unlisted).err(),
                 Verb::Run => run_options(&unlisted).err(),
                 Verb::Report => report_options(&unlisted).err(),
                 Verb::Query => query_options(&unlisted).err(),
@@ -2577,7 +2634,7 @@ mod tests {
         for verb in Verb::ALL {
             let error = match verb {
                 Verb::Check => check_options(&twice).err(),
-                Verb::Results => results_options(&twice).err(),
+                Verb::Coverage => coverage_options(&twice).err(),
                 Verb::Run => run_options(&twice).err(),
                 Verb::Report => report_options(&twice).err(),
                 Verb::Query => query_options(&twice).err(),

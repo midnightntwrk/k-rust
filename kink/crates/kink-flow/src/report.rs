@@ -66,10 +66,10 @@
 //!
 //! CF-03 (version 15): a run of a definition whose short-circuit analysis flags a rule is judged
 //! by k-rust's `shortCircuitReadings` list of that run, so `spec.exclusion` no longer names the
-//! short-circuit reading (the check and results documents' `spec.short_circuit` name the flagged
+//! short-circuit reading (the check and coverage documents' `spec.short_circuit` name the flagged
 //! rules); an executed entry whose mutant run lists readings that count against it carries
 //! `short_circuit_readings` (`crate::exclusion::readings_value`), and its cause names the step;
-//! a program's row carries its baseline run's (`results`).
+//! a program's row carries its baseline run's (`coverage`).
 //!
 //! CF-16 (version 12): every executed entry of a compared program carries `difference`, the kill
 //! evidence of a distinguishing one (null otherwise; [`crate::evidence`]): the first differing
@@ -382,7 +382,7 @@ pub fn action_spelled(
         "error" if reason.is_some_and(is_corpus_error) => Some(format!(
             "fix the corpus: a cached result no longer describes its program's baseline run; \
              run `{} --verify`",
-            spelling.command(Verb::Results)
+            spelling.command(Verb::Coverage)
         )),
         _ => action(status, reason).map(str::to_owned),
     }
@@ -496,7 +496,7 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         }
         "error" if reason.is_some_and(is_corpus_error) => {
             "fix the corpus: a cached result no longer describes its program's baseline run; \
-             run `kink-flow results FLOW.toml --verify`"
+             run `kink-flow coverage FLOW.toml --verify`"
         }
         "error" if reason == Some("no-comparable-program") => {
             "write a program whose baseline result is comparable: no program can kill yet"
@@ -1117,7 +1117,7 @@ pub fn survivors(mutations: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// The kill matrix of a full run (`run --full`), from its program rows (the `results` rows, in
+/// The kill matrix of a full run (`run --full`), from its program rows (the `coverage` rows, in
 /// corpus order) and its mutation rows: `{programs: [{id, kills, sole_killer_of, undecided}]}`,
 /// one entry per program whose class is `comparable`, in corpus order (a list, since a JSON
 /// object would order the ids by name). `kills` are the mutations (in row order) whose
@@ -1165,7 +1165,7 @@ pub fn matrix(programs: &[Value], mutations: &[Value]) -> Value {
 }
 
 /// Every program that cannot kill (its result class is not `comparable`), once, from the
-/// `results` rows: `{id, class, cause}`.
+/// `coverage` rows: `{id, class, cause}`.
 pub fn unusable_programs(programs: &[Value]) -> Vec<Value> {
     programs
         .iter()

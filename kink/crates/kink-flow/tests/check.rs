@@ -1814,12 +1814,12 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             .with_input_decoder(std::sync::Arc::new(TestDecoder));
         let list = kink_flow::MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
         let ((results, results_ok), (run, run_ok)) = on_stack(move || {
-            let results = kink_flow::results::results(
+            let results = kink_flow::coverage::coverage(
                 &manifest,
-                &kink_flow::results::ResultsOptions {
+                &kink_flow::coverage::CoverageOptions {
                     verify: false,
                     cache: None,
-                    mutations: None,
+                    ..kink_flow::coverage::CoverageOptions::default()
                 },
             );
             let run = kink_flow::search::run(
@@ -1860,8 +1860,8 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     #[ignore = "kink"]
     fn results_and_run_print_the_exclusion_as_check_does() {
         use kink_flow::{
-            cli::{results, run},
-            results::ResultsOptions,
+            cli::{coverage, run},
+            coverage::CoverageOptions,
             search::RunOptions,
         };
         let dir = scfetch_flow("scfetch-results");
@@ -1875,11 +1875,11 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         let manifest = dir.join("FLOW.toml");
         let (checked, results_document, run_document) = on_stack(move || {
             let (checked, _) = check(&manifest);
-            let (results_document, status) = results(
+            let (results_document, status) = coverage(
                 &manifest,
-                &ResultsOptions {
+                &CoverageOptions {
                     cache: Some(dir.join("cache")),
-                    ..ResultsOptions::default()
+                    ..CoverageOptions::default()
                 },
             );
             assert_eq!(
@@ -1937,11 +1937,11 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             let cache = manifest.parent().unwrap().join("cache");
             on_stack(move || {
                 let (checked, _) = check(&manifest);
-                let (results_document, _) = results(
+                let (results_document, _) = coverage(
                     &manifest,
-                    &ResultsOptions {
+                    &CoverageOptions {
                         cache: Some(cache),
-                        ..ResultsOptions::default()
+                        ..CoverageOptions::default()
                     },
                 );
                 (checked, results_document)
@@ -1986,8 +1986,8 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     #[ignore = "kink"]
     fn check_warns_of_an_unwitnessed_rule_and_run_refuses_an_invalid_mutation() {
         use kink_flow::{
-            cli::{results, run},
-            results::ResultsOptions,
+            cli::{coverage, run},
+            coverage::CoverageOptions,
             search::RunOptions,
         };
         let dir = calc_copy("check-unreached");
@@ -2015,7 +2015,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             serde_json::json!([])
         );
 
-        let (document, status) = results(&manifest, &ResultsOptions::default());
+        let (document, status) = coverage(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_YES, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
         assert_eq!(status, EXIT_UNASKED, "{document:#}");
@@ -2077,7 +2077,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     #[test]
     #[ignore = "kink"]
     fn a_timeout_keeps_check_from_deciding_coverage_until_it_is_bounded_by_work() {
-        use kink_flow::{cli::results, results::ResultsOptions};
+        use kink_flow::{cli::coverage, coverage::CoverageOptions};
         let dir = scratch("check-timeout");
         for name in ["loop.k", "FLOW-timeout.toml"] {
             fs::copy(flow("loop").join(name), dir.join(name)).unwrap();
@@ -2108,7 +2108,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         };
         let timeout = dir.join("FLOW-timeout.toml");
         for _ in 0..2 {
-            let (document, status) = results(&timeout, &ResultsOptions::default());
+            let (document, status) = coverage(&timeout, &CoverageOptions::default());
             assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
             assert_eq!(
                 classes(&document),
@@ -2144,7 +2144,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                 "time_ms = 600000\nbaseline_max_work = 20000\n",
             ),
         );
-        let (document, status) = results(&work, &ResultsOptions::default());
+        let (document, status) = coverage(&work, &CoverageOptions::default());
         assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         assert_eq!(
             classes(&document),
@@ -2170,7 +2170,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     #[test]
     #[ignore = "kink"]
     fn check_warns_of_a_rule_every_program_refutes() {
-        use kink_flow::{cli::results, results::ResultsOptions};
+        use kink_flow::{cli::coverage, coverage::CoverageOptions};
         let dir = scratch("check-unapplied");
         fs::copy(flow("divide").join("divide.k"), dir.join("divide.k")).unwrap();
         let header = "[spec]\nentry = \"divide.k\"\nmain_module = \"DIVIDE\"\n\
@@ -2193,7 +2193,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             ]
             .concat(),
         );
-        let (document, status) = results(&manifest, &ResultsOptions::default());
+        let (document, status) = coverage(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_YES, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
         assert_eq!(status, EXIT_YES, "{document:#}");
@@ -2208,7 +2208,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             &manifest,
             &format!("{header}{by_zero}\n[[program]]\nid = \"quotient\"\ntext = \"7 / 2\"\n"),
         );
-        let (document, status) = results(&manifest, &ResultsOptions::default());
+        let (document, status) = coverage(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_YES, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
         assert_eq!(status, EXIT_YES, "{document:#}");

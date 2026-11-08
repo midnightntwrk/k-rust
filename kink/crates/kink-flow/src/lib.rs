@@ -4,8 +4,8 @@
 //! F-02 provides the manifest ([`manifest`]), admission of the specification and its
 //! programs through kink-corpus's admission stages ([`admit`]) and the `check` command
 //! ([`cli`]). F-03 adds the specification and program digests ([`digest`]) and the result
-//! cache with the `results` command ([`results`]). F-04 adds the mutation list and its
-//! resolution into one pinned patch per mutation ([`mutation`]). F-05 adds the kill search
+//! cache ([`results`]), which the `coverage` command reads ([`coverage`]). F-04 adds the mutation
+//! list and its resolution into one pinned patch per mutation ([`mutation`]). F-05 adds the kill search
 //! and the `run` command ([`search`]). F-06 adds the survivor report to the run document and the
 //! `report` command ([`report`]). F-14 adds the outcome cache: tier 1, the proved outcome of a
 //! mutation on a program under an exact key ([`outcomes`]), and tier 2, killer hints that
@@ -37,13 +37,16 @@
 //! parser of every verb's options ([`FlowCommand::parse`]) and one way to run it
 //! ([`dispatch`]), with what a front end adds ([`FrontEnd`]: how next steps spell its commands,
 //! the mutations it refused before the engine, an annotation of the document); a visitor over
-//! every rule a document names ([`visit_rules`]); and the deterministic rendering of a results or
-//! run document ([`verdicts()`]). The engine does not change: a KRS corpus runs as a K corpus
-//! over the K its front end emitted.
+//! every rule a document names ([`visit_rules`]); and the deterministic rendering of a coverage or
+//! run document ([`verdicts()`]). The coverage document, which replaced the results document,
+//! lists the obligations the specification states, family by family, each covered or open, with
+//! a target for each open one ([`coverage`]). The engine does not change: a KRS corpus runs as a
+//! K corpus over the K its front end emitted.
 
 pub mod admit;
 pub mod check;
 pub mod cli;
+pub mod coverage;
 pub mod digest;
 pub mod evidence;
 pub mod exclusion;
@@ -104,7 +107,7 @@ pub fn k_rust_revision() -> String {
     k_rust::build_identity()
 }
 
-/// `document`, a `results` or `run` document, with `z3`, the Z3 build of this process
+/// `document`, a `coverage` or `run` document, with `z3`, the Z3 build of this process
 /// (kink-native `z3_build_value`: `{version, library_sha256}`), under the Z3 profile; under the
 /// no-Z3 profile `document` unchanged, so a portable document is the document it was before the
 /// member existed.

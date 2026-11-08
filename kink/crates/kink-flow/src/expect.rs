@@ -8,8 +8,8 @@
 //! expects. So no verdict or status depends on an expectation, and no run does: it
 //! is in no digest, no cache key and no stored record, and it is checked again by every command
 //! that reports it, from the baseline's ends (a live run's, or the stored record's). Only the
-//! exit status of `results`, which asks whether each baseline meets its expectation, joins it
-//! (`crate::cli::results_status`): an unmet expectation is a finding, an inconclusive one no
+//! exit status of `coverage`, which asks whether each baseline meets its expectation, joins it
+//! (`crate::cli::coverage_status`): an unmet expectation is a finding, an inconclusive one no
 //! answer.
 //!
 //! kink reads no expectation itself: an expectation is a document of a front end's encoding of
@@ -20,7 +20,7 @@
 //! decoder, and one whose expectation the renderer refuses is refused (`inputs`,
 //! `expectation-value`), as a case `krs run --case` refuses before it runs.
 //!
-//! A program with `expect` has an `expectation` member in its row of the results, run and query
+//! A program with `expect` has an `expectation` member in its row of the coverage, run and query
 //! documents and in its row of the check document: `{verdict, detail, difference}`, `verdict`
 //! `met`, `unmet` or `inconclusive`, `difference` the front end's document of the first
 //! difference where it is `unmet` (null otherwise), and `detail` why it is inconclusive, or how
@@ -119,7 +119,7 @@ impl CheckedExpectation {
 /// stored record.
 #[derive(Clone, Debug)]
 pub struct Baseline<'a> {
-    /// The result class (`results`' `class`).
+    /// The result class (a document's program `class`).
     pub class: &'a str,
     /// Its cause, when it has one.
     pub cause: Option<&'a str>,

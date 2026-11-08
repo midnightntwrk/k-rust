@@ -51,13 +51,16 @@
 //! Likewise its `[result] cells` names cells by Rust path or K name, mapped to K names, and every
 //! document's `result` gains the cells by path (`result.krs`, [`super::cells`]).
 //!
-//! A `results` document's guarded rows are named by KRS construct ([`super::guards`]): each node
-//! of a row's `guard.operands` gains a `krs` object, the guard gains `krs`, its authored
-//! operands, the tests KRS inserted and the pattern's `k::bits!` templates apart, and the row's
-//! `krs` of a sentence with templates gains `matched_by` and `status`, which read its match as the
-//! KRS pattern's. A guard the front end cannot name is listed under the document's
-//! `krs.unmatched_guards` (`{sentence, label, reason}`) rather than named by a guess, and the
-//! summary's `guards` is computed again over the named rows.
+//! A `coverage` document's guarded rules are named by KRS construct ([`super::guards`]): each
+//! node of a rule item's `guard.operands` gains a `krs` object, the guard gains `krs`, its
+//! authored operands, the tests KRS inserted and the pattern's `k::bits!` templates apart, and the
+//! item's `krs` of a sentence with templates gains `matched_by` and `status`, which read its match
+//! as the KRS pattern's. A guard the front end cannot name is listed under the document's
+//! `krs.unmatched_guards` (`{sentence, label, reason}`) rather than named by a guess. kink-flow
+//! derives the document's families, targets and summary from the rule items after this
+//! annotation (`kink_flow::coverage::derive`), so every item id and target names the rule by its
+//! KRS item (`rule:crate::plus_succ`), a requirement by the Rust text of its operand, and each
+//! target carries the item's Rust position.
 //!
 //! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
 //! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
@@ -65,7 +68,9 @@
 //! the `// KRS` line does (`plus_zero`, `Clamp, branch 3`), now `source_item`; version 3 adds
 //! `stop.krs.when`, the condition as the corpus wrote it, which a reader of version 2 would not
 //! know to read beside `stop.when`; version 4 names a `results` document's guard nodes and reads a
-//! template-guarded sentence's match as its KRS pattern's, as above.
+//! template-guarded sentence's match as its KRS pattern's, as above; version 5 annotates the
+//! `coverage` document, which replaced the `results` document, whose ids, targets and counts are
+//! read from the names and the grouping above.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -107,7 +112,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 4;
+pub(crate) const ANNOTATION_VERSION: u64 = 5;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -159,7 +164,7 @@ pub(crate) struct Annotator {
     stop_items: Option<Value>,
     /// The cells by Rust path that every document's `result` gains ([`super::cells`]).
     result_names: Option<super::cells::ResultNames>,
-    /// The names of a `results` document's guard nodes ([`super::guards`]).
+    /// The names of a `coverage` document's guard nodes ([`super::guards`]).
     guards: Option<super::guards::GuardNames>,
 }
 
@@ -255,7 +260,7 @@ impl Annotator {
         self
     }
 
-    /// This annotator naming the guard nodes of a `results` document's rows by KRS construct
+    /// This annotator naming the guard nodes of a `coverage` document's rule items by KRS construct
     /// ([`super::guards`]).
     pub(crate) fn naming_guards(mut self, guards: super::guards::GuardNames) -> Self {
         self.guards = Some(guards);
@@ -383,14 +388,6 @@ impl Annotator {
         unnamed.dedup();
         unmatched_guards.sort_by_key(ToString::to_string);
         unmatched_guards.dedup();
-        // The summary counts the operands the rows report, which the guards' grouping changed.
-        if self.guards.is_some()
-            && document["summary"].get("guards").is_some()
-            && let Some(rules) = document["rules"].as_array()
-        {
-            let guards = kink_flow::guards::summary(rules);
-            document["summary"]["guards"] = guards;
-        }
         if let Some(top) = document.as_object_mut() {
             let mut krs = Map::new();
             krs.insert("version".into(), json!(ANNOTATION_VERSION));

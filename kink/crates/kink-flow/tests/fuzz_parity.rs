@@ -47,11 +47,11 @@ use k_rust_fuzz::{
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList, admit_spec,
+    coverage::CoverageOptions,
     fuzz::{FuzzJob, FuzzOptions, TemplateList, compiled_side, fuzz_job},
     memo::MemoUse,
     pattern::PatternList,
     query::{QueryOptions, query},
-    results::{ResultsOptions, results},
     search::{RunOptions, run},
 };
 use serde_json::{Value, json};
@@ -143,11 +143,11 @@ fn kink_results(dir: &Path) -> Value {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let cache = dir.join("cache");
     let (document, ok) = on_stack(move || {
-        results(
+        kink_flow::coverage::coverage(
             &manifest,
-            &ResultsOptions {
+            &CoverageOptions {
                 cache: Some(cache),
-                ..ResultsOptions::default()
+                ..CoverageOptions::default()
             },
         )
     });
@@ -848,7 +848,7 @@ endmodule
             document["data"]
         );
         assert_eq!(row(&document, "cond-zero")["class"], "comparable");
-        let cond = document["rules"]
+        let cond = document["families"]["rules"]["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -1282,7 +1282,7 @@ endmodule
     /// pre-step state carries a path condition kink did not show feasible (`partial` is decided).
     /// The other direction, that a ground leaf without a path condition whose configuration is
     /// not shown to exist stays incomplete, is pinned by the bridge and step_events unit rows and,
-    /// end to end, by `tests/results.rs`
+    /// end to end, by `tests/coverage.rs`
     /// (`kink_tier::an_undefined_step_over_a_map_needs_trusted_collections`).
     #[test]
     #[ignore = "kink"]

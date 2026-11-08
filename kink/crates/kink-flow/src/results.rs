@@ -11,7 +11,7 @@
 //!
 //! Every campaign call of one command goes through the command's one [`BaselineRunner`], whose
 //! in-memory `kink_campaign::BaselineSession` runs each program's baseline live at most once per
-//! command (flow F-12, README 6.3): `results` runs each program once, and `run` reuses those
+//! command (flow F-12, README 6.3): `coverage` runs each program once, and `run` reuses those
 //! live runs in its kill search. The session is never written to disk, so a later command runs
 //! every baseline it needs live again. The documents report the count as `baseline_runs`.
 //!
@@ -67,12 +67,11 @@
 //! that the bound stops is `unknown`, a function of the key, which names the bound.
 
 use crate::{
-    admit::{AdmittedSpec, CaseInputs, InputSession, admit_spec},
+    admit::{AdmittedSpec, CaseInputs, InputSession},
     digest::{ExecutionDigest, execution_digest, program_digest, spec_digest},
     evidence::EndReader,
     expect::Baseline,
     manifest::{Budget, FlowManifest, Program},
-    mutation::qualified_label,
 };
 use k_rust::{
     backend::Backend,
@@ -90,7 +89,7 @@ use kink_campaign::{
     OracleDeclaration, OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun,
     StateProjection, TestCase, run_campaign_multi_ordered, run_campaign_multi_with,
 };
-use kink_corpus::{Store, StoreError, admission::AdmissionRecord, runner::all_normal};
+use kink_corpus::{Store, StoreError, runner::all_normal};
 use kink_native::{
     bridge::{LeafTerm, leaf_terms},
     coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
@@ -527,7 +526,7 @@ pub fn record_final_configuration(record: &Value) -> Option<Vec<&str>> {
 }
 
 /// Runs the campaign calls of one command over one admitted specification: each program's
-/// zero-mutant campaign (`results`) and the kill search's calls (`run`). It holds the command's
+/// zero-mutant campaign (`coverage`) and the kill search's calls (`run`). It holds the command's
 /// one validator (the specification's), so the baseline compiles once, and the command's one
 /// in-memory baseline session, so each program's baseline runs live at most once per command.
 pub struct BaselineRunner<'a> {
@@ -1778,21 +1777,10 @@ fn verify_record(record: &Value, result: &ProgramResult) -> Vec<String> {
     differences
 }
 
-/// Options of the `results` command.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ResultsOptions {
-    /// Re-run every program that has a current record and compare (README 5.3).
-    pub verify: bool,
-    /// The cache directory; default `<directory of FLOW.toml>/.kink-flow`.
-    pub cache: Option<PathBuf>,
-    /// A mutation list (`MUTATIONS.toml`): the document then lists the rules no resolving
-    /// mutation of it targets (`untargeted_rules`; flow F-13).
-    pub mutations: Option<PathBuf>,
-}
-
-/// One program's row of the results document, with its record when it has one.
+/// One program's row of a document that lists the programs' baseline runs (`coverage`, `run`,
+/// `query`), with its record when it has one.
 pub struct ProgramRow {
-    /// The program's row of the results document.
+    /// The program's row.
     pub row: Value,
     /// The program's current record (stored or just written), if it has one, without its ends
     /// ([`RECORD_ENDS`]): no reader of a row reads them, and a row holds its record until the
@@ -1824,8 +1812,8 @@ impl ProgramRow {
     }
 }
 
-/// The result cache brought up to date for one admitted specification (`results` without
-/// the document): one row per manifest program, in manifest order.
+/// The result cache brought up to date for one admitted specification: one row per manifest
+/// program, in manifest order.
 pub struct ResultsUpdate {
     /// The exact specification digest, which keys the memos and names the specification in every
     /// document.
@@ -1953,108 +1941,11 @@ pub fn result_store(solver: k_rust::backend::BackendOptions) -> Result<Sha256Dig
     kink_campaign::kink_build().map_err(|_| RESULT_CACHE_NO_BUILD)
 }
 
-/// The results document's `result_cache` for runs on backends built with `solver`:
+/// A document's `result_cache` for runs on backends built with `solver`:
 /// `{enabled, reason}`.
 pub fn result_cache_value(solver: k_rust::backend::BackendOptions) -> Value {
     let store = result_store(solver);
     json!({"enabled": store.is_ok(), "reason": store.err()})
-}
-
-/// `kink-flow results`: the results document and whether the command found no corpus or
-/// infrastructure error; the exit status joins it with the status the document gives
-/// (`crate::cli::results_status`).
-pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, bool) {
-    // Every document names the stop, a refused specification's too, as `check` and `run` do.
-    let stopped = |mut document: Value| {
-        if let Some(stop) = manifest.stop_value() {
-            document["stop"] = stop;
-        }
-        document
-    };
-    let (mut record, admitted) = admit_spec(manifest);
-    let Some((spec, mut inputs)) = admitted else {
-        return (
-            stopped(document(
-                &record,
-                None,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Value::Null,
-            )),
-            false,
-        );
-    };
-    let mut inputs = inputs.session(&spec);
-    let cache = cache_directory(manifest, options.cache.as_deref());
-    let runner = match BaselineRunner::new(&spec, manifest) {
-        Ok(runner) => runner,
-        Err(e) => {
-            record.refusal = Some(runner_refusal(e));
-            return (
-                stopped(document(
-                    &record,
-                    None,
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                    Value::Null,
-                )),
-                false,
-            );
-        }
-    };
-    let update = update_results(
-        &spec,
-        manifest,
-        &mut inputs,
-        &runner,
-        &cache,
-        options.verify,
-        None,
-    );
-    let mut ok = update.ok();
-    let rules = rules(&spec, manifest, &update.rows);
-    let programs = data_marked(
-        update.rows.into_iter().map(|row| row.row).collect(),
-        &spec.data,
-    );
-    let mut document = stopped(document(
-        &record,
-        Some(update.spec_digest),
-        programs,
-        rules,
-        update.mismatches,
-        runner.baseline_runs(),
-    ));
-    document["spec"]["execution_digest"] = update.execution.value();
-    document["result_cache"] = result_cache_value(manifest.budget.backend_options());
-    document["data"] = spec.data.value();
-    document["result"] = spec.result.value();
-    document["spec"]["exclusion"] = runner.definition_exclusion();
-    document["spec"]["short_circuit"] = runner.short_circuit();
-    // The rules no mutation of the given list targets (flow F-13, informational only).
-    if let Some(path) = &options.mutations {
-        match crate::mutation::MutationList::read(path) {
-            Ok(list) => {
-                let resolutions = list
-                    .mutations
-                    .iter()
-                    .map(|mutation| crate::mutation::resolve(manifest, &spec.loaded, mutation))
-                    .collect::<Vec<_>>();
-                document["untargeted_rules"] = Value::Array(crate::report::untargeted_rules(
-                    &crate::mutation::rule_texts(manifest, &spec.loaded),
-                    &crate::search::targeted(&resolutions),
-                ));
-            }
-            Err(error) => {
-                document["mutation_list"] =
-                    json!({"outcome": "refused", "detail": error.to_string()});
-                ok = false;
-            }
-        }
-    }
-    (document, ok)
 }
 
 struct ProgramContext<'a> {
@@ -2281,126 +2172,9 @@ fn program_row(
     }
 }
 
-/// Every authored rule of the specification, with the comparable programs whose coverage
-/// matches it (`matched_by`, k-rust `matched`, the record's `sentences`) and fires it
-/// (`fired_by`, the record's `fired_sentences`: for a rewrite rule k-rust `committed`, some path
-/// of the run takes the rule's step; for an equation k-rust `applied`, an instance gave a
-/// result), and the outcomes of its guard ([`crate::guards`]).
-///
-/// A rule's status is named for the predicate it tests, so the token is true of every row it
-/// labels:
-/// - `fired`: some comparable program fired the rule;
-/// - `matched`: some comparable program matched it and none fired it: its left-hand side matched
-///   and its condition was entered, but its right-hand side was never instantiated on a path, so
-///   no program can tell a change of its result apart;
-/// - `unmatched`: no comparable program matched it;
-/// - `claim-helper`: an unmatched equation of a function only claims apply;
-/// - `no-coverage-signal`: no compiled id in kink-native's `coverage_domain` (a rule that
-///   compiles to no axiom, a `non-executable` rule, a macro or alias rule, an `smt-lemma`).
-///
-/// Firing implies matching, so the statuses partition the rules with the precedence
-/// `no-coverage-signal`, `fired`, `matched`, `claim-helper`, `unmatched`. Rules are listed by
-/// status in the order `unmatched`, `matched`, `fired`, `claim-helper`, `no-coverage-signal`:
-/// the gaps first.
-///
-/// A claim helper ([`FlowManifest::claim_helpers`]) is an equation of a function that only
-/// claims apply: it serves the claims, proof obligations a proof checks, and not the runs of the
-/// definition, which is why it is `claim-helper` and not `unmatched`, which would name it as the
-/// target of the next program to write. That no program text reaches it does not set it apart:
-/// no program text reaches a function nothing applies either, and such a sentence stays
-/// `unmatched`, since neither a run nor a claim accounts for it. A typed input can still apply
-/// any function, so a claim helper some comparable program matched or fired has that status, a
-/// fact of coverage.
-fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> Vec<Value> {
-    let mut matched = BTreeMap::<(String, u64), Vec<&str>>::new();
-    let mut fired = BTreeMap::<(String, u64), Vec<&str>>::new();
-    for (program, row) in manifest.programs.iter().zip(rows) {
-        let Some(record) = &row.record else {
-            continue;
-        };
-        if record["class"] != ResultClass::Comparable.as_str() {
-            continue;
-        }
-        for (key, into) in [("sentences", &mut matched), ("fired_sentences", &mut fired)] {
-            for sentence in record["coverage"][key].as_array().into_iter().flatten() {
-                if let (Some(module), Some(index)) =
-                    (sentence["module"].as_str(), sentence["index"].as_u64())
-                {
-                    into.entry((module.to_owned(), index))
-                        .or_default()
-                        .push(&program.id);
-                }
-            }
-        }
-    }
-    let comparable = manifest
-        .programs
-        .iter()
-        .zip(rows)
-        .filter_map(|(program, row)| {
-            let record = row.record.as_ref()?;
-            (record["class"] == ResultClass::Comparable.as_str())
-                .then_some((program.id.as_str(), record))
-        })
-        .collect::<Vec<_>>();
-    let guards = crate::guards::SentenceGuards::of(comparable.iter().copied());
-    let printer = EndReader::of(&spec.compiled);
-    let no_signal = no_coverage_signal(spec);
-    let claim_helpers = manifest
-        .claim_helpers
-        .iter()
-        .map(|(module, label)| qualified_label(label, module))
-        .collect::<BTreeSet<_>>();
-    let mut groups: [Vec<Value>; 5] = Default::default();
-    for (at, sentence) in spec.loaded.baseline.authored_sentences() {
-        if !matches!(sentence, Sentence::Rule { .. }) {
-            continue;
-        }
-        let mut value = sentence_value(spec, &at);
-        let key = (at.module.clone(), u64::from(at.index));
-        let programs = matched.get(&key).cloned().unwrap_or_default();
-        let firing = fired.get(&key).cloned().unwrap_or_default();
-        let claim_helper = || {
-            sentence
-                .attributes()
-                .string(AttributeKey::Label)
-                .is_some_and(|label| claim_helpers.contains(&qualified_label(label, &at.module)))
-        };
-        let (group, status) = if no_signal.contains_key(&at) {
-            (4, NO_COVERAGE_SIGNAL)
-        } else if !firing.is_empty() {
-            (2, FIRED)
-        } else if !programs.is_empty() {
-            (1, MATCHED)
-        } else if claim_helper() {
-            (3, CLAIM_HELPER)
-        } else {
-            (0, UNMATCHED)
-        };
-        value["status"] = json!(status);
-        value["matched_by"] = json!(programs);
-        value["fired_by"] = json!(firing);
-        if let Sentence::Rule {
-            requires,
-            attributes,
-            ..
-        } = sentence
-            && !crate::guards::unconditional(requires)
-            && !attributes.has(AttributeKey::Simplification)
-            && matches!(status, FIRED | MATCHED | UNMATCHED)
-        {
-            value["guard"] = crate::guards::row_guard(guards.get(&key), &printer);
-        }
-        if let Some(reason) = no_signal.get(&at) {
-            value["reason"] = json!(reason);
-        }
-        groups[group].push(value);
-    }
-    groups.into_iter().flatten().collect()
-}
-
 /// The authored rules none of whose compiled ids k-rust's run coverage can name (status
-/// `no-coverage-signal`), each with the reason: no program can be shown to match them.
+/// `no-coverage-signal`, [`crate::coverage`]), each with the reason: no program can be shown to
+/// match them.
 pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static str> {
     let domain = coverage_domain(&spec.compiled);
     let non_executable = non_executable_ids(&spec.compiled);
@@ -2427,7 +2201,7 @@ pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static
 }
 
 /// The current result record of `program`, whose inputs are `inputs`, read from the cache `cache`
-/// without running anything: the record `results` would use, or `None` when there is none (no
+/// without running anything: the record `coverage` would use, or `None` when there is none (no
 /// file, another key, a class never written, or the store off, [`result_store`]). `execution` is
 /// the execution digest of the admitted specification (`digest::execution_digest`).
 pub fn current_record(
@@ -2451,143 +2225,6 @@ pub fn current_record(
         .join(execution.digest.to_string())
         .join(format!("{digest}.json"));
     read_record(&path, &key).flatten()
-}
-
-/// The status of a rule none of whose compiled ids k-rust's run coverage can name: never
-/// `unmatched`, since no program can match it in coverage's sense.
-const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
-
-/// The status of a claim helper no comparable program matched ([`rules`]): never `unmatched`,
-/// since it serves the claims, which a proof checks, and not the definition's runs.
-const CLAIM_HELPER: &str = "claim-helper";
-
-/// The status of a rule some comparable program fired ([`rules`]).
-pub const FIRED: &str = "fired";
-
-/// The status of a rule some comparable program matched and none fired ([`rules`]).
-pub const MATCHED: &str = "matched";
-
-/// The status of a rule no comparable program matched ([`rules`]).
-pub const UNMATCHED: &str = "unmatched";
-
-fn document(
-    record: &AdmissionRecord,
-    digest: Option<Sha256Digest>,
-    programs: Vec<Value>,
-    rules: Vec<Value>,
-    mismatches: Vec<Value>,
-    baseline_runs: Value,
-) -> Value {
-    let refusal = record.refusal.as_ref();
-    let count = |status: &str| rules.iter().filter(|r| r["status"] == status).count();
-    let summary = json!({
-        "programs": programs.len(),
-        "comparable": programs.iter().filter(|p| p["class"] == "comparable").count(),
-        "computed": programs.iter().filter(|p| p["cached"] == false).count(),
-        "rules": rules.len(),
-        "unmatched": count(UNMATCHED),
-        "matched": count(MATCHED),
-        "fired": count(FIRED),
-        "claim_helper": count(CLAIM_HELPER),
-        "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
-        "guards": crate::guards::summary(&rules),
-        "mismatches": mismatches.len(),
-    });
-    crate::with_z3_build(json!({
-        "schema": "kink-flow-results",
-        // Added to 11 without a new version, since a document of the no-Z3 profile is the
-        // document it was and no command reads a `results` document back: under the Z3 profile
-        // `z3`, the Z3 build the classes were decided on (`crate::with_z3_build`).
-        // 11 since KINK-guard-coverage: a rule's status is named for the predicate it tests:
-        // `fired` (some comparable program fired it), `matched` (some matched it and none fired
-        // it) and `unmatched` replace `covered` (which read `matched` alone, so it named rules no
-        // program ran) and `uncovered`, with the summary keys `fired`, `matched` and `unmatched`;
-        // and a guarded rule's row carries `guard`, its guard outcomes over the comparable
-        // programs, with the summary's `guards` (`crate::guards`).
-        // 10 since `result` may name cells inside `?` and `*` cells, each left out (or compared)
-        // in every instance, and a narrowing's `compared` names the key of each Map that encloses
-        // a named cell (`crate::observed`); where the slot is `cells`, a program's ends are then
-        // projected in each instance, with a Map's and a Set's instances sorted.
-        // 9 since `[stop]`: a corpus with a stop has `stop` (absent without one), its rules, its
-        // count and each program's own count (`counts`), and each comparable program's `ends`
-        // say how the run reached them (`halt`: `stop` or `own`); a specification on which a
-        // rule of the stop labels no rewrite rule is refused at stage `stop`. A corpus without a
-        // stop has the document it had. Added to 9 without a new version, since a corpus without
-        // a case expectation or a named case has the document it had and no command reads a
-        // `results` document back: the program of a named case of a case document, id
-        // `<path>#<name>`; the row of a program with an expectation carries `expectation`
-        // (`crate::expect`); and a program whose expectation no front end reads is refused at
-        // stage `inputs` (`typed-expectation`, `expectation-value`). Added to 9 without a new
-        // version for the same reason: a row's `decider_smt_unknowns`, kink's own undecided
-        // solver answers beside k-rust's `smt_unknowns`, and under the Z3 profile a result cache
-        // that is on where the solver is resource-bounded.
-        // 8 since CF-45: a claim helper no comparable program matched (an equation of a function
-        // only claims apply, which the front end names, `FlowManifest::claim_helpers`) has status
-        // `claim-helper` (summary `claim_helper`), no longer `uncovered`, so the uncovered rules
-        // are those no run and no claim accounts for. A status's meaning changes, so a reader
-        // keyed on the version can tell.
-        // 7 since CF-40c2: a rule's `reached_by` is named `matched_by`, the name of the predicate
-        // it lists (k-rust `matched`), so that each coverage predicate has one name in every
-        // kink-flow document, flag and krs output (README, "Coverage predicates"); the reason of
-        // a non-executable rule says `match` for `reach`. Nothing else moved.
-        // 6 since CF-03: `spec.exclusion` no longer names the short-circuit reading, `spec` gains
-        // `short_circuit`, the rules the short-circuit analysis flags, and a row gains
-        // `short_circuit_readings`, the readings that excluded its run; each run of a definition
-        // whose analysis flags a rule, and each run whose initial configuration applies a
-        // reading-dependent function, is judged by its own list of readings, so a program's
-        // class can change at the same key's inputs. The meaning of `spec.exclusion` changes, so
-        // a reader keyed on the version can tell.
-        // 5 since the compared cells: the document's `result` names the slots and the cells the
-        // second slot compares (null when the specification is refused), and where that slot is
-        // `cells` a program's `final_configuration` and `ends` are the projected ends, each
-        // uncompared cell's content `\top` of its sort. The result schema version stays: a
-        // record holds projected ends only under a key whose execution digest holds the
-        // `unobservable` declarations and `[result] cells`, and every key read or written names
-        // `kink_build`, so no record of a build before the compared cells is ever read. Added to
-        // 5 without a new version, since they are additive and no command reads a `results`
-        // document back: `spec.execution_digest` and `result_cache`, and a row's `not_cached`.
-        // 4 since CF-16: a program's row carries `ends`, each end's `{head, class}` (its
-        // computation head printed as K text, and the exit-stop class), null unless comparable.
-        // 3 since KINK-R4: a rewrite rule's `fired_by` lists only programs some path of whose
-        // run takes the rule's step (k-rust `committed`), no longer one whose candidate of it
-        // was rolled back or whose step by it was undefined (k-rust `applied`); the shape is
-        // unchanged, the meaning of a field is not, so a reader keyed on the version can tell.
-        // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
-        // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
-        // carries `fired_by`.
-        "version": 11,
-        "k_rust_revision": crate::k_rust_revision(),
-        "profile": SolverProfile::BUILD.name(),
-        "result_schema_version": RESULT_SCHEMA_VERSION,
-        "spec": {
-            "outcome": if refusal.is_some() { "refused" } else { "admitted" },
-            "stage": refusal.map(|r| &r.stage),
-            "reason": refusal.map(|r| &r.reason),
-            "detail": refusal.map(|r| &r.detail),
-            "digest": digest.map(|d| d.to_string()),
-            "files": record
-                .files
-                .iter()
-                .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
-                .collect::<Vec<_>>(),
-            // The definition exclusion (`crate::exclusion`), set by `results` once the
-            // specification is admitted; added to version 4 without a new version, since it is
-            // additive and no command reads a `results` document back. The rules the
-            // short-circuit analysis flags (`crate::exclusion::short_circuit`), likewise set
-            // once the specification is admitted; added in version 6 with the change of meaning
-            // of `exclusion`, and each program's row carries the readings that excluded its run.
-            "exclusion": null,
-            "short_circuit": null,
-        },
-        "programs": programs,
-        "rules": rules,
-        "mismatches": mismatches,
-        "summary": summary,
-        "baseline_runs": baseline_runs,
-        "untargeted_rules": null,
-        "data": null,
-        "result": null,
-    }))
 }
 
 /// `rows` (program rows of a document), each comparable row marked `unable_to_kill:

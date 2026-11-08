@@ -1,4 +1,4 @@
-//! The KRS names of a `results` document's guard nodes.
+//! The KRS names of a `coverage` document's guard nodes.
 //!
 //! kink-flow reports a guarded sentence's `guard` at the K level: each node of its written
 //! `requires`, with the outcomes the comparable programs' runs saw where the node was reached
@@ -111,8 +111,9 @@
 //! every program that evaluated the function at all; the KRS pattern is matched only where the
 //! templates are.
 //!
-//! The document's `summary.guards` is computed again over the annotated rows
-//! (`kink_flow::guards::summary`), so that it counts the authored operands the rows report.
+//! kink-flow's requirements family reads this grouping (`kink_flow::coverage::derive`): a
+//! requirement is an authored operand's truth, or the author's condition held or refuted, so the
+//! inserted tests and the templates are never obligations.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -227,7 +228,7 @@ impl GuardNames {
         }
     }
 
-    /// Name the guard of `row`, a `results` row of the sentence of K module `module` labelled
+    /// Name the guard of `row`, a `coverage` rule item of the sentence of K module `module` labelled
     /// `label` (bare or module-qualified), as the module documentation says; `programs` are the
     /// document's program ids in corpus order. `Err` says why the guard is named by no guess; its
     /// nodes and the guard then have `krs: null`.
@@ -357,11 +358,11 @@ impl GuardNames {
                 .is_some_and(|programs| !programs.is_empty())
         });
         if seen && !reading.binders.is_empty() {
-            return Err("its templates' outcomes have no node in the results document".into());
+            return Err("its templates' outcomes have no node in the coverage document".into());
         }
         if seen && reading.authored && reading.inserted {
             return Err(
-                "its condition has tests KRS inserted, and the results document shows no node to tell their outcomes from the author's"
+                "its condition has tests KRS inserted, and the coverage document shows no node to tell their outcomes from the author's"
                     .into(),
             );
         }
@@ -1018,16 +1019,16 @@ fn insert_grouping(row: &mut Map<String, Value>, grouped: Map<String, Value>) {
         guard.insert("krs".into(), Value::Object(grouped));
     }
     if let Some(matched_by) = matched {
-        let fired = row.get("status").and_then(Value::as_str) == Some(kink_flow::results::FIRED);
+        let fired = row.get("status").and_then(Value::as_str) == Some(kink_flow::coverage::FIRED);
         let status = if fired {
-            kink_flow::results::FIRED
+            kink_flow::coverage::FIRED
         } else if matched_by
             .as_array()
             .is_some_and(|programs| !programs.is_empty())
         {
-            kink_flow::results::MATCHED
+            kink_flow::coverage::MATCHED
         } else {
-            kink_flow::results::UNMATCHED
+            kink_flow::coverage::UNMATCHED
         };
         if let Some(krs) = row.get_mut("krs").and_then(Value::as_object_mut) {
             krs.insert("matched_by".into(), matched_by);

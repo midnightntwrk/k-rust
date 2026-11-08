@@ -5,8 +5,8 @@
 use kink_campaign::{MutantStatus, Tally, report_status_name, report_tally};
 use kink_corpus::summary::TALLY_KEYS;
 use kink_flow::cli::{
-    EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, exit_join, fuzz_status, mutation_exit_status,
-    query_status, results_status, run_status,
+    EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, coverage_status, exit_join, fuzz_status,
+    mutation_exit_status, query_status, run_status,
 };
 use kink_flow::results::RESULT_CACHE_NO_BUILD;
 use kink_flow::search::{INVALID_MUTATION, STATUSES, UNKILLABLE, status_name};
@@ -158,43 +158,43 @@ fn documents_give_their_exit_statuses() {
     // results: a program's class and its expectation.
     let results = |programs: serde_json::Value, mismatches: serde_json::Value| json!({"spec": admitted, "programs": programs, "mismatches": mismatches});
     assert_eq!(
-        results_status(&results(json!([{"class": "comparable"}]), json!([]))),
+        coverage_status(&results(json!([{"class": "comparable"}]), json!([]))),
         EXIT_YES
     );
     assert_eq!(
-        results_status(&results(
+        coverage_status(&results(
             json!([{"class": "comparable", "expectation": {"verdict": "unmet"}}, {"class": "timeout"}]),
             json!([])
         )),
         EXIT_NO
     );
     assert_eq!(
-        results_status(&results(json!([{"class": "unknown"}]), json!([]))),
+        coverage_status(&results(json!([{"class": "unknown"}]), json!([]))),
         EXIT_UNANSWERED
     );
     assert_eq!(
-        results_status(&results(json!([{"class": "refused"}]), json!([{}]))),
+        coverage_status(&results(json!([{"class": "refused"}]), json!([{}]))),
         EXIT_UNASKED
     );
     assert_eq!(
-        results_status(&results(json!([{"class": "comparable"}]), json!([{}]))),
+        coverage_status(&results(json!([{"class": "comparable"}]), json!([{}]))),
         EXIT_NO
     );
     assert_eq!(
-        results_status(&json!({"spec": {"outcome": "refused"}, "programs": []})),
+        coverage_status(&json!({"spec": {"outcome": "refused"}, "programs": []})),
         EXIT_UNASKED
     );
     // A result record the command could not write fails it, a finding included; a record it does
     // not write because kink's build identity is unknown does not.
     assert_eq!(
-        results_status(&results(
+        coverage_status(&results(
             json!([{"class": "comparable", "expectation": {"verdict": "unmet"}}, {"class": "comparable", "cache_error": "cannot write the result record: x"}]),
             json!([])
         )),
         EXIT_UNASKED
     );
     assert_eq!(
-        results_status(&results(
+        coverage_status(&results(
             json!([{"class": "comparable", "cache_error": RESULT_CACHE_NO_BUILD}]),
             json!([])
         )),

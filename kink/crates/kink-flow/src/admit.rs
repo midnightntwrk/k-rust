@@ -43,7 +43,7 @@
 //! baseline is excluded before it runs a step ([`ProgramAdmission::exclusion`]): by the
 //! definition exclusion, or by the exclusion of its initial configuration, read on its depth-0
 //! run for the short-circuit reading. Neither refuses anything: a
-//! program so excluded is admitted, `results` runs it and reports its class, and `check` fails
+//! program so excluded is admitted, `coverage` runs it and reports its class, and `check` fails
 //! on it, since it cannot be judged on the baseline (README, `check`). A finding of the full
 //! critical-pair check that `[spec] assume_joined` leaves unnamed refuses nothing either, and
 //! `check` fails on it too, since no mutation can then have a verdict but `unknown`
@@ -256,6 +256,13 @@ pub struct AdmittedSpec {
     /// What every program's second slot compares: the cells the specification does not declare
     /// unobservable, narrowed by `[result] cells` (stage `result`; [`crate::observed`]).
     pub result: ResultProjection,
+    /// The skeleton of the condition of every authored sentence behind a guarded rewrite rule or
+    /// function equation (kink-native `coverage::guard_skeletons`), read once from the input
+    /// backend's load: a guard's nodes, whether or not a program entered it, so that the
+    /// requirements a guard states are a function of the definition ([`crate::coverage`]).
+    /// `Err` holds why the backend's definition could not be selected to read them; a sentence
+    /// whose skeleton cannot be read is listed with its reason (`unreadable`).
+    pub guard_skeletons: Result<kink_native::coverage::GuardSkeletons, String>,
     /// Which admission produced this specification; the [`ProgramInputs`] admitted beside it
     /// carry the same value, and only this specification opens a session on them.
     admission: AdmissionId,
@@ -1049,6 +1056,19 @@ fn admit_definition(
         &compiled.compile_options().builtin_source_prefixes,
         &spec.assume_joined,
     )?;
+    // The skeleton of every guarded sentence's condition, read from the definition the input
+    // backend selected: what a guard can show, whether or not a program enters it.
+    let guard_skeletons = backend
+        .select_definition(None)
+        .map(|definition| {
+            kink_native::coverage::guard_skeletons(
+                &definition,
+                &kink_native::coverage::RuleAuthors::of(&compiled),
+            )
+        })
+        .map_err(|error| {
+            format!("the backend's definition could not be selected to read the skeleton: {error}")
+        });
     Ok((
         AdmittedSpec {
             loaded,
@@ -1058,6 +1078,7 @@ fn admit_definition(
             data,
             exclusions,
             result,
+            guard_skeletons,
             admission: AdmissionId::fresh(),
         },
         backend,

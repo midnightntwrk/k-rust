@@ -53,7 +53,7 @@
 //! - the record's format and meaning ([`RESOLUTION_MEMO_VERSION`]).
 //!
 //! kink-flow `tests/memo.rs` builds both keys member by member from these inputs and requires
-//! them equal to the keys built here, and `tests/results.rs` requires the specification digest
+//! them equal to the keys built here, and `tests/coverage.rs` requires the specification digest
 //! to change with each `[spec]` field, so a key or digest that drops an input fails a test; so
 //! does a run that reads a record after a source file changed (re-pin L1-4-tail, review L1-4-2
 //! N1).

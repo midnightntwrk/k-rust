@@ -15,11 +15,12 @@
 use kink_flow::{
     FlowManifest,
     cli::{CheckOptions, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check, check_with},
+    coverage::{CoverageOptions, coverage},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context},
     manifest::{Budget, ManifestError},
     mutation::MutationList,
     query::QueryOptions,
-    results::{ResultsOptions, result_key, results},
+    results::result_key,
     search::{RunOptions, run},
 };
 use serde_json::{Value, json};
@@ -357,9 +358,9 @@ fn the_k_front_end_refuses_a_stop_condition() {
         detail.contains("`Third`") && detail.contains("krs kink"),
         "{detail}"
     );
-    let (document, ok) = results(
+    let (document, ok) = coverage(
         &FlowManifest::read(&path).unwrap(),
-        &ResultsOptions::default(),
+        &CoverageOptions::default(),
     );
     assert!(!ok, "{document:#}");
     assert_eq!(
@@ -509,9 +510,10 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
 fn a_run_of_the_clock_ends_at_its_stop() {
     let dir = fixture("results", &[]);
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
-    let (document, ok) = results(&manifest, &ResultsOptions::default());
+    let (document, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{document:#}");
-    assert_eq!(document["version"], 11);
+    assert_eq!(document["schema"], "kink-flow-coverage");
+    assert_eq!(document["version"], 1);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];
@@ -612,9 +614,9 @@ fn a_count_above_one_takes_the_stop_rules_earlier_steps() {
         )],
     );
     let manifest = dir.join("FLOW-own.toml");
-    let (results_document, _) = results(
+    let (results_document, _) = coverage(
         &FlowManifest::read(&manifest).unwrap(),
-        &ResultsOptions::default(),
+        &CoverageOptions::default(),
     );
     assert_eq!(
         results_document["stop"],
@@ -673,7 +675,7 @@ fn a_stop_naming_no_rewrite_rule_refuses_the_specification() {
     }
     // `results` refuses it alike, and its document names the stop as `check`'s does.
     let manifest = FlowManifest::read(&dir.join("FLOW-nothing.toml")).unwrap();
-    let (document, ok) = results(&manifest, &ResultsOptions::default());
+    let (document, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(!ok, "{document:#}");
     assert_eq!(document["spec"]["stage"], "stop", "{document:#}");
     assert_eq!(

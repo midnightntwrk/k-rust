@@ -16,12 +16,13 @@ use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
     admit::corpus_source,
-    cli::{EXIT_UNASKED, EXIT_YES, results},
+    cli::{EXIT_UNASKED, EXIT_YES, coverage},
+    coverage::CoverageOptions,
     digest::{mutation_identity, spec_digest},
     mutation::InvalidReason,
     outcomes::{OUTCOMES_DIRECTORY, record_sha256},
     resolve,
-    results::{CACHE_DIRECTORY, ResultsOptions},
+    results::CACHE_DIRECTORY,
     search::{RunMode, RunOptions, drift_reason, run_with},
     verdicts::lock_text,
 };
@@ -1290,7 +1291,7 @@ misunderstanding = "a test mutation"
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
         edit(&manifest, "id = \"add\"", "id = \"add:one\"");
-        let (filled, status) = results(&manifest, &ResultsOptions::default());
+        let (filled, status) = coverage(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_YES);
         let record = result_record_path(&manifest, &filled, "add:one");
         let mut value = read_json(&record);
@@ -1663,7 +1664,7 @@ note = "go picks any integer"
         let dir = fixture("calc", "corpus-error");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
-        let (filled, status) = results(&manifest, &ResultsOptions::default());
+        let (filled, status) = coverage(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_YES);
         let record = result_record_path(&manifest, &filled, "add");
         let mut value = read_json(&record);

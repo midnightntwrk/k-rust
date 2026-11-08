@@ -162,24 +162,33 @@ fn kink_flow_options_parse_with_the_front_end_files() {
         FlowCommand::parse("run", mutations(&dir), &strings(&["--output", "text"])).unwrap_err(),
         "--output \"text\": expected json or verdicts"
     );
-    // check and results take the front end's list unless `--mutations` names one.
+    // check takes the front end's list unless `--mutations` names one.
     let FlowCommand::Check(options) = FlowCommand::parse("check", mutations(&dir), &[]).unwrap()
     else {
         panic!("check");
     };
     assert_eq!(options.mutations, Some(dir.join("MUTATIONS.toml")));
-    let statuses = dir.join("MUTATIONS-statuses.toml");
-    let FlowCommand::Results { options, output } = FlowCommand::parse(
-        "results",
+    // coverage takes its tier and its three renderings; it reads no mutation list, and `results`,
+    // the verb it replaced, is refused naming it.
+    let FlowCommand::Coverage { options, output } = FlowCommand::parse(
+        "coverage",
         mutations(&dir),
-        &strings(&["--mutations", statuses.to_str().unwrap()]),
+        &strings(&["--tier", "1", "--output", "text"]),
     )
     .unwrap() else {
-        panic!("results");
+        panic!("coverage");
     };
-    assert_eq!(options.mutations, Some(statuses));
-    assert_eq!(output, OutputFormat::Json);
-    // report takes `--output` as results and run do: it renders the stored run document.
+    assert_eq!(options.tier, kink_flow::coverage::Tier::One);
+    assert_eq!(output, OutputFormat::Text);
+    assert!(
+        FlowCommand::parse("coverage", mutations(&dir), &strings(&["--mutations", "x"])).is_err()
+    );
+    assert!(
+        FlowCommand::parse("results", mutations(&dir), &[])
+            .unwrap_err()
+            .contains("`coverage` replaced it")
+    );
+    // report takes `--output` as coverage and run do: it renders the stored run document.
     let parsed = FlowCommand::parse(
         "report",
         CommandFiles::default(),
@@ -328,23 +337,12 @@ fn a_refused_mutation_runs_nothing_and_writes_nothing() {
         );
     }
     // The refused mutation still targets the rule its edit resolves to (the unlabelled `-` rule,
-    // which no other mutation of the list targets), so `untargeted_rules` is the list `results
-    // --mutations` gives, which no front end's refusal reaches.
+    // which no other mutation of the list targets): no front end's refusal changes
+    // `untargeted_rules`.
     let untargeted = document["untargeted_rules"].as_array().unwrap();
     assert!(
         !untargeted.iter().any(|rule| rule["start_line"] == 23),
         "{untargeted:#?}"
-    );
-    let (results, _) = command(
-        &dir,
-        "results",
-        mutations(&dir),
-        &[],
-        refusing("sub-off-by-one"),
-    );
-    assert_eq!(
-        document["untargeted_rules"], results["untargeted_rules"],
-        "{results:#}"
     );
 }
 
@@ -559,12 +557,18 @@ fn every_rule_a_document_names_is_visited_once() {
     let dir = calc("names");
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let loaded = load_source(&corpus_source(&manifest)).unwrap();
-    let (results, _) = command(&dir, "results", mutations(&dir), &[], FrontEnd::default());
+    let (coverage, _) = command(
+        &dir,
+        "coverage",
+        CommandFiles::default(),
+        &[],
+        FrontEnd::default(),
+    );
     let (run, _) = command(&dir, "run", mutations(&dir), &[], FrontEnd::default());
     let (check, _) = command(&dir, "check", mutations(&dir), &[], FrontEnd::default());
     assert_every_rule_visited_once(
         &loaded,
-        vec![("results", results), ("run", run), ("check", check)],
+        vec![("coverage", coverage), ("run", run), ("check", check)],
     );
 
     let dir = scfetch("names-exclusion");
@@ -580,15 +584,15 @@ fn every_rule_a_document_names_is_visited_once() {
     // A flagged rule is no definition exclusion: each run is judged by its own readings, so
     // `check` makes no program `excluded` for it and passes.
     assert_eq!(status, EXIT_YES, "{check:#}");
-    let (results, _) = command(
+    let (coverage, _) = command(
         &dir,
-        "results",
+        "coverage",
         CommandFiles::default(),
         &[],
         FrontEnd::default(),
     );
     for (name, document) in
-        assert_every_rule_visited_once(&loaded, vec![("check", check), ("results", results)])
+        assert_every_rule_visited_once(&loaded, vec![("check", check), ("coverage", coverage)])
     {
         assert!(document["spec"]["exclusion"].is_null(), "{name}");
         let exclusion = &document["spec"]["short_circuit"];
@@ -651,14 +655,22 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
     let (report, status) = command(&dir, "report", CommandFiles::default(), &[], front());
     assert_eq!(status, EXIT_YES);
     assert_eq!(report, run);
-    // The results rendering names each rule by its front-end item.
-    let (results, _) = command(&dir, "results", CommandFiles::default(), &[], front());
-    let rendered = verdicts(&results).unwrap();
-    assert!(rendered.contains("fired = [\"item-"), "{rendered}");
-    assert!(rendered.contains("matched = [\"item-"), "{rendered}");
+    // The coverage document names each rule by its front-end item, in its id too.
+    let (coverage, _) = command(&dir, "coverage", CommandFiles::default(), &[], front());
+    let ids = coverage["families"]["rules"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        !ids.is_empty() && ids.iter().all(|id| id.starts_with("rule:item-")),
+        "{ids:?}"
+    );
+    let rendered = verdicts(&coverage).unwrap();
     // The header names the annotation's version exactly when the document carries one.
     assert!(!rendered.contains("krs_annotation"), "{rendered}");
-    let mut versioned = results.clone();
+    let mut versioned = coverage.clone();
     versioned["krs"] = json!({"version": 2});
     let rendered = verdicts(&versioned).unwrap();
     assert!(
@@ -688,7 +700,7 @@ fn next_steps_name_the_front_end_command() {
         KinkFlowSpelling.command(Verb::Run),
         "kink-flow run FLOW.toml MUTATIONS.toml"
     );
-    assert_eq!(KinkFlowSpelling.verb(Verb::Results), "kink-flow results");
+    assert_eq!(KinkFlowSpelling.verb(Verb::Coverage), "kink-flow coverage");
     let conflict = action_spelled("error", Some("outcome-conflict"), &krs).unwrap();
     assert!(
         conflict.ends_with("run `krs kink run --definition main --verify`"),
@@ -696,7 +708,7 @@ fn next_steps_name_the_front_end_command() {
     );
     let corpus = action_spelled("error", Some("baseline-mismatch:add"), &krs).unwrap();
     assert!(
-        corpus.ends_with("run `krs kink results --definition main --verify`"),
+        corpus.ends_with("run `krs kink coverage --definition main --verify`"),
         "{corpus}"
     );
     // Under kink-flow's own spelling every action is the one `action` gives.
@@ -744,7 +756,7 @@ fn next_steps_name_the_front_end_command() {
     let (checked, _) = command(&dir, "check", mutations(&dir), &[], front);
     let detail = checked["coverage"]["detail"].as_str().unwrap();
     assert!(
-        detail.contains("(run `krs kink results --definition main`)"),
+        detail.contains("(run `krs kink coverage --definition main`)"),
         "{detail}"
     );
 }
@@ -775,14 +787,14 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     };
     let render =
         |dir: &Path, verb: &str, options: &[&str]| verdicts(&document(dir, verb, options)).unwrap();
-    let cold_results = render(&corpus, "results", &[]);
+    let cold_coverage = render(&corpus, "coverage", &[]);
     let cold_document = document(&corpus, "run", &[]);
     let cold = verdicts(&cold_document).unwrap();
     let warm = render(&corpus, "run", &[]);
-    let warm_results = render(&corpus, "results", &[]);
+    let warm_coverage = render(&corpus, "coverage", &[]);
     // The programs in reverse order, on a cache with result records and no outcome record or
     // hint.
-    document(&reversed, "results", &[]);
+    document(&reversed, "coverage", &[]);
     reverse_programs(&reversed);
     let reversed_document = document(&reversed, "run", &[]);
     let executed = |document: &Value| {
@@ -820,11 +832,11 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         cold, other_order,
         "the reversed manifest names other killers"
     );
-    assert_eq!(cold_results, warm_results);
+    assert_eq!(cold_coverage, warm_coverage);
     // Version 6 names the solver profile, and no schedule; version 8 the Z3 build under Z3.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n{}\n[spec]\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\n{}\n[spec]\n\
              outcome = \"admitted\"\n",
             flow_support::solver_lines()
         )),
@@ -844,8 +856,8 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         "{cold}"
     );
     assert!(
-        cold_results.contains("\n[[case]]\nid = \"add\"\nclass = \"comparable\"\n"),
-        "{cold_results}"
+        cold_coverage.contains("\n[rules]\nopen = []\n"),
+        "{cold_coverage}"
     );
     // A document that is neither is refused, naming what it is.
     assert!(
@@ -865,7 +877,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     let dir = calc("z3-build");
     let (document, status) = command(
         &dir,
-        "results",
+        "coverage",
         CommandFiles::default(),
         &[],
         FrontEnd::default(),
@@ -874,7 +886,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     let rendered = verdicts(&document).unwrap();
     assert!(
         rendered.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"results\"\n{}\n",
+            "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"coverage\"\n{}\n",
             flow_support::solver_lines()
         )),
         "{rendered}"
@@ -899,7 +911,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     });
     assert_eq!(
         verdicts(&unnamed).unwrap(),
-        "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"5.3.3.0\"\n\n[spec]\noutcome = \"admitted\"\n"
     );
 }
@@ -908,7 +920,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
 fn the_command_line_prints_verdicts() {
     let dir = calc("command-line");
     let output = Command::new(env!("CARGO_BIN_EXE_kink-flow"))
-        .args(["results"])
+        .args(["coverage"])
         .arg(dir.join("FLOW.toml"))
         .args(["--output", "verdicts"])
         .output()
@@ -917,7 +929,7 @@ fn the_command_line_prints_verdicts() {
     let printed = String::from_utf8(output.stdout).unwrap();
     let (document, _) = command(
         &dir,
-        "results",
+        "coverage",
         CommandFiles::default(),
         &[],
         FrontEnd::default(),
@@ -939,7 +951,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 8\ndocument = \"run\"\n{}\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\n{}\n\
              [mutation_list]\noutcome = \"refused\"\n",
             flow_support::solver_lines()
         )
@@ -953,7 +965,7 @@ fn the_command_line_prints_verdicts() {
     let bad_flow = dir.join("BAD-FLOW.toml");
     fs::write(&bad_flow, "[spec]\nentry = 3\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_kink-flow"))
-        .arg("results")
+        .arg("coverage")
         .arg(&bad_flow)
         .args(["--output", "verdicts"])
         .output()

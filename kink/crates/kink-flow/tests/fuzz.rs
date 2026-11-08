@@ -32,6 +32,7 @@ use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList,
     cli::{EXIT_UNASKED, execute},
+    coverage::CoverageOptions,
     fuzz::{
         AssemblyCheck, FuzzJob, FuzzOptions, TemplateList, TemplateSource, check_assembly,
         compiled_side, confirm_program, fuzz_job, kill,
@@ -39,7 +40,6 @@ use kink_flow::{
     pattern::PatternList,
     query::{QueryOptions, query},
     resolve,
-    results::{ResultsOptions, results},
     search::RunOptions,
 };
 use serde_json::Value;
@@ -2451,16 +2451,16 @@ endmodule
         let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
         let cache = dir.join("cache");
         let (results, ok) = on_stack(move || {
-            results(
+            kink_flow::coverage::coverage(
                 &manifest,
-                &ResultsOptions {
+                &CoverageOptions {
                     cache: Some(cache),
-                    ..ResultsOptions::default()
+                    ..CoverageOptions::default()
                 },
             )
         });
         assert!(ok, "{results:#}");
-        let big = results["rules"]
+        let big = results["families"]["rules"]["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -2476,7 +2476,7 @@ endmodule
         );
     }
 
-    /// Final review S1: a rule job's confirmation reads the targeted rule's own `results` entry.
+    /// Final review S1: a rule job's confirmation reads the targeted rule's own `coverage` item.
     /// `run(1)` steps to `step(2)`, so `small` fires and `big` never does; the program is
     /// comparable and listed under `go`, `small` and others, yet `big --fired` must not confirm
     /// it. Before the fix a listing under any rule confirmed it (`listed`).
@@ -2485,7 +2485,13 @@ endmodule
     fn a_rule_jobs_confirmation_reads_the_targeted_rules_entry_only() {
         let dir = steps_flow("rule-target");
         let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
-        let confirm = |rule: &'static str, fired: bool| {
+        // A `[coverage]` section `coverage` refuses (a depth above 1, an `mcdc` list) does not
+        // stop a confirmation, which reads only the rule's own lists.
+        let mut sectioned = manifest.clone();
+        sectioned.coverage.depth = std::num::NonZeroU64::new(2).unwrap();
+        sectioned.coverage.mcdc = vec!["STEPS.big".to_owned()];
+        sectioned.coverage.declared = true;
+        let confirm_on = |manifest: &FlowManifest, rule: &'static str, fired: bool| {
             let manifest = manifest.clone();
             on_stack(move || {
                 let program = kink_flow::Program {
@@ -2507,6 +2513,7 @@ endmodule
                 )
             })
         };
+        let confirm = |rule: &'static str, fired: bool| confirm_on(&manifest, rule, fired);
         let big = confirm("big", true);
         assert_eq!(big["confirmed"], false, "{big:#}");
         assert_eq!(big["status"], "not-fired", "{big:#}");
@@ -2515,6 +2522,7 @@ endmodule
         let small = confirm("small", true);
         assert_eq!(small["confirmed"], true, "{small:#}");
         assert_eq!(small["reason"], "listed", "{small:#}");
+        assert_eq!(confirm_on(&sectioned, "small", true), small);
         // With --matched the target is `big`'s condition, which `step(2)` matches.
         let matched = confirm("big", false);
         assert_eq!(matched["confirmed"], true, "{matched:#}");

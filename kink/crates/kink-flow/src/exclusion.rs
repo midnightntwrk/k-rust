@@ -1,5 +1,5 @@
 //! What a definition exclusion is and why it holds, as every command reports it: one formatter
-//! for `check`, `results` and `run`, whose `detail` `fuzz` gives too.
+//! for `check`, `coverage` and `run`, whose `detail` `fuzz` gives too.
 //!
 //! A definition exclusion (kink-native `DefinitionExclusions::definition_exclusion`) excludes
 //! every run on the definition, so no program can be judged on it. kink-native records, for each

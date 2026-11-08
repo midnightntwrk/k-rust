@@ -45,6 +45,7 @@ use kink_corpus::ProgramSource;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
+    num::NonZeroU64,
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -78,6 +79,9 @@ pub struct FlowManifest {
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
     pub stop: Option<StopSection>,
+    /// `[coverage]`: what `coverage` asks of the corpus ([`CoverageSection`]); its defaults
+    /// without the section.
+    pub coverage: CoverageSection,
     /// The front end's stop condition, which asks `[stop] when` at each arrival
     /// ([`Self::with_stop_when`]). A decoded `FLOW.toml` has none: kink-flow reads no values of
     /// the definition, so admission refuses a `when` without it (stage `stop`,
@@ -98,7 +102,7 @@ pub struct FlowManifest {
     /// the definition, only claims apply. Claims are proof obligations outside the executable
     /// definition, so only a front end that sees the claims beside the definition knows which
     /// sentences these are, and sets them ([`Self::with_claim_helpers`]); a decoded `FLOW.toml`
-    /// has none. `results` gives such a sentence that no comparable program matched the status
+    /// has none. `coverage` gives such a sentence that no comparable program matched the status
     /// `claim-helper`, outside the program-coverage denominator.
     pub claim_helpers: BTreeSet<(String, String)>,
 }
@@ -153,7 +157,7 @@ pub struct SpecSection {
     pub md_selector: String,
     /// `assume_joined`: the findings of the definition's full critical-pair check the author
     /// names as premises (fz26 KINK-BASELINE-FINDINGS), each by the name k-rust-backend's
-    /// `data_term::names` gives it (the name `results` prints and k-rust-fuzz's
+    /// `data_term::names` gives it (the name `coverage` prints and k-rust-fuzz's
     /// `definition-findings` and `assume-joined` use), sorted and without repeats. Empty by
     /// default: a definition with a finding then has no data, and every mutation is `unknown`
     /// (`baseline-findings`).
@@ -167,6 +171,41 @@ pub struct ResultSection {
     /// each nonempty, without repeats. Every other cell is left out, except the cells that
     /// enclose one of these; an unobservable cell inside one of these is left out too.
     pub cells: Vec<String>,
+}
+
+/// `[coverage]`: what `coverage` asks of the corpus ([`crate::coverage`]). Every key is decoded
+/// here; whether this build can honour a value is the `coverage` command's to say, which refuses
+/// what it cannot, so that the other commands, which do not read the section, run on the corpus
+/// as written.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoverageSection {
+    /// `depth`: the length of the sequences the deeper families count (rule windows, syntax
+    /// paths); 1, the default, counts single items.
+    pub depth: NonZeroU64,
+    /// `mcdc`: the rules whose requirements gain unique-cause obligations, each by its name as a
+    /// document names a rule (a KRS item through the krs front end, a label in kink-flow), in
+    /// the order written, without repeats; empty by default.
+    pub mcdc: Vec<String>,
+    /// `max_obligations`: the most obligations a universe of depth above 1 may hold before
+    /// `coverage` refuses with the counts rather than guess a depth; 100 000 by default.
+    pub max_obligations: NonZeroU64,
+    /// Whether the manifest has a `[coverage]` section (the document's `settings.source`).
+    pub declared: bool,
+}
+
+/// The default of `[coverage] max_obligations`.
+pub const DEFAULT_MAX_OBLIGATIONS: u64 = 100_000;
+
+impl Default for CoverageSection {
+    fn default() -> Self {
+        Self {
+            depth: NonZeroU64::MIN,
+            mcdc: Vec::new(),
+            max_obligations: NonZeroU64::new(DEFAULT_MAX_OBLIGATIONS)
+                .expect("the default is positive"),
+            declared: false,
+        }
+    }
 }
 
 /// `[stop]`: where every program's run ends besides its own end, for a definition that never
@@ -372,6 +411,8 @@ pub struct ManifestFile {
     pub result: Option<ResultSection>,
     /// `[stop]`, as [`FlowManifest::stop`], its rules as written.
     pub stop: Option<StopSection>,
+    /// `[coverage]`, as [`FlowManifest::coverage`].
+    pub coverage: CoverageSection,
 }
 
 /// How a manifest's `[spec]` declares its specification.
@@ -418,7 +459,11 @@ impl ManifestFile {
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
-        known_keys(&top, "", &["spec", "budget", "result", "stop", "program"])?;
+        known_keys(
+            &top,
+            "",
+            &["spec", "budget", "result", "stop", "coverage", "program"],
+        )?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
         let budget = match top.get("budget") {
             None => Budget::default(),
@@ -426,6 +471,11 @@ impl ManifestFile {
         };
         let result = top.get("result").map(result).transpose()?;
         let stop = top.get("stop").map(stop).transpose()?;
+        let coverage = top
+            .get("coverage")
+            .map(coverage)
+            .transpose()?
+            .unwrap_or_default();
         let no_entries = Vec::new();
         let entries = match top.get("program") {
             None => &no_entries,
@@ -462,6 +512,7 @@ impl ManifestFile {
             programs,
             result,
             stop,
+            coverage,
         })
     }
 
@@ -501,6 +552,7 @@ impl ManifestFile {
             programs: self.programs,
             result: self.result,
             stop: self.stop,
+            coverage: self.coverage,
             stop_when: StopWhenSlot::default(),
             input_decoder: Decoder::default(),
             end_renderer: Renderer::default(),
@@ -852,6 +904,55 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
             .then(|| positive(budget, "budget", "baseline_max_work", 1))
             .transpose()?,
         smt_resource_limit,
+    })
+}
+
+/// `[coverage]`: `depth` and `max_obligations` positive integers, `mcdc` an array of nonempty
+/// names without repeats.
+fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
+    let section = table(value, "coverage")?;
+    known_keys(section, "coverage", &["depth", "mcdc", "max_obligations"])?;
+    let positive = |name: &str, default: NonZeroU64| match section.get(name) {
+        None => Ok(default),
+        Some(value) => value
+            .as_integer()
+            .and_then(|n| u64::try_from(n).ok())
+            .and_then(NonZeroU64::new)
+            .ok_or_else(|| {
+                ManifestError::new(join("coverage", name), "expected a positive integer")
+            }),
+    };
+    let defaults = CoverageSection::default();
+    let depth = positive("depth", defaults.depth)?;
+    let max_obligations = positive("max_obligations", defaults.max_obligations)?;
+    let key = "coverage.mcdc";
+    let mut mcdc = Vec::new();
+    match section.get("mcdc") {
+        None => {}
+        Some(Value::Array(entries)) => {
+            for (index, entry) in entries.iter().enumerate() {
+                let name = match entry {
+                    Value::String(name) if !name.is_empty() => name.clone(),
+                    _ => {
+                        return Err(ManifestError::new(
+                            key,
+                            format!("entry {index} is not a nonempty string: name a rule"),
+                        ));
+                    }
+                };
+                if mcdc.contains(&name) {
+                    return Err(ManifestError::new(key, format!("names `{name}` twice")));
+                }
+                mcdc.push(name);
+            }
+        }
+        Some(_) => return Err(ManifestError::new(key, "expected an array of rule names")),
+    }
+    Ok(CoverageSection {
+        depth,
+        mcdc,
+        max_obligations,
+        declared: true,
     })
 }
 

@@ -14,10 +14,11 @@ mod flow_support;
 use kink_campaign::{FinalResult, OracleOutcome, OracleSide, OracleValue, SideRun};
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_UNASKED, results, results_status},
+    cli::{EXIT_UNASKED, coverage, coverage_status},
+    coverage::CoverageOptions,
     outcomes::OUTCOMES_DIRECTORY,
     report::{KORE_CAP, slots_value},
-    results::{CACHE_DIRECTORY, ResultsOptions},
+    results::CACHE_DIRECTORY,
     search::{REPORT_FILE, RunOptions, run},
 };
 use serde_json::{Value, json};
@@ -86,20 +87,13 @@ fn search(manifest: &Path, mutations: &Path) -> Value {
     document
 }
 
-fn results_document(manifest: &Path, mutations: Option<PathBuf>) -> Value {
-    let (document, code) = results(
-        manifest,
-        &ResultsOptions {
-            verify: false,
-            cache: None,
-            mutations,
-        },
-    );
+fn coverage_document(manifest: &Path) -> Value {
+    let (document, code) = coverage(manifest, &CoverageOptions::default());
     // The command is asked and fails nothing its document does not show; which answer its
     // programs have (an `unknown` baseline is no answer, and which programs are unknown depends on
     // the profile) is each test's to pin.
     assert_ne!(code, EXIT_UNASKED, "{document:#}");
-    assert_eq!(code, results_status(&document), "{document:#}");
+    assert_eq!(code, coverage_status(&document), "{document:#}");
     document
 }
 
@@ -497,7 +491,7 @@ mod kink_tier {
         // (one live run per program, no diagnostic run), and its cause carries the census.
         let dir = fixture("loop", "timeout");
         let manifest = dir.join("FLOW-timeout.toml");
-        let document = results_document(&manifest, None);
+        let document = coverage_document(&manifest);
         let spin = &document["programs"][0];
         assert_eq!(spin["id"], "spin");
         assert_eq!(spin["class"], "timeout");
@@ -537,7 +531,7 @@ mod kink_tier {
             "{}.json",
             document["programs"][1]["digest"].as_str().unwrap()
         ));
-        // Test-gate TG-F: the assertions of tests/results.rs
+        // Test-gate TG-F: the assertions of tests/coverage.rs
         // `a_non_terminating_program_is_class_timeout`, which ran the same command on the same
         // files. Neither program is from the cache; countdown's record names the bounds a stored
         // class depends on (not `time_ms`); the next run reuses it and runs spin again.
@@ -567,7 +561,7 @@ mod kink_tier {
         assert!(record["key"]["budget"].get("time_ms").is_none());
         assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
         assert_eq!(
-            classes(&results_document(&manifest, None)),
+            classes(&coverage_document(&manifest)),
             vec![
                 ("spin".to_owned(), "timeout".to_owned(), false),
                 ("countdown".to_owned(), "comparable".to_owned(), true),
@@ -576,7 +570,7 @@ mod kink_tier {
 
         // An unknown baseline keeps its diagnostic run. Since kink27 R5-BYTES-ENDS a Bytes-keyed
         // map is comparable, so the unknown baseline is an overloaded list holding `opaque(1)`, a
-        // total function's application no equation reduces (tests/results.rs
+        // total function's application no equation reduces (tests/coverage.rs
         // `an_overloaded_list_names_the_application_inside_it`).
         let dir = scratch("diagnostic");
         fs::write(
@@ -612,7 +606,7 @@ text = 'h(opaque(1), 2)'
 "#,
         )
         .unwrap();
-        let document = results_document(&opaque, None);
+        let document = coverage_document(&opaque);
         assert_eq!(document["programs"][0]["class"], "unknown");
         assert_eq!(
             document["baseline_runs"],
@@ -860,11 +854,11 @@ text = 'h(opaque(1), 2)'
 
     #[test]
     #[ignore = "kink"]
-    fn results_and_the_report_list_the_rules_no_mutation_targets() {
+    fn the_report_lists_the_rules_no_mutation_targets() {
         // The loop list targets only the countdown rule; the cost list only done.
         let dir = fixture("loop", "untargeted");
         let manifest = dir.join("FLOW.toml");
-        let document = results_document(&manifest, Some(dir.join("MUTATIONS.toml")));
+        let document = search(&manifest, &dir.join("MUTATIONS.toml"));
         let listed = |document: &Value| {
             document["untargeted_rules"]
                 .as_array()
@@ -898,18 +892,14 @@ text = 'h(opaque(1), 2)'
             rules[1]["text"],
             "rule [spin]: spin(I:Int) => spin(I +Int 1)"
         );
-        // Without a list there is nothing to compare with.
-        assert_eq!(
-            results_document(&manifest, None)["untargeted_rules"],
-            Value::Null
+        // `coverage` lists no mutation's targets: the list is `run`'s.
+        assert!(
+            coverage_document(&manifest)
+                .get("untargeted_rules")
+                .is_none()
         );
 
         // The run document (the report) lists them for the whole list, `--only` or not.
-        let run_document = search(&manifest, &dir.join("MUTATIONS.toml"));
-        assert_eq!(
-            run_document["untargeted_rules"],
-            document["untargeted_rules"]
-        );
         let both = dir.join("BOTH.toml");
         fs::write(
             &both,
@@ -946,7 +936,19 @@ text = 'h(opaque(1), 2)'
              find = \"no such text\"\n  replace = \"x\"\n",
         )
         .unwrap();
-        let document = results_document(&manifest, Some(invalid));
+        let (document, _) = run(
+            &flow,
+            &MutationList::read(&invalid).unwrap(),
+            &RunOptions {
+                only: Vec::new(),
+                cache: None,
+                compile_workers: None,
+                memo: kink_flow::memo::MemoUse::On,
+                schedule: kink_campaign::ScheduleMode::FirstKill,
+                lock: None,
+                locked: false,
+            },
+        );
         assert_eq!(lines(&document), [19, 20, 21, 22, 23, 24]);
         let labels = listed(&document)
             .into_iter()
