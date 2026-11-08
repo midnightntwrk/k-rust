@@ -317,6 +317,13 @@ pub(super) fn judge(
     for (id, authored) in cells {
         if authored.form.is_readable() || authored.form == EntryForm::Initializer {
             // Judged before its payload is resolved ([`judge_readable`], [`judge_initializer`]).
+            // A readable clause that judgement did not reach (no head-rule target, or a field no
+            // single cell has) still owes the refusals its parser left: its payload resolved, so
+            // nothing else refuses it, and dropping them would admit a result the parser could
+            // not pair as only read.
+            if let Some(after) = authored.after.first() {
+                return Err(after.refused());
+            }
             continue;
         }
         warnings.extend(judge_entries(&index, id, authored)?);
