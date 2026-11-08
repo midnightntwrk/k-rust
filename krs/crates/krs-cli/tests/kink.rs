@@ -1415,7 +1415,7 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     assert!(
         verdicts.ends_with(
             "\n[rules]\nopen = [\n]\nargued = [\n]\n\n[requirements]\nopen = [\n]\nargued = [\n]\n\n\
-             [syntax]\nopen = [\n]\nargued = [\n]\n\n[flips]\nrun = false\n"
+             [syntax]\nopen = [\n]\nargued = [\n]\n\n[arguments]\n\n[flips]\nrun = false\n"
         ),
         "{verdicts}"
     );
@@ -3320,7 +3320,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 15);
+    assert_eq!(document["version"], 16);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -6351,7 +6351,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 21\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

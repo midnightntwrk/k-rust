@@ -405,7 +405,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),
@@ -488,19 +488,19 @@ mod kink_tier {
         assert_eq!(summary["needless_arguments"], json!([]));
         assert_eq!(
             after["settings"]["argued"][0],
-            json!({"item": WAKE, "argument": argued[0].1})
+            json!({"item": WAKE, "argument": argued[0].1, "invariant": null})
         );
         // The text names each argued item with its argument.
         let text = text(&after).unwrap();
         assert!(
             text.contains(&format!(
-                "argued:\n  {WAKE}: the corpus never halts the machine\n"
+                "argued:\n  {WAKE} [text]: the corpus never halts the machine\n"
             )),
             "{text}"
         );
         assert!(
             text.contains(&format!(
-                "  {I}: only a halted machine reads the interrupt flag\n"
+                "  {I} [text]: only a halted machine reads the interrupt flag\n"
             )),
             "{text}"
         );
@@ -672,7 +672,7 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{plain:#}");
         let recorded = fs::read_to_string(&lock).unwrap();
         assert_eq!(recorded, verdicts(&plain).unwrap());
-        assert!(recorded.contains("\nversion = 20\n"), "{recorded}");
+        assert!(recorded.contains("\nversion = 21\n"), "{recorded}");
         assert!(
             recorded.contains(&format!("\n[rules]\nopen = [\n  \"{WAKE}\",\n")),
             "{recorded}"

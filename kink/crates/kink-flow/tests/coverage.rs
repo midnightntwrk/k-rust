@@ -1197,8 +1197,8 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(
             document["settings"],
-            json!({"tiers": [1], "depth": 1, "mcdc": [], "max_obligations": 10, "argued": [],
-                   "source": "manifest"})
+            json!({"tiers": [1], "depth": 1, "mcdc": [], "max_obligations": 10,
+                   "invariants": [], "argued": [], "source": "manifest"})
         );
         write(&manifest, &format!("[coverage]\nwidth = 1\n\n{text}"));
         let (document, status) = run(&manifest, false);
@@ -1727,9 +1727,10 @@ text = 'h(opaque(1), 2)'
         // requirements, productions, field values, heating rules and equations; its twelfth is
         // computed at a depth above 1, with the rule windows; its thirteenth gives every family
         // one static scope; its fourteenth adds the syntax paths at a depth above 1; its
-        // fifteenth matches an equation and covers its requirements whatever the trial order.
+        // fifteenth matches an equation and covers its requirements whatever the trial order; its
+        // sixteenth reads the invariants and states each argued item's standing.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 15);
+        assert_eq!(document["version"], 16);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

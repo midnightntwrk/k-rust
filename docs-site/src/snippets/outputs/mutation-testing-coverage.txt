@@ -1,9 +1,17 @@
 $ krs kink --package story-plus --definition main coverage --locked  # the document's "summary"
 {
   "argued": 0,
+  "argued_by_standing": {
+    "checked_on_runs": 0,
+    "connected": 0,
+    "proved": 0,
+    "text": 0,
+    "unchecked": 0
+  },
   "comparable": 4,
   "computed": 0,
   "covered": 4,
+  "failed_arguments": [],
   "mismatches": 0,
   "needless_arguments": [],
   "open": 0,
