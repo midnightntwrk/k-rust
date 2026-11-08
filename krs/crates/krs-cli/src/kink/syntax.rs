@@ -15,11 +15,18 @@
 //! which KRS generates (a cell's, a grammar registration's), the sorts of K's builtin modules
 //! (`Int`, `Map`), which no package declares and whose values are domain values, and the sorts
 //! of KRS's framework package (`KItem`, `KResult`), which KRS declares for every definition as
-//! K's categories, so no author wrote them. Every package of the definition counts, as its
-//! rules are obligations of the rules family: the corpus judges the definition the emission
-//! wrote, of which a dependency's syntax is part, and the rules over that syntax are among the
-//! rules the family counts. kink-flow keeps of each authored sort the productions that build a
-//! term with a constructor.
+//! K's categories, so no author wrote them.
+//!
+//! Every package of the definition counts, a dependency's as the root's. The corpus judges one
+//! definition, the one the emission wrote, and the rules family already counts every rule of it,
+//! a dependency's included; the syntax family judges the same definition, so its universe is
+//! that definition's syntax, and one definition has one universe. Counting only the root
+//! package's sorts would judge a definition the corpus does not run: the rules over a
+//! dependency's syntax would be obligations while the syntax they inspect and build would not.
+//! The consequence is that a constructor of a shared syntax crate that this definition never
+//! builds or inspects is an open obligation of this corpus, as an unfired rule of that crate is;
+//! a project that does not mean to exercise it argues so for that item. kink-flow keeps of each
+//! authored sort the productions that build a term with a constructor.
 //!
 //! # Productions by Rust path
 //!
@@ -32,34 +39,51 @@
 //! # Field values
 //!
 //! A `k::bits!` template `T` of width `w` in a rule or equation `S` binds one `Int` variable,
-//! its binder, and each field `f` reads a function of the binder. The template's arm domain is
-//! the set of points `v` with `0 <= v < 2^w` that every conjunct of `S`'s condition decided by
-//! `v` alone holds at. The front end reads `T`'s layout through the language's own rewrite of
-//! the template, [`krs_syntax::desugar_bit_templates`], applied to a function whose one
-//! parameter is the pattern as the author wrote it: its condition is the template's range test
-//! and fixed-bit equalities, and its result reads each field as the sentence reads it. The
-//! conjuncts of `S`'s condition after the templates' tests, as the author wrote them, are
-//! evaluated at each point where they are Boolean combinations of integer comparisons,
-//! arithmetic and bit ranges over the binder, the template's fields and literals (a literal
-//! hole such as `op != 0x76`); any other conjunct is taken to hold, so the domain contains every
-//! value a fired instance can bind and is exact where every conjunct is decided. The universe of
-//! `T` is each `(T, f, f(v))` for `v` in the domain: a field value no point gives cannot be
-//! reached by any input, and one some point gives can. A template wider than 16 bits is not
-//! enumerated (at most 2^16 points per template); its field values are no obligation, and the
-//! document lists it under `families.syntax.krs.unenumerated` with the reason, as it does a
-//! template whose layout or whose sentence's condition cannot be read.
+//! its binder, and each field `f` reads a function of the binder. `T` matches exactly the points
+//! `v` with `0 <= v < 2^w` whose fixed bits (`0` and `1`) are as written, so its points are the
+//! fixed bits with each assignment of its free bits (its holes `_` and its fields' letters), and
+//! only those are enumerated. The template's arm domain is the set of its points at which no
+//! conjunct of `S`'s condition after the templates' tests is decided false. The front end reads
+//! each field through the language's own rewrite of the template,
+//! [`krs_syntax::desugar_bit_templates`], applied to a function whose one parameter is the
+//! pattern as the author wrote it, whose result reads each field as the sentence reads it.
+//!
+//! A conjunct is read as the emitted K term it is, whose nodes the source map pairs with the
+//! authored source ([`super::guards::GuardNames::sentence_templates`]), not as the Rust the
+//! author wrote: a Rust call or method is the builtin only where KRS resolved it to the builtin,
+//! and the K says what it resolved to. A conjunct is decided at a point where its term is built
+//! from literals, the template's binder, and K's builtin operations of `Int` and `Bool`
+//! (comparisons, `+Int`, `-Int`, `*Int`, `/Int`, `%Int`, `divInt`, `modInt`, the bitwise
+//! operations and shifts, `bitRangeInt`, and the Boolean connectives), each evaluated as K
+//! defines it and undecided where K leaves it undefined (a division by zero); a field occurs in
+//! the K as its bit-range term of the binder, so a literal hole such as `op != 0x76` and a
+//! condition on a field are decided. Any other term, a function the definition declares
+//! included whatever its Rust name, is undecided, and a conjunct that is not decided is taken to
+//! hold; a conjunction with a false operand is false and a disjunction with a true one true,
+//! whatever the other. So the domain contains every value a fired instance can bind, and is
+//! exact where every conjunct is decided. The universe of `T` is each `(T, f, f(v))` for `v` in
+//! the domain: a field value no point gives cannot be reached by any input, and one some point
+//! gives can. A template with more than 16 free bits is not enumerated (at most 2^16 points per
+//! template); its field values are no obligation, and the document lists it under
+//! `families.syntax.krs.unenumerated` with the reason, as it does a template whose layout or
+//! whose sentence's condition cannot be read. A template with holes and no field has no field
+//! value, so it gives no item and is not listed.
 //!
 //! Every baseline run records the binder's values at the fired instances of `S`
 //! ([`KrsSyntax::selection`]: the axiom by its label as the loaded definition stores it, the
 //! variable as the compiled definition writes it, the cap the domain's size, so no value a fired
-//! instance binds is left out). A field value is reached when some comparable program's run
-//! bound the binder to a value `b` with `f(b)` the value. Each item of kind `field-value` is
+//! instance binds is left out; a template without a field records nothing). A field value is
+//! reached when some comparable program's run bound the binder to a value `b` with `f(b)` the
+//! value. Each item of kind `field-value` is
 //! `{kind, template, field, value, status, reached_by, uncounted: {operand_of}, krs}`, with
 //! `krs = {item, rule, label, file, line, column, encodings, matched_by, target}`: `item` names
 //! it (`crate::decode_ld:r=3`), `encodings` are the points of the domain where the field has the
 //! value, in hexadecimal and in runs, the inputs an author writes to reach it, and `matched_by`
 //! the programs whose runs matched the sentence's templates (its row's `krs.matched_by`), the
-//! cases closest to one that reaches the value. Only templates of sentences of the rules
+//! cases closest to one that reaches the value. The target writes the value in decimal, then
+//! the field's bits as the template places them (`= 2 (0b10)`), labelled `template bits` where
+//! they read as another number than the value (a field a modifier places or reads signed:
+//! `= 16 (template bits 0b001)`). Only templates of sentences of the rules
 //! universe (`fired`, `matched` or `unmatched`) give items, as only those sentences' instances
 //! count.
 
@@ -70,14 +94,14 @@ use serde_json::{Value, json};
 use syn::{BinOp, Expr, Lit, UnOp};
 
 use super::annotate::qualified;
-use super::guards::{GuardNames, TemplateSite};
+use super::guards::{GuardNames, KTerm, TemplateSite};
 use crate::{DiagnosticSources, EmittedDefinition};
 
 /// The K namespace of KRS's framework package, whose sorts are K's categories.
 const FRAMEWORK_NAMESPACE: &str = "KRS-FRAMEWORK";
 
-/// The widest template enumerated, in bits.
-const MAXIMUM_ENUMERATED_WIDTH: u32 = 16;
+/// The most free bits (holes and fields) of a template whose points are enumerated.
+const MAXIMUM_ENUMERATED_FREE_BITS: u32 = 16;
 
 /// The most runs of encodings a target's text lists.
 const LISTED_RUNS: usize = 8;
@@ -121,10 +145,27 @@ struct Template {
 /// A template's arm domain and its fields' values on it.
 struct Layout {
     width: u32,
-    /// The fields, most significant first: each letter and its number of template bits.
-    fields: Vec<(char, u32)>,
+    /// The fields, in the order their letters first occur.
+    fields: Vec<Field>,
     /// Each point of the arm domain, ascending, with its fields' values in field order.
-    points: BTreeMap<u128, Vec<i128>>,
+    points: Vec<(u128, Vec<i128>)>,
+}
+
+impl Layout {
+    /// The fields' values at `point`, where it is a point of the arm domain.
+    fn values(&self, point: u128) -> Option<&[i128]> {
+        let at = self
+            .points
+            .binary_search_by_key(&point, |(point, _)| *point)
+            .ok()?;
+        Some(&self.points[at].1)
+    }
+}
+
+/// A field of a template: its letter and its template bits, most significant first.
+struct Field {
+    letter: char,
+    positions: Vec<u32>,
 }
 
 impl KrsSyntax {
@@ -210,7 +251,12 @@ impl KrsSyntax {
                 .templates
                 .iter()
                 .filter_map(|template| {
-                    let layout = template.layout.as_ref().ok()?;
+                    // A template without a field has no value to record.
+                    let layout = template
+                        .layout
+                        .as_ref()
+                        .ok()
+                        .filter(|layout| !layout.fields.is_empty())?;
                     Some((
                         template.stored.clone(),
                         template.variable.clone(),
@@ -371,7 +417,7 @@ impl Template {
                 else {
                     continue;
                 };
-                let Some(fields) = layout.points.get(&point) else {
+                let Some(fields) = layout.values(point) else {
                     continue;
                 };
                 for (index, value) in fields.iter().enumerate() {
@@ -398,7 +444,8 @@ impl Template {
             .unwrap_or(Value::Null);
         let rule_name = self.rule.clone().unwrap_or_else(|| self.label.clone());
         let mut items = Vec::new();
-        for (index, (letter, bits)) in layout.fields.iter().enumerate() {
+        for (index, field) in layout.fields.iter().enumerate() {
+            let letter = field.letter;
             let mut encodings = BTreeMap::<i128, Vec<u128>>::new();
             for (point, fields) in &layout.points {
                 encodings.entry(fields[index]).or_default().push(*point);
@@ -407,7 +454,7 @@ impl Template {
                 let reached_by = ordered(by_value[index][0].get(&value));
                 let uncounted = ordered(by_value[index][1].get(&value));
                 let runs = runs(&points, layout.width);
-                let shown = value_text(value, *bits);
+                let shown = value_text(value, field, points[0]);
                 let mut target = format!(
                     "a case in which {rule_name} fires with field {letter} of k::bits!({:?}) = {shown}: {}",
                     self.literal.as_deref().unwrap_or_default(),
@@ -477,10 +524,7 @@ fn same_sentence(object: &Value, module: &str, label: &str) -> bool {
 
 /// The layout and arm domain of the template `site`, whose sentence's condition has the
 /// conjuncts `conjuncts` after its templates' tests (module documentation, "Field values").
-fn layout(
-    site: &TemplateSite,
-    conjuncts: &Result<Vec<Option<String>>, String>,
-) -> Result<Layout, String> {
+fn layout(site: &TemplateSite, conjuncts: &Result<Vec<KTerm>, String>) -> Result<Layout, String> {
     let conjuncts = conjuncts
         .as_ref()
         .map_err(|reason| format!("its sentence's condition cannot be read: {reason}"))?;
@@ -492,56 +536,86 @@ fn layout(
         .pattern
         .as_deref()
         .ok_or("the template's pattern cannot be read from the source")?;
-    let mut fields = Vec::<(char, u32)>::new();
-    let mut width = 0_u32;
-    for character in literal.chars() {
+    // The template's bits, most significant first: `0` and `1` are fixed, `_` and a field letter
+    // free.
+    let bits = literal
+        .chars()
+        .filter(|character| matches!(character, '0' | '1' | '_') || character.is_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let width = u32::try_from(bits.len()).map_err(|_| "the template is too wide")?;
+    let mut fixed = 0_u128;
+    let mut free = Vec::new();
+    let mut fields = Vec::<Field>::new();
+    for (position, character) in (0..width).rev().zip(&bits) {
         match character {
-            '0' | '1' | '_' => width += 1,
-            letter if letter.is_ascii_lowercase() => {
-                width += 1;
-                match fields.iter_mut().find(|(name, _)| *name == letter) {
-                    Some((_, bits)) => *bits += 1,
-                    None => fields.push((letter, 1)),
+            '0' => {}
+            '1' => fixed |= 1 << position,
+            '_' => free.push(position),
+            letter => {
+                free.push(position);
+                match fields.iter_mut().find(|field| field.letter == *letter) {
+                    Some(field) => field.positions.push(position),
+                    None => fields.push(Field {
+                        letter: *letter,
+                        positions: vec![position],
+                    }),
                 }
             }
-            _ => {}
         }
     }
-    if width > MAXIMUM_ENUMERATED_WIDTH {
+    // A template without a field has no field value, so nothing of it is enumerated.
+    if fields.is_empty() {
+        return Ok(Layout {
+            width,
+            fields,
+            points: Vec::new(),
+        });
+    }
+    let free_bits = u32::try_from(free.len()).unwrap_or(u32::MAX);
+    if free_bits > MAXIMUM_ENUMERATED_FREE_BITS {
         return Err(format!(
-            "the template is {width} bits wide, wider than the {MAXIMUM_ENUMERATED_WIDTH} bits whose points are enumerated"
+            "the template has {free_bits} free bits, more than the {MAXIMUM_ENUMERATED_FREE_BITS} whose values are enumerated"
         ));
     }
-    let (binder, guard, terms) = rewritten(pattern, &fields)?;
-    let authored = conjuncts
+    if width >= i128::BITS {
+        return Err(format!(
+            "the template is {width} bits wide, wider than the {} bits its values are evaluated in",
+            i128::BITS - 1
+        ));
+    }
+    let (binder, terms) = rewritten(pattern, &fields)?;
+    let terms = terms
         .iter()
-        .flatten()
-        .filter_map(|text| syn::parse_str::<Expr>(text).ok())
+        .map(|term| Term::of_rewrite(term, &binder))
         .collect::<Vec<_>>();
-    let mut points = BTreeMap::new();
-    for point in 0..(1_u128 << width) {
-        let mut environment = BTreeMap::new();
-        environment.insert(binder.clone(), Val::Int(point.cast_signed()));
-        if evaluate(&guard, &environment) == Some(Val::Bool(false)) {
-            continue;
-        }
-        let mut values = Vec::with_capacity(terms.len());
-        for term in &terms {
-            match evaluate(term, &environment) {
-                Some(Val::Int(value)) => values.push(value),
-                _ => return Err("a field of the rewritten template is no integer term".into()),
-            }
-        }
-        for ((letter, _), value) in fields.iter().zip(&values) {
-            environment.insert(letter.to_string(), Val::Int(*value));
-        }
-        if authored
+    let conjuncts = conjuncts
+        .iter()
+        .map(|conjunct| Term::of_k(conjunct, &site.variable))
+        .collect::<Vec<_>>();
+    // Free bits ascending, so that the points come ascending.
+    free.reverse();
+    let mut points = Vec::new();
+    for index in 0..(1_u128 << free_bits) {
+        let point = free
             .iter()
-            .any(|conjunct| evaluate(conjunct, &environment) == Some(Val::Bool(false)))
+            .enumerate()
+            .filter(|(bit, _)| (index >> bit) & 1 == 1)
+            .fold(fixed, |point, (_, position)| point | (1 << position));
+        let value = point.cast_signed();
+        if conjuncts
+            .iter()
+            .any(|conjunct| conjunct.value(value) == Some(Val::Bool(false)))
         {
             continue;
         }
-        points.insert(point, values);
+        let values = terms
+            .iter()
+            .map(|term| match term.value(value) {
+                Some(Val::Int(field)) => Ok(field),
+                _ => Err("a field of the rewritten template is no integer term"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        points.push((point, values));
     }
     Ok(Layout {
         width,
@@ -552,11 +626,11 @@ fn layout(
 
 /// The template whose pattern the author wrote `pattern`, with the fields `fields`, rewritten by
 /// the language's own rewrite ([`krs_syntax::desugar_bit_templates`]) on a function whose one
-/// parameter it is: the binder's name, the template's test, and each field's term.
-fn rewritten(pattern: &str, fields: &[(char, u32)]) -> Result<(String, Expr, Vec<Expr>), String> {
+/// parameter it is: the binder's name and each field's term.
+fn rewritten(pattern: &str, fields: &[Field]) -> Result<(String, Vec<Expr>), String> {
     let letters = fields
         .iter()
-        .map(|(letter, _)| letter.to_string())
+        .map(|field| field.letter.to_string())
         .collect::<Vec<_>>();
     let source = format!(
         "fn layout({pattern}: Int) -> Int {{ ({},) }}",
@@ -573,29 +647,13 @@ fn rewritten(pattern: &str, fields: &[(char, u32)]) -> Result<(String, Expr, Vec
         },
         _ => return Err("the rewritten template binds no variable".into()),
     };
-    let guard = item
-        .attrs
-        .iter()
-        .find_map(|attribute| match &attribute.meta {
-            syn::Meta::List(list)
-                if list
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|s| s.ident == "requires") =>
-            {
-                syn::parse2::<Expr>(list.tokens.clone()).ok()
-            }
-            _ => None,
-        })
-        .ok_or("the rewritten template has no test")?;
     let terms = match item.block.stmts.last() {
         Some(syn::Stmt::Expr(Expr::Tuple(tuple), None)) => {
             tuple.elems.iter().cloned().collect::<Vec<_>>()
         }
         _ => return Err("the rewritten template reads no field".into()),
     };
-    Ok((binder, guard, terms))
+    Ok((binder, terms))
 }
 
 /// A value of a decided term.
@@ -605,106 +663,289 @@ enum Val {
     Bool(bool),
 }
 
-/// The value of `term` (Rust syntax) where it is decided by `environment`: literals, the bound
-/// names, and integer comparisons, arithmetic and bit ranges, and Boolean connectives over them,
-/// written as operators, as methods (`x.bit_range::<Int>(3, 3)`, `x.ne::<Int>(6)`) or as calls
-/// (`int::ne(x, 6)`); `None` for any other term. A conjunction one of whose operands is `false`
-/// is `false`, and a disjunction one of whose operands is `true` is `true`, whatever the other.
-fn evaluate(term: &Expr, environment: &BTreeMap<String, Val>) -> Option<Val> {
-    match term {
-        Expr::Lit(literal) => match &literal.lit {
-            Lit::Int(integer) => integer.base10_parse::<i128>().ok().map(Val::Int),
-            Lit::Bool(boolean) => Some(Val::Bool(boolean.value)),
-            _ => None,
-        },
-        Expr::Path(path) => environment
-            .get(&path.path.get_ident()?.to_string())
-            .copied(),
-        Expr::Paren(inner) => evaluate(&inner.expr, environment),
-        Expr::Group(inner) => evaluate(&inner.expr, environment),
-        Expr::Unary(unary) => match (unary.op, evaluate(&unary.expr, environment)?) {
-            (UnOp::Not(_), Val::Bool(value)) => Some(Val::Bool(!value)),
-            (UnOp::Neg(_), Val::Int(value)) => value.checked_neg().map(Val::Int),
-            _ => None,
-        },
-        Expr::Binary(binary) => {
-            let left = evaluate(&binary.left, environment);
-            let right = evaluate(&binary.right, environment);
-            match binary.op {
-                BinOp::And(_) => match (left, right) {
-                    (Some(Val::Bool(false)), _) | (_, Some(Val::Bool(false))) => {
-                        Some(Val::Bool(false))
-                    }
-                    (Some(Val::Bool(true)), Some(Val::Bool(true))) => Some(Val::Bool(true)),
-                    _ => None,
-                },
-                BinOp::Or(_) => match (left, right) {
-                    (Some(Val::Bool(true)), _) | (_, Some(Val::Bool(true))) => {
-                        Some(Val::Bool(true))
-                    }
-                    (Some(Val::Bool(false)), Some(Val::Bool(false))) => Some(Val::Bool(false)),
-                    _ => None,
-                },
-                op => operation(binary_name(op)?, &[left?, right?]),
-            }
-        }
-        Expr::MethodCall(call) => {
-            let mut operands = vec![evaluate(&call.receiver, environment)?];
-            for argument in &call.args {
-                operands.push(evaluate(argument, environment)?);
-            }
-            operation(&call.method.to_string(), &operands)
-        }
-        Expr::Call(call) => {
-            let Expr::Path(function) = &*call.func else {
-                return None;
-            };
-            let name = function.path.segments.last()?.ident.to_string();
-            let operands = call
-                .args
-                .iter()
-                .map(|argument| evaluate(argument, environment))
-                .collect::<Option<Vec<_>>>()?;
-            operation(&name, &operands)
-        }
-        _ => None,
+/// A term of the template's binder, read once and evaluated at each point (module
+/// documentation, "Field values").
+#[derive(Debug)]
+enum Term {
+    Int(i128),
+    Bool(bool),
+    /// The template's binder.
+    Binder,
+    /// A term no point decides.
+    Unknown,
+    /// A builtin operation of `Int` or `Bool` on its operands.
+    Apply(Op, Vec<Term>),
+}
+
+/// A builtin operation [`Term::value`] decides.
+#[derive(Clone, Copy, Debug)]
+enum Op {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Add,
+    Sub,
+    Mul,
+    /// `/Int`, division truncated towards zero.
+    Quot,
+    /// `%Int`, the remainder of [`Op::Quot`].
+    Rem,
+    /// `divInt`, Euclidean division.
+    Div,
+    /// `modInt`, its remainder, never negative.
+    Mod,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    /// `bitRangeInt(value, offset, length)`.
+    BitRange,
+    Neg,
+    And,
+    Or,
+    Not,
+    Xor,
+    Implies,
+}
+
+impl Op {
+    /// The operation the emitted K writes with `head` on `arity` operands, where it is one of K's
+    /// builtin `Int` and `Bool` operations. A term with this head and arity is that operation: the
+    /// K is read by its productions, and a production of the definition with the same syntax and
+    /// operand sorts would make the term ambiguous (and one with the same symbol is refused).
+    fn of_k(head: &str, arity: usize) -> Option<Self> {
+        Some(match (head, arity) {
+            ("==Int" | "==K" | "==Bool", 2) => Self::Eq,
+            ("=/=Int" | "=/=K" | "=/=Bool", 2) => Self::Ne,
+            ("<Int", 2) => Self::Lt,
+            ("<=Int", 2) => Self::Le,
+            (">Int", 2) => Self::Gt,
+            (">=Int", 2) => Self::Ge,
+            ("+Int", 2) => Self::Add,
+            ("-Int", 2) => Self::Sub,
+            ("*Int", 2) => Self::Mul,
+            ("/Int", 2) => Self::Quot,
+            ("%Int", 2) => Self::Rem,
+            ("divInt", 2) => Self::Div,
+            ("modInt", 2) => Self::Mod,
+            ("&Int", 2) => Self::BitAnd,
+            ("|Int", 2) => Self::BitOr,
+            ("xorInt", 2) => Self::BitXor,
+            ("<<Int", 2) => Self::Shl,
+            (">>Int", 2) => Self::Shr,
+            ("bitRangeInt", 3) => Self::BitRange,
+            ("andBool" | "andThenBool", 2) => Self::And,
+            ("orBool" | "orElseBool", 2) => Self::Or,
+            ("notBool", 1) => Self::Not,
+            ("xorBool", 2) => Self::Xor,
+            ("impliesBool", 2) => Self::Implies,
+            _ => return None,
+        })
+    }
+
+    /// The operation a method of the rewrite's terms names on `arity` operands, its receiver
+    /// first: the rewrite writes the builtin methods of `Int` (`x.bit_range::<Int>(3, 3)`).
+    fn of_method(name: &str, arity: usize) -> Option<Self> {
+        Some(match (name, arity) {
+            ("eq", 2) => Self::Eq,
+            ("ne", 2) => Self::Ne,
+            ("lt", 2) => Self::Lt,
+            ("le", 2) => Self::Le,
+            ("gt", 2) => Self::Gt,
+            ("ge", 2) => Self::Ge,
+            ("add", 2) => Self::Add,
+            ("sub", 2) => Self::Sub,
+            ("mul", 2) => Self::Mul,
+            ("bit_range", 3) => Self::BitRange,
+            _ => return None,
+        })
+    }
+
+    /// The operation of the Rust operator `op` on integers and Booleans.
+    const fn of_binary(op: BinOp) -> Option<Self> {
+        Some(match op {
+            BinOp::Eq(_) => Self::Eq,
+            BinOp::Ne(_) => Self::Ne,
+            BinOp::Lt(_) => Self::Lt,
+            BinOp::Le(_) => Self::Le,
+            BinOp::Gt(_) => Self::Gt,
+            BinOp::Ge(_) => Self::Ge,
+            BinOp::Add(_) => Self::Add,
+            BinOp::Sub(_) => Self::Sub,
+            BinOp::Mul(_) => Self::Mul,
+            BinOp::And(_) => Self::And,
+            BinOp::Or(_) => Self::Or,
+            _ => return None,
+        })
     }
 }
 
-/// The method name of a binary operator [`operation`] decides.
-const fn binary_name(op: BinOp) -> Option<&'static str> {
-    Some(match op {
-        BinOp::Eq(_) => "eq",
-        BinOp::Ne(_) => "ne",
-        BinOp::Lt(_) => "lt",
-        BinOp::Le(_) => "le",
-        BinOp::Gt(_) => "gt",
-        BinOp::Ge(_) => "ge",
-        BinOp::Add(_) => "add",
-        BinOp::Sub(_) => "sub",
-        BinOp::Mul(_) => "mul",
-        _ => return None,
-    })
+impl Term {
+    /// The emitted K term `term`, a conjunct of a condition, of the template whose binder the
+    /// K writes `binder`: its literals, the binder, and K's builtin operations on them
+    /// ([`Op::of_k`]); any other term, a function the definition declares included, is unknown.
+    fn of_k(term: &KTerm, binder: &str) -> Self {
+        if term.operands.is_empty() {
+            let name = term
+                .head
+                .split_once(':')
+                .map_or(term.head.as_str(), |(name, _)| name);
+            return match name {
+                "true" => Self::Bool(true),
+                "false" => Self::Bool(false),
+                _ if name == binder => Self::Binder,
+                _ => name.parse::<i128>().map_or(Self::Unknown, Self::Int),
+            };
+        }
+        match Op::of_k(&term.head, term.operands.len()) {
+            Some(op) => Self::Apply(
+                op,
+                term.operands
+                    .iter()
+                    .map(|operand| Self::of_k(operand, binder))
+                    .collect(),
+            ),
+            None => Self::Unknown,
+        }
+    }
+
+    /// The term `term` of the template's rewrite ([`rewritten`]), whose binder is named
+    /// `binder`: literals, the binder, Rust operators and the builtin methods the rewrite writes
+    /// ([`Op::of_method`]); any other term is unknown.
+    fn of_rewrite(term: &Expr, binder: &str) -> Self {
+        let apply = |op: Option<Op>, operands: Vec<&Expr>| match op {
+            Some(op) => Self::Apply(
+                op,
+                operands
+                    .into_iter()
+                    .map(|operand| Self::of_rewrite(operand, binder))
+                    .collect(),
+            ),
+            None => Self::Unknown,
+        };
+        match term {
+            Expr::Lit(literal) => match &literal.lit {
+                Lit::Int(integer) => integer
+                    .base10_parse::<i128>()
+                    .map_or(Self::Unknown, Self::Int),
+                Lit::Bool(boolean) => Self::Bool(boolean.value),
+                _ => Self::Unknown,
+            },
+            Expr::Path(path) if path.path.is_ident(binder) => Self::Binder,
+            Expr::Paren(inner) => Self::of_rewrite(&inner.expr, binder),
+            Expr::Group(inner) => Self::of_rewrite(&inner.expr, binder),
+            Expr::Unary(unary) => apply(
+                match unary.op {
+                    UnOp::Not(_) => Some(Op::Not),
+                    UnOp::Neg(_) => Some(Op::Neg),
+                    _ => None,
+                },
+                vec![&unary.expr],
+            ),
+            Expr::Binary(binary) => {
+                apply(Op::of_binary(binary.op), vec![&binary.left, &binary.right])
+            }
+            Expr::MethodCall(call) => apply(
+                Op::of_method(&call.method.to_string(), call.args.len() + 1),
+                std::iter::once(&*call.receiver).chain(&call.args).collect(),
+            ),
+            _ => Self::Unknown,
+        }
+    }
+
+    /// The term's value where the binder is `binder`, `None` where it is not decided. A
+    /// conjunction one of whose operands is `false` is `false`, and a disjunction one of whose
+    /// operands is `true` is `true`, whatever the other (module documentation, "Field values").
+    fn value(&self, binder: i128) -> Option<Val> {
+        match self {
+            Self::Int(value) => Some(Val::Int(*value)),
+            Self::Bool(value) => Some(Val::Bool(*value)),
+            Self::Binder => Some(Val::Int(binder)),
+            Self::Unknown => None,
+            Self::Apply(op, operands) => apply(*op, operands, binder),
+        }
+    }
 }
 
-/// The operation `name` on `operands`, where it is one [`evaluate`] decides.
-fn operation(name: &str, operands: &[Val]) -> Option<Val> {
+/// The value of `op` on `operands` where the binder is `binder` ([`Term::value`]).
+fn apply(op: Op, operands: &[Term], binder: i128) -> Option<Val> {
     use Val::{Bool, Int};
-    Some(match (name, operands) {
-        ("eq", [left, right]) => Bool(left == right),
-        ("ne", [left, right]) => Bool(left != right),
-        ("lt", [Int(left), Int(right)]) => Bool(left < right),
-        ("le", [Int(left), Int(right)]) => Bool(left <= right),
-        ("gt", [Int(left), Int(right)]) => Bool(left > right),
-        ("ge", [Int(left), Int(right)]) => Bool(left >= right),
-        ("add", [Int(left), Int(right)]) => Int(left.checked_add(*right)?),
-        ("sub", [Int(left), Int(right)]) => Int(left.checked_sub(*right)?),
-        ("mul", [Int(left), Int(right)]) => Int(left.checked_mul(*right)?),
-        ("bit_range", [Int(value), Int(offset), Int(length)]) => {
-            let offset = u32::try_from(*offset).ok().filter(|offset| *offset < 127)?;
-            let length = u32::try_from(*length).ok().filter(|length| *length < 127)?;
-            Int((value >> offset) & ((1_i128 << length) - 1))
+    let value = |index: usize| operands.get(index).and_then(|term| term.value(binder));
+    match op {
+        Op::And => {
+            return match (value(0), value(1)) {
+                (Some(Bool(false)), _) | (_, Some(Bool(false))) => Some(Bool(false)),
+                (Some(Bool(true)), Some(Bool(true))) => Some(Bool(true)),
+                _ => None,
+            };
         }
+        Op::Or => {
+            return match (value(0), value(1)) {
+                (Some(Bool(true)), _) | (_, Some(Bool(true))) => Some(Bool(true)),
+                (Some(Bool(false)), Some(Bool(false))) => Some(Bool(false)),
+                _ => None,
+            };
+        }
+        Op::Implies => {
+            return match (value(0), value(1)) {
+                (Some(Bool(false)), _) | (_, Some(Bool(true))) => Some(Bool(true)),
+                (Some(Bool(true)), Some(Bool(false))) => Some(Bool(false)),
+                _ => None,
+            };
+        }
+        _ => {}
+    }
+    // Every other operation needs each operand's value.
+    let shift = |amount: i128| u32::try_from(amount).ok().filter(|amount| *amount < 127);
+    let right = if operands.len() > 1 {
+        Some(value(1)?)
+    } else {
+        None
+    };
+    Some(match (op, value(0)?, right) {
+        (Op::Not, Bool(operand), None) => Bool(!operand),
+        (Op::Neg, Int(operand), None) => Int(operand.checked_neg()?),
+        (Op::Eq, left, Some(right)) => Bool(left == right),
+        (Op::Ne, left, Some(right)) => Bool(left != right),
+        (Op::Xor, Bool(left), Some(Bool(right))) => Bool(left != right),
+        (Op::BitRange, Int(operand), Some(Int(offset))) => {
+            let Some(Int(length)) = value(2) else {
+                return None;
+            };
+            let (offset, length) = (shift(offset)?, shift(length)?);
+            Int((operand >> offset) & ((1_i128 << length) - 1))
+        }
+        (op, Int(left), Some(Int(right))) => match op {
+            Op::Lt => Bool(left < right),
+            Op::Le => Bool(left <= right),
+            Op::Gt => Bool(left > right),
+            Op::Ge => Bool(left >= right),
+            Op::Add => Int(left.checked_add(right)?),
+            Op::Sub => Int(left.checked_sub(right)?),
+            Op::Mul => Int(left.checked_mul(right)?),
+            Op::Quot => Int(left.checked_div(right)?),
+            Op::Rem => Int(left.checked_rem(right)?),
+            Op::Div => Int(left.checked_div_euclid(right)?),
+            Op::Mod => Int(left.checked_rem_euclid(right)?),
+            Op::BitAnd => Int(left & right),
+            Op::BitOr => Int(left | right),
+            Op::BitXor => Int(left ^ right),
+            Op::Shl => {
+                let amount = shift(right)?;
+                let shifted = left.checked_shl(amount)?;
+                (shifted >> amount == left).then_some(Int(shifted))?
+            }
+            Op::Shr => Int(match shift(right) {
+                Some(amount) => left >> amount,
+                None if right >= 0 => left >> 127,
+                None => return None,
+            }),
+            _ => return None,
+        },
         _ => return None,
     })
 }
@@ -745,50 +986,111 @@ fn listed_encodings(runs: &[String]) -> String {
     text
 }
 
-/// A field's value as a target writes it: decimal, and binary in the field's `bits` template
-/// bits where it fits them.
-fn value_text(value: i128, bits: u32) -> String {
-    match u32::try_from(value) {
-        Ok(unsigned) if bits < 32 && unsigned < (1_u32 << bits) => {
-            let digits = usize::try_from(bits).unwrap_or(1);
-            format!("{value} (0b{unsigned:0digits$b})")
-        }
-        _ => value.to_string(),
+/// The value `value` of the field `field` as a target writes it, at `point`, an encoding where
+/// the field has that value: decimal, then the field's template bits at `point`, most
+/// significant first, labelled as such where they read as another number than the value (a field
+/// whose modifier places its bits or reads them signed).
+fn value_text(value: i128, field: &Field, point: u128) -> String {
+    let bits = field
+        .positions
+        .iter()
+        .map(|position| {
+            if (point >> position) & 1 == 1 {
+                '1'
+            } else {
+                '0'
+            }
+        })
+        .collect::<String>();
+    let placed = field.positions.iter().fold(0_i128, |sum, position| {
+        (sum << 1) | i128::from((point >> position) & 1 == 1)
+    });
+    if placed == value {
+        format!("{value} (0b{bits})")
+    } else {
+        format!("{value} (template bits 0b{bits})")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Val, evaluate, runs, value_text};
-    use std::collections::BTreeMap;
+    use super::{Field, KTerm, Term, Val, runs, value_text};
 
-    fn decide(text: &str, bindings: &[(&str, Val)]) -> Option<Val> {
-        let environment = bindings
-            .iter()
-            .map(|(name, value)| ((*name).to_owned(), *value))
-            .collect::<BTreeMap<_, _>>();
-        evaluate(&syn::parse_str(text).unwrap(), &environment)
+    fn k(head: &str, operands: Vec<KTerm>) -> KTerm {
+        KTerm {
+            head: head.to_owned(),
+            operands,
+        }
+    }
+
+    fn leaf(head: &str) -> KTerm {
+        k(head, Vec::new())
     }
 
     #[test]
-    fn decided_terms_are_evaluated_and_others_are_not() {
-        let op = ("op", Val::Int(0x1f));
-        assert_eq!(decide("op != 0x1f", &[op]), Some(Val::Bool(false)));
-        assert_eq!(decide("int::ne(op, 31)", &[op]), Some(Val::Bool(false)));
-        assert_eq!(
-            decide("op.bit_range::<Int>(2, 2).eq::<Int>(3)", &[op]),
-            Some(Val::Bool(true))
-        );
+    fn emitted_builtins_are_decided_and_declared_functions_are_not() {
+        // `Op:Int =/=Int 31`
+        let hole = k("=/=Int", vec![leaf("Op:Int"), leaf("31")]);
+        assert_eq!(Term::of_k(&hole, "Op").value(31), Some(Val::Bool(false)));
+        assert_eq!(Term::of_k(&hole, "Op").value(30), Some(Val::Bool(true)));
+        // `bitRangeInt(Op:Int, 0, 2) +Int 1 ==Int 0`, the builtin, and the same with a function
+        // the definition declares, which is no builtin whatever its Rust name.
+        let range = k("bitRangeInt", vec![leaf("Op:Int"), leaf("0"), leaf("2")]);
+        let builtin = k("==Int", vec![k("+Int", vec![range, leaf("1")]), leaf("0")]);
+        assert_eq!(Term::of_k(&builtin, "Op").value(11), Some(Val::Bool(false)));
+        let range = k("bitRangeInt", vec![leaf("Op:Int"), leaf("0"), leaf("2")]);
+        let declared = k("==Int", vec![k("add", vec![range, leaf("1")]), leaf("0")]);
+        assert_eq!(Term::of_k(&declared, "Op").value(11), None);
         // A conjunct an operand of which is unknown is decided by the other where it can be.
-        assert_eq!(decide("op < 0 && ime", &[op]), Some(Val::Bool(false)));
-        assert_eq!(decide("op > 0 && ime", &[op]), None);
-        assert_eq!(decide("op / 2 == 15", &[op]), None);
+        let other = k(
+            "andThenBool",
+            vec![k("<Int", vec![leaf("Op:Int"), leaf("0")]), leaf("Ime:Bool")],
+        );
+        assert_eq!(Term::of_k(&other, "Op").value(3), Some(Val::Bool(false)));
+        let undecided = k(
+            "andThenBool",
+            vec![k(">Int", vec![leaf("Op:Int"), leaf("0")]), leaf("Ime:Bool")],
+        );
+        assert_eq!(Term::of_k(&undecided, "Op").value(3), None);
+        // K's division truncates, its `modInt` is never negative, and division by zero is
+        // undefined, so undecided.
+        let quotient = k("/Int", vec![leaf("-7"), leaf("Op:Int")]);
+        assert_eq!(Term::of_k(&quotient, "Op").value(2), Some(Val::Int(-3)));
+        assert_eq!(Term::of_k(&quotient, "Op").value(0), None);
+        let modulo = k("modInt", vec![leaf("-7"), leaf("Op:Int")]);
+        assert_eq!(Term::of_k(&modulo, "Op").value(2), Some(Val::Int(1)));
+    }
+
+    #[test]
+    fn the_rewrites_methods_are_decided() {
+        let term = syn::parse_str("op.bit_range::<Int>(2, 2).mul::<Int>(4)").unwrap();
+        assert_eq!(
+            Term::of_rewrite(&term, "op").value(0x1f),
+            Some(Val::Int(12))
+        );
+        let call = syn::parse_str("add(op, 1)").unwrap();
+        assert_eq!(Term::of_rewrite(&call, "op").value(0x1f), None);
     }
 
     #[test]
     fn encodings_are_listed_in_runs() {
         assert_eq!(runs(&[28, 29, 30, 40], 6), ["0x1c-0x1e", "0x28"]);
-        assert_eq!(value_text(3, 2), "3 (0b11)");
-        assert_eq!(value_text(-2, 4), "-2");
+        let plain = Field {
+            letter: 'r',
+            positions: vec![3, 2],
+        };
+        assert_eq!(value_text(3, &plain, 0x1c), "3 (0b11)");
+        // `k::bits!("uuu 1", u: [6:4])`: the value is the template bits times 16.
+        let placed = Field {
+            letter: 'u',
+            positions: vec![3, 2, 1],
+        };
+        assert_eq!(value_text(16, &placed, 0b0011), "16 (template bits 0b001)");
+        // A signed field's value -2 is template bits 1110.
+        let signed = Field {
+            letter: 'i',
+            positions: vec![7, 6, 5, 4],
+        };
+        assert_eq!(value_text(-2, &signed, 0xe3), "-2 (template bits 0b1110)");
     }
 }

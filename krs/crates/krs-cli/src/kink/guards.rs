@@ -457,10 +457,9 @@ impl GuardNames {
     /// The `k::bits!` templates of the sentence labelled `label` (as the emission writes it) and
     /// the conjuncts of its condition after their tests, read as [`Self::read_condition`] reads
     /// them (module documentation, "Templates"): each template's binder by its K variable name
-    /// and its pattern as the author wrote it, and each later conjunct's Rust text where the
-    /// author wrote it, `None` where KRS inserted it or its text cannot be read, or why the
-    /// condition cannot be read. A sentence without a template, or that the source map does not
-    /// have, has none.
+    /// and its pattern as the author wrote it, and each later conjunct, the author's and those
+    /// KRS inserted alike, as the emitted K term it is ([`KTerm`]), or why the condition cannot
+    /// be read. A sentence without a template, or that the source map does not have, has none.
     pub(crate) fn sentence_templates(&self, label: &str) -> SentenceTemplates {
         let mut reading = SentenceTemplates {
             templates: Vec::new(),
@@ -503,17 +502,24 @@ impl GuardNames {
             condition
                 .conjuncts
                 .iter()
-                .map(|&conjunct| {
-                    if sentence.nodes[conjunct].inserted.is_some() {
-                        return None;
-                    }
-                    sentence
-                        .covering(conjunct)
-                        .and_then(|range| self.position(&range).text)
-                })
+                .map(|&conjunct| self.k_term(&sentence, conjunct))
                 .collect()
         });
         reading
+    }
+
+    /// The emitted K term the map node `map_index` renders: its own text outside its operands
+    /// ([`Self::own_text`]), through casts and sort projections, and each operand's term.
+    fn k_term(&self, sentence: &Sentence, map_index: usize) -> KTerm {
+        let at = self.through_casts(sentence, map_index);
+        KTerm {
+            head: self.own_text(sentence, at),
+            operands: sentence
+                .children(at)
+                .into_iter()
+                .map(|child| self.k_term(sentence, child))
+                .collect(),
+        }
     }
 
     /// The pattern a template's string literal at `range` is the template of, as the author wrote
@@ -1255,10 +1261,19 @@ struct Condition {
 pub(crate) struct SentenceTemplates {
     /// The templates, in written order.
     pub(crate) templates: Vec<TemplateSite>,
-    /// Each conjunct of the condition after the templates' tests: its Rust text where the author
-    /// wrote it, `None` where KRS inserted it or its text cannot be read; `Err` says why the
-    /// condition cannot be read.
-    pub(crate) conjuncts: Result<Vec<Option<String>>, Unmatched>,
+    /// Each conjunct of the condition after the templates' tests, as the emitted K term it is;
+    /// `Err` says why the condition cannot be read.
+    pub(crate) conjuncts: Result<Vec<KTerm>, Unmatched>,
+}
+
+/// A term of the emitted K as its source map nests it ([`GuardNames::sentence_templates`]).
+pub(crate) struct KTerm {
+    /// The term's own K text outside its operands, without layout, brackets and commas: the
+    /// operator of an infix or prefix production (`+Int`, `notBool`), the name of a function
+    /// written as an application (`bitRangeInt`), or a leaf's whole text (`Op:Int`, `31`).
+    pub(crate) head: String,
+    /// The operands, in written order.
+    pub(crate) operands: Vec<KTerm>,
 }
 
 /// One `k::bits!` template of a sentence ([`SentenceTemplates`]).

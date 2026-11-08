@@ -7,7 +7,9 @@
 //! executes it. The decode reads a 6-bit template `01 rr ss` with two fields, `r` and `s`, and a
 //! literal hole: `0x1f` is `halt`, so the template's equation requires `op != 0x1f`. The corpus
 //! decodes `0x10`, `0x15` (`r` and `s` 0 and 1), `0x1f` and `0x03`; no case decodes to
-//! `Instr::Jump`.
+//! `Instr::Jump`. Three rules take templates of their own: `wrap` an aliased one whose condition
+//! calls a function the package declares under the name `add`, `pair` two without an alias, and
+//! `mask` one with holes and no field.
 
 #![cfg(feature = "kink")]
 
@@ -31,12 +33,18 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Cmd, result = KResult)]
-#[k::precedence((Run) > (Seq))]
+#[k::precedence((Run, Wrap, Pair, Mask) > (Seq))]
 pub enum CmdSyntax {
     #[k::syntax("{first} ; {rest}")]
     Seq { first: Cmd, rest: Cmd },
     #[k::syntax("run {op}")]
     Run { op: Int },
+    #[k::syntax("wrap {op}")]
+    Wrap { op: Int },
+    #[k::syntax("pair {hi} {lo}")]
+    Pair { hi: Int, lo: Int },
+    #[k::syntax("mask {op}")]
+    Mask { op: Int },
 }
 
 #[k::constructors(sort = Inst, result = KResult)]
@@ -76,6 +84,7 @@ k::rules! {
     for Machine;
     use CmdSyntax::*;
     use Instr::*;
+    use crate::Add as add;
 
     seq: { k: [Seq(first, rest), ..] } => { k: [first, rest, ..] };
     run: { k: [Run(op), ..] } => { k: [crate::Decode(op), ..] };
@@ -83,6 +92,18 @@ k::rules! {
     halt: { k: [Halt(), ..], halted: _ } => { k: [..], halted: true };
     nop: { k: [Nop(), ..] } => { k: [..] };
     jump: { k: [Jump(), ..], acc: _ } => { k: [..], acc: 0 };
+    #[k::requires(add(r, 1) == 0)]
+    wrap: { k: [Wrap(op @ k::bits!("10 rr")), ..], acc: _ } => { k: [..], acc: r };
+    pair: { k: [Pair(k::bits!("1 aa"), k::bits!("bb 0")), ..], acc: _ } => { k: [..], acc: a + b };
+    mask: { k: [Mask(k::bits!("01 __")), ..] } => { k: [..] };
+}
+
+#[k::function(total, internal)]
+pub fn Add(a: Term<Int>, b: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Add;
+    add_wrapping: (a, b) => (a + b) % 4;
 }
 
 #[k::function(total, internal)]
@@ -98,10 +119,12 @@ k::equations! {
 }
 "#;
 
-const CASES: [(&str, &str); 3] = [
+const CASES: [(&str, &str); 5] = [
     ("load", "run 16 ; run 21"),
     ("halt", "run 31"),
     ("other", "run 3"),
+    ("wrap", "wrap 11 ; mask 5"),
+    ("pair", "pair 6 4"),
 ];
 
 /// The fixture package with its corpus, built once for the tests of this process.
@@ -121,7 +144,9 @@ impl Package {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("kink/cases")).unwrap();
         fs::write(root.join("src/lib.rs"), LIBRARY).unwrap();
-        let mut flow = "[spec]\nkrs = { definition = \"main\" }\n".to_owned();
+        // The clock never decides a run of the tests (R4-WALLCLOCK).
+        let mut flow =
+            "[spec]\nkrs = { definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n".to_owned();
         for (id, program) in CASES {
             writeln!(
                 flow,
@@ -190,6 +215,45 @@ fn json(output: &Output) -> Value {
     })
 }
 
+/// The `families.syntax.binders` entry of the binder K writes `variable` in the sentence the
+/// loaded definition labels `label`.
+fn binder<'d>(document: &'d Value, label: &str, variable: &str) -> &'d Value {
+    let binders = &document["families"]["syntax"]["binders"];
+    binders
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|binder| {
+            binder["variable"] == variable
+                && binder["sentences"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|sentence| sentence["label"] == label)
+        })
+        .unwrap_or_else(|| panic!("no binder {variable} of {label}: {binders:#}"))
+}
+
+/// The values a binder took.
+fn binder_values(binder: &Value) -> Vec<&str> {
+    binder["values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value["value"].as_str().unwrap())
+        .collect()
+}
+
+/// The field-value items of the sentence whose KRS item is `rule`.
+fn field_values<'d>(document: &'d Value, rule: &str) -> Vec<&'d Value> {
+    document["families"]["syntax"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == "field-value" && item["krs"]["rule"] == rule)
+        .collect()
+}
+
 /// The syntax item whose id is `id`.
 fn item<'d>(document: &'d Value, id: &str) -> &'d Value {
     document["families"]["syntax"]["items"]
@@ -253,6 +317,9 @@ fn an_unreached_variant_is_named_by_rust_path_with_its_inspecting_sentences() {
         "crate::Instr::Nop",
         "crate::CmdSyntax::Seq",
         "crate::CmdSyntax::Run",
+        "crate::CmdSyntax::Wrap",
+        "crate::CmdSyntax::Pair",
+        "crate::CmdSyntax::Mask",
     ] {
         assert_eq!(
             item(document, &format!("syntax:{reached}"))["status"],
@@ -261,8 +328,8 @@ fn an_unreached_variant_is_named_by_rust_path_with_its_inspecting_sentences() {
         );
     }
     let counts = &document["families"]["syntax"]["counts"]["productions"];
-    assert_eq!(counts["obligations"], 6, "{counts}");
-    assert_eq!(counts["covered"], 5, "{counts}");
+    assert_eq!(counts["obligations"], 9, "{counts}");
+    assert_eq!(counts["covered"], 8, "{counts}");
 }
 
 /// A field value no case's decode bound is open, and its target lists the encodings that reach
@@ -297,18 +364,8 @@ fn a_missing_field_value_lists_its_encodings() {
         text.ends_with("; the cases that match its templates: load"),
         "{text}"
     );
-    let binders = document["families"]["syntax"]["binders"]
-        .as_array()
-        .unwrap();
-    assert_eq!(binders.len(), 1, "{binders:#?}");
-    assert_eq!(binders[0]["variable"], "VarOp");
-    let values = binders[0]["values"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value["value"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(values, ["16", "21"]);
+    let binder = binder(document, "syntax--decode_ld", "VarOp");
+    assert_eq!(binder_values(binder), ["16", "21"]);
 }
 
 /// The literal hole `op != 0x1f` is no point of the template's domain: no field value lists it
@@ -324,12 +381,7 @@ fn the_holes_combination_is_excluded_from_the_universe() {
         strings(&item(document, "syntax:crate::decode_ld:s=3")["krs"]["encodings"]),
         ["0x13", "0x17", "0x1b"]
     );
-    let fields = document["families"]["syntax"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|item| item["kind"] == "field-value")
-        .collect::<Vec<_>>();
+    let fields = field_values(document, "crate::decode_ld");
     let ids = fields
         .iter()
         .map(|item| item["id"].as_str().unwrap())
@@ -354,8 +406,77 @@ fn the_holes_combination_is_excluded_from_the_universe() {
         .collect::<Vec<_>>();
     assert_eq!(points, ["0x10-0x13", "0x14-0x17", "0x18-0x1b", "0x1c-0x1e"]);
     let counts = &document["families"]["syntax"]["counts"]["field_values"];
-    assert_eq!(counts["obligations"], 8, "{counts}");
-    assert_eq!(counts["covered"], 4, "{counts}");
+    // With the 8 values of `pair`'s two templates and the 4 of `wrap`'s.
+    assert_eq!(counts["obligations"], 20, "{counts}");
+    assert_eq!(counts["covered"], 7, "{counts}");
+}
+
+/// The templates of a rule of `k::rules!` without an alias have hidden binders, which the
+/// compiled definition writes `Bits` and `Bits1`, in the rule the loaded definition labels
+/// `SYNTAX.pair` (written `rule [pair]:`): every run records their values, so the field values
+/// the case `pair 6 4` binds are reached by it.
+#[test]
+fn a_rules_hidden_binders_record_their_field_values() {
+    let (document, ..) = documents();
+    assert_eq!(
+        binder_values(binder(document, "SYNTAX.pair", "VarBits")),
+        ["6"]
+    );
+    assert_eq!(
+        binder_values(binder(document, "SYNTAX.pair", "VarBits1")),
+        ["4"]
+    );
+    for reached in ["syntax:crate::pair:a=2", "syntax:crate::pair:b=2"] {
+        let reached = item(document, reached);
+        assert_eq!(reached["status"], "reached", "{reached:#}");
+        assert_eq!(strings(&reached["reached_by"]), ["pair"], "{reached:#}");
+    }
+    let missing = item(document, "syntax:crate::pair:b=3");
+    assert_eq!(missing["status"], "unreached");
+    assert_eq!(missing["template"], "bb 0");
+    assert_eq!(strings(&missing["krs"]["encodings"]), ["0x6"]);
+    assert_eq!(field_values(document, "crate::pair").len(), 8);
+}
+
+/// `wrap`'s condition `add(r, 1) == 0` calls the package's function `Add`, imported as `add`,
+/// which is `(a + b) % 4`: it holds at `r = 3`. A conjunct is decided only through K's builtin
+/// operations, never by a function's Rust name, so this one is taken to hold, `r = 3` is in the
+/// domain, and the case `wrap 11` reaches it.
+#[test]
+fn a_function_named_like_a_builtin_is_not_evaluated_as_one() {
+    let (document, ..) = documents();
+    let top = item(document, "syntax:crate::wrap:r=3");
+    assert_eq!(strings(&top["krs"]["encodings"]), ["0xb"]);
+    assert_eq!(top["status"], "reached", "{top:#}");
+    assert_eq!(strings(&top["reached_by"]), ["wrap"]);
+    assert_eq!(
+        binder_values(binder(document, "SYNTAX.wrap", "VarOp")),
+        ["11"]
+    );
+    // The undecided conjunct takes no value out of the domain.
+    assert_eq!(field_values(document, "crate::wrap").len(), 4);
+}
+
+/// `mask`'s template `01 __` has holes and no field: it gives no field value and no binder, and
+/// it is no template whose values could not be enumerated.
+#[test]
+fn a_template_without_a_field_has_no_field_value() {
+    let (document, ..) = documents();
+    assert!(field_values(document, "crate::mask").is_empty());
+    let syntax = &document["families"]["syntax"];
+    assert_eq!(syntax["krs"]["unenumerated"], Value::Null, "{syntax:#}");
+    assert!(
+        syntax["binders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|binder| binder["sentences"][0]["label"] != "SYNTAX.mask"),
+        "{syntax:#}"
+    );
+    assert_eq!(
+        item(document, "syntax:crate::CmdSyntax::Mask")["status"],
+        "reached"
+    );
 }
 
 /// The syntax family and the verdicts are the same bytes whether the runs are computed or read
@@ -406,7 +527,9 @@ fn an_aliased_templates_tests_are_the_templates() {
 /// The condition flips of the aliased template's sentence are placed in its guard as for any
 /// sentence: the alias changes which conjuncts are authored, not the condition's display tree,
 /// so a flip's occurrence there is reached at its arm's match or at the operand that renders
-/// the flipped atom, never left unplaced.
+/// the flipped atom, never left unplaced. An occurrence reached at the match is reached by the
+/// cases that match the KRS pattern, its templates included (the row's `krs.matched_by`), not by
+/// every case that evaluated the function (the row's K-level `matched_by`).
 #[test]
 fn an_aliased_templates_flips_are_placed_in_its_guard() {
     let (document, ..) = documents();
@@ -418,7 +541,10 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
         .unwrap();
     let flips = &document["families"]["flips"];
     assert_eq!(flips["run"], true, "{flips:#}");
+    assert_eq!(strings(&rule["krs"]["matched_by"]), ["load"]);
+    assert_eq!(strings(&rule["matched_by"]), ["load", "other"]);
     let mut placed = 0;
+    let mut matched = 0;
     for flip in flips["items"].as_array().unwrap() {
         for occurrence in flip["occurrences"].as_array().unwrap() {
             if occurrence["rule"] != "rule:crate::decode_ld" {
@@ -427,7 +553,10 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
             placed += 1;
             assert_eq!(occurrence["unplaced"], Value::Null, "{flip:#}");
             match occurrence["reach"].as_str() {
-                Some("match") => {}
+                Some("match") => {
+                    matched += 1;
+                    assert_eq!(strings(&occurrence["reached_by"]), ["load"], "{flip:#}");
+                }
                 Some("operand") => {
                     let operand = rule["guard"]["operands"]
                         .as_array()
@@ -446,4 +575,8 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
         }
     }
     assert!(placed > 0, "no flip occurs in crate::decode_ld: {flips:#}");
+    assert!(
+        matched > 0,
+        "no flip of crate::decode_ld is reached at its match: {flips:#}"
+    );
 }
