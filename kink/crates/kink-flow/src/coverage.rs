@@ -2104,6 +2104,44 @@ fn measure(covered: usize, obligations: usize) -> Value {
     }
 }
 
+/// Whether `text` reads as one operand after a prefix operator: an identifier or a path of them
+/// (`halted`, `self.halted`, `crate::m::x`), optionally followed by one parenthesized argument
+/// list that closes at its end (`ready(x, y)`). Anything else (`x<0`, `a + b`, `x[0]`) is read
+/// as one operand only in parentheses, whatever its spacing.
+fn one_operand(text: &str) -> bool {
+    let path = text
+        .find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '.' | ':')))
+        .unwrap_or(text.len());
+    if !text
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    {
+        return false;
+    }
+    let arguments = &text[path..];
+    if arguments.is_empty() {
+        return true;
+    }
+    if !arguments.starts_with('(') {
+        return false;
+    }
+    let mut depth = 0_usize;
+    for (at, c) in arguments.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return at + 1 == arguments.len();
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// The display tree of a guard (`guard.operands`), by path.
 struct Tree<'g> {
     operands: BTreeMap<&'g str, &'g Value>,
@@ -2140,7 +2178,8 @@ impl<'g> Tree<'g> {
     /// before its operand, leaving out what a front end inserted; `None` for a node with nothing
     /// of the author's. A front end's negation is written `!`, whatever token produced it (an
     /// `else` negates the condition before it), and a K negation its connective and a space
-    /// (`notBool X`); the operand is parenthesized unless its text is one token.
+    /// (`notBool X`); the operand is parenthesized unless it is one operand as written: a
+    /// negation, or a text that is an identifier, a path or a call ([`one_operand`]).
     fn text(&self, path: &str) -> Option<String> {
         let operand = self.operands.get(path)?;
         if self.generated(path) && operand["kind"] == "atom" {
@@ -2156,11 +2195,16 @@ impl<'g> Tree<'g> {
         if operand["kind"] == "negation"
             && let [child] = children.as_slice()
         {
-            let inner = self.text(child.as_str()?)?;
-            let inner = if inner.contains(char::is_whitespace) {
-                format!("({inner})")
-            } else {
+            let child = child.as_str()?;
+            let inner = self.text(child)?;
+            let negation = self
+                .operands
+                .get(child)
+                .is_some_and(|c| c["kind"] == "negation");
+            let inner = if negation || one_operand(&inner) {
                 inner
+            } else {
+                format!("({inner})")
             };
             return Some(if operand["krs"]["text"].is_string() {
                 format!("!{inner}")
@@ -4288,8 +4332,9 @@ mod tests {
     }
 
     /// A compound sibling renders a negation as `!` before its operand, parenthesized unless
-    /// the operand is one token; a negated negation reaching a node is its operand with the
-    /// same truth; a K negation keeps its connective, with a space.
+    /// the operand is a negation, an identifier, a path or a call, whatever its spacing; a
+    /// negated negation reaching a node is its operand with the same truth; a K negation keeps
+    /// its connective, with a space.
     #[test]
     fn a_negation_is_written_before_its_operand() {
         let guard = tree_guard(&[
@@ -4312,6 +4357,21 @@ mod tests {
             ]
         );
         assert_eq!(tree.text("0.1").as_deref(), Some("!!halted"));
+        let unspaced = tree_guard(&[
+            ("0", "negation", Some("!"), None, &["0.0"]),
+            ("0.0", "atom", Some("x<0"), None, &[]),
+            ("1", "negation", Some("!"), None, &["1.0"]),
+            ("1.0", "atom", Some("self.ready(a, f(b))"), None, &[]),
+            ("2", "negation", Some("!"), None, &["2.0"]),
+            ("2.0", "atom", Some("f(a)(b)"), None, &[]),
+            ("3", "negation", Some("!"), None, &["3.0"]),
+            ("3.0", "atom", Some("crate::m::HALTED"), None, &[]),
+        ]);
+        let tree = Tree::of(&unspaced);
+        assert_eq!(tree.text("0").as_deref(), Some("!(x<0)"));
+        assert_eq!(tree.text("1").as_deref(), Some("!self.ready(a, f(b))"));
+        assert_eq!(tree.text("2").as_deref(), Some("!(f(a)(b))"));
+        assert_eq!(tree.text("3").as_deref(), Some("!crate::m::HALTED"));
         let k = json!({"operands": [
             {"path": "0", "kind": "negation", "connective": "notBool", "operands": ["0.0"]},
             {"path": "0.0", "kind": "atom", "text": "X <Int 0", "operands": []},
