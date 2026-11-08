@@ -3328,7 +3328,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 17);
+    assert_eq!(document["version"], 18);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -4367,20 +4367,32 @@ fn bumper() -> Arc<Project> {
 /// cells by Rust field path: the front end resolves it through krs-exec's resolver to the K
 /// symbol and the KORE cell paths, its identity names the function's full path and the
 /// definition's Definition IR digest, and the connection holds (`low > high` has no model where
-/// `low <= high`; without a solver it is undecided). The item stays `unchecked`, since nothing
-/// shows the invariant holds of any state, so the command has no answer (exit 3). A function the
-/// definition does not hold refuses the corpus with krs-exec's message (`invariant-unresolved`).
+/// `low <= high`; without a solver it is undecided). The corpus only idles, so no run steps
+/// `bump`, and the invariant holds at the initial state and the end: the evidence is vacuous, so
+/// the item is `connected` where the connection holds (exit 0), and `unchecked` where it is
+/// undecided (exit 3). A function the definition does not hold refuses the corpus with krs-exec's
+/// message (`invariant-unresolved`).
 #[test]
 fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     let project = bumper();
     let output = project.kink("coverage", &[]);
-    assert_status(&output, 3);
     let document = json(&output);
     let check = &requirement_of(&document, "requirement:crate::bump:held")["argument_check"];
-    assert_eq!(check["standing"], "unchecked", "{check:#}");
+    assert_eq!(check["evidence"]["status"], "vacuous", "{check:#}");
     // The solver decides the connection; a build without one leaves it undecided.
     #[cfg(feature = "z3-inference")]
-    assert_eq!(check["connection"]["status"], "holds", "{check:#}");
+    {
+        assert_status(&output, 0);
+        assert_eq!(
+            (&check["standing"], &check["connection"]["status"]),
+            (&json!("connected"), &json!("holds")),
+            "{check:#}"
+        );
+    }
+    #[cfg(not(feature = "z3-inference"))]
+    assert_status(&output, 3);
+    #[cfg(not(feature = "z3-inference"))]
+    assert_eq!(check["standing"], "unchecked", "{check:#}");
     #[cfg(not(feature = "z3-inference"))]
     assert_eq!(
         (
