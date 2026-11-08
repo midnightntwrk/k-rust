@@ -405,7 +405,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 16);
+        assert_eq!(after["version"], 17);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),

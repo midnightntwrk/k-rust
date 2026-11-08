@@ -426,7 +426,7 @@ fn a_prefix_program_is_recorded_under_its_declaration() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let (cold, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{cold:#}");
-    assert_eq!(cold["version"], 16);
+    assert_eq!(cold["version"], 17);
     assert_eq!(cold["observe"], manifest.observe_value().unwrap());
     let program = &cold["programs"][0];
     assert_eq!(program["class"], "comparable-prefix", "{program:#}");

@@ -1728,9 +1728,10 @@ text = 'h(opaque(1), 2)'
         // computed at a depth above 1, with the rule windows; its thirteenth gives every family
         // one static scope; its fourteenth adds the syntax paths at a depth above 1; its
         // fifteenth matches an equation and covers its requirements whatever the trial order; its
-        // sixteenth reads the invariants and states each argued item's standing.
+        // sixteenth reads the invariants and states each argued item's standing; its seventeenth
+        // checks an argued item's invariant by its connection.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 16);
+        assert_eq!(document["version"], 17);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
