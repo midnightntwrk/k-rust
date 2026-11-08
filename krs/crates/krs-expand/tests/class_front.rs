@@ -963,9 +963,9 @@ code = "krs::analysis::invalid-term"
 doc = "another mistake"
 advice = "none"
 
-[class.computation-result]
-code = "krs::syntax::rust-syntax"
-doc = "a computation cell's result that is not its items"
+[class.or-branch-binder]
+code = "krs::syntax::invalid-pattern-or"
+doc = "an or-pattern's branches that bind different names"
 advice = "none"
 
 [[refuse]]
@@ -979,8 +979,8 @@ class = "other"
 at = "spelling"
 
 [[refuse]]
-match = "readable/result/k/x"
-class = "computation-result"
+match = "terms/rule/subject/or-branch/x"
+class = "or-branch-binder"
 at = "spelling"
 
 [accept."terms/init/item/1"]
@@ -1017,13 +1017,14 @@ k = ""
     ] {
         assert_eq!(verdict(id), "conforms", "{id}");
     }
-    // The class's code, but outside the spelling. The witness is a refusal the readable macro
-    // still raises at the entry, one of its kind guesses (the computation cell's result is its
-    // items, `k: x` over `[Go(), ..]`); when the collector answers it instead, take
-    // another case the front refuses at the entry.
+    // The class's code, but outside the spelling. The witness is a refusal the front raises at
+    // the entry, which a readable result's kind no longer is (the collector answers those once
+    // the cell's kind is known, S0-9): an or-pattern's branch that binds `x` alone is refused
+    // over the whole pattern, not at the spelling. When the front stops raising it there, take
+    // another case it refuses at the entry.
     assert_eq!(
-        verdict("readable/result/k/x"),
-        "K2 front: krs::syntax::rust-syntax @ entry"
+        verdict("terms/rule/subject/or-branch/x"),
+        "K2 front: krs::syntax::invalid-pattern-or @ entry"
     );
     // Located, but with another class's code.
     assert_eq!(
