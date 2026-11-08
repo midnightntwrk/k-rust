@@ -109,6 +109,51 @@ export type FactsF1 = {
   storeParsedCoreIsExample: boolean
 }
 
+export type F2Rule = { index: number; kind: 'rule' | 'heat' | 'cool'; lhs: string; rhs: string; lines: [number, number]; priority: number; requires: string | null }
+export type F2Binding = { var: string; value: string }
+export type F2Run = {
+  program: string
+  initial: { k: string; state: string }
+  isConfig: boolean
+  length: number
+  branching: number
+  stuck: boolean
+  stepsAreSuccessors: boolean
+  final: string
+  rules: F2Rule[]
+  steps: { cells: { k: string; state: string }; choices: number; rule: number }[]
+  /** The rules that match the final configuration, each with its matches; none applies. */
+  blocked: { rule: F2Rule; matches: F2Binding[][] }[]
+}
+export type F2PrioConfig = {
+  name: string
+  k: string
+  isConfig: boolean
+  stepsAreSuccessors: boolean
+  rules: { rule: F2Rule; applies: boolean; matches: number }[]
+  successors: { k: string; rule: number }[]
+}
+export type FactsF2 = {
+  imp: {
+    inF2: boolean
+    rules: number
+    ruleKinds: Record<'rule' | 'heat' | 'cool', number>
+    sentences: number
+    sortPreds: number
+    supersortsOfInt: string[]
+    userSorts: string[]
+    userSubsorts: [string, string][]
+    priorities: number[]
+    report: { condition: string; holds: boolean }[]
+  }
+  runs: F2Run[]
+  sortPreds: { item: string; sort: string; isKResult: string }[]
+  prio: { inF2: boolean; configs: F2PrioConfig[] }
+  /** Configurations where both rules of a listed overlap apply, with each rule's successor. */
+  witnesses: { name: string; pair: [number, number]; cells: { k: string; state: string }; witnessOK: boolean; stepsAreSuccessors: boolean; rules: { rule: F2Rule; applies: boolean }[]; successors: { k: string; rule: number }[] }[]
+}
+export type DiffF2Row = { subject: string; cap: number; inF2: boolean; compared: number; transitions: number; branching: number; stuck: number; unexplored: number; differences: number; errors: number }
+
 type Data = {
   provenance: {
     kcoreSpecCommit: string
@@ -182,6 +227,25 @@ type Data = {
     refDifferences: number
   }
   audit: { axioms: Record<'none' | 'bool' | 'int', number>; sentences: Record<'none' | 'bool' | 'int', number>; total: number; falseAxioms: number; curated: number }
+  factsF2: FactsF2
+  impK: string
+  impPrograms: Record<string, string>
+  prioK: string
+  f2Cones: Record<string, { title: string; roots: string[]; modules: { module: string; decls: number; lines: number }[]; totals: Record<string, { coneLines: number; decls: number; fileLines: number }> }>
+  diffF2: { rows: DiffF2Row[]; subjects: number; compared: number; transitions: number; branching: number; stuck: number; unexplored: number; differences: number; errors: number; identical: number }
+  membershipF2: { texts: number; inF2: number; firstFailure: Record<'in F2' | 'parse' | 'wf' | 'emit', number> }
+  scopeF2: { intro: string; additions: { addition: string; kore: string; section: string }[]; outOfF2: string }
+  detF2: {
+    texts: number
+    pass: number
+    fail: number
+    strict: number
+    branching: number
+    failing: { name: string; kind: 'strict' | 'branching'; rules: number; pairs: [number, number][] }[]
+    kimp: { rules: number; pairs: number }
+    kink: { rules: number; overlaps: [number, number][] }
+    costs: { modules: string[]; fact: string; seconds: string; peak: string }[]
+  }
   refKompile: { rows: { difference: string; sentences: string; readByStep: string }[]; krustSentences: number; refSentences: number }
 }
 

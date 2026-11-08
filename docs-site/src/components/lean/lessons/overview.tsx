@@ -2,7 +2,7 @@
 
 // The overview: the running example, the map of the series, and what is checked today.
 
-import { lineOf, peanoK, span } from '../data'
+import { fmt, lean, lineOf, peanoK, span } from '../data'
 import { type Lesson, note } from '../lesson'
 import { diffNumbers, f1Numbers, numbers } from '../numbers'
 import styles from '../Course.module.css'
@@ -209,35 +209,36 @@ const status = [
     title: 'Checked by the kernel',
     items: [
       { key: 'peano', text: <>five properties of peano and four witnesses that they are not true for an empty reason</> },
-      { key: 'iff', text: <><code>step_iff</code>: the executable step lists exactly the successors of the step relation</> },
+      { key: 'iff', text: <><code>step_iff</code>, in every fragment: the executable step lists exactly the step relation's successors</> },
       { key: 'kore', text: <>the KORE the Lean data generates is kompile's KORE for <code>peano.k</code>, and {numbers.f0Rejections} bad texts are rejected</> },
       { key: 'order', text: <><code>reordered_sameModels</code>: reordering a module's sentences keeps the models of its theory</> },
-      { key: 'sr', text: <>subject reduction, in both fragments: a rule applied to a configuration gives a configuration</> },
-      { key: 'f1', text: <>for the builtin fragment: its <code>step_iff</code>, <code>step_ofF0</code>, <code>hooksApart</code>, and peano's KORE and nine properties</> },
+      { key: 'sr', text: <>subject reduction, in every fragment: a rule's result is a configuration</> },
+      { key: 'f1', text: <>for the builtin fragment: <code>step_ofF0</code>, <code>hooksApart</code>, peano's KORE and nine properties</> },
+      { key: 'f2', text: <>for the IMP fragment: when its step is deterministic; IMP's two overlaps, both real</> },
     ],
   },
   {
     title: 'Evidence, not proof',
     items: [
-      { key: 'diff', text: <>the executable step agrees with krust on {diffNumbers.configs} configurations of {diffNumbers.subjects} definitions, {diffNumbers.differences} differences</> },
-      { key: 'ref', text: <>and with the reference K backend on a sample of {diffNumbers.refSampled}</> },
+      { key: 'diff', text: <>the executable step agrees with krust on {diffNumbers.configs} configurations of {diffNumbers.subjects} definitions, {diffNumbers.differences} differences, and with the reference K backend on a sample of {diffNumbers.refSampled}</> },
       { key: 'f1diff', text: <>the builtin fragment's step agrees with krust on {f1Numbers.configs} configurations of {f1Numbers.subjects} definitions, {f1Numbers.differences} differences, and with the reference on {f1Numbers.refAgree} of {f1Numbers.refSampled} sampled</> },
+      { key: 'f2diff', text: <>the IMP fragment's, on {fmt(lean.diffF2.compared)} configurations of {lean.diffF2.subjects} definitions, {lean.diffF2.differences + lean.diffF2.errors} differences</> },
       { key: 'kompile', text: <>the reference kompile and krust's give the same step for peano</> },
     ],
   },
   {
     title: 'Not proved yet',
     items: [
-      { key: 'a', text: <>that <code>Step</code> is sound and complete for Γ<sub>D</sub>, in both fragments: stated, <code>sorry</code></> },
+      { key: 'a', text: <>that <code>Step</code> is sound and complete for Γ<sub>D</sub>, in every fragment: stated, <code>sorry</code></> },
       { key: 'ml', text: <>the matching-logic statements about peano's own steps: stated, <code>sorry</code></> },
-      { key: 'other', text: <>in this package, a property over all configurations of a definition other than <code>peano.k</code></> },
+      { key: 'other', text: <>for IMP, a property of what its programs compute</> },
     ],
   },
   {
     title: 'Trusted',
     items: [
       { key: 'kernel', text: <>the Lean kernel, and Lean's <code>Init</code> library</> },
-      { key: 'komp', text: <>kompile's translation of <code>peano.k</code> into KORE</> },
+      { key: 'komp', text: <>kompile's translation of <code>peano.k</code> and IMP into KORE, and Lean's compiled reading of IMP's</> },
       { key: 'reader', text: <>the KORE reader, and the tool that lists what the statements depend on</> },
     ],
   },
@@ -315,12 +316,12 @@ export const overview: Lesson = {
     {
       id: 'o3',
       title: 'How sure we are today',
-      visual: (at) => <Board big columns={status} cols={2} lit={[[], ['Checked by the kernel'], ['Evidence, not proof'], ['Not proved yet'], ['Trusted']][at]} />,
+      visual: (at) => <Board columns={status} cols={2} lit={[[], ['Checked by the kernel'], ['Evidence, not proof'], ['Not proved yet'], ['Trusted']][at]} />,
       frames: [
         { say: 'The series keeps four kinds of claim apart. You should know which one you are reading at every step.' },
         { say: 'Checked by the kernel, using only the axioms `propext`, `Classical.choice` and `Quot.sound`. If any of these were wrong, a proof would fail to check.' },
         { say: 'Evidence: independent implementations agree on everything tried. That makes a shared mistake less likely, and it is not a proof.' },
-        { say: 'Not proved yet. The most important one says `Step` is sound and complete for the matching-logic theory. The generic theorems hold for every definition, but in this package `peano.k` is the only definition with properties proved over all its configurations.' },
+        { say: 'Not proved yet. The most important one says `Step` is sound and complete for the matching-logic theory. The generic theorems hold for every definition. Over all the configurations of one definition, `peano.k` has five properties proved, and IMP has one so far: its step is deterministic but for two overlaps.' },
         { say: 'And trusted, not checked. Lesson 6 goes through each one. Ready? Lesson 1 starts from the run itself.' },
       ],
     },
