@@ -244,7 +244,7 @@ fn the_climb_needs_another_generating_proposer_and_a_rule_target() {
     };
     let refusal = Campaign::new(pattern).err().expect("refused").to_string();
     assert!(
-        refusal.contains("rule and observer targets only"),
+        refusal.contains("rule, coverage and observer targets only"),
         "{refusal}"
     );
 }
