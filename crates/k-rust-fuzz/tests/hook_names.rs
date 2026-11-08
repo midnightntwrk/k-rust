@@ -55,6 +55,16 @@ fn target(kind: TargetKind, comparable: bool) -> Target {
     }
 }
 
+/// [`target`] under run-to-completion: a `fired` target then selects no stop rule, so a one-path
+/// step takes the first rule of the priority that gives a defined result and asks nothing about
+/// the rules after it.
+fn completed(kind: TargetKind, comparable: bool) -> Target {
+    Target {
+        run_to_completion: true,
+        ..target(kind, comparable)
+    }
+}
+
 fn fired(label: &str) -> TargetKind {
     TargetKind::Rule(RuleTarget {
         rule: RuleRef::Label(label.into()),
@@ -203,12 +213,43 @@ fn an_unsupported_hook_in_the_run_names_the_hook() {
     );
 }
 
-/// On one path HOOKNAME's `pick(N)` follows `plain` and fires it cleanly; the program's run of
-/// every path holds the unsupported `INT.shl`. Without `comparable-end` the witness's comparable
-/// judgement names the hook beside the condition; with it, the refused hit's reason
-/// `end-not-comparable:unsupported-hook` names it in the totals and the statement.
+/// Run to completion on one path, HOOKNAME's `pick(N)` follows `plain` and fires it cleanly; the
+/// program's run of every path holds the unsupported `INT.shl`. Without `comparable-end` the
+/// witness's comparable judgement names the hook beside the condition; with it, the refused
+/// hit's reason `end-not-comparable:unsupported-hook` names it in the totals and the statement.
+///
+/// Without run-to-completion `plain` is the request's stop rule. A stop is an arrival only where
+/// its step is the state's one successor, so the one-path run asks whether `pick(N)` has another
+/// successor, which builds `steer`'s and leaves `1 <<Int N` unevaluated in `f(N)`'s conditions.
+/// The path's end rests on that answer, so the run records the hook, and every case is
+/// `unsupported` with `unsupported-hook`, which names it.
 #[test]
 fn a_hit_not_comparable_for_an_unsupported_hook_names_the_hook() {
+    let stopped = run(
+        spec(
+            &HOOKNAME,
+            "hookname/pick.pgm",
+            hole(
+                "hookname/pick.pgm",
+                "pick(33554432)",
+                "33554432",
+                (33_554_432, 33_554_440),
+            ),
+            target(fired("plain"), false),
+            PathMode::OnePath,
+        ),
+        4,
+    );
+    assert_eq!(
+        reasons(&stopped),
+        json!({"unsupported-hook": 4}),
+        "{}",
+        json(&stopped)
+    );
+    assert_eq!(
+        json(&stopped)["totals"]["unsupported-hooks"],
+        json!({"unsupported-hook": {"hooks": [{"hook": "INT.shl"}], "cases": 4}})
+    );
     let campaign = |comparable| {
         spec(
             &HOOKNAME,
@@ -219,7 +260,7 @@ fn a_hit_not_comparable_for_an_unsupported_hook_names_the_hook() {
                 "33554432",
                 (33_554_432, 33_554_440),
             ),
-            target(fired("plain"), comparable),
+            completed(fired("plain"), comparable),
             PathMode::OnePath,
         )
     };
@@ -345,23 +386,39 @@ fn a_reason_names_every_hook_its_cases_named() {
     );
 }
 
-/// HOOKNAME's `exp(N)` follows `calm` on one path and fires it cleanly; the program's run of
-/// every path also halts `unsupported-hook` on `FLOAT.exp`, whose hook the leaf's cause names.
-/// The witness's comparable judgement names it under `halt` (the halt's cause), beside the
-/// leaf's diagnostic and the run's record.
+/// Run to completion, HOOKNAME's `exp(N)` follows `calm` on one path and fires it cleanly; the
+/// program's run of every path also halts `unsupported-hook` on `FLOAT.exp`, whose hook the
+/// leaf's cause names. The witness's comparable judgement names it under `halt` (the halt's
+/// cause), beside the leaf's diagnostic and the run's record.
+///
+/// Without run-to-completion `calm` is the request's stop rule, and the one-path run asks whether
+/// `exp(N)` has another successor, which builds `exp`'s and leaves `FLOAT.exp` unevaluated: the
+/// run records the hook its end rests on, and every case is `unsupported` with
+/// `unsupported-hook`, which names it.
 #[test]
 fn a_halt_on_an_unsupported_hook_names_the_hook_of_its_cause() {
-    let report = run(
+    let campaign = |goal| {
         spec(
             &HOOKNAME,
             "hookname/exp.pgm",
             hole("hookname/exp.pgm", "exp(7)", "7", (1, 9)),
-            target(fired("calm"), false),
+            goal,
             PathMode::OnePath,
-        ),
-        4,
-    );
+        )
+    };
     let exp = json!({"hooks": [{"hook": "FLOAT.exp"}]});
+    let stopped = run(campaign(target(fired("calm"), false)), 4);
+    assert_eq!(
+        reasons(&stopped),
+        json!({"unsupported-hook": 4}),
+        "{}",
+        json(&stopped)
+    );
+    assert_eq!(
+        json(&stopped)["totals"]["unsupported-hooks"],
+        json!({"unsupported-hook": {"hooks": [{"hook": "FLOAT.exp"}], "cases": 4}})
+    );
+    let report = run(campaign(completed(fired("calm"), false)), 4);
     assert_eq!(
         json(&report)["outcome"]["witness"]["first"]["comparable"],
         json!({
