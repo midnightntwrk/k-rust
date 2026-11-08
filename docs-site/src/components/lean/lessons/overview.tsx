@@ -80,7 +80,7 @@ const fragments = (at: number) => {
   const muted = 'var(--muted)'
   const ink = (n: number) => (at === n ? 'var(--ink)' : muted)
   return (
-    <Svg viewBox="0 0 900 470" label="Fragments: all K definitions contain the builtin fragment, F1, which contains the constructor fragment, F0. In logic, a fragment is a subset of a language; the Lean package covers K one fragment at a time. The constructor fragment has terms built from constructors and functions defined by cases; peano.k is in it. The builtin fragment adds several cells, side conditions, and Int, Bool and Map, whose operations are internally hooks into the K backend; store.k is in it.">
+    <Svg viewBox="0 0 900 470" label="Fragments: all K definitions contain the builtin fragment, F₁, which contains the constructor fragment, F₀. In logic, a fragment is a subset of a language; the Lean package covers K one fragment at a time. The constructor fragment has terms built from constructors and functions defined by cases; peano.k is in it. The builtin fragment adds several cells, side conditions, and Int, Bool and Map, whose operations are internally hooks into the K backend; store.k is in it.">
       <rect x={20} y={14} width={860} height={444} rx={14} {...ring(at === 0, 'transparent')} className={styles.anim} />
       <Label x={40} y={42} text="all K definitions" weight={600} size={14} />
       <Label x={650} y={80} text="In logic, a fragment is" tone={ink(0)} />
@@ -112,7 +112,7 @@ const perLanguage = (at: number) => {
   const muted = 'var(--muted)'
   const ink = (n: number) => (at === n ? 'var(--ink)' : muted)
   return (
-    <Svg viewBox="0 0 900 420" label="A fragment per language: inside all K definitions, the builtin fragment F1 is shared. The IMP fragment, F2, adds what IMP needs: subsort chains, rule priorities, strict, sets and token sorts. Another language's fragment adds the features that language uses. A language uses only some of K's features, so it lies in the fragment they cut out.">
+    <Svg viewBox="0 0 900 420" label="A fragment per language: inside all K definitions, the builtin fragment F₁ is shared. The IMP fragment, F₂, adds what IMP needs: subsort chains, rule priorities, strict, sets and token sorts. Another language's fragment adds the features that language uses. A language uses only some of K's features, so it lies in the fragment they cut out.">
       <rect x={20} y={14} width={860} height={392} rx={14} {...ring(false, 'transparent')} />
       <Label x={40} y={42} text="all K definitions" weight={600} size={14} />
       <Label x={860} y={42} anchor="end" text="A language uses only some of K's features," tone={ink(0)} />

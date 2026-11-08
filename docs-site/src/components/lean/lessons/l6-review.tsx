@@ -357,7 +357,7 @@ export const lesson6: Lesson = {
             why: "Agreement makes a shared mistake less likely, and a disagreement would point at a configuration to reason about. Neither is a reason for correctness.",
           },
         },
-        { say: "The same comparison was run for the second fragment, F1, on definitions with several cells, Int, Bool and maps. [Lesson 9](/lean/beyond-peano) has it." },
+        { say: "The same comparison was run for the builtin fragment, F₁, on definitions with several cells, Int, Bool and maps. [Lesson 9](/lean/beyond-peano) has it." },
       ],
     },
     {

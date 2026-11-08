@@ -1,7 +1,7 @@
 'use client'
 
-// Lesson 3: the three parts of `Definition`, the generator `emit`, the fragment F0 and its round
-// trip, and what F0 rejects. Counts of the emitted KORE and the well-formedness report were computed
+// Lesson 3: the three parts of `Definition`, the generator `emit`, the constructor fragment (F0) and its
+// round trip, and what it rejects. Counts of the emitted KORE and the well-formedness report were computed
 // by Lean on peano's data (Facts.lean); the rejection mechanisms are the build's own checked output
 // (SpecChecks.lean); the kernel costs are the last run of test/F0Check.lean.
 
@@ -136,19 +136,19 @@ export const lesson3: Lesson = {
     },
     {
       id: 'v5',
-      title: 'The round trip: F0',
+      title: 'The round trip: the constructor fragment',
       panes: [
-        { id: 'f', label: 'The fragment F0', source: fragment },
+        { id: 'f', label: 'The constructor fragment, F₀', source: fragment },
         { id: 'r', label: 'The reader', source: parseHead },
       ],
       frames: [
-        { hl: { f: span(fragment, 'def F0 (k : Kore.Definition) : Prop :=', '| none => False') }, notes: [note('f', lineOf(fragment, 'def F0 (k : Kore.Definition) : Prop :='), "A reader finds a definition `d` in `k`, `d` is well formed, and `emit d` is `k` up to the order of each module's sentences.")], say: "A KORE text `k` is in the fragment ==F0== when this holds." },
+        { hl: { f: span(fragment, 'def F0 (k : Kore.Definition) : Prop :=', '| none => False') }, notes: [note('f', lineOf(fragment, 'def F0 (k : Kore.Definition) : Prop :='), "A reader finds a definition `d` in `k`, `d` is well formed, and `emit d` is `k` up to the order of each module's sentences.")], say: "A KORE text `k` is in the ==constructor fragment==, F₀ (`F0` in Lean), when this holds." },
         { hl: { r: span(parseHead, '`parse : Kore.Definition', 'k is rejected.') }, notes: [note('r', lineOf(parseHead, '`parse : Kore.Definition'), "Not reviewed. Whatever it returns is checked by the other two conditions, so a wrong reader can only reject.")] },
         {
           hl: { f: span(fragment, 'theorem F0.sound', '· exact h.elim') },
-          notes: [note('f', lineOf(fragment, 'theorem F0.sound'), "A text in F0 is the emitted KORE of a well-formed definition. The proof is a case split on what the reader returned.")], say: "`F0.sound` is what a reader of the statements relies on.",
+          notes: [note('f', lineOf(fragment, 'theorem F0.sound'), "A text in F₀ is the emitted KORE of a well-formed definition. The proof is a case split on what the reader returned.")], say: "`F0.sound` is what a reader of the statements relies on.",
           ask: {
-            q: "Which condition of F0 would catch a reader that dropped one of peano's rules?",
+            q: "Which condition of `F0` would catch a reader that dropped one of peano's rules?",
             options: ["Well-formedness", "The comparison: `emit` writes one rule axiom, and kompile's text has two", "None; a dropped rule is invisible"],
             answer: 1,
             why: "A definition missing a rule can be perfectly well formed. It just doesn't generate the text you started from.",
@@ -160,7 +160,7 @@ export const lesson3: Lesson = {
       id: 'v6',
       title: 'Up to the order of sentences',
       panes: [
-        { id: 'f', label: 'The fragment F0', source: fragment },
+        { id: 'f', label: 'The constructor fragment, F₀', source: fragment },
         { id: 'o', label: 'Order has no meaning', source: reorder },
       ],
       frames: [
@@ -178,24 +178,24 @@ export const lesson3: Lesson = {
       ],
       frames: [
         { hl: { f: span(fragment, 'def Definition.report', '("presentation: variable names distinct", d.pres.ok d.sem)]') }, notes: [note('f', lineOf(fragment, 'def Definition.report'), "Eight conditions on the definition. For peano Lean computes all eight true.")] },
-        { hl: { k: span(f0, 'theorem wf_peano', 'theorem peano_F0') }, say: "For peano the kernel checks more than F0 needs: `emit peano` equals kompile's KORE ==exactly==, in the same order. In the last run the three checks cost " + fmt(d.wf_peano.kHb) + ", " + fmt(d.emit_peano.kHb) + " and " + fmt(d.peano_F0.kHb) + " thousand heartbeats: " + d.wf_peano.seconds + ", " + d.emit_peano.seconds + " and " + d.peano_F0.seconds + " seconds." },
+        { hl: { k: span(f0, 'theorem wf_peano', 'theorem peano_F0') }, say: "For peano the kernel checks more than F₀ needs: `emit peano` equals kompile's KORE ==exactly==, in the same order. In the last run the three checks cost " + fmt(d.wf_peano.kHb) + ", " + fmt(d.emit_peano.kHb) + " and " + fmt(d.peano_F0.kHb) + " thousand heartbeats: " + d.wf_peano.seconds + ", " + d.emit_peano.seconds + " and " + d.peano_F0.seconds + " seconds." },
       ],
     },
     {
       id: 'v8',
-      title: 'What F0 rejects',
+      title: 'What F₀ rejects',
       panes: [
         { id: 'w', label: 'Why each is rejected (checked by the build)', source: diag },
         { id: 'k', label: 'The same, as kernel theorems', source: f0 },
       ],
       frames: [
-        { hl: { w: block('info: [("m1 drop') }, say: "The package keeps a list of KORE texts that F0 must reject: mutations of peano's KORE, and the counterexamples two reviews of earlier versions found. The build checks the ==reason== each one is rejected." },
+        { hl: { w: block('info: [("m1 drop') }, say: "The package keeps a list of KORE texts that F₀ must reject: mutations of peano's KORE, and the counterexamples two reviews of earlier versions found. The build checks the ==reason== each one is rejected." },
         {
           hl: { w: [lineOf(diag, '("m1 drop'), lineOf(diag, '("m4 owise')] },
           notes: [note('w', lineOf(diag, '("m1 drop'), "Dropping an equation changes the text: some sentence is not one `emit` writes.", '("m1 drop'), note('w', lineOf(diag, '("m4 owise'), "So does adding an `owise` attribute to a rule.", '("m4 owise')],
           ask: {
             q: "Why are most rejections \"not emitted\" rather than a specific error?",
-            options: ["F0 does not look for bad shapes: it accepts exactly what `emit` writes for well-formed data", "Error messages are too costly in the kernel", "The specific errors have not been written yet"],
+            options: ["`F0` does not look for bad shapes: it accepts exactly what `emit` writes for well-formed data", "Error messages are too costly in the kernel", "The specific errors have not been written yet"],
             answer: 0,
             why: "Anything else, whatever is wrong with it, is some sentence `emit` does not write.",
           },
@@ -203,8 +203,8 @@ export const lesson3: Lesson = {
         { hl: { w: [lineOf(diag, '("m2 second')] }, notes: [note('w', lineOf(diag, '("m2 second'), "It overlaps the first, and `wf` rejects it: functions must be deterministic.", '("m2 second')] },
         { hl: { w: [lineOf(diag, '("m3 pred'), lineOf(diag, '("R1-3 decreasing')] }, notes: [note('w', lineOf(diag, '("m3 pred'), "A recursive call that does not decrease: `wf` rejects it, through the certificate.", '("m3 pred')] },
         { hl: { w: [lineOf(diag, '("R1-6c [assoc]'), lineOf(diag, '("R1-6b [functional]')] }, notes: [note('w', lineOf(diag, '("R1-6c [assoc]'), "An axiom that would make the theory say something false, such as `⊤Bool = ⊥Bool`. Rejected because `emit` never writes it.", '("R1-6c [assoc]')] },
-        { hl: { k: span(f0, 'theorem m1_not_F0', 'theorem w5ok_F0') }, say: "Each rejection, and three repaired versions that F0 accepts, is also a theorem the kernel checked: " + f.rejections + " rejections and " + f.controls + " acceptances, " + fmt(f.rejectionKHb) + " thousand heartbeats in all." },
-        { say: "All of this is F0, which fits peano and little else. The second fragment, F1, has the same three-part `Definition`, the same `emit`-and-compare check and the same comparison up to sentence order, over a larger language: several cells, Bool and Int, `requires`, maps. [Lesson 9](/lean/beyond-peano) takes a definition through it." },
+        { hl: { k: span(f0, 'theorem m1_not_F0', 'theorem w5ok_F0') }, say: "Each rejection, and three repaired versions that F₀ accepts, is also a theorem the kernel checked: " + f.rejections + " rejections and " + f.controls + " acceptances, " + fmt(f.rejectionKHb) + " thousand heartbeats in all." },
+        { say: "All of this is the constructor fragment, which fits peano and little else. The builtin fragment, F₁, has the same three-part `Definition`, the same `emit`-and-compare check and the same comparison up to sentence order, over a larger language: several cells, Bool and Int, `requires`, maps. [Lesson 9](/lean/beyond-peano) takes a definition through it." },
       ],
     },
   ],
@@ -228,7 +228,7 @@ export const lesson3: Lesson = {
       why: "krust writes some sentences in an order that depends on module names.",
     },
     {
-      q: "What would it take to make F0 accept a wrong axiom?",
+      q: "What would it take to make F₀ accept a wrong axiom?",
       options: ["A wrong reader", "A well-formed definition whose `emit` writes it", "A very long KORE file"],
       answer: 1,
       why: "That is a question about `emit`'s text, read once for every definition. Lesson 6 counts its lines.",

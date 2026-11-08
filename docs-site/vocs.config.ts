@@ -90,7 +90,7 @@ export default defineConfig({
         { text: '6. What you have to read', link: '/lean/what-you-have-to-read' },
         { text: '7. Making proofs cheap', link: '/lean/making-proofs-cheap' },
         { text: '8. Step is sound and complete', link: '/lean/sound-and-complete' },
-        { text: '9. Beyond peano: F1', link: '/lean/beyond-peano' },
+        { text: '9. Beyond peano: the builtin fragment', link: '/lean/beyond-peano' },
         { text: '10. The IMP fragment', link: '/lean/imp-fragment' },
       ],
     },

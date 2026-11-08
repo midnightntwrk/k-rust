@@ -84,7 +84,7 @@ const successorTable = (at: number) => (
 
 const differential = (at: number) => (
   <Rows
-    head={['F1 execution differential', { text: '', num: true }]}
+    head={['F₁ execution differential', { text: '', num: true }]}
     rows={[
       { key: 'defs', cells: ['definitions', f1Numbers.subjects] },
       { key: 'configs', cells: ['configurations compared with krust', f1Numbers.configs] },
@@ -100,10 +100,10 @@ const cones = (at: number) => (
   <Rows
     head={['what you read', { text: 'lines', num: true }, { text: '', bar: true }]}
     rows={[
-      { key: 'f0', state: at === 0 ? ('cur' as const) : undefined, cells: ["peano's statements, over F0", f1Numbers.f0User, <Bar key="b" pct={(f1Numbers.f0User / coneMax) * 100} />] },
-      { key: 'f1', state: at === 0 ? ('cur' as const) : undefined, cells: ["peano's statements, over F1", f1Numbers.user, <Bar key="b" pct={(f1Numbers.user / coneMax) * 100} />] },
-      { key: 'emit', state: at === 2 ? ('cur' as const) : undefined, cells: ["F1's generator", f1Numbers.emit, <Bar key="b" pct={(lean.f1Cones.emit.totals.total.coneLines / coneMax) * 100} />] },
-      { key: 'root', state: at === 2 ? ('cur' as const) : undefined, cells: ["F1's matching-logic track", f1Numbers.root, <Bar key="b" pct={100} />] },
+      { key: 'f0', state: at === 0 ? ('cur' as const) : undefined, cells: ["peano's statements, over F₀", f1Numbers.f0User, <Bar key="b" pct={(f1Numbers.f0User / coneMax) * 100} />] },
+      { key: 'f1', state: at === 0 ? ('cur' as const) : undefined, cells: ["peano's statements, over F₁", f1Numbers.user, <Bar key="b" pct={(f1Numbers.user / coneMax) * 100} />] },
+      { key: 'emit', state: at === 2 ? ('cur' as const) : undefined, cells: ["F₁'s generator", f1Numbers.emit, <Bar key="b" pct={(lean.f1Cones.emit.totals.total.coneLines / coneMax) * 100} />] },
+      { key: 'root', state: at === 2 ? ('cur' as const) : undefined, cells: ["F₁'s matching-logic track", f1Numbers.root, <Bar key="b" pct={100} />] },
     ].map((r) => ({ ...r, cells: [<span key="w" style={{ fontFamily: 'var(--f-sans)' }}>{r.cells[0]}</span>, r.cells[1], r.cells[2]] }))}
   />
 )
@@ -111,14 +111,14 @@ const cones = (at: number) => (
 export const lesson9: Lesson = {
   id: 'beyond-peano',
   number: 9,
-  title: 'Beyond peano: F1',
+  title: 'Beyond peano: the builtin fragment',
   scenes: [
     {
       id: 'f1',
       title: "A definition peano's fragment cannot hold",
       panes: [{ id: 'k', label: 'store.k', source: storeK, lang: 'k' }],
       frames: [
-        { say: "Lessons 3 to 8 are about F0, and peano fits it, but almost nothing else does: it has one cell, no numbers, no side conditions and no collections. Real definitions have all four. ==F1== is the second fragment, and this small definition has three of them." },
+        { say: "Lessons 3 to 8 are about the constructor fragment, F₀, and peano fits it, but almost nothing else does: it has one cell, no numbers, no side conditions and no collections. Real definitions have all four. The ==builtin fragment==, F₁, adds all four, and this small definition uses three of them. Its Int, Bool and Map operations are ==hooks==: K's `hook` attribute says the backend supplies the operation, and kompile writes no equations defining it." },
         { hl: { k: [lineOf(storeK, 'configuration')] }, notes: [note('k', lineOf(storeK, 'configuration'), "Two cells inside `<T>`: the program in `<k>`, and a map in `<state>`.")] },
         { hl: { k: [lineOf(storeK, 'rule [put]')] }, notes: [note('k', lineOf(storeK, 'rule [put]'), "`put` writes a key."), note('k', lineOf(storeK, 'rule [put]'), "the map `M` with `K` set to `V`", 'M [ K <- V ]')] },
         { hl: { k: [lineOf(storeK, 'rule [get]')] }, notes: [note('k', lineOf(storeK, 'rule [get]'), "`get` reads one."), note('k', lineOf(storeK, 'rule [get]'), "some entry with key `K`, whatever the rest; it's the same `K` as in the k cell", 'K |-> V _')] },
@@ -137,10 +137,10 @@ export const lesson9: Lesson = {
     },
     {
       id: 'f2',
-      title: 'The same definition, as F1 data',
+      title: 'The same definition, as F₁ data',
       panes: [
         { id: 'k', label: 'store.k', source: storeK, lang: 'k' },
-        { id: 'c', label: 'Its core, as F1 data', source: storeCore },
+        { id: 'c', label: 'Its core, as F₁ data', source: storeCore },
       ],
       frames: [
         {
@@ -180,7 +180,7 @@ export const lesson9: Lesson = {
       frames: [
         {
           hl: { p: span(patVal, '/-- `PatVal c σ p v`', 'σ under which the pattern denotes the map.') },
-          say: "When does `K |-> V M` match a map? F1 gives no algorithm. The pattern matches when it ==denotes== the map: the one-entry map K ↦ V, joined with M, is the map. The join is defined only when K is not already a key of M.",
+          say: "When does `K |-> V M` match a map? F₁ gives no algorithm. The pattern matches when it ==denotes== the map: the one-entry map K ↦ V, joined with M, is the map. The join is defined only when K is not already a key of M.",
         },
         {
           hl: { p: [lineOf(patVal, '| hook {f : String}')] },
@@ -232,7 +232,7 @@ export const lesson9: Lesson = {
     {
       id: 'f7',
       title: 'One relation',
-      panes: [{ id: 's', label: 'The step of F1 (frozen)', source: f1Step }],
+      panes: [{ id: 's', label: 'The step of F₁ (frozen)', source: f1Step }],
       frames: [
         {
           hl: { s: span(f1Step, 'inductive Step (c : Semantics)', '(heval : EvalTerm c σ r.rhs (some y.val)) : Step c x y') },
@@ -241,7 +241,7 @@ export const lesson9: Lesson = {
             note('s', lineOf(f1Step, '(hmatch : PatVal'), "the match is the denotation above", 'hmatch'),
             note('s', lineOf(f1Step, '(hreq :'), "a `requires` clause must evaluate to `true`", 'hreq'),
           ],
-          say: "The frozen step of F1 has the same shape as F0's, with three changes.",
+          say: "The frozen step of F₁ has the same shape as F₀'s, with three changes.",
         },
         {
           hl: { s: [lineOf(f1Step, '(hmatch : PatVal')] },
@@ -266,9 +266,9 @@ export const lesson9: Lesson = {
           say: "That buys two things. Every successor Lean computed in this lesson is a step of the frozen relation, and every step is among them: the computed tables are ==facts about `Step`==.",
         },
         {
-          say: "And a comparison of the executable step with K's own backends is a comparison of `Step` with them. On " + f1Numbers.subjects + " definitions in F1, " + f1Numbers.configs + " configurations gave the same successors as krust, with " + f1Numbers.differences + " differences, and a sample of " + f1Numbers.refSampled + " agreed with the reference backend.",
+          say: "And a comparison of the executable step with K's own backends is a comparison of `Step` with them. On " + f1Numbers.subjects + " definitions in F₁, " + f1Numbers.configs + " configurations gave the same successors as krust, with " + f1Numbers.differences + " differences, and a sample of " + f1Numbers.refSampled + " agreed with the reference backend.",
           ask: {
-            q: "What would a difference in the F1 differential have meant, given `step_iff`?",
+            q: "What would a difference in the F₁ differential have meant, given `step_iff`?",
             options: ["A bug in the matcher", "That the frozen `Step` and krust disagree: either the definition of a step or krust is wrong there", "Nothing, differences are expected"],
             answer: 1,
             why: "`step_iff` rules out the matcher as the cause.",
@@ -278,17 +278,17 @@ export const lesson9: Lesson = {
     },
     {
       id: 'f9',
-      title: 'F1 beside F0',
-      panes: [{ id: 'o', label: 'F1 agrees with F0', source: stepOfF0 }],
+      title: 'F₁ beside F₀',
+      panes: [{ id: 'o', label: 'F₁ agrees with F₀', source: stepOfF0 }],
       frames: [
         {
           hl: { o: span(stepOfF0, 'theorem step_ofF0', 'KCore.Step d.sem x y ↔ Step (ofF0 d.sem)') },
-          notes: [note('o', lineOf(stepOfF0, 'KCore.Step d.sem x y ↔ Step (ofF0 d.sem)'), "F0's step on the left, F1's on the right", '↔')],
-          say: "F1 sits beside F0; it doesn't replace it. On an F0 definition, F1's step is F0's, so everything proved for peano in F0 carries over.",
+          notes: [note('o', lineOf(stepOfF0, 'KCore.Step d.sem x y ↔ Step (ofF0 d.sem)'), "F₀'s step on the left, F₁'s on the right", '↔')],
+          say: "F₁ sits beside F₀; it doesn't replace it. On an F₀ definition, F₁'s step is F₀'s, so everything proved for peano in F₀ carries over.",
         },
         {
           hl: { o: [lineOf(stepOfF0, 'theorem step_ofF0')] },
-          notes: [note('o', lineOf(stepOfF0, 'theorem step_ofF0'), "F0's matching ignores sorts, and F1's substitutions are well sorted. This rules out a rule that binds a variable to a value of another sort.", 'hwf')],
+          notes: [note('o', lineOf(stepOfF0, 'theorem step_ofF0'), "F₀'s matching ignores sorts, and F₁'s substitutions are well sorted. This rules out a rule that binds a variable to a value of another sort.", 'hwf')],
         },
         {
           hl: { o: [lineOf(stepOfF0, '(hh : (ofF0 d.sem).hooksApart')] },
@@ -306,7 +306,7 @@ export const lesson9: Lesson = {
           notes: [note('f', lineOf(stepOfF0False, 'theorem step_ofF0_false'), "No `hooksApart` in this statement, and a `¬` in front.")],
           say: "`step_ofF0` was first stated without its `hooksApart` hypothesis. Trying to prove it, the proof agent found it false, and proved that in Lean.",
         },
-        { say: "The counterexample is peano with `pred` renamed to the KORE name of Int addition. F0 knows no Int, so the name is just a function, evaluated by its clauses. F1 reads that name as addition, applied to one argument, which is undefined." },
+        { say: "The counterexample is peano with `pred` renamed to the KORE name of Int addition. F₀ knows no Int, so the name is just a function, evaluated by its clauses. F₁ reads that name as addition, applied to one argument, which is undefined." },
       ],
     },
     {
@@ -317,7 +317,7 @@ export const lesson9: Lesson = {
         { id: 'x', label: 'What the step did', source: hookWitnessStep },
       ],
       frames: [
-        { say: "The real question was then about F1 alone. F1 decides that a symbol is a hook by its name. Could an F1 definition name its own function like a hook?" },
+        { say: "The real question was then about F₁ alone. F₁ decides that a symbol is a hook by its name. Could an F₁ definition name its own function like a hook?" },
         {
           hl: { w: span(hookWitness, 'def notCl : Clause', 'def notFn : Fn') },
           notes: [note('w', lineOf(hookWitness, 'def notFn : Fn'), "named like `notBool`", 'boolNot')],
@@ -325,10 +325,10 @@ export const lesson9: Lesson = {
         },
         {
           hl: { x: span(hookWitnessStep, '/-- `run(z)` in peano', 'Lblout') },
-          say: "F1's well-formedness check accepted it. F1's step took `run(z)` to `out(false)`, by the hook. The KORE says `out(true)`, by the user's clause. ==The frozen step disagreed with the meaning of the text.==",
+          say: "F₁'s well-formedness check accepted it. F₁'s step took `run(z)` to `out(false)`, by the hook. The KORE says `out(true)`, by the user's clause. ==The frozen step disagreed with the meaning of the text.==",
           ask: {
             q: "Why was this a soundness gap and not just an oddity?",
-            options: ["It crashed the evaluator", "Soundness and completeness say the step lists exactly what the text's theory entails, and here it listed `out(false)` where the text entails `out(true)`, for a definition F1 accepted", "It slowed the kernel down"],
+            options: ["It crashed the evaluator", "Soundness and completeness say the step lists exactly what the text's theory entails, and here it listed `out(false)` where the text entails `out(true)`, for a definition F₁ accepted", "It slowed the kernel down"],
             answer: 1,
             why: "Soundness and completeness would have been false for a definition in the fragment.",
           },
@@ -354,7 +354,7 @@ export const lesson9: Lesson = {
       title: 'What changed in what you read',
       visual: cones,
       frames: [
-        { say: "F1's frozen definitions are longer than F0's: the review cone of peano's statements, written over F1, is " + f1Numbers.user + " lines against " + f1Numbers.f0User + " in F0." },
+        { say: "F₁'s frozen definitions are longer than F₀'s: the review cone of peano's statements, written over F₁, is " + f1Numbers.user + " lines against " + f1Numbers.f0User + " in F₀." },
         { say: "What grew: values (maps, literals in one form), the builtin operations' meanings (one table, `Hooks.lean`), matching as a denotation, and evaluation that can say \"undefined\", which `requires` needs." },
         { say: "The generator's cone is " + f1Numbers.emit + " lines and the matching-logic track's " + f1Numbers.root + "." },
       ],
@@ -362,14 +362,14 @@ export const lesson9: Lesson = {
   ],
   quiz: [
     {
-      q: "Which features of `store.k` are outside F0?",
+      q: "Which features of `store.k` are outside F₀?",
       options: ["Only the map", "The second cell, the Map, Int, and the map pattern in `get`", "`requires`"],
       answer: 1,
-      why: "`requires` is in F1 too, though this example doesn't use it.",
+      why: "`requires` is in F₁ too, though this example doesn't use it.",
     },
     {
-      q: "Why does `step_ofF0` need the hypothesis that F0's `wf` holds?",
-      options: ["F0's matching ignores sorts and F1's substitutions are well sorted, so on a definition `wf` rejects, a rule could bind a variable in F0 and not in F1", "To make the proof shorter", "F1 only accepts definitions F0 rejects"],
+      q: "Why does `step_ofF0` need the hypothesis that F₀'s `wf` holds?",
+      options: ["F₀'s matching ignores sorts and F₁'s substitutions are well sorted, so on a definition `wf` rejects, a rule could bind a variable in F₀ and not in F₁", "To make the proof shorter", "F₁ only accepts definitions F₀ rejects"],
       answer: 0,
       why: "The other hypothesis, `hooksApart`, has a story of its own.",
     },
@@ -381,12 +381,12 @@ export const lesson9: Lesson = {
     },
   ],
   checked: [
-    "Checked by the Lean kernel, with the axioms `propext`, `Classical.choice` and `Quot.sound` only: `step_iff`, for every definition F1's `wf` accepts, for some fuel.",
-    "`step_ofF0`: on an F0 definition that F0's `wf` accepts and that names nothing like a hook, F1's step is F0's. That the statement without the hook condition is false (`step_ofF0_false`), and that F1 rejects the hook-named witness (`hookDef_not_wf`).",
-    "That peano's KORE is in F1 (`peano_F1`, from `parse`, `wf` and the comparison of the emitted KORE, each a kernel decision), and peano's nine properties restated over F1. Subject reduction for F1: a rule applied to a configuration of a well-formed definition gives a configuration.",
-    "Computed, not proved: the tables of matches and successors, by Lean's compiled evaluation of the executable step. `step_iff` says what such a computation is worth, and the lesson checks the counts it describes. That the store example is in F1 is a compiled check in the build.",
-    "Evidence, not proof: the F1 execution differential, " + f1Numbers.configs + " configurations of " + f1Numbers.subjects + " definitions, " + f1Numbers.differences + " differences against krust and " + f1Numbers.refAgree + " of " + f1Numbers.refSampled + " sampled configurations agreeing with the reference backend. " + f1Numbers.unexplored + " configurations were left unexplored at the size cap.",
-    "Not proved: that F1's step is sound and complete, [lesson 8](/lean/sound-and-complete).",
+    "Checked by the Lean kernel, with the axioms `propext`, `Classical.choice` and `Quot.sound` only: `step_iff`, for every definition F₁'s `wf` accepts, for some fuel.",
+    "`step_ofF0`: on an F₀ definition that F₀'s `wf` accepts and that names nothing like a hook, F₁'s step is F₀'s. That the statement without the hook condition is false (`step_ofF0_false`), and that F₁ rejects the hook-named witness (`hookDef_not_wf`).",
+    "That peano's KORE is in F₁ (`peano_F1`, from `parse`, `wf` and the comparison of the emitted KORE, each a kernel decision), and peano's nine properties restated over F₁. Subject reduction for F₁: a rule applied to a configuration of a well-formed definition gives a configuration.",
+    "Computed, not proved: the tables of matches and successors, by Lean's compiled evaluation of the executable step. `step_iff` says what such a computation is worth, and the lesson checks the counts it describes. That the store example is in F₁ is a compiled check in the build.",
+    "Evidence, not proof: the F₁ execution differential, " + f1Numbers.configs + " configurations of " + f1Numbers.subjects + " definitions, " + f1Numbers.differences + " differences against krust and " + f1Numbers.refAgree + " of " + f1Numbers.refSampled + " sampled configurations agreeing with the reference backend. " + f1Numbers.unexplored + " configurations were left unexplored at the size cap.",
+    "Not proved: that F₁'s step is sound and complete, [lesson 8](/lean/sound-and-complete).",
   ],
   tryit: [
     { say: "In the kcore-spec package directory:", cmd: "lake build                        # F1's definitions, proofs and checks, with F0's\nlake env lean test/F1Check.lean   # peano in F1 and step_iff for peano, by the kernel; about 40 s" },

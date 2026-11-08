@@ -23,11 +23,11 @@ const statusRows: { what: string; status: 'proved' | 'stated' | 'evidence' }[] =
   { what: "peano's five properties and four witnesses, over Step", status: 'proved' },
   { what: "peano's Lean data is exactly kompile's KORE", status: 'proved' },
   { what: 'reordering KORE sentences keeps the models of Γ_D', status: 'proved' },
-  { what: 'subject reduction: a step of a well-formed definition gives a configuration (F0 and F1)', status: 'proved' },
-  { what: "F1's executable step equals its Step (step_iff), and F1's step is F0's on F0 definitions (step_ofF0)", status: 'proved' },
-  { what: 'the step is sound and complete for Γ_D (F0, and F1)', status: 'stated' },
+  { what: 'subject reduction: a step of a well-formed definition gives a configuration (F₀ and F₁)', status: 'proved' },
+  { what: "F₁'s executable step equals its Step (step_iff), and F₁'s step is F₀'s on F₀ definitions (step_ofF0)", status: 'proved' },
+  { what: 'the step is sound and complete for Γ_D (F₀, and F₁)', status: 'stated' },
   { what: "peano's steps in matching logic (step_c₀, stuck_c₂, …)", status: 'stated' },
-  { what: 'the step agrees with krust and the reference backend on every configuration tested (F0 and F1)', status: 'evidence' },
+  { what: 'the step agrees with krust and the reference backend on every configuration tested (F₀ and F₁)', status: 'evidence' },
   { what: 'two kompiles give the same step for two definitions', status: 'evidence' },
 ]
 const focus: (string | null)[] = [null, 'proved', 'stated', 'stated', 'evidence', null]
@@ -50,10 +50,10 @@ const nextFragment = (at: number) => (
   <Board
     big
     cols={2}
-    lit={[['F1 adds'], ['theory'], ['audit'], ['models'], []][at]}
+    lit={[['F₁ adds'], ['theory'], ['audit'], ['models'], []][at]}
     columns={[
       {
-        title: 'F1 adds',
+        title: 'F₁ adds',
         items: [
           { key: 'cells', text: 'several configuration cells' },
           { key: 'bool', text: 'Bool and Int' },
@@ -131,7 +131,7 @@ export const lesson8: Lesson = {
       ],
       frames: [
         { hl: { t: [lineOf(soundComplete, 'theorem sound_and_complete')] }, notes: [note('t', lineOf(soundComplete, 'theorem sound_and_complete'), "The conclusion, for every well-formed definition and the package's step."), note('t', lineOf(soundComplete, 'theorem sound_and_complete'), "Its proof.", 'sorry')] },
-        { hl: { k: span(soundCompleteKore, 'theorem sound_and_complete_kore', 'exact ⟨d, hwf, he, sound_and_complete d hwf⟩') }, notes: [note('k', lineOf(soundCompleteKore, 'theorem sound_and_complete_kore'), "For a text in F0, the conclusion holds. Proved from `sound_and_complete` and `F0.sound`, so it inherits the `sorry`.")], say: "The form a reader of a KORE file wants." },
+        { hl: { k: span(soundCompleteKore, 'theorem sound_and_complete_kore', 'exact ⟨d, hwf, he, sound_and_complete d hwf⟩') }, notes: [note('k', lineOf(soundCompleteKore, 'theorem sound_and_complete_kore'), "For a text in F₀, the conclusion holds. Proved from `sound_and_complete` and `F0.sound`, so it inherits the `sorry`.")], say: "The form a reader of a KORE file wants." },
       ],
     },
     {
@@ -154,20 +154,20 @@ export const lesson8: Lesson = {
             why: "A proof of soundness and completeness that does not cover them is not one.",
           },
         },
-        { say: "Until then, evidence: the package's step and krust's agree on " + diffNumbers.configs + " configurations (" + diffNumbers.differences + " differences), a sample of " + diffNumbers.refSampled + " agrees with the reference backend, the reference kompile and krust's give the same step for peano and for `examples/rewrite.k`, and there's the review of the " + numbers.total + " lines of lesson 6. The same differential on F1, lesson 9, compared " + f1Numbers.configs + " configurations of " + f1Numbers.subjects + " definitions, with " + f1Numbers.differences + " differences, and " + f1Numbers.refAgree + " of " + f1Numbers.refSampled + " sampled configurations agree with the reference backend. Each is evidence that `Step` is K's meaning on what was tried. None is a proof for every configuration." },
+        { say: "Until then, evidence: the package's step and krust's agree on " + diffNumbers.configs + " configurations (" + diffNumbers.differences + " differences), a sample of " + diffNumbers.refSampled + " agrees with the reference backend, the reference kompile and krust's give the same step for peano and for `examples/rewrite.k`, and there's the review of the " + numbers.total + " lines of lesson 6. The same differential on the builtin fragment (F₁, lesson 9) compared " + f1Numbers.configs + " configurations of " + f1Numbers.subjects + " definitions, with " + f1Numbers.differences + " differences, and " + f1Numbers.refAgree + " of " + f1Numbers.refSampled + " sampled configurations agree with the reference backend. Each is evidence that `Step` is K's meaning on what was tried. None is a proof for every configuration." },
         { say: "No part of the proof of soundness and completeness is written yet. It's on a separate track: nothing a user proves about `Step` waits for it. When it is proved, the per-definition statements become statements about K's meaning ==without being changed==." },
       ],
     },
     {
       id: 't5',
-      title: 'Sound and complete for F1',
+      title: 'Sound and complete for the builtin fragment',
       visual: nextFragment,
       frames: [
-        { say: "F1, the second fragment of lesson 9, sits beside F0 in the package, and `step_ofF0` (proved) says its step is F0's on F0 definitions. It states its own soundness and completeness, of the same form. Its proof is `sorry` too." },
-        { say: "The KORE text doesn't carry the theory of the builtin operations: kompile writes no commutativity axiom for maps, and nothing about when two maps can be joined. So F1's Γ_D adds, read off the one table of operations F1 evaluates (`Hooks.lean`): each operation's value on values, distinct values denoting distinct elements, and every map built from the empty map, single entries and joins." },
+        { say: "The builtin fragment of lesson 9, F₁, sits beside the constructor fragment, F₀, in the package, and `step_ofF0` (proved) says its step is F₀'s on F₀ definitions. It states its own soundness and completeness, of the same form. Its proof is `sorry` too." },
+        { say: "The KORE text doesn't carry the theory of the builtin operations: kompile writes no commutativity axiom for maps, and nothing about when two maps can be joined. So F₁'s Γ_D adds, read off the one table of operations F₁ evaluates (`Hooks.lean`): each operation's value on values, distinct values denoting distinct elements, and every map built from the empty map, single entries and joins." },
         { say: "The " + f1Numbers.auditTotal + " axioms that BOOL and INT add (" + f1Numbers.auditBool + " and " + f1Numbers.auditInt + ") were checked one by one against the intended model: " + (f1Numbers.auditFalse === 0 && f1Numbers.auditCurated === 0 ? "none is false, and none had to be removed" : f1Numbers.auditFalse + " false, " + f1Numbers.auditCurated + " removed") + ". A false one would have left the theory without a model, and soundness and completeness vacuous." },
         { say: "`ModelsStandard` compares values, since literals and maps are now values." },
-        { say: "Before F1's soundness and completeness can be proved, the per-feature parts of its proof (the operations' theory, maps, `requires`) have to be proved over the matching-logic semantics. ==None is written yet.==" },
+        { say: "Before F₁'s soundness and completeness can be proved, the per-feature parts of its proof (the operations' theory, maps, `requires`) have to be proved over the matching-logic semantics. ==None is written yet.==" },
       ],
     },
   ],
@@ -188,7 +188,7 @@ export const lesson8: Lesson = {
   checked: [
     "The panes are `Statements.lean` and `PeanoSpec.lean` at the recorded commit. `sound_and_complete`, `sound_and_complete_kore` and the peano statements in matching logic type-check. Each depends on `sorry`, and the build's axiom check says so for `sound_and_complete_kore`.",
     "The evidence figures are those of lesson 6.",
-    "The part on F1 restates F1's `Statements.lean` and the audit of its fixed texts at the recorded commit. The audit is a reading, recorded in the package, not a Lean proof.",
+    "The part on the builtin fragment restates F₁'s `Statements.lean` and the audit of its fixed texts at the recorded commit. The audit is a reading, recorded in the package, not a Lean proof.",
   ],
   tryit: [
     { say: "In the kcore-spec package directory:", cmd: "lake build\nlake env lean KcoreSpec/SpecChecks.lean   # prints nothing; the pinned axiom list of sound_and_complete_kore includes sorryAx" },
