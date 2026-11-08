@@ -112,10 +112,10 @@ pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use observations::{
     Channel, ChannelAgreement, ChannelEnd, ChannelKind, Closure, Component, Element, ElementDigest,
-    Filter, LogChannel, OBSERVATIONS_FORMAT, ObservationDifference, ObservationOracle,
+    Evaluated, Filter, LogChannel, OBSERVATIONS_FORMAT, ObservationDifference, ObservationOracle,
     ObservationRefusal, ObservationSpec, Observations, Observed, Open, PointClass, Reach,
     RecordComparison, RecordOptions, RecordSide, ResolvedObservations, Stutter, Uncompared,
-    compare_records, first_difference,
+    compare_records, first_difference, value_path,
 };
 pub use origin::{Origins, item_spelling};
 pub use read_back::{PrintedCell, ReadBack};

@@ -79,7 +79,10 @@
 //! read from the names and the grouping above; version 6 names the `coverage` document's syntax
 //! family at the KRS level ([`super::syntax`]): each production by the Rust path of its
 //! declaration, and the field values of every `k::bits!` template as items of their own, which
-//! a reader of version 5 would count as nothing it knows.
+//! a reader of version 5 would count as nothing it knows; version 7 adds `observe.krs`, each
+//! `[observe]` rule name as the corpus wrote it with the labels it selects and each cell by Rust
+//! path with its K cell, beside `observe`, whose rules and cells are K names, which a reader of
+//! version 6 would take for the corpus's own names.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -121,7 +124,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 6;
+pub(crate) const ANNOTATION_VERSION: u64 = 7;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -171,6 +174,10 @@ pub(crate) struct Annotator {
     /// the labels it selects (`items`), and the condition as written (`when`), when it has one;
     /// `None` without a stop.
     stop_items: Option<Value>,
+    /// The `krs` object of the documents' `observe`: each `[observe]` rule name as the corpus
+    /// wrote it, with the labels it selects (`items`), and each cell by Rust path with its K cell
+    /// (`cells`); `None` without `[observe]`.
+    observe_items: Option<Value>,
     /// The cells by Rust path that every document's `result` gains ([`super::cells`]).
     result_names: Option<super::cells::ResultNames>,
     /// The names of a `coverage` document's guard nodes ([`super::guards`]).
@@ -251,6 +258,7 @@ impl Annotator {
             load_anchors: Box::new(load_anchors),
             anchors: OnceLock::new(),
             stop_items: None,
+            observe_items: None,
             result_names: None,
             guards: None,
             syntax: None,
@@ -262,6 +270,14 @@ impl Annotator {
     /// added to every document's `stop` as `krs`.
     pub(crate) fn naming_stop(mut self, items: Option<Value>) -> Self {
         self.stop_items = items;
+        self
+    }
+
+    /// This annotator naming the corpus's observation channels: `items`, the `krs` object of its
+    /// `observe` (each rule name as written with the labels it selects, each cell by Rust path
+    /// with its K cell), is added to every document's `observe` as `krs`.
+    pub(crate) fn naming_observe(mut self, items: Option<Value>) -> Self {
+        self.observe_items = items;
         self
     }
 
@@ -365,6 +381,12 @@ impl Annotator {
             document.get_mut("stop").and_then(Value::as_object_mut),
         ) {
             stop.insert("krs".into(), items.clone());
+        }
+        if let (Some(items), Some(observe)) = (
+            &self.observe_items,
+            document.get_mut("observe").and_then(Value::as_object_mut),
+        ) {
+            observe.insert("krs".into(), items.clone());
         }
         if let Some(names) = &self.result_names {
             names.annotate(document);

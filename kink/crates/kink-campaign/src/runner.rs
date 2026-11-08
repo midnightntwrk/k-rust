@@ -2344,7 +2344,8 @@ pub fn observed_difference(
             }
             // The digest is a content's: the capture run read a value there, or read none where
             // the record holds an undecided element.
-            if matches!(element, Element::Content(_)) != recorded.is_some() {
+            let content = matches!(element, Element::Content(_) | Element::Evaluated(_));
+            if content != recorded.is_some() {
                 return Err(format!(
                     "the capture run's element {} of `{}` is {} where the record's is {}",
                     position.index,
@@ -2402,7 +2403,7 @@ pub fn observed_difference(
 /// How an element is decided, for an error of [`observed_difference`].
 fn decidedness(element: &Element) -> &'static str {
     match element {
-        Element::Content(_) => "a content",
+        Element::Content(_) | Element::Evaluated(_) => "a content",
         Element::Undecided => "undecided",
         Element::End => "END",
         Element::Undefined => "UNDEF",
@@ -2430,14 +2431,6 @@ fn capture_element(
     let observing = observing(campaign, &baseline, options.observe, &mut runtime)
         .map_err(|failure| failure.to_string())?;
     let trusted = observing.trusted && runtime.exclusions.collections_trusted();
-    let mut probe = ObservationProbe::capturing(
-        &observing.resolved,
-        &observing.shared,
-        trusted,
-        &test.initial_state,
-        channel,
-        index,
-    );
     // The baseline's request (`Runtime::execute_against` on the runtime that reads coverage):
     // its modality, work bound and stop; the guard outcomes and bindings it records do not move
     // the run.
@@ -2447,23 +2440,34 @@ fn capture_element(
         guards: true,
         bindings: false,
     };
-    let request = RequestProbe {
-        rules: probe.rules(),
-        probe: &mut probe,
-    };
-    let (execution, _) = runtime.stop.execute_asking(
-        &runtime.adapter,
-        &mut runtime.backend,
-        &mut runtime.tables,
-        &test.id,
-        &test.initial_state,
-        campaign.budget,
-        run,
-        Some(request),
-    );
+    let (execution, captured) = crate::observation::evaluating(options.observe, |evaluation| {
+        let mut probe = ObservationProbe::capturing(
+            &observing.resolved,
+            &observing.shared,
+            trusted,
+            &test.initial_state,
+            evaluation.within(),
+            channel,
+            index,
+        );
+        let request = RequestProbe {
+            rules: probe.rules(),
+            probe: &mut probe,
+        };
+        let (execution, _) = runtime.stop.execute_asking(
+            &runtime.adapter,
+            &mut runtime.backend,
+            &mut runtime.tables,
+            &test.id,
+            &test.initial_state,
+            campaign.budget,
+            run,
+            Some(request),
+        );
+        (execution, probe.captured())
+    });
     execution.map_err(|failure| format!("the capture run failed: {failure:?}"))?;
-    probe
-        .captured()
+    captured
         .ok_or_else(|| format!("the capture run did not reach the element {index} of its channel"))
 }
 
@@ -4368,36 +4372,44 @@ impl Runtime {
                 guards: self.coverage.is_some(),
                 bindings: self.coverage.is_some(),
             };
-            let observing = self.observe.clone();
             let compared = self.coverage.is_none();
-            let mut probe = observing
+            let observing = self
+                .observe
+                .clone()
+                .filter(|_| !compared || against.is_some());
+            let trusted = self.exclusions.collections_trusted();
+            let declared = observing
                 .as_ref()
-                .filter(|_| !compared || against.is_some())
-                .map(|observing| {
-                    let trusted = observing.trusted && self.exclusions.collections_trusted();
-                    ObservationProbe::new(
-                        &observing.resolved,
-                        &observing.shared,
-                        trusted,
+                .map_or(Observe::NONE, |observing| observing.declared);
+            let (execution, asked, trace) =
+                crate::observation::evaluating(declared, |evaluation| {
+                    let mut probe = observing.as_ref().map(|observing| {
+                        ObservationProbe::new(
+                            &observing.resolved,
+                            &observing.shared,
+                            observing.trusted && trusted,
+                            &test.initial_state,
+                            against,
+                            evaluation.within(),
+                        )
+                    });
+                    let request = probe.as_mut().map(|probe| RequestProbe {
+                        rules: probe.rules(),
+                        probe,
+                    });
+                    let (execution, asked) = self.stop.execute_asking(
+                        &self.adapter,
+                        &mut self.backend,
+                        &mut self.tables,
+                        &test.id,
                         &test.initial_state,
-                        against,
-                    )
+                        campaign.budget,
+                        run,
+                        request,
+                    );
+                    (execution, asked, probe.map(ObservationProbe::finish))
                 });
-            let request = probe.as_mut().map(|probe| RequestProbe {
-                rules: probe.rules(),
-                probe,
-            });
-            let (execution, asked) = self.stop.execute_asking(
-                &self.adapter,
-                &mut self.backend,
-                &mut self.tables,
-                &test.id,
-                &test.initial_state,
-                campaign.budget,
-                run,
-                request,
-            );
-            observed = probe.map(|probe| (probe.finish(), against.is_some()));
+            observed = trace.map(|trace| (trace, against.is_some()));
             undecided = asked;
             execution
         };

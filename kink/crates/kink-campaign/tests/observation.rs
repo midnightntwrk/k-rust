@@ -5,7 +5,8 @@
 //! `<phase>` is bookkeeping).
 //!
 //! Every run of `run` is cut by the depth bound, so the baseline is a prefix program: its end
-//! slots compare nothing, and each channel is compared up to its horizon.
+//! slots compare nothing, and each channel is compared up to its horizon. A front end's functions
+//! of an observer give a class's contents and filter its events (`Halved`).
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -19,14 +20,15 @@ use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CampaignOptions, CampaignRun, ChannelEnd, CrashPolicy, Log,
-    MutantScopeFailure, MutantStatus, Observation, ObservationVerdict, Observe, OracleDeclaration,
+    Campaign, CampaignFailureKind, CampaignOptions, CampaignRun, ChannelEnd, CrashPolicy, Element,
+    Evaluated, Log, MutantScopeFailure, MutantStatus, Observation, ObservationEvaluator,
+    ObservationFunctions, ObservationVerdict, Observe, ObserveFunctions, OracleDeclaration,
     OracleOutcome, PointClass, Position, Projection, RunOptions, ScheduleMode,
     SelectionPolicy as Sel, StateProjection, Stutter, TestCase, TestRun, WorkBudget,
     run_campaign_with,
 };
 use kink_native::NativeValidator;
-use kink_native::execution::ExecutionBudget;
+use kink_native::execution::{ExecutionBudget, ProbeState};
 use kink_patch::{
     Baseline, CandidateGeneration, Edit, InsertPosition, Patch, SelectionPolicy, SiteSelector,
     TermRef, derive_sites, select,
@@ -1055,5 +1057,125 @@ fn a_total_residue_leaves_its_state_real_and_its_element_undecided() {
             "{opened:?}"
         );
         assert!(!opened.reason.contains("not settled"), "{opened:?}");
+    });
+}
+
+/// A front end's functions of an observer for the `clock` class: an event only where the count
+/// is even (the filter), whose content is the count halved, as the function gives it, with its
+/// value. Its identity names them.
+struct Halved;
+
+impl ObservationFunctions for Halved {
+    fn cells(&self) -> &[Vec<String>] {
+        &[]
+    }
+
+    fn with_evaluator(
+        &self,
+        body: &mut dyn FnMut(&mut dyn ObservationEvaluator),
+    ) -> Result<(), String> {
+        body(&mut Halved);
+        Ok(())
+    }
+}
+
+/// The count `<n>` of `state`, where it is a literal.
+fn count_of(state: &ProbeState<'_>) -> Result<i64, String> {
+    fn find(pattern: &Pattern) -> Option<i64> {
+        match pattern {
+            Pattern::Application { symbol, arguments } if symbol.name == "Lbl'-LT-'n'-GT-'" => {
+                match arguments.as_slice() {
+                    [Pattern::DomainValue { value, .. }] => value.as_utf8().ok()?.parse().ok(),
+                    _ => None,
+                }
+            }
+            Pattern::Application { arguments, .. } => arguments.iter().find_map(find),
+            _ => None,
+        }
+    }
+    find(&state.configuration()).ok_or_else(|| "the count is no literal".to_owned())
+}
+
+impl ObservationEvaluator for Halved {
+    fn holds(&mut self, _: usize, state: &ProbeState<'_>) -> Option<Result<bool, String>> {
+        Some(count_of(state).map(|n| n % 2 == 0))
+    }
+
+    fn content(
+        &mut self,
+        _: usize,
+        state: &ProbeState<'_>,
+        value: bool,
+    ) -> Result<Evaluated, String> {
+        let half = count_of(state)? / 2;
+        let mut digest = [0; 32];
+        digest[..8].copy_from_slice(&half.to_le_bytes());
+        Ok(Evaluated {
+            digest,
+            value: value.then(|| serde_json::json!(half)),
+        })
+    }
+
+    fn elements(&mut self, _: usize, _: &Pattern, _: bool) -> Result<Vec<Evaluated>, String> {
+        Err("no log".to_owned())
+    }
+
+    fn item_digest(&mut self, _: &Pattern) -> [u8; 32] {
+        [0; 32]
+    }
+}
+
+/// The clock observed through a front end's functions ([`Halved`]): the baseline's events are
+/// the even counts 0, 2, ..., 14 of its sixteen ticks, its elements 0 to 7. tick's count step 1
+/// becomes 3: the mutant's even counts are 0, 6, 12, ..., its element 1 is 3 against the
+/// baseline's 1, so it is killed there, with the function's value as its element. It becomes 2:
+/// every count is even and its halves are the baseline's, so the mutant agrees up to the
+/// baseline's horizon of 8 elements and survives with it, though its counts differ: the
+/// functions observe what they compute, never more. The declaration's value names the functions'
+/// identity, and the declaration without them keeps its value.
+#[test]
+fn a_front_ends_functions_give_the_contents_and_filter_the_events() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("console")];
+        let campaign = campaign(&validator, &tests, DEPTH);
+        let plain = Observe::new(vec![clock(Stutter::Collapse)], Vec::new()).unwrap();
+        let identity = serde_json::json!({"halved": 1});
+        let declared = plain.with_functions(ObserveFunctions::new(
+            identity.clone(),
+            std::sync::Arc::new(Halved),
+        ));
+        assert_eq!(declared.value().unwrap()["functions"], identity);
+        assert!(plain.value().unwrap().get("functions").is_none());
+        let options = RunOptions {
+            observe: declared,
+            ..RunOptions::default()
+        };
+        let faster = replaced(validator.baseline(), TICK, "1", "3");
+        let killed = run(&campaign, &faster, options);
+        let Some(Observation::Recorded(record)) = &killed.baseline[0].notes.observation else {
+            panic!("the baseline records its channels");
+        };
+        assert_eq!(record.channels[0].elements.len(), 8);
+        assert_eq!(killed.mutants[0].report.status, MutantStatus::Killed);
+        let distinguished = verdict(&killed);
+        assert_eq!(distinguished.position, position("clock", 1, false));
+        assert_eq!(
+            distinguished.element,
+            Some(Element::Evaluated(serde_json::json!(3)))
+        );
+        let even = replaced(validator.baseline(), TICK, "1", "2");
+        let survived = run(&campaign, &even, options);
+        assert_eq!(survived.mutants[0].report.status, MutantStatus::Survived);
+        assert_eq!(
+            verdict(&survived).horizon,
+            std::collections::BTreeMap::from([(
+                "clock".to_owned(),
+                kink_campaign::Horizon {
+                    elements: 8,
+                    opening: kink_campaign::Opening::Bound,
+                }
+            )])
+        );
     });
 }

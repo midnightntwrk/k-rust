@@ -106,8 +106,11 @@
 //! record keeps no values, so its element is re-derived by a capture run of the baseline's request
 //! that ends the path at the reported element, whose digest must be the recorded one
 //! (kink-campaign `observed_difference`); the mutant's is its probe's. A test whose ends also
-//! distinguished keeps its end evidence, and its observation slot still shows its position. The
-//! evidence is kink's own in every front end: a front end's renderer reads ends only.
+//! distinguished keeps its end evidence, and its observation slot still shows its position. An
+//! element a front end's functions of an observer gave is `{value}`, its document as the front
+//! end wrote it. A front end whose renderer writes observation evidence
+//! ([`EndRenderer::observation_format`]) gives its own document of the same difference in its
+//! format; where it shows none, kink's own is given with `note` saying why, as for ends.
 //!
 //! # The format of the evidence
 //!
@@ -218,6 +221,36 @@ pub trait EndRenderer {
         not_compared: &[String],
     ) -> Result<Value, String>;
 
+    /// The format of the documents [`Self::observation_difference`] writes, which each names as
+    /// `format`; `None` for a renderer that reads ends only, whose observation evidence is then
+    /// kink's own. Where it is `Some`, it enters the tier-1 context beside [`Self::format`]
+    /// ([`Renderer::evidence`]), so a stored document of an observation difference is served only
+    /// where this renderer would write it again.
+    fn observation_format(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// The evidence of a kill whose observation slot distinguished `difference` (the channel,
+    /// the index and both sides' elements, each re-derived from its side's values), under the
+    /// declaration `observe` (the manifest's, as the front end bound it). `Err` says why the
+    /// renderer shows no difference; kink then gives its own evidence with that reason. The
+    /// default shows none: a renderer that reads ends only.
+    ///
+    /// # Errors
+    ///
+    /// When the renderer cannot show the difference.
+    fn observation_difference(
+        &self,
+        difference: &ObservedDifference,
+        observe: Option<&crate::manifest::ObserveSection>,
+    ) -> Result<Value, String> {
+        let _ = (difference, observe);
+        Err(format!(
+            "the front end's renderer ({}) reads ends only",
+            self.format()
+        ))
+    }
+
     /// Reads a case's expectation, its `expect` table as written ([`crate::expect`]), refusing
     /// one that is no expectation of the definition; `files` reads the files it names, relative
     /// to the file the case is written in. Admission calls it for every program with `expect`.
@@ -271,8 +304,10 @@ impl Renderer {
     }
 
     /// The tier-1 context's `evidence` member: the format of a front end's evidence and its
-    /// further inputs ([`EndRenderer::identity`]), `{format, identity}`; `Ok(None)` for kink's
-    /// own evidence ([`K_EVIDENCE_VERSION`]), which depends on nothing the context does not name.
+    /// further inputs ([`EndRenderer::identity`]), `{format, identity}`, with `observations`, the
+    /// format of its observation evidence, when it writes some
+    /// ([`EndRenderer::observation_format`]); `Ok(None)` for kink's own evidence
+    /// ([`K_EVIDENCE_VERSION`]), which depends on nothing the context does not name.
     ///
     /// # Errors
     ///
@@ -280,10 +315,14 @@ impl Renderer {
     pub fn evidence(&self) -> Result<Option<Value>, String> {
         self.get()
             .map(|renderer| {
-                Ok(json!({
+                let mut evidence = json!({
                     "format": renderer.format(),
                     "identity": renderer.identity()?,
-                }))
+                });
+                if let Some(format) = renderer.observation_format() {
+                    evidence["observations"] = json!(format);
+                }
+                Ok(evidence)
             })
             .transpose()
     }
@@ -703,12 +742,40 @@ impl EndReader {
         }
     }
 
-    /// kink's evidence of a difference of observation channels (module documentation, "Observation
-    /// evidence"): `{format, position: {channel, index, at_end}, baseline: {element},
-    /// mutant: {element}}`, each element as [`Self::element`] prints it under the declaration
-    /// `observe` (the manifest's, which names each class's cells).
+    /// The evidence of a difference of observation channels (module documentation, "Observation
+    /// evidence"): the front end's document when its renderer writes observation evidence
+    /// ([`EndRenderer::observation_difference`]), else kink's own ([`Self::own_observation`]),
+    /// with `note` when a renderer showed no difference.
     #[must_use]
     pub fn observation_difference(
+        &self,
+        difference: &ObservedDifference,
+        observe: Option<&crate::manifest::ObserveSection>,
+    ) -> Value {
+        let mut own = self.own_observation(difference, observe);
+        let Some(renderer) = self.renderer.get() else {
+            return own;
+        };
+        let Some(format) = renderer.observation_format() else {
+            return own;
+        };
+        let note = match renderer.observation_difference(difference, observe) {
+            Ok(document) if document["format"] == format => return document,
+            Ok(document) => format!(
+                "the front end's evidence names the format {}, not {format}",
+                document["format"]
+            ),
+            Err(reason) => reason,
+        };
+        own["note"] = json!(format!("no {format} evidence: {note}"));
+        own
+    }
+
+    /// kink's own evidence of a difference of observation channels: `{format, position:
+    /// {channel, index, at_end}, baseline: {element}, mutant: {element}}`, each element as
+    /// [`Self::element`] prints it under the declaration `observe` (the manifest's, which names
+    /// each class's cells).
+    fn own_observation(
         &self,
         difference: &ObservedDifference,
         observe: Option<&crate::manifest::ObserveSection>,
@@ -735,7 +802,8 @@ impl EndReader {
 
     /// One element of an observation difference printed for a reader: `{cells: {<cell>: value}}`
     /// for a point class's content, by the class's cells `cells` in order, `{item: value}` for a
-    /// log's, each value as [`Self::print`] prints it (cut at [`VALUE_CAP`]); `"end"`,
+    /// log's, each value as [`Self::print`] prints it (cut at [`VALUE_CAP`]); `{value}` for an
+    /// element a front end's functions gave, its document as the front end wrote it; `"end"`,
     /// `"undefined"`, `"cycle"` (the side's path returned to an earlier state, so its channel has
     /// no element there, ever) or `"undecided"` otherwise.
     fn element(&self, element: &Element, cells: Option<&[String]>) -> Value {
@@ -757,6 +825,7 @@ impl EndReader {
                         .collect::<Vec<_>>()}),
                 },
             },
+            Element::Evaluated(value) => json!({"value": value}),
             Element::End => json!("end"),
             Element::Undefined => json!("undefined"),
             Element::Cycle => json!("cycle"),

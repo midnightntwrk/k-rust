@@ -82,12 +82,17 @@ pub use cli::{
 };
 pub use evidence::{EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
+/// A front end's functions of an observer for `[observe]`
+/// ([`FlowManifest::with_observe_functions`]).
+pub use kink_campaign::{
+    Evaluated, ObservationEvaluator, ObservationFunctions, ObserveFunctions, ObservedDifference,
+};
 /// A stop condition a front end states for `[stop] when` ([`FlowManifest::with_stop_when`]).
 pub use kink_campaign::{StopOracle, StopWhen};
 pub use manifest::{
     Budget, Decoder, FlowManifest, KrsSpec, LogSection, ManifestError, ManifestFile,
-    ObserveSection, PointSection, Program, ResultSection, SpecDecl, SpecSection, StopSection,
-    StopWhenSection, StopWhenSlot,
+    ObserveFunctionsSlot, ObserveSection, PointSection, Program, ResultSection, SpecDecl,
+    SpecSection, StopSection, StopWhenSection, StopWhenSlot,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,

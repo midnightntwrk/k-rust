@@ -16,13 +16,18 @@
 //! submodule makes; a name that selects no rewrite rule refuses the corpus at stage `stop`,
 //! reason `stop-unresolved`), the stop condition `[stop] when` names with KRS's spellings,
 //! resolved as `krs run --stop-when` resolves one and handed to kink as the condition it asks at
-//! each arrival (the `condition` submodule; reason `stop-condition-unresolved`), the syntax
+//! each arrival (the `condition` submodule; reason `stop-condition-unresolved`), the observation
+//! channels `[observe]` names with KRS's spellings, resolved as `krs run --observe` resolves them,
+//! their rules mapped to exact K labels and their cells to K names, and handed to kink with the
+//! functions of an observer that give their elements (the `observe` submodule; stage `observe`,
+//! reasons `observe-unresolved` and `point-unresolved`), the syntax
 //! family's authored sorts and the `k::bits!` binders whose values every baseline run records
 //! (the `syntax` submodule), the mutations its own checks refuse (`checks`), and the
 //! definition's condition flips, which `coverage` runs as its flips family and `fuzz --kill
 //! <flip-id>` names (`flips`, each with the guard nodes it changes, which `guards` places); on
 //! the way
-//! out, the labels each `[stop]` name selects (`stop.krs.items`), the compared cells by Rust path
+//! out, the labels each `[stop]` name selects (`stop.krs.items`), the labels and cells each
+//! `[observe]` name reads as (`observe.krs`), the compared cells by Rust path
 //! (`result.krs`), to every rule a document names, the KRS item and the Rust position the
 //! sentence was emitted from (`annotate`), the syntax family's productions by Rust path and its
 //! templates' field values with their encodings (`syntax`), and next steps spelled as `krs kink`
@@ -70,6 +75,7 @@ mod emit;
 mod flips;
 mod guards;
 mod inputs;
+mod observe;
 mod render;
 mod spelling;
 mod stop;
@@ -686,19 +692,17 @@ fn run_flow(
     tell_progress(&command, "run: binding the corpus to the emitted K");
     let sources = outcome.sources.clone();
     let (guard_names, syntax) = front_syntax(emitted, &sources);
-    let (manifest, stop_items, result_names) =
-        match bound_manifest(&command, declared, emitted, observers, &syntax) {
-            Ok(bound) => bound,
-            Err(mut document) => {
-                document["definition"] = definition;
-                return finish(outcome, &document, EXIT_UNASKED, output);
-            }
-        };
+    let (manifest, names) = match bound_manifest(&command, declared, emitted, observers, &syntax) {
+        Ok(bound) => bound,
+        Err(mut document) => {
+            document["definition"] = definition;
+            return finish(outcome, &document, EXIT_UNASKED, output);
+        }
+    };
     resolve_rule(&mut command, emitted);
     let annotator = naming_guards(
-        annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command))
-            .naming_stop(stop_items)
-            .naming_result(result_names)
+        names
+            .annotator(emitted, &manifest, judged_list(&command))
             .naming_syntax(syntax),
         &command,
         guard_names,
@@ -904,20 +908,48 @@ fn tell_progress(command: &FlowCommand, line: &str) {
     }
 }
 
+/// What binding a corpus names at the KRS level ([`bound_manifest`]), which every document of the
+/// command gains: the labels each `[stop]` name selects, the labels and cells each `[observe]`
+/// name reads as, and the compared cells by Rust path.
+struct BoundNames {
+    stop: Option<Value>,
+    observe: Option<Value>,
+    result: cells::ResultNames,
+}
+
+impl BoundNames {
+    /// The annotator of `emitted`'s documents on `manifest` ([`annotate::Annotator::new`],
+    /// `mutations` the command's list) naming them.
+    fn annotator(
+        self,
+        emitted: &EmittedDefinition,
+        manifest: &kink_flow::FlowManifest,
+        mutations: Option<PathBuf>,
+    ) -> annotate::Annotator {
+        annotate::Annotator::new(emitted, manifest.clone(), mutations)
+            .naming_stop(self.stop)
+            .naming_observe(self.observe)
+            .naming_result(self.result)
+    }
+}
+
 /// The corpus `declared` bound to the K of `emitted`, with what only the front end knows of it
 /// ([`with_front_end_facts`], the expectations' views evaluated in `observers`, and the syntax
 /// family's authored sorts and template binders, `syntax`'s selection), the cells
 /// `[result]` names by Rust path or K name as the K names kink-flow reads ([`cells::bind`]), and
 /// the rules `[stop]` names by KRS item or label as the exact K labels kink-flow reads
-/// ([`stop::bind`]); the labels each `[stop]` name selects, and the cells by path that the
-/// documents' `result` gains; or `command`'s document refusing the corpus.
+/// ([`stop::bind`]), and `[observe]` named with KRS's spellings resolved, its rules as exact K
+/// labels and its cells as K names, with the functions that give its elements
+/// ([`observe::bind`]); the labels each `[stop]` name selects, the labels and cells each
+/// `[observe]` name reads as, and the cells by path that the documents' `result` gains; or
+/// `command`'s document refusing the corpus.
 fn bound_manifest(
     command: &FlowCommand,
     declared: ManifestFile,
     emitted: &EmittedDefinition,
     observers: render::Observers,
     syntax: &syntax::KrsSyntax,
-) -> Result<(kink_flow::FlowManifest, Option<Value>, cells::ResultNames), Value> {
+) -> Result<(kink_flow::FlowManifest, BoundNames), Value> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
         .map_err(|error| command.manifest_refused(&error))?;
@@ -936,7 +968,16 @@ fn bound_manifest(
         .map_err(|error| command.manifest_refused(&error))?;
     let (manifest, stop_items) = stop::bind(manifest, &decoder, &observers, &emitted.ir)
         .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
-    Ok((manifest, stop_items, result_names))
+    let (manifest, observe_items) = observe::bind(manifest, &decoder, &observers, &emitted.ir)
+        .map_err(|unbound| refused(command, "observe", unbound.reason, &unbound.detail))?;
+    Ok((
+        manifest,
+        BoundNames {
+            stop: stop_items,
+            observe: observe_items,
+            result: result_names,
+        },
+    ))
 }
 
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are

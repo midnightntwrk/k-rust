@@ -1063,7 +1063,7 @@ fn admit_definition(
         stop_condition_bound(stop, &manifest.stop_when)?;
     }
     if let Some(observe) = &manifest.observe {
-        observe_resolved(observe, &mut backend, &compiled, &kore)?;
+        observe_resolved(observe, manifest, &mut backend, &compiled, &kore)?;
     }
     let (data, exclusions) = baseline_data(
         &mut backend,
@@ -1209,9 +1209,11 @@ fn stop_condition_bound(
 /// `[observe]` states an observation of the specification, or the specification is refused at
 /// stage `observe`:
 /// - `unsupported-front-end`: a key that names a function of an observer (`observer`, a class's
-///   `views`, `components` or `when`, a log's `element`). kink-flow's K front end reads terms of a
-///   K definition and has no observer to evaluate a function in; every channel it compares is a
-///   cell's content as the cell holds it, which is sound by the end projection's argument.
+///   `views`, `components` or `when`, a log's `element`) where no front end set the functions
+///   that evaluate it ([`crate::FlowManifest::with_observe_functions`]). kink-flow's K front end
+///   reads terms of a K definition and has no observer to evaluate a function in; every channel it
+///   compares is a cell's content as the cell holds it, which is sound by the end projection's
+///   argument. A front end that set them resolved those keys itself.
 /// - `point-unresolved`: a class names a rule no rewrite rule of the specification is labelled
 ///   with (an equation's label names no step), so the class has no events
 ///   (`backend-error` when the backend cannot list the rules).
@@ -1221,6 +1223,7 @@ fn stop_condition_bound(
 ///   refuse it before any run.
 fn observe_resolved(
     observe: &crate::manifest::ObserveSection,
+    manifest: &FlowManifest,
     backend: &mut Backend,
     compiled: &ValidatedDefinition,
     kore: &k_rust::kore::ast::Definition,
@@ -1231,14 +1234,14 @@ fn observe_resolved(
         detail,
     };
     let keys = observe.front_end_keys();
-    if !keys.is_empty() {
+    if !keys.is_empty() && manifest.observe_functions.0.is_none() {
         return Err(refused(
             "unsupported-front-end",
             format!(
                 "{}: a function of an observer is evaluated on the values of the cells it reads, \
                  and kink-flow's K front end reads terms of a K definition with no observer to \
-                 evaluate it in: observer functions need a front end that reads values, which \
-                 `krs kink` will be and does not yet accept them; observe the cells as they are",
+                 evaluate it in: observe the cells as they are, or run the corpus through a front \
+                 end that reads values (`krs kink`)",
                 keys.join(", ")
             ),
         ));

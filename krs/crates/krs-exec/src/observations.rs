@@ -328,6 +328,36 @@ impl ResolvedObservations {
         self.functions
     }
 
+    /// Every cell the declaration reads, without repeats: each class's cells, the cells of its
+    /// components and of its filter, and each log's cell, as the cell symbols from the
+    /// configuration's top down to the cell (the path [`ProbeState::cell`] follows). A front end
+    /// that evaluates the declaration on another engine's runs ([`ObservationOracle::evaluator`])
+    /// checks that these cells can hold no term read otherwise on the definitions it reads with
+    /// the declaration's subject.
+    #[must_use]
+    pub fn read_cells(&self) -> Vec<Vec<String>> {
+        let mut cells = BTreeSet::new();
+        for class in &self.classes {
+            for component in &class.components {
+                match component {
+                    ResolvedComponent::Cell { cell, .. } => {
+                        cells.insert(cell.symbols.clone());
+                    }
+                    ResolvedComponent::Function { function, .. } => {
+                        cells.extend(function.cell_symbols().map(<[String]>::to_vec));
+                    }
+                }
+            }
+            if let Some(filter) = &class.filter {
+                cells.extend(filter.cell_symbols().map(<[String]>::to_vec));
+            }
+        }
+        for log in &self.logs {
+            cells.insert(log.cell.symbols.clone());
+        }
+        cells.into_iter().collect()
+    }
+
     /// The channels' names and kinds, in channel order: the classes, then the logs.
     pub fn channels(&self) -> impl Iterator<Item = (&str, ChannelKind)> {
         self.classes
@@ -1486,6 +1516,14 @@ fn elements_compared(left: &Element, right: &Element) -> Pair {
     }
 }
 
+/// The first path inside two unequal element values, as documents of the typed encoding, at
+/// which they differ (`pc`, `regs.a`, `[2]`), as a comparison of two records names it
+/// ([`ObservationDifference::path`]); `None` where they differ at their top.
+#[must_use]
+pub fn value_path(left: &Json, right: &Json) -> Option<String> {
+    json_path(left, right, String::new())
+}
+
 /// The first path at which two unequal JSON values differ, `None` at their top.
 fn json_path(left: &Json, right: &Json, prefix: String) -> Option<String> {
     match (left, right) {
@@ -1654,6 +1692,45 @@ enum Mode<'o> {
 struct Piece {
     digest: ElementDigest,
     value: Option<Json>,
+}
+
+/// The digest of a class's content made of `pieces`: their number, then each piece's digest, in
+/// the class's order.
+fn content_digest(pieces: &[(&str, Piece)]) -> ElementDigest {
+    let mut bytes = Vec::with_capacity(8 + 32 * pieces.len());
+    bytes.extend_from_slice(&(pieces.len() as u64).to_le_bytes());
+    for (_, piece) in pieces {
+        bytes.extend_from_slice(piece.digest.as_bytes());
+    }
+    ElementDigest::of(&bytes)
+}
+
+/// The value of a class's content made of `pieces`: an object of each component's value by its
+/// name.
+fn content_value(pieces: &[(&str, Piece)]) -> Json {
+    Json::Object(
+        pieces
+            .iter()
+            .map(|(name, piece)| {
+                (
+                    (*name).to_owned(),
+                    piece.value.clone().unwrap_or(Json::Null),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// One element an evaluating oracle gives a front end that keeps its own channels
+/// ([`ObservationOracle::evaluator`]): its digest, and its value in the typed encoding where the
+/// oracle keeps values.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Evaluated {
+    /// The element's digest, as a recording keeps it.
+    pub digest: ElementDigest,
+    /// The element's value in the typed encoding, where the oracle keeps values: an object of a
+    /// class's components by name, or a log's element.
+    pub value: Option<Json>,
 }
 
 /// A log's reading state.
@@ -1839,6 +1916,117 @@ impl<'o> ObservationOracle<'o> {
         self.difference.as_deref()
     }
 
+    /// An oracle of `resolved` that keeps no channel of its own and evaluates elements one at a
+    /// time for a front end that runs the declaration under another engine and keeps the
+    /// channels by its own rule (kink's runs of a definition and its mutants): whether a class's
+    /// filter holds at a state ([`Self::holds`]), a class's content there ([`Self::content`]),
+    /// and the elements one item of a log contributes ([`Self::item_elements`]), each as a
+    /// recording of this oracle takes it, its digest and, under [`Self::keep_values`], its
+    /// value. The functions are evaluated in `observer` as [`Self::record`] evaluates them,
+    /// within `budget` polls each.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::record`] does.
+    pub fn evaluator(
+        resolved: &'o ResolvedObservations,
+        observer: Option<&'o mut Semantics>,
+        budget: Option<u64>,
+    ) -> Result<Self, ExecError> {
+        Self::new(
+            resolved,
+            observer,
+            budget,
+            Mode::Record {
+                values: false,
+                refuse_no_value: false,
+            },
+        )
+    }
+
+    /// Whether the elements this evaluating oracle gives carry their values in the typed
+    /// encoding ([`Evaluated::value`]); without, only their digests, which is what a comparison
+    /// needs.
+    pub fn keep_values(&mut self, values: bool) {
+        if let Mode::Record {
+            refuse_no_value, ..
+        } = self.mode
+        {
+            self.mode = Mode::Record {
+                values,
+                refuse_no_value,
+            };
+        }
+    }
+
+    /// Whether the filter of the class `class` (by its position in the declaration) holds at
+    /// `state`: `None` for a class with no filter, which every point of keeps; why it is not known
+    /// otherwise (no value, or an evaluation stopped before its end).
+    pub fn holds(&mut self, class: usize, state: &ProbeState<'_>) -> Option<Result<bool, String>> {
+        let resolved = self.resolved;
+        let filter = resolved.classes.get(class)?.filter.as_ref()?;
+        Some(
+            self.filter(filter, state)
+                .map_err(|unknown| format!("its filter is not known here: {}", unknown.reason)),
+        )
+    }
+
+    /// The content of the class `class` (by its position in the declaration) at `state`, the
+    /// element a recording takes at a point of the class there.
+    ///
+    /// # Errors
+    ///
+    /// Why a component has no value there, naming it.
+    ///
+    /// # Panics
+    ///
+    /// When the declaration has no class `class`.
+    pub fn content(&mut self, class: usize, state: &ProbeState<'_>) -> Result<Evaluated, String> {
+        let pieces = self
+            .pieces(class, state)
+            .map_err(|unknown| unknown.reason)?;
+        Ok(Evaluated {
+            digest: content_digest(&pieces),
+            value: self.keeps_values().then(|| content_value(&pieces)),
+        })
+    }
+
+    /// The elements one item of the log `log` (by its position among the declaration's logs)
+    /// contributes to its channel, `item` as the log's cell holds it: the item itself, or each
+    /// element of its element function's value.
+    ///
+    /// # Errors
+    ///
+    /// Why the item, or its element function there, has no value.
+    ///
+    /// # Panics
+    ///
+    /// When the declaration has no log `log`.
+    pub fn item_elements(&mut self, log: usize, item: &Pattern) -> Result<Vec<Evaluated>, String> {
+        let resolved = self.resolved;
+        let pieces = self
+            .item_pieces(&resolved.logs[log], item)
+            .map_err(|unknown| unknown.reason)?;
+        let values = self.keeps_values();
+        Ok(pieces
+            .into_iter()
+            .map(|piece| Evaluated {
+                digest: piece.digest,
+                value: piece.value.filter(|_| values),
+            })
+            .collect())
+    }
+
+    /// The digest of an item of a log's cell as a recording checks that the cell only grows by
+    /// appending: of the item's canonical KORE under the declaration's subject, so two items have
+    /// one digest exactly when they are one term.
+    #[must_use]
+    pub fn item_digest(&self, item: &Pattern) -> ElementDigest {
+        let mut bytes = Vec::new();
+        self.resolved.subject.canonical_kore(item, &mut bytes);
+        ElementDigest::of(&bytes)
+    }
+
     /// Count the depths of the request's points from `offset` steps: the steps the run took
     /// before the request's start.
     pub(crate) const fn set_offset(&mut self, offset: u64) {
@@ -2000,61 +2188,35 @@ impl<'o> ObservationOracle<'o> {
                 }
             }
         }
-        let mut pieces = Vec::with_capacity(class_spec.components.len());
-        let mut failed = None;
-        for (index, component) in class_spec.components.iter().enumerate() {
-            match self.component(class, index, component, state) {
-                Ok(piece) => pieces.push((component.name(), piece)),
-                Err(unknown) => {
-                    failed = Some(Unknown {
-                        reason: format!("the component `{}`: {}", component.name(), unknown.reason),
-                        undecided: unknown.undecided,
-                    });
-                    break;
+        let element = match self.pieces(class, state) {
+            Err(unknown) => {
+                if let Some(refusal) = self.refusal_of(class, at, &unknown) {
+                    return Err(refusal);
                 }
-            }
-        }
-        let element = if let Some(unknown) = failed {
-            if let Some(refusal) = self.refusal_of(class, at, &unknown) {
-                return Err(refusal);
-            }
-            if class_spec.stutter == Stutter::Collapse {
-                self.channels[class].open_at(unknown.reason, unknown.undecided, Some(at.place()));
-                return Ok(());
-            }
-            Element {
-                depth: at.depth,
-                rule: at.rule.map(str::to_owned),
-                side: at.side,
-                digest: None,
-                value: None,
-                undecided: Some(unknown.reason),
-            }
-        } else {
-            {
-                let mut bytes = Vec::with_capacity(8 + 32 * pieces.len());
-                bytes.extend_from_slice(&(pieces.len() as u64).to_le_bytes());
-                for (_, piece) in &pieces {
-                    bytes.extend_from_slice(piece.digest.as_bytes());
+                if class_spec.stutter == Stutter::Collapse {
+                    self.channels[class].open_at(
+                        unknown.reason,
+                        unknown.undecided,
+                        Some(at.place()),
+                    );
+                    return Ok(());
                 }
-                let value = self.keeps_values().then(|| {
-                    Json::Object(
-                        pieces
-                            .iter()
-                            .map(|(name, piece)| {
-                                (
-                                    (*name).to_owned(),
-                                    piece.value.clone().unwrap_or(Json::Null),
-                                )
-                            })
-                            .collect(),
-                    )
-                });
                 Element {
                     depth: at.depth,
                     rule: at.rule.map(str::to_owned),
                     side: at.side,
-                    digest: Some(ElementDigest::of(&bytes)),
+                    digest: None,
+                    value: None,
+                    undecided: Some(unknown.reason),
+                }
+            }
+            Ok(pieces) => {
+                let value = self.keeps_values().then(|| content_value(&pieces));
+                Element {
+                    depth: at.depth,
+                    rule: at.rule.map(str::to_owned),
+                    side: at.side,
+                    digest: Some(content_digest(&pieces)),
                     value,
                     undecided: None,
                 }
@@ -2064,6 +2226,30 @@ impl<'o> ObservationOracle<'o> {
             self.compare_last(class);
         }
         Ok(())
+    }
+
+    /// The pieces of the class `class`'s content at `state`, each with its component's name, in
+    /// the class's order; why a component has no value otherwise.
+    fn pieces(
+        &mut self,
+        class: usize,
+        state: &dyn Reading,
+    ) -> Result<Vec<(&'o str, Piece)>, Unknown> {
+        let resolved = self.resolved;
+        let class_spec = &resolved.classes[class];
+        let mut pieces = Vec::with_capacity(class_spec.components.len());
+        for (index, component) in class_spec.components.iter().enumerate() {
+            match self.component(class, index, component, state) {
+                Ok(piece) => pieces.push((component.name(), piece)),
+                Err(unknown) => {
+                    return Err(Unknown {
+                        reason: format!("the component `{}`: {}", component.name(), unknown.reason),
+                        undecided: unknown.undecided,
+                    });
+                }
+            }
+        }
+        Ok(pieces)
     }
 
     /// Check a comparison's last element of `channel` against the baseline's at its index.
@@ -2150,6 +2336,7 @@ impl<'o> ObservationOracle<'o> {
                 if let (Some(handles), Some((held, piece))) =
                     (&handles, self.functions.get(&(class, index)))
                     && handles.iter().zip(held).all(|(now, then)| now.same(then))
+                    && (piece.value.is_some() || !self.keeps_values())
                 {
                     return Ok(piece.clone());
                 }
@@ -2181,6 +2368,7 @@ impl<'o> ObservationOracle<'o> {
         let handle = state.handle(&path);
         if let (Some(handle), Some((held, piece))) = (&handle, self.cells.get(&cell.symbols))
             && handle.same(held)
+            && (piece.value.is_some() || !self.keeps_values())
         {
             return Ok(piece.clone());
         }

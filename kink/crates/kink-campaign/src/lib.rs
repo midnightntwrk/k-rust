@@ -26,8 +26,9 @@ pub use identity::{
     writer_difference,
 };
 pub use observation::{
-    BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, Closure, Comparison, Element, Horizon,
-    Log, OBSERVATION_VERSION, Observation, ObservationVerdict, Observe, Opened, Opening,
+    BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, Closure, Comparison, Element,
+    Evaluated, Horizon, Log, OBSERVATION_VERSION, Observation, ObservationEvaluator,
+    ObservationFunctions, ObservationVerdict, Observe, ObserveFunctions, Opened, Opening,
     PointClass, Position, Stutter,
 };
 mod manifest;

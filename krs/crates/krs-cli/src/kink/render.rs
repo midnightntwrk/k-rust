@@ -91,6 +91,22 @@
 //! the views in its detail, and the observer when the expectation names one; an unmet verdict's
 //! difference names the views too. A verdict decided before any view is evaluated (an expected
 //! end kink compares no end to, a stop rule the corpus does not stop at) names none.
+//!
+//! # Observation differences
+//!
+//! A kill by `[observe]`'s channels is a difference kink's observation slot found at a channel and
+//! an index, re-derived from both sides' values. The front end gives every element of a KRS
+//! corpus's channels through krs-exec's evaluator ([`super::observe`]), so each side's element is
+//! a document of the typed encoding (a class's content an object of its components by name, each
+//! a Rust path or a component's name; a log's element its document), or the channel's closure
+//! there. The evidence is `krs-difference/4`: `{format, position: {channel, index, at_end},
+//! kind, at, cell, path, baseline: {element}, mutant: {element}}`, where `kind` is `point` or
+//! `log`, `cell` the log's cell by Rust path or the class's first component whose values differ,
+//! `path` the place inside the two values where they first differ (krs-exec `value_path`), and
+//! `at` all of it as one place (`bus[0]`, `boundary[3].pc`). Each element is the document, or
+//! `"end"`, `"undefined"`, `"cycle"` (the side's path returned to an earlier state, so its channel
+//! has no element there, ever) or `"undecided"`. The document depends on what an end difference's
+//! depends on, and its format enters the tier-1 context beside it.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -99,8 +115,10 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use k_rust::kast::identifier::label_or_name;
 use k_rust::kore::ast::Pattern;
+use kink_campaign::Element;
 use kink_flow::{
-    CheckedExpectation, EndRenderer, ExpectationCheck, ExpectationVerdict, StopSection,
+    CheckedExpectation, EndRenderer, ExpectationCheck, ExpectationVerdict, ObserveSection,
+    ObservedDifference, StopSection,
 };
 use krs_exec::{
     CellInfo, Compared, Comparison, CompiledStage, DIFFERENCE_FORMAT, End, EndClass, EndError,
@@ -294,9 +312,25 @@ fn resolve_views(
         .map_err(refuse)
 }
 
+/// The format of a kill's evidence of a difference of observation channels
+/// ([`EndRenderer::observation_difference`]; module documentation, "Observation differences").
+pub(crate) const OBSERVATION_DIFFERENCE_FORMAT: &str = "krs-difference/4";
+
 impl EndRenderer for KrsEnds {
     fn format(&self) -> &'static str {
         DIFFERENCE_FORMAT
+    }
+
+    fn observation_format(&self) -> Option<&'static str> {
+        Some(OBSERVATION_DIFFERENCE_FORMAT)
+    }
+
+    fn observation_difference(
+        &self,
+        difference: &ObservedDifference,
+        observe: Option<&ObserveSection>,
+    ) -> Result<Value, String> {
+        observation_difference(self.inputs.definition(), difference, observe)
     }
 
     fn identity(&self) -> Result<Value, String> {
@@ -374,6 +408,90 @@ impl EndRenderer for KrsEnds {
                 )
             })
     }
+}
+
+/// The evidence of a difference of observation channels (module documentation, "Observation
+/// differences"), the declaration `observe` bound to the definition `definition`.
+fn observation_difference(
+    definition: &DefinitionIr,
+    difference: &ObservedDifference,
+    observe: Option<&ObserveSection>,
+) -> Result<Value, String> {
+    let shown = |element: &Element| match element {
+        Element::Evaluated(value) => Ok(value.clone()),
+        Element::End => Ok(json!("end")),
+        Element::Undefined => Ok(json!("undefined")),
+        Element::Cycle => Ok(json!("cycle")),
+        Element::Undecided => Ok(json!("undecided")),
+        Element::Content(_) => {
+            Err("the element is a K term, not a value the front end's functions gave".to_owned())
+        }
+    };
+    let (baseline, mutant) = (shown(&difference.baseline)?, shown(&difference.mutant)?);
+    let position = &difference.position;
+    let log =
+        observe.and_then(|observe| observe.logs.iter().find(|log| log.name == position.channel));
+    let values = match (&difference.baseline, &difference.mutant) {
+        (Element::Evaluated(left), Element::Evaluated(right)) => Some((left, right)),
+        _ => None,
+    };
+    let (kind, cell, path) = if let Some(log) = log {
+        let cell = super::cells::CellNames::of(definition)
+            .path_of(&log.cell)
+            .map_or_else(|| log.cell.clone(), str::to_owned);
+        let path = values.and_then(|(left, right)| krs_exec::value_path(left, right));
+        ("log", Some(cell), path)
+    } else {
+        // A class's content is an object of its components by name: the first that differs.
+        let differing = values.and_then(|(left, right)| {
+            let (Value::Object(left), Value::Object(right)) = (left, right) else {
+                return None;
+            };
+            left.keys()
+                .chain(right.keys())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .find(|name| left.get(*name) != right.get(*name))
+                .map(|name| {
+                    let path = match (left.get(name), right.get(name)) {
+                        (Some(left), Some(right)) => krs_exec::value_path(left, right),
+                        _ => None,
+                    };
+                    (name.clone(), path)
+                })
+        });
+        match differing {
+            Some((name, path)) => ("point", Some(name), path),
+            None => ("point", None, None),
+        }
+    };
+    let mut at = format!("{}[{}]", position.channel, position.index);
+    if kind == "point"
+        && let Some(cell) = &cell
+    {
+        at.push('.');
+        at.push_str(cell);
+    }
+    if let Some(path) = &path {
+        if !path.starts_with('[') {
+            at.push('.');
+        }
+        at.push_str(path);
+    }
+    Ok(json!({
+        "format": OBSERVATION_DIFFERENCE_FORMAT,
+        "position": {
+            "channel": position.channel,
+            "index": position.index,
+            "at_end": position.at_end,
+        },
+        "kind": kind,
+        "at": at,
+        "cell": cell,
+        "path": path,
+        "baseline": {"element": baseline},
+        "mutant": {"element": mutant},
+    }))
 }
 
 /// Admit `expectation`, its views resolved, unless a view has no value at its expected end

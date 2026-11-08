@@ -38,6 +38,33 @@ pub(crate) struct Unbound {
 /// selects none.
 type Selection = (&'static str, String, Result<Vec<String>, String>);
 
+/// The exact K labels of the rewrite rules the name `name` selects, as `krs run --stop-before`
+/// resolves a stop's name ([`krs_exec::Semantics::stop_rules`]); why it selects none, or why a
+/// selected rule has no label to name `kinds` by, named by `place` (`[stop] before`).
+pub(super) fn rule_labels(
+    semantics: &krs_exec::Semantics,
+    place: &str,
+    name: &str,
+    kinds: &str,
+) -> Result<Vec<String>, String> {
+    semantics
+        .stop_rules(name)
+        .map_err(|error| format!("{place} `{name}`: {error}"))
+        .and_then(|rules| {
+            rules
+                .into_iter()
+                .map(|(id, label)| {
+                    label.ok_or_else(|| {
+                        format!(
+                            "{place} `{name}` selects the rewrite rule {id}, which has no \
+                             label, and kink-flow names {kinds} by label"
+                        )
+                    })
+                })
+                .collect()
+        })
+}
+
 /// `manifest` with its `[stop]` names mapped to exact K labels and its condition, when it states
 /// one, resolved and set ([`FlowManifest::with_stop_when`]), and the `krs` object the documents'
 /// `stop` gains: `items`, each name as written to the labels it selects, and `when`, the
@@ -72,23 +99,12 @@ pub(crate) fn bind(
             Ok(written
                 .into_iter()
                 .map(|(side, name)| {
-                    let labels = semantics
-                        .stop_rules(&name)
-                        .map_err(|error| format!("[stop] {side} `{name}`: {error}"))
-                        .and_then(|rules| {
-                            rules
-                                .into_iter()
-                                .map(|(id, label)| {
-                                    label.ok_or_else(|| {
-                                        format!(
-                                            "[stop] {side} `{name}` selects the rewrite rule \
-                                             {id}, which has no label, and kink-flow names a \
-                                             stop's rules by label"
-                                        )
-                                    })
-                                })
-                                .collect()
-                        });
+                    let labels = rule_labels(
+                        semantics,
+                        &format!("[stop] {side}"),
+                        &name,
+                        "a stop's rules",
+                    );
                     (side, name, labels)
                 })
                 .collect::<Vec<Selection>>())

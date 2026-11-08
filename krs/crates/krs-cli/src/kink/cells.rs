@@ -81,8 +81,16 @@ impl CellNames {
             .map(|(_, name)| name.as_str())
     }
 
+    /// The K name of the cell whose declared path is `path`.
+    pub(crate) fn name_of(&self, path: &str) -> Option<&str> {
+        self.cells
+            .iter()
+            .find(|(declared, _)| declared == path)
+            .map(|(_, name)| name.as_str())
+    }
+
     /// The declared path of the cell whose K name is `name`.
-    fn path_of(&self, name: &str) -> Option<&str> {
+    pub(crate) fn path_of(&self, name: &str) -> Option<&str> {
         self.cells
             .iter()
             .find(|(_, k)| k == name)

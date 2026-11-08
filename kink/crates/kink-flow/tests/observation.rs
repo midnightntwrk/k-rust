@@ -947,3 +947,56 @@ fn query_and_fuzz_refuse_a_corpus_with_observations() {
     );
     assert_eq!(fuzz["action"], "remove [observe] to fuzz this corpus");
 }
+
+/// Functions a front end set ([`kink_flow::FlowManifest::with_observe_functions`]); none is
+/// evaluated by admission.
+struct Unasked;
+
+impl kink_flow::ObservationFunctions for Unasked {
+    fn cells(&self) -> &[Vec<String>] {
+        &[]
+    }
+
+    fn with_evaluator(
+        &self,
+        _: &mut dyn FnMut(&mut dyn kink_flow::ObservationEvaluator),
+    ) -> Result<(), String> {
+        Err("admission evaluates nothing".to_owned())
+    }
+}
+
+/// A key that names a function of an observer is the front end's: decoded as kink-flow decodes
+/// it, the corpus is still refused (`unsupported-front-end`) and its runs compare no channel,
+/// since kink-flow's K front end evaluates no function; with a front end's functions set, the
+/// same corpus is admitted and its declaration names the functions' identity.
+#[test]
+fn a_front_ends_functions_admit_its_keys_and_kink_flow_alone_still_refuses_them() {
+    let dir = fixture(
+        "front-end",
+        &[(
+            "views",
+            &edited(
+                "cells = [\"n\"]\n",
+                "cells = [\"n\"]\nviews = { n = \"View\" }\n",
+            ),
+        )],
+    );
+    let manifest = FlowManifest::read(&dir.join("FLOW-views.toml")).unwrap();
+    assert!(manifest.campaign_observe().is_none());
+    assert_eq!(manifest.observe_value(), None);
+    let (record, admitted) = kink_flow::admit::admit_spec(&manifest);
+    assert!(admitted.is_none());
+    let refusal = record.refusal.unwrap();
+    assert_eq!(
+        (refusal.stage.as_str(), refusal.reason.as_str()),
+        ("observe", "unsupported-front-end")
+    );
+    let identity = json!({"front end": "views"});
+    let bound = manifest.with_observe_functions(kink_flow::ObserveFunctions::new(
+        identity.clone(),
+        std::sync::Arc::new(Unasked),
+    ));
+    assert_eq!(bound.observe_value().unwrap()["functions"], identity);
+    let (record, admitted) = kink_flow::admit::admit_spec(&bound);
+    assert!(admitted.is_some(), "{:?}", record.refusal);
+}

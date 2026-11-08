@@ -44,7 +44,7 @@ pub(crate) struct Unbound {
 
 /// Where the cells a condition reads are decoded: the observer's own load when the observer is
 /// the baseline (the same Definition IR), else the compile that reads the corpus's inputs.
-enum Subject {
+pub(crate) enum Subject {
     Observer,
     Inputs(Arc<KrsInputs>),
 }

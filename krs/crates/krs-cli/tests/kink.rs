@@ -14,6 +14,7 @@
 //! judged in each of the two definitions that hold the group, and its harts a corpus narrowed to a
 //! cell inside the instances of a Map collection.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -4399,6 +4400,347 @@ fn a_baseline_run_whose_condition_has_no_value_is_not_judged_and_not_cached() {
     let records = project.path().join("corpora/partial/.kink-flow/results");
     let written = walk_files(&records);
     assert!(written.is_empty(), "{written:?}");
+}
+
+/// An SM83-shaped boundary machine: `#run` steps to a boundary and runs again; the boundary is
+/// four transitions kept apart by `halted` and `Requested(pending)` (dispatch and fetch while
+/// running, halted idling and waking while halted), and a fetch reads the address `pc` on the
+/// bus, appending it to the `bus` log, and moves `pc` on, until `pc` reaches `limit`, where the
+/// fetch locks the machine (`#locked` at the head of the computation, which no rule rewrites). No rule sets `halted`, so a run
+/// from `pending = 0` fetches at every boundary and ends locked after `limit` fetches.
+const BOUNDARY: &str = r##"use k::builtin::{Bool, Int, KSequence, List};
+use k::{KItem, Term};
+
+k::sorts! {
+    Micro: KItem;
+}
+
+#[k::constructors(sort = Micro, result = k::KResult)]
+pub enum Step {
+    #[k::syntax("#run")]
+    Run,
+    #[k::syntax("#boundary")]
+    Boundary,
+    #[k::syntax("#fetch")]
+    Fetch,
+    #[k::syntax("#idle")]
+    Idle,
+    #[k::syntax("#locked")]
+    Locked,
+}
+
+#[k::configuration]
+pub struct Cpu {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub halted: Bool,
+    #[k::cell]
+    pub pending: Int,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub limit: Int,
+    #[k::cell]
+    pub bus: List<Int>,
+}
+
+impl Cpu {
+    #[k::init]
+    pub fn init(pending: Int, limit: Int) -> Self {
+        Self {
+            k: k::k![Step::Run],
+            halted: false,
+            pending,
+            pc: 0,
+            limit,
+            bus: [],
+        }
+    }
+}
+
+/// Whether an interrupt is requested.
+#[k::function(total, internal)]
+pub fn Requested(pending: Term<Int>) -> Term<Bool> {
+    pending != 0
+}
+
+k::rules! {
+    for Cpu;
+
+    run: { k: [Step::Run, ..] } => { k: [Step::Boundary, Step::Run, ..] };
+    #[k::requires(!halted && Requested(pending))]
+    boundary_dispatch: { k: [Step::Boundary, ..], halted, pending, pc: _ } => { k: [..], pending: 0, pc: 64 };
+    #[k::requires(!halted && !Requested(pending))]
+    boundary_fetch: { k: [Step::Boundary, ..], halted, pending } => { k: [Step::Fetch, ..] };
+    #[k::requires(halted && !Requested(pending))]
+    boundary_halted: { k: [Step::Boundary, ..], halted, pending } => { k: [Step::Idle, ..] };
+    #[k::requires(halted && Requested(pending))]
+    boundary_wake: { k: [Step::Boundary, ..], halted, pending } => { k: [Step::Boundary, ..], halted: false };
+    #[k::requires(pc < limit)]
+    fetch: { k: [Step::Fetch, ..], pc, limit, bus } => { k: [..], pc: pc + 1, bus: [..bus, pc] };
+    #[k::requires(pc >= limit)]
+    lock: { k: [Step::Fetch, ..], pc, limit } => { k: [Step::Locked, ..] };
+    idle: { k: [Step::Idle, ..] } => { k: [..] };
+}
+"##;
+
+/// The package of [`BOUNDARY`].
+const BOUNDARY_PACKAGE: &str = "krs-cli-kink-boundary";
+
+/// The observer of [`BOUNDARY`], a second package of its workspace that depends on it.
+const BOUNDARY_OBSERVER_PACKAGE: &str = "krs-cli-kink-boundary-observe";
+
+/// The observer's source: a view of an address that no definition imports.
+const BOUNDARY_OBSERVER: &str = r"//! An observer of the boundary machine, imported by no definition.
+
+use k::Term;
+use k::builtin::Int;
+
+/// The page of an address: the address halved.
+#[k::function(total, internal)]
+pub fn Page(pc: Term<Int>) -> Term<Int> {
+    pc / 2
+}
+";
+
+/// The boundary rules, by KRS item, as a point class names them.
+const BOUNDARY_RULES: &str = "[\"crate::boundary_dispatch\", \"crate::boundary_fetch\", \
+     \"crate::boundary_halted\", \"crate::boundary_wake\"]";
+
+/// [`BOUNDARY`] and its observer, with corpora of one program from `pending = 0`: one that locks
+/// after three fetches, compared by the `bus` log, read where a path ends or returns to an
+/// earlier state (`kink`), and by its ends alone (`corpora/ends`), and one whose limit no run reaches, compared
+/// by the page of `pc` at every boundary, counted, the page a view the observer package
+/// evaluates (`corpora/viewed`); every run is cut at depth 40. The
+/// mutations are FB-34's `Halted` flip, the sibling flip of `halted` in the four boundary
+/// sentences (`halted.toml`, one edit per sentence, as the flips family spells it: `notBool
+/// (T)`, and a rendered negation's operand for its negation), and a fetch that moves `pc` by two
+/// (`fetch.toml`).
+fn boundary() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../krs")
+            .canonicalize()
+            .unwrap();
+        let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+        let manifest = |name: &str, namespace: &str, dependencies: &str, workspace: &str| {
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n{workspace}"
+            )
+            .into_bytes()
+        };
+        let mut files = vec![
+            (
+                "Cargo.toml".to_owned(),
+                manifest(
+                    BOUNDARY_PACKAGE,
+                    "BOUNDARY",
+                    "",
+                    "\n[workspace]\nmembers = [\"observe\"]\nresolver = \"3\"\n",
+                ),
+            ),
+            ("src/lib.rs".to_owned(), BOUNDARY.as_bytes().to_vec()),
+            (
+                "observe/Cargo.toml".to_owned(),
+                manifest(
+                    BOUNDARY_OBSERVER_PACKAGE,
+                    "BOUNDARY-OBSERVE",
+                    &format!("boundary = {{ package = \"{BOUNDARY_PACKAGE}\", path = \"..\" }}\n"),
+                    "",
+                ),
+            ),
+            (
+                "observe/src/lib.rs".to_owned(),
+                BOUNDARY_OBSERVER.as_bytes().to_vec(),
+            ),
+        ];
+        let observed = "\n[[observe.log]]\nname = \"bus\"\ncell = \"bus\"\n";
+        let viewed = format!(
+            "\n[observe]\nobserver = \"{BOUNDARY_OBSERVER_PACKAGE}:main\"\n\n[[observe.point]]\n\
+             name = \"boundary\"\nbefore = {BOUNDARY_RULES}\nstutter = \"count\"\ncells = \
+             [\"pc\"]\nviews = {{ pc = \"Page\" }}\n"
+        );
+        for (corpus, observe, limit) in [
+            ("kink", observed, 3),
+            ("corpora/ends", "", 3),
+            ("corpora/viewed", viewed.as_str(), 1000),
+        ] {
+            files.push((
+                format!("{corpus}/FLOW.toml"),
+                format!(
+                    "[spec]\nkrs = {{ definition = \"main\" }}\n\n[budget]\nmax_depth = 40\n{observe}\n[[program]]\ncases = \"cases/*.toml\"\n"
+                )
+                .into_bytes(),
+            ));
+            files.push((
+                format!("{corpus}/cases/idle.toml"),
+                format!("[inputs]\npending = 0\nlimit = {limit}\n").into_bytes(),
+            ));
+        }
+        let mut flip = String::new();
+        for (rule, find, replace) in [
+            (
+                "boundary-dispatch",
+                "requires (notBool Halted:Bool) andThenBool requested",
+                "requires (Halted:Bool) andThenBool requested",
+            ),
+            (
+                "boundary-fetch",
+                "requires (notBool Halted:Bool) andThenBool (notBool",
+                "requires (Halted:Bool) andThenBool (notBool",
+            ),
+            (
+                "boundary-halted",
+                "requires Halted:Bool andThenBool (notBool",
+                "requires (notBool (Halted:Bool)) andThenBool (notBool",
+            ),
+            (
+                "boundary-wake",
+                "requires Halted:Bool andThenBool requested",
+                "requires (notBool (Halted:Bool)) andThenBool requested",
+            ),
+        ] {
+            write!(
+                flip,
+                "\n  [[mutation.edit]]\n  rule = \"{rule}\"\n  find = \"{find}\"\n  replace = \"{replace}\"\n"
+            )
+            .unwrap();
+        }
+        files.push((
+            "kink/mutations/halted.toml".to_owned(),
+            format!(
+                "[[mutation]]\nid = \"halted\"\nmisunderstanding = \"flip one atom in every sibling: halted\"\n{flip}"
+            )
+            .into_bytes(),
+        ));
+        files.push((
+            "kink/mutations/fetch.toml".to_owned(),
+            b"[[mutation]]\nid = \"stride\"\nmisunderstanding = \"a fetch moves pc by two\"\n\n  [[mutation.edit]]\n  rule = \"fetch\"\n  find = \"Pc:Int +Int 1\"\n  replace = \"Pc:Int +Int 2\"\n"
+                .to_vec(),
+        ));
+        project_of(BOUNDARY_PACKAGE, "BOUNDARY", &files)
+    })
+}
+
+/// FB-34's `Halted` flip. Flipped in every boundary sentence, a running CPU idles at every
+/// boundary and never fetches, so it never locks: its path returns to its start, while the
+/// baseline fetches three addresses and locks. Compared by its ends alone, the mutant has no end
+/// within its budget, and a budget never kills: `unknown`. Compared by the `bus` log, the
+/// baseline reads address 0 on the bus at its first fetch, and the mutant's log is complete and
+/// silent once its path returns: killed at `bus[0]`, the evidence naming the log's cell by Rust
+/// path and both elements as documents (`krs-difference/4`). The documents name the declaration
+/// at the K level (`observe`, each cell by K name, with the functions' identity) and as the
+/// corpus wrote it (`observe.krs`); a corpus without `[observe]` names none.
+#[test]
+fn an_idle_forever_flip_is_killed_by_the_bus_log_and_unknown_by_its_ends() {
+    let project = boundary();
+    let output = project.kink("run", &["--mutations", "kink/mutations/halted.toml"]);
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["format"], "krs-difference/4", "{difference:#}");
+    assert_eq!(difference["kind"], "log", "{difference:#}");
+    assert_eq!(difference["at"], "bus[0]", "{difference:#}");
+    assert_eq!(difference["cell"], "bus", "{difference:#}");
+    assert_eq!(
+        difference["position"],
+        json!({"channel": "bus", "index": 0, "at_end": false}),
+        "{difference:#}"
+    );
+    assert_eq!(difference["baseline"]["element"], 0, "{difference:#}");
+    assert_eq!(difference["mutant"]["element"], "cycle", "{difference:#}");
+    let observe = &run["observe"];
+    assert_eq!(observe["logs"][0]["cell"], "bus", "{observe:#}");
+    assert_eq!(
+        observe["functions"]["observer"]["definition"],
+        Value::Null,
+        "{observe:#}"
+    );
+    assert_eq!(
+        observe["krs"],
+        json!({"items": {}, "cells": {"bus": "bus"}}),
+        "{observe:#}"
+    );
+
+    let output = project.kink(
+        "run",
+        &[
+            "--corpus",
+            "corpora/ends",
+            "--mutations",
+            "kink/mutations/halted.toml",
+        ],
+    );
+    let run = json(&output);
+    assert_eq!(run["mutations"][0]["status"], "unknown", "{run:#}");
+    assert!(run.get("observe").is_none(), "{run:#}");
+}
+
+/// A view evaluated in a named observer package (`observer = "PACKAGE:DEFINITION"`): each
+/// boundary's element is the page of `pc`, which the observer's `Page` gives and the definition
+/// does not hold. A fetch that moves `pc` by two reaches page 1 at the second boundary, where the
+/// baseline is still on page 0: killed at `boundary[1].pc`, each side's content the view's value
+/// by the cell's Rust path, not the address itself. The identity names the observer as written;
+/// the K-level declaration names each boundary rule by the label its KRS item selects.
+#[test]
+fn a_view_of_an_observation_is_evaluated_in_its_observer_package() {
+    let project = boundary();
+    let output = project.kink(
+        "run",
+        &[
+            "--corpus",
+            "corpora/viewed",
+            "--mutations",
+            "kink/mutations/fetch.toml",
+        ],
+    );
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["format"], "krs-difference/4", "{difference:#}");
+    assert_eq!(difference["at"], "boundary[1].pc", "{difference:#}");
+    assert_eq!(
+        difference["baseline"]["element"],
+        json!({"pc": 0}),
+        "{difference:#}"
+    );
+    assert_eq!(
+        difference["mutant"]["element"],
+        json!({"pc": 1}),
+        "{difference:#}"
+    );
+    let observe = &run["observe"];
+    assert_eq!(
+        observe["points"][0]["before"],
+        json!([
+            "BOUNDARY.boundary-dispatch",
+            "BOUNDARY.boundary-fetch",
+            "BOUNDARY.boundary-halted",
+            "BOUNDARY.boundary-wake"
+        ]),
+        "{observe:#}"
+    );
+    assert_eq!(
+        observe["krs"]["items"]["crate::boundary_fetch"],
+        json!(["BOUNDARY.boundary-fetch"]),
+        "{observe:#}"
+    );
+    assert_eq!(observe["krs"]["cells"], json!({"pc": "pc"}), "{observe:#}");
+    let functions = &observe["functions"];
+    assert_eq!(
+        functions["observer"]["definition"],
+        format!("{BOUNDARY_OBSERVER_PACKAGE}:main"),
+        "{functions:#}"
+    );
+    assert_eq!(
+        functions["declaration"]["points"][0]["views"],
+        json!({"pc": "Page"}),
+        "{functions:#}"
+    );
 }
 
 /// A stop names a configuration rule of the root package, an item of a dependency crate and an

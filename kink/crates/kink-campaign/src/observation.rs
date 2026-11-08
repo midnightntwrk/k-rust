@@ -59,6 +59,40 @@
 //! values ([`LeafFeasibility::Syntactic`]) denotes that state, so the step into it was defined, and
 //! it supplies the elements read there as any other real leaf does.
 //!
+//! # Functions of an observer
+//!
+//! A front end that reads the definition's values can give a declaration functions of an
+//! observer ([`Observe::with_functions`], [`ObservationFunctions`]): every content of a point
+//! class, a filter that keeps only some of its points, and every element of a log, each a
+//! function of named cells of the observed state (of the item, for a log's element), evaluated in
+//! one fixed observer definition the front end chooses, never the definition being run. The
+//! baseline's runs and every mutant's are evaluated alike, so a mutation changes the states
+//! observed and where events fall, never what an observation computes. The declaration's value
+//! names the functions' identity ([`ObserveFunctions::identity`]), so every key and record of a
+//! run with them names what decides each element; a declaration without them is kink's own, as
+//! above, and its value is the one it had before functions existed.
+//!
+//! Under functions:
+//! - a point's content is the front end's ([`ObservationEvaluator::content`]), and an element is
+//!   undecided where the front end says it is not known there (no value, or an evaluation stopped
+//!   before its end): the function is evaluated in proof mode, decided only at a ground value;
+//! - a class with a filter ([`ObservationEvaluator::holds`]) has an event only at a point where
+//!   the filter is decided to hold. A filter not known at a point opens the channel there under
+//!   either stuttering mode, since whether the point is an event at all is not known, so neither
+//!   is the index of any later element. A log read at the class's points is read at every point
+//!   of it, its filter not applying;
+//! - each item a log appends contributes the elements the front end gives it
+//!   ([`ObservationEvaluator::elements`]), none or several, in order; an item it gives none for
+//!   is one undecided element, which opens the log's channel. The baseline's append check
+//!   compares items by the front end's term digest ([`ObservationEvaluator::item_digest`]),
+//!   equal exactly when the two items are one term.
+//!
+//! The front end reads every run's cells with the baseline's declarations, so its functions'
+//! cells ([`ObservationFunctions::cells`]) are read cells of the declaration for the admission of
+//! a mutant (`observation-incompatible`, the runner's `observation_refusal`): no mutant is run
+//! whose read cells could hold a term that denotes another value on it than on the baseline.
+//! The element a reader is shown is the front end's document of it ([`Element::Evaluated`]).
+//!
 //! # Cycles
 //!
 //! A path that returns to an earlier state of itself with nothing new observed runs forever and
@@ -148,7 +182,9 @@ use k_rust::definition::configuration::CellMultiplicity;
 /// with nothing new observed closes its channels complete and silent ([`Closure::Cycle`]), so a
 /// mutant that idles forever where the baseline still emits is killed, and one that agrees with
 /// a baseline closed so and returns too survives with no horizon (module documentation,
-/// "Cycles").
+/// "Cycles"). A front end's functions of an observer ([`Observe::with_functions`]) are named by
+/// the declaration's value, which a declaration without them keeps as it was, so they need no
+/// version of their own: no record made without them can be read as one made with them.
 pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v2";
 
 /// The domain of an element's digest.
@@ -210,6 +246,9 @@ pub(crate) struct Declaration {
     points: Vec<PointClass>,
     logs: Vec<Log>,
     cycle_states: usize,
+    /// The front end's functions of an observer, which give every content, filter and log
+    /// element ([`Observe::with_functions`]); `None` for kink's own identity contents.
+    functions: Option<ObserveFunctions>,
 }
 
 /// The number of states a run with a declaration keeps, reached since its channels last changed,
@@ -270,6 +309,7 @@ impl Observe {
             points,
             logs,
             cycle_states: CYCLE_STATES,
+            functions: None,
         }))
     }
 
@@ -284,6 +324,28 @@ impl Observe {
                 ..declaration.clone()
             }),
         }
+    }
+
+    /// This declaration, its contents, filters and log elements given by `functions`, a front
+    /// end's functions of an observer, in place of kink's identity contents (module
+    /// documentation, "Functions of an observer"). [`Self::NONE`] stays as it is.
+    #[must_use]
+    pub fn with_functions(self, functions: ObserveFunctions) -> Self {
+        match self.0 {
+            None => self,
+            Some(declaration) => Self::interned(Declaration {
+                functions: Some(functions),
+                ..declaration.clone()
+            }),
+        }
+    }
+
+    /// The front end's functions of an observer, when the declaration has them
+    /// ([`Self::with_functions`]).
+    #[must_use]
+    pub fn functions(self) -> Option<&'static ObserveFunctions> {
+        self.0
+            .and_then(|declaration| declaration.functions.as_ref())
     }
 
     /// How many states of a run's path, reached since its channels last changed, the run keeps
@@ -344,15 +406,18 @@ impl Observe {
     }
 
     /// The declaration as a JSON object, `{points: [{name, before, after, cells, stutter}],
-    /// logs: [{name, cell, at}]}`, with `cycle_states` where it is not [`CYCLE_STATES`]; `None`
-    /// for [`Self::NONE`]. Every field is destructured, so a new one does not compile until it is
-    /// recorded here.
+    /// logs: [{name, cell, at}]}`, with `cycle_states` where it is not [`CYCLE_STATES`] and
+    /// `functions`, the identity of the front end's functions ([`ObserveFunctions::identity`]),
+    /// where it has them; `None` for [`Self::NONE`]. A declaration without functions has the value
+    /// it had before functions existed. Every field is destructured, so a new one does not
+    /// compile until it is recorded here.
     #[must_use]
     pub fn value(self) -> Option<Value> {
         let Declaration {
             points,
             logs,
             cycle_states,
+            functions,
         } = self.0?;
         let points = points
             .iter()
@@ -378,6 +443,9 @@ impl Observe {
         let mut value = json!({"points": points, "logs": logs});
         if *cycle_states != CYCLE_STATES {
             value["cycle_states"] = json!(cycle_states);
+        }
+        if let Some(functions) = functions {
+            value["functions"] = functions.identity().clone();
         }
         Some(value)
     }
@@ -473,6 +541,9 @@ impl Observe {
                 after,
             });
         }
+        if let Some(functions) = self.functions() {
+            cells.extend(functions.cells().iter().cloned());
+        }
         let names = self
             .points()
             .iter()
@@ -486,6 +557,194 @@ impl Observe {
             cells: cells.into_iter().collect(),
             cycle_states: self.cycle_states(),
         })
+    }
+}
+
+/// A front end's functions of an observer for a declaration ([`Observe::with_functions`]): the
+/// source of every content, filter and log element of the declaration's runs, evaluated in one
+/// fixed observer definition the front end chooses, never the definition being run (module
+/// documentation, "Functions of an observer").
+pub trait ObservationFunctions: Send + Sync {
+    /// Each cell the functions read besides the declaration's own cells, as the KORE cell
+    /// symbols from the configuration's top down to the cell (k-rust `ProbeState::cell`'s path).
+    /// A mutant is admitted only where these cells, with the declaration's, could hold no term
+    /// that denotes another value on it than on the baseline (`observation-incompatible`).
+    fn cells(&self) -> &[Vec<String>];
+
+    /// Run `body` once with the evaluator of one request, on the calling thread.
+    ///
+    /// # Errors
+    ///
+    /// Why no evaluator can be given here (its observer does not load, for example); `body` is
+    /// then not run, and every element of the request is undecided.
+    fn with_evaluator(
+        &self,
+        body: &mut dyn FnMut(&mut dyn ObservationEvaluator),
+    ) -> Result<(), String>;
+}
+
+/// The evaluation of a declaration's functions for one request ([`ObservationFunctions`]). Each
+/// answer must be a function of the state's configuration (of `item`, for a log's element),
+/// evaluated in the observer whatever definition the request runs; `Err` says why it is not
+/// known there (no value, or an evaluation stopped before its end), which the slot reads as an
+/// undecided element.
+pub trait ObservationEvaluator {
+    /// Whether the point class `class` (by position) keeps a point at `state`: `None` for a class
+    /// with no filter, which keeps every point.
+    fn holds(&mut self, class: usize, state: &ProbeState<'_>) -> Option<Result<bool, String>>;
+
+    /// The content of the point class `class` at `state`, with its value where `value`.
+    ///
+    /// # Errors
+    ///
+    /// Why the content is not known at `state`.
+    fn content(
+        &mut self,
+        class: usize,
+        state: &ProbeState<'_>,
+        value: bool,
+    ) -> Result<Evaluated, String>;
+
+    /// The elements one item of the log `log` (by position among the logs) contributes, `item`
+    /// as the log's cell holds it, each with its value where `value`.
+    ///
+    /// # Errors
+    ///
+    /// Why the item's elements are not known.
+    fn elements(
+        &mut self,
+        log: usize,
+        item: &Pattern,
+        value: bool,
+    ) -> Result<Vec<Evaluated>, String>;
+
+    /// The digest the baseline's append check compares an item by: equal exactly when the two
+    /// items are one term.
+    fn item_digest(&mut self, item: &Pattern) -> [u8; 32];
+}
+
+/// One element an [`ObservationEvaluator`] gives: the digest two sides' elements are compared
+/// by, and its value for a reader, a front end's document, where asked.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Evaluated {
+    pub digest: [u8; 32],
+    pub value: Option<Value>,
+}
+
+/// A declaration's functions of an observer: their identity, which every key and document of a
+/// run with the declaration names, and the front end that evaluates them. Two are equal when
+/// their identities are: the identity names the observer and the functions, which decide every
+/// element.
+#[derive(Clone)]
+pub struct ObserveFunctions {
+    identity: Value,
+    canonical: String,
+    oracle: std::sync::Arc<dyn ObservationFunctions>,
+}
+
+impl ObserveFunctions {
+    /// The functions `oracle` evaluates, whose identity is `identity` (a JSON value that names
+    /// what decides every element: for the krs front end, the observer's Definition IR digest and
+    /// the declaration as written).
+    #[must_use]
+    pub fn new(identity: Value, oracle: std::sync::Arc<dyn ObservationFunctions>) -> Self {
+        Self {
+            canonical: kink_patch::canonical_json(&identity),
+            identity,
+            oracle,
+        }
+    }
+
+    /// The identity, as documents and keys name the functions.
+    #[must_use]
+    pub const fn identity(&self) -> &Value {
+        &self.identity
+    }
+
+    /// The cells the functions read besides the declaration's own ([`ObservationFunctions::cells`]).
+    #[must_use]
+    pub fn cells(&self) -> &[Vec<String>] {
+        self.oracle.cells()
+    }
+}
+
+impl PartialEq for ObserveFunctions {
+    fn eq(&self, other: &Self) -> bool {
+        self.canonical == other.canonical
+    }
+}
+
+impl Eq for ObserveFunctions {}
+
+impl PartialOrd for ObserveFunctions {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ObserveFunctions {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.canonical.cmp(&other.canonical)
+    }
+}
+
+impl std::hash::Hash for ObserveFunctions {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.canonical.hash(state);
+    }
+}
+
+impl std::fmt::Debug for ObserveFunctions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ObserveFunctions")
+            .field(&self.canonical)
+            .finish()
+    }
+}
+
+/// How one request's probe gets its contents: kink's identity contents, a front end's evaluator,
+/// or none, with why (every element is then undecided).
+pub(crate) enum Evaluation<'e> {
+    Kink,
+    Front(&'e mut dyn ObservationEvaluator),
+    Missing(String),
+}
+
+impl<'e> Evaluation<'e> {
+    /// This evaluation, for a probe that lives within `'e`.
+    pub(crate) fn within<'s>(self) -> Evaluation<'s>
+    where
+        'e: 's,
+    {
+        match self {
+            Self::Kink => Evaluation::Kink,
+            Self::Front(evaluator) => Evaluation::Front(evaluator),
+            Self::Missing(reason) => Evaluation::Missing(reason),
+        }
+    }
+}
+
+/// `body` with the evaluation of one request under `observe` ([`Evaluation`]): a front end's
+/// evaluator, given on the calling thread, where the declaration has functions.
+pub(crate) fn evaluating<T>(observe: Observe, body: impl FnOnce(Evaluation<'_>) -> T) -> T {
+    let Some(functions) = observe.functions() else {
+        return body(Evaluation::Kink);
+    };
+    let mut body = Some(body);
+    let mut result = None;
+    let given = functions.oracle.with_evaluator(&mut |evaluator| {
+        if let Some(body) = body.take() {
+            result = Some(body(Evaluation::Front(evaluator)));
+        }
+    });
+    match (result, body) {
+        (Some(result), _) => result,
+        (None, Some(body)) => body(Evaluation::Missing(match given {
+            Err(reason) => format!("the observer gave the run no evaluation: {reason}"),
+            Ok(()) => "the observer gave the run no evaluation".to_owned(),
+        })),
+        (None, None) => unreachable!("a body taken gives a result"),
     }
 }
 
@@ -539,6 +798,14 @@ impl Resolved {
     /// Every cell the declaration reads, as its path of KORE cell symbols from the top cell down.
     pub(crate) fn cells(&self) -> &[Vec<String>] {
         &self.cells
+    }
+
+    /// The number of point classes: the channels before the logs.
+    fn points(&self) -> usize {
+        self.channels
+            .iter()
+            .filter(|channel| matches!(channel, Resolution::Point { .. }))
+            .count()
     }
 }
 
@@ -805,6 +1072,9 @@ pub enum Element {
     /// The values the element is made of: a point class's cells, in the class's order, or a log's
     /// one item.
     Content(Vec<Pattern>),
+    /// The value a front end's functions gave the element ([`Observe::with_functions`]), as the
+    /// front end documents it.
+    Evaluated(Value),
     /// An element some part of which is no value (an element under [`Stutter::Count`], or one
     /// against a closed channel).
     Undecided,
@@ -1093,6 +1363,8 @@ pub(crate) struct Trace {
 pub(crate) struct ObservationProbe<'a> {
     resolved: &'a Resolved,
     decider: ObservationDecider<'a>,
+    /// Where the contents come from: kink's identity contents, or a front end's functions.
+    evaluation: Evaluation<'a>,
     against: Option<&'a BaselineRecord>,
     trace: Trace,
     /// A capture run's target ([`Self::capturing`]): the channel and the index of the element it
@@ -1112,14 +1384,16 @@ fn short(digest: &[u8; 32]) -> [u8; 8] {
 
 impl<'a> ObservationProbe<'a> {
     /// The probe of a run of the test whose initial state is `initial`, reading values under the
-    /// baseline's definition `shared` (with collections `trusted`), comparing with `against`
-    /// when it is a mutant's run.
+    /// baseline's definition `shared` (with collections `trusted`), or through `evaluation` where
+    /// the declaration has a front end's functions, comparing with `against` when it is a
+    /// mutant's run.
     pub(crate) fn new(
         resolved: &'a Resolved,
         shared: &'a BackendDefinition,
         trusted: bool,
         initial: &'a Pattern,
         against: Option<&'a BaselineRecord>,
+        evaluation: Evaluation<'a>,
     ) -> Self {
         let decider =
             ObservationDecider::new(shared, &NO_SOLVER, TestInitialState::of_test(initial))
@@ -1138,6 +1412,7 @@ impl<'a> ObservationProbe<'a> {
         Self {
             resolved,
             decider,
+            evaluation,
             against,
             trace: Trace {
                 channels,
@@ -1162,10 +1437,11 @@ impl<'a> ObservationProbe<'a> {
         shared: &'a BackendDefinition,
         trusted: bool,
         initial: &'a Pattern,
+        evaluation: Evaluation<'a>,
         channel: usize,
         index: usize,
     ) -> Self {
-        let mut probe = Self::new(resolved, shared, trusted, initial, None);
+        let mut probe = Self::new(resolved, shared, trusted, initial, None, evaluation);
         probe.capture = Some((channel, index));
         probe
     }
@@ -1177,8 +1453,21 @@ impl<'a> ObservationProbe<'a> {
     }
 
     /// The values of the point class `channel`'s cells at `state`, for a reader: an element is
-    /// undecided where a part is no value.
-    fn values(&self, channel: usize, state: &ProbeState<'_>) -> Element {
+    /// undecided where a part is no value. Under a front end's functions, the content's value as
+    /// the front end documents it.
+    fn values(&mut self, channel: usize, state: &ProbeState<'_>) -> Element {
+        match &mut self.evaluation {
+            Evaluation::Kink => {}
+            Evaluation::Front(evaluator) => {
+                return match evaluator.content(channel, state, true) {
+                    Ok(Evaluated {
+                        value: Some(value), ..
+                    }) => Element::Evaluated(value),
+                    _ => Element::Undecided,
+                };
+            }
+            Evaluation::Missing(_) => return Element::Undecided,
+        }
         let Resolution::Point { cells, .. } = &self.resolved.channels[channel] else {
             unreachable!("only a point class has a content");
         };
@@ -1207,8 +1496,25 @@ impl<'a> ObservationProbe<'a> {
             .map_or(Element::Undecided, Element::Content)
     }
 
-    /// The value of one log item, for a reader.
-    fn item_value(&self, item: &Pattern) -> Element {
+    /// The value of the element `element` of one log item, for a reader: the item itself, or
+    /// under a front end's functions the element's value as the front end documents it.
+    fn item_value(&mut self, channel: usize, item: &Pattern, element: usize) -> Element {
+        let log = channel - self.resolved.points();
+        match &mut self.evaluation {
+            Evaluation::Kink => {}
+            Evaluation::Front(evaluator) => {
+                return match evaluator.elements(log, item, true) {
+                    Ok(elements) => match elements.into_iter().nth(element) {
+                        Some(Evaluated {
+                            value: Some(value), ..
+                        }) => Element::Evaluated(value),
+                        _ => Element::Undecided,
+                    },
+                    Err(_) => Element::Undecided,
+                };
+            }
+            Evaluation::Missing(_) => return Element::Undecided,
+        }
         item.free_variables()
             .is_empty()
             .then(|| self.decider.terminal_value(item))
@@ -1222,7 +1528,7 @@ impl<'a> ObservationProbe<'a> {
         &mut self,
         channel: usize,
         before: usize,
-        element: impl FnOnce(&Self) -> Element,
+        element: impl FnOnce(&mut Self) -> Element,
     ) {
         let Some((target, index)) = self.capture else {
             return;
@@ -1266,8 +1572,18 @@ impl<'a> ObservationProbe<'a> {
             })
     }
 
-    /// The element of the point class `channel` at `state`: the digest of its cells' values.
+    /// The element of the point class `channel` at `state`: the digest of its cells' values, or
+    /// under a front end's functions the digest of the content they give.
     fn content(&mut self, channel: usize, state: &ProbeState<'_>) -> Result<[u8; 32], String> {
+        match &mut self.evaluation {
+            Evaluation::Kink => {}
+            Evaluation::Front(evaluator) => {
+                return evaluator
+                    .content(channel, state, false)
+                    .map(|evaluated| evaluated.digest);
+            }
+            Evaluation::Missing(reason) => return Err(reason.clone()),
+        }
         let Resolution::Point { cells, .. } = &self.resolved.channels[channel] else {
             unreachable!("only a point class has a content");
         };
@@ -1299,6 +1615,59 @@ impl<'a> ObservationProbe<'a> {
     fn item(&self, item: Pattern) -> Result<[u8; 32], String> {
         let text = self.value_text(Some(item))?;
         Ok(*payload_digest(ELEMENT_DOMAIN, format!("{text}\n").as_bytes()).as_bytes())
+    }
+
+    /// The digest the baseline's append check compares one item of the log by: its element's
+    /// under kink's identity contents, the front end's term digest under its functions; `None`
+    /// where the item has none, whose element is then undecided and opens the channel.
+    fn item_key(&mut self, item: &Pattern) -> Option<[u8; 32]> {
+        match &mut self.evaluation {
+            Evaluation::Front(evaluator) => Some(evaluator.item_digest(item)),
+            Evaluation::Kink | Evaluation::Missing(_) => self.item(item.clone()).ok(),
+        }
+    }
+
+    /// The elements one item of the log `channel` contributes: the item itself, or under a front
+    /// end's functions each element they give it; one undecided element where they give none.
+    fn item_elements(&mut self, channel: usize, item: &Pattern) -> Vec<Result<[u8; 32], String>> {
+        let log = channel - self.resolved.points();
+        match &mut self.evaluation {
+            Evaluation::Kink => vec![self.item(item.clone())],
+            Evaluation::Front(evaluator) => match evaluator.elements(log, item, false) {
+                Ok(elements) => elements
+                    .into_iter()
+                    .map(|element| Ok(element.digest))
+                    .collect(),
+                Err(reason) => vec![Err(reason)],
+            },
+            Evaluation::Missing(reason) => vec![Err(reason.clone())],
+        }
+    }
+
+    /// Whether the point class `channel` keeps the point at `state`: always under kink's
+    /// identity contents and for a class with no filter, where its filter is decided to hold
+    /// under a front end's functions. A filter not known there opens the channel, under either
+    /// stuttering mode: whether the point is an event at all is not known, so neither is the
+    /// index of any later element.
+    fn keeps(&mut self, channel: usize, state: &ProbeState<'_>) -> bool {
+        let Evaluation::Front(evaluator) = &mut self.evaluation else {
+            return true;
+        };
+        match evaluator.holds(channel, state) {
+            None | Some(Ok(true)) => true,
+            Some(Ok(false)) => false,
+            Some(Err(reason)) => {
+                let trace = &mut self.trace.channels[channel];
+                let index = trace.elements.len();
+                trace.open.get_or_insert_with(|| {
+                    Opened::new(
+                        Opening::UndecidedElement,
+                        format!("undecided element at {index}: {reason}"),
+                    )
+                });
+                false
+            }
+        }
     }
 
     /// Takes `element` on `channel`: recorded on the baseline, compared on a mutant. The index of
@@ -1345,9 +1714,7 @@ impl<'a> ObservationProbe<'a> {
             // The baseline's log must only grow by appending: every earlier item, again.
             let all = state.list_items(&path, 0).unwrap_or_default();
             for (position, item) in all.iter().take(read).enumerate() {
-                if self.item(item.clone()).ok()
-                    != Some(self.trace.channels[channel].items[position])
-                {
+                if self.item_key(item) != Some(self.trace.channels[channel].items[position]) {
                     self.not_appended(channel, format!("the item at {position} was rewritten"));
                     return None;
                 }
@@ -1355,27 +1722,31 @@ impl<'a> ObservationProbe<'a> {
             all.into_iter().skip(read).collect()
         };
         self.trace.channels[channel].handle = handle;
-        for item in new {
-            let element = self.item(item.clone());
-            if let Ok(digest) = &element
+        'items: for item in new {
+            if let Some(key) = self.item_key(&item)
                 && self.against.is_none()
             {
-                self.trace.channels[channel].items.push(*digest);
+                self.trace.channels[channel].items.push(key);
             }
             self.trace.channels[channel].read += 1;
-            let before = self.trace.channels[channel].elements.len();
-            if let Some(index) = self.take(channel, element) {
-                if self.trace.differing.is_none() {
-                    self.trace.differing = Some(Box::new(self.item_value(&item)));
+            for (position, element) in self.item_elements(channel, &item).into_iter().enumerate() {
+                let before = self.trace.channels[channel].elements.len();
+                if let Some(index) = self.take(channel, element) {
+                    if self.trace.differing.is_none() {
+                        let value = self.item_value(channel, &item, position);
+                        self.trace.differing = Some(Box::new(value));
+                    }
+                    return Some(index);
                 }
-                return Some(index);
-            }
-            self.capture_taken(channel, before, |probe| probe.item_value(&item));
-            if self.captured.is_some()
-                || self.trace.channels[channel].open.is_some()
-                || self.trace.channels[channel].reached
-            {
-                break;
+                self.capture_taken(channel, before, |probe| {
+                    probe.item_value(channel, &item, position)
+                });
+                if self.captured.is_some()
+                    || self.trace.channels[channel].open.is_some()
+                    || self.trace.channels[channel].reached
+                {
+                    break 'items;
+                }
             }
         }
         None
@@ -1558,14 +1929,15 @@ impl Probe for ObservationProbe<'_> {
                 Resolution::Point { .. } => {
                     let open = self.trace.channels[channel].open.is_some()
                         || self.trace.channels[channel].reached;
-                    if open {
+                    if open || !self.keeps(channel, point) {
                         None
                     } else {
                         let before = self.trace.channels[channel].elements.len();
                         let element = self.content(channel, point);
                         let difference = self.take(channel, element);
                         if difference.is_some() {
-                            self.trace.differing = Some(Box::new(self.values(channel, point)));
+                            let value = self.values(channel, point);
+                            self.trace.differing = Some(Box::new(value));
                         }
                         self.capture_taken(channel, before, |probe| probe.values(channel, point));
                         difference

@@ -33,8 +33,10 @@
 //! mode with no default) and logs (a `List` cell read at named classes' events and where the
 //! path ends). A K corpus names each rule by its exact K label and each cell by its K cell name.
 //! Its keys that name functions of an observer (`observer`, a class's `views`, `components` and
-//! `when`, a log's `element`) are decoded for a front end that evaluates functions of values;
-//! kink-flow's own K front end refuses them at stage `observe` (`crate::admit`).
+//! `when`, a log's `element`) are decoded for a front end that evaluates functions of values,
+//! which resolves them and sets the functions on the manifest
+//! ([`FlowManifest::with_observe_functions`]); kink-flow's own K front end refuses them at stage
+//! `observe` (`crate::admit`).
 //!
 //! One schema serves both front ends. `[spec]` declares the specification in one of two ways
 //! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
@@ -98,6 +100,11 @@ pub struct FlowManifest {
     /// the definition, so admission refuses a `when` without it (stage `stop`,
     /// `unsupported-front-end`).
     pub stop_when: StopWhenSlot,
+    /// The front end's functions of an observer, which give `[observe]`'s contents, filters and
+    /// log elements ([`Self::with_observe_functions`]). A decoded `FLOW.toml` has none: kink-flow
+    /// evaluates no function of a value, so admission refuses a key that names one without it
+    /// (stage `observe`, `unsupported-front-end`).
+    pub observe_functions: ObserveFunctionsSlot,
     /// The front end's reading of typed inputs (a program's `inputs`), which the front end that
     /// knows the inputs' declared types sets ([`Self::with_input_decoder`]). A decoded `FLOW.toml`
     /// has none: kink reads K text only, and admission refuses a program with `inputs` without
@@ -161,6 +168,11 @@ impl SyntaxSelection {
 /// both are empty or both hold conditions of one identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StopWhenSlot(pub Option<kink_campaign::StopWhen>);
+
+/// A front end's functions of an observer for `[observe]` ([`kink_campaign::ObserveFunctions`]),
+/// or none. Two slots are equal when both are empty or both hold functions of one identity.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ObserveFunctionsSlot(pub Option<kink_campaign::ObserveFunctions>);
 
 /// A front end's [`InputDecoder`], or none. Two manifests' decoders are equal when both are
 /// absent or both are the same decoder value.
@@ -779,6 +791,7 @@ impl ManifestFile {
             observe: self.observe,
             coverage: self.coverage,
             stop_when: StopWhenSlot::default(),
+            observe_functions: ObserveFunctionsSlot::default(),
             input_decoder: Decoder::default(),
             end_renderer: Renderer::default(),
             claim_helpers: BTreeSet::new(),
@@ -869,20 +882,32 @@ impl FlowManifest {
     }
 
     /// The observation declaration every program's run is compared by (kink-campaign `Observe`):
-    /// `[observe]`'s channels; [`kink_campaign::Observe::NONE`] without `[observe]`, and for a
-    /// declaration with a front end's key, which admission refuses (stage `observe`).
+    /// `[observe]`'s channels, with the front end's functions of an observer when it set them
+    /// ([`Self::with_observe_functions`]); [`kink_campaign::Observe::NONE`] without `[observe]`,
+    /// and for a declaration with a front end's key and no front end's functions, which admission
+    /// refuses (stage `observe`).
     #[must_use]
     pub fn campaign_observe(&self) -> kink_campaign::Observe {
-        self.observe
-            .as_ref()
-            .filter(|section| section.front_end_keys().is_empty())
-            .and_then(|section| section.campaign().ok())
-            .unwrap_or(kink_campaign::Observe::NONE)
+        let Some(section) = &self.observe else {
+            return kink_campaign::Observe::NONE;
+        };
+        let functions = &self.observe_functions.0;
+        if functions.is_none() && !section.front_end_keys().is_empty() {
+            return kink_campaign::Observe::NONE;
+        }
+        let Ok(observe) = section.campaign() else {
+            return kink_campaign::Observe::NONE;
+        };
+        match functions {
+            Some(functions) => observe.with_functions(functions.clone()),
+            None => observe,
+        }
     }
 
     /// The declaration every document and key names (`observe`): `{points: [{name, before, after,
-    /// cells, stutter}], logs: [{name, cell, at}]}` (kink-campaign `Observe::value`); `None`
-    /// without `[observe]`, and then no document or key has the member.
+    /// cells, stutter}], logs: [{name, cell, at}]}`, with `functions`, the identity of the front
+    /// end's functions, where it set them (kink-campaign `Observe::value`); `None` without
+    /// `[observe]`, and then no document or key has the member.
     #[must_use]
     pub fn observe_value(&self) -> Option<serde_json::Value> {
         self.campaign_observe().value()
@@ -894,6 +919,17 @@ impl FlowManifest {
     #[must_use]
     pub fn with_stop_when(mut self, when: kink_campaign::StopWhen) -> Self {
         self.stop_when = StopWhenSlot(Some(when));
+        self
+    }
+
+    /// This manifest with `functions` giving its `[observe]`'s contents, filters and log elements:
+    /// a front end that reads the definition's values (the krs front end) resolves the
+    /// declaration's functions of an observer and sets them on the manifest it decoded. The
+    /// declaration's keys that name functions are then the front end's to read, and admission
+    /// accepts them.
+    #[must_use]
+    pub fn with_observe_functions(mut self, functions: kink_campaign::ObserveFunctions) -> Self {
+        self.observe_functions = ObserveFunctionsSlot(Some(functions));
         self
     }
 
