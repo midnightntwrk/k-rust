@@ -426,21 +426,42 @@ mod kink_tier {
     }
 
     /// A window argued by a rule whose argument rests on an invariant has the rule's
-    /// `argument_check`, unchecked, so the command has no answer (exit 3); an invariant named on
-    /// a window itself is refused, the window named as `rule_windows`.
+    /// `argument_check`, unchecked, so the command has no answer (exit 3): here an invariant
+    /// false of every state, whose connection holds, which shows nothing while the evidence is
+    /// not run. An invariant named on a window itself is refused, the window named as
+    /// `rule_windows`, before any invariant is resolved.
     #[test]
     #[ignore = "kink"]
     fn a_window_argued_by_a_rule_has_its_check_and_a_window_takes_no_invariant() {
         let j_c1 = window_id(&["j", "c1"]);
         let invariant =
             "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = [\"k\"]\n\n";
+        let never = "[[coverage.invariant]]\nname = \"i\"\nfunction = \"never\"\ncells = \
+                     [\"k\"]\n\n";
         let lone = "[[coverage.argued]]\nitem = \"rule:WIN.lone\"\nargument = \"no program \
                     holds lone\"\ninvariant = \"i\"\n";
         let manifest = corpus(
             "argued-invariant",
-            &format!("[coverage]\ndepth = 3\n\n{invariant}{lone}"),
+            &format!("[coverage]\ndepth = 3\n\n{never}{lone}"),
             &[("diamond", "start()"), ("chain", "c1()")],
         );
+        // The fixture with a Bool function of the `<k>` cell false of every state.
+        let source = manifest.with_file_name("win.k");
+        let k = fs::read_to_string(&source).unwrap();
+        let imports = "  imports WIN-SYNTAX\n";
+        assert!(k.contains(imports), "{k}");
+        fs::write(
+            &source,
+            k.replacen(
+                imports,
+                &format!(
+                    "{imports}  imports BOOL\n  syntax Bool ::= never(K) [function, total, \
+                     symbol(never)]\n  rule never(_) => false\n"
+                ),
+                1,
+            ),
+        )
+        .unwrap();
         let (document, status) = run(&manifest, &CoverageOptions::default());
         assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let rule = document["families"]["rules"]["items"]
@@ -449,7 +470,14 @@ mod kink_tier {
             .iter()
             .find(|item| item["id"] == "rule:WIN.lone")
             .unwrap();
-        assert_eq!(rule["argument_check"]["standing"], "unchecked", "{rule:#}");
+        assert_eq!(
+            (
+                &rule["argument_check"]["standing"],
+                &rule["argument_check"]["connection"]["status"]
+            ),
+            (&json!("unchecked"), &json!("holds")),
+            "{rule:#}"
+        );
         let by = window(&document, &window_id(&["j", "lone"]));
         assert_eq!(
             (&by["argued_by"], &by["argument_check"]),
