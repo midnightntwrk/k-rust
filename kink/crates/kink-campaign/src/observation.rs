@@ -37,8 +37,8 @@
 //! A path that ends at a determined end (a leaf whose state slots are all values: the leaves the
 //! one-sided rule reads, and the stop leaves of the truncated system) closes every channel with
 //! END; a path whose every leaf is an undefined step closes them with UNDEF. A channel stays open
-//! where its path was cut by a bound, where the path first branched (only one path is compared),
-//! and at an undecided element, except under [`Stutter::Count`]:
+//! where its path was cut by a bound and at an undecided element, except under
+//! [`Stutter::Count`]:
 //! - under [`Stutter::Collapse`], whether a content is an element at all rests on its equality
 //!   with the last element kept, which an undecided content leaves undecided, so the index of
 //!   every later element is unknown;
@@ -136,6 +136,58 @@
 //!   the end with no horizon, and a mutant that holds all its elements and then opens agrees up to
 //!   that horizon.
 //!
+//! # Several paths
+//!
+//! The meaning of a run is the set of its paths' observations: for each channel, the
+//! prefix-closed set of the finite prefixes of its paths' channels, END and UNDEF being elements.
+//! Two definitions differ on a program where a channel's prefix sets differ. A finite witness of
+//! that is a prefix one side has and the other lacks, and it is a fact only where the side that
+//! lacks it is explored completely to its length: every path of that side either holds an element
+//! at each index below the length or closed earlier. A side explored less far, or a prefix past a
+//! horizon, decides nothing: a bound only ends what is known. Each channel is compared on its own,
+//! which is sound (a channel's difference is a difference of the tuple) and may miss a difference
+//! only the tuple shows.
+//!
+//! The probe follows every path of its run (k-rust-backend `rewrite::probe`, "Several paths"): each
+//! path keeps its own trace, forked from its parent's where the run splits, as a run of one path
+//! keeps its one. A run that never splits is the run of one path above, with the record, the
+//! comparison and the verdict it had before several paths were followed. A state-set run merges a
+//! state into an equal one only where the probe's histories of their paths are equal (a digest of
+//! every field of the trace the path's later answers rest on), so the merged path's continuation,
+//! and what the probe keeps of it, are the other's; two states with different histories are both
+//! explored.
+//!
+//! A prefix is kept as its chain: its elements folded in order, each by the 8 bytes of its digest a
+//! record keeps, END and UNDEF by links of their own ([`ChannelSets`]). Equal prefixes have equal
+//! chains, so a chain a set lacks is a prefix no path of the set has; a collision can only hide a
+//! difference. An undecided element ends what its path can say of the chain, so it opens the
+//! path's channel there under either stuttering mode.
+//!
+//! - The baseline's run, where it splits, records each channel's prefix set over its paths and how
+//!   far every path is explored ([`PathRecord`]). A path that ended at a leaf adds its END or UNDEF
+//!   where the run's end is determined; a path cut by a bound, ended undecided or left unexplored
+//!   bounds the set at its elements; a path whose leaf has no instance adds its prefixes and bounds
+//!   nothing. The record is complete only where every leaf of the run is clean, since a diagnostic
+//!   may stand for a path the run does not hold, and real only where every leaf is real.
+//! - A mutant's path is compared as its elements come, by chain, with the baseline's set, once its
+//!   run splits or from the start where the baseline's did. A prefix outside the set at an index
+//!   to which the baseline is explored on every path (mutant-outside) ends the request; past that
+//!   index nothing more is compared on the channel. Such a difference kills where the leaf the
+//!   request ended at is settled: the prefix is a fact of a path the mutant has, whatever its
+//!   unexplored part holds.
+//! - After the run, a prefix of a real baseline record that no path of the mutant has, at an index
+//!   to which every path of the mutant is explored, kills (baseline-outside); so does a prefix read
+//!   where a mutant path ended (a log item, its END or UNDEF) outside the baseline's set, where
+//!   every leaf of the mutant's run is settled. Both need the mutant's run clean and judged into
+//!   sides, so that no path of it is missing.
+//! - Otherwise a channel agrees to its end where both sides are explored completely, and up to the
+//!   baseline's horizon where the mutant is explored at least as far; a mutant explored short of
+//!   the baseline leaves the slot unknown, and so does a baseline record that is not real, whose
+//!   prefixes are no facts the mutant could lack.
+//!
+//! A difference of prefix sets names the side whose prefix the other lacks
+//! ([`Position::outside`]); no capture run re-derives it, since no one baseline path holds it.
+//!
 //! # The slot
 //!
 //! A test of a campaign with a declaration has one slot more, after its end slots
@@ -162,13 +214,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::k_rust_backend::definition::BackendDefinition;
+use k_rust::k_rust_backend::rewrite::HaltReason;
 use k_rust::k_rust_backend::smt::NoSolver;
 use k_rust::kore::ast::{Definition as KoreDefinition, Pattern, Sentence};
 use k_rust::kore::printer::Printer;
 use k_rust::names::KoreAttribute;
 use kink_native::execution::{
     AdaptedLeaf, CellHandle, HaltClass, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf,
-    ProbeRules, ProbeState, StopRules, StopSide,
+    ProbePath, ProbeRules, ProbeState, StopRules, StopSide,
 };
 use kink_native::feasibility::{LeafFeasibility, TestInitialState};
 use kink_native::step_events::ObservationDecider;
@@ -190,8 +243,14 @@ use k_rust::definition::configuration::CellMultiplicity;
 /// a baseline closed so and returns too survives with no horizon (module documentation,
 /// "Cycles"). A front end's functions of an observer ([`Observe::with_functions`]) are named by
 /// the declaration's value, which a declaration without them keeps as it was, so they need no
-/// version of their own: no record made without them can be read as one made with them.
-pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v2";
+/// version of their own: no record made without them can be read as one made with them. v3: the
+/// probe follows every path of a run, and a run that splits is compared by its channels' prefix
+/// sets (module documentation, "Several paths"), where v2 opened every channel at the first
+/// branch; a run that never splits is compared as under v2.
+pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v3";
+
+/// The domain of a prefix's chain ([`ChannelSets`]).
+const CHAIN_DOMAIN: &str = "kink-campaign/observation/chain/v1";
 
 /// The domain of an element's digest.
 const ELEMENT_DOMAIN: &str = "kink-campaign/observation/element/v1";
@@ -923,7 +982,9 @@ pub enum Opening {
     /// [`Stutter::Collapse`], or a log item that is no value or a log cell that holds no list of
     /// known items.
     UndecidedElement,
-    /// The path branched there: only one path is compared.
+    /// The path branched there: only one path is compared. In a record of several paths, every
+    /// channel of [`BaselineRecord::channels`] opens at 0 so, and the paths' prefix sets
+    /// ([`BaselineRecord::paths`]) hold what was observed.
     Branch,
     /// The path's states or its end are not decided: the leaf is not settled, its end is no
     /// value and no bound cut it, or the run gave no single leaf.
@@ -1007,6 +1068,68 @@ impl ChannelRecord {
     }
 }
 
+/// One channel's prefix set over a side's paths (module documentation, "Several paths"): at each
+/// index `i`, the first 8 bytes of the chain of each path's prefix of length `i + 1`, END and
+/// UNDEF being elements, and how far every path is explored.
+///
+/// A prefix's chain folds its elements in order, each as the first 8 bytes of its digest, END and
+/// UNDEF as their own links ([`chain_next`]): two prefixes with equal elements have one chain, so
+/// a chain missing from a set says that no path of the set has that prefix. Two prefixes that
+/// differ may share a chain only by a collision, which can only hide a difference.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ChannelSets {
+    pub prefixes: Vec<BTreeSet<[u8; 8]>>,
+    /// The number of elements every path of the side holds or closed before: below it, every
+    /// path's element at an index is in the set there, or the path closed earlier. `None` where
+    /// every path is explored to its end, and so the set at every index is complete. The opening
+    /// is why the path that bounds it is open there.
+    pub complete_to: Option<Horizon>,
+}
+
+impl ChannelSets {
+    /// Whether every path is explored past `index`: the set there holds every path's prefix of
+    /// length `index + 1`.
+    #[must_use]
+    pub fn complete_at(&self, index: usize) -> bool {
+        self.complete_to.is_none_or(|at| index < at.elements)
+    }
+
+    /// Whether some path's prefix of length `index + 1` has the chain `chain`.
+    #[must_use]
+    pub fn holds(&self, index: usize, chain: &[u8; 32]) -> bool {
+        self.prefixes
+            .get(index)
+            .is_some_and(|set| set.contains(&short(chain)))
+    }
+
+    fn add(&mut self, index: usize, chain: &[u8; 32]) {
+        if self.prefixes.len() <= index {
+            self.prefixes.resize_with(index + 1, BTreeSet::new);
+        }
+        self.prefixes[index].insert(short(chain));
+    }
+
+    fn bound(&mut self, elements: usize, opening: Opening) {
+        if self.complete_to.is_none_or(|at| elements < at.elements) {
+            self.complete_to = Some(Horizon { elements, opening });
+        }
+    }
+}
+
+/// A baseline's record of a run with several paths (module documentation, "Several paths"): each
+/// channel's prefix set over the run's paths.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathRecord {
+    pub channels: Vec<ChannelSets>,
+    /// The number of paths the sets were built from.
+    pub paths: usize,
+    /// Whether every leaf of the run is real and clean ([`LeafFacts::settled`]): then every prefix
+    /// in the sets is a prefix of a path of the definition, and a mutant that lacks one is
+    /// distinguished. Otherwise a set may hold a prefix the definition does not have, which can
+    /// only hide a mutant's prefix, and no baseline prefix is held against a mutant.
+    pub real: bool,
+}
+
 /// What a baseline's run records of its channels ([module documentation](self)), which every
 /// mutant's run of the test is compared with.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1024,9 +1147,62 @@ pub struct BaselineRecord {
     /// grow by appending (`log-not-appended`), whose channel is no concatenation of appended
     /// items.
     pub refusal: Option<String>,
+    /// Where the run split into several paths, each channel's prefix set over them (module
+    /// documentation, "Several paths"); its `channels` then hold no element, each open at 0 by
+    /// [`Opening::Branch`]. `None` for a run of one path.
+    pub paths: Option<PathRecord>,
 }
 
 impl BaselineRecord {
+    /// Whether the run observed nothing: no channel kept an element or closed by a cycle on its
+    /// one path, or, for a run of several paths, no path kept a prefix of any channel. A prefix
+    /// program that observed nothing can tell no mutant from it within its horizons.
+    #[must_use]
+    pub fn observed_nothing(&self) -> bool {
+        match &self.paths {
+            Some(paths) => paths
+                .channels
+                .iter()
+                .all(|channel| channel.prefixes.iter().all(BTreeSet::is_empty)),
+            None => self.channels.iter().all(|channel| {
+                channel.elements.is_empty() && matches!(channel.end, ChannelEnd::Open(_))
+            }),
+        }
+    }
+
+    /// The record's prefix sets (module documentation, "Several paths"): a record of several
+    /// paths keeps them; a record of one path is the set of its one path's prefixes, explored to
+    /// its horizon, or to its end where it is closed.
+    #[must_use]
+    pub fn sets(&self) -> Vec<ChannelSets> {
+        if let Some(paths) = &self.paths {
+            return paths.channels.clone();
+        }
+        self.channels
+            .iter()
+            .map(|channel| {
+                let mut sets = ChannelSets::default();
+                let trace = ChannelTrace {
+                    elements: channel.elements.clone(),
+                    open: match &channel.end {
+                        ChannelEnd::Open(opened) => Some(opened.clone()),
+                        ChannelEnd::Closed(_) => None,
+                    },
+                    silent: channel.end == ChannelEnd::Closed(Closure::Cycle),
+                    ..ChannelTrace::default()
+                };
+                let closure = match channel.end {
+                    ChannelEnd::Closed(closure @ (Closure::End | Closure::Undefined)) => {
+                        Some(closure)
+                    }
+                    _ => None,
+                };
+                add_path(&mut sets, &trace, closure, Opening::UndecidedPath);
+                sets
+            })
+            .collect()
+    }
+
     /// The record as a result record keeps it: `{channels: [{name, elements, closed, open}],
     /// prefix, crashed}`, each element the hex of its 8 digest bytes (null where it was undecided),
     /// `closed` `"end"`, `"undefined"` or `"cycle"` for a closed channel (else null), and `open`
@@ -1040,6 +1216,7 @@ impl BaselineRecord {
             prefix,
             crashed,
             refusal,
+            paths,
         } = self;
         let channels = channels
             .iter()
@@ -1078,6 +1255,37 @@ impl BaselineRecord {
         if let Some(refusal) = refusal {
             value["refusal"] = json!(refusal);
         }
+        if let Some(PathRecord {
+            channels,
+            paths,
+            real,
+        }) = paths
+        {
+            let hex = |bytes: &[u8; 8]| {
+                bytes
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            };
+            let channels = channels
+                .iter()
+                .map(
+                    |ChannelSets {
+                         prefixes,
+                         complete_to,
+                     }| {
+                        json!({
+                            "prefixes": prefixes
+                                .iter()
+                                .map(|set| set.iter().map(hex).collect::<Vec<_>>())
+                                .collect::<Vec<_>>(),
+                            "complete_to": complete_to.map(Horizon::value),
+                        })
+                    },
+                )
+                .collect::<Vec<_>>();
+            value["paths"] = json!({"paths": paths, "real": real, "channels": channels});
+        }
         value
     }
 }
@@ -1112,6 +1320,31 @@ pub struct Position {
     pub channel: String,
     pub index: usize,
     pub at_end: bool,
+    /// Where a side has several paths (module documentation, "Several paths"), the side whose
+    /// prefix of length `index + 1` the other side's prefix set lacks; `None` for a difference of
+    /// the two sides' one paths, decided element against element.
+    pub outside: Option<Outside>,
+}
+
+/// The side whose prefix the other side's prefix set lacks, at a difference of prefix sets
+/// ([`Position::outside`]).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Outside {
+    /// An explored path of the mutant has the prefix, and no path of the baseline has it.
+    Mutant,
+    /// A real path of the baseline has the prefix, and no path of the mutant has it.
+    Baseline,
+}
+
+impl Outside {
+    /// The record name: `"mutant"` or `"baseline"`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Mutant => "mutant",
+            Self::Baseline => "baseline",
+        }
+    }
 }
 
 /// The observation slot's outcome for one mutant run of one test ([`judge`]).
@@ -1251,6 +1484,25 @@ impl LeafFacts {
         }
     }
 
+    /// The facts of every leaf of `leaves` at once (`vouched` and `existing` as for
+    /// [`Self::shared`]): real where every leaf is real by [`Self::of`], so every path of the run
+    /// is a path of the definition, and clean where every leaf is. A run of several paths
+    /// (module documentation, "Several paths") is read so: a prefix set holds the prefixes of
+    /// every path, so it is a set of the definition's prefixes only where every path is real, and
+    /// complete only where no diagnostic of the run may stand for a path it does not hold.
+    pub(crate) fn every(leaves: &[AdaptedLeaf], vouched: bool, existing: &[bool]) -> Self {
+        let existing = |index: usize| existing.get(index).copied().unwrap_or(false);
+        let vouched = vouched && leaves.len() == 1;
+        let facts = leaves
+            .iter()
+            .enumerate()
+            .map(|(index, leaf)| Self::of(leaf, vouched, existing(index)));
+        Self {
+            real: !leaves.is_empty() && facts.clone().all(|facts| facts.real),
+            clean: facts.clone().all(|facts| facts.clean),
+        }
+    }
+
     /// The facts of the path every leaf of `leaves` shares up to its first branching, the only
     /// part of a run a probe reads (`vouched` as for [`Self::of`], read only for one leaf, and
     /// `existing[i]` the [`Self::existence`] of leaf `i`, `false` when absent).
@@ -1290,8 +1542,11 @@ impl LeafFacts {
 pub struct Comparison {
     /// The probe's channels, boxed: a baseline's record, the other kind of observation, is small.
     pub(crate) trace: Box<Trace>,
-    /// The run's one leaf, when it has exactly one.
+    /// The run's one leaf, when it has exactly one; for a run of several paths, the leaf where
+    /// the probe found a difference, when it found one.
     pub(crate) leaf: Option<LeafFacts>,
+    /// The facts of every leaf of the run ([`LeafFacts::every`]).
+    pub(crate) every: LeafFacts,
     pub verdict: Option<ObservationVerdict>,
 }
 
@@ -1331,6 +1586,113 @@ pub(crate) struct ChannelTrace {
     /// The path returned to an earlier state of itself while the channel was neither open nor
     /// past the baseline's horizon: it has no element past those it holds, ever.
     silent: bool,
+    /// The chain of the prefix of the first elements ([`chain_next`]), and their number, as far
+    /// as it was folded: compare mode against prefix sets folds it as elements come.
+    chain: Option<([u8; 32], usize)>,
+}
+
+impl ChannelTrace {
+    /// The number of elements before the first undecided one: a prefix's chain is known only up
+    /// to there.
+    fn decided(&self) -> usize {
+        self.elements
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.elements.len())
+    }
+
+    /// The chain of the prefix of all the channel's elements, `None` where one is undecided.
+    fn chain(&mut self) -> Option<[u8; 32]> {
+        let (mut chain, mut folded) = self.chain.unwrap_or((chain_start(), 0));
+        for element in &self.elements[folded..] {
+            chain = chain_next(&chain, Link::Content((*element)?));
+            folded += 1;
+        }
+        self.chain = Some((chain, folded));
+        Some(chain)
+    }
+}
+
+/// One link of a prefix's chain: an element's 8 digest bytes, or the END or UNDEF that closes the
+/// channel ([`ChannelSets`]).
+#[derive(Clone, Copy)]
+enum Link {
+    Content([u8; 8]),
+    Closed(Closure),
+}
+
+/// The chain of the empty prefix.
+fn chain_start() -> [u8; 32] {
+    *payload_digest(CHAIN_DOMAIN, &[]).as_bytes()
+}
+
+/// The chain of a prefix whose chain without its last element is `chain` and whose last element
+/// is `link`. A content's link and a closure's are told apart by their first byte, so END and
+/// UNDEF are unequal to every content and to each other.
+fn chain_next(chain: &[u8; 32], link: Link) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(41);
+    bytes.extend_from_slice(chain);
+    match link {
+        Link::Content(element) => {
+            bytes.push(0);
+            bytes.extend_from_slice(&element);
+        }
+        Link::Closed(Closure::End) => bytes.push(1),
+        Link::Closed(Closure::Undefined) => bytes.push(2),
+        Link::Closed(Closure::Cycle) => bytes.push(3),
+    }
+    *payload_digest(CHAIN_DOMAIN, &bytes).as_bytes()
+}
+
+/// How a path of a run with several paths ended, as the probe was told of its leaf ([`Paths`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum LeafEnd {
+    /// A leaf that is an end of the system: its END is decided where the run's end is
+    /// ([`determined`]).
+    End,
+    /// An undefined step: its UNDEF is decided where the run's end is.
+    Undefined,
+    /// A leaf whose state has no instance: no path of the definition.
+    Vacuous,
+    /// The path was cut there, or its end is not decided; open at its elements.
+    Open(Opened),
+}
+
+impl LeafEnd {
+    fn of(halt: &HaltReason) -> Self {
+        match halt {
+            HaltReason::Stuck
+            | HaltReason::CutPointRule { .. }
+            | HaltReason::TerminalRule { .. } => Self::End,
+            HaltReason::Trivial { .. } => Self::Undefined,
+            HaltReason::Vacuous { .. } => Self::Vacuous,
+            HaltReason::DepthBound | HaltReason::WorkBound | HaltReason::BreadthBound => {
+                Self::Open(Opened::new(Opening::Bound, "the path was cut by a bound"))
+            }
+            other => Self::Open(Opened::new(
+                Opening::UndecidedPath,
+                format!("the path ended undecided ({})", halt_name(other)),
+            )),
+        }
+    }
+}
+
+/// A short name of a halt, for a reason.
+fn halt_name(halt: &HaltReason) -> &'static str {
+    match halt {
+        HaltReason::Branch { .. } => "a branch",
+        HaltReason::Stopped(_) => "a stop",
+        _ => "an undecided end",
+    }
+}
+
+/// The paths of a run that split into several, as its probe kept them (module documentation,
+/// "Several paths"): each path that ended at a leaf, with how, and each path the run left
+/// unexplored, open where it was left. A path merged into an equal state of another, with an
+/// equal history, is not kept: its continuation is the other's.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Paths {
+    pub(crate) paths: Vec<(Trace, LeafEnd)>,
 }
 
 /// A held handle, compared by node identity only.
@@ -1355,7 +1717,7 @@ pub(crate) enum Answer {
 }
 
 /// One side's channels as its probe built them.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Trace {
     channels: Vec<ChannelTrace>,
     branched: Option<u64>,
@@ -1373,6 +1735,9 @@ pub(crate) struct Trace {
     /// The depths of the earlier state and of the state where the path returned to it (module
     /// documentation, "Cycles"); the probe heeds nothing after it.
     cycled: Option<(u64, u64)>,
+    /// Where the run split into several paths, each path's trace (module documentation, "Several
+    /// paths"); the other fields then describe no path.
+    paths: Option<Box<Paths>>,
 }
 
 /// The probe of one result run: records the baseline's channels, or compares a mutant's with the
@@ -1383,7 +1748,22 @@ pub(crate) struct ObservationProbe<'a> {
     /// Where the contents come from: kink's identity contents, or a front end's functions.
     evaluation: Evaluation<'a>,
     against: Option<&'a BaselineRecord>,
+    /// The trace of the path a callback is about, while it is answered ([`Self::on`]).
     trace: Trace,
+    /// The trace of each path the run has not left, by path (module documentation, "Several
+    /// paths"): the root's alone until the run splits.
+    live: BTreeMap<ProbePath, Trace>,
+    /// Each path that ended at a leaf, with its trace and how it ended.
+    ended: Vec<(Trace, LeafEnd)>,
+    /// The trace of a path the run left with no path on, kept for a run that never split.
+    vanished: Option<Trace>,
+    /// Whether the run split into two paths or more.
+    several: bool,
+    /// On a mutant, the baseline's prefix sets, which its paths are compared with by chain once
+    /// the run splits, or from the start where the baseline's run split.
+    sets: Option<Vec<ChannelSets>>,
+    /// Each live path's history ([`Probe::history`]), with the progress it was read at.
+    histories: std::cell::RefCell<BTreeMap<ProbePath, (u64, [u8; 32])>>,
     /// A capture run's target ([`Self::capturing`]): the channel and the index of the element it
     /// re-derives, and that element once read, with its recorded digest bytes.
     capture: Option<(usize, usize)>,
@@ -1426,24 +1806,60 @@ impl<'a> ObservationProbe<'a> {
                 ..ChannelTrace::default()
             })
             .collect();
+        let trace = Trace {
+            channels,
+            ..Trace::default()
+        };
         Self {
             resolved,
             decider,
             evaluation,
             against,
-            trace: Trace {
-                channels,
-                branched: None,
-                ended: false,
-                answer: None,
-                end_difference: None,
-                refusal: None,
-                differing: None,
-                cycled: None,
-            },
+            trace: Trace::default(),
+            live: BTreeMap::from([(ProbePath::ROOT, trace)]),
+            ended: Vec::new(),
+            vanished: None,
+            several: false,
+            sets: against.map(BaselineRecord::sets),
+            histories: std::cell::RefCell::default(),
             capture: None,
             captured: None,
         }
+    }
+
+    /// Answer `ask` about the path `path`, on its trace ([`Self::trace`]): the trace is taken from
+    /// the live paths for the answer and put back after it.
+    fn on<R>(&mut self, path: ProbePath, ask: impl FnOnce(&mut Self) -> R) -> R {
+        self.trace = self.live.remove(&path).unwrap_or_else(|| self.fresh());
+        let answer = ask(self);
+        let trace = std::mem::take(&mut self.trace);
+        self.live.insert(path, trace);
+        answer
+    }
+
+    /// The trace of a path the probe was never told of: no element, every channel as it starts.
+    fn fresh(&self) -> Trace {
+        Trace {
+            channels: self
+                .resolved
+                .channels
+                .iter()
+                .map(|channel| ChannelTrace {
+                    cells: match channel {
+                        Resolution::Point { cells, .. } => vec![None; cells.len()],
+                        Resolution::Log { .. } => Vec::new(),
+                    },
+                    ..ChannelTrace::default()
+                })
+                .collect(),
+            ..Trace::default()
+        }
+    }
+
+    /// Whether the trace's channels are compared with the baseline's by prefix sets: once the
+    /// run splits, or from the start where the baseline's run split.
+    fn by_sets(&self) -> bool {
+        self.against.is_some() && (self.several || self.against.is_some_and(|b| b.paths.is_some()))
     }
 
     /// The probe of a capture run of the baseline ([`crate::observed_difference`]): it records
@@ -1566,9 +1982,39 @@ impl<'a> ObservationProbe<'a> {
         self.resolved.rules.clone()
     }
 
-    /// The channels as the run left them.
-    pub(crate) fn finish(self) -> Trace {
-        self.trace
+    /// The channels as the run left them: the one path's trace where the run never split, and
+    /// otherwise every path's ([`Paths`]), each ended path with how it ended and each path the
+    /// run left unexplored open there.
+    pub(crate) fn finish(mut self) -> Trace {
+        if !self.several {
+            // One path, possibly renamed: the trace of the path that ended, or is still live,
+            // or else the one the run left with no path on.
+            return self
+                .ended
+                .pop()
+                .map(|(trace, _)| trace)
+                .or_else(|| self.live.into_values().next())
+                .or(self.vanished)
+                .unwrap_or_default();
+        }
+        let mut paths = std::mem::take(&mut self.ended);
+        for trace in self.live.into_values() {
+            let end = match trace.answer {
+                // On a mutant, a path its probe ended past every horizon or opened.
+                Some(Answer::Done) => Opened::new(
+                    Opening::Bound,
+                    "the path reached the baseline's horizon on every channel",
+                ),
+                _ => Opened::new(Opening::Bound, "the run stopped exploring the path"),
+            };
+            paths.push((trace, LeafEnd::Open(end)));
+        }
+        let refusal = paths.iter().find_map(|(trace, _)| trace.refusal.clone());
+        Trace {
+            refusal,
+            paths: Some(Box::new(Paths { paths })),
+            ..Trace::default()
+        }
     }
 
     /// The canonical KORE text of `term` when it is a ground value under the baseline's
@@ -1696,9 +2142,12 @@ impl<'a> ObservationProbe<'a> {
     /// Takes `element` on `channel`: recorded on the baseline, compared on a mutant. The index of
     /// a difference it makes.
     fn take(&mut self, channel: usize, element: Result<[u8; 32], String>) -> Option<usize> {
+        let by_sets = self.by_sets();
         let resolution = &self.resolved.channels[channel];
         let trace = &mut self.trace.channels[channel];
-        if let Some(against) = self.against {
+        if let (true, Some(sets)) = (by_sets, &self.sets) {
+            compare_chain(resolution, trace, &sets[channel], element)
+        } else if let Some(against) = self.against {
             compare_element(resolution, trace, &against.channels[channel], element)
         } else {
             record_element(resolution, trace, element);
@@ -1800,6 +2249,126 @@ impl<'a> ObservationProbe<'a> {
                 .channels
                 .iter()
                 .all(|channel| channel.reached || channel.open.is_some())
+    }
+
+    /// [`Probe::observe`] on the trace of the point's path.
+    fn observe_here(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
+        if self.trace.cycled.is_some() {
+            return ProbeDecision::Continue;
+        }
+        let (rule, side) = (point.rule().to_owned(), point.side());
+        for channel in 0..self.resolved.channels.len() {
+            if !self.resolved.channels[channel].selects(&rule, side) {
+                continue;
+            }
+            let difference = match self.resolved.channels[channel] {
+                Resolution::Point { .. } => {
+                    let open = self.trace.channels[channel].open.is_some()
+                        || self.trace.channels[channel].reached;
+                    if open || !self.keeps(channel, point) {
+                        None
+                    } else {
+                        let before = self.trace.channels[channel].elements.len();
+                        let element = self.content(channel, point);
+                        let difference = self.take(channel, element);
+                        if difference.is_some() {
+                            let value = self.values(channel, point);
+                            self.trace.differing = Some(Box::new(value));
+                        }
+                        self.capture_taken(channel, before, |probe| probe.values(channel, point));
+                        difference
+                    }
+                }
+                Resolution::Log { .. } => self.read_log(channel, point),
+            };
+            if self.captured.is_some() {
+                self.trace.answer = Some(Answer::Done);
+                return ProbeDecision::Done;
+            }
+            if let Some(index) = difference {
+                self.trace.answer = Some(Answer::Differs { channel, index });
+                return ProbeDecision::Differs(format!(
+                    "the channel `{}` differs at {index}",
+                    self.resolved.names[channel]
+                ));
+            }
+        }
+        if self.done() {
+            self.trace.answer = Some(Answer::Done);
+            return ProbeDecision::Done;
+        }
+        ProbeDecision::Continue
+    }
+
+    /// [`Probe::branched`] on the root's trace.
+    fn branched_here(&mut self, depth: u64) {
+        if self.trace.cycled.is_some() {
+            return;
+        }
+        self.trace.branched = Some(depth);
+        for channel in &mut self.trace.channels {
+            channel.open.get_or_insert_with(|| {
+                Opened::new(
+                    Opening::Branch,
+                    format!("the path branched at depth {depth}"),
+                )
+            });
+        }
+    }
+
+    /// [`Probe::ended`] on the trace of the leaf's path: each log is read once more at the leaf.
+    fn ended_here(&mut self, leaf: &ProbeLeaf<'_>) {
+        if self.trace.cycled.is_some() {
+            return;
+        }
+        self.trace.ended = true;
+        for channel in 0..self.resolved.channels.len() {
+            if !matches!(self.resolved.channels[channel], Resolution::Log { .. }) {
+                continue;
+            }
+            let snapshot = |trace: &ChannelTrace| {
+                (
+                    trace.elements.len(),
+                    trace.reached,
+                    trace.open.is_some(),
+                    trace.unknown,
+                )
+            };
+            let before = snapshot(&self.trace.channels[channel]);
+            let difference = self.read_log(channel, leaf);
+            if snapshot(&self.trace.channels[channel]) != before || difference.is_some() {
+                self.trace.channels[channel].at_end = Some(before.0);
+            }
+            if let Some(index) = difference
+                && self.trace.end_difference.is_none()
+            {
+                self.trace.end_difference = Some((channel, index));
+            }
+        }
+    }
+
+    /// [`Probe::cycled`] on the trace of the returning path.
+    fn cycled_here(&mut self, cycle: &ProbeCycle<'_>) -> ProbeDecision {
+        if self.trace.cycled.is_some() || self.trace.answer.is_some() {
+            return ProbeDecision::Continue;
+        }
+        self.trace.cycled = Some((cycle.first(), cycle.depth()));
+        let difference = self.close_silent(cycle);
+        if self.against.is_none() {
+            return ProbeDecision::Continue;
+        }
+        if let Some((channel, index)) = difference {
+            self.trace.answer = Some(Answer::Differs { channel, index });
+            return ProbeDecision::Differs(format!(
+                "the channel `{}` differs at {index}: the path returned at depth {} to its state at \
+                 depth {}",
+                self.resolved.names[channel],
+                cycle.depth(),
+                cycle.first()
+            ));
+        }
+        self.trace.answer = Some(Answer::Done);
+        ProbeDecision::Done
     }
 
     /// The path returned to an earlier state of itself with the probe's progress unchanged, at
@@ -1907,6 +2476,120 @@ fn compare_element(
     }
 }
 
+/// Compares `element` on the channel `resolution`, whose trace is `trace`, with the baseline's
+/// prefix set `sets` (compare mode by prefix sets, module documentation, "Several paths"): the
+/// index of the difference it makes, when it makes one. The mutant's prefix up to the element is
+/// outside the baseline's set where the baseline is explored past that index on every path and
+/// no path's prefix there has its chain; past the index to which the baseline is explored,
+/// nothing more is compared on the channel. An undecided element opens the channel under either
+/// stuttering mode: the chain of every later prefix rests on it.
+fn compare_chain(
+    resolution: &Resolution,
+    trace: &mut ChannelTrace,
+    sets: &ChannelSets,
+    element: Result<[u8; 32], String>,
+) -> Option<usize> {
+    if trace.open.is_some() || trace.reached {
+        return None;
+    }
+    let index = trace.elements.len();
+    let element = match element {
+        Ok(digest) => {
+            if resolution.collapses() && trace.last == Some(digest) {
+                return None;
+            }
+            trace.last = Some(digest);
+            short(&digest)
+        }
+        Err(reason) => {
+            trace.open = Some(Opened::new(
+                Opening::UndecidedElement,
+                format!("undecided element at {index}: {reason}"),
+            ));
+            return None;
+        }
+    };
+    if !sets.complete_at(index) {
+        trace.reached = true;
+        return None;
+    }
+    let Some(prefix) = trace.chain() else {
+        // An element of the prefix was undecided before the run split.
+        trace.open = Some(Opened::new(
+            Opening::UndecidedElement,
+            format!("undecided element before {index}"),
+        ));
+        return None;
+    };
+    trace.elements.push(Some(element));
+    let chain = chain_next(&prefix, Link::Content(element));
+    trace.chain = Some((chain, index + 1));
+    (!sets.holds(index, &chain)).then_some(index)
+}
+
+/// Adds one path's channel `trace` to `sets`: the chain of each prefix of its decided elements,
+/// and, where `closure` closes the channel after all its elements, the prefix it closes. A channel
+/// left open, or past the other side's horizon (`reached`), or with an undecided element, bounds
+/// how far the side is explored, at its decided elements, with `open`'s opening where the path
+/// gives no other.
+fn add_path(sets: &mut ChannelSets, trace: &ChannelTrace, closure: Option<Closure>, open: Opening) {
+    let chain = add_prefixes(sets, trace);
+    let decided = trace.decided();
+    let opening = match (&trace.open, closure) {
+        (Some(opened), _) => opened.opening,
+        _ if decided < trace.elements.len() => Opening::UndecidedElement,
+        _ if trace.reached => open,
+        // Complete and silent: no element past these, ever.
+        _ if trace.silent => return,
+        (None, Some(closure)) => {
+            sets.add(decided, &chain_next(&chain, Link::Closed(closure)));
+            return;
+        }
+        (None, None) => open,
+    };
+    sets.bound(decided, opening);
+}
+
+/// Adds the chain of each prefix of `trace`'s decided elements to `sets`, and gives the chain of
+/// the longest.
+fn add_prefixes(sets: &mut ChannelSets, trace: &ChannelTrace) -> [u8; 32] {
+    let mut chain = chain_start();
+    for (index, element) in trace.elements[..trace.decided()].iter().enumerate() {
+        chain = chain_next(&chain, Link::Content(element.expect("a decided element")));
+        sets.add(index, &chain);
+    }
+    chain
+}
+
+/// The prefix sets of `paths`, one side's paths, channel by channel: each path's prefixes, its
+/// END or UNDEF where `ended` (the run's end is determined) and its leaf is one, and the index to
+/// which every path is explored. A path whose leaf has no instance adds its prefixes, which can
+/// only hide a difference, and bounds nothing: it is no path of the definition.
+fn sets_of(paths: &[(Trace, LeafEnd)], channels: usize, ended: bool) -> Vec<ChannelSets> {
+    (0..channels)
+        .map(|channel| {
+            let mut sets = ChannelSets::default();
+            for (trace, end) in paths {
+                let trace = &trace.channels[channel];
+                let (closure, open) = match end {
+                    LeafEnd::End if ended => (Some(Closure::End), Opening::UndecidedPath),
+                    LeafEnd::Undefined if ended => {
+                        (Some(Closure::Undefined), Opening::UndecidedPath)
+                    }
+                    LeafEnd::End | LeafEnd::Undefined => (None, Opening::UndecidedPath),
+                    LeafEnd::Vacuous => {
+                        add_prefixes(&mut sets, trace);
+                        continue;
+                    }
+                    LeafEnd::Open(opened) => (None, opened.opening),
+                };
+                add_path(&mut sets, trace, closure, open);
+            }
+            sets
+        })
+        .collect()
+}
+
 /// Records `element` on the channel `resolution`, whose trace is `trace` (record mode).
 fn record_element(
     resolution: &Resolution,
@@ -1940,94 +2623,68 @@ fn record_element(
 
 impl Probe for ObservationProbe<'_> {
     fn observe(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
-        if self.trace.cycled.is_some() {
-            return ProbeDecision::Continue;
-        }
-        let (rule, side) = (point.rule().to_owned(), point.side());
-        for channel in 0..self.resolved.channels.len() {
-            if !self.resolved.channels[channel].selects(&rule, side) {
-                continue;
-            }
-            let difference = match self.resolved.channels[channel] {
-                Resolution::Point { .. } => {
-                    let open = self.trace.channels[channel].open.is_some()
-                        || self.trace.channels[channel].reached;
-                    if open || !self.keeps(channel, point) {
-                        None
-                    } else {
-                        let before = self.trace.channels[channel].elements.len();
-                        let element = self.content(channel, point);
-                        let difference = self.take(channel, element);
-                        if difference.is_some() {
-                            let value = self.values(channel, point);
-                            self.trace.differing = Some(Box::new(value));
-                        }
-                        self.capture_taken(channel, before, |probe| probe.values(channel, point));
-                        difference
-                    }
-                }
-                Resolution::Log { .. } => self.read_log(channel, point),
-            };
-            if self.captured.is_some() {
-                self.trace.answer = Some(Answer::Done);
-                return ProbeDecision::Done;
-            }
-            if let Some(index) = difference {
-                self.trace.answer = Some(Answer::Differs { channel, index });
-                return ProbeDecision::Differs(format!(
-                    "the channel `{}` differs at {index}",
-                    self.resolved.names[channel]
-                ));
-            }
-        }
-        if self.done() {
-            self.trace.answer = Some(Answer::Done);
-            return ProbeDecision::Done;
-        }
-        ProbeDecision::Continue
+        self.on(point.path(), |probe| probe.observe_here(point))
     }
 
     fn branched(&mut self, depth: u64) {
-        if self.trace.cycled.is_some() {
-            return;
-        }
-        self.trace.branched = Some(depth);
-        for channel in &mut self.trace.channels {
-            channel.open.get_or_insert_with(|| {
-                Opened::new(
-                    Opening::Branch,
-                    format!("the path branched at depth {depth}"),
-                )
-            });
-        }
+        // A probe that follows paths is told of no branch; kept for a run that does not ask it to.
+        self.on(ProbePath::ROOT, |probe| probe.branched_here(depth));
     }
 
     fn ended(&mut self, leaf: &ProbeLeaf<'_>) {
-        if self.trace.cycled.is_some() {
-            return;
+        let path = leaf.path();
+        self.on(path, |probe| probe.ended_here(leaf));
+        if let Some(trace) = self.live.remove(&path) {
+            self.ended.push((trace, LeafEnd::of(leaf.halt())));
         }
-        self.trace.ended = true;
-        for channel in 0..self.resolved.channels.len() {
-            if !matches!(self.resolved.channels[channel], Resolution::Log { .. }) {
-                continue;
-            }
-            let snapshot = |trace: &ChannelTrace| {
-                (
-                    trace.elements.len(),
-                    trace.reached,
-                    trace.open.is_some(),
-                    trace.unknown,
-                )
-            };
-            let before = snapshot(&self.trace.channels[channel]);
-            let difference = self.read_log(channel, leaf);
-            if snapshot(&self.trace.channels[channel]) != before || difference.is_some() {
-                self.trace.channels[channel].at_end = Some(before.0);
-            }
-            if let Some(index) = difference
-                && self.trace.end_difference.is_none()
-            {
-                self.trace.end_difference = Some((channel, index));
+    }
+
+    fn follows_paths(&self) -> bool {
+        true
+    }
+
+    fn fork(&mut self, from: ProbePath, into: ProbePath) {
+        let trace = self
+            .live
+            .get(&from)
+            .cloned()
+            .unwrap_or_else(|| self.fresh());
+        self.live.insert(into, trace);
+    }
+
+    /// A split into two paths or more makes the run one of several paths; a split into one
+    /// renames the path, and one into none leaves no path of the definition there.
+    fn split(&mut self, path: ProbePath, _depth: u64, into: &[ProbePath]) {
+        self.several |= into.len() > 1;
+        self.histories.borrow_mut().remove(&path);
+        if let Some(trace) = self.live.remove(&path)
+            && into.is_empty()
+        {
+            self.vanished = Some(trace);
+        }
+    }
+
+    /// The path's continuation is an equal state's on a path with an equal history: what the
+    /// probe keeps of that path is what it would keep of this one.
+    fn merged(&mut self, path: ProbePath, _depth: u64) {
+        self.histories.borrow_mut().remove(&path);
+        self.live.remove(&path);
+    }
+
+    /// A digest of everything the path's trace keeps that its later answers and records rest on
+    /// ([`trace_digest`]), recomputed only where its progress changed.
+    fn history(&self, path: ProbePath) -> [u8; 32] {
+        let Some(trace) = self.live.get(&path) else {
+            return [0; 32];
+        };
+        let progress = trace_progress(trace);
+        let mut histories = self.histories.borrow_mut();
+        match histories.get(&path) {
+            Some((read, history)) if *read == progress => *history,
+            _ => {
+                let history = trace_digest(trace);
+                histories.insert(path, (progress, history));
+                history
             }
         }
     }
@@ -2036,27 +2693,17 @@ impl Probe for ObservationProbe<'_> {
         self.resolved.cycle_states
     }
 
-    /// The sum of what the probe keeps that its answers rest on: each channel's elements, items
+    /// The sum of what the probe keeps that its answers rest on, over its live paths (a return
+    /// is recognized only before the run splits, so there is one): each channel's elements, items
     /// read and whether it opened, passed the baseline's horizon or met an undecided element, and
     /// whether the probe answered or refused. Each only grows, so an equal sum is an equal state:
     /// the last element kept, which collapse compares with, changes only with the elements, and
     /// the handles held only spare conversions.
     fn progress(&self) -> u64 {
-        let channels = self
-            .trace
-            .channels
-            .iter()
-            .map(|channel| {
-                channel.elements.len()
-                    + channel.read
-                    + usize::from(channel.open.is_some())
-                    + usize::from(channel.reached)
-                    + usize::from(channel.unknown.is_some())
-            })
-            .sum::<usize>();
-        let answered =
-            usize::from(self.trace.answer.is_some()) + usize::from(self.trace.refusal.is_some());
-        u64::try_from(channels + answered).unwrap_or(u64::MAX)
+        self.live
+            .values()
+            .map(trace_progress)
+            .fold(0, u64::saturating_add)
     }
 
     /// The path runs forever from here and the probe sees nothing new on it, so every channel
@@ -2065,27 +2712,93 @@ impl Probe for ObservationProbe<'_> {
     /// request ends at its first difference, and its path otherwise, since nothing more can be
     /// learned.
     fn cycled(&mut self, cycle: &ProbeCycle<'_>) -> ProbeDecision {
-        if self.trace.cycled.is_some() || self.trace.answer.is_some() {
-            return ProbeDecision::Continue;
-        }
-        self.trace.cycled = Some((cycle.first(), cycle.depth()));
-        let difference = self.close_silent(cycle);
-        if self.against.is_none() {
-            return ProbeDecision::Continue;
-        }
-        if let Some((channel, index)) = difference {
-            self.trace.answer = Some(Answer::Differs { channel, index });
-            return ProbeDecision::Differs(format!(
-                "the channel `{}` differs at {index}: the path returned at depth {} to its state at \
-                 depth {}",
-                self.resolved.names[channel],
-                cycle.depth(),
-                cycle.first()
-            ));
-        }
-        self.trace.answer = Some(Answer::Done);
-        ProbeDecision::Done
+        self.on(cycle.path(), |probe| probe.cycled_here(cycle))
     }
+}
+
+/// The progress of one path's trace ([`Probe::progress`]).
+fn trace_progress(trace: &Trace) -> u64 {
+    let channels = trace
+        .channels
+        .iter()
+        .map(|channel| {
+            channel.elements.len()
+                + channel.read
+                + usize::from(channel.open.is_some())
+                + usize::from(channel.reached)
+                + usize::from(channel.unknown.is_some())
+        })
+        .sum::<usize>();
+    let answered = usize::from(trace.answer.is_some())
+        + usize::from(trace.refusal.is_some())
+        + usize::from(trace.end_difference.is_some());
+    u64::try_from(channels + answered).unwrap_or(u64::MAX)
+}
+
+/// The history of a path ([`Probe::history`]): a digest of every field of its trace that what the
+/// probe answers or keeps of the path's continuation rests on. Each channel's elements, the last
+/// element kept (which collapse compares with), the items read (which the baseline's append check
+/// compares with), whether and why it opened, whether it passed the baseline's horizon or met an
+/// undecided element, and the reads where the path ended or a return; and the path's answer,
+/// refusal and difference. The handles and the cells' texts are left out: they only spare
+/// conversions. Two paths with equal histories at equal states therefore answer alike from there.
+fn trace_digest(trace: &Trace) -> [u8; 32] {
+    let channels = trace
+        .channels
+        .iter()
+        .map(|channel| {
+            let ChannelTrace {
+                elements,
+                last,
+                open,
+                items,
+                read,
+                handle: _,
+                cells: _,
+                unknown,
+                reached,
+                at_end,
+                silent,
+                chain: _,
+            } = channel;
+            json!({
+                "elements": elements
+                    .iter()
+                    .map(|element| element.map(|bytes| short_hex(&bytes)))
+                    .collect::<Vec<_>>(),
+                "last": last.map(|digest| {
+                    digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+                }),
+                "open": open.as_ref().map(|opened| (opened.opening.name(), opened.reason.clone())),
+                "items": items
+                    .iter()
+                    .map(|digest| digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+                    .collect::<Vec<_>>(),
+                "read": read,
+                "unknown": unknown,
+                "reached": reached,
+                "at_end": at_end,
+                "silent": silent,
+            })
+        })
+        .collect::<Vec<_>>();
+    let answer = match &trace.answer {
+        None => Value::Null,
+        Some(Answer::Done) => json!("done"),
+        Some(Answer::Differs { channel, index }) => json!([channel, index]),
+    };
+    let value = json!({
+        "channels": channels,
+        "answer": answer,
+        "refusal": trace.refusal,
+        "end_difference": trace.end_difference,
+        "cycled": trace.cycled,
+    });
+    *payload_digest(CHAIN_DOMAIN, value.to_string().as_bytes()).as_bytes()
+}
+
+fn short_hex(bytes: &[u8; 8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Whether every state side of a run is a value or a crash: the run is complete, and its one
@@ -2120,12 +2833,24 @@ pub(crate) fn record(
     halts: &[HaltClass],
     incomplete: &[HaltClass],
     facts: Option<LeafFacts>,
+    every: LeafFacts,
 ) -> BaselineRecord {
     let settled = facts.is_some_and(LeafFacts::settled);
     let bound = |halt: &HaltClass| matches!(halt, HaltClass::DepthBound | HaltClass::WorkBound);
     let ended = sides.is_some_and(determined);
     let prefix =
         sides.is_some() && !ended && !incomplete.is_empty() && incomplete.iter().all(bound);
+    if let Some(paths) = trace.paths {
+        return record_paths(
+            resolved,
+            &paths.paths,
+            ended,
+            every,
+            prefix,
+            crashed,
+            trace.refusal,
+        );
+    }
     let closure = if trace.branched.is_some() || !trace.ended {
         None
     } else if ended {
@@ -2187,6 +2912,53 @@ pub(crate) fn record(
         prefix,
         crashed,
         refusal: trace.refusal,
+        paths: None,
+    }
+}
+
+/// The baseline's record of a run that split into several paths `paths` (module documentation,
+/// "Several paths"): each channel's prefix set over them, END and UNDEF read where the run's end
+/// is determined (`ended`). It is held to the facts of every leaf (`every`): where a leaf has a
+/// diagnostic, a path may be missing from the sets, so no channel is known to be explored
+/// anywhere; where a leaf is not shown real, a set may hold a prefix the definition does not
+/// have, so the record is not [`PathRecord::real`].
+fn record_paths(
+    resolved: &Resolved,
+    paths: &[(Trace, LeafEnd)],
+    ended: bool,
+    every: LeafFacts,
+    prefix: bool,
+    crashed: bool,
+    refusal: Option<String>,
+) -> BaselineRecord {
+    let mut sets = sets_of(paths, resolved.names.len(), ended);
+    if !every.clean {
+        for sets in &mut sets {
+            sets.bound(0, Opening::UndecidedPath);
+        }
+    }
+    let channels = resolved
+        .names
+        .iter()
+        .map(|name| ChannelRecord {
+            name: name.clone(),
+            elements: Vec::new(),
+            end: ChannelEnd::Open(Opened::new(
+                Opening::Branch,
+                "the run has several paths: its channels are compared by prefix sets",
+            )),
+        })
+        .collect();
+    BaselineRecord {
+        channels,
+        prefix,
+        crashed,
+        refusal,
+        paths: Some(PathRecord {
+            channels: sets,
+            paths: paths.len(),
+            real: every.settled(),
+        }),
     }
 }
 
@@ -2231,6 +3003,9 @@ pub(crate) fn judge(
     sides: Option<&[OracleSide]>,
     undefined: bool,
 ) -> ObservationVerdict {
+    if baseline.paths.is_some() || comparison.trace.paths.is_some() {
+        return judge_sets(baseline, comparison, sides, undefined);
+    }
     let trace = &comparison.trace;
     let name = |channel: usize| baseline.channels[channel].name.clone();
     let distinguish =
@@ -2240,6 +3015,7 @@ pub(crate) fn judge(
                 channel: name(channel),
                 index,
                 at_end,
+                outside: None,
             }),
             horizon: BTreeMap::new(),
             cause: None,
@@ -2396,6 +3172,230 @@ pub(crate) fn judge(
     }
 }
 
+/// The observation slot where either side's run split into several paths (module
+/// documentation, "Several paths"): the two sides' prefix sets are compared ([`judge`] reads the
+/// same arguments).
+///
+/// - A mutant's prefix the probe found outside the baseline's set, at a point, kills where the
+///   leaf the request ended at is settled and the run gave sides, as a difference of one path
+///   does: the prefix is real, each element decided, and the baseline is explored past that index
+///   on every path, so no path of the baseline in any model has it.
+/// - Everything else rests on the mutant's whole run: it must have given sides and every leaf
+///   must be clean, so that no path is missing from what it explored. A prefix read where a path
+///   ended (a log item, or its END or UNDEF where the run's end is determined) outside the
+///   baseline's set kills where every leaf of the run is settled.
+/// - A baseline's prefix outside the mutant's set kills where the baseline's record is real (each
+///   prefix is the definition's) and the mutant is explored past that index on every path.
+/// - Otherwise each channel agrees up to the lesser of the indices to which the two sides are
+///   explored, and to its end where both are explored completely; that needs a real baseline
+///   record, since a baseline prefix not shown real is no fact the mutant could lack. A prefix
+///   program whose every horizon is 0 observed nothing within its budget, and the slot is
+///   unknown.
+fn judge_sets(
+    baseline: &BaselineRecord,
+    comparison: &Comparison,
+    sides: Option<&[OracleSide]>,
+    undefined: bool,
+) -> ObservationVerdict {
+    let trace = &comparison.trace;
+    let name = |channel: usize| baseline.channels[channel].name.clone();
+    let distinguish =
+        |channel: usize, index: usize, at_end: bool, outside: Outside, element: Option<Element>| {
+            ObservationVerdict {
+                outcome: OracleOutcome::Distinguish,
+                position: Some(Position {
+                    channel: name(channel),
+                    index,
+                    at_end,
+                    outside: Some(outside),
+                }),
+                horizon: BTreeMap::new(),
+                cause: None,
+                element,
+                cycle: trace.cycled,
+            }
+        };
+    let unknown = |cause: String| ObservationVerdict {
+        outcome: OracleOutcome::Unknown,
+        position: None,
+        horizon: BTreeMap::new(),
+        cause: Some(cause),
+        element: None,
+        cycle: trace.cycled,
+    };
+    let ended = sides.is_some_and(determined);
+    // The mutant's paths: its several, or its one, ended as its run's end says.
+    let one;
+    let paths: &[(Trace, LeafEnd)] = match &trace.paths {
+        Some(paths) => &paths.paths,
+        None => {
+            let end = if trace.answer.is_none() && trace.ended && trace.branched.is_none() {
+                if undefined {
+                    LeafEnd::Undefined
+                } else {
+                    LeafEnd::End
+                }
+            } else {
+                LeafEnd::Open(Opened::new(
+                    Opening::UndecidedPath,
+                    "the mutant's path has no decided end",
+                ))
+            };
+            one = [(trace.as_ref().clone(), end)];
+            &one
+        }
+    };
+    let real = comparison.leaf.is_some_and(LeafFacts::settled) && sides.is_some();
+    for (path, _) in paths {
+        if let Some(Answer::Differs { channel, index }) = path.answer {
+            return if real {
+                distinguish(
+                    channel,
+                    index,
+                    false,
+                    Outside::Mutant,
+                    path.differing.as_deref().cloned(),
+                )
+            } else {
+                unknown(format!(
+                    "the channel `{}` differs at {index} in a state that is not decided",
+                    name(channel)
+                ))
+            };
+        }
+    }
+    if sides.is_none() {
+        return unknown("the mutant's run gave no sides".to_owned());
+    }
+    if !comparison.every.clean {
+        return unknown(
+            "k-rust reported a diagnostic on the mutant's run, which may then miss a path"
+                .to_owned(),
+        );
+    }
+    let settled = comparison.every.settled();
+    let sets = baseline.sets();
+    // A prefix read where a path ended, outside the baseline's set.
+    for (path, _) in paths {
+        if let Some((channel, index)) = path.end_difference {
+            return if settled {
+                distinguish(
+                    channel,
+                    index,
+                    true,
+                    Outside::Mutant,
+                    path.differing.as_deref().cloned(),
+                )
+            } else {
+                unknown(format!(
+                    "the channel `{}` differs at {index} where a path ended, in a state that is \
+                     not decided",
+                    name(channel)
+                ))
+            };
+        }
+    }
+    // A path's END or UNDEF, outside the baseline's set.
+    if ended && settled {
+        for (path, end) in paths {
+            let closure = match end {
+                LeafEnd::End => Closure::End,
+                LeafEnd::Undefined => Closure::Undefined,
+                _ => continue,
+            };
+            for (channel, mutant) in path.channels.iter().enumerate() {
+                let mut mutant = mutant.clone();
+                let index = mutant.elements.len();
+                if mutant.open.is_some() || mutant.reached || mutant.silent {
+                    continue;
+                }
+                let Some(prefix) = mutant.chain() else {
+                    continue;
+                };
+                let chain = chain_next(&prefix, Link::Closed(closure));
+                if sets[channel].complete_at(index) && !sets[channel].holds(index, &chain) {
+                    return distinguish(
+                        channel,
+                        index,
+                        true,
+                        Outside::Mutant,
+                        Some(closure.element()),
+                    );
+                }
+            }
+        }
+    }
+    let baseline_real = baseline.paths.as_ref().is_none_or(|paths| paths.real);
+    let mutant_sets = sets_of(paths, sets.len(), ended && settled);
+    // A baseline's prefix outside the mutant's set, where the mutant is explored past its index.
+    if baseline_real {
+        for (channel, (recorded, mutant)) in sets.iter().zip(&mutant_sets).enumerate() {
+            for (index, prefixes) in recorded.prefixes.iter().enumerate() {
+                if !mutant.complete_at(index) {
+                    break;
+                }
+                let held = mutant.prefixes.get(index);
+                if !prefixes
+                    .iter()
+                    .all(|prefix| held.is_some_and(|held| held.contains(prefix)))
+                {
+                    return distinguish(channel, index, false, Outside::Baseline, None);
+                }
+            }
+        }
+    }
+    if !baseline_real {
+        return unknown(
+            "a leaf of the baseline's run is not shown real, so no baseline prefix is held against \
+             the mutant"
+                .to_owned(),
+        );
+    }
+    // Each channel agrees to its end where both sides are explored completely, and up to the
+    // baseline's horizon where the mutant is explored at least that far; a mutant explored short
+    // of the baseline leaves the channel unknown, as a bound never decides.
+    let mut horizon = BTreeMap::new();
+    let mut complete = false;
+    for (channel, (recorded, mutant)) in sets.iter().zip(&mutant_sets).enumerate() {
+        match (recorded.complete_to, mutant.complete_to) {
+            (None, None) => complete = true,
+            (Some(at), None) => {
+                horizon.insert(name(channel), at);
+            }
+            (Some(at), Some(explored)) if explored.elements >= at.elements => {
+                horizon.insert(name(channel), at);
+            }
+            (_, Some(explored)) => {
+                return unknown(format!(
+                    "the channel `{}` is explored to {} on the mutant ({}), short of the \
+                     baseline's {}",
+                    name(channel),
+                    explored.elements,
+                    explored.opening.name(),
+                    recorded
+                        .complete_to
+                        .map_or("end".to_owned(), |at| at.elements.to_string())
+                ));
+            }
+        }
+    }
+    if baseline.prefix && !complete && horizon.values().all(|at| at.elements == 0) {
+        return unknown(
+            "every channel's horizon is 0: the baseline's prefix observed nothing within its \
+             budget"
+                .to_owned(),
+        );
+    }
+    ObservationVerdict {
+        outcome: OracleOutcome::Agree,
+        position: None,
+        horizon,
+        cause: None,
+        element: None,
+        cycle: trace.cycled,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2492,6 +3492,7 @@ mod tests {
             prefix,
             crashed: false,
             refusal: None,
+            paths: None,
         }
     }
 
@@ -2514,6 +3515,7 @@ mod tests {
             refusal: None,
             differing: None,
             cycled: None,
+            paths: None,
         }
     }
 
@@ -2526,6 +3528,7 @@ mod tests {
         Comparison {
             trace: Box::new(trace),
             leaf: Some(leaf),
+            every: leaf,
             verdict: None,
         }
     }
@@ -2544,6 +3547,7 @@ mod tests {
             channel: channel.to_owned(),
             index,
             at_end,
+            outside: None,
         })
     }
 
@@ -2824,6 +3828,7 @@ mod tests {
             &halts,
             &[],
             Some(SETTLED),
+            SETTLED,
         );
         assert!(!ends.prefix);
         assert_eq!(ends.channels[0].end, ChannelEnd::Closed(Closure::End));
@@ -2837,6 +3842,7 @@ mod tests {
             &halts,
             &[],
             Some(SETTLED),
+            SETTLED,
         );
         assert_eq!(
             undefined.channels[0].end,
@@ -2876,6 +3882,7 @@ mod tests {
             &cut,
             &cut,
             Some(SETTLED),
+            SETTLED,
         );
         assert!(kept.prefix && kept.crashed);
         assert_eq!(kept.channels[0].elements.len(), 2);
@@ -2905,6 +3912,7 @@ mod tests {
                 &cut,
                 &cut,
                 Some(facts),
+                SETTLED,
             );
             assert_eq!(opened.channels[0].horizon(), Some(0), "{why}");
             let ChannelEnd::Open(opened) = &opened.channels[0].end else {
@@ -2925,6 +3933,7 @@ mod tests {
             &cut,
             &cut,
             Some(SETTLED),
+            SETTLED,
         );
         assert!(refused.refusal.unwrap().starts_with("log-not-appended"));
     }

@@ -182,6 +182,10 @@ const KSEQ: &str = "kseq";
 /// cells by K label, values as K text.
 pub const K_EVIDENCE_VERSION: &str = "kink-k/1";
 
+/// The format of kink's evidence of a difference of the two sides' prefix sets
+/// ([`EndReader::observation_set_difference`]).
+pub const K_SET_EVIDENCE_VERSION: &str = "kink-k-sets/1";
+
 /// A front end's evidence of a kill at its own level (module documentation, "The format of the
 /// evidence"); kink never reads it. The krs front end implements it with krs-exec's comparison of
 /// ends.
@@ -769,6 +773,46 @@ impl EndReader {
         };
         own["note"] = json!(format!("no {format} evidence: {note}"));
         own
+    }
+
+    /// kink's evidence of a difference of the two sides' prefix sets (module documentation,
+    /// "Observation evidence"; kink-campaign `Outside`), which no capture run re-derives, since
+    /// no one baseline path holds the difference: `{format, position: {channel, index, at_end,
+    /// outside}, mutant: {element}}`, `format` [`K_SET_EVIDENCE_VERSION`]. Where the mutant's
+    /// prefix is outside, `mutant.element` is its element at the index, read where its probe
+    /// found the difference ([`Self::element`]), and no path of the baseline has the prefix it
+    /// ends; where the baseline's is outside, a real path of the baseline has a prefix of that
+    /// length that no path of the mutant has, and `mutant.element` is `"absent"`.
+    #[must_use]
+    pub fn observation_set_difference(
+        &self,
+        verdict: &kink_campaign::ObservationVerdict,
+        observe: Option<&crate::manifest::ObserveSection>,
+    ) -> Value {
+        let Some(position) = &verdict.position else {
+            return Value::Null;
+        };
+        let cells = observe.and_then(|observe| {
+            observe
+                .points
+                .iter()
+                .find(|point| point.name == position.channel)
+                .map(|point| point.cells.as_slice())
+        });
+        let mutant = match (&verdict.element, position.outside) {
+            (Some(element), Some(kink_campaign::Outside::Mutant)) => self.element(element, cells),
+            _ => json!("absent"),
+        };
+        json!({
+            "format": K_SET_EVIDENCE_VERSION,
+            "position": {
+                "channel": position.channel,
+                "index": position.index,
+                "at_end": position.at_end,
+                "outside": position.outside.map(kink_campaign::Outside::name),
+            },
+            "mutant": {"element": mutant},
+        })
     }
 
     /// kink's own evidence of a difference of observation channels: `{format, position:

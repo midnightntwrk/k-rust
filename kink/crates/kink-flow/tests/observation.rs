@@ -746,6 +746,7 @@ fn a_capture_run_rederives_the_baselines_element() {
         prefix: true,
         crashed: false,
         refusal: None,
+        paths: None,
     };
     let int = |value: i64| {
         k_rust::kore::parser::parse_pattern(&format!("\\dv{{SortInt{{}}}}(\"{value}\")")).unwrap()
@@ -756,6 +757,7 @@ fn a_capture_run_rederives_the_baselines_element() {
             channel: "clock".to_owned(),
             index: 1,
             at_end: false,
+            outside: None,
         }),
         horizon: BTreeMap::new(),
         cause: None,
@@ -1003,4 +1005,76 @@ fn a_front_ends_functions_admit_its_keys_and_kink_flow_alone_still_refuses_them(
     assert_eq!(bound.observe_value().unwrap()["functions"], identity);
     let (record, admitted) = kink_flow::admit::admit_spec(&bound);
     assert!(admitted.is_some(), "{:?}", record.refusal);
+}
+
+/// A program whose run has several paths is compared by its channels' prefix sets
+/// (kink-campaign `observation`, "Several paths"): `testdata/k/choice.k` from 0 appends 1 or 2 to
+/// its log, each path finishing at `done`, and its end slot compares only `<k>`, which every end
+/// shares. A mutation whose third path appends 3 is killed at the log's index 0, the mutant's
+/// prefix outside the baseline's set; its slot names the side outside, and its evidence, which no
+/// capture run re-derives, is `kink-k-sets/1` with the mutant's element. A mutation that drops
+/// the behaviour 2 is killed with the baseline's prefix outside, the mutant's element absent.
+#[test]
+fn a_difference_of_prefix_sets_names_the_side_outside() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("kink-flow-observation-{}", std::process::id()))
+        .join("choice");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("mutations")).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/choice.k"),
+        dir.join("choice.k"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"choice.k\"\nmain_module = \"CHOICE\"\n\
+         syntax_module = \"CHOICE-SYNTAX\"\n\n[budget]\nmax_depth = 8\n\n\
+         [result]\ncells = [\"k\"]\n\n\
+         [[observe.point]]\nname = \"finished\"\nafter = [\"CHOICE.finish\"]\n\
+         stutter = \"collapse\"\ncells = []\n\n\
+         [[observe.log]]\nname = \"out\"\ncell = \"out\"\nat = [\"finished\"]\n\n\
+         [[program]]\nid = \"run\"\ntext = \"run\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("mutations/choice.toml"),
+        "[[mutation]]\nid = \"a-third\"\nmisunderstanding = \"a run may also append 3\"\n\n\
+         [[mutation.edit]]\nrule = \"extra\"\nfind = \"N ==Int -1\"\nreplace = \"N ==Int 0\"\n\n\
+         [[mutation]]\nid = \"no-two\"\nmisunderstanding = \"a run never appends 2\"\n\n\
+         [[mutation.edit]]\nrule = \"right\"\nfind = \"N ==Int 0\"\nreplace = \"N ==Int 5\"\n",
+    )
+    .unwrap();
+    let (document, _) = search(&dir.join("FLOW.toml"), RunMode::Search);
+    assert_eq!(
+        status(&document, "choice/a-third"),
+        ("killed".to_owned(), Value::Null),
+        "{document:#}"
+    );
+    let third = entry(&document, "choice/a-third");
+    assert_eq!(
+        third["slots"]["observations"]["position"],
+        json!({"channel": "out", "index": 0, "at_end": false, "outside": "mutant"}),
+        "{third:#}"
+    );
+    assert_eq!(
+        third["difference"],
+        json!({
+            "format": "kink-k-sets/1",
+            "position": {"channel": "out", "index": 0, "at_end": false, "outside": "mutant"},
+            "mutant": {"element": {"item": printed("3")}},
+        }),
+        "{third:#}"
+    );
+    assert_eq!(status(&document, "choice/no-two").0, "killed");
+    let dropped = entry(&document, "choice/no-two");
+    assert_eq!(
+        dropped["difference"],
+        json!({
+            "format": "kink-k-sets/1",
+            "position": {"channel": "out", "index": 0, "at_end": false, "outside": "baseline"},
+            "mutant": {"element": "absent"},
+        }),
+        "{dropped:#}"
+    );
 }

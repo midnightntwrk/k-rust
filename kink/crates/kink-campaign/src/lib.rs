@@ -26,10 +26,10 @@ pub use identity::{
     writer_difference,
 };
 pub use observation::{
-    BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, Closure, Comparison, Element,
-    Evaluated, Horizon, Log, OBSERVATION_VERSION, Observation, ObservationEvaluator,
-    ObservationFunctions, ObservationVerdict, Observe, ObserveFunctions, Opened, Opening,
-    PointClass, Position, Stutter,
+    BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, ChannelSets, Closure, Comparison,
+    Element, Evaluated, Horizon, Log, OBSERVATION_VERSION, Observation, ObservationEvaluator,
+    ObservationFunctions, ObservationVerdict, Observe, ObserveFunctions, Opened, Opening, Outside,
+    PathRecord, PointClass, Position, Stutter,
 };
 mod manifest;
 mod oracle;

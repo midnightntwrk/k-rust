@@ -4754,17 +4754,21 @@ impl Runtime {
             .filter(|execution| !execution.timed_out())
             .map(AdaptedExecution::leaves)
             .unwrap_or_default();
+        let every = LeafFacts::every(leaves, vouched, existing);
         if compared {
+            let existing = |index: usize| existing.get(index).copied().unwrap_or(false);
             return Some(Observation::Compared(Comparison {
                 trace: Box::new(trace),
                 leaf: match leaves {
-                    [leaf] => Some(LeafFacts::of(
-                        leaf,
-                        vouched,
-                        existing.first().copied().unwrap_or(false),
-                    )),
-                    _ => None,
+                    [leaf] => Some(LeafFacts::of(leaf, vouched, existing(0))),
+                    // A run of several paths: the leaf where its probe found a difference, which
+                    // ended the request (`crate::observation`, "Several paths").
+                    leaves => leaves
+                        .iter()
+                        .position(|leaf| leaf.halt == HaltClass::ProbeDifference)
+                        .map(|index| LeafFacts::of(&leaves[index], false, existing(index))),
                 },
+                every,
                 verdict: None,
             }));
         }
@@ -4788,6 +4792,7 @@ impl Runtime {
             &halts,
             &incomplete,
             LeafFacts::shared(leaves, vouched, existing),
+            every,
         )))
     }
 

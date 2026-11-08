@@ -137,8 +137,11 @@ use std::{path::Path, sync::OnceLock};
 /// beside its left-hand side, so a v18 record's heads include values a step only carried past or
 /// dropped. v20: a record's coverage holds `strictness`, the heating and cooling rules the run
 /// matched and fired by compiled id, which `coverage`'s rules family reads per argument position;
-/// a v19 record has none, so every heating rule would read unmatched.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v20";
+/// a v19 record has none, so every heating rule would read unmatched. v21: a record's
+/// `observations` holds `paths`, each channel's prefix set over the run's paths, where the run
+/// split (kink-campaign `PathRecord`); a v20 record of such a run holds channels opened at the
+/// branch, which would read as a prefix that observed nothing.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v21";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -282,7 +285,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 38] = [
+pub const OUTSIDE_IDENTITY: [Outside; 40] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -409,6 +412,15 @@ pub const OUTSIDE_IDENTITY: [Outside; 38] = [
     },
     Outside {
         krate: "kink-campaign",
+        constant: "CHAIN_DOMAIN",
+        reason: "the domain of an observation prefix's chain and of a path's history \
+                 (observation.rs): a mutant's chains are compared with its baseline's record of \
+                 the same campaign call, folded by the same build, and how a prefix set is \
+                 built and compared is named by the component `observation` \
+                 (OBSERVATION_VERSION), which moves with any change of this domain",
+    },
+    Outside {
+        krate: "kink-campaign",
         constant: "ELEMENT_DOMAIN",
         reason: "the domain of an observation element's digest (observation.rs): a mutant's \
                  elements are compared with its baseline's record of the same campaign call, \
@@ -443,6 +455,15 @@ pub const OUTSIDE_IDENTITY: [Outside; 38] = [
                  object: evidence is printed for a reader of a kill the slot already proved and \
                  decides no status; a `killed` outcome record stores it inside its digest, in an \
                  outcome file whose version its reader requires (outcomes.rs)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "K_SET_EVIDENCE_VERSION",
+        reason: "the format of kink's evidence of a difference of prefix sets (evidence.rs), named \
+                 by each such difference object: evidence is printed for a reader of a kill the \
+                 slot already proved and decides no status; a `killed` outcome record stores it \
+                 inside its digest, in an outcome file whose version its reader requires \
+                 (outcomes.rs)",
     },
     Outside {
         krate: "kink-flow",

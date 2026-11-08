@@ -944,10 +944,9 @@ impl<'a> BaselineRunner<'a> {
                 // covers nothing, and the class is `unknown` (a function of the key). An element
                 // kept undecided (under `count`) is an observed event: END against it decides;
                 // and a channel closed by a cycle observed its silence, which an element decides.
+                // A run of several paths observed nothing where no path kept a prefix.
                 if let Some(record) = prefix
-                    && record.channels.iter().all(|channel| {
-                        channel.elements.is_empty() && matches!(channel.end, ChannelEnd::Open(_))
-                    })
+                    && record.observed_nothing()
                 {
                     return ProgramResult {
                         class: ResultClass::Unknown,
@@ -1639,6 +1638,14 @@ pub const TIMEOUT_BOUND_BY_WORK: &str =
 /// budget or closed by a cycle (`record`, its baseline's record): each channel with why it
 /// opened.
 fn observed_nothing_cause(record: &kink_campaign::BaselineRecord) -> String {
+    if let Some(paths) = &record.paths {
+        return format!(
+            "{OBSERVED_NOTHING}: a bound cut the run before it ended, and none of its {} paths \
+             kept an element of any observation channel within the budget, so no mutant can \
+             differ from it within its horizons",
+            paths.paths
+        );
+    }
     let channels = record
         .channels
         .iter()

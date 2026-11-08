@@ -238,8 +238,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// channel's `opening` and its horizon so, a survivor's action raises the bound only where some
 /// horizon's opening is `bound` or `cycle`, and a prefix program none of whose channels kept an
 /// element within its budget or closed by a cycle is `unknown`, since it observed nothing; and
-/// a channel's `closed` can be `cycle`, and an element of the observation evidence `cycle`.
-pub const RUN_VERSION: u64 = 34;
+/// a channel's `closed` can be `cycle`, and an element of the observation evidence `cycle`; 35
+/// since a run that splits is compared by prefix sets: a slot's `position` names the side
+/// `outside` the other's set where they differ, and that kill's evidence is
+/// `kink-k-sets/1` ([`crate::evidence::K_SET_EVIDENCE_VERSION`]).
+pub const RUN_VERSION: u64 = 35;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
@@ -256,7 +259,8 @@ pub fn observation_verdict(notes: &kink_campaign::RunNotes) -> Option<&Observati
 }
 
 /// What the observation slot reports beside its outcome, as an executed entry's slot and an
-/// outcome record keep it: `{position: {channel, index, at_end}}` where it distinguished,
+/// outcome record keep it: `{position: {channel, index, at_end}}` where it distinguished, with
+/// `outside` (kink-campaign `Outside::name`) where the two sides' prefix sets differ,
 /// `{horizon: {<channel>: {elements, opening}}}` where it agreed and some channel's agreement
 /// rests on the baseline's horizon, each with the number of elements agreed on and why the
 /// baseline's channel opened there (kink-campaign `Opening::name`), `{cause}` where it was
@@ -265,11 +269,16 @@ pub fn observation_verdict(notes: &kink_campaign::RunNotes) -> Option<&Observati
 pub fn observation_slot(verdict: &ObservationVerdict) -> Value {
     match verdict.outcome {
         OracleOutcome::Distinguish => verdict.position.as_ref().map_or(Value::Null, |position| {
-            json!({"position": {
+            let mut slot = json!({"position": {
                 "channel": position.channel,
                 "index": position.index,
                 "at_end": position.at_end,
-            }})
+            }});
+            // A difference of prefix sets names the side whose prefix the other lacks.
+            if let Some(outside) = position.outside {
+                slot["position"]["outside"] = json!(outside.name());
+            }
+            slot
         }),
         OracleOutcome::Agree if !verdict.horizon.is_empty() => {
             let horizon = verdict

@@ -418,6 +418,7 @@ fn position(channel: &str, index: usize, at_end: bool) -> Option<Position> {
         channel: channel.into(),
         index,
         at_end,
+        outside: None,
     })
 }
 
@@ -1423,4 +1424,222 @@ fn a_cell_a_front_ends_functions_read_is_a_read_cell_for_admission() {
             );
         }
     });
+}
+
+/// Several paths (kink-campaign `observation`, "Several paths"): `testdata/k/choice.k`, a console
+/// whose run from 0 takes one of three steps, so its `<out>` log's prefix set is {1, 2}, each
+/// path closed by its end at `done`. The one slot reads only the end's terminal class, which
+/// every end shares, so the observation slot alone decides.
+mod several_paths {
+    use super::*;
+    use kink_campaign::Outside;
+
+    const LEFT: &str = "CHOICE.left";
+    const RIGHT: &str = "CHOICE.right";
+    const EXTRA: &str = "CHOICE.extra";
+    const FINISH: &str = "CHOICE.finish";
+
+    fn choice() -> NativeValidator {
+        NativeValidator::bind(
+            support::load_path(&Path::new(support::DIR).join("choice.k"), "CHOICE"),
+            CompileOptions::default(),
+        )
+    }
+
+    /// `<k> run </k> <n> count </n> <out> .List </out>`.
+    fn choice_from(count: i64) -> Pattern {
+        let initial = support::initial_state(support::app("Lblrun", Vec::new()), "SortCmd");
+        let Pattern::Application { symbol, arguments } = &initial else {
+            unreachable!("a configuration is an application");
+        };
+        let cell = |name: &str, content: Pattern| {
+            support::app(&format!("Lbl'-LT-'{name}'-GT-'"), vec![content])
+        };
+        Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: vec![
+                arguments[0].clone(),
+                cell("n", support::int(count)),
+                cell("out", support::app("Lbl'Stop'List", Vec::new())),
+                arguments[1].clone(),
+            ],
+        }
+    }
+
+    fn test(count: i64) -> TestCase {
+        TestCase {
+            id: format!("choice-{count}"),
+            initial_state: choice_from(count),
+            oracles: vec![
+                OracleDeclaration::new(
+                    CrashPolicy::Reject,
+                    Projection::State(StateProjection::ExitStop {
+                        exit_code_cell: None,
+                    }),
+                )
+                .unwrap(),
+            ],
+        }
+    }
+
+    fn choosing<'a>(
+        validator: &'a NativeValidator,
+        tests: &'a [TestCase],
+        depth: u64,
+    ) -> Campaign<'a> {
+        Campaign {
+            module: "CHOICE",
+            ..campaign(validator, tests, depth)
+        }
+    }
+
+    /// The class `finished`, after each finish, with no content, and the `out` log read there
+    /// and where each path ends: each item is compared as the path that appended it finishes.
+    fn finished() -> RunOptions {
+        observe(
+            vec![PointClass {
+                name: "finished".into(),
+                before: BTreeSet::new(),
+                after: BTreeSet::from([FINISH.to_owned()]),
+                cells: Vec::new(),
+                stutter: Stutter::Collapse,
+            }],
+            vec![out("finished")],
+        )
+    }
+
+    fn deleted<'b>(baseline: &'b Baseline, rule: &str) -> CandidateGeneration<'b> {
+        let at = support::rule(baseline, rule);
+        let patch = Patch::new(vec![Edit::DeleteSentence { at: at.clone() }]).unwrap();
+        generation(baseline, rule, (TermRef::new(at, [0]), patch))
+    }
+
+    /// The baseline's record: the prefix sets of its paths.
+    fn record(run: &CampaignRun) -> &kink_campaign::PathRecord {
+        let Some(Observation::Recorded(record)) = &run.baseline[0].notes.observation else {
+            panic!("the baseline records its channels");
+        };
+        record
+            .paths
+            .as_ref()
+            .expect("the baseline's run has several paths")
+    }
+
+    fn outside(channel: &str, index: usize, side: Outside) -> Option<Position> {
+        Some(Position {
+            channel: channel.into(),
+            index,
+            at_end: false,
+            outside: Some(side),
+        })
+    }
+
+    /// The baseline's paths emit 1, 2 and 1 again; its record holds the log's prefixes [1] and
+    /// [2] and their END, every path explored to its end, and is real. extra's -1 becomes 0: a
+    /// third path appends 3, which no baseline path has at index 0, so the mutant is killed there,
+    /// on the fly, at the finish of the path that appended it.
+    #[test]
+    fn a_mutant_with_a_third_behaviour_is_killed() {
+        on_a_big_stack(|| {
+            let validator = choice();
+            let tests = [test(0)];
+            let campaign = choosing(&validator, &tests, 8);
+            let generation = replaced(validator.baseline(), EXTRA, "-1", "0");
+            let run = run(&campaign, &generation, finished());
+            let record = record(&run);
+            assert!(record.real);
+            let out = &record.channels[1];
+            assert_eq!(out.complete_to, None);
+            assert_eq!(out.prefixes[0].len(), 2);
+            // Each path's END after its one item.
+            assert_eq!(out.prefixes[1].len(), 2);
+            assert_eq!(out.prefixes.len(), 2);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+            let verdict = verdict(&run);
+            assert_eq!(verdict.position, outside("out", 0, Outside::Mutant));
+            assert!(matches!(verdict.element, Some(Element::Content(_))));
+        });
+    }
+
+    /// right's guard 0 becomes 5: the mutant's paths emit 1 only. Every mutant path is explored to
+    /// its end, so the baseline's prefix [2], which a real path of the baseline has and no path of
+    /// the mutant has, kills it.
+    #[test]
+    fn a_mutant_that_drops_a_behaviour_is_killed() {
+        on_a_big_stack(|| {
+            let validator = choice();
+            let tests = [test(0)];
+            let generation = replaced(validator.baseline(), RIGHT, "0", "5");
+            let run = run(&choosing(&validator, &tests, 8), &generation, finished());
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+            let verdict = verdict(&run);
+            assert_eq!(verdict.position, outside("out", 0, Outside::Baseline));
+            assert_eq!(verdict.element, None);
+        });
+    }
+
+    /// left is deleted: the mutant's paths are right's, which appends 2, and again's, which
+    /// appends 1, explored in another order than the baseline's. Their prefix sets are the
+    /// baseline's, each explored to its end: the mutant survives with no horizon.
+    #[test]
+    fn a_mutant_that_reorders_the_paths_survives() {
+        on_a_big_stack(|| {
+            let validator = choice();
+            let tests = [test(0)];
+            let campaign = choosing(&validator, &tests, 8);
+            let generation = deleted(validator.baseline(), LEFT);
+            let run = run(&campaign, &generation, finished());
+            let verdict = verdict(&run);
+            assert_eq!(verdict.outcome, OracleOutcome::Agree, "{verdict:?}");
+            assert!(verdict.horizon.is_empty());
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+        });
+    }
+
+    /// A side that must be explored to an index and is not leaves the slot unknown:
+    /// - from 7 the baseline has, at every depth, a path that has appended nothing when the depth
+    ///   bound cuts it, so no index of its log is explored on every path; extra's -1 becomes 7,
+    ///   and the mutant appends 3 where the baseline only appends 1, but no baseline index is
+    ///   complete, so the mutant's prefix is not known to be outside;
+    /// - loop's 7 becomes 0: from 0 the mutant also has a path that appends nothing until the
+    ///   bound cuts it, so it is explored to no index, and the baseline's prefixes, which every
+    ///   mutant path that finishes also has, are not known to be the mutant's.
+    #[test]
+    fn incomplete_exploration_stays_unknown() {
+        on_a_big_stack(|| {
+            let validator = choice();
+            let from_seven = [test(7)];
+            let generation = replaced(validator.baseline(), EXTRA, "-1", "7");
+            let seven = run(
+                &choosing(&validator, &from_seven, 6),
+                &generation,
+                finished(),
+            );
+            let record = record(&seven);
+            assert_eq!(
+                record.channels[1].complete_to.map(|at| at.elements),
+                Some(0)
+            );
+            let unexplored = verdict(&seven);
+            assert_eq!(unexplored.outcome, OracleOutcome::Unknown, "{unexplored:?}");
+
+            let from_zero = [test(0)];
+            let generation = replaced(validator.baseline(), "CHOICE.loop", "7", "0");
+            let zero = run(
+                &choosing(&validator, &from_zero, 6),
+                &generation,
+                finished(),
+            );
+            let verdict = verdict(&zero);
+            assert_eq!(verdict.outcome, OracleOutcome::Unknown, "{verdict:?}");
+            assert!(
+                verdict
+                    .cause
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("explored to 0"),
+                "{verdict:?}"
+            );
+        });
+    }
 }

@@ -1561,6 +1561,7 @@ impl ExecutionAdapter {
                 |backend, request| backend.execute_kore_with_condition(request, condition),
             )?,
             (condition, Some(RequestProbe { rules, probe })) => {
+                let several = probe.follows_paths();
                 let mut recording = Recording {
                     probe,
                     answers: Vec::new(),
@@ -1583,7 +1584,7 @@ impl ExecutionAdapter {
                         )
                     },
                 )?;
-                answers = Some(recording.answers);
+                answers = Some((recording.answers, several));
                 outcome
             }
         };
@@ -1611,8 +1612,12 @@ impl ExecutionAdapter {
             rewrites,
             recorded,
         )?;
-        if let Some(answers) = answers {
-            attach_probe_ends(&mut adapted, answers)?;
+        if let Some((answers, several)) = answers {
+            if several {
+                attach_followed_probe_ends(&mut adapted, answers)?;
+            } else {
+                attach_probe_ends(&mut adapted, answers)?;
+            }
         }
         adapted.facts.decider_smt_unknowns = undecided.get();
         Ok(adapted)
@@ -1931,6 +1936,49 @@ fn attach_probe_ends(
         (_, None) => probed.map_or(Ok(()), |halt| {
             Err(ExecutionAdapterFailure::ContractViolation(halt))
         }),
+    }
+}
+
+/// [`attach_probe_ends`] for a probe that follows every path of the run (k-rust
+/// `Probe::follows_paths`): a `Done` answer ends its path only, so the run may hold one probe
+/// leaf per path, each beside other leaves, and a `Differs` answer ends the request, so it is the
+/// last answer. k-rust never merges a probe's leaf, and keeps the leaves in the order the run made
+/// them, so the probe leaves are the answers' in order: each probe leaf takes the next answer,
+/// which must be of its halt and depth, and every answer must be taken. Anything else is outside
+/// k-rust's contract. A run the watchdog cancelled before k-rust returned has no leaf, and nothing
+/// is paired.
+fn attach_followed_probe_ends(
+    adapted: &mut AdaptedExecution,
+    answers: Vec<ProbeAnswer>,
+) -> Result<(), ExecutionAdapterFailure> {
+    if adapted.timed_out && adapted.leaves.is_empty() {
+        return Ok(());
+    }
+    let differs_last = answers
+        .iter()
+        .position(|answer| answer.halt == HaltClass::ProbeDifference)
+        .is_none_or(|index| index + 1 == answers.len());
+    if !differs_last {
+        return Err(ExecutionAdapterFailure::ContractViolation(
+            HaltClass::ProbeDifference,
+        ));
+    }
+    let mut answers = answers.into_iter();
+    for leaf in adapted
+        .leaves
+        .iter_mut()
+        .filter(|leaf| leaf.halt.is_probe())
+    {
+        match answers.next() {
+            Some(answer) if leaf.halt == answer.halt && leaf.branch.depth == answer.depth => {
+                leaf.probe = Some(answer.end);
+            }
+            _ => return Err(ExecutionAdapterFailure::ContractViolation(leaf.halt)),
+        }
+    }
+    match answers.next() {
+        Some(extra) => Err(ExecutionAdapterFailure::ContractViolation(extra.halt)),
+        None => Ok(()),
     }
 }
 

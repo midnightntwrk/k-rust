@@ -576,6 +576,21 @@ impl Search<'_, '_> {
             else {
                 continue;
             };
+            // A difference of prefix sets has no one baseline element to re-derive: its evidence
+            // names the prefix the other side lacks.
+            if verdict
+                .position
+                .as_ref()
+                .is_some_and(|position| position.outside.is_some())
+            {
+                differences.insert(
+                    evidence.test_id.clone(),
+                    self.runner
+                        .end_reader()
+                        .observation_set_difference(verdict, self.manifest.observe.as_ref()),
+                );
+                continue;
+            }
             let record = baseline
                 .iter()
                 .find(|baseline| baseline.test_id == evidence.test_id)
