@@ -517,14 +517,22 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
         json!(["load", "load-six"]),
         "{load:#}"
     );
-    assert_eq!(templates["not_matched_by"], json!(["alu", "other"]), "{load:#}");
+    assert_eq!(
+        templates["not_matched_by"],
+        json!(["alu", "other"]),
+        "{load:#}"
+    );
     // A template and an authored conjunct: the template's misses are no refutations.
     assert_eq!(
         authored(load, "r != 6")["false_by"],
         json!(["load-six"]),
         "{load:#}"
     );
-    assert_eq!(load["refuted_by"], json!(["load-six", "alu", "other"]), "{load:#}");
+    assert_eq!(
+        load["refuted_by"],
+        json!(["load-six", "alu", "other"]),
+        "{load:#}"
+    );
     assert_eq!(load["krs"]["held_by"], json!(["load"]), "{load:#}");
     assert_eq!(load["krs"]["refuted_by"], json!(["load-six"]), "{load:#}");
     assert_eq!(load["krs"]["never"], json!([]), "{load:#}");

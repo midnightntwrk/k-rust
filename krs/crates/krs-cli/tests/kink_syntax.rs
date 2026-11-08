@@ -607,7 +607,11 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
             match occurrence["reach"].as_str() {
                 Some("match") => {
                     matched += 1;
-                    assert_eq!(strings(&occurrence["reached_by"]), ["load", "halt"], "{flip:#}");
+                    assert_eq!(
+                        strings(&occurrence["reached_by"]),
+                        ["load", "halt"],
+                        "{flip:#}"
+                    );
                 }
                 Some("operand") => {
                     let operand = rule["guard"]["operands"]
