@@ -669,8 +669,8 @@ So no comparable program can tell the flip apart, and running it would say no mo
 Each occurrence lists `reached_by`, `undecided_by`, `unplaced`, a node's `true_by` and `false_by`, and its `rule`.
 
 Under `--tier 1`, or where the front end derives none, the family is `{tier: 2, run: false, obligations, reason, items: []}`: `obligations` is the derived count under `--tier 1` (null where none is derived) and no status is shown, since a status read from the cache alone would depend on what the cache holds.
-No front end of this build gives coverage the flips: kink-flow's own reads K alone, which gives neither the guard families nor a judge; krs derives and judges a definition's condition flips, but its front end gives coverage none of them.
-The family's `reason` says which.
+kink-flow's own front end derives none: it reads K alone, which gives neither the guard families nor a judge, and the family's `reason` says so.
+krs's front end derives and judges a definition's condition flips and gives coverage every one, refused ones too, each with the guard nodes or the arms it changes; a definition with no flip has `run: false` and krs's reason.
 
 **Not built.** `rule_windows` and `syntax_paths` (depth above 1) are `null`.
 
@@ -1656,6 +1656,13 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 - Mark every data literal: in TRIAL2 the killing value was usually one nobody would have guessed (`t = 0` in `primes`). A template is not a corpus program: it gets no record, and nothing is cached for it.
 - `testdata/flow/fuzz/imp` (TRIAL2's IMP thin corpus, its survivors, their templates and a pattern) and `testdata/flow/fuzz/impu` (three unmatched rules and templates that match them) are complete examples; the user guide runs every command it shows on them (`tests/guide.rs`).
 
+### Killing a flip
+
+`--kill FLIP` names a condition flip of `coverage`'s flips family where no list holds the id: `--mutations` names a list, whose mutation the id then is, and without it the front end's own list names the mutation only where it holds the id.
+The front end derives its flips (`FrontEnd::derived`; "Flips" under `coverage` above), and the job fuzzes an admitted flip's edits as a kill job of a one-mutation list (`job.flip` true): its confirmation is kink's own `run` of the flip on the flow with the candidate alone, its template's class is read from the last run document, which has no row for a flip, and each next step that would run `run` runs `coverage`, whose flips family runs the flip's kill search.
+A flip the front end's judge refused has no mutant: the job is refused at stage `mutation`, with `job.status` `refused`, the judge's reason and detail, and its next step in `action`.
+An id that is neither a mutation of the list nor a derived flip is refused (`unknown-mutation`), the detail saying what the list and the derived flips hold; kink-flow's own front end derives no flip, so with no list the detail says why.
+
 ### Covering a rule and hitting a pattern
 
 `--matched RULE`, `--fired RULE` and `--pattern ID --patterns PATTERNS.toml` replace `--kill`; every other option applies, and the job runs on the baseline alone (its exclusions, its assembly, its findings).
@@ -1709,6 +1716,7 @@ Version 6 (CF-40c2) names each coverage predicate as every kink-flow document do
 Version 7 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"), with `stopped` `refused` and its `action`.
 Version 8 adds `template.last_run.mutation.witnesses_global` and the warning `global-witnesses`.
 Version 9 refuses a kill job of a mutation `run` decides from its edit (stage `mutation`, reason `unkillable` or `equivalent`, with `job.weakening`) in place of the warning `unkillable`, and adds the `stopped` value `stack-stops` with `--stack-stops N`, and the warnings `stack-stop` and `not-ceil-free`. Version 10 adds the `stopped` value `open-stops` with `--open-stops N` and the warnings `open-application` and `last-run-without-mutation`, gives `global-witnesses` only where the template's program reaches no edited rule, and names the job's own list and cache in each next step that runs `run`.
+Version 11 adds the kill job of a condition flip a front end derives (below): a kill job's `job.flip` says whether its mutation is one, a refused flip is refused at stage `mutation` with `job.status` `refused` and the judge's reason, and a flip's next steps that would run `run` run `coverage`.
 `tests/formats.rs` ties the version to the document's keys and enumerated values and to the report version it embeds.
 
 ## Front ends
