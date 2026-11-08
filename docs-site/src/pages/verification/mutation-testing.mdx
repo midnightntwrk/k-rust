@@ -149,7 +149,7 @@ Drop it, or keep it with that argument written in its `misunderstanding`, as the
 
 ### 5. Commit, and check in CI
 
-Commit `kink/definition.k` and `kink/verdicts.lock` with the corpus.
+Commit `kink/definition.k`, `kink/verdicts.lock` and `kink/coverage.lock` with the corpus.
 `krs kink emit --check` writes nothing and exits 2 when `definition.k` is not the package's current emission, so a CI run trusts committed verdicts only for the K they were judged on:
 
 ```console [recorded with krs]
@@ -191,6 +191,7 @@ krs kink run --package story-plus --definition main --locked > /dev/null || stat
 ```
 
 A CI that must not accept an `unknown` fails on 3 too.
+`krs kink coverage --package story-plus --definition main --locked` checks `kink/coverage.lock` the same way, with the same exit statuses: 1 when an obligation opened or closed or a condition flip's status or killer moved.
 
 ## Reading the emitted K
 
@@ -356,6 +357,7 @@ A run over `refused.toml` judges nothing and exits 2:
 | `kink/FLOW.toml`, `kink/cases/`, `kink/mutations/<topic>.toml` | yes | the corpus and the misunderstandings it is checked against |
 | `kink/.gitignore` | yes | its line `/.kink-flow/` keeps the caches out |
 | `kink/verdicts.lock` | yes; CI runs `krs kink run --locked` | each mutation's verdict and its one recorded killer; `run` tries it first |
+| `kink/coverage.lock` | yes; CI runs `krs kink coverage --locked` | each family's open obligations, each condition flip's status and its one recorded killer; `coverage` tries it first |
 | `kink/PATTERNS.toml`, `kink/TEMPLATES.toml` | yes, when used | the patterns `query` checks, and the case templates `fuzz` searches |
 | `kink/.kink-flow/` | never | caches, keyed by every input, so a fresh checkout recomputes them |
 
