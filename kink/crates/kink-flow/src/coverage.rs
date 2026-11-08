@@ -307,7 +307,7 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// max_obligations` is refused (`max-obligations`); 13 since every family shares one static
 /// scope: a claim helper is `claim-helper` whatever the programs did (in version 12 one some
 /// program matched or fired was an obligation), with its `reason`, and a front end's flip that
-/// changes a sentence outside the scope is listed under the flips family's `not_generated`
+/// changes only sentences outside the scope is listed under the flips family's `not_generated`
 /// (`{reason, id, atom, sentences, pair, detail}`) instead of counted, so the denominators of the
 /// rules, requirements, syntax and flips families can differ from version 12's on the same
 /// definition; an `unknown` flip has `causes` (`[{program, cause}]`), which its target states

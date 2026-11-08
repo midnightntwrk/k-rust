@@ -677,7 +677,7 @@ rewritten by `--verify`; delete a mismatching record (or the cache) to recompute
 
 Every family shares one scope, a function of the definition and the front end's marks read before any program runs.
 A sentence is no obligation of any family when it is, in this order, a simplification, `symbolic` or ceil equation (`out-of-scope`), a rule none of whose compiled ids a run's coverage can name (`no-coverage-signal`), or an equation of a function only claims apply (`claim-helper`).
-The rules family gives such a sentence that status; the requirements, syntax and field-value families read the rules statuses, so they count none of its conditions or touches; the rule windows family's may-follow graph has no node for it; and a front end's flip that changes it is listed under the flips family's `not_generated`, never resolved, run or counted.
+The rules family gives such a sentence that status; the requirements, syntax and field-value families read the rules statuses, so they count none of its conditions or touches; the rule windows family's may-follow graph has no node for it; and a front end's flip that changes only such sentences is listed under the flips family's `not_generated`, never resolved, run or counted, while a flip that also changes a sentence in the scope is that sentence's obligation.
 
 A claim helper is outside the scope whatever the programs did.
 No initializer, program production or sentence a run can take applies it, so a run reaches it only through an input that applies it, and an edit of it changes no step of any run that does not.
@@ -777,14 +777,15 @@ A front end that has templates names their binders in its selection (`SyntaxSele
 **Flips.** Tier 2: each condition flip a front end derives from the definition's source is an obligation.
 A flip negates one condition atom, or toggles one bit of an encoding, in a closed set of sentences that the atom keeps apart, so the flipped definition is one the source language admits and the question is whether the corpus notices the swapped outcomes.
 Generating the flips needs the source language's guard families and admitting each needs its judge, so the front end supplies the list: each entry with its id, its operator (`flip` or `bitflip`), the atom's text, its judgement (the K patch, in `MUTATIONS.toml`'s edit format, or the judge's refusal) and the occurrences it changes, each a node of a sentence's condition (by its path in the rule item's `guard.operands`) or a sentence's match.
-A flip that changes a sentence outside the shared scope (a claim helper, above) is no obligation: kink-flow moves it to `not_generated` as `{reason, id, atom, sentences, pair, detail}`, `reason` the sentence's status (`claim-helper`), before any run, whatever the front end gave, so the list stays a function of the definition and no mutant is spent on it.
+A flip every occurrence of which changes a sentence outside the shared scope (a claim helper, above) is no obligation: kink-flow moves it to `not_generated` as `{reason, id, atom, sentences, pair, detail}`, `reason` the status (`claim-helper`) of its first occurrence's sentence, in occurrence order, and `detail` each sentence's status, before any run, whatever the front end gave, so the list stays a function of the definition and no mutant is spent on it.
+A flip that changes some sentence in the scope stays an obligation of those sentences, with all its edits, and keeps only its occurrences in the scope: the scope sets a sentence aside, not a flip, and an edit outside it adds nothing a family counts, so a program that reaches only an occurrence outside the scope meets no obligation.
 Each obligation is an item `{id, operator, text, atom, occurrences, sentences, status, kink_status, judge, reason, next, detail, digest, killer, killer_source, recorded_killer, killer_change, witnesses, horizon, causes, waits_on, live_runs, calls}`:
 
 | Status | Counted | Meaning |
 | --- | --- | --- |
 | `distinguished` | yes, covered | the kill search killed the mutant; `killer` is the coverage lock's recorded killer while it still kills, else the first killing program in the search's order ("The coverage lock") |
 | `undistinguished` | yes, open | the search ran the mutant on every comparable program, and none told it apart |
-| `unreached` | yes, open | no comparable program reached an occurrence (below): deduced, with no mutant run |
+| `unreached` | yes, open | no comparable program reached an occurrence in the scope (below): deduced, with no mutant run |
 | `unknown` | yes, open | the search gave no verdict (kink's `unknown` or `timeout`, or an error), with kink's reason where one holds for the whole search, and each executed program's cause (`causes`, `[{program, cause}]`, in the search's order; empty for every other status) |
 | `refused` | no | the front end's judge, or kink-flow's resolution or admission of the patch (`judge`), refused it, with the reason: a disagreement between the generator and an admission, which a definition's tests pin to zero |
 | `equivalent` | no | kink proves no program can tell the mutant apart (its `equivalent` or `unkillable` status) |
@@ -797,8 +798,8 @@ An outcome record is keyed by the mutation's patch digest, never by its id or it
 The unreached deduction reads the comparable programs' cached records.
 A condition node is reached where it took an outcome (`true`, `false` or `undefined`) in the rule's guard row; a match is reached where the sentence was entered at the front end's level (`krs.matched_by` where the front end reads templates, else `matched_by`).
 An occurrence is undecided, and counts as reached, where the records cannot say it was not evaluated: a node a program left undecided, a guard a program left undecided or stopped in or the solver refuted (the solver reads every atom of the condition), a program whose recorded coverage is not complete, and an occurrence the rows do not place (no rule item, no guard, an unreadable skeleton, no node at the path; `unplaced` says why); a flip that names no occurrence is undecided too.
-A flip is `unreached` when it names occurrences and none is reached or undecided.
-It is sound: the flip changes only those occurrences, in place, and the operands before each are unchanged, so the mutant's run reaches the same positions with the same states, and by induction on the steps of a baseline run that never evaluates an occurrence, the mutant's run takes the same steps, every guard verdict and every function value it uses agreeing; for a bit flip the closed set of arms has a domain the toggle maps onto itself, so an input no arm of it matched matches none in the mutant either.
+A flip is `unreached` when it names occurrences in the scope and none is reached or undecided.
+It is sound for the flip of the sentences in the scope: the flip changes only those occurrences, in place, and the operands before each are unchanged, so the mutant's run reaches the same positions with the same states, and by induction on the steps of a baseline run that never evaluates an occurrence, the mutant's run takes the same steps, every guard verdict and every function value it uses agreeing; for a bit flip the closed set of arms has a domain the toggle maps onto itself, so an input no arm of it matched matches none in the mutant either.
 So no comparable program can tell the flip apart, and running it would say no more; the deduction saves the costliest outcome, a survivor run on every program, and points at the tier-1 obligations that explain it (`waits_on`: the open requirements of a node, else the rule).
 Each occurrence lists `reached_by`, `undecided_by`, `unplaced`, a node's `true_by` and `false_by`, and its `rule`.
 
@@ -1891,7 +1892,7 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 The front end derives its flips (`FrontEnd::derived`; "Flips" under `coverage` above), and the job fuzzes an admitted flip's edits as a kill job of a one-mutation list (`job.flip` true): its confirmation is kink's own `run` of the flip on the flow with the candidate alone, its template's class is read from the last run document, which has no row for a flip, and each next step that would run `run` runs `coverage`, whose flips family runs the flip's kill search.
 A flip the front end's judge refused has no mutant: the job is refused at stage `mutation`, with `job.status` `refused`, the judge's reason and detail, and its next step in `action`.
 An id that is neither a mutation of the list nor a derived flip is refused (`unknown-mutation`), the detail saying what the list and the derived flips hold, and why the flip is not generated where the flips' `not_generated` names the id; kink-flow's own front end derives no flip, so with no list the detail says why.
-A flip that changes a sentence outside the coverage scope (a claim helper) is not generated, as `coverage` lists it, so its kill job is refused the same way once the specification is admitted.
+A flip that changes only sentences outside the coverage scope (claim helpers) is not generated, as `coverage` lists it, so its kill job is refused the same way once the specification is admitted.
 
 ### Covering a rule and hitting a pattern
 

@@ -21,7 +21,8 @@
 //! Every family reads this one predicate: the rules family gives the sentence the exclusion's
 //! status; the requirements, syntax and field-value families read those statuses; the rule
 //! windows family keeps only sentences in scope as nodes of its may-follow graph; and the flips
-//! family moves a derived flip that changes a sentence outside the scope to `not_generated`
+//! family moves a derived flip that changes only sentences outside the scope to
+//! `not_generated`, and reads only the occurrences in scope of every other flip
 //! ([`crate::flips::scoped`]).
 
 use super::{CLAIM_HELPER, NO_COVERAGE_SIGNAL, OUT_OF_SCOPE};

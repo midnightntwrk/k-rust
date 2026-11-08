@@ -14,8 +14,9 @@
 //! - `refused`: the front end's judge, or kink-flow's resolution or admission of the patch,
 //!   refused the flip, with the reason. Either is a disagreement between the generator and an
 //!   admission, which a definition's tests pin to zero.
-//! - `unreached`: no comparable program reached any occurrence of the flipped atom (below), so
-//!   the corpus cannot distinguish the flip, and no mutant runs.
+//! - `unreached`: no comparable program reached any occurrence of the flipped atom in the
+//!   coverage scope (below), so the corpus cannot distinguish the flip of the sentences it is an
+//!   obligation of, and no mutant runs.
 //! - `distinguished`: the kill search killed the mutant, with its `killer`: the coverage lock's
 //!   recorded killer while it still kills, else the first killing program in the search's order
 //!   ([`crate::lock`]; `recorded_killer`, and `killer_change` saying why the killer is not the
@@ -63,6 +64,12 @@
 //! in the mutant either. So every comparable program agrees on the mutant, and the corpus does
 //! not distinguish it; no run would say more. The deduction asks nothing of kink's admission of
 //! the mutant, which only the search asks.
+//!
+//! The occurrences read are those in the coverage scope ([`scoped`]). A flip that also changes a
+//! sentence outside it (a claim helper) is the obligation of its sentences in scope, and the
+//! argument above, over the occurrences in scope, shows that the corpus does not distinguish
+//! the flip of those sentences; a program that reached only an occurrence outside the scope
+//! would tell apart an edit that is no obligation of any family.
 
 use crate::mutation::{EditSpec, Mutation};
 /// The sentence an occurrence names, re-exported for front ends that build the list.
@@ -122,16 +129,17 @@ impl Default for Derived<'_> {
 /// A front end's derived flips: every obligation, and the flips its generator does not generate.
 ///
 /// The list must be a function of the definition, so the flips that are not obligations are
-/// decided before any run: kink-flow moves an entry that changes a sentence outside the scope
-/// every coverage family shares (a claim helper, a simplification, a rule with no coverage
-/// signal; [`crate::coverage`], "Families") to `not_generated` wherever a list enters
-/// ([`scoped`]), so the scope holds for any front end's list.
+/// decided before any run: wherever a list enters ([`scoped`]), kink-flow moves an entry that
+/// changes only sentences outside the scope every coverage family shares (a claim helper, a
+/// simplification, a rule with no coverage signal; [`crate::coverage`], "Families") to
+/// `not_generated`, and keeps of every other entry its occurrences in the scope, so the scope
+/// holds for any front end's list.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DerivedList {
     /// Every obligation, in the front end's order, which must be a function of the definition.
     pub entries: Vec<DerivedEntry>,
     /// The flips not generated, each the front end's value (`{reason, ...}`), shown apart and
-    /// never counted; kink-flow adds the entries outside the coverage scope ([`scoped`]).
+    /// never counted; kink-flow adds the entries wholly outside the coverage scope ([`scoped`]).
     pub not_generated: Vec<Value>,
     /// Why the list is empty, when it is.
     pub none: Option<String>,
@@ -149,7 +157,8 @@ pub struct DerivedEntry {
     pub text: String,
     /// The front end's presentation of the atom, shown as given.
     pub atom: Value,
-    /// Every occurrence the flip changes; the unreached deduction reads them.
+    /// Every occurrence the flip changes; the unreached deduction reads those in the coverage
+    /// scope ([`scoped`]).
     pub occurrences: Vec<Occurrence>,
     /// The front end's judgement.
     pub judged: Judged,
@@ -211,9 +220,18 @@ impl DerivedEntry {
     }
 }
 
-/// `list` with every entry that changes a sentence outside the coverage scope moved to
-/// `not_generated` ([`outside_scope`]), after the front end's own, in the list's order: such an
-/// entry is never resolved, run or counted, so no mutant is spent on a flip no family counts.
+/// `list` scoped to the sentences every coverage family shares: an entry every occurrence of
+/// which names a sentence outside the scope is moved to `not_generated` ([`outside_scope`]),
+/// after the front end's own, in the list's order, so it is never resolved, run or counted; an
+/// entry that changes some sentence in the scope keeps only its occurrences in the scope, which
+/// the unreached deduction reads, and all its edits, which its mutant runs.
+///
+/// A flip that also edits a sentence outside the scope stays an obligation of the sentences in
+/// it: the scope sets a sentence aside, not a flip, and the flip's edits in the scope are the
+/// change a program has to notice. An edit outside the scope adds nothing a family counts (a
+/// claim helper's edit is reached only through an input that applies it, and a proof of its
+/// claims checks it), so a program that reaches only an occurrence outside the scope meets no
+/// obligation, and `unreached` means that no comparable program reached an occurrence in it.
 pub(crate) fn scoped(
     list: &DerivedList,
     spec: &crate::admit::AdmittedSpec,
@@ -225,28 +243,44 @@ pub(crate) fn scoped(
         none: list.none.clone(),
     };
     for entry in &list.entries {
-        match outside_scope(entry, spec, scope) {
-            Some(value) => scoped.not_generated.push(value),
-            None => scoped.entries.push(entry.clone()),
+        if let Some(value) = outside_scope(entry, spec, scope) {
+            scoped.not_generated.push(value);
+            continue;
         }
+        let mut entry = entry.clone();
+        entry
+            .occurrences
+            .retain(|occurrence| scope.excludes_at(spec, &occurrence.sentence).is_none());
+        scoped.entries.push(entry);
     }
     scoped
 }
 
-/// The `not_generated` value of `entry` where one of its occurrences names a sentence outside
-/// the coverage scope (the first such, in occurrence order, gives the reason): `{reason, id,
-/// atom, sentences, pair, detail}`, `reason` the exclusion's status (`claim-helper`,
-/// `out-of-scope`, `no-coverage-signal`) and `sentences` the labels of the sentences it changes
-/// (a sentence with none named `<module>#<index>`); `None` where every occurrence is in scope.
+/// The `not_generated` value of `entry` where it names occurrences and every one names a
+/// sentence outside the coverage scope: `{reason, id, atom, sentences, pair, detail}`,
+/// `sentences` the labels of the sentences it changes (a sentence with none named
+/// `<module>#<index>`), `reason` the exclusion's status (`claim-helper`, `out-of-scope`,
+/// `no-coverage-signal`) of its first occurrence in occurrence order, so that a flip whose
+/// sentences are excluded for different reasons has one reason, the same on every run, and
+/// `detail` each sentence's status and each status's reason. `None` where some occurrence is in
+/// scope, or none is named (a flip with no occurrence changes no sentence the scope could set
+/// aside).
 pub(crate) fn outside_scope(
     entry: &DerivedEntry,
     spec: &crate::admit::AdmittedSpec,
     scope: &crate::coverage::scope::Scope<'_>,
 ) -> Option<Value> {
-    let (at, excluded) = entry.occurrences.iter().find_map(|occurrence| {
-        let excluded = scope.excludes_at(spec, &occurrence.sentence)?;
-        Some((&occurrence.sentence, excluded))
-    })?;
+    let excluded = entry
+        .occurrences
+        .iter()
+        .map(|occurrence| {
+            Some((
+                &occurrence.sentence,
+                scope.excludes_at(spec, &occurrence.sentence)?,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let (_, first) = *excluded.first()?;
     let name = |sentence: &SentenceRef| -> String {
         let label = spec
             .loaded
@@ -261,24 +295,30 @@ pub(crate) fn outside_scope(
         label.unwrap_or_else(|| format!("{}#{}", sentence.module, sentence.index))
     };
     let mut sentences = Vec::new();
-    for occurrence in &entry.occurrences {
-        let name = name(&occurrence.sentence);
+    let mut each = Vec::new();
+    let mut why = Vec::new();
+    for (at, excluded) in &excluded {
+        let name = name(at);
         if !sentences.contains(&name) {
+            each.push(format!("{name} ({})", excluded.status()));
             sentences.push(name);
         }
+        let reason = format!("{}: {}", excluded.status(), excluded.reason());
+        if !why.contains(&reason) {
+            why.push(reason);
+        }
     }
-    let first = name(at);
     Some(json!({
-        "reason": excluded.status(),
+        "reason": first.status(),
         "id": entry.id,
         "atom": entry.atom,
         "sentences": sentences,
         "pair": null,
         "detail": format!(
-            "`{}` changes {first}, which is no obligation of any coverage family ({}: {})",
+            "`{}` changes only sentences that are no obligation of any coverage family: {} ({})",
             entry.id,
-            excluded.status(),
-            excluded.reason()
+            each.join(", "),
+            why.join("; ")
         ),
     }))
 }

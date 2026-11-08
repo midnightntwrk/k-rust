@@ -1848,7 +1848,7 @@ pub fn fuzz_job(
 /// the front end's judge refused is refused at stage `mutation` with the judge's reason and next
 /// step, since no mutant stands for it; an id that is no derived flip either is refused as an
 /// unknown mutation, naming what the list and the derived flips hold, and why the flip is not
-/// generated where the list's `not_generated` names it. A flip that changes a sentence outside
+/// generated where the list's `not_generated` names it. A flip that changes only sentences outside
 /// the coverage scope is not generated ([`crate::flips::scoped`]), so it is refused as unknown
 /// once the specification is admitted ([`fuzz_front`]).
 pub fn fuzz_derived(
@@ -2092,8 +2092,8 @@ pub fn fuzz_front(
         "has_data": spec.data.has_data(),
         "unnamed_findings": spec.data.unnamed().iter().map(|f| f.value()).collect::<Vec<_>>(),
     });
-    // A front end's flip outside the coverage scope is no derived flip: `coverage` moves it to
-    // `not_generated` before anything reads the list, and so does a kill job of it.
+    // A front end's flip wholly outside the coverage scope is no derived flip: `coverage` moves
+    // it to `not_generated` before anything reads the list, and so does a kill job of it.
     if let (
         FuzzJob::Kill {
             mutation,

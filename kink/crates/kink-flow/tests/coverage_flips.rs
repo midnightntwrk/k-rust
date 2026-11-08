@@ -593,12 +593,34 @@ mod kink_tier {
         );
     }
 
-    /// Every family shares one static scope: with `dispatch` marked a claim helper, its rules
-    /// item is `claim-helper` although programs fire it, and is no obligation; the flip of `H`,
-    /// which changes `dispatch`, is moved to `not_generated` with reason `claim-helper` before
-    /// any run, so it is neither counted nor run nor a target, under tier 2 and in tier 1's count;
-    /// the flip of `I`, which changes no marked sentence, keeps its status; and a kill job of the
-    /// flip of `H` is refused as an unknown mutation that says why it is not generated.
+    /// The flip of `H` in `dispatch` and `wake` alone, the two rules `H` keeps apart when `I`
+    /// holds.
+    fn d_flip(document: &Value) -> DerivedEntry {
+        flip(
+            document,
+            D,
+            "H",
+            vec![
+                edit("dispatch", "notBool H andThenBool I", "H andThenBool I"),
+                edit("wake", "H andThenBool I", "notBool H andThenBool I"),
+            ],
+            &[("dispatch", "0.0.0"), ("wake", "0.0")],
+        )
+    }
+
+    /// The id of [`d_flip`].
+    const D: &str = "flip--dispatch+wake--H";
+
+    /// Every family shares one static scope, which sets sentences aside, not flips. With
+    /// `dispatch` marked a claim helper, its rules item is `claim-helper` although programs fire
+    /// it, and is no obligation; the flip of `H`, which also changes `run`, `wake` and `halted`,
+    /// stays an obligation of those, with only their occurrences, which the unreached deduction
+    /// reads, and runs with all its edits; so does the flip of `H` in `dispatch` and `wake`
+    /// alone, through its occurrence in `wake`. With `wake` marked as well, that flip changes
+    /// only claim helpers and is moved to `not_generated` with reason `claim-helper` before any
+    /// run, so it is neither counted nor run nor a target, under tier 2 and in tier 1's count,
+    /// and a kill job of it is refused as an unknown mutation that says why it is not generated;
+    /// the flip of `I`, which still changes `halted`, keeps its status with only that occurrence.
     #[test]
     #[ignore = "kink"]
     fn a_flip_of_a_claim_helper_is_not_generated_whatever_programs_did() {
@@ -606,7 +628,28 @@ mod kink_tier {
         let rules = baseline(&dir);
         let at = sentence(&rules, "dispatch");
         let at = json!({"module": at.module, "index": at.index});
-        let list = h_and_i(&rules);
+        let list = DerivedList {
+            entries: vec![h_flip(&rules), i_flip(&rules), d_flip(&rules)],
+            ..DerivedList::default()
+        };
+        let ids = |family: &Value| -> Vec<String> {
+            family["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let occurrences = |document: &Value, id: &str| -> Vec<Value> {
+            item(document, id)["occurrences"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|occurrence| occurrence["index"].clone())
+                .collect()
+        };
+        let index = |label: &str| json!(sentence(&rules, label).index);
+
         let (document, status) = coverage_marked(&dir, &[], Derived::Flips(&list), &["dispatch"]);
         assert_eq!(status, EXIT_YES, "{document:#}");
         let helper = document["families"]["rules"]["items"]
@@ -619,45 +662,51 @@ mod kink_tier {
         assert_eq!(helper["obligation"], false, "{helper:#}");
         assert_ne!(helper["fired_by"], json!([]), "{helper:#}");
         let family = &document["families"]["flips"];
-        let ids = family["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|item| item["id"].as_str().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(ids, [I], "{family:#}");
+        assert_eq!(ids(family), [H, I, D], "{family:#}");
+        assert_eq!(family["obligations"], 3, "{family:#}");
+        assert_eq!(family["counts"]["not_generated"], 0, "{family:#}");
+        assert_eq!(item(&document, H)["status"], "distinguished", "{family:#}");
+        assert_eq!(
+            occurrences(&document, H),
+            [index("run"), index("wake"), index("halted")],
+            "{family:#}"
+        );
         assert_eq!(item(&document, I)["status"], "unreached", "{family:#}");
-        assert_eq!(family["obligations"], 1, "{family:#}");
+        assert_eq!(item(&document, D)["status"], "distinguished", "{family:#}");
+        assert_eq!(occurrences(&document, D), [index("wake")], "{family:#}");
+
+        let helpers = ["dispatch", "wake"];
+        let (document, status) = coverage_marked(&dir, &[], Derived::Flips(&list), &helpers);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let family = &document["families"]["flips"];
+        assert_eq!(ids(family), [H, I], "{family:#}");
+        assert_eq!(item(&document, I)["status"], "unreached", "{family:#}");
+        assert_eq!(occurrences(&document, I), [index("halted")], "{family:#}");
+        assert_eq!(family["obligations"], 2, "{family:#}");
         assert_eq!(family["counts"]["not_generated"], 1, "{family:#}");
         let not = &family["not_generated"][0];
         assert_eq!(
             (&not["reason"], &not["id"], &not["sentences"]),
             (
                 &json!("claim-helper"),
-                &json!(H),
-                &json!([
-                    "GUARDS.dispatch",
-                    "GUARDS.run",
-                    "GUARDS.wake",
-                    "GUARDS.halted"
-                ])
+                &json!(D),
+                &json!(["GUARDS.dispatch", "GUARDS.wake"])
             ),
             "{not:#}"
         );
         assert!(
             not["detail"].as_str().unwrap().starts_with(&format!(
-                "`{H}` changes GUARDS.dispatch, which is no obligation"
+                "`{D}` changes only sentences that are no obligation of any coverage family: \
+                 GUARDS.dispatch (claim-helper), GUARDS.wake (claim-helper) (claim-helper: "
             )),
             "{not:#}"
         );
-        assert_eq!(family["search"]["live_runs"], 0, "{family:#}");
-        assert_eq!(outcome_files(&dir), 0);
-        assert!(target(&document, H).is_none(), "{document:#}");
+        assert!(target(&document, D).is_none(), "{document:#}");
 
         let (tier_one, status) =
-            coverage_marked(&dir, &["--tier", "1"], Derived::Flips(&list), &["dispatch"]);
+            coverage_marked(&dir, &["--tier", "1"], Derived::Flips(&list), &helpers);
         assert_eq!(status, EXIT_YES, "{tier_one:#}");
-        assert_eq!(tier_one["families"]["flips"]["obligations"], 1);
+        assert_eq!(tier_one["families"]["flips"]["obligations"], 2);
 
         fs::write(
             dir.join("TEMPLATES.toml"),
@@ -670,7 +719,7 @@ mod kink_tier {
                 templates: Some(dir.join("TEMPLATES.toml")),
                 ..CommandFiles::default()
             },
-            &["--template", "t", "--kill", H]
+            &["--template", "t", "--kill", D]
                 .iter()
                 .map(|o| (*o).to_owned())
                 .collect::<Vec<_>>(),
@@ -678,7 +727,11 @@ mod kink_tier {
         .unwrap();
         let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
             .unwrap()
-            .with_claim_helpers([("GUARDS".to_owned(), "dispatch".to_owned())]);
+            .with_claim_helpers(
+                helpers
+                    .iter()
+                    .map(|label| ("GUARDS".to_owned(), (*label).to_owned())),
+            );
         let front = FrontEnd {
             derived: Derived::Flips(&list),
             ..FrontEnd::default()
