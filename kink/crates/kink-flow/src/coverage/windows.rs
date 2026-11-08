@@ -177,7 +177,7 @@ pub(super) fn family(
             continue;
         };
         let slot = usize::from(!ResultClass::can_kill(&record["class"]));
-        for window in record["coverage"]["windows"]["sequences"]
+        for window in record["coverage"]["windows"]
             .as_array()
             .into_iter()
             .flatten()

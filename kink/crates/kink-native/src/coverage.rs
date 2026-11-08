@@ -52,11 +52,14 @@
 //!
 //! [`TestCoverage::windows`] are the rule windows the run took (k-rust `coverage.windows`, which
 //! a baseline result run whose tables hold a depth above 1 asks for,
-//! [`crate::execution::DefinitionTables::with_windows`]), by the baseline sentence behind each
-//! step's rule, with the depth asked for; [`may_follow`] gives, from the definition alone, the
-//! graph of which authored rewrite rule may take the step after which, whose walks are the
-//! windows a run can take. Neither is part of the canonical value, so [`COVERAGE_DOMAIN`] did not
-//! move.
+//! [`crate::execution::DefinitionTables::with_depth`]), by the baseline sentence behind each
+//! step's rule, and [`TestCoverage::depth`] the depth asked for; [`may_follow`] gives, from the
+//! definition alone, the graph of which authored rewrite rule may take the step after which,
+//! whose walks are the windows a run can take. At the same depth the bindings hold the syntax
+//! paths the fired instances touched ([`SentenceBindings::paths`], k-rust `bindings.paths`), and
+//! [`grammar_graph`] gives, from the definition alone, which named symbol may stand at which
+//! argument of which, whose walks are the paths a run can record. None of these is part of the
+//! canonical value, so [`COVERAGE_DOMAIN`] did not move.
 //!
 //! A run is complete ([`TestCoverage::complete`]) when it explored every state its system reaches
 //! from its initial state, so its coverage is a fact of the run and not of where it was cut
@@ -91,8 +94,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+mod grammar;
 mod may_follow;
 
+pub use grammar::{GrammarGraph, grammar_graph};
 pub use may_follow::{MayFollow, may_follow};
 
 use k_rust::backend::{AxiomGuardOutput, BackendDiagnosticOutput, BindingsOutput};
@@ -400,10 +405,15 @@ pub struct TestCoverage {
     /// same author, so `sentences` cannot tell which argument position a run heated, and the
     /// ids can ([`strictness_rules`]). Not in [`Self::value`]: no schedule reads them.
     pub strictness: StrictnessCoverage,
+    /// The depth the run's request asked for (`crate::execution::DefinitionTables::with_depth`):
+    /// the longest rule window ([`Self::windows`]) and syntax path ([`SentenceBindings::paths`])
+    /// it collected; 1 when it asked for none, its windows of length 1 being its fired rules and
+    /// its paths of length 1 its operand heads and its axioms' own symbols. Not in
+    /// [`Self::value`].
+    pub depth: usize,
     /// The rule windows the run took (k-rust `coverage.windows`, asked for by a baseline result
-    /// run whose tables hold a depth above 1, `crate::execution::DefinitionTables::with_windows`),
-    /// by the baseline sentences behind each step's rule; `None` when the run asked for none.
-    /// Not in [`Self::value`]: no schedule reads them.
+    /// run whose tables hold a depth above 1), by the baseline sentences behind each step's rule;
+    /// `None` when the run asked for none. Not in [`Self::value`]: no schedule reads them.
     pub windows: Option<SentenceWindows>,
 }
 
@@ -419,18 +429,17 @@ pub struct TestCoverage {
 /// stands between them.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SentenceWindows {
-    /// The longest window the run's request asked for: every window of length `1..=depth` the
-    /// run took is listed, so the record answers a question about any length up to it.
-    pub depth: usize,
-    /// The windows, each a list of sentences in step order.
+    /// The windows, each a list of sentences in step order: every window of length up to the
+    /// run's depth ([`TestCoverage::depth`]) it took, so the record answers a question about any
+    /// length up to it.
     pub sequences: BTreeSet<Vec<SentenceRef>>,
 }
 
 impl SentenceWindows {
-    fn of(windows: &crate::execution::RunWindows, authors: &RuleAuthors) -> Self {
+    fn of(windows: &[Vec<String>], authors: &RuleAuthors) -> Self {
         let strictness = authors.strictness_ids();
         let mut sequences = BTreeSet::new();
-        'window: for window in &windows.sequences {
+        'window: for window in windows {
             let mut steps = Vec::with_capacity(window.len());
             for id in window {
                 match authors.get(id) {
@@ -456,10 +465,7 @@ impl SentenceWindows {
             }
             sequences.extend(choices);
         }
-        Self {
-            depth: windows.depth.get(),
-            sequences,
-        }
+        Self { sequences }
     }
 }
 
@@ -488,6 +494,24 @@ pub struct SentenceBindings {
     /// The alternatives of an axiom with several that a fired instance took (k-rust
     /// `bindings.alternatives`), with the sentences behind the axiom; in k-rust's order.
     pub alternatives: Vec<SentenceAlternative>,
+    /// Per sentence, the syntax paths of length `2..=depth` a fired instance of an axiom behind
+    /// it touched (k-rust `bindings.paths`, collected at a depth above 1,
+    /// [`TestCoverage::depth`]): sequences of the requested symbols along consecutive argument
+    /// positions that start at a position the instance inspected, built or took as an operand.
+    /// `None` when the run collected none.
+    pub paths: Option<BTreeMap<SentenceRef, BTreeSet<SyntaxPath>>>,
+}
+
+/// A syntax path `(P1, i1, P2, ..., Pn)` ([`SentenceBindings::paths`], [`GrammarGraph`]): the
+/// symbols `P1, ..., Pn` by KORE name, and the 0-based argument positions `i1, ..., i(n-1)`,
+/// `symbols[j + 1]` being the head, through injections, of argument `positions[j]` of
+/// `symbols[j]`'s application.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SyntaxPath {
+    /// The symbols, outermost first.
+    pub symbols: Vec<String>,
+    /// The argument positions between them.
+    pub positions: Vec<usize>,
 }
 
 /// An alternative of an axiom with several that a fired instance took
@@ -577,10 +601,26 @@ impl SentenceBindings {
                 })
             })
             .collect();
+        let paths = output.paths.as_ref().map(|paths| {
+            let mut by_sentence = BTreeMap::<SentenceRef, BTreeSet<SyntaxPath>>::new();
+            for axiom in paths {
+                for sentence in sentences(&axiom.axiom) {
+                    by_sentence
+                        .entry(sentence)
+                        .or_default()
+                        .extend(axiom.paths.iter().map(|path| SyntaxPath {
+                            symbols: path.symbols.clone(),
+                            positions: path.positions.clone(),
+                        }));
+                }
+            }
+            by_sentence
+        });
         Self {
             operands,
             binders,
             alternatives,
+            paths,
         }
     }
 }
@@ -730,6 +770,7 @@ impl TestCoverage {
                 .as_ref()
                 .map(|bindings| SentenceBindings::of(bindings, authors)),
             strictness,
+            depth: coverage.depth.get(),
             windows: coverage
                 .windows
                 .as_ref()
@@ -753,6 +794,7 @@ impl TestCoverage {
             guards: BTreeMap::new(),
             bindings: None,
             strictness: StrictnessCoverage::default(),
+            depth: 1,
             windows: None,
         }
     }

@@ -109,7 +109,41 @@
 //!   record (`crate::results::record_answers`). A window of authored rules that a comparable
 //!   record holds and the graph lacks would be a failure of the over-approximation; it is listed
 //!   as `outside_universe` and not counted.
-//! - `syntax_paths` (depth above 1) is not built; it is `null`.
+//! - `syntax_paths` (depth `d` above 1; `null` at depth 1): each path of length `2..=d` of the
+//!   grammar graph of the syntax family's productions, reached or unreached. A path `(P1, i1,
+//!   P2, ..., Pn)` is a sequence of productions along consecutive argument positions, `P(j+1)`
+//!   at argument `ij` (0-based) of `Pj`. It is reached when a fired instance of a sentence of the
+//!   rules universe (so in the shared scope: a claim helper's instance reaches none), in some
+//!   comparable program's run, touched it: it starts at a position the
+//!   syntax family counts as touched (a non-variable position of the left-hand or right-hand
+//!   side, or the root of a value bound to a variable the sentence reads) and descends through
+//!   argument positions of the left-hand side or the right-hand side under the instance's
+//!   substitution (k-rust's `bindings.paths`, which the record's `coverage.bindings.paths`
+//!   keeps). So the paths of length 1 are the syntax family's reached productions, and a path
+//!   lies within `d - 1` positions below a touched one: a value is walked no further than the
+//!   paths it can start or continue need, and nothing below its root starts a path, since the
+//!   step touched the root only. A function application, a cell, a `K` sequence, a collection
+//!   or a builtin value breaks a path: its elements are items of their own at depth 1, where the
+//!   sentence writes them. Every length is read the same way at every depth, so a record
+//!   collected at `D` answers every depth up to `D`, as for the rule windows. `Q` may stand at
+//!   argument `i` of `P` when `Q`'s sort is at or below the sort of `P`'s argument `i` (kink-native
+//!   `coverage::grammar_graph`): a well-sorted term holds `Q` there directly or below a subsort
+//!   injection, so every path a run records is a walk of the graph, which over-approximates what
+//!   a run can touch; a path a comparable record holds and the graph lacks would be a failure of
+//!   that argument, listed as `outside_universe` and not counted. The universe is a function of
+//!   the definition and the front end's selection; its size is computed before any program
+//!   runs and held to `[coverage] max_obligations` as the rule windows' is. A path is on the
+//!   frontier when it is unreached and its prefix of length `n - 1` is reached (a production of
+//!   the syntax family for `n = 2`); only those have targets. A path whose first production, or
+//!   one of whose prefixes, is argued while open is argued by it (`argued_by`): an instance
+//!   records only paths that start at a position it touched, and with a path each of its
+//!   prefixes. A later production of a path is no such part, since it lies below a touched
+//!   position without being touched. A front end with templates adds, at depth 2 and above, the
+//!   joint values of each template's fields as items of kind [`FIELD_VALUES`] (the paths of
+//!   length 2 through the template: its fields are its arguments), each with its frontier, its
+//!   target's text and the field values it joins (`krs.parts`), an argued one of which argues it.
+//!   The measure is reached / obligations over every length (`counts.by_length`), the paths and
+//!   the joint field values also apart (`counts.paths`, `counts.field_values`).
 //! - `flips` (tier 2, condition flips; [`crate::flips`]): each flip a front end derives from the
 //!   definition's source ([`crate::cli::FrontEnd::derived`]) that changes only sentences in the
 //!   scope is an obligation (one that changes a sentence outside it is listed under
@@ -128,9 +162,12 @@
 //! The measure is per family. No weighted total is given, since nothing weighs a rule against an
 //! operand's truth; `summary.open`, the count of open targets, is the one scalar, and zero
 //! means done (an open rule window off the frontier has no target of its own: it extends an open
-//! rule or window, whose target comes first). Every item has a stable `id`: `rule:<name>`,
-//! `requirement:<name>:<detail>`, `syntax:<production>` and `window:<rule>,<rule>,...` (each rule
-//! by its name), the rule's name being its KRS item where the front end named it, else
+//! rule or window, whose target comes first, and so does an open syntax path off the frontier).
+//! Every item has a stable `id`: `rule:<name>`, `requirement:<name>:<detail>`,
+//! `syntax:<production>`, `window:<rule>,<rule>,...` (each rule by its name) and
+//! `path:<production>/<position>/<production>...` (each production by the name its syntax id
+//! gives it, a front end's joint field values by the front end's name), the rule's name being its
+//! KRS item where the front end named it, else
 //! its label, else its `file:line` (with `:<label>` added where two rules share a name), a
 //! heating rule's its production's (`<production>:heat:<position>`) or its context's
 //! (`<context>:heat`, [`rule_name`]), the
@@ -177,6 +214,12 @@
 //! last rule but one with the left-hand side of its last rule, printed as K: the configurations a
 //! step of the one leaves that the other can match. Its `fuzz` is `null`: no fuzz job's facts
 //! name a window.
+//!
+//! A syntax path's target is likewise listed only on the frontier: it asks for a case in which a
+//! fired step touches the path's first production holding the next at its argument, and so on,
+//! names the programs that reached its prefix (the templates), and is placed at its first
+//! production's declaration. A front end's joint field values state their target's text. Its
+//! `pattern` and its `fuzz` are `null`: no fuzz job's facts name a path.
 //!
 //! # Argued obligations
 //!
@@ -260,7 +303,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod paths;
 pub(crate) mod scope;
+pub use paths::{FIELD_VALUES, PATH};
 mod windows;
 
 /// The `schema` of the coverage document.
@@ -312,8 +357,13 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// rules, requirements, syntax and flips families can differ from version 12's on the same
 /// definition; an `unknown` flip has `causes` (`[{program, cause}]`), which its target states
 /// after its reason or its kink status; and a requirement's `reaching` restates each step
-/// through negations (an `else`'s negation `true` is the condition before it `false`).
-pub const COVERAGE_VERSION: u64 = 13;
+/// through negations (an `else`'s negation `true` is the condition before it `false`); 14 since
+/// a document of depth above 1 also has the syntax paths family (`families.syntax_paths`, its
+/// items, counts, measure, frontier targets and `summary.per_family.syntax_paths`), where
+/// version 13 had `null`, its universe is held to `max_obligations` as well, and the text
+/// rendering says a depth-dependent family is computed above depth 1 only where version 13 said
+/// it was not built.
+pub const COVERAGE_VERSION: u64 = 14;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -545,12 +595,34 @@ pub fn coverage_front(
     // runs.
     let window_depth = usize::try_from(depth.get()).unwrap_or(usize::MAX);
     let universe = (window_depth > 1).then(|| windows::Universe::of(&spec, &scope, window_depth));
-    if let Some(refusal) = universe
-        .as_ref()
-        .and_then(|universe| universe.as_ref().ok())
-        .and_then(|universe| universe.refusal(manifest.coverage.max_obligations.get()))
-    {
-        record.refusal = Some(refusal);
+    // The syntax paths family's universe likewise, each universe against the budget.
+    let path_universe =
+        (window_depth > 1).then(|| paths::Universe::of(&spec, manifest, window_depth));
+    let max = manifest.coverage.max_obligations.get();
+    let refusals = [
+        universe
+            .as_ref()
+            .and_then(|universe| universe.as_ref().ok())
+            .and_then(|universe| universe.refusal(max)),
+        path_universe
+            .as_ref()
+            .and_then(|universe| universe.as_ref().ok())
+            .and_then(|universe| universe.refusal(max)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if let Some(first) = refusals.first() {
+        // Every universe above the budget, each with its counts.
+        record.refusal = Some(AdmissionRefusal {
+            stage: first.stage.clone(),
+            reason: first.reason.clone(),
+            detail: refusals
+                .iter()
+                .map(|refusal| refusal.detail.as_str())
+                .collect::<Vec<_>>()
+                .join("; "),
+        });
         return (refused(&record), false);
     }
     let mut inputs = inputs.session(&spec);
@@ -594,6 +666,25 @@ pub fn coverage_front(
     document["result"] = spec.result.value();
     document["spec"]["exclusion"] = runner.definition_exclusion();
     document["spec"]["short_circuit"] = runner.short_circuit();
+    // The syntax paths read the productions kink-flow reached, before a front end adds its
+    // joint field values to the family.
+    if let Some(universe) = &path_universe {
+        document["families"]["syntax_paths"] = match universe {
+            Ok(universe) => paths::family(
+                universe,
+                window_depth,
+                &update.rows,
+                &manifest.programs,
+                document["families"]["rules"]["items"]
+                    .as_array()
+                    .map_or(&[][..], Vec::as_slice),
+                document["families"]["syntax"]["items"]
+                    .as_array()
+                    .map_or(&[][..], Vec::as_slice),
+            ),
+            Err(reason) => paths::unread(window_depth, reason),
+        };
+    }
     let mut document = front.annotated(document);
     // The rule windows read the rules as the front end annotated them: which single rules fired.
     if let Some(universe) = &universe {
@@ -878,7 +969,13 @@ fn stale_argued(
     let mut probe = document.clone();
     derive(&mut probe, spelling);
     let mut listed = BTreeSet::new();
-    for family in ["rules", "requirements", "syntax", "rule_windows"] {
+    for family in [
+        "rules",
+        "requirements",
+        "syntax",
+        "rule_windows",
+        "syntax_paths",
+    ] {
         for item in probe["families"][family]["items"]
             .as_array()
             .into_iter()
@@ -3224,10 +3321,28 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         families["rule_windows"] = Value::Null;
         None
     };
-    families["syntax_paths"] = Value::Null;
+    // The syntax paths family, where the document built it (depth above 1), naming its paths by
+    // the syntax family's derived names; `null` otherwise.
+    let syntax_items_now = families["syntax"]["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let path_derived = if families["syntax_paths"].is_object() {
+        Some(paths::derive(
+            &mut families["syntax_paths"],
+            &syntax_items_now,
+            &argued_entries,
+        ))
+    } else {
+        families["syntax_paths"] = Value::Null;
+        None
+    };
     targets.extend(requirement_targets);
     targets.extend(syntax_targets);
     if let Some(derived) = &window_derived {
+        targets.extend(derived.targets.iter().cloned());
+    }
+    if let Some(derived) = &path_derived {
         targets.extend(derived.targets.iter().cloned());
     }
     let rule_names = document["families"]["rules"]["items"]
@@ -3308,6 +3423,15 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             |(covered, obligations)| per_family("syntax", covered, obligations),
         ),
     );
+    if let Some(derived) = &path_derived {
+        per.insert(
+            "syntax_paths".into(),
+            derived.counts.map_or_else(
+                || json!({"obligations": null, "covered": null, "argued": 0, "open": null}),
+                |(covered, obligations)| per_family("syntax_paths", covered, obligations),
+            ),
+        );
+    }
     let family = &document["families"]["flips"];
     if family["run"] == true {
         per.insert(
@@ -3334,7 +3458,14 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
 }
 
 /// The families whose items an argued entry can name, in target order.
-const ARGUABLE: [&str; 5] = ["rules", "requirements", "syntax", "rule_windows", "flips"];
+const ARGUABLE: [&str; 6] = [
+    "rules",
+    "requirements",
+    "syntax",
+    "rule_windows",
+    "syntax_paths",
+    "flips",
+];
 
 /// The `[[coverage.argued]]` entries a document's settings state, argument by item id.
 fn argued_entries(document: &Value) -> BTreeMap<String, String> {
@@ -4042,9 +4173,46 @@ pub fn text(document: &Value) -> Result<String, String> {
             windows["edges"],
         ));
     }
+    let paths = &families["syntax_paths"];
+    if let Some(reason) = paths["reason"].as_str() {
+        out.push_str(&format!("syntax_paths: not read: {reason}\n"));
+    } else if paths.is_object() {
+        let counts = &paths["counts"];
+        let lengths = counts["by_length"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(length, count)| {
+                format!(
+                    "length {length} {} of {}",
+                    count["covered"], count["obligations"]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "syntax_paths: {} of {} reached ({}){}; {lengths}; joint field values {} of {}; {} on \
+             the frontier; grammar graph of {} productions, {} edges\n",
+            paths["covered"],
+            paths["obligations"],
+            percent(&paths["measure"]),
+            argued_note(paths),
+            counts["field_values"]["covered"],
+            counts["field_values"]["obligations"],
+            counts["frontier"],
+            paths["productions"],
+            paths["edges"],
+        ));
+    }
+    // A depth-dependent family is computed above depth 1 only.
     for family in ["syntax", "rule_windows", "syntax_paths"] {
         if families[family].is_null() {
-            out.push_str(&format!("{family}: not built\n"));
+            let why = if family != "syntax" && document["settings"]["depth"] == 1 {
+                "computed above depth 1 only"
+            } else {
+                "not computed"
+            };
+            out.push_str(&format!("{family}: {why}\n"));
         }
     }
     let flips = &families["flips"];
@@ -4180,22 +4348,31 @@ fn tier_one_ids(
     document: &Value,
     keep: impl Fn(&Value) -> bool,
 ) -> Vec<(&'static str, Vec<String>)> {
-    ["rules", "requirements", "syntax", "rule_windows"]
-        .into_iter()
-        // The rule windows only where the document built them (depth above 1), so that a
-        // rendering of depth 1 is what it was.
-        .filter(|family| *family != "rule_windows" || document["families"][family].is_object())
-        .map(|family| {
-            let ids = document["families"][family]["items"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|item| keep(item))
-                .filter_map(|item| item["id"].as_str().map(str::to_owned))
-                .collect();
-            (family, ids)
-        })
-        .collect()
+    [
+        "rules",
+        "requirements",
+        "syntax",
+        "rule_windows",
+        "syntax_paths",
+    ]
+    .into_iter()
+    // The rule windows and the syntax paths only where the document built them (depth above 1),
+    // so that a rendering of depth 1 is what it was.
+    .filter(|family| {
+        !matches!(*family, "rule_windows" | "syntax_paths")
+            || document["families"][family].is_object()
+    })
+    .map(|family| {
+        let ids = document["families"][family]["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| keep(item))
+            .filter_map(|item| item["id"].as_str().map(str::to_owned))
+            .collect();
+        (family, ids)
+    })
+    .collect()
 }
 
 /// The object a rule item names its sentence by, for readers that look one up by position.

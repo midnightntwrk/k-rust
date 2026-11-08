@@ -1541,9 +1541,9 @@ pub struct BaselineSession<'v> {
     /// The binding collection every baseline result run of the session's calls asks with
     /// ([`Self::with_bindings`]); `None`: the runs collect no bindings.
     bindings: Option<kink_native::execution::BindingCollection>,
-    /// The length up to which every baseline result run of the session's calls collects rule
-    /// windows ([`Self::with_windows`]); 1 collects none.
-    windows: std::num::NonZeroUsize,
+    /// The depth up to which every baseline result run of the session's calls collects rule
+    /// windows and syntax paths ([`Self::with_depth`]); 1 collects neither.
+    depth: std::num::NonZeroUsize,
 }
 
 impl<'v> BaselineSession<'v> {
@@ -1560,7 +1560,7 @@ impl<'v> BaselineSession<'v> {
             assume_joined: Vec::new(),
             baseline_data: None,
             bindings: None,
-            windows: std::num::NonZeroUsize::MIN,
+            depth: std::num::NonZeroUsize::MIN,
         }
     }
 
@@ -1576,13 +1576,14 @@ impl<'v> BaselineSession<'v> {
     }
 
     /// The session, every baseline result run of its calls that collects bindings also
-    /// collecting the rule windows of length up to `depth` (kink-native
-    /// `DefinitionTables::with_windows`), which the run's coverage carries
-    /// (`TestCoverage::windows`); a depth of 1 collects none. k-rust states that asking changes
-    /// no other field of the result; a mutant's runs never ask.
+    /// collecting the rule windows and the syntax paths of length up to `depth` (kink-native
+    /// `DefinitionTables::with_depth`), which the run's coverage carries
+    /// (`TestCoverage::windows`, `SentenceBindings::paths`); a depth of 1 collects neither.
+    /// k-rust states that asking changes no other field of the result; a mutant's runs never
+    /// ask.
     #[must_use]
-    pub const fn with_windows(mut self, depth: std::num::NonZeroUsize) -> Self {
-        self.windows = depth;
+    pub const fn with_depth(mut self, depth: std::num::NonZeroUsize) -> Self {
+        self.depth = depth;
         self
     }
 
@@ -1916,7 +1917,7 @@ fn run_campaign_session(
     if let Some(bindings) = &session.bindings {
         runtime.tables = DefinitionTables::new()
             .with_bindings(bindings.clone())
-            .with_windows(session.windows);
+            .with_depth(session.depth);
     }
     runtime.modality = options.run.result_modality;
     runtime.baseline_max_work = options.run.baseline_max_work;

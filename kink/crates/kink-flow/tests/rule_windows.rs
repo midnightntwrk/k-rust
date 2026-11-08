@@ -279,7 +279,10 @@ mod kink_tier {
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
         assert!(!verdicts.contains("rule_windows"), "{verdicts}");
         let text = kink_flow::coverage::text(&document).unwrap();
-        assert!(text.contains("rule_windows: not built"), "{text}");
+        assert!(
+            text.contains("rule_windows: computed above depth 1 only"),
+            "{text}"
+        );
     }
 
     /// A record collected at depth `D` answers every depth up to `D` and no deeper one: a command

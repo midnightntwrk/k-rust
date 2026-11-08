@@ -690,9 +690,9 @@ pub struct BaselineRunner<'a> {
     ends: OnceCell<EndReader>,
     /// The front end's renderer of kill evidence (`FlowManifest::end_renderer`).
     renderer: crate::evidence::Renderer,
-    /// The length up to which every baseline run of the command collects rule windows
-    /// ([`Self::with_depth`]); a stored record answers only where it collected at least as far
-    /// ([`record_answers`]).
+    /// The depth up to which every baseline run of the command collects rule windows and syntax
+    /// paths ([`Self::with_depth`]); a stored record answers only where it collected at least as
+    /// far ([`record_answers`]).
     depth: std::num::NonZeroUsize,
 }
 
@@ -702,10 +702,10 @@ impl<'a> BaselineRunner<'a> {
         Self::with_depth(spec, manifest, manifest.coverage.depth)
     }
 
-    /// The runner of a command whose baseline runs collect rule windows up to `depth`
-    /// (`coverage --depth`, else `[coverage] depth`): every run it makes records them, and a
-    /// stored record collected at a smaller depth does not answer, so its program runs again and
-    /// its record is replaced by one at `depth` (kink-native `TestCoverage::windows`).
+    /// The runner of a command whose baseline runs collect rule windows and syntax paths up to
+    /// `depth` (`coverage --depth`, else `[coverage] depth`): every run it makes records them,
+    /// and a stored record collected at a smaller depth does not answer, so its program runs
+    /// again and its record is replaced by one at `depth` (kink-native `TestCoverage::depth`).
     pub fn with_depth(
         spec: &'a AdmittedSpec,
         manifest: &'a FlowManifest,
@@ -742,7 +742,7 @@ impl<'a> BaselineRunner<'a> {
                     .assuming(manifest.spec.assume_joined.clone())
                     .with_baseline_data(spec.data.clone())
                     .with_bindings(crate::coverage::binding_collection(spec, manifest))
-                    .with_windows(depth),
+                    .with_depth(depth),
             ),
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
@@ -752,7 +752,7 @@ impl<'a> BaselineRunner<'a> {
         })
     }
 
-    /// The length up to which the command's baseline runs collect rule windows.
+    /// The depth up to which the command's baseline runs collect rule windows and syntax paths.
     pub const fn depth(&self) -> std::num::NonZeroUsize {
         self.depth
     }
@@ -1850,10 +1850,12 @@ fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 /// run collected none (a diagnostic run); and `strictness` (result schema v20) the heating and
 /// cooling rules it matched and fired, by compiled id (`{matched, fired}`, kink-native
 /// `TestCoverage::strictness`), since every such rule of one production has the production as
-/// its sentence, so the sentences cannot say which argument position a run heated; and
-/// `windows` (result schema v23) the rule windows it took, `{depth, sequences}`: the longest
-/// length its request asked for and every window up to it, each a list of `{module, index}` in
-/// step order (kink-native `TestCoverage::windows`), null for a run that asked for none.
+/// its sentence, so the sentences cannot say which argument position a run heated; `depth`
+/// (result schema v24) the depth its request asked for, the longest rule window and syntax path
+/// it collected (kink-native `TestCoverage::depth`), 1 for a run that asked for neither; and
+/// `windows` (result schema v23) the rule windows it took, every window up to `depth`, each a
+/// list of `{module, index}` in step order (kink-native `TestCoverage::windows`), null for a run
+/// that asked for none.
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
@@ -1875,10 +1877,10 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
             .bindings
             .as_ref()
             .map_or(Value::Null, |bindings| bindings_value(spec, bindings)),
+        "depth": coverage.depth,
         "windows": coverage.windows.as_ref().map_or(Value::Null, |windows| {
-            json!({
-                "depth": windows.depth,
-                "sequences": windows
+            json!(
+                windows
                     .sequences
                     .iter()
                     .map(|window| {
@@ -1887,27 +1889,30 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
                             .map(|at| json!({"module": at.module, "index": at.index}))
                             .collect::<Vec<_>>()
                     })
-                    .collect::<Vec<_>>(),
-            })
+                    .collect::<Vec<_>>()
+            )
         }),
     })
 }
 
-/// The longest rule window a record's run collected (its coverage's `windows.depth`; 1 for a run
-/// that asked for none, whose windows of length 1 are its `fired_sentences`), or `None` for a
-/// record without coverage, which holds no window at any depth.
+/// The depth a record's run collected at (its coverage's `depth`): the longest rule window and
+/// syntax path it holds, 1 for a run that asked for neither, whose windows of length 1 are its
+/// `fired_sentences` and whose paths of length 1 are its operand heads and its axioms' own
+/// symbols; or `None` for a record without coverage, which holds no window and no path at any
+/// depth. Every depth-dependent family reads this one depth.
 pub fn record_depth(record: &Value) -> Option<u64> {
     let coverage = &record["coverage"];
     if !coverage.is_object() {
         return None;
     }
-    Some(coverage["windows"]["depth"].as_u64().unwrap_or(1))
+    Some(coverage["depth"].as_u64().unwrap_or(1))
 }
 
-/// Whether a stored record answers a command whose runs collect rule windows up to `depth`: it
-/// collected every window up to at least that length, or it holds no coverage, which a new run
-/// of the same key would not hold either. A record collected at `D` lists every window of length
-/// `1..=D`, so it answers every depth up to `D`.
+/// Whether a stored record answers a command whose runs collect rule windows and syntax paths up
+/// to `depth`: it collected every window and path up to at least that length, or it holds no
+/// coverage, which a new run of the same key would not hold either. A record collected at `D`
+/// lists every window and every path of length `1..=D` (k-rust reads each length the same way at
+/// every depth), so it answers every depth up to `D`.
 pub fn record_answers(record: &Value, depth: std::num::NonZeroUsize) -> bool {
     record_depth(record).is_none_or(|collected| {
         usize::try_from(collected).is_ok_and(|collected| collected >= depth.get())
@@ -1921,7 +1926,9 @@ pub fn record_answers(record: &Value, depth: std::num::NonZeroUsize) -> bool {
 /// (`{axiom, sentences, variable, values, truncated, nonliteral}`), and `alternatives`, per
 /// alternative of an axiom with several that a fired instance took, its axiom, its left-hand
 /// and right-hand side alternatives (null where the side has one) and the sentences behind the
-/// axiom (`{axiom, lhs, rhs, sentences}`).
+/// axiom (`{axiom, lhs, rhs, sentences}`), and `paths` (result schema v24), per sentence the
+/// syntax paths of length `2..=depth` its fired instances touched (`{module, index, label,
+/// paths: [{symbols, positions}]}`, `positions` 0-based), null for a run of depth 1.
 fn bindings_value(
     spec: &AdmittedSpec,
     bindings: &kink_native::coverage::SentenceBindings,
@@ -1970,6 +1977,25 @@ fn bindings_value(
                 })
             })
             .collect::<Vec<_>>(),
+        "paths": bindings.paths.as_ref().map_or(Value::Null, |paths| {
+            json!(
+                paths
+                    .iter()
+                    .map(|(at, paths)| {
+                        let mut value = stored_sentence(spec, at);
+                        value["paths"] = json!(
+                            paths
+                                .iter()
+                                .map(|path| {
+                                    json!({"symbols": path.symbols, "positions": path.positions})
+                                })
+                                .collect::<Vec<_>>()
+                        );
+                        value
+                    })
+                    .collect::<Vec<_>>()
+            )
+        }),
     })
 }
 
