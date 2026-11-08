@@ -485,9 +485,9 @@
         "set-get": "proven",
         "set-get-false": "disproved",
         "sym-one": "proven",
-        "sym-one-false": "indeterminate",
+        "sym-one-false": "failed",
         "sym-two": "proven",
-        "sym-two-false": "indeterminate",
+        "sym-two-false": "failed",
         "unmatched-keys": "proven",
         "unmatched-keys-false": "indeterminate"
       },
@@ -496,8 +496,6 @@
         "krs prove: 6 of 12 claims proven"
       ],
       "warnings": [
-        "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
-        "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
         "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
         "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads"
       ]
