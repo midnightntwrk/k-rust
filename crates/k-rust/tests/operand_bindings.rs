@@ -184,8 +184,8 @@ fn bindings_record_operand_heads_and_binder_values_of_fired_instances() {
 }
 
 /// Off by default; asking changes no other field of the result under either modality, and two
-/// runs write the same bytes. Without `collectCoverage`, or with a binder selected twice, the
-/// request is refused; the wire form is read with its defaults, and the capability is
+/// runs write the same bytes. Without `collectCoverage`, or with a binder selected twice (under
+/// one name, or under its axiom's `UNIQUE_ID` and its label), the request is refused; the wire form is read with its defaults, and the capability is
 /// advertised.
 #[test]
 fn bindings_change_nothing_else_need_coverage_and_select_a_binder_once() {
@@ -228,6 +228,17 @@ fn bindings_change_nothing_else_need_coverage_and_select_a_binder_once() {
     let error = definition
         .backend()
         .execute_kore(definition.request(Some(twice), ResultModalityOutput::PathSet))
+        .unwrap_err();
+    assert!(error.to_string().contains("twice"), "{error}");
+    let mut by_label = collection(definition);
+    by_label.binders.push(BinderSelection {
+        axiom: format!("{MAIN}.decode"),
+        variable: "VarB".to_owned(),
+        cap: 7,
+    });
+    let error = definition
+        .backend()
+        .execute_kore(definition.request(Some(by_label), ResultModalityOutput::PathSet))
         .unwrap_err();
     assert!(error.to_string().contains("twice"), "{error}");
     let read: BindingCollection = serde_json::from_value(json!({"symbols": ["a"]})).unwrap();

@@ -22,6 +22,16 @@
 //! (its definedness or its truth), not a step of its evaluation. A matched instance whose
 //! condition was refuted, left undecided or stopped gave no result and records nothing.
 //!
+//! Nor do the equations that discharged a rewrite rule's definedness when the definition was
+//! loaded (`ComputedRuleAttributes::discharged_by`), which a run reports to `applied` where it
+//! enters the rule's `requires` (`super::replay`). Their instances were evaluated at load, on
+//! the rule's own terms: what such an instance took as an operand is a subterm of the rule, an
+//! application the rule writes, which is part of what the rule's own instance builds or
+//! inspects, or a variable of the rule, whose value in the run is an operand of the rule's own
+//! instance and is recorded where that instance fires. No instance of the run bound anything
+//! for them, and the entry that replays them may yet be refuted, so recording their load-time
+//! operands would credit a step the run did not take.
+//!
 //! # Operand heads
 //!
 //! For each variable `x` the left-hand side binds (a variable of the axiom that is not among
@@ -38,7 +48,11 @@
 //! A request selects binders as (axiom, variable, cap) ([`BindingCollection::binders`]): the
 //! axiom by its `UNIQUE_ID` or label, the variable by its name as the definition writes it
 //! (`term::names::rule_variable_definition_name`: without the marker of a rule's or an
-//! equation's own variable and without the suffix of a renaming apart from a subject). At a
+//! equation's own variable and without the suffix of a renaming apart from a subject). A
+//! binder is a variable of one axiom, whatever name selects the axiom, so it is reported under
+//! the axiom's `UNIQUE_ID` ([`BinderValues::binder`]), once: where two selections name one
+//! binder (by `UNIQUE_ID` and by label), it keeps the larger cap
+//! ([`BindingCollection::selected_twice`] finds them, for a caller that refuses them). At a
 //! fired instance of the axiom, an `Int` literal bound to the variable (through injections) is
 //! inserted into the binder's set; any other value
 //! (a term with variables or applications, or a value of another sort) sets
@@ -117,12 +131,48 @@ impl BindingCollection {
         );
         self
     }
+
+    /// Two selections that name one binder: one variable of an axiom of `definition`, the
+    /// axiom named once by its `UNIQUE_ID` and once by its label, the first by `UNIQUE_ID`;
+    /// `None` when every binder is selected once.
+    #[must_use]
+    pub fn selected_twice(&self, definition: &BackendDefinition) -> Option<(BinderKey, BinderKey)> {
+        if self.binders.len() < 2 {
+            return None;
+        }
+        let mut by_name = BTreeMap::<&str, Vec<&BinderKey>>::new();
+        for binder in self.binders.keys() {
+            by_name
+                .entry(binder.axiom.as_str())
+                .or_default()
+                .push(binder);
+        }
+        for axiom in definition.classified_axioms() {
+            let attributes = axiom.attributes();
+            let by_id = by_name.get(attributes.unique_id.as_str());
+            let by_label = attributes
+                .label
+                .as_deref()
+                .filter(|label| *label != attributes.unique_id)
+                .and_then(|label| by_name.get(label));
+            let (Some(by_id), Some(by_label)) = (by_id, by_label) else {
+                continue;
+            };
+            for first in by_id {
+                if let Some(second) = by_label.iter().find(|b| b.variable == first.variable) {
+                    return Some(((*first).clone(), (*second).clone()));
+                }
+            }
+        }
+        None
+    }
 }
 
 /// A template binder: a variable of an axiom.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BinderKey {
-    /// The axiom, by its `UNIQUE_ID` or its label, as the request names it.
+    /// The axiom: in a selection by its `UNIQUE_ID` or its label, in what a run reports by its
+    /// `UNIQUE_ID`.
     pub axiom: String,
     /// The variable, by its name as the definition writes it.
     pub variable: String,
@@ -135,7 +185,8 @@ pub struct RunBindings {
     /// Per axiom with at least one recorded head, the named symbols that were the head of an
     /// operand of a fired instance of it, sorted by axiom id.
     pub operands: Vec<AxiomOperands>,
-    /// Per selected binder bound at some fired instance, the values it took, sorted by binder.
+    /// Per selected binder bound at some fired instance, the values it took, sorted by binder
+    /// (the axiom's `UNIQUE_ID`, then the variable).
     pub binders: Vec<BinderValues>,
 }
 
@@ -153,7 +204,7 @@ pub struct AxiomOperands {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct BinderValues {
-    /// The binder, as the request names it.
+    /// The binder: the axiom by its `UNIQUE_ID`, whatever name selected it, and the variable.
     pub binder: BinderKey,
     /// The `Int` literals bound to it: the least `cap` of them, ascending.
     pub values: Vec<BigInt>,
@@ -165,7 +216,7 @@ pub struct BinderValues {
 
 /// What one fired instance bound, read from its substitution ([`read`]) and recorded once the
 /// instance fired ([`note`]): the named heads of its operands and the values of its selected
-/// binders, by binder slot.
+/// binders, each by its position among its axiom's binders ([`Sink::binders_of`]).
 #[derive(Debug)]
 pub(crate) struct Fired {
     heads: Vec<Name>,
@@ -202,18 +253,19 @@ thread_local! {
 /// The bindings of one collection.
 pub(super) struct Sink {
     symbols: FxHashSet<String>,
-    /// The selected binders in key order, with their caps; a slot is a position here.
-    binders: Vec<(BinderKey, usize)>,
-    /// The binder slots of an axiom, by `UNIQUE_ID`, resolved on its first fired instance.
-    resolved: FxHashMap<String, Arc<[usize]>>,
+    /// The selected binders, as the collection names them, with their caps.
+    binders: BTreeMap<BinderKey, usize>,
+    /// The binders of an axiom, by `UNIQUE_ID`, resolved on its first fired instance: each
+    /// variable a selection names for it once, with the largest cap a selection of it asks for.
+    resolved: FxHashMap<String, Arc<[(String, usize)]>>,
     operands: FxHashMap<String, FxHashSet<Name>>,
-    values: Vec<Slot>,
+    /// What each binder's instances bound so far, by the binder under its axiom's `UNIQUE_ID`.
+    values: BTreeMap<BinderKey, Slot>,
 }
 
 /// What a binder's instances bound so far.
 #[derive(Default)]
 struct Slot {
-    bound: bool,
     values: BTreeSet<BigInt>,
     truncated: bool,
     nonliteral: bool,
@@ -221,14 +273,12 @@ struct Slot {
 
 impl Sink {
     pub(super) fn new(collection: BindingCollection) -> Self {
-        let binders = collection.binders.into_iter().collect::<Vec<_>>();
-        let values = binders.iter().map(|_| Slot::default()).collect();
         Self {
             symbols: collection.symbols.into_iter().collect(),
-            binders,
+            binders: collection.binders,
             resolved: FxHashMap::default(),
             operands: FxHashMap::default(),
-            values,
+            values: BTreeMap::new(),
         }
     }
 
@@ -244,11 +294,9 @@ impl Sink {
             .collect::<Vec<_>>();
         operands.sort_by(|left, right| left.axiom.cmp(&right.axiom));
         let binders = self
-            .binders
+            .values
             .into_iter()
-            .zip(self.values)
-            .filter(|(_, slot)| slot.bound)
-            .map(|((binder, _), slot)| BinderValues {
+            .map(|(binder, slot)| BinderValues {
                 binder,
                 values: slot.values.into_iter().collect(),
                 truncated: slot.truncated,
@@ -258,27 +306,32 @@ impl Sink {
         RunBindings { operands, binders }
     }
 
-    /// The binder slots of the axiom `attributes` names.
-    fn slots(&mut self, attributes: &RuleAttributes) -> Arc<[usize]> {
+    /// The binders of the axiom `attributes` names: each variable some selection names for it
+    /// by its `UNIQUE_ID` or its label, once, with the largest cap asked for it; `None` when
+    /// the collection selects no binder.
+    fn binders_of(&mut self, attributes: &RuleAttributes) -> Option<Arc<[(String, usize)]>> {
         if self.binders.is_empty() {
-            return Arc::from([]);
+            return None;
         }
-        if let Some(slots) = self.resolved.get(&attributes.unique_id) {
-            return Arc::clone(slots);
+        if let Some(binders) = self.resolved.get(&attributes.unique_id) {
+            return Some(Arc::clone(binders));
         }
-        let slots = self
-            .binders
-            .iter()
-            .enumerate()
-            .filter(|(_, (binder, _))| {
-                binder.axiom == attributes.unique_id
-                    || attributes.label.as_deref() == Some(binder.axiom.as_str())
-            })
-            .map(|(slot, _)| slot)
-            .collect::<Arc<[usize]>>();
+        let mut variables = BTreeMap::<&str, usize>::new();
+        for (binder, cap) in &self.binders {
+            if binder.axiom == attributes.unique_id
+                || attributes.label.as_deref() == Some(binder.axiom.as_str())
+            {
+                let kept = variables.entry(binder.variable.as_str()).or_default();
+                *kept = (*kept).max(*cap);
+            }
+        }
+        let binders = variables
+            .into_iter()
+            .map(|(variable, cap)| (variable.to_owned(), cap))
+            .collect::<Arc<[(String, usize)]>>();
         self.resolved
-            .insert(attributes.unique_id.clone(), Arc::clone(&slots));
-        slots
+            .insert(attributes.unique_id.clone(), Arc::clone(&binders));
+        Some(binders)
     }
 
     fn note(&mut self, axiom: &str, fired: &Fired) {
@@ -294,10 +347,22 @@ impl Sink {
                 }
             }
         }
-        for (slot, value) in &fired.values {
-            let cap = self.binders[*slot].1;
-            let slot = &mut self.values[*slot];
-            slot.bound = true;
+        if fired.values.is_empty() {
+            return;
+        }
+        let Some(binders) = self.resolved.get(axiom).map(Arc::clone) else {
+            return;
+        };
+        for (position, value) in &fired.values {
+            let (variable, cap) = &binders[*position];
+            let cap = *cap;
+            let slot = self
+                .values
+                .entry(BinderKey {
+                    axiom: axiom.to_owned(),
+                    variable: variable.clone(),
+                })
+                .or_default();
             match value {
                 None => slot.nonliteral = true,
                 Some(value) => {
@@ -340,7 +405,7 @@ pub(super) fn read(
 ) -> Option<Fired> {
     SINK.with_borrow_mut(|sink| {
         let sink = sink.as_mut()?;
-        let slots = sink.slots(attributes);
+        let binders = sink.binders_of(attributes);
         let mut heads = Vec::new();
         let mut values = Vec::new();
         for (variable, value) in substitution {
@@ -352,14 +417,12 @@ pub(super) fn read(
             {
                 heads.push(Arc::clone(head));
             }
-            if slots.is_empty() {
+            let Some(binders) = binders.as_deref().filter(|binders| !binders.is_empty()) else {
                 continue;
-            }
+            };
             let written = rule_variable_definition_name(&variable.name);
-            for &slot in slots.iter() {
-                if sink.binders[slot].0.variable == written {
-                    values.push((slot, int_literal(definition, value)));
-                }
+            if let Some(position) = binders.iter().position(|(name, _)| *name == written) {
+                values.push((position, int_literal(definition, value)));
             }
         }
         (!heads.is_empty() || !values.is_empty()).then_some(Fired { heads, values })

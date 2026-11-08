@@ -700,7 +700,8 @@ pub struct ExecuteRequest {
     /// operand of a fired instance (a committed rewrite step, an equation instance that gave a
     /// result), and the values of the template binders it selects, capped
     /// ([`BindingCollection`]). Off by default; a request that sets it without
-    /// `collect_coverage`, or that selects one binder twice, is refused. Asking changes no other
+    /// `collect_coverage`, or that selects one binder twice (under one name, or under its
+    /// axiom's `UNIQUE_ID` and its label), is refused. Asking changes no other
     /// field of the result and evaluates nothing: each fired instance costs one pass over the
     /// substitution its match produced (docs/compatibility.md, "Run coverage").
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1237,7 +1238,8 @@ pub struct BindingCollection {
     /// instance.
     #[serde(default)]
     pub symbols: Vec<String>,
-    /// The template binders whose values are recorded; a binder is selected at most once.
+    /// The template binders whose values are recorded; a binder, a variable of one axiom, is
+    /// selected at most once, under its axiom's `UNIQUE_ID` or its label.
     #[serde(default)]
     pub binders: Vec<BinderSelection>,
 }
@@ -1289,8 +1291,8 @@ pub struct BinderSelection {
 pub struct BindingsOutput {
     /// Per rule and equation with a recorded head, sorted by id.
     pub operands: Vec<AxiomOperandsOutput>,
-    /// Per selected binder bound at some fired instance, sorted by axiom, then variable, as the
-    /// request names them.
+    /// Per selected binder bound at some fired instance, sorted by axiom, then variable, the
+    /// axiom by its `UNIQUE_ID`.
     pub binders: Vec<BinderValuesOutput>,
 }
 
@@ -1308,7 +1310,7 @@ pub struct AxiomOperandsOutput {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct BinderValuesOutput {
-    /// The axiom, as the request names it.
+    /// The axiom, by its `UNIQUE_ID`, whichever name the request selected it by.
     pub axiom: String,
     /// The variable, as the request names it.
     pub variable: String,
@@ -2882,6 +2884,17 @@ impl Backend {
             std::iter::once(&mut syntax)
                 .chain(match_request.as_mut().map(|matching| &mut matching.pattern)),
         )?;
+        // A binder is a variable of one axiom, which a selection names by its `UNIQUE_ID` or
+        // its label: two selections of one binder under its two names are one selected twice.
+        if let Some((first, second)) = collect_bindings
+            .as_ref()
+            .and_then(|collection| collection.selected_twice(&definition))
+        {
+            return Err(BackendError::new(format!(
+                "collectBindings selects the binder {} of {} twice, also as the binder of {}",
+                first.variable, first.axiom, second.axiom
+            )));
+        }
         let mut patterns = vec![&syntax];
         patterns.extend(match_request.as_ref().map(|matching| &matching.pattern));
         self.with_solver_on(definition, &patterns, |definition, solver| {

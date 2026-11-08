@@ -2,7 +2,8 @@
 //! per axiom, the named symbols that were the head of an operand of a fired instance, and the
 //! values selected template binders were bound to, capped.
 //!
-//! The axioms carry labels and no `UNIQUE_ID`, so each one's id is its label. Every run here
+//! The axioms carry labels and, but for `scaleAny`, no `UNIQUE_ID`, so each other one's id is
+//! its label. Every run here
 //! ends by itself well inside its depth bound and sets no step timeout, so none depends on a
 //! clock.
 
@@ -54,7 +55,9 @@ fn rule(label: &str, head: &str, rhs: &str, b: &str, priority: u32) -> String {
 }
 
 /// The authored symbols, which a front end names.
-const AUTHORED: [&str; 6] = ["Lblinc", "Lblhalt", "Lblghost", "Lblop", "Lblev", "Lblnop"];
+const AUTHORED: [&str; 7] = [
+    "Lblinc", "Lblhalt", "Lblghost", "Lblop", "Lblev", "Lblnop", "Lblgate",
+];
 
 fn definition() -> BackendDefinition {
     let axioms = [
@@ -64,6 +67,25 @@ fn definition() -> BackendDefinition {
             &item("Lblinc{}(N:SortInt{})"),
             "st{}(K:SortK{})",
             &format!("gtInt{{}}(N:SortInt{{}}, {})", int(100)),
+            40,
+        ),
+        // Matched on every `gate`, fired only above 100; its operand `I` has a head.
+        rule(
+            "gate",
+            &item("Lblgate{}(N:SortInt{}, I:SortInstr{})"),
+            "st{}(K:SortK{})",
+            &format!("gtInt{{}}(N:SortInt{{}}, {})", int(100)),
+            40,
+        ),
+        // Passes its operand to the function `scale`, whose result `op` then takes.
+        rule(
+            "sc",
+            &item("Lblsc{}(B:SortInt{})"),
+            &format!(
+                "st{{}}(kseq{{}}({}, K:SortK{{}}))",
+                item("Lblop{}(scale{}(B:SortInt{}))")
+            ),
+            "",
             40,
         ),
         // The rest of the program, `K`, is a continuation.
@@ -85,6 +107,14 @@ fn definition() -> BackendDefinition {
                 \and{R}(\top{R}(), \and{R}(\in{SortInstr{}, R}(X0:SortInstr{}, I:SortInstr{}), \top{R}())),
                 \equals{SortInt{}, R}(weight{}(X0:SortInstr{}), \and{SortInt{}}(\dv{SortInt{}}("7"), \top{SortInt{}}()))
             ) [label{}("weightAny")]"#
+            .to_owned(),
+        // A function equation whose binder `V` is named by its `\in`, as a template's is; it
+        // has a `UNIQUE_ID` besides its label.
+        r#"
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, V:SortInt{}), \top{R}())),
+                \equals{SortInt{}, R}(scale{}(X0:SortInt{}), \and{SortInt{}}(V:SortInt{}, \top{SortInt{}}()))
+            ) [label{}("scaleAny"), UNIQUE'Unds'ID{}("scale-id")]"#
             .to_owned(),
     ];
     let source = format!(
@@ -108,10 +138,13 @@ fn definition() -> BackendDefinition {
             symbol Lblop{{}}(SortInt{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol Lblev{{}}(SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol Lblnop{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
+            symbol Lblgate{{}}(SortInt{{}}, SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lblsc{{}}(SortInt{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol st{{}}(SortK{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol out{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol done{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
             symbol weight{{}}(SortInstr{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol scale{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
             {axioms}
         endmodule []"#,
         axioms = axioms.join("\n"),
@@ -198,27 +231,40 @@ fn set(symbols: &[&str]) -> BTreeSet<String> {
     symbols.iter().map(|symbol| (*symbol).to_owned()).collect()
 }
 
-/// `guarded` is entered at `inc(1)` and its guard refuted: it is matched, records no operand
-/// and binds no binder value, while `drop`, which takes the step, records the instruction it took
-/// through its injection.
+/// `gate` is entered at `gate(1, nop)` and its guard refuted: it is matched, records neither
+/// the head of its operand `I` nor a value of its binder `N`, while `drop`, which takes the
+/// step, records the instruction it took through its injection. Where its guard holds, at
+/// `gate(200, nop)`, the same rule records both, so what the refuted entry did not record is
+/// what an instance that fired records.
 #[test]
 fn a_matched_rule_whose_guard_was_refuted_records_no_binding() {
     let definition = definition();
-    let program = [
-        item(&format!("Lblinc{{}}({})", int(1))),
-        item("Lblhalt{}()"),
-    ];
+    let gate = |n| item(&format!("Lblgate{{}}({}, Lblnop{{}}())", int(n)));
+    let collection = || authored().with_binder("gate", "N", 8);
     let (bindings, coverage) = bindings_of(
         &definition,
-        state(&definition, &program),
-        authored().with_binder("guarded", "N", 8),
+        state(&definition, &[gate(1), item("Lblhalt{}()")]),
+        collection(),
         |_| {},
     );
-    assert!(coverage.matched.contains("guarded"), "{coverage:?}");
-    assert!(!coverage.applied.contains("guarded"), "{coverage:?}");
-    assert!(heads(&bindings, "guarded").is_empty(), "{bindings:?}");
-    assert_eq!(binder(&bindings, "guarded", "N"), None, "{bindings:?}");
-    assert_eq!(heads(&bindings, "drop"), set(&["Lblinc"]), "{bindings:?}");
+    assert!(coverage.matched.contains("gate"), "{coverage:?}");
+    assert!(!coverage.applied.contains("gate"), "{coverage:?}");
+    assert!(heads(&bindings, "gate").is_empty(), "{bindings:?}");
+    assert_eq!(binder(&bindings, "gate", "N"), None, "{bindings:?}");
+    assert_eq!(heads(&bindings, "drop"), set(&["Lblgate"]), "{bindings:?}");
+    let (fired, coverage) = bindings_of(
+        &definition,
+        state(&definition, &[gate(200)]),
+        collection(),
+        |_| {},
+    );
+    assert!(coverage.applied.contains("gate"), "{coverage:?}");
+    assert_eq!(heads(&fired, "gate"), set(&["Lblnop"]), "{fired:?}");
+    assert_eq!(
+        binder(&fired, "gate", "N").map(|values| values.values.clone()),
+        Some(values(&[200])),
+        "{fired:?}"
+    );
 }
 
 /// A committed step records the head of each operand: `drop`'s `X:KItem` bound to
@@ -415,5 +461,60 @@ fn bindings_are_isolated_from_the_run() {
         Some(values(&[7])),
         "{:?}",
         runs[0]
+    );
+}
+
+/// An equation's binder keeps the `Int` literals its fired instances bound, as a rule's does:
+/// `sc` passes its operand to `scale`, whose equation `scaleAny` binds `V` by its `\in` to the
+/// value. Selected under the equation's label and under its `UNIQUE_ID`, the binder is one
+/// variable of one axiom: it is reported once, under the `UNIQUE_ID`, keeping the larger cap.
+#[test]
+fn an_equation_binders_literals_are_recorded_once_under_its_unique_id() {
+    let definition = definition();
+    let sc = |value: i64| item(&format!("Lblsc{{}}({})", int(value)));
+    let (bindings, coverage) = bindings_of(
+        &definition,
+        state(&definition, &[sc(6), sc(2), sc(9), item("Lblhalt{}()")]),
+        authored()
+            .with_binder("scaleAny", "V", 1)
+            .with_binder("scale-id", "V", 2),
+        |_| {},
+    );
+    assert!(coverage.applied.contains("scale-id"), "{coverage:?}");
+    assert_eq!(
+        bindings.binders,
+        vec![BinderValues {
+            binder: BinderKey {
+                axiom: "scale-id".to_owned(),
+                variable: "V".to_owned(),
+            },
+            values: values(&[2, 6]),
+            truncated: true,
+            nonliteral: false,
+        }],
+        "{bindings:?}"
+    );
+    assert_eq!(
+        authored()
+            .with_binder("scaleAny", "V", 1)
+            .with_binder("scale-id", "V", 2)
+            .selected_twice(&definition),
+        Some((
+            BinderKey {
+                axiom: "scale-id".to_owned(),
+                variable: "V".to_owned(),
+            },
+            BinderKey {
+                axiom: "scaleAny".to_owned(),
+                variable: "V".to_owned(),
+            },
+        ))
+    );
+    assert_eq!(
+        authored()
+            .with_binder("scaleAny", "V", 1)
+            .with_binder("op", "B", 2)
+            .selected_twice(&definition),
+        None
     );
 }
