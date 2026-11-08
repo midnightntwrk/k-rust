@@ -98,6 +98,7 @@ mod grammar;
 mod may_follow;
 
 pub use grammar::{GrammarGraph, grammar_graph};
+pub(crate) use may_follow::unifies;
 pub use may_follow::{MayFollow, may_follow};
 
 use k_rust::backend::{AxiomGuardOutput, BackendDiagnosticOutput, BindingsOutput};

@@ -30,7 +30,7 @@ pub use observation::{
     BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, ChannelSets, Closure, Comparison,
     Element, Evaluated, Horizon, Log, OBSERVATION_VERSION, Observation, ObservationEvaluator,
     ObservationFunctions, ObservationVerdict, Observe, ObserveFunctions, Opened, Opening, Outside,
-    PathRecord, PointClass, Position, Stutter,
+    PathRecord, PointClass, Position, PrefixChain, Stutter,
 };
 mod manifest;
 mod oracle;

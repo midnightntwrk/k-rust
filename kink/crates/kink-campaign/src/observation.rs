@@ -1656,6 +1656,33 @@ impl ChannelTrace {
     }
 }
 
+/// A prefix's chain as a record's prefix sets hold it ([`ChannelSets`]), folded one element at a
+/// time: what a reader of a record of several paths walks the sets by, for the elements it
+/// knows. [`ChannelSets::holds`] reads it at an index.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrefixChain([u8; 32]);
+
+impl PrefixChain {
+    /// The chain of the empty prefix.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self(chain_start())
+    }
+
+    /// The chain of this prefix followed by the element whose digest's first 8 bytes are
+    /// `element`.
+    #[must_use]
+    pub fn then(self, element: [u8; 8]) -> Self {
+        Self(chain_next(&self.0, Link::Content(element)))
+    }
+
+    /// The chain's digest, as [`ChannelSets::holds`] takes it.
+    #[must_use]
+    pub const fn digest(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 /// One link of a prefix's chain: an element's 8 digest bytes, or the END or UNDEF that closes the
 /// channel ([`ChannelSets`]).
 #[derive(Clone, Copy)]

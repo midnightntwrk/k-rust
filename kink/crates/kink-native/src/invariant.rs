@@ -68,12 +68,34 @@
 //! The whole decision, the simplification and every solver question, runs on the proof route
 //! whatever evaluation mode the caller is in: an answer never rests on a value the definition
 //! leaves to the implementation.
+//!
+//! # The rules that step where a rule matches
+//!
+//! A step at a state is taken by a rule whose left-hand side matches the state, so at a state
+//! where a rule's left-hand side `L` matches, every rule that takes a step has a left-hand side
+//! that matches it too, and the two left-hand sides have a common instance. [`stepping_rules`]
+//! gives the rules whose left-hand side unifies with `L` under kink's may-follow abstraction
+//! (`crate::coverage::may_follow`: every function application, builtin value, collection and
+//! conjunction read as a fresh variable, each variable occurrence as its own), which only drops
+//! constraints: it contains every rule that can step at such a state, and may contain others.
+//!
+//! # Evaluation at a state
+//!
+//! [`evaluate`] gives the value of the invariant's function at one state, from the cells it
+//! reads, applied as the connection applies it ([`Invariant::cells`]), and evaluated with the
+//! definition's equations on the proof route with no solver ([`evaluate_configuration`] first
+//! evaluates a whole configuration, a program's initial one, to the term its cells are read
+//! from). The value is decided only where the evaluation ends at a ground `true` or `false` with
+//! no condition left: simplification preserves the term's meaning, so the function then has that
+//! value at every instance of the state. Every other outcome, a residual, a condition left open,
+//! a spent budget or a stop, leaves the value unknown.
 
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
+use k_rust::kore::ast::Pattern as KorePattern;
 use k_rust::names::BuiltinSort;
 use k_rust_backend::coverage::Connective;
 use k_rust_backend::definition::BackendDefinition;
@@ -81,12 +103,13 @@ use k_rust_backend::diagnostic::{self, BackendDiagnostic};
 use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
 use k_rust_backend::rule::{Predicate, RewriteRule};
 use k_rust_backend::simplify::{
-    ConditionIndeterminacy, SimplificationOptions, simplify_and_decide_predicate_with_solver,
+    self, ConditionIndeterminacy, SimplificationOptions, simplify_and_decide_predicate_with_solver,
 };
 use k_rust_backend::smt::{Satisfiability, SmtError, SmtSolver};
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::term::{Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
 
+use crate::coverage::unifies;
 use crate::feasibility::{Inhabitation, constructor_term, translates_exactly};
 
 /// An invariant over configuration cells: a `Bool` function of the definition, applied to the
@@ -367,6 +390,17 @@ fn applied(
     lhs: &Term,
     invariant: Invariant<'_>,
 ) -> Result<Term, Refusal> {
+    applied_to(definition, invariant, |path| cell_term(lhs, path))
+}
+
+/// `invariant`'s function applied to the cells `cell` gives, by path: the argument is the cell
+/// itself where the parameter's sort is the cell's sort, and otherwise its content, injected into
+/// the parameter's sort where it is of a subsort ([`Invariant::cells`]).
+fn applied_to<'t>(
+    definition: &BackendDefinition,
+    invariant: Invariant<'_>,
+    cell: impl Fn(&[String]) -> Option<&'t Term>,
+) -> Result<Term, Refusal> {
     let symbol = definition
         .symbols()
         .get(invariant.symbol)
@@ -386,7 +420,7 @@ fn applied(
         .iter()
         .zip(&symbol.argument_sorts)
         .map(|(path, parameter)| {
-            let cell = cell_term(lhs, path).ok_or_else(|| Refusal::NoCell(path.clone()))?;
+            let cell = cell(path).ok_or_else(|| Refusal::NoCell(path.clone()))?;
             if cell.sort() == *parameter {
                 return Ok(cell.clone());
             }
@@ -760,6 +794,176 @@ fn decide_on_the_proof_route(
     }
 }
 
+/// A rewrite rule of the definition that can take a step at a state where a given rule matches
+/// ([`stepping_rules`]): its `UNIQUE_ID` and its label, where it has one.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct SteppingRule {
+    pub unique_id: String,
+    pub label: Option<String>,
+}
+
+/// The rewrite rules of `definition` whose left-hand side unifies with the left-hand side of a
+/// rule whose `UNIQUE_ID` is one of `axioms` (module documentation, "The rules that step where a
+/// rule matches"), in `UNIQUE_ID` order, each once; the rules of `axioms` are among them.
+///
+/// # Errors
+///
+/// [`Refusal::NoRule`] for an id no rewrite rule has.
+pub fn stepping_rules(
+    definition: &BackendDefinition,
+    axioms: &BTreeSet<String>,
+) -> Result<Vec<SteppingRule>, Refusal> {
+    let rules = definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| &rule.rule)
+        .collect::<Vec<_>>();
+    let mut sides = Vec::new();
+    for axiom in axioms {
+        let before = sides.len();
+        sides.extend(
+            rules
+                .iter()
+                .filter(|rule| rule.attributes.unique_id == *axiom)
+                .map(|rule| &rule.lhs),
+        );
+        if sides.len() == before {
+            return Err(Refusal::NoRule(axiom.clone()));
+        }
+    }
+    let graph = definition.sort_graph();
+    let stepping = rules
+        .iter()
+        .filter(|rule| sides.iter().any(|lhs| unifies(&rule.lhs, lhs, graph)))
+        .map(|rule| SteppingRule {
+            unique_id: rule.attributes.unique_id.clone(),
+            label: rule.attributes.label.clone(),
+        })
+        .collect::<BTreeSet<_>>();
+    Ok(stepping.into_iter().collect())
+}
+
+/// The value of `invariant`'s function at a state whose cells are `cells`, the KORE of each cell
+/// the invariant reads, in order (the cell's own application, as k-rust's probe states read it at
+/// the cell's path), evaluated in `definition` (module documentation, "Evaluation at a state").
+///
+/// # Errors
+///
+/// Why the value is not known there: a cell that is no term of the definition, a stack the host
+/// does not give or a pattern too deep for the largest one, or an evaluation that does not end at
+/// a ground `true` or `false` with no condition left.
+pub fn evaluate(
+    definition: &BackendDefinition,
+    cells: &[&KorePattern],
+    invariant: Invariant<'_>,
+) -> Result<bool, String> {
+    if cells.len() != invariant.cells.len() {
+        return Err(format!(
+            "{} cells are read, and the invariant reads {}",
+            cells.len(),
+            invariant.cells.len()
+        ));
+    }
+    on_stack(definition, cells, |associated| {
+        let terms = associated
+            .iter()
+            .map(|cell| internalized(definition, cell))
+            .collect::<Result<Vec<_>, _>>()?;
+        let application = applied_to(definition, invariant, |path| {
+            invariant
+                .cells
+                .iter()
+                .position(|cell| cell.as_slice() == path)
+                .map(|index| &terms[index])
+        })
+        .map_err(|refusal| refusal.to_string())?;
+        value(definition, &application)
+    })
+}
+
+/// The value of `invariant`'s function at the configuration `configuration` (KORE), which is first
+/// evaluated in `definition` to the term its cells are read from, then as [`evaluate`] does.
+///
+/// # Errors
+///
+/// As [`evaluate`], and where the configuration's evaluation leaves a condition, or holds no cell
+/// the invariant reads.
+pub fn evaluate_configuration(
+    definition: &BackendDefinition,
+    configuration: &KorePattern,
+    invariant: Invariant<'_>,
+) -> Result<bool, String> {
+    on_stack(definition, &[configuration], |associated| {
+        let term = internalized(definition, associated[0])?;
+        let state = with_evaluation(EvaluationMode::Proof, || simplified(definition, &term))?;
+        let application = applied_to(definition, invariant, |path| cell_term(&state, path))
+            .map_err(|refusal| refusal.to_string())?;
+        value(definition, &application)
+    })
+}
+
+/// `work` on the stack k-rust gives an operation over `patterns`, or why it cannot run.
+fn on_stack<R>(
+    definition: &BackendDefinition,
+    patterns: &[&KorePattern],
+    work: impl FnOnce(&[&KorePattern]) -> Result<R, String>,
+) -> Result<R, String> {
+    match crate::feasibility::on_stack_for(definition, patterns, work) {
+        Ok(Some(result)) => result,
+        Ok(None) => Err("the state is too deep for the largest stack k-rust gives".to_owned()),
+        Err(refused) => Err(refused.to_string()),
+    }
+}
+
+/// `pattern` as a term of `definition`.
+fn internalized(definition: &BackendDefinition, pattern: &KorePattern) -> Result<Term, String> {
+    definition
+        .admit_unverified(pattern, &[])
+        .internalize_term()
+        .map_err(|error| format!("the state is no term of the definition: {error}"))
+}
+
+/// `term` evaluated in `definition` on the proof route, with no condition left.
+fn simplified(definition: &BackendDefinition, term: &Term) -> Result<Term, String> {
+    let (result, _) = diagnostic::collect(|| {
+        simplify::simplify(definition, term, SimplificationOptions::default())
+    });
+    match result {
+        Err(stop) => {
+            stop.forgo_refinement();
+            Err("a stop ended the evaluation".to_owned())
+        }
+        Ok(Err(error)) => Err(format!("the evaluation failed: {error}")),
+        Ok(Ok(simplification)) if simplification.exhausted.is_some() => {
+            Err("the evaluation spent its simplification budget".to_owned())
+        }
+        Ok(Ok(simplification)) if !simplification.is_unconditional() => {
+            Err("the evaluation leaves a condition".to_owned())
+        }
+        Ok(Ok(simplification)) => Ok(simplification.term),
+    }
+}
+
+/// The value of the `Bool` term `application`: decided only where its evaluation ends at a ground
+/// `true` or `false` with no condition left.
+fn value(definition: &BackendDefinition, application: &Term) -> Result<bool, String> {
+    let term = with_evaluation(EvaluationMode::Proof, || {
+        simplified(definition, application)
+    })?;
+    if let TermKind::DomainValue { sort, value } = term.kind()
+        && sort.is_builtin(BuiltinSort::Bool)
+    {
+        match value.as_bytes() {
+            b"true" => return Ok(true),
+            b"false" => return Ok(false),
+            _ => {}
+        }
+    }
+    Err("the invariant's evaluation ends at no Bool value".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -773,7 +977,9 @@ mod tests {
     use k_rust_backend::stop::Stoppable;
     use k_rust_backend::substitution::Substitution;
 
-    use super::{Connection, Invariant, Refusal, Undecided, Valuation, connection};
+    use super::{
+        Connection, Invariant, Refusal, Undecided, Valuation, connection, evaluate, stepping_rules,
+    };
     use crate::{NativeValidator, support};
 
     use Connection::{Connected, NotConnected};
@@ -873,6 +1079,75 @@ mod tests {
         let id = axiom(definition, label);
         connection(definition, solver, &id, valuation, invariant, undecided)
             .unwrap_or_else(|refusal| panic!("{label}: {refusal}"))
+    }
+
+    /// The rules that can step where `readz` matches are the two rules of its left-hand side;
+    /// where `bump` matches, `bump` alone, since every other rule's `<k>` cell begins with
+    /// another constructor.
+    #[test]
+    fn the_rules_that_step_where_a_rule_matches_are_those_whose_left_hand_side_unifies() {
+        with_fixture(|definition, _| {
+            let labels = |label: &str| {
+                let axioms = std::collections::BTreeSet::from([axiom(definition, label)]);
+                stepping_rules(definition, &axioms)
+                    .expect("the rule exists")
+                    .into_iter()
+                    .map(|rule| rule.label.unwrap_or_default())
+                    .collect::<std::collections::BTreeSet<_>>()
+            };
+            let set = |labels: &[&str]| labels.iter().map(|&label| label.to_owned()).collect();
+            assert_eq!(labels("readz"), set(&["INVMEM.readz", "INVMEM.readzRom"]));
+            assert_eq!(labels("bump"), set(&["INVMEM.bump"]));
+            let unknown = std::collections::BTreeSet::from(["no-such-id".to_owned()]);
+            assert_eq!(
+                stepping_rules(definition, &unknown),
+                Err(Refusal::NoRule("no-such-id".to_owned()))
+            );
+        });
+    }
+
+    /// An invariant's value at a state is its function's evaluation at the state's cells: the walk
+    /// over a ground memory is false exactly where a key lies below `romEnd`, the order of two
+    /// ground scalars is their order, and a cell holding a variable gives no value.
+    #[test]
+    fn an_invariant_is_evaluated_at_the_cells_of_a_state() {
+        use k_rust::kore::parser::parse_pattern;
+        with_fixture(|definition, _| {
+            let int = |n: i64| format!("\\dv{{SortInt{{}}}}(\"{n}\")");
+            let key = |n: i64| format!("inj{{SortInt{{}}, SortKItem{{}}}}({})", int(n));
+            let binding =
+                |k: i64, v: i64| format!("Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {})", key(k), key(v));
+            let cell = |name: &str, content: &str| {
+                parse_pattern(&format!("Lbl'-LT-'{name}'-GT-'{{}}({content})")).expect("a cell")
+            };
+            let rom = cell("romEnd", &int(4));
+            let clean = cell("memory", &binding(8, 0));
+            let dirty = cell(
+                "memory",
+                &format!(
+                    "Lbl'Unds'Map'Unds'{{}}({}, {})",
+                    binding(8, 0),
+                    binding(2, 1)
+                ),
+            );
+            let paths = memory();
+            let walk = Invariant {
+                symbol: "LbloutsideRom",
+                cells: &paths,
+            };
+            assert_eq!(evaluate(definition, &[&clean, &rom], walk), Ok(true));
+            assert_eq!(evaluate(definition, &[&dirty, &rom], walk), Ok(false));
+            let paths = scalars();
+            let order = Invariant {
+                symbol: "Lblordered",
+                cells: &paths,
+            };
+            let (zero, one, two) = (cell("a", &int(0)), cell("b", &int(1)), cell("a", &int(2)));
+            assert_eq!(evaluate(definition, &[&zero, &one], order), Ok(true));
+            assert_eq!(evaluate(definition, &[&two, &one], order), Ok(false));
+            let symbolic = cell("a", "VarA : SortInt{}");
+            assert!(evaluate(definition, &[&symbolic, &one], order).is_err());
+        });
     }
 
     /// The probe of a whole-map invariant at a rule's map pattern. `outsideRom` walks a map's

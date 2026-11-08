@@ -225,7 +225,7 @@ fn may_be_of(symbol: &Symbol, sort: &Sort, graph: &SortGraph) -> bool {
 }
 
 /// Whether `left` and `right` unify under the abstraction (module documentation).
-fn unifies(left: &Term, right: &Term, graph: &SortGraph) -> bool {
+pub(crate) fn unifies(left: &Term, right: &Term, graph: &SortGraph) -> bool {
     let mut work = vec![(left, right)];
     while let Some((left, right)) = work.pop() {
         match (shape(left), shape(right)) {
