@@ -161,9 +161,29 @@ fn templates_are_decoded_strictly_and_hole_errors_name_the_template_and_hole() {
     );
     assert_eq!(
         decode_error("[[template]]\nid = \"t\"\nprogram = \"p\"\nstart_sort = \"Pgm\"\n"),
-        "template \"t\": a template of a corpus program takes that program's start_sort and \
-         variables; give the text as file or text to set others"
+        "template \"t\": a template of a corpus program takes that program's start_sort, \
+         variables and stop_count; give the text as file or text to set others"
     );
+    // `stop_count`, as a `[[program]]`'s: a positive integer, on a file or text template only.
+    assert_eq!(
+        decode_error("[[template]]\nid = \"t\"\nprogram = \"p\"\nstop_count = 2\n"),
+        "template \"t\": a template of a corpus program takes that program's start_sort, \
+         variables and stop_count; give the text as file or text to set others"
+    );
+    for count in ["0", "-1", "\"2\""] {
+        assert_eq!(
+            decode_error(&format!(
+                "[[template]]\nid = \"t\"\ntext = \"x\"\nstop_count = {count}\n"
+            )),
+            "template \"t\".stop_count: expected a positive integer"
+        );
+    }
+    let list = TemplateList::decode(
+        "[[template]]\nid = \"t\"\ntext = \"x\"\nstop_count = 3\n",
+        Path::new("."),
+    )
+    .unwrap();
+    assert_eq!(list.templates[0].stop_count.map(|c| c.get()), Some(3));
     assert_eq!(
         decode_error("[[template]]\nid = \"t\"\nfile = \"../a.imp\"\n"),
         "template \"t\".file: path \"../a.imp\" leaves the templates' directory"

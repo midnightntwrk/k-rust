@@ -4,7 +4,9 @@
 //! `check` warns of an edit a stop before its rule hides, and a survivor repeats it, and of a
 //! deletion of its rule, which `run` does not admit; a `cases` entry gives its cases a count;
 //! `query` answers through each program's stopped run, a pattern reachable only past the stop
-//! being a `no` and a passed stop `unknown`; `fuzz` refuses a stopped corpus.
+//! being a `no` and a passed stop `unknown`; `fuzz` runs its cases under the stop, so a rule
+//! whose step only a path past the stop takes is fired by no case, and kills at a stop's end; its
+//! mutant must resolve the stop; and it refuses a stop condition.
 //!
 //! The fixture is testdata/flow/clock: `clock.k`, a clock whose `frame` rule fires every fourth
 //! step and which never ends on its own; `FLOW.toml` stops before the first `frame`, at
@@ -15,7 +17,10 @@
 
 use kink_flow::{
     FlowManifest,
-    cli::{CheckOptions, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check, check_with},
+    cli::{
+        CheckOptions, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check,
+        check_with,
+    },
     coverage::{CoverageOptions, coverage},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context},
     manifest::{Budget, ManifestError},
@@ -708,28 +713,156 @@ fn a_stop_naming_no_rewrite_rule_refuses_the_specification() {
     );
 }
 
-/// `fuzz` runs cases that end at no stop, so it refuses a stopped corpus.
+/// The clock's templates: `t` is `clock(0, P)` with the phase a hole from 0 to 2, so that every
+/// run ticks to phase 3 and stops before its first frame; `twice` is the same text with count 2,
+/// whose runs take the first frame's step and stop before the second.
+const CLOCK_TEMPLATES: &str = "[[template]]\nid = \"t\"\ntext = \"clock(0, 1)\"\n\
+                               [[template.hole]]\nname = \"P\"\nsort = \"Int\"\n\
+                               find = \"clock(0, 1)\"\nliteral = \"1\"\n\
+                               range = { min = 0, max = 2 }\n\n\
+                               [[template]]\nid = \"twice\"\ntext = \"clock(0, 1)\"\n\
+                               stop_count = 2\n\
+                               [[template.hole]]\nname = \"P\"\nsort = \"Int\"\n\
+                               find = \"clock(0, 1)\"\nliteral = \"1\"\n\
+                               range = { min = 0, max = 2 }\n";
+
+/// `kink-flow fuzz` on `manifest` with the clock's templates beside it, confirming, on a thread
+/// with the command's stack.
+fn fuzz(manifest: &Path, template: &str, job: FuzzJobRequest) -> (Value, u8) {
+    let manifest = manifest.to_path_buf();
+    let template = template.to_owned();
+    fs::write(manifest.with_file_name("TEMPLATES.toml"), CLOCK_TEMPLATES).unwrap();
+    std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || {
+            kink_flow::cli::fuzz(
+                &manifest,
+                &manifest.with_file_name("TEMPLATES.toml"),
+                &FuzzRequest {
+                    template,
+                    job,
+                    options: kink_flow::fuzz::FuzzOptions {
+                        budget: k_rust_fuzz::Budget::Cases(10),
+                        confirm: true,
+                        ..kink_flow::fuzz::FuzzOptions::default()
+                    },
+                },
+            )
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+fn fired(rule: &str) -> FuzzJobRequest {
+    FuzzJobRequest::Rule {
+        rule: rule.into(),
+        fired: true,
+    }
+}
+
+/// A rule job runs every case under the corpus stop: `tick` fires before the stop, and its
+/// witness is confirmed by `coverage` under the same stop; `frame`'s step is taken only past the
+/// first stop, so at count 1 no case fires it, and at the template's count 2 one does, the
+/// fragment writing that count.
 #[test]
-fn fuzz_refuses_a_stopped_corpus() {
-    let dir = fixture("verbs", &[]);
-    let (fuzz, status) = kink_flow::cli::fuzz(
-        &dir.join("FLOW.toml"),
-        &dir.join("TEMPLATES.toml"),
-        &FuzzRequest {
-            template: "t".into(),
-            job: FuzzJobRequest::Rule {
-                rule: "CLOCK.tick".into(),
-                fired: false,
-            },
-            options: kink_flow::fuzz::FuzzOptions::default(),
-        },
-    );
-    assert_eq!(status, EXIT_UNASKED, "{fuzz:#}");
+fn fuzz_fires_only_the_steps_before_the_stop() {
+    let dir = fixture("fuzz-fired", &[]);
+    let flow = dir.join("FLOW.toml");
+    let (document, status) = fuzz(&flow, "t", fired("CLOCK.tick"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
     assert_eq!(
-        (&fuzz["spec"]["stage"], &fuzz["spec"]["reason"]),
-        (&json!("stop"), &json!("unsupported-verb")),
-        "{fuzz:#}"
+        document["stop"],
+        json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),
+        "{document:#}"
     );
+    assert_eq!(document["template"]["stop_count"], 1, "{document:#}");
+    assert_eq!(
+        document["attempts"][0]["confirmation"]["confirmed"], true,
+        "{document:#}"
+    );
+    let (document, status) = fuzz(&flow, "t", fired("CLOCK.frame"));
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    assert!(
+        matches!(
+            document["stopped"].as_str(),
+            Some("budget" | "domain-exhausted")
+        ),
+        "{document:#}"
+    );
+    assert!(document["program"].is_null(), "{document:#}");
+    let (document, status) = fuzz(&flow, "twice", fired("CLOCK.frame"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["template"]["stop_count"], 2, "{document:#}");
+    assert_eq!(
+        document["attempts"][0]["confirmation"]["confirmed"], true,
+        "{document:#}"
+    );
+    let fragment = document["program"]["fragment"].as_str().unwrap();
+    assert!(fragment.contains("stop_count = 2"), "{fragment}");
+}
+
+/// A kill job compares the two sides' ends of the truncated system: `tick-twice` ends at
+/// another state before the first frame, a cut-point end, and `run` confirms the kill. A
+/// mutant that deletes `frame` has no rule the stop names, so the job is refused as `run`
+/// does not admit it; an edit of only `frame`'s right-hand side is hidden from a template whose
+/// runs end before its step, which the document warns.
+#[test]
+fn fuzz_kills_at_a_stops_end_and_its_mutant_must_resolve_the_stop() {
+    let dir = fixture("fuzz-kill", &[]);
+    let flow = dir.join("FLOW.toml");
+    let kill = |mutation: &str| FuzzJobRequest::Kill {
+        mutation: mutation.into(),
+        mutations: dir.join("mutations/clock.toml"),
+    };
+    let (document, status) = fuzz(&flow, "t", kill("tick-twice"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let confirmation = &document["attempts"][0]["confirmation"];
+    assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
+    assert_eq!(confirmation["status"], "killed", "{confirmation:#}");
+    let (document, status) = fuzz(&flow, "t", kill("frame-deleted"));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        (&document["job"]["status"], &document["job"]["reason"]),
+        (&json!("not-admitted"), &json!("stop-unresolved")),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["job"]["refusal"]["stage"], "mutant",
+        "{document:#}"
+    );
+    let (document, _) = fuzz(&flow, "t", kill("frame-jump"));
+    let kinds = document["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| warning["kind"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(kinds.contains(&"stop-hides-edit"), "{document:#}");
+}
+
+/// k-rust-fuzz runs its cases on the wire route, which asks no stop condition, so `fuzz`
+/// refuses a corpus whose stop has one, whatever the front end, before admitting anything.
+#[test]
+fn fuzz_refuses_a_stop_condition() {
+    let dir = fixture(
+        "fuzz-when",
+        &[(
+            "when",
+            &stopped(
+                "[stop]\nbefore = [\"CLOCK.frame\"]\nwhen = { function = \"F\", cells = [\"k\"] }\n",
+            ),
+        )],
+    );
+    let (document, status) = fuzz(&dir.join("FLOW-when.toml"), "t", fired("CLOCK.tick"));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        (&document["spec"]["stage"], &document["spec"]["reason"]),
+        (&json!("stop"), &json!("unsupported-verb")),
+        "{document:#}"
+    );
+    let detail = document["spec"]["detail"].as_str().unwrap();
+    assert!(detail.starts_with("stop condition"), "{detail}");
 }
 
 /// The clock's patterns: its state at the first frame's stop, the state the first frame makes

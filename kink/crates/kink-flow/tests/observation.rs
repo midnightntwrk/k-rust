@@ -4,8 +4,9 @@
 //! every cached result and outcome it changes and no other; every document names it; a run's
 //! kill on a channel names its position and both elements, the baseline's re-derived by a capture
 //! run; a survivor that agrees only up to a horizon says so; `run --verify` re-derives every
-//! cached observation outcome; `query` ignores the observations, saying why, and `fuzz` refuses
-//! a corpus with them.
+//! cached observation outcome; `query` and `fuzz`'s single-definition jobs ignore the
+//! observations, saying why, and `fuzz` refuses a kill job, which judges ends, on a corpus with
+//! them.
 //!
 //! The fixture is testdata/flow/console: `console.k` (testdata/k/console.k), a free-running
 //! console whose `tick` advances the count `<n>` and whose `emit` appends `show(n)` to the `<out>`
@@ -913,20 +914,53 @@ fn a_prefix_program_that_observed_nothing_is_unknown() {
     );
 }
 
-/// `fuzz` runs cases that compare no channel, so it refuses a corpus with observations.
+/// `kink-flow fuzz` on the fixture in `dir` with the template `t` (`run`, no hole) and the
+/// pattern `two` (`<n> 2 </n>`) beside it, confirming, on a thread with the command's stack.
+fn fuzz(dir: &Path, job: FuzzJobRequest) -> (Value, u8) {
+    let dir = dir.to_path_buf();
+    fs::write(
+        dir.join("TEMPLATES.toml"),
+        "[[template]]\nid = \"t\"\ntext = \"run\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"two\"\npattern = \"<n> 2 </n>\"\n",
+    )
+    .unwrap();
+    std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || {
+            kink_flow::cli::fuzz(
+                &dir.join("FLOW.toml"),
+                &dir.join("TEMPLATES.toml"),
+                &FuzzRequest {
+                    template: "t".into(),
+                    job,
+                    options: kink_flow::fuzz::FuzzOptions {
+                        budget: k_rust_fuzz::Budget::Cases(3),
+                        confirm: true,
+                        ..kink_flow::fuzz::FuzzOptions::default()
+                    },
+                },
+            )
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// A kill job's campaign compares the two definitions' ends, and a kill of a corpus with
+/// observations is a decided difference of a channel, so `fuzz` refuses it, naming the kill
+/// judgement; the document names the declaration.
 #[test]
-fn fuzz_refuses_a_corpus_with_observations() {
-    let dir = fixture("verbs", &[]);
-    let (fuzz, status) = kink_flow::cli::fuzz(
-        &dir.join("FLOW.toml"),
-        &dir.join("TEMPLATES.toml"),
-        &FuzzRequest {
-            template: "t".into(),
-            job: FuzzJobRequest::Rule {
-                rule: "CONSOLE.tick".into(),
-                fired: false,
-            },
-            options: kink_flow::fuzz::FuzzOptions::default(),
+fn fuzz_refuses_a_kill_job_on_a_corpus_with_observations() {
+    let dir = fixture("fuzz-kill", &[]);
+    let (fuzz, status) = fuzz(
+        &dir,
+        FuzzJobRequest::Kill {
+            mutation: "tick-twice".into(),
+            mutations: dir.join("mutations/console.toml"),
         },
     );
     assert_eq!(status, EXIT_UNASKED, "{fuzz:#}");
@@ -935,7 +969,32 @@ fn fuzz_refuses_a_corpus_with_observations() {
         (&json!("observe"), &json!("unsupported-verb")),
         "{fuzz:#}"
     );
-    assert_eq!(fuzz["action"], "remove [observe] to fuzz this corpus");
+    let detail = fuzz["spec"]["detail"].as_str().unwrap();
+    assert!(detail.starts_with("kill judgement"), "{detail}");
+    assert!(fuzz["observe"]["points"].is_array(), "{fuzz:#}");
+}
+
+/// A pattern job asks what the baseline's run reaches, which no channel changes, so `fuzz` runs
+/// it on a corpus with observations, saying why it ignores them, and `query` confirms its hit.
+#[test]
+fn fuzz_ignores_the_observations_of_a_single_definition_job() {
+    let dir = fixture("fuzz-pattern", &[]);
+    let (fuzz, status) = fuzz(
+        &dir,
+        FuzzJobRequest::Pattern {
+            id: "two".into(),
+            patterns: dir.join("PATTERNS.toml"),
+        },
+    );
+    assert_eq!(status, EXIT_YES, "{fuzz:#}");
+    let ignored = fuzz["job"]["observe"]["ignored"].as_str().unwrap();
+    assert!(
+        ignored.contains("observation channels compare"),
+        "{ignored}"
+    );
+    let confirmation = &fuzz["attempts"][0]["confirmation"];
+    assert_eq!(confirmation["answer"], "hit", "{confirmation:#}");
+    assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
 }
 
 /// `query` admits a corpus with observations and ignores them, saying why: a pattern query asks

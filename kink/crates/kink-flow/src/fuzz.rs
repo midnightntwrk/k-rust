@@ -87,6 +87,28 @@
 //! `open-application` reason, and a mutation the last run left `unknown` with that reason is
 //! warned before any case (`open-application`). Each stop is a count of cases, never a clock.
 //!
+//! **A corpus with `[stop]`.** A stop is part of a case's meaning: a path of the case ends at its
+//! last stop event, so a state past it is no state of the case, and a step past it is taken by
+//! no run kink judges. The campaign therefore runs the system the corpus states: its stop
+//! (k-rust-fuzz `CaseOptions::stop`, the stop's rules and the template's count) is on every
+//! request of every job, so a case's coverage, reach, hit and kill are those of the truncated
+//! system, and its confirmation runs the overlay with the same stop. The template's count is its
+//! program's `stop_count`, else `[stop] count`; a `file` or `text` template may give its own
+//! `stop_count`, which its fragment writes. A kill job's mutant must have a rewrite rule of every
+//! label the stop names, as `run` requires, or the job is refused (status `not-admitted`, reason
+//! `stop-unresolved`), and an edit the stop before its rule hides from the template is warned
+//! (`stop-hides-edit`). A stop condition (`[stop] when`) is refused (stage `stop`, reason
+//! `unsupported-verb`): k-rust-fuzz runs its cases on the wire route, which carries no callback to
+//! ask a condition at each arrival.
+//!
+//! **A corpus with `[observe]`.** An observation channel compares two definitions' runs; it
+//! changes neither which states a run reaches, which rules it fires, nor where it ends. So the
+//! single-definition jobs (rule, coverage-gap and pattern jobs) admit the declaration and ignore
+//! it, saying why (`job.observe`). A kill job is refused (stage `observe`, reason
+//! `unsupported-verb`): its campaign compares the two sides' ends only, while a kill of a corpus
+//! with `[observe]` is a decided difference of an observation sequence, so a search judged by
+//! ends would look for another kind of kill than the one `run` judges.
+//!
 //! **Output.** One document ([`FUZZ_SCHEMA`]): the fuzz report of the attempt, the candidate (the
 //! shrunk witness case, else the first), and the `[[program]]` fragment, printed, never written.
 //! **Confirmation** (T4). Unless `--no-confirm` is given ([`FuzzOptions::confirm`]), kink's own
@@ -217,8 +239,17 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// premise the flow lacks ([`refutes_survival`], `crate::cli::fuzz_status`), whose action says
 /// so; another witness of it is a candidate, and its action says what is left to decide. The
 /// other jobs' documents are version 13's.
+/// Version 15 runs a corpus with `[stop]` and one with `[observe]` (module documentation): the
+/// refusals at stages `stop` and `observe` are narrowed to a stop condition and to a kill job
+/// under observations; the document names the manifest's `stop` and `observe` (its declaration)
+/// when it has them, `template.stop_count` is the count the template's runs end at, a
+/// single-definition job under observations has `job.observe` (`{ignored}`, why it ignores
+/// them), a kill job whose mutant the stop does not resolve is refused at stage `mutant`
+/// (`job.status` `not-admitted`, reason `stop-unresolved`), the warning `stop-hides-edit` is
+/// given, a template may give `stop_count`, and its fragment writes it; it embeds k-rust-fuzz
+/// reports of version 11, whose identity records the stop.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 14;
+pub const FUZZ_VERSION: u32 = 15;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -270,6 +301,10 @@ pub struct Template {
     /// The holes, decoded with k-rust-fuzz's `[[hole]]` decoder; a span hole addresses the
     /// template's text, whose name in the campaign is the template's id.
     pub holes: Vec<HoleDecl>,
+    /// `stop_count`: the stop event the template's runs end at, in place of `[stop] count`, as a
+    /// `[[program]]`'s `stop_count`; absent: `[stop] count`. A template of a corpus program takes
+    /// that program's.
+    pub stop_count: Option<std::num::NonZeroU64>,
 }
 
 /// Where a template's text comes from.
@@ -410,6 +445,7 @@ fn template(index: usize, value: &Toml) -> Result<Template, ManifestError> {
             "start_sort",
             "variables",
             "hole",
+            "stop_count",
         ]
         .contains(&name.as_str())
     }) {
@@ -460,11 +496,28 @@ fn template(index: usize, value: &Toml) -> Result<Template, ManifestError> {
             ));
         }
     };
-    if program_source && (start_sort.is_some() || !variables.is_empty()) {
+    let stop_count = match entry.get("stop_count") {
+        None => None,
+        Some(Toml::Integer(count)) => Some(
+            u64::try_from(*count)
+                .ok()
+                .and_then(std::num::NonZeroU64::new)
+                .ok_or_else(|| {
+                    ManifestError::new(join(&key, "stop_count"), "expected a positive integer")
+                })?,
+        ),
+        Some(_) => {
+            return Err(ManifestError::new(
+                join(&key, "stop_count"),
+                "expected a positive integer",
+            ));
+        }
+    };
+    if program_source && (start_sort.is_some() || !variables.is_empty() || stop_count.is_some()) {
         return Err(ManifestError::new(
             key,
-            "a template of a corpus program takes that program's start_sort and variables; give \
-             the text as file or text to set others",
+            "a template of a corpus program takes that program's start_sort, variables and \
+             stop_count; give the text as file or text to set others",
         ));
     }
     let holes = match entry.get("hole") {
@@ -487,6 +540,7 @@ fn template(index: usize, value: &Toml) -> Result<Template, ManifestError> {
         start_sort,
         variables,
         holes,
+        stop_count,
     })
 }
 
@@ -689,15 +743,48 @@ pub fn input_refused(file: &str, error: &dyn std::fmt::Display) -> Value {
     document
 }
 
-/// The document of a fuzz job on a corpus with `[stop]`, which `fuzz` does not run yet: the
-/// specification refused at stage `stop`, reason `unsupported-verb`, with `detail`.
-pub fn stop_refused(detail: &str) -> Value {
-    let mut document = document();
-    document["spec"] =
-        Refusal::new("stop", "unsupported-verb".to_owned(), detail.to_owned()).value();
-    document["stopped"] = json!("refused");
-    document["action"] = json!("remove [stop] to fuzz this corpus");
-    document
+/// Why a single-definition job ignores `[observe]` (module documentation): `job.observe`'s
+/// `ignored`.
+pub const OBSERVE_IGNORED: &str = "this job asks what one definition's run reaches, matches or \
+     fires; observation channels compare two definitions' runs, and change neither which states a \
+     run reaches, which rules it fires, nor where it ends";
+
+/// The refusal of a job `fuzz` cannot run on `manifest`'s corpus, before anything is admitted:
+/// a stop condition, which no case of the wire route can ask (stage `stop`), or a kill job under
+/// observations, whose campaign compares ends only (stage `observe`); both reason
+/// `unsupported-verb`, with the action. `None` for every other job.
+fn corpus_refusal(manifest: &FlowManifest, job: &FuzzJob<'_>) -> Option<(Refusal, &'static str)> {
+    if let Some(when) = manifest.stop.as_ref().and_then(|stop| stop.when.as_ref()) {
+        return Some((
+            Refusal::new(
+                "stop",
+                "unsupported-verb",
+                format!(
+                    "stop condition: [stop] when `{}` is asked at each arrival in the process \
+                     that runs the case, and fuzz runs its cases on k-rust-fuzz's wire route, \
+                     which carries no callback, so its cases would end at arrivals the corpus \
+                     does not count; use `check`, `coverage`, `run` and `query`",
+                    when.function
+                ),
+            ),
+            "remove [stop] when to fuzz this corpus (its paths then end at every arrival)",
+        ));
+    }
+    if manifest.observe.is_some() && matches!(job, FuzzJob::Kill { .. }) {
+        return Some((
+            Refusal::new(
+                "observe",
+                "unsupported-verb",
+                "kill judgement: a kill of a corpus with [observe] is a decided difference of an \
+                 observation channel, as `run` judges it, while the kill job's campaign compares \
+                 the two definitions' ends only, so its search would look for another kill than \
+                 the one `run` judges; the single-definition jobs run on this corpus, and `run` \
+                 judges a program written by hand",
+            ),
+            "remove [observe] to fuzz kills by ends on this corpus",
+        ));
+    }
+    None
 }
 
 /// The baseline or a mutant as a k-rust-fuzz definition: `side`'s loaded definition and compiled
@@ -746,6 +833,22 @@ struct Instance {
     written_start_sort: Option<String>,
     variables: Vec<(String, String)>,
     file: Option<String>,
+    /// The `stop_count` a `[[program]]` of the witness writes: its program's, or the template's.
+    stop_count: Option<std::num::NonZeroU64>,
+}
+
+impl Instance {
+    /// The campaign's stop ([`CaseOptions::stop`]): the corpus stop's rules, as the manifest
+    /// names them (the exact labels kink stops at), and the count the template's runs end at;
+    /// `None` without `[stop]`.
+    fn case_stop(&self, manifest: &FlowManifest) -> Option<k_rust_fuzz::CaseStop> {
+        let stop = manifest.stop.as_ref()?;
+        Some(k_rust_fuzz::CaseStop {
+            before: stop.before.clone(),
+            after: stop.after.clone(),
+            count: self.stop_count.unwrap_or(stop.count),
+        })
+    }
 }
 
 fn read_inside(root: &Path, name: &str) -> Result<Vec<u8>, String> {
@@ -804,7 +907,14 @@ fn instance(
     spec: &AdmittedSpec,
 ) -> Result<Instance, Refusal> {
     let refused = |detail: String| Refusal::new("template", "template-refused", detail);
-    let (text, given_sort, variables, file) = match &template.source {
+    if manifest.stop.is_none() && template.stop_count.is_some() {
+        return Err(refused(
+            "stop_count is the stop event a run ends at, and FLOW.toml has no [stop]: name the \
+             rules to stop before or after, or remove stop_count"
+                .to_owned(),
+        ));
+    }
+    let (text, given_sort, variables, file, stop_count) = match &template.source {
         TemplateSource::Program(id) => {
             let program = manifest
                 .programs
@@ -842,6 +952,7 @@ fn instance(
                 program.start_sort.clone(),
                 program.variables.clone(),
                 file,
+                program.stop_count,
             )
         }
         TemplateSource::File(name) => {
@@ -851,6 +962,7 @@ fn instance(
                 template.start_sort.clone(),
                 template.variables.clone(),
                 Some(name.clone()),
+                template.stop_count,
             )
         }
         TemplateSource::Text(text) => (
@@ -858,6 +970,7 @@ fn instance(
             template.start_sort.clone(),
             template.variables.clone(),
             None,
+            template.stop_count,
         ),
     };
     let (start_sort, start_sort_source) = match &given_sort {
@@ -890,6 +1003,7 @@ fn instance(
         written_start_sort: given_sort,
         variables,
         file,
+        stop_count,
     })
 }
 
@@ -1154,7 +1268,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         case: None,
         case_file: None,
         expect: None,
-        stop_count: None,
+        stop_count: instance.stop_count,
     };
     let inputs = CaseInputs {
         text,
@@ -1179,6 +1293,12 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
     }
     if let Some(sort) = &instance.written_start_sort {
         table.insert("start_sort".into(), Toml::String(sort.clone()));
+    }
+    if let Some(count) = instance.stop_count {
+        table.insert(
+            "stop_count".into(),
+            Toml::Integer(i64::try_from(count.get()).unwrap_or(i64::MAX)),
+        );
     }
     if !variables.is_empty() {
         table.insert(
@@ -1400,7 +1520,7 @@ fn template_program(template: &Template, instance: &Instance) -> Program {
         case: None,
         case_file: None,
         expect: None,
-        stop_count: None,
+        stop_count: instance.stop_count,
     }
 }
 
@@ -2039,6 +2159,23 @@ pub fn fuzz_front(
         document["job"]["flip"] = json!(flip);
         document["job"]["expect"] = Value::Null;
     }
+    // The corpus's stop and observation declaration, as every kink-flow document names them.
+    if let Some(stop) = manifest.stop_value() {
+        document["stop"] = stop;
+    }
+    if let Some(observe) = manifest.observe_value() {
+        document["observe"] = observe;
+    }
+    if let Some((refusal, action)) = corpus_refusal(manifest, &job) {
+        document["spec"] = refusal.value();
+        document["stopped"] = json!("refused");
+        document["action"] = json!(action);
+        return (document, false);
+    }
+    if manifest.observe.is_some() {
+        // Only a kill job compares two definitions, and it is refused above.
+        document["job"]["observe"] = json!({"ignored": OBSERVE_IGNORED});
+    }
     // A pattern target reads no data end, so the campaign takes no assumed name (k-rust-fuzz
     // refuses names on such a target), not even the flow's.
     let reads_data = !matches!(job, FuzzJob::Pattern { .. });
@@ -2180,6 +2317,7 @@ pub fn fuzz_front(
             .map(|(name, text)| json!({"name": name, "text": text}))
             .collect::<Vec<_>>(),
         "holes": serde_json::to_value(&template.holes).expect("hole declarations encode"),
+        "stop_count": instance.case_stop(manifest).map(|stop| stop.count.get()),
         "last_run": null,
     });
     let mut warnings = Vec::new();
@@ -2385,6 +2523,29 @@ pub fn fuzz_front(
                     ),
                 );
             }
+            // An edit of a rule the stop stops before, on a template whose runs end at their first
+            // arrival there, builds nothing any end of the template's runs holds when it changes
+            // only the step's right-hand side or `ensures` (`check`'s `stop-hides-edit`, read for
+            // the template as the only program).
+            if manifest.stop.is_some() {
+                let mut alone = manifest.clone();
+                alone.programs = vec![template_program(template, &instance)];
+                if let Some(hides) = crate::check::StopHides::of(&alone, None) {
+                    for rule in &resolved.rules {
+                        if let Some(label) = hides.hidden(rule.label.as_deref(), &rule.at)
+                            && rule.after.is_some()
+                        {
+                            push_warning(
+                                &mut document,
+                                warning(
+                                    "stop-hides-edit",
+                                    format!("{}; {}", hides.detail(&label), hides.next(&label)),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
             // The names every later step judges under: the flow's and the command line's (the
             // campaign, the filter and the confirmation read the same set; final review N1).
             let admission = MutantAdmission::new(
@@ -2447,7 +2608,56 @@ pub fn fuzz_front(
     // Each side's load, in side order, kept for the witness filter.
     let mut loads = Vec::new();
     for (role, side) in sides_to_check {
-        match side_exclusion(side, &module, manifest.budget.backend_options()) {
+        let mut loaded = side_exclusion(side, &module, manifest.budget.backend_options());
+        // The stop names one observation on the baseline (admission checked it there) and on
+        // the mutant: a name that labels no rewrite rule of the mutant leaves the stop undefined
+        // on it, and `run` does not admit the mutant rather than run it untruncated.
+        if role == "mutant"
+            && let (Ok((load, _)), Some(stop)) = (loaded.as_mut(), manifest.stop.as_ref())
+        {
+            let unresolved = match stop.rules().unresolved(&mut load.backend) {
+                Ok(unresolved) => unresolved,
+                Err(failure) => {
+                    return refuse(
+                        document,
+                        Refusal::new(
+                            "mutant",
+                            "backend-error",
+                            format!(
+                                "the mutant's rewrite rules could not be read from its backend, \
+                                 so the stop's names could not be checked: {failure:?}"
+                            ),
+                        ),
+                        "report this: kink's mutant backend lists no rules",
+                    );
+                }
+            };
+            if !unresolved.is_empty() {
+                document["job"]["status"] = json!("not-admitted");
+                document["job"]["reason"] = json!("stop-unresolved");
+                let detail = format!(
+                    "[stop] names {}, which labels no rewrite rule of the mutant: the stop \
+                     states no observation of it, so `run` reports the mutation not-admitted \
+                     (stop-unresolved) rather than judging it",
+                    unresolved
+                        .iter()
+                        .map(|name| format!("`{name}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                return refuse(
+                    document,
+                    Refusal::new("mutant", "stop-unresolved", detail),
+                    &format!(
+                        "no search can kill a mutation the stop does not resolve on (`{}` gives \
+                         the same status): edit the rule rather than deleting it or dropping its \
+                         label, or stop at another rule",
+                        spelling.verb(Verb::Run)
+                    ),
+                );
+            }
+        }
+        match loaded {
             Ok((load, None)) => {
                 exclusions.insert(role.into(), Value::Null);
                 if options.filter {
@@ -2594,6 +2804,9 @@ pub fn fuzz_front(
             } else {
                 Vec::new()
             },
+            // The corpus's stop, on every request of the campaign: the system it fuzzes is the
+            // truncated one every kink verb runs.
+            stop: instance.case_stop(manifest),
             ..CaseOptions::default()
         },
         // A coverage goal's distance is how near the run's records come to its facts (the
