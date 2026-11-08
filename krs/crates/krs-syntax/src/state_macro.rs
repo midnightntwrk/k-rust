@@ -1556,6 +1556,20 @@ pub(crate) fn parse_k_sequence(
     parse_keyed_k_sequence(tokens, context, invocation, SequenceRoot::Term)
 }
 
+/// Parses an initializer's `k!` payload held by `invocation`, the cell's whole initial content,
+/// and keys it as a sentence of its own.
+pub(crate) fn parse_initializer_k_sequence(
+    tokens: TokenStream,
+    invocation: Option<TokenRange>,
+) -> Result<KSequence, SyntaxError> {
+    parse_keyed_k_sequence(
+        tokens,
+        StateMacroContext::Expression,
+        invocation,
+        SequenceRoot::Initializer,
+    )
+}
+
 /// Parses a `KCell(..)` entry's K sequence, the whole content of its cell: a content root, where
 /// a result's anonymous `..` is the subject's unnamed rest of the cell, kept (P6, D2), as it is
 /// in a pattern. Whether the subject has such a rest is the entry's pairing.
@@ -1574,6 +1588,9 @@ enum SequenceRoot {
     Term,
     /// A `KCell(..)` entry's sequence, the whole content of its cell ([`parse_cell_k_sequence`]).
     Cell,
+    /// An initializer's `k!`, the cell's whole initial content
+    /// ([`parse_initializer_k_sequence`]).
+    Initializer,
 }
 
 fn parse_keyed_k_sequence(
@@ -1734,6 +1751,9 @@ fn parse_unkeyed_k_sequence(
 
 /// The refusal of an item after a sequence's tail.
 const MISPLACED_TAIL: &str = "the sequence tail must be last";
+
+/// The refusal of an anonymous `..` in an initializer's `k!`.
+const INITIALIZER_REMAINDER: &str = "an initializer's `k!` is the cell's whole initial content, so it lists every item and keeps no rest (`..`): there is no subject whose rest the `..` could stand for";
 
 /// The items a `KCell(..)` entry's sequence writes after its tail, `KCell(.., x)` or
 /// `KCell(x, .., y)`, with the separator the sequence is written with: `None` where the sequence
@@ -2848,6 +2868,14 @@ fn parse_remainder_tokens(
                 binding,
             });
         }
+        // An initializer's value is the cell's whole initial content: it has no subject whose
+        // rest an anonymous `..` could keep (P5), whatever the cell's kind.
+        if root == SequenceRoot::Initializer {
+            return Err(crate::parse::unsupported_initializer_body(
+                INITIALIZER_REMAINDER,
+                dots.span(),
+            ));
+        }
         if context == StateMacroContext::Expression && root == SequenceRoot::Term {
             if macro_name == "map" {
                 return Err(crate::collection_literal::anonymous_map_rest(dots.spans[0]));
@@ -2865,10 +2893,15 @@ fn parse_remainder_tokens(
     let binding: Ident = input.parse().map_err(SyntaxError::from)?;
     input.parse::<Token![@]>().map_err(SyntaxError::from)?;
     let dots: Token![..] = input.parse().map_err(SyntaxError::from)?;
+    // `name @ ..` names the rest a pattern matched; a term built where nothing was matched
+    // (a result, an initializer) has none to name, whatever the cell's kind (P4's placement).
     if context == StateMacroContext::Expression {
-        return Err(state_error(
-            macro_name,
-            "expressions reuse remainders as `..name`",
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidPatternAs {
+                reason: crate::positions::Class::AliasOutsidePattern
+                    .summary()
+                    .to_owned(),
+            },
             binding.span(),
         ));
     }

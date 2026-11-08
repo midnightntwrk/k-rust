@@ -321,6 +321,18 @@ fn read_parts(collection: Collection, input: ParseStream<'_>) -> Result<Parts, S
             rest = Some(parse_rest(collection, input)?);
             break;
         }
+        // `name @ ..` names the rest a pattern matched, and a literal is a term built where
+        // nothing was matched: it has no rest to name, only a base it is written over (`..m`).
+        if input.peek(Ident) && input.peek2(Token![@]) && input.peek3(Token![..]) {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidPatternAs {
+                    reason: crate::positions::Class::AliasOutsidePattern
+                        .summary()
+                        .to_owned(),
+                },
+                input.span(),
+            ));
+        }
         let start = input.cursor();
         let (key, value) = match collection {
             Collection::Map => {

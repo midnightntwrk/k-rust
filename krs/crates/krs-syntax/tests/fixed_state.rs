@@ -333,13 +333,6 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
             },
         ),
         (
-            "S1 ~> tail @ ..",
-            SyntaxErrorKind::InvalidStateMacro {
-                macro_name: "k",
-                reason: "expressions reuse remainders as `..name`",
-            },
-        ),
-        (
             "S1, ..tail, S2",
             SyntaxErrorKind::InvalidStateMacro {
                 macro_name: "k",
@@ -367,6 +360,14 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
         .unwrap_err();
         assert_eq!(error.kind(), &expected_kind, "{source}");
     }
+    // `name @ ..` names a rest a pattern matched, which a built sequence has none of: K's
+    // `#as` outside a pattern, the form's own refusal whatever the cell.
+    assert_rejects!(
+        krs_syntax::parse_k_sequence_expression(
+            krs_syntax::parse::tokens_from_source("S1 ~> tail @ ..").unwrap()
+        ),
+        error if matches!(error.kind(), SyntaxErrorKind::InvalidPatternAs { .. })
+    );
     assert_rejects!(
         krs_syntax::parse_k_sequence_pattern(
             krs_syntax::parse::tokens_from_source("S1, ..tail").unwrap()
@@ -1630,6 +1631,37 @@ fn an_item_after_a_kcell_tail_waits_for_the_cells_kind() {
         );
         assert!(
             krs_syntax::StateRuleItem::parse_source(&source).is_err(),
+            "{source}"
+        );
+    }
+}
+
+/// An initializer's `k!` is the cell's whole initial content: an anonymous `..` keeps no rest
+/// there, and `name @ ..` names a rest no pattern matched, whatever the cell's kind.
+#[test]
+fn an_initializers_k_rest_is_refused_by_its_form() {
+    let source = "fn init() -> Self { Self { k: k::k![Cmd::Go(), ..] } }";
+    let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
+    assert!(
+        matches!(
+            error.kind(),
+            SyntaxErrorKind::UnsupportedInitializerBody { .. }
+        ),
+        "{error}"
+    );
+    assert_eq!(error.span().start().column, source.find("..").unwrap());
+    for source in [
+        "fn init() -> Self { Self { k: k::k![Cmd::Go(), r @ ..] } }",
+        "fn init() -> Self { Self { env: k::map![0 -> 1, r @ ..] } }",
+    ] {
+        let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::InvalidPatternAs { .. }),
+            "{source}: {error}"
+        );
+        assert_eq!(
+            error.span().start().column,
+            source.find("r @").unwrap(),
             "{source}"
         );
     }

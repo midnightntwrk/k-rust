@@ -17,7 +17,9 @@ use crate::parse::{
     unsupported_initializer_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
-use crate::state_macro::{StateMacroContext, StatePosition, parse_k_sequence, parse_map};
+use crate::state_macro::{
+    StateMacroContext, StatePosition, parse_initializer_k_sequence, parse_map,
+};
 use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression,
@@ -1414,9 +1416,8 @@ fn parse_initializer_state_term(
         // delimiter.
         let invocation = || TokenRange::for_tokens(mac).map(Some);
         return match name.as_str() {
-            "k" if computation => Ok(StateTerm::KSequence(parse_k_sequence(
+            "k" if computation => Ok(StateTerm::KSequence(parse_initializer_k_sequence(
                 mac.tokens.clone(),
-                StateMacroContext::Expression,
                 invocation()?,
             )?)),
             "map" if !computation => Ok(StateTerm::Map(
