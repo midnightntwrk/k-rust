@@ -4382,6 +4382,7 @@ mod tests {
                     vec![krs_ir::ProtocolRuleInstance {
                         key: key(Role::RuleLeftCellsInstance, 0),
                         label: Some("j".to_owned()),
+                        head: None,
                         fields: vec![krs_ir::ProtocolRuleInstanceField {
                             key: key(Role::RuleLeftCellsInstanceField, 0),
                             field: "payload".to_owned(),

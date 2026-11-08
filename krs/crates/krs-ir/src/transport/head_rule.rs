@@ -2274,6 +2274,7 @@ mod tests {
                     front: vec![ProtocolRuleInstance {
                         key: key(ProvenanceRole::RuleLeftCellsInstance, 0),
                         label: None,
+                        head: None,
                         fields: vec![ProtocolRuleInstanceField {
                             key: key(ProvenanceRole::RuleLeftCellsInstanceField, 0),
                             field: "k".to_owned(),

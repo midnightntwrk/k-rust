@@ -1470,6 +1470,11 @@ fn long_state(
                 item.value = long(&item.value)?;
             }
         }
+        krs_ir::ProtocolRuleStateTerm::Record(record) => {
+            for field in &mut record.fields {
+                long_state(&mut field.value, long)?;
+            }
+        }
         krs_ir::ProtocolRuleStateTerm::Instances(instances) => {
             for instance in instances.front.iter_mut().chain(&mut instances.back) {
                 for field in &mut instance.fields {

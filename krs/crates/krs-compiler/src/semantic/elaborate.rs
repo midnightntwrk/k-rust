@@ -1159,6 +1159,12 @@ fn state_terms(
                 visit(&mut item.value);
             }
         }
+        // A group record's head names the record and is no term of the state.
+        ProtocolRuleStateTerm::Record(record) => {
+            for field in &mut record.fields {
+                state_terms(&mut field.value, visit);
+            }
+        }
         ProtocolRuleStateTerm::Instances(instances) => {
             for instance in instances.front.iter_mut().chain(&mut instances.back) {
                 for field in &mut instance.fields {

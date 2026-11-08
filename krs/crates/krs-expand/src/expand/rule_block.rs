@@ -913,6 +913,7 @@ fn readable_state_wire(
                 Ok(krs_ir::ProtocolRuleInstance {
                     key,
                     label: item.label().map(ToString::to_string),
+                    head: None,
                     fields,
                     rest: super::state_rules::instance_rest(item.rest()),
                 })
@@ -1157,6 +1158,7 @@ fn alternative_instances(
                 Ok(krs_ir::ProtocolRuleInstance {
                     key: ledger.define(item.key())?,
                     label: item.label().map(ToString::to_string),
+                    head: None,
                     fields,
                     rest: super::state_rules::instance_rest(item.rest()),
                 })

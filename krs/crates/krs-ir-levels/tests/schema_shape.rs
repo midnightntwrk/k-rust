@@ -86,6 +86,7 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "Presence",
     "InstanceClause",
     "ProtocolInstanceRest",
+    "ProtocolRecordRest",
 ];
 
 // Flattened fields must remain outside reflection.
@@ -240,6 +241,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ProtocolRuleInstance",
     "ProtocolRuleInstanceField",
     "ProtocolRuleInstances",
+    "ProtocolRuleRecord",
 ];
 
 const UNTRACEABLE: &[&[&str]] = &[
@@ -1069,6 +1071,8 @@ fn registry() -> Registry {
     unsupported!(ProtocolRuleInstance: ProtocolRuleInstance<String>);
     unsupported!(ProtocolRuleInstanceField: ProtocolRuleInstanceField<String>);
     unsupported!(ProtocolRuleInstances: ProtocolRuleInstances<String>);
+    unsupported!(ProtocolRecordRest: ProtocolRecordRest);
+    unsupported!(ProtocolRuleRecord: ProtocolRuleRecord<String>);
     unsupported!(ProtocolCellContent: ProtocolCellContent<String,String>);
     reaches_refined!(ProtocolCellField: ProtocolCellField<String,String,String>);
     unsupported!(ProtocolMapBody: ProtocolMapBody<String>);

@@ -360,6 +360,7 @@ fn validate_rule_cells_references(
         match &cell.value {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Record(_)
             | ProtocolRuleStateTerm::Instances(_) => {
                 for term in cell.value.terms() {
                     validate_structured_term_references(term, declarations)?;

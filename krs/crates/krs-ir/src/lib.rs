@@ -195,8 +195,8 @@ pub use transport::rule::{
     ProtocolRuleMapItem, ProtocolRuleStateTerm,
 };
 pub use transport::rule::{
-    InstanceDelimiter, ProtocolInstanceRest, ProtocolRuleInstance, ProtocolRuleInstanceField,
-    ProtocolRuleInstances,
+    InstanceDelimiter, ProtocolInstanceRest, ProtocolRecordRest, ProtocolRuleInstance,
+    ProtocolRuleInstanceField, ProtocolRuleInstances, ProtocolRuleRecord,
 };
 pub use transport::subject;
 pub use transport::subject::{CellTree, DescriptorSubject, SubjectError, SubjectScope, TreeCell};
@@ -221,7 +221,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(81);
+    pub const CURRENT: Self = Self(82);
 }
 
 impl Default for SchemaVersion {

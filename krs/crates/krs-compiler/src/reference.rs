@@ -2979,7 +2979,7 @@ fn render_leaf_state(
             quote!(Some(#value))
         }
         State::Absent => quote!(None),
-        State::KSequence(_) | State::Map(_) | State::Instances(_) => {
+        State::KSequence(_) | State::Map(_) | State::Record(_) | State::Instances(_) => {
             return Err(ReferenceExpansionError::UnsupportedState);
         }
     })

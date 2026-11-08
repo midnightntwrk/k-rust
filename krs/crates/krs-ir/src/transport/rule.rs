@@ -412,6 +412,8 @@ protocol_shape! {
         /// A whole nested (group) cell, written without a wrapper: a group
         /// binder, `_`, or a complete `k::fragment!` term (KF-016).
         Group(value: T => [term_map]),
+        /// A group record whose children are entries (R4, TRI-D2).
+        Record(value: ProtocolRuleRecord<T> => [nested term_map]),
         /// `Some(..)` of an optional (`?`) cell: the present cell's state
         /// (KF-023).
         Present {
@@ -427,8 +429,9 @@ protocol_shape! {
 
 impl<T> ProtocolRuleStateTerm<T> {
     /// Every term of the state in traversal order: a term or group, the
-    /// items of a K sequence, the terms of a map, the inside of `Some(..)`,
-    /// and the children of collection instances.
+    /// items of a K sequence, the terms of a map, the children of a group
+    /// record, the inside of `Some(..)`, and the children of collection
+    /// instances. A record's or an instance's head is no term of the state.
     #[must_use]
     pub fn terms(&self) -> Vec<&T> {
         match self {
@@ -444,6 +447,11 @@ impl<T> ProtocolRuleStateTerm<T> {
                     base, key, value, ..
                 } => vec![base, key, value],
             },
+            Self::Record(record) => record
+                .fields
+                .iter()
+                .flat_map(|field| field.value.terms())
+                .collect(),
             Self::Present { value } => value.terms(),
             Self::Absent => Vec::new(),
             Self::Instances(instances) => instances
@@ -484,6 +492,16 @@ pub enum ProtocolInstanceRest {
     },
 }
 
+/// The rest of a group record at a configuration position (TRI-D2).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "record_rest", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProtocolRecordRest {
+    /// No rest: the record names every child.
+    Exact,
+    /// `..`: a pattern leaving the other children unconstrained.
+    Open,
+}
+
 protocol_shape! {
     /// One child cell named inside a collection instance record (KF-023).
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -508,10 +526,37 @@ protocol_shape! {
         /// The authored pattern label (`me @ ..`); a label is not a binder.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub label: Option<String> => [keep],
+        /// The instance record's path read as the item-less pattern
+        /// `P { .. }` (TRI-D2): what the record names, checked against the
+        /// collection's instance cell; absent for a whole instance written as
+        /// a name or `_`.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub head: Option<T> => [option term_map],
         /// The named children in authored order.
         pub fields: Vec<ProtocolRuleInstanceField<T>> => [vec nested term_map],
         /// The record's rest.
         pub rest: ProtocolInstanceRest => [keep],
+    }
+}
+
+protocol_shape! {
+    /// A group record at a configuration position (ruling R4): the record of
+    /// the group cell's children, each child that child cell's entry, read by
+    /// its declared kind as if written as its own cell.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleRecord<T => term_map => T2> {
+        /// Exact record provenance.
+        pub key: ProvenanceKey => [keep],
+        /// The record's path read as the item-less pattern `P { .. }`: what
+        /// the record names, never a term the rule matches or writes. The
+        /// collector resolves it as any record path, and the record is a
+        /// group's when it names the cell's group.
+        pub head: T => [term_map],
+        /// The named children in authored order.
+        pub fields: Vec<ProtocolRuleInstanceField<T>> => [vec nested term_map],
+        /// The record's rest.
+        pub rest: ProtocolRecordRest => [keep],
     }
 }
 
@@ -927,6 +972,9 @@ fn validate_context_alias_state<T>(
         ProtocolRuleStateTerm::Present { value } => {
             validate_context_alias_state(value, structural, discovered)
         }
+        ProtocolRuleStateTerm::Record(record) => record.fields.iter().try_for_each(|field| {
+            validate_context_alias_state(&field.value, structural, discovered)
+        }),
         ProtocolRuleStateTerm::KSequence(sequence) => validate_context_alias_frame(
             &sequence.tail,
             ContextAliasBindingUse::KSequenceFrame,
@@ -1031,6 +1079,11 @@ fn count_here_in_state(state: &ProtocolRuleStateTerm<DescriptorTerm>, here: &str
         }
         ProtocolRuleStateTerm::Present { value } => count_here_in_state(value, here),
         ProtocolRuleStateTerm::Absent => 0,
+        ProtocolRuleStateTerm::Record(record) => record
+            .fields
+            .iter()
+            .map(|field| count_here_in_state(&field.value, here))
+            .sum(),
         ProtocolRuleStateTerm::Instances(instances) => instances
             .front
             .iter()
@@ -1193,6 +1246,13 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
         }
         ProtocolRuleStateTerm::Present { value } => collect_state_keys(value, side, keys, term)?,
         ProtocolRuleStateTerm::Absent => {}
+        ProtocolRuleStateTerm::Record(record) => {
+            define(keys, &record.key, RuleRole::CellsInstance)?;
+            for field in &record.fields {
+                define(keys, &field.key, RuleRole::CellsInstanceField)?;
+                collect_state_keys(&field.value, side, keys, term)?;
+            }
+        }
         ProtocolRuleStateTerm::Instances(instances) => {
             for instance in instances.front.iter().chain(&instances.back) {
                 define(keys, &instance.key, RuleRole::CellsInstance)?;
@@ -2291,6 +2351,7 @@ fn validate_rule_wrapper<T>(
         | (
             None,
             ProtocolRuleStateTerm::Group(_)
+            | ProtocolRuleStateTerm::Record(_)
             | ProtocolRuleStateTerm::Absent
             | ProtocolRuleStateTerm::Instances(_),
         ) => Ok(()),
@@ -2335,6 +2396,28 @@ fn validate_rule_state<S: RuleValidationStage>(
         ProtocolRuleStateTerm::Absent => Ok(()),
         ProtocolRuleStateTerm::Instances(instances) => {
             validate_rule_instances::<S>(instances, side, bindings, discovered, walk, keys)
+        }
+        // A group record's head names the record; it is no term the rule matches or writes, so
+        // only its children are validated, each named once and each its own cell's entry.
+        ProtocolRuleStateTerm::Record(record) => {
+            let mut names = BTreeSet::new();
+            for field in &record.fields {
+                if field.field.is_empty() || !names.insert(field.field.as_str()) {
+                    return Err(StateTransportError::InvalidCellContent(
+                        StateCellContentReason::InvalidInstanceEntry,
+                    ));
+                }
+                validate_rule_state::<S>(
+                    &field.value,
+                    side,
+                    bindings,
+                    discovered,
+                    walk,
+                    keys,
+                    entry_root,
+                )?;
+            }
+            Ok(())
         }
         ProtocolRuleStateTerm::Group(term) => {
             if !matches!(

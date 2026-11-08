@@ -663,6 +663,11 @@ fn items_keyed_by_their_terms(rule: &mut krs_ir::DescriptorConfigurationRule) {
                 }
             }
             krs_ir::ProtocolRuleStateTerm::Present { value } => state(value),
+            krs_ir::ProtocolRuleStateTerm::Record(record) => {
+                for field in &mut record.fields {
+                    state(&mut field.value);
+                }
+            }
             krs_ir::ProtocolRuleStateTerm::Instances(instances) => {
                 for instance in instances.front.iter_mut().chain(&mut instances.back) {
                     for field in &mut instance.fields {

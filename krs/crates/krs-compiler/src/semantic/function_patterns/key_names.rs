@@ -39,9 +39,9 @@ use krs_ir::{
     CellCollectionType, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
     DescriptorCellIdentity, DescriptorHeadRule, DescriptorHeadRuleExtra, DescriptorIndex,
     DescriptorPayload, DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest,
-    ProtocolInstanceRest, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleInstance,
-    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId,
-    TermArgumentRef,
+    ProtocolInstanceRest, ProtocolRecordRest, ProtocolRuleCells, ProtocolRuleFrame,
+    ProtocolRuleInstance, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation,
+    StableItemId, TermArgumentRef,
 };
 
 use super::{
@@ -765,6 +765,12 @@ impl<'t> Pattern<'t, '_> {
                 }
                 self.frame(&instances.rest);
             }
+            // A group record's children, as an instance's; its head is no term of the state.
+            ProtocolRuleStateTerm::Record(_) => {
+                for term in state.terms() {
+                    self.term(term);
+                }
+            }
             ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
                 self.term(term);
             }
@@ -983,6 +989,15 @@ impl<'t> Key<'_, 't> {
                 }
             }
             ProtocolRuleStateTerm::Present { value } => self.cell_state(value),
+            // A group record's children, each one cell's state; its head is no term of the state.
+            ProtocolRuleStateTerm::Record(record) => {
+                if matches!(record.rest, ProtocolRecordRest::Open) {
+                    self.select("`..`, which leaves the group's other cells open");
+                }
+                for field in &record.fields {
+                    self.cell_state(&field.value);
+                }
+            }
             // An exact map is the value its entries write; `..` leaves its
             // other entries open.
             ProtocolRuleStateTerm::Map(map) => match &map.body {

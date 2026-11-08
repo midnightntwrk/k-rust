@@ -354,6 +354,10 @@ impl<'a> StateRuleTerms<'a> {
                 descriptor.id(),
                 "an optional or collection entry occurs where a cell's content belongs",
             )),
+            ProtocolRuleStateTerm::Record(_) => Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                "a group record of entries is not lowered yet",
+            )),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
                     return Err(DescriptorLoweringError::cell_wrapper(None, None, None));
@@ -2080,6 +2084,7 @@ fn rule_state_frame(state: &ProtocolRuleStateTerm<DescriptorTerm>) -> RuleStateF
     match state {
         ProtocolRuleStateTerm::Term(_)
         | ProtocolRuleStateTerm::Group(_)
+        | ProtocolRuleStateTerm::Record(_)
         | ProtocolRuleStateTerm::Present { .. }
         | ProtocolRuleStateTerm::Absent
         | ProtocolRuleStateTerm::Instances(_) => RuleStateFrame::Exact,

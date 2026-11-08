@@ -193,8 +193,32 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleIn
         vec![Self {
             key: sample::<ProvenanceKey>(),
             label: Some(sample::<String>()),
+            head: Some(sample::<T>()),
             fields: sample::<Vec<ProtocolRuleInstanceField<T>>>(),
             rest: sample::<ProtocolInstanceRest>(),
+        }]
+    }
+}
+impl Sample for ProtocolRecordRest {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![Self::Exact, Self::Open],
+            2,
+            "ProtocolRecordRest",
+            |value| match value {
+                Self::Exact => 0,
+                Self::Open => 1,
+            },
+        )
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleRecord<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            head: sample::<T>(),
+            fields: sample::<Vec<ProtocolRuleInstanceField<T>>>(),
+            rest: ProtocolRecordRest::Open,
         }]
     }
 }
@@ -2679,22 +2703,24 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleSt
                 Self::KSequence(sample::<ProtocolRuleKSequence<T>>()),
                 Self::Map(sample::<ProtocolRuleMap<T>>()),
                 Self::Group(sample::<T>()),
+                Self::Record(sample::<ProtocolRuleRecord<T>>()),
                 Self::Present {
                     value: Box::new(Self::Term(sample::<T>())),
                 },
                 Self::Absent,
                 Self::Instances(sample::<ProtocolRuleInstances<T>>()),
             ],
-            7,
+            8,
             "ProtocolRuleStateTerm",
             |value| match value {
                 Self::Term(..) => 0,
                 Self::KSequence(..) => 1,
                 Self::Map(..) => 2,
                 Self::Group(..) => 3,
-                Self::Present { .. } => 4,
-                Self::Absent => 5,
-                Self::Instances(..) => 6,
+                Self::Record(..) => 4,
+                Self::Present { .. } => 5,
+                Self::Absent => 6,
+                Self::Instances(..) => 7,
             },
         )
     }
@@ -4746,6 +4772,8 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<ProtocolRuleInstance<DescriptorTerm>>(corpus, "ProtocolRuleInstance");
     insert::<ProtocolRuleInstanceField<DescriptorTerm>>(corpus, "ProtocolRuleInstanceField");
     insert::<ProtocolRuleInstances<DescriptorTerm>>(corpus, "ProtocolRuleInstances");
+    insert::<ProtocolRecordRest>(corpus, "ProtocolRecordRest");
+    insert::<ProtocolRuleRecord<DescriptorTerm>>(corpus, "ProtocolRuleRecord");
     insert::<FixedInitializerCell<SemanticId, SemanticTerm>>(corpus, "FixedInitializerCell");
     insert::<GeneratedOperation<SemanticSortRef>>(corpus, "GeneratedOperation");
     insert::<GroupAssociativitySentence>(corpus, "GroupAssociativitySentence");

@@ -942,6 +942,22 @@ impl<'a> Walker<'a> {
                 self.state_roots(value, field, subject, roots)?;
             }
             ProtocolRuleStateTerm::Absent => {}
+            ProtocolRuleStateTerm::Record(record) => {
+                let (Some(declarations), ProtocolCellContent::Nested { declaration }) =
+                    (self.declarations, &field.content)
+                else {
+                    return Ok(());
+                };
+                let children = &declarations.cell(&declaration.declaration)?.fields;
+                for child in &record.fields {
+                    if let Some(declared) = children
+                        .iter()
+                        .find(|candidate| candidate.rust_field == child.field)
+                    {
+                        self.state_roots(&child.value, declared, subject, roots)?;
+                    }
+                }
+            }
             ProtocolRuleStateTerm::Instances(instances) => {
                 let (Some(declarations), ProtocolCellContent::Nested { declaration }) =
                     (self.declarations, &field.content)

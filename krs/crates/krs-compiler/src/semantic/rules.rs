@@ -1296,6 +1296,12 @@ fn infer_readable_state(
                 builder.infer(&item.value, expected.as_ref(), subject)?;
             }
         }
+        State::Record(_) => {
+            return Err(DescriptorLoweringError::invalid_term(
+                builder.descriptor.id(),
+                "a group record of entries is not lowered yet",
+            ));
+        }
         State::Instances(instances) => {
             let ProtocolCellContent::Nested { declaration } = &field.content else {
                 return Ok(());

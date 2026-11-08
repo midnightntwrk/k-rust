@@ -577,6 +577,12 @@ impl Patterns<'_> {
                 ProtocolRuleMapBody::Empty { .. } => Ok(()),
             },
             ProtocolRuleStateTerm::Present { value } => self.state(cell, value),
+            // A group record's children, each its own cell's state; its head is no term of the
+            // state.
+            ProtocolRuleStateTerm::Record(record) => record
+                .fields
+                .iter()
+                .try_for_each(|field| self.state(None, &field.value)),
             ProtocolRuleStateTerm::Instances(instances) => self.instances(cell, instances),
             ProtocolRuleStateTerm::Absent => Ok(()),
         }

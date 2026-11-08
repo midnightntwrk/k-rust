@@ -890,6 +890,7 @@ impl<'a> StateRuleBuilder<'a> {
         Ok(krs_ir::ProtocolRuleInstance {
             key,
             label: item.label().map(ToString::to_string),
+            head: None,
             fields,
             rest: instance_rest(item.rest()),
         })

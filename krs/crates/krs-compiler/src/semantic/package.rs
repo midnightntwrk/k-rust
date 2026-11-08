@@ -589,6 +589,7 @@ fn collect_rule_cells_packages(cells: &DescriptorRuleCells, packages: &mut BTree
         match &cell.value {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Record(_)
             | ProtocolRuleStateTerm::Instances(_) => {
                 for term in cell.value.terms() {
                     collect_term_packages(term, packages);
