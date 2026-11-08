@@ -544,7 +544,8 @@ pub struct BackendCapabilities {
     pub coverage_guards: bool,
     /// The guard outcomes are order free within a priority group: every function application
     /// gives an entry of each equation of the group that applied whose left-hand side matches,
-    /// tried or not, an untried entry left open being `undecided-untried`
+    /// and every rewrite step one of each rule of its deciding group whose left-hand side
+    /// matches, tried or not, an untried entry left open being `undecided-untried`
     /// ([`GuardOutcomeOutput::UndecidedUntried`]).
     pub coverage_guards_untried: bool,
     /// An execution also reports the bindings of the run's fired instances

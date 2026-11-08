@@ -104,7 +104,13 @@ enum PriorityGroupOutcome {
         trivial: Vec<TrivialApplication>,
         remainder: Option<RemainderBranch>,
     },
-    Undecided(UndecidedStep),
+    Undecided {
+        step: UndecidedStep,
+        /// The position in the group of the rule whose attempt left the group undecided, after
+        /// which no rule of the group was tried; `None` where every rule was tried and the
+        /// remainder was left undecided.
+        stopped_at: Option<usize>,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -136,7 +142,7 @@ fn apply_priority_group<'r>(
     // The work every `Trivial` leaf of the group depends on: its own sub-case is excluded from
     // the defined sub-case of every applied candidate, so it derives from all of it.
     let mut undefined_work = Vec::new();
-    for rule in rules {
+    for (position, rule) in rules.into_iter().enumerate() {
         // A rule attempt attributes its own work (`RuleApplicationGroup::common`,
         // `RuleApplication::diagnostics`); the work of an attempt that does not apply is on no
         // candidate's path, since no successor is derived from it.
@@ -170,16 +176,19 @@ fn apply_priority_group<'r>(
                 }
             }
             // The step ends undecided here: the rules after this one are never tried, which
-            // the caller's selection offers.
+            // the caller's selection offers, and which get untried guard entries
+            // (`enter_untried_rules`).
             RuleAttempt::Indeterminate(reason) => {
-                return Ok(PriorityGroupOutcome::Undecided(
-                    UndecidedStep::Indeterminate(reason),
-                ));
+                return Ok(PriorityGroupOutcome::Undecided {
+                    step: UndecidedStep::Indeterminate(reason),
+                    stopped_at: Some(position),
+                });
             }
             RuleAttempt::Simplification(error) => {
-                return Ok(PriorityGroupOutcome::Undecided(
-                    UndecidedStep::Simplification(error),
-                ));
+                return Ok(PriorityGroupOutcome::Undecided {
+                    step: UndecidedStep::Simplification(error),
+                    stopped_at: Some(position),
+                });
             }
         }
     }
@@ -251,9 +260,10 @@ fn apply_priority_group<'r>(
     let mut remainder = match remainder? {
         Ok(remainder) => remainder,
         Err(error) => {
-            return Ok(PriorityGroupOutcome::Undecided(
-                UndecidedStep::Simplification(error),
-            ));
+            return Ok(PriorityGroupOutcome::Undecided {
+                step: UndecidedStep::Simplification(error),
+                stopped_at: None,
+            });
         }
     };
     if !restriction.is_empty() && predicates_truth(&remainder) != Truth::False {
@@ -276,13 +286,14 @@ fn apply_priority_group<'r>(
         remainder_result,
         Ok(Satisfiability::Unsat | Satisfiability::Sat)
     ) {
-        return Ok(PriorityGroupOutcome::Undecided(
-            UndecidedStep::Indeterminate(IndeterminateReason::Remainder {
+        return Ok(PriorityGroupOutcome::Undecided {
+            step: UndecidedStep::Indeterminate(IndeterminateReason::Remainder {
                 rule_ids,
                 predicates: remainder,
                 satisfiability: remainder_result,
             }),
-        ));
+            stopped_at: None,
+        });
     }
     let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
         let mut remainder_pattern = pattern.clone();
@@ -346,7 +357,7 @@ fn first_productive_group<'r, G: IntoIterator<Item = &'r Arc<RewriteRule>>>(
             ground_halt,
         )? {
             PriorityGroupOutcome::NotProductive => {}
-            outcome @ PriorityGroupOutcome::Undecided(_) => return Ok(outcome),
+            outcome @ PriorityGroupOutcome::Undecided { .. } => return Ok(outcome),
             outcome @ PriorityGroupOutcome::Productive { .. } => return Ok(outcome),
         }
     }
@@ -532,6 +543,106 @@ fn rule_probe<'a>(
     }
 }
 
+/// The untried guard entries of the rules `untried`, rules of the priority group that decides
+/// the subject `pattern` which the step never tries there (`coverage::guards`).
+///
+/// A rewrite rule of a priority states a transition from the instances of a subject its
+/// left-hand side matches where its `requires` holds and no rule of a higher priority applies,
+/// so its guard decides something at exactly the subjects its left-hand side matches whose
+/// deciding group is its own: the first group, in priority order, that applies to the subject or
+/// that the step leaves undecided there. The groups above it were refuted in full there. The
+/// groups below it state nothing where it applies, and where it is undecided whether it applies
+/// they are not known to state anything: none of their rules gets an entry, unless the step gives
+/// them a subject of their own (the remainder of an `All` step). The step tries the rules of the
+/// deciding group in an order the definition does not state, and stops early in two cases: a
+/// rule whose attempt leaves the group undecided ends the step there, and under
+/// `ExecutionMode::Any` the rule that takes every instance of the subject does. So each rule of
+/// the deciding group the step does not try gets an untried entry where its left-hand side
+/// matches, and every rule of the group has an entry wherever its left-hand side matches,
+/// whatever the order.
+///
+/// An entry is made where the match decides the instance by itself (`apply::untried_instance`),
+/// under the path conditions an attempt decides under (with the subject's definedness where it
+/// is assumed, as P2 states it), with the outcome its evaluation gives
+/// (`coverage::enter_untried`). None is made for a rule holding a literal whose element the
+/// definition leaves open (`crate::literal`), since its attempt rests on k-rust's element. The
+/// matching is isolated from the run and off its clock, as the entries' evaluations are
+/// (`coverage::untried_step`), so it changes nothing the step does. Out of line, so that its
+/// work is no part of a step's frame.
+#[inline(never)]
+fn enter_untried_rules(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    untried: &[Arc<RewriteRule>],
+    assume_initial_defined: bool,
+    options: SimplificationOptions,
+) {
+    if !crate::coverage::records_guards() {
+        return;
+    }
+    let candidates = untried
+        .iter()
+        .filter(|rule| {
+            !rule.requires.is_empty()
+                && rule.computed_attributes.open_literals.is_empty()
+                && crate::coverage::collects_guard_of(&rule.attributes)
+        })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return;
+    }
+    crate::coverage::untried_step(|| {
+        let ((instances, knowledge), _) = crate::stop::off_the_clock(u64::MAX, || {
+            let instances = candidates
+                .into_iter()
+                .filter_map(|rule| super::apply::untried_instance(definition, rule, pattern))
+                .collect::<Vec<_>>();
+            let mut knowledge = pattern.constraints.clone();
+            if assume_initial_defined && !instances.is_empty() {
+                extend_unique(
+                    &mut knowledge,
+                    ceil_term(definition, &pattern.term).unwrap_or_default(),
+                );
+            }
+            (instances, knowledge)
+        });
+        for (rule, substitution) in instances {
+            crate::coverage::enter_untried(
+                definition,
+                &rule.attributes,
+                rule.requires.conjuncts(),
+                &substitution,
+                &knowledge,
+                options,
+            );
+        }
+    });
+}
+
+/// The untried guard entries of a sequential step that ends at `rule` of the priority group
+/// `group` ([`enter_untried_rules`]), against the subject the group decides, `subject`: the rules
+/// after `rule`, and `rule` itself unless it was `tried`. Where `rule` is the first of its group
+/// and not tried, an earlier priority took every instance of the subject, which leaves this
+/// group none, and no entry is made.
+fn enter_untried_sequential(
+    definition: &BackendDefinition,
+    group: &[Arc<RewriteRule>],
+    rule: &Arc<RewriteRule>,
+    tried: bool,
+    subject: &Pattern,
+    options: SimplificationOptions,
+) {
+    let Some(position) = group.iter().position(|member| Arc::ptr_eq(member, rule)) else {
+        return;
+    };
+    let first = match (tried, position) {
+        (true, _) => position + 1,
+        (false, 0) => return,
+        (false, _) => position,
+    };
+    enter_untried_rules(definition, subject, &group[first..], false, options);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_step_all(
     definition: &BackendDefinition,
@@ -579,9 +690,18 @@ pub(super) fn rewrite_step_all(
         PriorityGroupOutcome::NotProductive => {
             stuck_subject(definition, pattern, subject_definedness.restriction())?
         }
-        PriorityGroupOutcome::Undecided(undecided) => {
+        PriorityGroupOutcome::Undecided { step, stopped_at } => {
             drop(selection);
-            undecided.into_result(pattern.clone())
+            if let Some(at) = stopped_at {
+                enter_untried_rules(
+                    definition,
+                    pattern,
+                    &priority_groups[&visited][at + 1..],
+                    subject_definedness.assumed(),
+                    simplification_options,
+                );
+            }
+            step.into_result(pattern.clone())
         }
         PriorityGroupOutcome::Productive {
             mut branches,
@@ -642,7 +762,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
             false,
         )? {
             PriorityGroupOutcome::NotProductive => stuck(definition, pattern)?,
-            PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
+            PriorityGroupOutcome::Undecided { step, .. } => step.into_result(pattern.clone()),
             PriorityGroupOutcome::Productive {
                 branches,
                 trivial,
@@ -805,10 +925,22 @@ fn fold_lower_priority_groups(
         match outcome? {
             // The lower group did not apply to the remainder, which goes on unchanged.
             PriorityGroupOutcome::NotProductive => {}
-            PriorityGroupOutcome::Undecided(undecided) => {
+            PriorityGroupOutcome::Undecided {
+                step: undecided,
+                stopped_at,
+            } => {
                 let current = remainder
                     .as_mut()
                     .expect("the current remainder is present");
+                if let Some(at) = stopped_at {
+                    enter_untried_rules(
+                        definition,
+                        &current.pattern,
+                        &rules[at + 1..],
+                        subject_definedness.assumed(),
+                        simplification_options,
+                    );
+                }
                 // The lower groups after this one are never tried on the remainder.
                 offer_all(
                     by_priority(&lower.groups),
@@ -1201,6 +1333,10 @@ pub(super) fn rewrite_step_any(
             Some((priority, rule, rules.is_exhausted()))
         })
     });
+    // The subject the current priority's rules decide, the instances no higher priority applies
+    // to, against which the rules the step never tries get untried guard entries; kept only when
+    // the run collects guards.
+    let mut priority_subject = None;
     for (priority, rule, last_of_priority) in rules {
         if remaining.priority() != Some(priority) {
             if let Err(error) = close_priority(
@@ -1220,7 +1356,25 @@ pub(super) fn rewrite_step_any(
                 });
             }
             priority_trivial = trivial.len();
+            if crate::coverage::records_guards() {
+                priority_subject = Some(remaining.pattern().clone());
+            }
         }
+        // The rules of this priority the step never tries once it ends at `rule`: those after
+        // it, with `rule` itself where it is not tried, and none where `rule` is the first of its
+        // priority and not tried, since an earlier priority then took every instance.
+        let untried = |tried: bool| {
+            if let Some(subject) = &priority_subject {
+                enter_untried_sequential(
+                    definition,
+                    &priority_groups[&priority],
+                    rule,
+                    tried,
+                    subject,
+                    simplification_options,
+                );
+            }
+        };
         if predicates_truth(&remaining.pattern().constraints) == Truth::False {
             // Nothing is left to feed the later rules; the tracker still asks whether they
             // cover a configuration an earlier rule took.
@@ -1241,6 +1395,7 @@ pub(super) fn rewrite_step_any(
             // Under `Any` the rule that took the state ends the step: this rule and the ones
             // after it are never tried.
             selection.give_back();
+            untried(false);
             break;
         }
         let attempt = RefutationMemo::apply_rule(
@@ -1520,6 +1675,7 @@ pub(super) fn rewrite_step_any(
                             solver,
                         )?
                     {
+                        untried(true);
                         return Ok(RewriteResult::Simplification {
                             pattern: remaining.into_pattern(),
                             error,
@@ -1528,12 +1684,14 @@ pub(super) fn rewrite_step_any(
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
+                untried(true);
                 return Ok(RewriteResult::Indeterminate {
                     pattern: remaining.into_pattern(),
                     reason,
                 });
             }
             RuleAttempt::Simplification(error) => {
+                untried(true);
                 return Ok(RewriteResult::Simplification {
                     pattern: remaining.into_pattern(),
                     error,

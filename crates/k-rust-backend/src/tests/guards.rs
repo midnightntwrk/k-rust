@@ -15,7 +15,7 @@ use crate::{
         NodeOutcome, OperandCause, Refutation, Truth,
     },
     definition::BackendDefinition,
-    rewrite::{ExecutionOptions, ExecutionResult, Pattern, execute},
+    rewrite::{ExecutionMode, ExecutionOptions, ExecutionResult, Pattern, execute},
 };
 
 const TRUE: &str = r#"\dv{SortBool{}}("true")"#;
@@ -1397,5 +1397,212 @@ fn collecting_untried_guards_changes_nothing_else_in_the_run() {
                 );
             }
         }
+    }
+}
+
+/// A definition of rewrite rules whose priority groups have several rules whose guards are
+/// disjoint, each group declared in written order or, with `reversed`, in the reverse order:
+/// - `rs(A)`: `rsOpen`, whose guard reads `k`, which has no equation, so that its attempt
+///   leaves the group undecided without a solver, then `rsLow` (`A <Int 5`) and `rsHigh`
+///   (`A >=Int 5`); `rsBelow`, of a lower priority, applies wherever `A <Int 100`;
+/// - `rt(A)`: `rtLow` and `rtHigh`, the same complementary pair, and `rtBelow` below them.
+fn rules_definition(reversed: bool) -> BackendDefinition {
+    let group = |mut rules: Vec<String>| {
+        if reversed {
+            rules.reverse();
+        }
+        rules
+    };
+    let below = |label: &str, lhs: &str| {
+        rule(
+            label,
+            lhs,
+            "below{}()",
+            &format!("ltInt{{}}({A}, {})", int(100)),
+            r#", priority{}("60")"#,
+        )
+    };
+    let low = |label: &str, lhs: &str| {
+        rule(
+            label,
+            lhs,
+            "low{}()",
+            &format!("ltInt{{}}({A}, {})", int(5)),
+            "",
+        )
+    };
+    let high = |label: &str, lhs: &str| {
+        rule(
+            label,
+            lhs,
+            "high{}()",
+            &format!("geInt{{}}({A}, {})", int(5)),
+            "",
+        )
+    };
+    let rs = format!("rs{{}}({A})");
+    let rt = format!("rt{{}}({A})");
+    let axioms = group(vec![
+        rule(
+            "rsOpen",
+            &rs,
+            "open{}()",
+            &format!("eqInt{{}}(k{{}}({A}), {})", int(1)),
+            "",
+        ),
+        low("rsLow", &rs),
+        high("rsHigh", &rs),
+    ])
+    .into_iter()
+    .chain([below("rsBelow", &rs)])
+    .chain(group(vec![low("rtLow", &rt), high("rtHigh", &rt)]))
+    .chain([below("rtBelow", &rt)])
+    .collect::<Vec<_>>();
+    let source = format!(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            sort SortS{{}} []
+            hooked-symbol geInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.ge"), smt-hook{{}}(">=")]
+            hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
+            hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol rs{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol rt{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol open{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+            symbol low{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+            symbol high{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+            symbol below{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+            {axioms}
+        endmodule []"#,
+        axioms = axioms.join("\n"),
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+const RS: [&str; 4] = ["rsOpen", "rsLow", "rsHigh", "rsBelow"];
+const RT: [&str; 3] = ["rtLow", "rtHigh", "rtBelow"];
+
+/// Run `initial` under `mode` collecting the guards of `axioms`, as [`guards_of`] does: check
+/// that collecting changed nothing else in the result (its leaves, halts and coverage), and
+/// return the guards with the run's `matched` set.
+fn rule_guards_of(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    axioms: &[&str],
+    mode: ExecutionMode,
+) -> (Vec<AxiomGuard>, BTreeSet<String>) {
+    let options = ExecutionOptions {
+        mode,
+        ..guarded(axioms)
+    };
+    let mut with = execute(definition, initial.clone(), options.clone());
+    let without = execute(
+        definition,
+        initial,
+        ExecutionOptions {
+            collect_guards: None,
+            ..options
+        },
+    );
+    let guards = with
+        .coverage
+        .as_mut()
+        .and_then(|coverage| coverage.guards.take())
+        .expect("the run collected guards");
+    assert_results_equal(&with, &without);
+    let matched = with.coverage.expect("the run collected coverage").matched;
+    (guards, matched)
+}
+
+/// The guard outcomes of each named axiom, by id.
+fn outcomes(guards: &[AxiomGuard]) -> Vec<(&str, BTreeSet<GuardOutcome>)> {
+    guards
+        .iter()
+        .map(|guard| (guard.axiom.as_str(), guard.outcomes.clone()))
+        .collect()
+}
+
+/// A rewrite step whose priority group a rule's attempt leaves undecided stops at that rule; the
+/// rules of the group after it, never tried, get untried entries, so that the group's guard
+/// outcomes are the same in either declaration order (the `matched` sets differ), and the
+/// lower group, whose rules state nothing where it is undecided whether the group above
+/// applies, gets none. The run's halts and leaves are the same with and without guards.
+#[test]
+fn an_undecided_rule_group_gives_entries_to_the_rules_it_does_not_try() {
+    let refuted = GuardOutcome::Refuted(Refutation::False);
+    for (argument, low, high) in [
+        (1, GuardOutcome::Held, refuted),
+        (7, refuted, GuardOutcome::Held),
+    ] {
+        let mut by_order = Vec::new();
+        for reversed in [false, true] {
+            let definition = rules_definition(reversed);
+            let initial = ground(&definition, &format!("rs{{}}({})", int(argument)));
+            let (guards, matched) = rule_guards_of(&definition, initial, &RS, ExecutionMode::All);
+            assert_eq!(
+                matched.contains("rsLow"),
+                reversed,
+                "the declaration order is the trial order: {matched:?}"
+            );
+            assert!(!matched.contains("rsBelow"), "{matched:?}");
+            let names = guards
+                .iter()
+                .map(|guard| guard.axiom.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(names, ["rsHigh", "rsLow", "rsOpen"], "{guards:?}");
+            assert_eq!(guard(&guards, "rsLow").outcomes, set(&[low]));
+            assert_eq!(guard(&guards, "rsHigh").outcomes, set(&[high]));
+            assert!(
+                guard(&guards, "rsOpen")
+                    .outcomes
+                    .iter()
+                    .all(|outcome| matches!(outcome, GuardOutcome::Undecided(_))),
+                "{guards:?}"
+            );
+            by_order.push(guards);
+        }
+        assert_eq!(by_order[0], by_order[1], "at {argument}");
+    }
+}
+
+/// Under `ExecutionMode::Any` the rule that takes every instance of the state ends the step; the
+/// rules of its group after it, never tried, get untried entries, so that the group's guard
+/// outcomes are the same in either declaration order (the `matched` sets differ), and the lower
+/// group, which the state leaves no instance, gets none. The run's halts and leaves are the same
+/// with and without guards.
+#[test]
+fn under_any_the_rules_after_the_one_that_took_the_state_get_entries() {
+    let refuted = GuardOutcome::Refuted(Refutation::False);
+    for (argument, low, high) in [
+        (1, GuardOutcome::Held, refuted),
+        (7, refuted, GuardOutcome::Held),
+    ] {
+        let mut by_order = Vec::new();
+        for reversed in [false, true] {
+            let definition = rules_definition(reversed);
+            let initial = ground(&definition, &format!("rt{{}}({})", int(argument)));
+            let (guards, matched) = rule_guards_of(&definition, initial, &RT, ExecutionMode::Any);
+            let taken_first = if reversed { "rtHigh" } else { "rtLow" };
+            let tried_second = if reversed { "rtLow" } else { "rtHigh" };
+            assert_eq!(
+                matched.contains(tried_second),
+                (argument < 5) == reversed,
+                "only a rule after a refuted one is tried: {matched:?}"
+            );
+            assert!(matched.contains(taken_first), "{matched:?}");
+            assert_eq!(
+                outcomes(&guards),
+                [("rtHigh", set(&[high])), ("rtLow", set(&[low]))],
+                "{guards:?}"
+            );
+            by_order.push(guards);
+        }
+        assert_eq!(by_order[0], by_order[1], "at {argument}");
     }
 }

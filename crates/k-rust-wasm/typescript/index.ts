@@ -224,7 +224,7 @@ export interface BackendCapabilities {
   coverageConditions: boolean
   /** `execute` and `executeObserved` accept `collectGuards` beside `collectCoverage`. */
   coverageGuards: boolean
-  /** Guard outcomes are order free within a priority group: every function application gives an entry of each matching equation of the group that applied, tried or not ('undecided-untried'). */
+  /** Guard outcomes are order free within a priority group: every function application gives an entry of each matching equation of the group that applied, and every rewrite step one of each matching rule of its deciding group, tried or not ('undecided-untried'). */
   coverageGuardsUntried: boolean
   /** `execute` and `executeObserved` accept `collectBindings` beside `collectCoverage`. */
   coverageBindings: boolean

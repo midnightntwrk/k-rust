@@ -1536,6 +1536,53 @@ fn consumed_collections(
     Ok(())
 }
 
+/// The instance of `rule` at the subject `pattern` that an untried entry of its guard is made
+/// under (`step::enter_untried_rules`): the rule renamed apart from the subject where an attempt
+/// renames it, and the bindings of its left-hand side's match, where the match decides the
+/// instance by itself. That is where P1 matches with `Success`, binding the rule's variables
+/// only, and P9 finds no definedness obligation of a binding or of a consumed collection: an
+/// attempt then reaches P11 with exactly these bindings and no match condition, so its entry is
+/// this one. `None` where the left-hand side does not match, and where only the attempt's later
+/// phases decide its instances (the recovery of an indeterminate match, an equality of a subject
+/// variable, a definedness obligation), each of which may ask the solver: an untried entry asks
+/// none, and claims nothing there.
+pub(super) fn untried_instance<'r>(
+    definition: &BackendDefinition,
+    rule: &'r RewriteRule,
+    pattern: &Pattern,
+) -> Option<(std::borrow::Cow<'r, RewriteRule>, Substitution)> {
+    let rule = match rename_apart(
+        rule,
+        &pattern.term.attributes().variables,
+        &pattern.constraints,
+    ) {
+        Some((renamed, _)) => std::borrow::Cow::Owned(renamed),
+        None => std::borrow::Cow::Borrowed(rule),
+    };
+    let MatchResult::Success(substitution) =
+        match_rule_in_definition(definition, &rule.lhs, &pattern.term)
+    else {
+        return None;
+    };
+    let variables = &rule.lhs.attributes().variables;
+    if substitution
+        .iter()
+        .any(|(variable, _)| !variables.contains(variable))
+        || binds_element_variable_to_set_pattern(&substitution)
+    {
+        return None;
+    }
+    let mut obligations = Vec::new();
+    consumed_collections(definition, &rule.lhs, &pattern.term, &mut obligations).ok()?;
+    for value in substitution
+        .values()
+        .filter(|value| !matches!(value.kind(), TermKind::Variable(_)))
+    {
+        extend_unique(&mut obligations, ceil_term(definition, value).ok()?);
+    }
+    (predicates_truth(&obligations) == Truth::True).then_some((rule, substitution))
+}
+
 /// P10: with match conditions present, the path plus the conditions must be satisfiable;
 /// `Unsat` ends the attempt, `Unknown` or a solver error makes it `Indeterminate`, and a stop
 /// ends it with the stop.

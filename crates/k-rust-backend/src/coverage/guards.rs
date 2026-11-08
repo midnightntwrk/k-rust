@@ -40,6 +40,25 @@
 //! the evaluation shares no solver state with the run. The work is off the run's clock and
 //! changes nothing the run does.
 //!
+//! A rewrite rule states a transition from the instances of a subject its left-hand side matches
+//! where its `requires` holds and no rule of a higher priority applies, so its guard decides
+//! something at exactly the subjects its left-hand side matches whose deciding group is its own:
+//! the first group, in priority order, that applies to the subject or that the step leaves
+//! undecided there. A lower group states nothing where that group applies, and where it is
+//! undecided whether it applies a lower group is not known to state anything, so it gets no
+//! entry unless the step gives it a subject of its own (an `All` step's remainder). Under
+//! `ExecutionMode::All` a step tries every rule of a productive group; it stops early where a
+//! rule's attempt leaves the group undecided, and under `ExecutionMode::Any` where a rule takes
+//! every instance of the subject. Each named rule of the deciding group the step does not try
+//! then gets an untried entry where its left-hand side matches the subject the group decides
+//! (`rewrite::step::enter_untried_rules`): the step's subject, the remainder for a lower group
+//! of an `All` step, and under `Any` the subject the group was entered with, the instances no
+//! higher priority applies to, which every rule of the group is tried on until an earlier rule
+//! of the group takes some of its instances. An entry is made where the match decides the instance by itself, a syntactic match
+//! binding the rule's variables with no definedness obligation, as an attempt would enter it;
+//! where only the attempt's later phases, which may ask the solver, would decide its instances,
+//! none is made.
+//!
 //! A function applied inside an untried entry's evaluation is applied by the record, not by the
 //! run: the evaluation is isolated (`coverage::isolated`), so it reports to no coverage set and
 //! makes no entry of its own, as for a tried entry. The matching that finds the instances is
@@ -729,6 +748,22 @@ pub(crate) fn untried_application(
             return;
         }
     }
+    untried_isolated(enter);
+}
+
+/// Make the untried entries of a rewrite step's subject: `enter` makes them ([`enter_untried`]),
+/// isolated from the run and off its clock as those of a function application are
+/// ([`untried_application`]), with no cache of subjects: a step's subject is a whole
+/// configuration, which a run seldom steps from twice and which mostly holds more than
+/// `max_value_size` nodes, and the entry cache recognizes each repeated entry anyway.
+pub(crate) fn untried_step(enter: impl FnOnce()) {
+    if SINK.with_borrow(Option::is_some) {
+        untried_isolated(enter);
+    }
+}
+
+/// The isolation of [`untried_application`] and [`untried_step`] around `enter`.
+fn untried_isolated(enter: impl FnOnce()) {
     super::suspend(|| {
         k_rust_kore::measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
@@ -740,8 +775,8 @@ pub(crate) fn untried_application(
 
 /// Fold the entry of the axiom `attributes` names into `requires` under `substitution`, with
 /// the path and match conditions `knowledge`, as [`enter`] does, where the run did not try it:
-/// its guard outcome is the one its evaluation gives (the first conjunct that is not `true`
-/// decides it), with `undecided: untried` where that conjunct is undecided. One evaluation
+/// its guard outcome is the one its evaluation gives (`held` where every conjunct is `true`,
+/// refuted where one is false, `undecided: untried` otherwise: [`Reading`]). One evaluation
 /// serves both kinds of entry, with the same bounds and the same cache, so an entry's outcomes
 /// do not depend on whether the run tried it first.
 pub(crate) fn enter_untried(
