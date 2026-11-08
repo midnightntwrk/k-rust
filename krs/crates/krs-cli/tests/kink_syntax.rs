@@ -373,7 +373,7 @@ fn a_missing_field_value_lists_its_encodings() {
     );
     // The cases whose runs match the template are the closest to one that reaches the value.
     assert!(
-        text.ends_with("; the cases that match its templates: load"),
+        text.ends_with("; the cases that match its templates: load, halt"),
         "{text}"
     );
     let binder = binder(document, "syntax--decode_ld", "VarOp");
@@ -573,7 +573,7 @@ fn an_aliased_templates_tests_are_the_templates() {
         .collect::<Vec<_>>();
     assert_eq!(authored, ["op != 0x1f"], "{guard:#}");
     assert_eq!(guard["templates"]["binders"][0]["text"], "\"01 rr ss\"");
-    assert_eq!(strings(&rule["krs"]["matched_by"]), ["load"]);
+    assert_eq!(strings(&rule["krs"]["matched_by"]), ["load", "halt"]);
 }
 
 /// The condition flips of the aliased template's sentence are placed in its guard as for any
@@ -593,8 +593,8 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
         .unwrap();
     let flips = &document["families"]["flips"];
     assert_eq!(flips["run"], true, "{flips:#}");
-    assert_eq!(strings(&rule["krs"]["matched_by"]), ["load"]);
-    assert_eq!(strings(&rule["matched_by"]), ["load", "other"]);
+    assert_eq!(strings(&rule["krs"]["matched_by"]), ["load", "halt"]);
+    assert_eq!(strings(&rule["matched_by"]), ["load", "halt", "other"]);
     let mut placed = 0;
     let mut matched = 0;
     for flip in flips["items"].as_array().unwrap() {
@@ -607,7 +607,7 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
             match occurrence["reach"].as_str() {
                 Some("match") => {
                     matched += 1;
-                    assert_eq!(strings(&occurrence["reached_by"]), ["load"], "{flip:#}");
+                    assert_eq!(strings(&occurrence["reached_by"]), ["load", "halt"], "{flip:#}");
                 }
                 Some("operand") => {
                     let operand = rule["guard"]["operands"]

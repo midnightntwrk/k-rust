@@ -796,7 +796,11 @@ mod kink_tier {
             format!("a case that enters GUARDS.wake with {h_text} true and {i_text} false")
         );
         // An unmatched rewrite rule's target carries its left-hand side as a pattern; the
-        // equation `high` has none (an equation's left-hand side is no configuration).
+        // equation `high` has none (an equation's left-hand side is no configuration). `high`
+        // is matched: the low store's arguments matched its left-hand side, and its condition
+        // was entered there, although `low` applied.
+        assert_eq!(rule("high")["status"], "matched");
+        assert_eq!(rule("high")["matched_by"], json!(["write"]));
         let high_target = targets
             .iter()
             .find(|target| target["item"] == "rule:GUARDS.high")
@@ -815,10 +819,10 @@ mod kink_tier {
         );
         // Counts and measures.
         let family = &document["families"]["rules"];
-        // No program's run matches `high` (the store of a low address is decided by `low`).
+        // No program's run fires `high` (the store of a low address is decided by `low`).
         assert_eq!(family["counts"]["fired"], 4);
-        assert_eq!(family["counts"]["matched"], 2);
-        assert_eq!(family["counts"]["unmatched"], 1);
+        assert_eq!(family["counts"]["matched"], 3);
+        assert_eq!(family["counts"]["unmatched"], 0);
         assert_eq!(family["measure"], json!(4.0 / 7.0));
         let requirements = &document["families"]["requirements"];
         let items = requirements["items"].as_array().unwrap();
@@ -1721,9 +1725,10 @@ text = 'h(opaque(1), 2)'
         // paths its prefix sets' facts; its eleventh spells `fuzz --cover` in the targets of
         // requirements, productions, field values, heating rules and equations; its twelfth is
         // computed at a depth above 1, with the rule windows; its thirteenth gives every family
-        // one static scope; its fourteenth adds the syntax paths at a depth above 1.
+        // one static scope; its fourteenth adds the syntax paths at a depth above 1; its
+        // fifteenth matches an equation and covers its requirements whatever the trial order.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 14);
+        assert_eq!(document["version"], 15);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2462,8 +2467,11 @@ endmodule
         // because a record's bindings hold the alternatives a fired instance took and only the
         // operand heads of variables the axiom reads. v20, because a record's coverage holds the
         // heating and cooling rules it matched and fired by id. v23, because a record's coverage
-        // holds the rule windows its run took, with the depth it collected them to.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v24");
+        // holds the rule windows its run took, with the depth it collected them to. v24, because
+        // a record's coverage holds that depth and its bindings the syntax paths. v25, because a
+        // record's guards hold the untried entries of every matching equation of the deciding
+        // group.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v25");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

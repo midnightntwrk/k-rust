@@ -279,12 +279,12 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
-            "schema = \"kink-flow-verdicts\"\nversion = 18\ndocument = \"run\"\n".to_owned(),
+            "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"run\"\n".to_owned(),
             "its document is not \"coverage\"",
         ),
         (
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 18\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"coverage\"\n\n\
                  {flip}\n{flip}"
             ),
             "the flip \"f\" is listed twice",
@@ -453,12 +453,17 @@ mod kink_tier {
         assert_eq!(swap["status"], "undistinguished", "{swap:#}");
         let swap_target = target(&document, "flip--high+low--A").expect("an open target");
         let text = swap_target["text"].as_str().unwrap();
+        // `high`'s occurrence is reached at the low store too, where `low` applied and `high`'s
+        // condition was entered untried.
         assert!(
             text.starts_with("a case whose result changes when A <Int 32768 is negated in "),
             "{swap_target:#}"
         );
         assert!(
-            text.ends_with("; the corpus reached it true in GUARDS.low (write)"),
+            text.ends_with(
+                "; the corpus reached it true in GUARDS.low (write) and false in GUARDS.high \
+                 (write)"
+            ),
             "{swap_target:#}"
         );
         assert_eq!(swap_target["programs"], json!(["write"]));
@@ -882,7 +887,7 @@ mod kink_tier {
         // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
         // keep but rewrite (its header and open obligations are a hand's).
         let text = format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 18\ndocument = \"coverage\"\n\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"coverage\"\n\n\
              [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
         );
         fs::write(&lock, &text).unwrap();
