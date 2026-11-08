@@ -92,10 +92,18 @@ fn run(manifest: &Path, verify: bool) -> (Value, u8) {
 }
 
 /// The rules family's items of a coverage document.
-fn rules(document: &Value) -> &Vec<Value> {
+fn all_rules(document: &Value) -> &Vec<Value> {
     document["families"]["rules"]["items"]
         .as_array()
         .unwrap_or_else(|| panic!("no rules: {document:#}"))
+}
+
+/// The rules family's items of the authored rules (kind `rule`), without the heating items.
+fn rules(document: &Value) -> Vec<&Value> {
+    all_rules(document)
+        .iter()
+        .filter(|item| item["kind"] == "rule")
+        .collect()
 }
 
 /// `(id, class, cached)` of every program row.
@@ -597,7 +605,7 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{document:#}");
         let rule = |label: &str| {
             rules(&document)
-                .iter()
+                .into_iter()
                 .find(|rule| rule["label"] == format!("GUARDS.{label}"))
                 .unwrap_or_else(|| panic!("no rule {label}: {document:#}"))
                 .clone()
@@ -891,13 +899,19 @@ mod kink_tier {
         assert_eq!(
             patterns,
             [
+                // `!`'s heating rule, which no program reached: no pattern, as no fuzz job.
+                (json!("rule:!__IMP-SYNTAX_BExp_BExp:heat:1"), json!(null)),
                 (json!("rule:imp.k:47"), json!("<k> - I1:Int ...</k>")),
                 (json!("rule:imp.k:50"), json!("<k> ! T:Bool ...</k>")),
                 (json!("rule:imp.k:52"), json!("<k> false && _:BExp ...</k>")),
             ]
         );
         let mut list = String::new();
-        for (index, (_, pattern)) in patterns.iter().enumerate() {
+        for (index, (_, pattern)) in patterns
+            .iter()
+            .filter(|(_, pattern)| !pattern.is_null())
+            .enumerate()
+        {
             list.push_str(&format!(
                 "[[pattern]]\nid = \"p{index}\"\npattern = {pattern}\n\n"
             ));
@@ -992,7 +1006,7 @@ mod kink_tier {
         let (document, status) = run(&dir.join("FLOW.toml"), false);
         assert_eq!(status, EXIT_YES, "{document:#}");
         let lemma = rules(&document)
-            .iter()
+            .into_iter()
             .find(|rule| rule["label"] == "GUARDS.lemma")
             .unwrap_or_else(|| panic!("{document:#}"));
         assert_eq!(lemma["status"], "out-of-scope");
@@ -1085,13 +1099,13 @@ endmodule
             expect(&[("base", "unknown", false), ("kill", "comparable", false)])
         );
         let odd = rules(&document)
-            .iter()
+            .into_iter()
             .find(|rule| rule["label"] == "CONTRA.odd")
             .unwrap();
         assert_eq!(odd["status"], "unmatched");
         assert_eq!(odd["touched_only_by"], json!(["base"]));
         let tdiv = rules(&document)
-            .iter()
+            .into_iter()
             .find(|rule| rule["label"] == "CONTRA.tdiv")
             .unwrap();
         assert_eq!(tdiv["touched_only_by"], json!([]));
@@ -1281,14 +1295,17 @@ text = 'h(opaque(1), 2)'
             "a non-executable rule: k-rust never runs it, so no program can match it"
         );
         let family = &document["families"]["rules"];
+        // Beside the six authored obligations, the four heating rules of loop's strict
+        // productions, none heated.
         assert_eq!(
             (&family["obligations"], &family["covered"]),
-            (&json!(6), &json!(4))
+            (&json!(10), &json!(4))
         );
         assert_eq!(
             family["counts"],
-            json!({"fired": 4, "matched": 0, "unmatched": 2, "out_of_scope": 0,
-                   "claim_helper": 0, "no_coverage_signal": 1, "argued": 0})
+            json!({"fired": 4, "matched": 2, "unmatched": 4, "out_of_scope": 0,
+                   "claim_helper": 0, "no_coverage_signal": 1, "argued": 0,
+                   "heating": {"obligations": 4, "fired": 0}})
         );
     }
 
@@ -1523,17 +1540,33 @@ text = 'h(opaque(1), 2)'
             .filter(|target| target["family"] == "rules")
             .map(|target| target["item"].as_str().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(rule_targets, ["rule:LOOP.spin", "rule:LOOP.unused"]);
+        // The heating rules of the strict productions come first, at the productions, in sentence
+        // order: no program writes anything but an integer as an argument.
         assert_eq!(
-            targets[0]["text"],
+            rule_targets,
+            [
+                "rule:spin:heat:1",
+                "rule:countdown:heat:1",
+                "rule:twice:heat:1",
+                "rule:unused:heat:1",
+                "rule:LOOP.spin",
+                "rule:LOOP.unused"
+            ]
+        );
+        let spin = targets
+            .iter()
+            .find(|target| target["item"] == "rule:LOOP.spin")
+            .unwrap();
+        assert_eq!(
+            spin["text"],
             "a case whose run reaches a state that LOOP.spin matches"
         );
         assert_eq!(
-            (&targets[0]["file"], &targets[0]["line"]),
+            (&spin["file"], &spin["line"]),
             (&json!("loop.k"), &json!(20))
         );
         assert_eq!(
-            targets[0]["fuzz"],
+            spin["fuzz"],
             "kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --matched LOOP.spin"
         );
         assert_eq!(rules(&document)[1]["id"], "rule:LOOP.spin");
@@ -1543,9 +1576,10 @@ text = 'h(opaque(1), 2)'
         // second builds the syntax family; its third runs the flips family where a front end
         // derives the flips; its fourth has the coverage lock and each flip's recorded killer; its
         // fifth names the observation channels; its sixth reads the argued obligations; its
-        // seventh names each horizon's opening; its eighth reads the unique-cause selection.
+        // seventh names each horizon's opening; its eighth reads the unique-cause selection; its
+        // ninth lists the heating rules in the rules family.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 8);
+        assert_eq!(document["version"], 9);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1562,14 +1596,14 @@ text = 'h(opaque(1), 2)'
         );
         assert_eq!(
             summary["per_family"]["rules"],
-            json!({"obligations": 6, "covered": 4, "argued": 0, "open": 2})
+            json!({"obligations": 10, "covered": 4, "argued": 0, "open": 6})
         );
         assert_eq!(
             summary["open"],
             json!(targets.len()),
             "one target per open obligation: {document:#}"
         );
-        assert_eq!(document["families"]["rules"]["measure"], json!(4.0 / 6.0));
+        assert_eq!(document["families"]["rules"]["measure"], json!(4.0 / 10.0));
         // calc: every rule fires, the unlabelled one by `sub` alone.
         let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);
         assert_eq!(
@@ -1595,6 +1629,178 @@ text = 'h(opaque(1), 2)'
                 (json!(null), json!("fired"), json!(["sub"])),
             ]
         );
+    }
+
+    /// CS-9: each heating rule the compile generates from a `strict` production or a `context` is
+    /// an item of the rules family, attributed to the production and its argument position (or to
+    /// the context), covered where some comparable program's run heated it. calc's corpus heats
+    /// the left operand of `*` (`nested`), `+` (`inline`) and `-` (`sub`), never a right operand
+    /// (every right operand it writes is an integer), so each right operand's heating rule is
+    /// `matched`: its production reached the front of the computation with a result there. The
+    /// copy adds `neg`, strict and never written, whose heating rule no run matched, and `dbl`,
+    /// evaluated through an unlabelled `context`, which the program `dbl` heats. The authored
+    /// rules keep their statuses.
+    #[test]
+    #[ignore = "kink"]
+    fn heating_rules_are_rules_items_by_production_and_position() {
+        let dir = fixture("calc", "heating");
+        let source = dir.join("calc.k");
+        let text = fs::read_to_string(&source).unwrap();
+        let syntax_end = "               | Exp \"-\" Exp [strict, symbol(sub)]\nendmodule\n";
+        assert!(text.contains(syntax_end));
+        let text = text.replace(
+            syntax_end,
+            "               | Exp \"-\" Exp [strict, symbol(sub)]\n  syntax Exp ::= \"neg\" Exp [strict, symbol(neg)]\n               | \"dbl\" Exp [symbol(dbl)]\nendmodule\n",
+        );
+        let rules_end = "  rule I1:Int - I2:Int => I1 -Int I2\nendmodule\n";
+        assert!(text.contains(rules_end));
+        let text = text.replace(
+            rules_end,
+            "  rule I1:Int - I2:Int => I1 -Int I2\n  rule [neg]: neg I:Int => 0 -Int I\n  context dbl(HOLE)\n  rule [dbl]: dbl I:Int => I +Int I\nendmodule\n",
+        );
+        fs::write(&source, text).unwrap();
+        append(
+            &dir.join("FLOW.toml"),
+            "\n[[program]]\nid = \"dbl\"\ntext = \"dbl (1 + 2)\"\n",
+        );
+        let (document, status) = run(&dir.join("FLOW.toml"), false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let items = all_rules(&document);
+        let authored = items
+            .iter()
+            .filter(|item| item["kind"] == "rule")
+            .map(|item| (item["label"].clone(), item["status"].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            authored,
+            [
+                (json!("CALC.add"), json!("fired")),
+                (json!("CALC.mul"), json!("fired")),
+                (json!(null), json!("fired")),
+                (json!("CALC.neg"), json!("unmatched")),
+                (json!("CALC.dbl"), json!("fired")),
+            ]
+        );
+        let heating = |id: &str| {
+            items
+                .iter()
+                .find(|item| item["id"] == id)
+                .unwrap_or_else(|| panic!("no item {id}: {document:#}"))
+        };
+        let statuses = [
+            "mul:heat:1",
+            "mul:heat:2",
+            "add:heat:1",
+            "add:heat:2",
+            "sub:heat:1",
+            "sub:heat:2",
+            "neg:heat:1",
+        ]
+        .map(|name| {
+            let item = heating(&format!("rule:{name}"));
+            assert_eq!(item["kind"], "heating", "{item:#}");
+            assert_eq!(item["heating"]["attribute"], "strict", "{item:#}");
+            assert_eq!(item["module"], "CALC-SYNTAX", "{item:#}");
+            (
+                name,
+                item["status"].as_str().unwrap().to_owned(),
+                item["fired_by"].clone(),
+                item["matched_by"].clone(),
+            )
+        });
+        assert_eq!(
+            statuses,
+            [
+                (
+                    "mul:heat:1",
+                    "fired".into(),
+                    json!(["nested"]),
+                    json!(["nested", "inline"])
+                ),
+                (
+                    "mul:heat:2",
+                    "matched".into(),
+                    json!([]),
+                    json!(["nested", "inline"])
+                ),
+                (
+                    "add:heat:1",
+                    "fired".into(),
+                    json!(["inline"]),
+                    json!(["add", "nested", "inline", "dbl"])
+                ),
+                (
+                    "add:heat:2",
+                    "matched".into(),
+                    json!([]),
+                    json!(["add", "nested", "inline", "dbl"])
+                ),
+                ("sub:heat:1", "fired".into(), json!(["sub"]), json!(["sub"])),
+                ("sub:heat:2", "matched".into(), json!([]), json!(["sub"])),
+                ("neg:heat:1", "unmatched".into(), json!([]), json!([])),
+            ]
+        );
+        // The item names its production and position, and its cooling rule.
+        let mul = heating("rule:mul:heat:1");
+        assert_eq!(mul["heating"]["production"], "mul");
+        assert_eq!(mul["heating"]["position"], 1);
+        assert_eq!(mul["heating"]["heat"]["label"], "CALC-SYNTAX.mul1-heat");
+        assert_eq!(mul["heating"]["cool"]["label"], "CALC-SYNTAX.mul1-cool");
+        assert_eq!(mul["heating"]["cool"]["fired_by"], json!(["nested"]));
+        assert_eq!(mul["covered"], true);
+        // The context: named by its sentence, heated by `dbl`.
+        let context = items
+            .iter()
+            .find(|item| item["heating"]["attribute"] == "context")
+            .unwrap_or_else(|| panic!("no context item: {document:#}"));
+        assert_eq!(context["module"], "CALC");
+        assert_eq!(context["heating"]["production"], json!(null));
+        assert_eq!(context["status"], "fired");
+        assert_eq!(context["fired_by"], json!(["dbl"]));
+        assert_eq!(context["heating"]["cool"]["fired_by"], json!(["dbl"]));
+        assert!(
+            context["id"].as_str().unwrap().ends_with(":heat"),
+            "{context:#}"
+        );
+        // Open positions are targets naming the production and the position.
+        let target = |id: &str| {
+            document["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|target| target["item"] == id)
+                .unwrap_or_else(|| panic!("no target {id}: {:#}", document["targets"]))
+        };
+        let right = target("rule:mul:heat:2");
+        let text = right["text"].as_str().unwrap();
+        assert!(text.contains("brings mul to the front"), "{text}");
+        assert!(text.contains("as its argument 2"), "{text}");
+        assert!(text.contains("did not"), "{text}");
+        assert_eq!(right["programs"], json!(["nested", "inline"]));
+        assert_eq!(right["fuzz"], json!(null));
+        let never = target("rule:neg:heat:1")["text"].as_str().unwrap();
+        assert!(never.contains("brings neg to the front"), "{never}");
+        assert!(never.contains("as its argument 1"), "{never}");
+        assert!(!never.contains("did not"), "{never}");
+        for covered in ["rule:mul:heat:1", "rule:add:heat:1", "rule:sub:heat:1"] {
+            assert!(
+                document["targets"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|target| target["item"] != covered),
+                "{covered}"
+            );
+        }
+        let family = &document["families"]["rules"];
+        assert_eq!(
+            family["counts"]["heating"],
+            json!({"obligations": 8, "fired": 4})
+        );
+        assert_eq!(family["obligations"], 13);
+        assert_eq!(family["covered"], 8);
+        let rendered = kink_flow::coverage::text(&document).unwrap();
+        assert!(rendered.contains("heating 4 of 8 fired"), "{rendered}");
     }
 
     /// CF-45: a claim helper (an equation of a function only claims apply, named by the front end
@@ -1655,17 +1861,24 @@ text = 'h(opaque(1), 2)'
                 (json!("LOOP.unused"), json!("claim-helper"), json!([])),
             ]
         );
+        // The four heating rules of loop's strict productions stay open: every program writes an
+        // integer as each argument.
         assert_eq!(
             document["summary"]["per_family"]["rules"],
-            json!({"obligations": 4, "covered": 4, "argued": 0, "open": 0})
+            json!({"obligations": 8, "covered": 4, "argued": 0, "open": 4})
         );
         assert_eq!(document["families"]["rules"]["counts"]["claim_helper"], 2);
+        assert_eq!(
+            document["families"]["rules"]["counts"]["heating"],
+            json!({"obligations": 4, "fired": 0})
+        );
         assert!(
             document["targets"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|target| target["family"] != "rules"),
+                .all(|target| target["family"] != "rules"
+                    || target["item"].as_str().unwrap().contains(":heat:")),
             "{document:#}"
         );
     }
@@ -2074,8 +2287,9 @@ endmodule
         // holds the guard outcomes. v17, because a record's coverage holds the bindings. v18,
         // because a run with an observation declaration may be a comparable prefix program. v19,
         // because a record's bindings hold the alternatives a fired instance took and only the
-        // operand heads of variables the axiom reads.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v19");
+        // operand heads of variables the axiom reads. v20, because a record's coverage holds the
+        // heating and cooling rules it matched and fired by id.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v20");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);
@@ -2246,10 +2460,23 @@ endmodule
             text.lines()
                 .next()
                 .is_some_and(|line| line.starts_with("coverage: ")
-                    && line.ends_with(" covered, 0 argued, 0 open; 4 programs, 4 comparable")),
+                    && line.ends_with(" covered, 0 argued, 3 open; 4 programs, 4 comparable")),
             "{text}"
         );
-        assert!(text.contains("\nrules: 3 of 3 fired (100.0%)"), "{text}");
+        // calc's three rules fire, and so do the heating rules of the left operands; no program
+        // writes anything but an integer as a right operand, so those three are open.
+        assert!(
+            text.contains(
+                "\nrules: 6 of 9 fired (66.7%); 3 matched, 0 unmatched; heating 3 of 6 fired;"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "\n  rule:mul:heat:2 (calc.k:9): a case whose run brings mul to the front"
+            ),
+            "{text}"
+        );
 
         // `--tier 2` asks for the flips too: kink-flow's own front end derives none, so the
         // family does not run, says why, and the document computed tier 1 alone. (A cache of its

@@ -13,10 +13,17 @@
 //! # Families
 //!
 //! - `rules`: every authored rewrite rule and function equation (`owise`, `anywhere` and the
-//!   authored equations of an overloaded function included). An item's status is named for the
+//!   authored equations of an overloaded function included), and every heating rule the compile
+//!   generates from a `strict` or `seqstrict` production (one per argument position the
+//!   attribute names, and per context alias it uses) or a `context` sentence, attributed to that
+//!   sentence and position ([`heating_item`]). An item's status is named for the
 //!   predicate it tests ([`FIRED`], [`MATCHED`], [`UNMATCHED`]), read from the records as the
 //!   result cache keeps them, or from the front end's reading where it reads a sentence's match
-//!   at its own level (`krs.status`); a rule is covered when it is `fired`. Simplification,
+//!   at its own level (`krs.status`); a rule is covered when it is `fired`. A heating rule fires
+//!   where a run put a term that is not a result at its position, the one situation the
+//!   attribute governs; its cooling rule follows wherever that term's evaluation reaches a
+//!   result, and is shown with the item, not counted. The family's counts give the heating items
+//!   apart (`counts.heating`). Simplification,
 //!   `symbolic` and ceil equations are [`OUT_OF_SCOPE`]: they state facts of the definition's
 //!   functions that the definition means the same without, so no program's run of one tests
 //!   anything a step computes. A claim helper ([`CLAIM_HELPER`]) serves the claims, which a
@@ -48,7 +55,9 @@
 //!   is an obligation when it builds a term with a constructor of the compiled definition (no
 //!   function, token, bracket, subsort, macro or cell does), so the universe is a function of the
 //!   definition and the front end's selection. A production is reached when a fired instance of
-//!   a sentence of the rules universe, in some comparable program's run, touched it: the
+//!   an authored rule of the rules universe, in some comparable program's run, touched it (a
+//!   heating step touches its own production by construction, which its rules item already
+//!   states, so it does not count here): the
 //!   production is at a non-variable position of the sentence's left-hand side (inspected), it
 //!   is the head, through injections, of a value the instance bound to a left-hand-side variable
 //!   that the sentence reads elsewhere (an operand), or it is at a non-variable position of the
@@ -86,7 +95,9 @@
 //! operand's truth; `summary.open`, the count of open obligations, is the one scalar, and zero
 //! means done. Every item has a stable `id`: `rule:<name>`, `requirement:<name>:<detail>` and
 //! `syntax:<production>`, the rule's name being its KRS item where the front end named it, else
-//! its label, else its `file:line` (with `:<label>` added where two rules share a name), the
+//! its label, else its `file:line` (with `:<label>` added where two rules share a name), a
+//! heating rule's its production's (`<production>:heat:<position>`) or its context's
+//! (`<context>:heat`, [`rule_name`]), the
 //! detail `held`, `refuted`, or the node's text (with `@<path>` added where two nodes of one
 //! condition share a text) and its truth, and the production its front end's name, else its K
 //! label (with `@<sort>` added where two share one).
@@ -101,6 +112,10 @@
 //! valuation that reaches the node with the missing truth, read from the condition's structure;
 //! an unreached production for a case in which a step takes it as an operand, or inspects or
 //! builds it, naming the rules that inspect or build it, each a concrete thing to make fire.
+//! An open heating rule asks for a case whose run brings the production to the front of the
+//! computation with a term that is not a result at its position (for a context, reaches a
+//! state the context matches with such a term in its hole); the fuzz's rule jobs target
+//! authored rules, so its `fuzz` is `null`.
 //! `programs` are the comparable programs that entered the rule, the templates of a fuzz job;
 //! `fuzz` spells the fuzz job that looks for a program for a rewrite rule (`--matched`,
 //! `--fired`), `null` where none applies. A flip's target follows in tier 2: an
@@ -223,8 +238,13 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// rules' guards keep their valuation combinations (`guard.combinations`), the requirements
 /// family lists their unique-cause requirements (`level` `mcdc`, status `covered`, `open` or
 /// `undecided`, with `pair`, `needed` and `truncated_by`), its counts have `undecided`, and it
-/// has `mcdc`; without one the document is version 7's.
-pub const COVERAGE_VERSION: u64 = 8;
+/// has `mcdc`; without one the document is version 7's; 9 since the rules family lists the
+/// heating rules the compile generates from `strict` and `seqstrict` productions and `context`
+/// sentences: each rules item has `kind` (`rule`, or `heating` with `heating`), a heating item is
+/// an obligation named `rule:<production>:heat:<position>` (`rule:<context>:heat`), its status
+/// read from the records' `strictness`, and the family's counts have `heating`, so a reader of
+/// version 8 would count obligations it does not know as rules.
+pub const COVERAGE_VERSION: u64 = 9;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -1122,6 +1142,10 @@ fn rule_pattern(sentence: &Sentence, text: &str, start: usize, cells: &Cells) ->
 /// applies either, and such a sentence stays `unmatched`, since neither a run nor a claim accounts
 /// for it; a typed input can still apply any function, so a claim helper some comparable program
 /// matched or fired has that status.
+///
+/// Each such item has `kind` [`RULE`]; each `strict` or `seqstrict` production and each
+/// `context` gives its heating items ([`HEATING`], [`heating_item`]) at its own place in that
+/// order.
 fn rule_items(
     spec: &crate::admit::AdmittedSpec,
     manifest: &FlowManifest,
@@ -1156,12 +1180,41 @@ fn rule_items(
         }
     }
     let [matched, fired, others_matched, others_fired] = lists;
+    // The heating and cooling rules each program matched and fired, by id.
+    let mut by_id: [BTreeMap<&str, Vec<&str>>; 4] = Default::default();
+    for (program, row) in manifest.programs.iter().zip(rows) {
+        let Some(record) = &row.record else {
+            continue;
+        };
+        let offset = if ResultClass::can_kill(&record["class"]) {
+            0
+        } else {
+            2
+        };
+        for (key, slot) in [("matched", offset), ("fired", offset + 1)] {
+            for id in record["coverage"]["strictness"][key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                by_id[slot].entry(id).or_default().push(&program.id);
+            }
+        }
+    }
     let guards = crate::guards::SentenceGuards::of(comparable.iter().copied());
     let other_guards = crate::guards::SentenceGuards::of(others.iter().copied());
     let printer = EndReader::of(&spec.compiled);
     let no_signal = no_coverage_signal(spec);
     let rewrites = crate::fuzz::rewrite_ids(&spec.compiled);
     let authors = kink_native::coverage::RuleAuthors::of(&spec.compiled);
+    let mut strictness = BTreeMap::<SentenceRef, Vec<kink_native::coverage::StrictnessRule>>::new();
+    for rule in kink_native::coverage::strictness_rules(&spec.compiled, &authors) {
+        strictness
+            .entry(rule.source.at().clone())
+            .or_default()
+            .push(rule);
+    }
     let claim_helpers = manifest
         .claim_helpers
         .iter()
@@ -1180,9 +1233,13 @@ fn rule_items(
             ..
         } = sentence
         else {
+            for rule in strictness.get(&at).into_iter().flatten() {
+                items.push(heating_item(spec, sentence, rule, &by_id));
+            }
             continue;
         };
         let mut value = sentence_value(spec, &at);
+        value["kind"] = json!(RULE);
         let key = (at.module.clone(), u64::from(at.index));
         let list = |lists: &Lists<'_>| -> Vec<String> {
             lists
@@ -1260,6 +1317,122 @@ fn rule_items(
         items.push(value);
     }
     items
+}
+
+/// The `kind` of a rules item that is an authored rewrite rule or function equation.
+pub const RULE: &str = "rule";
+/// The `kind` of a rules item that is a heating rule the compile generated from a `strict` or
+/// `seqstrict` production or a `context` ([`heating_item`]).
+pub const HEATING: &str = "heating";
+
+/// The rules item of one heating rule (kind [`HEATING`]) the compile generated from the
+/// authored `sentence`, a `strict` or `seqstrict` production or a `context`
+/// (kink-native `strictness_rules`), its programs read from `by_id`, the programs that matched
+/// and fired each heating or cooling rule by id (comparable, then not).
+///
+/// A context, one per argument position a production's attribute names (and per context alias it
+/// uses), or a `context` sentence, says: evaluate the subterm at the hole before the construct
+/// around it. The compile states it as two steps: heating moves the subterm to the front of the
+/// computation while it is not a result, and cooling plugs the result back. The obligation is the
+/// heating rule: it fires exactly where a run put a term that is not a result at the position,
+/// the one situation the attribute governs, so a corpus whose runs never heat a position cannot
+/// tell the definition from one without that position's strictness, while one that heats it
+/// evaluates the position as the attribute says. Cooling follows from heating wherever the
+/// subterm's evaluation reaches a result; where it does not, the step after it (the authored rule
+/// that reads the result) is an open item of its own, so the cooling rule is shown with its
+/// programs (`heating.cool`) and is not counted. The status is the heating rule's, as an authored
+/// rule's is its own: [`FIRED`] where some comparable program's run took the step, [`MATCHED`]
+/// where some matched its left-hand side with a result at the position (the condition, which is
+/// that the subterm is no result, and for `seqstrict` that the positions before it are results,
+/// never held), [`UNMATCHED`] otherwise, and [`NO_COVERAGE_SIGNAL`] where k-rust's coverage
+/// cannot name it.
+///
+/// The item stands at the authored sentence (its `module`, `index`, `label`, `file` and lines),
+/// with `heating = {attribute, production, position, alias, heat: {axiom, label}, cool: {axiom,
+/// label, matched_by, fired_by, uncounted}}`: `attribute` is `strict`, `seqstrict` or `context`,
+/// `production` the production's K label and `position` the 1-based argument position (both
+/// `null` for a `context`, and `position` `null` where the compile's label does not name one),
+/// `alias` the context alias sentence (`null` for the default one), and `cool` `null` where no
+/// cooling rule pairs with the heating rule.
+fn heating_item(
+    spec: &crate::admit::AdmittedSpec,
+    sentence: &Sentence,
+    rule: &kink_native::coverage::StrictnessRule,
+    by_id: &[BTreeMap<&str, Vec<&str>>; 4],
+) -> Value {
+    use kink_native::coverage::StrictnessSource;
+    let list = |slot: usize, id: &str| -> Vec<String> {
+        by_id[slot]
+            .get(id)
+            .into_iter()
+            .flatten()
+            .map(|program| (*program).to_owned())
+            .collect()
+    };
+    let at = rule.source.at();
+    let mut value = sentence_value(spec, at);
+    let (attribute, production, position, alias) = match &rule.source {
+        StrictnessSource::Production {
+            sequential,
+            position,
+            alias,
+            ..
+        } => (
+            if *sequential { "seqstrict" } else { "strict" },
+            match sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => json!(label.name),
+                _ => Value::Null,
+            },
+            json!(position),
+            alias
+                .as_ref()
+                .map_or(Value::Null, |alias| sentence_value(spec, alias)),
+        ),
+        StrictnessSource::Context { .. } => ("context", Value::Null, Value::Null, Value::Null),
+    };
+    let (programs, firing) = (list(0, &rule.heat), list(1, &rule.heat));
+    let status = if !rule.signal {
+        NO_COVERAGE_SIGNAL
+    } else if !firing.is_empty() {
+        FIRED
+    } else if !programs.is_empty() {
+        MATCHED
+    } else {
+        UNMATCHED
+    };
+    value["kind"] = json!(HEATING);
+    value["heating"] = json!({
+        "attribute": attribute,
+        "production": production,
+        "position": position,
+        "alias": alias,
+        "heat": {"axiom": rule.heat, "label": rule.heat_label},
+        "cool": rule.cool.as_ref().map(|cool| json!({
+            "axiom": cool,
+            "label": rule.cool_label,
+            "matched_by": list(0, cool),
+            "fired_by": list(1, cool),
+            "uncounted": {"matched_by": list(2, cool), "fired_by": list(3, cool)},
+        })),
+    });
+    value["status"] = json!(status);
+    value["matched_by"] = json!(programs);
+    value["fired_by"] = json!(firing);
+    value["rewrite"] = json!(true);
+    value["pattern"] = Value::Null;
+    value["uncounted"] = json!({
+        "matched_by": list(2, &rule.heat),
+        "fired_by": list(3, &rule.heat),
+    });
+    if status == NO_COVERAGE_SIGNAL {
+        value["reason"] = json!(
+            "the heating rule is an smt-lemma or non-executable axiom, which k-rust's run \
+             coverage has no recording site for"
+        );
+    }
+    value
 }
 
 /// The status of a production some comparable program's fired instance touched.
@@ -1433,8 +1606,9 @@ fn at_of(value: &Value) -> Option<SentenceRef> {
 /// The syntax family before [`derive`] (module documentation, "Syntax"): its production items in
 /// sentence order and the values the front end's template binders took.
 ///
-/// A production is reached when a fired instance of a sentence of the rules universe (status
-/// [`FIRED`], [`MATCHED`] or [`UNMATCHED`]) in some comparable program's baseline run touched it:
+/// A production is reached when a fired instance of an authored rule of the rules universe
+/// (kind [`RULE`], status [`FIRED`], [`MATCHED`] or [`UNMATCHED`]) in some comparable program's
+/// baseline run touched it:
 /// the production is at a non-variable position of the sentence's left-hand side
 /// (`inspected_by`), it is the head of a value the instance bound to a left-hand-side variable
 /// that the sentence reads elsewhere (`operand_of`, k-rust's bindings as the record keeps them),
@@ -1462,8 +1636,13 @@ fn syntax_family(
         .iter()
         .map(|production| production.symbol.as_str())
         .collect::<BTreeSet<_>>();
+    // The authored rules only: a heating item's sentence is the production (or `context`) whose
+    // strictness it states, and its step touches that production by construction, which the
+    // heating item already states; what the syntax family adds is whether the definition's
+    // rules took a step with the production.
     let counted = rules
         .iter()
+        .filter(|rule| rule["kind"] != HEATING)
         .filter(|rule| matches!(rule["status"].as_str(), Some(FIRED | MATCHED | UNMATCHED)))
         .filter_map(at_of)
         .collect::<BTreeSet<_>>();
@@ -1763,9 +1942,37 @@ fn document(
 }
 
 /// A rule item's name: its KRS item where a front end named it (`krs.item`), its label, or its
-/// `file:line` (`module#index` without a file).
+/// `file:line` (`module#index` without a file). A heating item ([`HEATING`]) is named by what
+/// it states: the production (its KRS item, else its K label) or the `context` (as a rule is),
+/// then `heat`, then the position (the front end's field name `krs.field`, else the 1-based
+/// argument position) and the context alias it uses where it uses one (its label, else its
+/// `module#index`): `add:heat:1`, `crate::Exp::Add:heat:lhs`.
 #[must_use]
 pub fn rule_name(rule: &Value) -> String {
+    if rule["kind"] == HEATING {
+        let heating = &rule["heating"];
+        let base = match (rule["krs"]["item"].as_str(), heating["production"].as_str()) {
+            (Some(item), _) => item.to_owned(),
+            (None, Some(production)) => production.to_owned(),
+            (None, None) => authored_name(rule),
+        };
+        let mut name = format!("{base}:heat");
+        if let Some(field) = rule["krs"]["field"].as_str() {
+            name.push_str(&format!(":{field}"));
+        } else if let Some(position) = heating["position"].as_u64() {
+            name.push_str(&format!(":{position}"));
+        }
+        if heating["alias"].is_object() {
+            name.push_str(&format!(":{}", authored_name(&heating["alias"])));
+        }
+        return name;
+    }
+    authored_name(rule)
+}
+
+/// The name of an authored sentence: its KRS item, its label, or its `file:line`
+/// (`module#index` without a file).
+fn authored_name(rule: &Value) -> String {
     if let Some(item) = rule["krs"]["item"].as_str() {
         return item.to_owned();
     }
@@ -2481,6 +2688,46 @@ fn mcdc_target(name: &str, requirement: &Value) -> String {
 }
 
 /// A list of names as a sentence reads it: `a`, `a and b`, `a, b and c`.
+/// The text of an open heating item's target ([`heating_item`]): a case whose run evaluates the
+/// position from a term that is not a result. `matched` says some comparable program's run
+/// reached the construct but never met the heating rule's condition there.
+fn heating_target(item: &Value, matched: bool) -> String {
+    let heating = &item["heating"];
+    let construct = match (item["krs"]["item"].as_str(), heating["production"].as_str()) {
+        (Some(name), _) | (None, Some(name)) => name.to_owned(),
+        (None, None) => authored_name(item),
+    };
+    let reached = if heating["attribute"] == "context" {
+        format!(
+            "reaches a state the context {construct} matches with a term that is not a result in \
+             its hole"
+        )
+    } else {
+        let position = if let Some(field) = item["krs"]["field"].as_str() {
+            format!("field {field}")
+        } else if let Some(position) = heating["position"].as_u64() {
+            format!("argument {position}")
+        } else {
+            "heated argument".to_owned()
+        };
+        let earlier = if heating["attribute"] == "seqstrict" {
+            ", and results as the arguments before it"
+        } else {
+            ""
+        };
+        format!(
+            "brings {construct} to the front of the computation with a term that is not a result \
+             as its {position}{earlier}"
+        )
+    };
+    let entered = if matched {
+        " (the comparable runs that reached it did not)"
+    } else {
+        ""
+    };
+    format!("a case whose run {reached}, so that heating evaluates it{entered}")
+}
+
 fn listed(names: &[String]) -> String {
     match names {
         [] => String::new(),
@@ -2556,9 +2803,17 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     let mut requirement_targets = Vec::new();
     // Each rule's id by its sentence, which the syntax family's targets name.
     let mut rule_ids = BTreeMap::<SentenceRef, String>::new();
+    let mut heating_obligations = 0;
+    let mut heating_fired = 0;
     for (item, name) in items.iter_mut().zip(&names) {
+        let heating = item["kind"] == HEATING;
         let name = if counts[name.as_str()] > 1 {
-            format!("{name}:{}", item["label"].as_str().unwrap_or_default())
+            let label = if heating {
+                &item["heating"]["heat"]["label"]
+            } else {
+                &item["label"]
+            };
+            format!("{name}:{}", label.as_str().unwrap_or_default())
         } else {
             name.clone()
         };
@@ -2588,7 +2843,10 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             touched.extend(ids(&item["uncounted"]["matched_by"]));
         }
         let touched = without(touched, &[]);
-        if let Some(at) = at_of(item) {
+        if heating {
+            heating_obligations += usize::from(obligation);
+            heating_fired += usize::from(covered);
+        } else if let Some(at) = at_of(item) {
             rule_ids.insert(at, id.clone());
         }
         item["id"] = json!(id);
@@ -2626,7 +2884,18 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         } else if let Some(guard) = item.get_mut("guard").and_then(Value::as_object_mut) {
             guard.remove("combinations");
         }
-        if obligation && !covered {
+        if obligation && !covered && heating {
+            targets.push(json!({
+                "family": "rules",
+                "item": id,
+                "text": format!("{}{}", heating_target(item, status == MATCHED), touched_note(&touched)),
+                "file": file,
+                "line": line,
+                "programs": if status == MATCHED { entered.clone() } else { Vec::new() },
+                "pattern": null,
+                "fuzz": null,
+            }));
+        } else if obligation && !covered {
             let (text, job) = if status == MATCHED {
                 let requirement = !argued_entries.contains_key(&held_id)
                     && requirements
@@ -2760,6 +3029,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "out_of_scope": count(OUT_OF_SCOPE),
         "claim_helper": count(CLAIM_HELPER),
         "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
+        "heating": {"obligations": heating_obligations, "fired": heating_fired},
     });
     let families = &mut document["families"];
     families["requirements"] = json!({
@@ -3489,10 +3759,12 @@ pub fn text(document: &Value) -> Result<String, String> {
         if family == "rules" {
             let counts = &value["counts"];
             out.push_str(&format!(
-                "; {} matched, {} unmatched; not obligations: {} out of scope, {} claim helper, \
-                 {} no coverage signal",
+                "; {} matched, {} unmatched; heating {} of {} fired; not obligations: {} out of \
+                 scope, {} claim helper, {} no coverage signal",
                 counts["matched"],
                 counts["unmatched"],
+                counts["heating"]["fired"],
+                counts["heating"]["obligations"],
                 counts["out_of_scope"],
                 counts["claim_helper"],
                 counts["no_coverage_signal"]

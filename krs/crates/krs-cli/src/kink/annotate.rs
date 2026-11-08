@@ -68,6 +68,13 @@
 //! is added as an item of kind `field-value`, reached where a comparable program's run bound the
 //! template's binder to a value with that field value, with the encodings that reach it.
 //!
+//! A `coverage` document's heating items (kink-flow's rules items of kind `heating`, one per
+//! argument position of a strict production) are named by the production's declaration
+//! ([`super::syntax::KrsSyntax::name_heating`]): `krs = {item, field, file, line, column}`, the
+//! Rust path of the variant or struct, the field the position is, and the declaration's
+//! position, so the item's id is `rule:crate::Exp::Add:heat:lhs`. A context's heating item names
+//! its sentence as a rule does, by the table.
+//!
 //! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
 //! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
 //! names an item as above, while the annotation before it, which carried no version, named it as
@@ -82,7 +89,9 @@
 //! a reader of version 5 would count as nothing it knows; version 7 adds `observe.krs`, each
 //! `[observe]` rule name as the corpus wrote it with the labels it selects and each cell by Rust
 //! path with its K cell, beside `observe`, whose rules and cells are K names, which a reader of
-//! version 6 would take for the corpus's own names.
+//! version 6 would take for the corpus's own names; version 8 names the heating items of the
+//! rules family by the strict production's declaration and the field of the position
+//! (`krs.field`), which a reader of version 7 would read as the item's sentence alone.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -124,7 +133,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 7;
+pub(crate) const ANNOTATION_VERSION: u64 = 8;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -430,6 +439,7 @@ impl Annotator {
         self.annotate_labels(document);
         // After the rules: a field value's target reads its sentence's `krs.matched_by`.
         if let Some(syntax) = &self.syntax {
+            syntax.name_heating(document);
             syntax.annotate(document);
         }
         unnamed.sort_by_key(ToString::to_string);

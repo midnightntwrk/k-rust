@@ -135,8 +135,10 @@ use std::{path::Path, sync::OnceLock};
 /// that a fired instance took, from which the syntax family credits what an alternative
 /// inspects and builds; and an operand head is recorded only for a variable the axiom reads
 /// beside its left-hand side, so a v18 record's heads include values a step only carried past or
-/// dropped.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v19";
+/// dropped. v20: a record's coverage holds `strictness`, the heating and cooling rules the run
+/// matched and fired by compiled id, which `coverage`'s rules family reads per argument position;
+/// a v19 record has none, so every heating rule would read unmatched.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v20";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

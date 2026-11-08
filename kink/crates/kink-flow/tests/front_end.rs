@@ -862,7 +862,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // Version 6 names the solver profile, and no schedule; version 8 the Z3 build under Z3.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"run\"\n{}\n[spec]\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\n{}\n[spec]\n\
              outcome = \"admitted\"\n",
             flow_support::solver_lines()
         )),
@@ -881,8 +881,11 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         ),
         "{cold}"
     );
+    // calc's authored rules all fire; its corpus never heats a right operand.
     assert!(
-        cold_coverage.contains("\n[rules]\nopen = []\n"),
+        cold_coverage.contains(
+            "\n[rules]\nopen = [\"rule:mul:heat:2\", \"rule:add:heat:2\", \"rule:sub:heat:2\"]\n"
+        ),
         "{cold_coverage}"
     );
     // A document that is neither is refused, naming what it is.
@@ -912,7 +915,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     let rendered = verdicts(&document).unwrap();
     assert!(
         rendered.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"coverage\"\n{}\n",
+            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"coverage\"\n{}\n",
             flow_support::solver_lines()
         )),
         "{rendered}"
@@ -937,7 +940,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     });
     assert_eq!(
         verdicts(&unnamed).unwrap(),
-        "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"5.3.3.0\"\n\n[spec]\noutcome = \"admitted\"\n"
     );
 }
@@ -977,7 +980,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"run\"\n{}\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\n{}\n\
              [mutation_list]\noutcome = \"refused\"\n",
             flow_support::solver_lines()
         )

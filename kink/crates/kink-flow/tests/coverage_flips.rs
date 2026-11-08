@@ -255,12 +255,12 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
-            "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"run\"\n".to_owned(),
+            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\n".to_owned(),
             "its document is not \"coverage\"",
         ),
         (
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"coverage\"\n\n\
                  {flip}\n{flip}"
             ),
             "the flip \"f\" is listed twice",
@@ -701,7 +701,7 @@ mod kink_tier {
         // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
         // keep but rewrite (its header and open obligations are a hand's).
         let text = format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"coverage\"\n\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"coverage\"\n\n\
              [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
         );
         fs::write(&lock, &text).unwrap();

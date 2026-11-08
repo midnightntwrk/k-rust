@@ -153,6 +153,10 @@ pub struct UnresolvedAddress {
 pub struct RuleAuthors {
     authors: BTreeMap<String, Authorship>,
     unresolved: BTreeSet<UnresolvedAddress>,
+    /// The ids one of whose input sentences is a `context` or a `strict` or `seqstrict`
+    /// production: the heating and cooling rules the compile generates from them (and a
+    /// `hybrid` production's result equations), which [`TestCoverage::strictness`] records by id.
+    strictness: BTreeSet<String>,
 }
 
 /// The skeleton of every guarded sentence's condition, without a run: for each baseline
@@ -245,6 +249,7 @@ impl RuleAuthors {
         };
         let mut authors = BTreeMap::new();
         let mut unresolved = BTreeSet::new();
+        let mut strictness = BTreeSet::new();
         for (id, provenance) in &validated.artifacts().sentence_provenance {
             let mut sentences = BTreeSet::new();
             let mut inserted = false;
@@ -254,6 +259,9 @@ impl RuleAuthors {
                 .iter()
                 .filter(|address| address.input == InputSpace::Compile)
             {
+                if strictness_sentence(definition, &address.module, address.index) {
+                    strictness.insert(id.clone());
+                }
                 let at = SentenceRef::new(address.module.clone(), address.index);
                 let origin = if exists(&address.module, address.index) {
                     match validated.origins() {
@@ -300,7 +308,15 @@ impl RuleAuthors {
         Self {
             authors,
             unresolved,
+            strictness,
         }
+    }
+
+    /// The ids one of whose input sentences is a `context` or a `strict` or `seqstrict`
+    /// production ([`strictness_rules`] reads the heating and cooling rules among them).
+    #[must_use]
+    pub const fn strictness_ids(&self) -> &BTreeSet<String> {
+        &self.strictness
     }
 
     /// The authors of `id`, or `None` when the side's provenance does not list it.
@@ -367,6 +383,22 @@ pub struct TestCoverage {
     /// result run, `ResultRun::bindings`), by the baseline sentence behind each axiom; `None`
     /// when the run collected none. Not in [`Self::value`]: no schedule reads them.
     pub bindings: Option<SentenceBindings>,
+    /// The heating and cooling rules the run matched and fired, by compiled id
+    /// ([`RuleAuthors::strictness_ids`]): every such rule of one production or `context` has the
+    /// same author, so `sentences` cannot tell which argument position a run heated, and the
+    /// ids can ([`strictness_rules`]). Not in [`Self::value`]: no schedule reads them.
+    pub strictness: StrictnessCoverage,
+}
+
+/// The heating and cooling rules a run matched and fired ([`TestCoverage::strictness`]), by
+/// compiled id, under the predicates of `rule_ids` and `fired_sentences`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct StrictnessCoverage {
+    /// The ids among [`RuleAuthors::strictness_ids`] the run matched (k-rust `matched`).
+    pub matched: BTreeSet<String>,
+    /// The ids of `matched` the run fired: a rewrite rule some explored path takes (k-rust
+    /// `committed`), an equation whose instance gave a result (`applied`).
+    pub fired: BTreeSet<String>,
 }
 
 /// What a run's fired instances bound, by the baseline sentences behind their axioms
@@ -564,6 +596,7 @@ impl TestCoverage {
         let mut sentences = BTreeSet::new();
         let mut applied_sentences = BTreeSet::new();
         let mut fired_sentences = BTreeSet::new();
+        let mut strictness = StrictnessCoverage::default();
         let mut unmapped = BTreeMap::new();
         let mut guards = BTreeMap::<SentenceRef, Vec<AxiomGuardOutput<Pattern>>>::new();
         for guard in &coverage.guards {
@@ -576,6 +609,7 @@ impl TestCoverage {
                 }
             }
         }
+        let strictness_ids = authors.strictness_ids();
         for id in &coverage.matched {
             match authors.get(id) {
                 Some(Authorship::Sentences(authors)) => {
@@ -592,6 +626,12 @@ impl TestCoverage {
                     };
                     if fired {
                         fired_sentences.extend(authors.iter().cloned());
+                    }
+                    if strictness_ids.contains(id) {
+                        strictness.matched.insert(id.clone());
+                        if fired {
+                            strictness.fired.insert(id.clone());
+                        }
                     }
                 }
                 Some(Authorship::Unmapped(reason)) => {
@@ -616,6 +656,7 @@ impl TestCoverage {
                 .bindings
                 .as_ref()
                 .map(|bindings| SentenceBindings::of(bindings, authors)),
+            strictness,
         }
     }
 
@@ -634,6 +675,7 @@ impl TestCoverage {
             unmapped: BTreeMap::new(),
             guards: BTreeMap::new(),
             bindings: None,
+            strictness: StrictnessCoverage::default(),
         }
     }
 
@@ -726,6 +768,294 @@ fn axiom_ids(
             _ => None,
         })
         .collect()
+}
+
+/// Whether the sentence at `index` of `module` in `definition` is one the compile generates
+/// heating and cooling rules from: a `context`, or a production with a `strict` or `seqstrict`
+/// attribute.
+fn strictness_sentence(
+    definition: &k_rust::definition::Definition,
+    module: &str,
+    index: u32,
+) -> bool {
+    use k_rust::definition::{AttributeKey, Sentence as Input};
+    let Some(sentence) = definition
+        .modules
+        .iter()
+        .find(|candidate| candidate.name == module)
+        .and_then(|module| module.local_sentences.get(usize::try_from(index).ok()?))
+    else {
+        return false;
+    };
+    match &**sentence {
+        Input::Context { .. } => true,
+        Input::Production { attributes, .. } => {
+            attributes.has(AttributeKey::Strict) || attributes.has(AttributeKey::Seqstrict)
+        }
+        _ => false,
+    }
+}
+
+/// One heating rule of the compiled definition, with the cooling rule that undoes it, attributed
+/// to the authored sentence it was generated from ([`strictness_rules`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrictnessRule {
+    /// The heating rule's `UNIQUE_ID`.
+    pub heat: String,
+    /// The heating rule's label, where the compile gave it one.
+    pub heat_label: Option<String>,
+    /// The cooling rule's `UNIQUE_ID`, `None` where none pairs with the heating rule.
+    pub cool: Option<String>,
+    /// The cooling rule's label.
+    pub cool_label: Option<String>,
+    /// Whether k-rust's run coverage can name the heating rule ([`coverage_domain`]).
+    pub signal: bool,
+    /// The authored sentence and, for a production, the argument position.
+    pub source: StrictnessSource,
+}
+
+/// The authored sentence a heating rule was generated from ([`StrictnessRule::source`]).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum StrictnessSource {
+    /// A `strict` (`sequential` false) or `seqstrict` production.
+    Production {
+        /// The production sentence.
+        at: SentenceRef,
+        /// Whether the attribute is `seqstrict`.
+        sequential: bool,
+        /// The 1-based argument position the rule heats, `None` where its label does not name
+        /// one of the production's positions.
+        position: Option<usize>,
+        /// The context alias the rule instantiates (`strict(alias; ...)`), `None` for the
+        /// default one.
+        alias: Option<SentenceRef>,
+    },
+    /// A `context` sentence.
+    Context {
+        /// The context sentence.
+        at: SentenceRef,
+    },
+}
+
+impl StrictnessSource {
+    /// The authored sentence.
+    #[must_use]
+    pub const fn at(&self) -> &SentenceRef {
+        match self {
+            Self::Production { at, .. } | Self::Context { at } => at,
+        }
+    }
+}
+
+/// The heating rules of a baseline side, each with its cooling rule and the authored sentence
+/// and argument position it was generated from, in the order of that sentence, then position,
+/// then alias, then id.
+///
+/// A `strict` or `seqstrict` production has, per argument position it names and context alias
+/// it uses, one context, and a `context` sentence is one; the compile lowers each context to a
+/// heating rule, which moves the subterm at the hole to the front of the computation while it is
+/// not a result, and a cooling rule, which plugs it back once it is. Both are rewrite rules whose
+/// input sentences ([`RuleAuthors`]) are the production (with the alias) or the context, so they
+/// are the rewrite axioms among [`RuleAuthors::strictness_ids`]; the cooling rule is the one the
+/// compile marks `cool`, and the heating rule is the other. The two rules of one context share
+/// their input sentences and their label but for its suffix (`-heat`, `-cool`), the label the
+/// compile gives a production's context, `MODULE.label` and the position, naming the position;
+/// a context without a label has one heating and one cooling rule, so the input sentences alone
+/// pair them. The sentences are read from the side's own definition, so a mutant side's ids are
+/// read against the baseline only where its authors are; this is a reader of the baseline.
+/// Unparsable KORE gives no rule.
+#[must_use]
+pub fn strictness_rules(
+    validated: &ValidatedDefinition,
+    authors: &RuleAuthors,
+) -> Vec<StrictnessRule> {
+    use k_rust::definition::{AttributeKey, Sentence as Input};
+    let ids = authors.strictness_ids();
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    let Ok(kore) = parse_definition(&validated.artifacts().definition_kore) else {
+        return Vec::new();
+    };
+    let definition = validated.definition();
+    let sentence = |at: &SentenceRef| {
+        definition
+            .modules
+            .iter()
+            .find(|module| module.name == at.module)
+            .and_then(|module| module.local_sentences.get(usize::try_from(at.index).ok()?))
+    };
+    let string_of = |attribute: &Pattern, key: KoreAttribute| match attribute {
+        Pattern::Application { symbol, arguments } if symbol.name == key.as_str() => {
+            match arguments.as_slice() {
+                [Pattern::String(text)] => text.as_utf8().ok().map(str::to_owned),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    // (id, label, cool, signal) of every rewrite axiom among the strictness ids.
+    let mut rules = Vec::new();
+    for axiom in kore.modules.iter().flat_map(|module| &module.sentences) {
+        let Sentence::Axiom {
+            pattern,
+            attributes,
+            ..
+        } = axiom
+        else {
+            continue;
+        };
+        if !matches!(**pattern, Pattern::Rewrites { .. }) {
+            continue;
+        }
+        let Some(id) = attributes
+            .0
+            .iter()
+            .find_map(|attribute| string_of(attribute, KoreAttribute::UniqueId))
+            .filter(|id| ids.contains(id))
+        else {
+            continue;
+        };
+        let label = attributes
+            .0
+            .iter()
+            .find_map(|attribute| string_of(attribute, KoreAttribute::Label));
+        let cool = attributes
+            .0
+            .iter()
+            .any(|attribute| named(attribute, KoreAttribute::Cool));
+        let signal = !attributes.0.iter().any(|attribute| {
+            named(attribute, KoreAttribute::SmtLemma)
+                || named(attribute, KoreAttribute::NonExecutable)
+        });
+        rules.push((id, label, cool, signal));
+    }
+    // The cooling rules by their input sentences and their label's stem.
+    let stem = |label: &Option<String>, suffix: &str| {
+        label
+            .as_deref()
+            .map(|label| label.strip_suffix(suffix).unwrap_or(label).to_owned())
+    };
+    let inputs = |id: &str| match authors.get(id) {
+        Some(Authorship::Sentences(sentences)) => Some(sentences.clone()),
+        _ => None,
+    };
+    let mut cooling =
+        BTreeMap::<(BTreeSet<SentenceRef>, Option<String>), Vec<(String, Option<String>)>>::new();
+    for (id, label, cool, _) in &rules {
+        if *cool && let Some(sentences) = inputs(id) {
+            cooling
+                .entry((sentences, stem(label, "-cool")))
+                .or_default()
+                .push((id.clone(), label.clone()));
+        }
+    }
+    let mut heating = BTreeMap::<(BTreeSet<SentenceRef>, Option<String>), usize>::new();
+    for (id, label, cool, _) in &rules {
+        if !*cool && let Some(sentences) = inputs(id) {
+            *heating
+                .entry((sentences, stem(label, "-heat")))
+                .or_default() += 1;
+        }
+    }
+    let mut found = Vec::new();
+    for (id, label, cool, signal) in rules {
+        if cool {
+            continue;
+        }
+        let Some(sentences) = inputs(&id) else {
+            continue;
+        };
+        let mut context = None;
+        let mut production = None;
+        let mut alias = None;
+        for at in &sentences {
+            match sentence(at).map(|sentence| &**sentence) {
+                Some(Input::Context { .. }) => context = Some(at.clone()),
+                Some(Input::Production { attributes, .. })
+                    if attributes.has(AttributeKey::Strict)
+                        || attributes.has(AttributeKey::Seqstrict) =>
+                {
+                    production = Some(at.clone());
+                }
+                Some(Input::ContextAlias { .. }) => alias = Some(at.clone()),
+                _ => {}
+            }
+        }
+        let source = match (context, production) {
+            (Some(at), _) => StrictnessSource::Context { at },
+            (None, Some(at)) => {
+                let Some(Input::Production {
+                    label: Some(production_label),
+                    items,
+                    attributes,
+                    ..
+                }) = sentence(&at).map(|sentence| &**sentence)
+                else {
+                    continue;
+                };
+                // The compile labels a production's context `MODULE.label` and the position, the
+                // label written without backquotes or whitespace (its `klabel` where it has one).
+                let written = attributes
+                    .string(AttributeKey::Klabel)
+                    .unwrap_or(production_label.name.as_str())
+                    .chars()
+                    .filter(|character| *character != '`' && !character.is_whitespace())
+                    .collect::<String>();
+                let arity = items
+                    .iter()
+                    .filter(|item| {
+                        matches!(item, k_rust::definition::ProductionItem::NonTerminal { .. })
+                    })
+                    .count();
+                let position = label
+                    .as_deref()
+                    .and_then(|label| label.strip_suffix("-heat"))
+                    .and_then(|label| label.strip_prefix(&format!("{}.{written}", at.module)))
+                    .filter(|digits| {
+                        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+                    })
+                    .and_then(|digits| digits.parse::<usize>().ok())
+                    .filter(|position| (1..=arity).contains(position));
+                StrictnessSource::Production {
+                    at,
+                    sequential: !attributes.has(AttributeKey::Strict),
+                    position,
+                    alias,
+                }
+            }
+            (None, None) => continue,
+        };
+        // A cooling rule pairs with the one heating rule of its sentences and stem.
+        let key = (sentences, stem(&label, "-heat"));
+        let (cool, cool_label) = match (cooling.get(&key).map(Vec::as_slice), heating.get(&key)) {
+            (Some([(cool, cool_label)]), Some(1)) => (Some(cool.clone()), cool_label.clone()),
+            _ => (None, None),
+        };
+        found.push(StrictnessRule {
+            heat: id,
+            heat_label: label,
+            cool,
+            cool_label,
+            signal,
+            source,
+        });
+    }
+    found.sort_by(|left, right| {
+        let order = |rule: &StrictnessRule| match &rule.source {
+            StrictnessSource::Production {
+                at,
+                position,
+                alias,
+                ..
+            } => (at.clone(), *position, alias.clone()),
+            StrictnessSource::Context { at } => (at.clone(), None, None),
+        };
+        order(left)
+            .cmp(&order(right))
+            .then_with(|| left.heat.cmp(&right.heat))
+    });
+    found
 }
 
 /// Canonical JSON of a coverage list, in the given (manifest) order.

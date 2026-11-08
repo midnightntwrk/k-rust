@@ -1779,9 +1779,12 @@ fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 /// programs), and `fired_sentences` (result schema v6, KINK-R4) those it fired, which a rule's
 /// `fired_by` lists: a rewrite rule whose step some explored path takes (k-rust `committed`), an
 /// equation whose instance gave a result (`applied`); `guards` (result schema v15) the guard
-/// outcomes of the guarded sentences it entered ([`crate::guards`]); and `bindings` (result
+/// outcomes of the guarded sentences it entered ([`crate::guards`]); `bindings` (result
 /// schema v17) what its fired instances bound, by sentence ([`bindings_value`]), null when the
-/// run collected none (a diagnostic run).
+/// run collected none (a diagnostic run); and `strictness` (result schema v20) the heating and
+/// cooling rules it matched and fired, by compiled id (`{matched, fired}`, kink-native
+/// `TestCoverage::strictness`), since every such rule of one production has the production as
+/// its sentence, so the sentences cannot say which argument position a run heated.
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
@@ -1794,6 +1797,10 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
         "sentences": sentences(&coverage.sentences),
         "applied_sentences": sentences(&coverage.applied_sentences),
         "fired_sentences": sentences(&coverage.fired_sentences),
+        "strictness": {
+            "matched": coverage.strictness.matched,
+            "fired": coverage.strictness.fired,
+        },
         "guards": crate::guards::record_value(coverage),
         "bindings": coverage
             .bindings

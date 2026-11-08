@@ -119,6 +119,9 @@ pub(crate) struct KrsSyntax {
     sorts: BTreeSet<String>,
     /// Each authored production's Rust name and position, by its K label.
     productions: BTreeMap<String, Value>,
+    /// Each strict production's Rust name and position and the field of each of its
+    /// nonterminals in order, by its K label ([`Self::name_heating`]).
+    strict: BTreeMap<String, (Value, Vec<String>)>,
     /// Every template of a rule or equation, in emission order.
     templates: Vec<Template>,
 }
@@ -179,11 +182,42 @@ impl KrsSyntax {
         let definition = &emitted.ir;
         let mut sorts = BTreeSet::new();
         let mut productions = BTreeMap::new();
+        let mut strict = BTreeMap::new();
         let text = sources.clone();
         let mut origins =
             krs_exec::Origins::new(Some(Box::new(move |file| text.source_text(file))));
         for module in definition.modules() {
             for sentence in module.sentences() {
+                if let DefinitionSentence::Production(production) = sentence
+                    && production.attributes().iter().any(|attribute| {
+                        matches!(attribute, krs_ir::ProductionAttribute::Strictness { .. })
+                    })
+                    && let Some(path) = krs_exec::item_spelling(definition, sentence.origin())
+                {
+                    let span = origins.span(sentence.origin());
+                    let fields = production
+                        .items()
+                        .iter()
+                        .filter_map(|item| match item.kind() {
+                            krs_ir::GrammarProductionItemKind::NonTerminal { field, .. } => {
+                                Some(field.as_str().to_owned())
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    strict.insert(
+                        production.symbol().emitted_name().to_owned(),
+                        (
+                            json!({
+                                "item": path,
+                                "file": span.as_ref().map(|span| span.file.clone()),
+                                "line": span.as_ref().and_then(|span| span.line),
+                                "column": span.as_ref().and_then(|span| span.column),
+                            }),
+                            fields,
+                        ),
+                    );
+                }
                 match sentence {
                     DefinitionSentence::SyntaxSort(sort) if authored(sentence, sort.symbol()) => {
                         sorts.insert(sort.symbol().emitted_name().to_owned());
@@ -237,7 +271,41 @@ impl KrsSyntax {
         Self {
             sorts,
             productions,
+            strict,
             templates,
+        }
+    }
+
+    /// Name the heating items of a `coverage` document's rules family at the KRS level: a heating
+    /// rule of a strict production (kink-flow's item of kind `heating`, `heating.production` its K
+    /// label and `heating.position` the 1-based argument position) gains
+    /// `krs = {item, field, file, line, column}`, the Rust path and position of the variant or
+    /// struct that declares the production, as the syntax family names it, and the field the
+    /// position is: the production's nonterminals are its fields in the order the declaration
+    /// writes them, which is the order of the K production's arguments. kink-flow names the item
+    /// by both (`rule:crate::Exp::Add:heat:lhs`). A `context`'s heating rule is named by the
+    /// context's own item, as its rules are. Applying it twice gives what applying it once does.
+    pub(crate) fn name_heating(&self, document: &mut Value) {
+        let Some(items) = document["families"]["rules"]["items"].as_array_mut() else {
+            return;
+        };
+        for item in items {
+            if item["kind"] != kink_flow::coverage::HEATING {
+                continue;
+            }
+            let Some((name, fields)) = item["heating"]["production"]
+                .as_str()
+                .and_then(|label| self.strict.get(label))
+            else {
+                continue;
+            };
+            let mut krs = name.clone();
+            krs["field"] = item["heating"]["position"]
+                .as_u64()
+                .and_then(|position| usize::try_from(position).ok()?.checked_sub(1))
+                .and_then(|index| fields.get(index))
+                .map_or(Value::Null, |field| json!(field));
+            item["krs"] = krs;
         }
     }
 

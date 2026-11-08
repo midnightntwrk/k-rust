@@ -346,7 +346,7 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
-    assert_eq!(document["krs"]["version"], 7, "{:#}", document["krs"]);
+    assert_eq!(document["krs"]["version"], 8, "{:#}", document["krs"]);
     // krs's front end gives coverage its condition flips: the family ran, and the flip of `irq`
     // across the halted machine's two transitions, which test `halted` first, is unreached on a
     // corpus that never halts, with no mutant run.
@@ -684,7 +684,7 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     let verdicts = project.kink("coverage", &["--output", "verdicts"]);
     assert_status(&verdicts, 0);
     let verdicts = stdout(&verdicts);
-    assert!(verdicts.contains("krs_annotation = 7"), "{verdicts}");
+    assert!(verdicts.contains("krs_annotation = 8"), "{verdicts}");
     assert!(
         verdicts.contains("\"rule:crate::boundary_wake\""),
         "{verdicts}"
@@ -1378,8 +1378,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     }
     assert_eq!(
         document["krs"],
-        serde_json::json!({"version": 7}),
-        "every rule is named, by version 7 of the annotation"
+        serde_json::json!({"version": 8}),
+        "every rule is named, by version 8 of the annotation"
     );
     // The story's two equations fire and have no condition, and they inspect both constructors
     // of `Nat` (`plus_succ` also builds `s`): nothing is open.
@@ -1409,7 +1409,7 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     let verdicts = stdout(&output);
     // Its header says which annotation version spells the names.
     assert!(
-        verdicts.lines().any(|line| line == "krs_annotation = 7"),
+        verdicts.lines().any(|line| line == "krs_annotation = 8"),
         "{verdicts}"
     );
     assert!(
@@ -1421,6 +1421,159 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     );
 
     coverage_and_stops_name_rules_as_the_document_does(&project, &document);
+}
+
+/// A sum language whose `+` and `-` are `#[k::strict]` in both operands: the corpus writes a
+/// nested left operand of `+` and only integers elsewhere.
+const STRICT_SUM: &str = r#"use k::builtin::{Int, KSequence, int};
+use k::KResult;
+
+k::sorts! {
+    #[k::bracket("(", ")")]
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence(left (Add, Sub))]
+pub enum Arith {
+    #[k::syntax("{lhs} + {rhs}")]
+    #[k::strict]
+    Add { lhs: Exp, rhs: Exp },
+    #[k::syntax("{lhs} - {rhs}")]
+    #[k::strict]
+    Sub { lhs: Exp, rhs: Exp },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+
+k::rules! {
+    for Exp;
+    use Arith::*;
+
+    add: Add { lhs, rhs } => int::add(lhs, rhs) where lhs: Int, rhs: Int;
+    sub: Sub { lhs, rhs } => int::sub(lhs, rhs) where lhs: Int, rhs: Int;
+}
+"#;
+
+fn strict_sum() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        project_of(
+            "krs-cli-kink-strict-sum",
+            "SUM",
+            &[
+                ("src/lib.rs".to_owned(), STRICT_SUM.as_bytes().to_vec()),
+                (
+                    "kink/FLOW.toml".to_owned(),
+                    b"[spec]\nkrs = { definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n\n[[program]]\nid = \"nested\"\nfile = \"cases/nested.sum\"\n\n[[program]]\nid = \"minus\"\nfile = \"cases/minus.sum\"\n"
+                        .to_vec(),
+                ),
+                ("kink/cases/nested.sum".to_owned(), b"(1 + 2) + 3\n".to_vec()),
+                ("kink/cases/minus.sum".to_owned(), b"4 - 1\n".to_vec()),
+            ],
+        )
+    })
+}
+
+/// CS-9: the heating rules of a `#[k::strict]` variant are rules items named by the variant's
+/// Rust path and the field each one evaluates, at the variant's declaration. `nested` heats the
+/// left operand of `+`; no case writes anything but an integer as a right operand or as an
+/// operand of `-`, so those heating rules are matched and open, each target naming the variant
+/// and the field. The authored rules fire.
+#[test]
+fn coverage_names_heating_rules_by_the_strict_variant_and_field() {
+    let project = strict_sum();
+    let output = project.kink("coverage", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert_eq!(
+        document["krs"],
+        json!({"version": 8}),
+        "{:#}",
+        document["krs"]
+    );
+    for item in ["crate::add", "crate::sub"] {
+        let authored = rule(&document, item);
+        assert_eq!(authored["kind"], "rule", "{authored:#}");
+        assert_eq!(authored["status"], "fired", "{authored:#}");
+    }
+    let item = |id: &str| {
+        document["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id)
+            .unwrap_or_else(|| panic!("no item {id}: {:#}", document["families"]["rules"]))
+    };
+    let lhs = item("rule:crate::Arith::Add:heat:lhs");
+    assert_eq!(lhs["kind"], "heating", "{lhs:#}");
+    assert_eq!(lhs["status"], "fired", "{lhs:#}");
+    assert_eq!(strings(&lhs["fired_by"]), ["nested"]);
+    assert_eq!(lhs["heating"]["position"], 1, "{lhs:#}");
+    assert_eq!(lhs["krs"]["item"], "crate::Arith::Add", "{lhs:#}");
+    assert_eq!(lhs["krs"]["field"], "lhs", "{lhs:#}");
+    assert_eq!(lhs["krs"]["file"], "src/lib.rs", "{lhs:#}");
+    assert_eq!(
+        lhs["krs"]["line"],
+        line_of(STRICT_SUM, "Add { lhs: Exp, rhs: Exp },"),
+        "{lhs:#}"
+    );
+    assert_eq!(strings(&lhs["heating"]["cool"]["fired_by"]), ["nested"]);
+    for (id, field, programs) in [
+        ("rule:crate::Arith::Add:heat:rhs", "rhs", vec!["nested"]),
+        ("rule:crate::Arith::Sub:heat:lhs", "lhs", vec!["minus"]),
+        ("rule:crate::Arith::Sub:heat:rhs", "rhs", vec!["minus"]),
+    ] {
+        let open = item(id);
+        assert_eq!(open["status"], "matched", "{open:#}");
+        assert_eq!(open["covered"], false, "{open:#}");
+        assert_eq!(strings(&open["matched_by"]), programs, "{open:#}");
+        let target = document["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|target| target["item"] == id)
+            .unwrap_or_else(|| panic!("no target {id}: {:#}", document["targets"]));
+        let text = target["text"].as_str().unwrap();
+        let variant = open["krs"]["item"].as_str().unwrap();
+        assert!(
+            text.contains(&format!("brings {variant} to the front")),
+            "{text}"
+        );
+        assert!(text.contains(&format!("as its field {field}")), "{text}");
+        assert_eq!(target["file"], "src/lib.rs", "{target:#}");
+    }
+    assert_eq!(
+        document["families"]["rules"]["counts"]["heating"],
+        json!({"obligations": 4, "fired": 1})
+    );
+    assert_eq!(
+        document["summary"]["per_family"]["rules"],
+        json!({"obligations": 6, "covered": 3, "argued": 0, "open": 3})
+    );
+    // The verdicts rendering lists the open heating rules by these ids.
+    let output = project.kink("coverage", &["--output", "verdicts"]);
+    assert_status(&output, 0);
+    let verdicts = stdout(&output);
+    assert!(
+        verdicts.contains(
+            "[rules]\nopen = [\"rule:crate::Arith::Add:heat:rhs\", \"rule:crate::Arith::Sub:heat:lhs\", \"rule:crate::Arith::Sub:heat:rhs\"]\n"
+        ),
+        "{verdicts}"
+    );
 }
 
 /// `krs run --coverage` names each rule of the story's results `document` by the string the
@@ -3107,7 +3260,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 8);
+    assert_eq!(document["version"], 9);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -3196,7 +3349,7 @@ impl Machine {
         record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert_eq!(document["krs"], serde_json::json!({"version": 7}));
+    assert_eq!(document["krs"], serde_json::json!({"version": 8}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
@@ -5836,7 +5989,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 16\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

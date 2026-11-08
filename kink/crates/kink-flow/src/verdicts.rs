@@ -7,12 +7,12 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 15
+//! version = 16
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-//! krs_annotation = 7
+//! krs_annotation = 8
 //!
 //! [spec]
 //! outcome = "admitted"
@@ -153,8 +153,12 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// horizon its `horizon`; 15 since
 /// `[coverage] mcdc` is read: `mcdc` is the names or `true`, and a family
 /// with undecided obligations lists them (`undecided`, beside `open`, which leaves them out), so
-/// that a lock shows a pair the record cannot decide apart from one no program shows.
-pub const VERDICTS_VERSION: u64 = 15;
+/// that a lock shows a pair the record cannot decide apart from one no program shows; 16 since a
+/// `coverage` rendering's `[rules]` lists the heating rules the compile generates from `strict`
+/// and `seqstrict` productions and `context` sentences by their ids
+/// (`rule:<production>:heat:<position>`), so that a lock that gains them shows a new version,
+/// not a moved verdict.
+pub const VERDICTS_VERSION: u64 = 16;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
