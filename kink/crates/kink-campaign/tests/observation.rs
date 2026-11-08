@@ -1654,6 +1654,174 @@ mod several_paths {
         });
     }
 
+    /// `testdata/k/discard.k`, whose `build` puts a partial residue in a cell and whose `clear`
+    /// discards it.
+    fn discard() -> NativeValidator {
+        NativeValidator::bind(
+            support::load_path(&Path::new(support::DIR).join("discard.k"), "DISCARD"),
+            CompileOptions::default(),
+        )
+    }
+
+    /// The test `<k> run </k> <n> count </n> <junk> 0 </junk>` of
+    /// `discard.k`, whose one slot reads only the end's terminal class and compares crashes, so
+    /// that a baseline whose path takes an undefined step is admitted.
+    fn discard_test(count: i64) -> TestCase {
+        let initial = support::initial_state(support::app("Lblrun", Vec::new()), "SortCmd");
+        let Pattern::Application { symbol, arguments } = &initial else {
+            unreachable!("a configuration is an application");
+        };
+        let cell = |name: &str, content: Pattern| {
+            support::app(&format!("Lbl'-LT-'{name}'-GT-'"), vec![content])
+        };
+        TestCase {
+            id: format!("discard-{count}"),
+            initial_state: Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![
+                    arguments[0].clone(),
+                    cell("n", support::int(count)),
+                    cell("junk", support::int(0)),
+                    arguments[1].clone(),
+                ],
+            },
+            oracles: vec![
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::State(StateProjection::ExitStop {
+                        exit_code_cell: None,
+                    }),
+                )
+                .unwrap(),
+            ],
+        }
+    }
+
+    /// The application of `head` in rule `rule`, the only one there, becomes the Int `value`.
+    fn application_replaced<'b>(
+        baseline: &'b Baseline,
+        rule: &str,
+        head: &str,
+        value: &str,
+    ) -> CandidateGeneration<'b> {
+        fn walk(b: &Baseline, at: &TermRef, head: &str, out: &mut Vec<TermRef>) {
+            let Some(term) = b.term(at) else {
+                return;
+            };
+            if matches!(term.unannotated(), Term::Apply { label, .. } if label.name == head) {
+                out.push(at.clone());
+            }
+            for index in 0.. {
+                let mut path = at.path.0.clone();
+                path.push(index);
+                let child = TermRef::new(at.sentence.clone(), path);
+                if b.term(&child).is_none() {
+                    break;
+                }
+                walk(b, &child, head, out);
+            }
+        }
+        let sentence = support::rule(baseline, rule);
+        let mut found = Vec::new();
+        walk(baseline, &TermRef::new(sentence, [0]), head, &mut found);
+        let [at] = found
+            .try_into()
+            .unwrap_or_else(|found: Vec<_>| panic!("{rule}: {} applications {head}", found.len()));
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            expected: baseline.term(&at).unwrap().clone(),
+            at: at.clone(),
+            replacement: Term::Token {
+                token: value.into(),
+                sort: Sort::new("Int"),
+            },
+        }])
+        .unwrap();
+        generation(baseline, rule, (at, patch))
+    }
+
+    /// Every state of a path whose leaf is real exists, the states before the leaf included: the
+    /// definedness of a partial term a step builds stays in the path condition of every later
+    /// state of the path, also after a later step discards the term (kink-campaign
+    /// `observation`, "Elements, and how a channel ends"). The class `finished` reads `<n>` after
+    /// each finish.
+    ///
+    /// From 20 the baseline's lemma refutes the definedness of `f(20)`, so its one path is an
+    /// undefined step at `build`, and its channel is closed by UNDEF with no element.
+    /// - The lemma is deleted: the definedness of `f(20)` is open, so the mutant's `build` splits
+    ///   into a successor under `⌈f(20)⌉` and an undefined step for the instances where it fails.
+    ///   `clear` replaces `f(20)` by 0, so the successor's path holds a ground term of free
+    ///   constructors and domain values from there on, and its finish reads 20 where the
+    ///   baseline's channel is closed. But that path rests on `f(20)` having a value, and in a
+    ///   model of the mutant where it has none the mutant takes the undefined step as the baseline
+    ///   does: no kill holds in every pair of models. The state after finish, where the request
+    ///   ends at the difference, still holds `⌈f(20)⌉`, which nothing decides, so it is not shown
+    ///   to exist and the mutant is `unknown`. Were the obligation dropped with the term, that
+    ///   state would be real and the mutant killed.
+    /// - build's `f(N)` becomes 0: the same path, through states that exist, reads 20 after
+    ///   finish, and the mutant is killed at the channel's element 0.
+    #[test]
+    fn a_discarded_residue_keeps_its_definedness_on_the_path() {
+        on_a_big_stack(|| {
+            let validator = discard();
+            let options = || {
+                observe(
+                    vec![PointClass {
+                        name: "finished".into(),
+                        before: BTreeSet::new(),
+                        after: BTreeSet::from(["DISCARD.finish".to_owned()]),
+                        cells: vec!["n".into()],
+                        stutter: Stutter::Collapse,
+                    }],
+                    Vec::new(),
+                )
+            };
+            let tests = [discard_test(20)];
+            let discarding = Campaign {
+                module: "DISCARD",
+                ..campaign(&validator, &tests, 8)
+            };
+            let open = run(
+                &discarding,
+                &deleted(validator.baseline(), "DISCARD.fceil"),
+                options(),
+            );
+            let Some(Observation::Recorded(record)) = &open.baseline[0].notes.observation else {
+                panic!("the baseline records its channels");
+            };
+            assert!(record.paths.is_none(), "{record:?}");
+            assert!(record.channels[0].elements.is_empty(), "{record:?}");
+            assert_eq!(
+                record.channels[0].end,
+                ChannelEnd::Closed(kink_campaign::Closure::Undefined)
+            );
+            let unshown = verdict(&open);
+            assert_eq!(unshown.outcome, OracleOutcome::Unknown, "{unshown:?}");
+            assert_eq!(
+                unshown.cause.as_deref(),
+                Some("the channel `finished` differs at 0 in a state that is not decided"),
+            );
+            assert_eq!(open.mutants[0].report.status, MutantStatus::Unknown);
+
+            let valued = run(
+                &discarding,
+                &application_replaced(validator.baseline(), "DISCARD.build", "f", "0"),
+                options(),
+            );
+            assert_eq!(valued.mutants[0].report.status, MutantStatus::Killed);
+            let killed = verdict(&valued);
+            assert_eq!(
+                killed.position,
+                position("finished", 0, false),
+                "{killed:?}"
+            );
+            assert_eq!(
+                killed.element,
+                Some(Element::Content(vec![support::int(20)])),
+                "{killed:?}"
+            );
+        });
+    }
+
     /// `testdata/k/paths.k`, whose runs from `pick` and from `fan` split into paths.
     fn paths() -> NativeValidator {
         NativeValidator::bind(

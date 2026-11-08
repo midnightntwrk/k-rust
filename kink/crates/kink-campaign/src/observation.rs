@@ -59,6 +59,23 @@
 //! values ([`LeafFeasibility::Syntactic`]) denotes that state, so the step into it was defined, and
 //! it supplies the elements read there as any other real leaf does.
 //!
+//! A real leaf also makes every earlier state of its path real, so an element read at an earlier
+//! point is read of a state the path reached. Within one request each state's path condition
+//! holds its parent's: k-rust builds a successor's constraints as its parent's conjoined with the
+//! step's applicability and the result conditions it carries (a right-hand side's or `ensures`'
+//! definedness left open among them), and normalizes them to an equivalent conjunction with the
+//! conditions its term simplification adds. The only conjunct dropped without being valid is
+//! `⌈u⌉` where `u` occurs under total symbols in the same pattern's term, which the term entails
+//! (`C[u] ∧ ⌈u⌉ = C[u]`), and only in a pattern leaving the rewriter (a leaf, a payload, a
+//! reported copy; k-rust-backend `simplify_leaf_pattern`), never in a state the run goes on from.
+//! By the leaf contract ([`LeafFacts`]) each state's term is defined wherever its path condition
+//! holds, the initial configuration's on a clean path (its open definedness is named on every
+//! leaf), so an instance of a settled leaf is an instance of every state of its path, and each
+//! step at it is a step of the definition, its conditions being conjuncts of the next path
+//! condition. A partial residue a step
+//! builds and a later step discards keeps its open `⌈u⌉` in the leaf's predicate, so a leaf of
+//! free constructors under it is neither `Syntactic` nor shown to exist, and is not real.
+//!
 //! # Functions of an observer
 //!
 //! A front end that reads the definition's values can give a declaration functions of an
@@ -1416,6 +1433,10 @@ impl Horizon {
 ///   `total`, `functional` and `preserves-definedness` attributes as axioms (k-rust-backend
 ///   `ExecutionLeaf`); a mutant runs with every claim its edit leaves unbacked withdrawn
 ///   (the runner's module documentation), so no axiom of its run is an unbacked claim;
+/// - a state's path condition holds its parent's, an obligation a step carries staying a conjunct
+///   after a later step discards its term (module documentation, "Elements, and how a channel
+///   ends"), so an instance of a real leaf is an instance of every state of its path: what the
+///   leaf's facts say of its state they say of every state before it;
 /// - a right-hand side's or `ensures`' definedness obligation that a step leaves open gives the
 ///   instances where it fails a leaf of their own, an undefined step (`Trivial`), beside the
 ///   successor, and no point of either path is asked there; so a run whose one leaf is not an
