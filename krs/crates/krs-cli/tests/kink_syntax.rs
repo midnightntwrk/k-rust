@@ -298,7 +298,7 @@ fn strings(value: &Value) -> Vec<&str> {
 #[test]
 fn an_unreached_variant_is_named_by_rust_path_with_its_inspecting_sentences() {
     let (document, ..) = documents();
-    assert_eq!(document["krs"]["version"], 6, "{:#}", document["krs"]);
+    assert_eq!(document["krs"]["version"], 7, "{:#}", document["krs"]);
     let jump = item(document, "syntax:crate::Instr::Jump");
     assert_eq!(jump["kind"], "production");
     assert_eq!(jump["status"], "unreached");
@@ -493,7 +493,7 @@ fn the_syntax_family_is_byte_stable() {
         serde_json::to_string(&second["targets"]).unwrap()
     );
     assert_eq!(verdicts, again);
-    assert!(verdicts.contains("krs_annotation = 6"), "{verdicts}");
+    assert!(verdicts.contains("krs_annotation = 7"), "{verdicts}");
     assert!(
         verdicts.contains("\"syntax:crate::decode_ld:r=2\""),
         "{verdicts}"
