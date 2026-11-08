@@ -373,8 +373,15 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// tried equations only, so that of two complementary equations the one tried second was never
 /// refuted and, where the other applied, not matched; a rule's `matched_by`, and so its status, a
 /// requirement's `entered_by` and a flip's reached occurrences, list the programs whose run
-/// entered its condition, and an undecided requirement program can have the cause `untried`.
-pub const COVERAGE_VERSION: u64 = 15;
+/// entered its condition, and an undecided requirement program can have the cause `untried`; 16
+/// since an argued entry can name an invariant (`[[coverage.invariant]]`): `settings.invariants`
+/// lists the declared invariants (`{name, function, cells, identity}`), each `settings.argued`
+/// entry has `invariant`, every argued item has `argument_check`, what its argument rests on
+/// (`{standing: "text"}`, or under an invariant `{invariant, standing: "unchecked", connection,
+/// evidence, proof}`, no check yet run), the summary has `argued_by_standing` and
+/// `failed_arguments`, a coverage lock's state has `argument_changes`, and the text rendering
+/// states each argued item's standing.
+pub const COVERAGE_VERSION: u64 = 16;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -397,6 +404,29 @@ pub const ARGUED: &str = "argued";
 /// of the condition left a valuation combination out: the record cannot say whether it is
 /// covered. Not covered, not open; it keeps its target.
 pub const UNDECIDED: &str = "undecided";
+/// The standing of an argued item whose argument is its text alone: no invariant is named, so
+/// nothing is checked (`argument_check.standing`; module documentation, "Argued obligations").
+pub const STANDING_TEXT: &str = "text";
+/// The standing of an argued item whose connection holds and whose evidence is vacuous.
+pub const STANDING_CONNECTED: &str = "connected";
+/// The standing of an argued item whose connection holds and whose evidence holds.
+pub const STANDING_CHECKED_ON_RUNS: &str = "checked-on-runs";
+/// The standing of an argued item whose invariant also has a valid proof.
+pub const STANDING_PROVED: &str = "proved";
+/// The standing of an argued item that names an invariant whose checks did not decide: a
+/// connection not run or undecided, or an evidence not run or incomplete.
+pub const STANDING_UNCHECKED: &str = "unchecked";
+/// Every standing, in the order the summary's `argued_by_standing` lists them.
+pub const STANDINGS: [&str; 5] = [
+    STANDING_TEXT,
+    STANDING_CONNECTED,
+    STANDING_CHECKED_ON_RUNS,
+    STANDING_PROVED,
+    STANDING_UNCHECKED,
+];
+/// The status of a check of an argued item's invariant that this build does not run.
+pub const CHECK_NOT_RUN: &str = "not-run";
+
 /// Why an argued item's argument is needless (`argument_needless`): a program covers it.
 pub const NEEDLESS_COVERED: &str = "covered";
 /// Why an argued item's argument is needless: the item is listed but is no obligation.
@@ -714,6 +744,7 @@ pub fn coverage_front(
         };
     }
     if let Some(refusal) = stale_argued(&document, manifest, derived, front.spelling)
+        .or_else(|| invariant_refusal(&document, manifest, front.spelling))
         .or_else(|| stale_mcdc(&document, manifest, front.spelling))
     {
         record.refusal = Some(refusal);
@@ -943,7 +974,9 @@ fn run_flips(
 
 /// The document's `settings`: the tiers computed (tier 2 where the flips run), the depth
 /// computed (`--depth`, else `[coverage] depth`), `[coverage]`'s other values, and whether the
-/// manifest declared them (`source`).
+/// manifest declared them (`source`). An invariant's `identity`, what its checks are about once
+/// resolved (the definition, the symbol and the cell paths), is null: no front end resolves one
+/// yet.
 fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
     let section = &manifest.coverage;
     json!({
@@ -951,10 +984,28 @@ fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
         "depth": depth.get(),
         "mcdc": section.mcdc.value(),
         "max_obligations": section.max_obligations.get(),
+        "invariants": section
+            .invariants
+            .iter()
+            .map(|invariant| {
+                json!({
+                    "name": invariant.name,
+                    "function": invariant.function,
+                    "cells": invariant.cells,
+                    "identity": null,
+                })
+            })
+            .collect::<Vec<_>>(),
         "argued": section
             .argued
             .iter()
-            .map(|argued| json!({"item": argued.item, "argument": argued.argument}))
+            .map(|argued| {
+                json!({
+                    "item": argued.item,
+                    "argument": argued.argument,
+                    "invariant": argued.invariant,
+                })
+            })
             .collect::<Vec<_>>(),
         "source": if section.declared { "manifest" } else { "default" },
     })
@@ -1028,6 +1079,129 @@ fn stale_argued(
             stale.join("; ")
         ),
     })
+}
+
+/// The refusal of `[[coverage.invariant]]` tables and of the entries that name them, or `None`,
+/// once every entry names an item ([`stale_argued`]); `document` is as [`stale_argued`] reads it.
+/// Each is refused before any mutant runs, at stage `coverage`, naming every such entry or table:
+///
+/// - An entry that names an invariant on an item the connection cannot be stated for (reason
+///   `argued-invariant-unsupported`). An invariant is a property of states, and an item's
+///   argument rests on it through a rewrite rule's left-hand side, a whole configuration whose
+///   cells the invariant reads: so it argues the `rule:` and `requirement:` items of rewrite
+///   rules. A function equation's left-hand side binds the function's arguments, not cells
+///   (`equation`); a syntax item, a rule window, a syntax path or a flip is no single left-hand
+///   side with a valuation (its family), and a flip changes the definition, of whose runs an
+///   invariant of the baseline says nothing.
+/// - A table no entry names (reason `invariant-unused`): it is claimed of the definition and
+///   would be resolved and checked on no item's behalf, so it is a misspelt name or a leftover.
+fn invariant_refusal(
+    document: &Value,
+    manifest: &FlowManifest,
+    spelling: &dyn CommandSpelling,
+) -> Option<AdmissionRefusal> {
+    let section = &manifest.coverage;
+    if section.invariants.is_empty() {
+        return None;
+    }
+    let refusal = |reason: &str, detail: String| AdmissionRefusal {
+        stage: "coverage".into(),
+        reason: reason.into(),
+        detail,
+    };
+    let named = section
+        .argued
+        .iter()
+        .filter(|argued| argued.invariant.is_some())
+        .collect::<Vec<_>>();
+    if !named.is_empty() {
+        let mut probe = document.clone();
+        derive(&mut probe, spelling);
+        let items = |family: &str| {
+            probe["families"][family]["items"]
+                .as_array()
+                .map_or(&[][..], Vec::as_slice)
+        };
+        let rewrite = |rule: &str| {
+            items("rules")
+                .iter()
+                .any(|item| item["id"] == rule && item["rewrite"] == true)
+        };
+        let unsupported = named
+            .iter()
+            .filter_map(|argued| {
+                let id = argued.item.as_str();
+                let family = [
+                    "rules",
+                    "requirements",
+                    "syntax",
+                    "rule_windows",
+                    "syntax_paths",
+                ]
+                .into_iter()
+                .find_map(|family| {
+                    items(family)
+                        .iter()
+                        .find(|item| item["id"] == id)
+                        .map(|item| (family, item))
+                });
+                let what = match family {
+                    Some(("rules", item)) if item["rewrite"] == true => return None,
+                    Some(("requirements", item)) if item["rule"].as_str().is_some_and(rewrite) => {
+                        return None;
+                    }
+                    Some(("rules" | "requirements", _)) => "equation",
+                    Some((family, _)) => family,
+                    // A listed id no tier-1 family has is a flip's ([`stale_argued`]).
+                    None => "flips",
+                };
+                Some(format!("`{id}` ({what})"))
+            })
+            .collect::<Vec<_>>();
+        if !unsupported.is_empty() {
+            return Some(refusal(
+                "argued-invariant-unsupported",
+                format!(
+                    "[[coverage.argued]] names an invariant for {}: {}; an invariant is read at a \
+                     rewrite rule's left-hand side and argues only the `rule:` and \
+                     `requirement:` items of rewrite rules: remove the entry's `invariant`",
+                    if unsupported.len() == 1 {
+                        "an item it cannot argue"
+                    } else {
+                        "items it cannot argue"
+                    },
+                    unsupported.join("; ")
+                ),
+            ));
+        }
+    }
+    let unused = section
+        .invariants
+        .iter()
+        .filter(|invariant| {
+            !section
+                .argued
+                .iter()
+                .any(|argued| argued.invariant.as_ref() == Some(&invariant.name))
+        })
+        .map(|invariant| format!("`{}`", invariant.name))
+        .collect::<Vec<_>>();
+    if unused.is_empty() {
+        return None;
+    }
+    Some(refusal(
+        "invariant-unused",
+        format!(
+            "[[coverage.invariant]] declares {} no [[coverage.argued]] entry names: {}; name it \
+             in the `invariant` of the entries whose argument rests on it, or remove the table",
+            if unused.len() == 1 {
+                "an invariant"
+            } else {
+                "invariants"
+            },
+            unused.join(", ")
+        ),
+    ))
 }
 
 /// The refusal of `[coverage] mcdc` names that select no rule, or `None`. A name selects a rule
@@ -3475,6 +3649,9 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     summary["open"] = json!(targets.len());
     summary["per_family"] = Value::Object(per);
     summary["needless_arguments"] = json!(applied.needless);
+    summary["argued_by_standing"] = argued_by_standing(document);
+    // No check of an invariant runs yet, so none refutes an argument.
+    summary["failed_arguments"] = json!([]);
     document["targets"] = Value::Array(targets);
     document["summary"] = summary;
 }
@@ -3504,6 +3681,67 @@ fn argued_entries(document: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The invariant each `[[coverage.argued]]` entry a document's settings state names, by item id;
+/// an entry that names none is absent.
+fn argued_invariants(document: &Value) -> BTreeMap<String, String> {
+    document["settings"]["argued"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            Some((
+                entry["item"].as_str()?.to_owned(),
+                entry["invariant"].as_str()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// An argued item's `argument_check`, what its argument rests on (module documentation, "Argued
+/// obligations"): the standing [`STANDING_TEXT`] where its entry names no invariant; under the
+/// invariant `invariant`, the standing [`STANDING_UNCHECKED`], with the connection and the
+/// evidence not run and no proof, since this build runs no check of an invariant.
+fn argument_check(invariant: Option<&String>) -> Value {
+    match invariant {
+        None => json!({"standing": STANDING_TEXT}),
+        Some(name) => json!({
+            "invariant": name,
+            "standing": STANDING_UNCHECKED,
+            "connection": {"status": CHECK_NOT_RUN},
+            "evidence": {"status": CHECK_NOT_RUN},
+            "proof": null,
+        }),
+    }
+}
+
+/// The number of argued items of each standing (the summary's `argued_by_standing`, keyed by
+/// [`STANDINGS`] with `_` for `-`): every item of an arguable family whose status is [`ARGUED`],
+/// so that the numbers add up to the summary's `argued`.
+fn argued_by_standing(document: &Value) -> Value {
+    let mut counts = STANDINGS.map(|standing| (standing, 0_u64));
+    for family in ARGUABLE {
+        for item in document["families"][family]["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| item["status"] == ARGUED)
+        {
+            let standing = item["argument_check"]["standing"]
+                .as_str()
+                .unwrap_or(STANDING_TEXT);
+            if let Some((_, count)) = counts.iter_mut().find(|(known, _)| *known == standing) {
+                *count += 1;
+            }
+        }
+    }
+    Value::Object(
+        counts
+            .into_iter()
+            .map(|(standing, count)| (standing.replace('-', "_"), json!(count)))
+            .collect(),
+    )
+}
+
 /// Undo [`argue`] on the items [`derive`] keeps from one application to the next (the rules',
 /// the syntax family's and the flips'; the requirements are rebuilt), so that deriving twice
 /// gives what deriving once does.
@@ -3523,6 +3761,7 @@ fn unargue(document: &mut Value) {
             }
             item.remove("argument");
             item.remove("argument_needless");
+            item.remove("argument_check");
         }
     }
 }
@@ -3553,6 +3792,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
         counts: BTreeMap::new(),
         needless: Vec::new(),
     };
+    let invariants = argued_invariants(document);
     for family in ARGUABLE {
         let value = &mut document["families"][family];
         if family == "flips" && value["run"] != true {
@@ -3586,6 +3826,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
             if open {
                 item["unargued_status"] = status.clone();
                 item["status"] = json!(ARGUED);
+                item["argument_check"] = argument_check(invariants.get(&id));
                 applied.argued.insert(id.clone());
                 *applied.counts.entry(family).or_default() += 1;
                 argued_from.push((id, status));
@@ -3609,7 +3850,13 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
             .collect::<Vec<_>>();
         // A window argued by a part it contains (`argued_by`, `windows::derive`) is argued with
         // no entry of its own.
-        for item in items.iter().filter(|item| item["argued_by"].is_string()) {
+        // Its argument is the entry's, and so is what the argument rests on.
+        for item in items
+            .iter_mut()
+            .filter(|item| item["argued_by"].is_string())
+        {
+            let by = item["argued_by"].as_str().unwrap_or_default();
+            item["argument_check"] = argument_check(invariants.get(by));
             if let Some(id) = item["id"].as_str() {
                 applied.argued.insert(id.to_owned());
                 *applied.counts.entry(family).or_default() += 1;
@@ -4294,7 +4541,13 @@ pub fn text(document: &Value) -> Result<String, String> {
             };
             let id = item["id"].as_str().unwrap_or("?");
             if item["status"] == ARGUED {
-                argued.push(format!("  {id}: {argument}\n"));
+                let check = &item["argument_check"];
+                let standing = check["standing"].as_str().unwrap_or(STANDING_TEXT);
+                let rests = match check["invariant"].as_str() {
+                    Some(invariant) => format!("{standing}, invariant {invariant}"),
+                    None => standing.to_owned(),
+                };
+                argued.push(format!("  {id} [{rests}]: {argument}\n"));
             } else {
                 let why = if item["argument_needless"] == NEEDLESS_COVERED {
                     "a program covers it"
@@ -4363,6 +4616,34 @@ pub fn undecided_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
 #[must_use]
 pub fn argued_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
     tier_one_ids(document, |item| item["status"] == ARGUED)
+}
+
+/// Each argued item of a coverage document with the standing of its argument
+/// (`argument_check.standing`), in the order of [`FAMILIES`], then item order: what its verdicts
+/// rendering lists under `[arguments]` ([`crate::verdicts`]). The flips family's argued flips are
+/// listed where it ran.
+#[must_use]
+pub fn argument_standings(document: &Value) -> Vec<(String, String)> {
+    ARGUABLE
+        .into_iter()
+        .filter(|family| *family != "flips" || document["families"]["flips"]["run"] == true)
+        .flat_map(|family| {
+            document["families"][family]["items"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        })
+        .filter(|item| item["status"] == ARGUED)
+        .filter_map(|item| {
+            Some((
+                item["id"].as_str()?.to_owned(),
+                item["argument_check"]["standing"]
+                    .as_str()
+                    .unwrap_or(STANDING_TEXT)
+                    .to_owned(),
+            ))
+        })
+        .collect()
 }
 
 /// The ids of each tier-1 family's items that `keep` selects, in item order.

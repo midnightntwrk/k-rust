@@ -36,20 +36,55 @@ fn guards(test: &str) -> PathBuf {
 }
 
 /// `dir`'s manifest with `entries` (`(item, argument)`) as its `[[coverage.argued]]`, replacing
-/// the ones it had.
+/// the ones it had and its `[[coverage.invariant]]` tables.
 fn argue(dir: &Path, entries: &[(&str, &str)]) {
+    let entries = entries
+        .iter()
+        .map(|(item, argument)| (*item, *argument, None))
+        .collect::<Vec<_>>();
+    argue_on(dir, &[], &entries);
+}
+
+/// `dir`'s manifest with `invariants` (`(name, function, cells)`) as its
+/// `[[coverage.invariant]]` and `entries` (`(item, argument, invariant)`) as its
+/// `[[coverage.argued]]`, replacing the ones it had.
+fn argue_on(
+    dir: &Path,
+    invariants: &[(&str, &str, &[&str])],
+    entries: &[(&str, &str, Option<&str>)],
+) {
     let path = dir.join("FLOW.toml");
     let text = fs::read_to_string(&path).unwrap();
-    let mut text = match text.find("\n[[coverage.argued]]") {
+    let first = ["\n[[coverage.invariant]]", "\n[[coverage.argued]]"]
+        .iter()
+        .filter_map(|table| text.find(table))
+        .min();
+    let mut text = match first {
         Some(at) => text[..=at].to_owned(),
         None => text,
     };
-    for (item, argument) in entries {
+    let string = |text: &str| toml::Value::String(text.to_owned()).to_string();
+    for (name, function, cells) in invariants {
+        text.push_str(&format!(
+            "\n[[coverage.invariant]]\nname = {}\nfunction = {}\ncells = [{}]\n",
+            string(name),
+            string(function),
+            cells
+                .iter()
+                .map(|cell| string(cell))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    for (item, argument, invariant) in entries {
         text.push_str(&format!(
             "\n[[coverage.argued]]\nitem = {}\nargument = {}\n",
-            toml::Value::String((*item).to_owned()),
-            toml::Value::String((*argument).to_owned())
+            string(item),
+            string(argument)
         ));
+        if let Some(invariant) = invariant {
+            text.push_str(&format!("invariant = {}\n", string(invariant)));
+        }
     }
     fs::write(&path, text).unwrap();
 }
@@ -243,6 +278,95 @@ fn argued_entries_decode_and_their_mistakes_are_refused() {
         ),
     ] {
         assert_eq!(decode(text).unwrap_err(), error, "{text}");
+    }
+}
+
+/// `[[coverage.invariant]]` decodes to its tables in the order written, and an argued entry's
+/// `invariant` to the name it gives; a table has exactly `name`, `function` and `cells`, a name
+/// no other table has and a nonempty list of cells without repeats, and an entry names a table
+/// the manifest declares.
+#[test]
+fn invariants_decode_and_their_mistakes_are_refused() {
+    let table = "[[coverage.invariant]]\nname = \"never-halted\"\nfunction = \"neverHalted\"\n\
+                 cells = [\"k\", \"halted\"]\n";
+    let entry = "[[coverage.argued]]\nitem = \"rule:a\"\nargument = \"x\"\n";
+    let file = decode(&format!(
+        "{table}{entry}invariant = \"never-halted\"\n\
+         [[coverage.argued]]\nitem = \"rule:b\"\nargument = \"y\"\n"
+    ))
+    .unwrap();
+    let invariants = &file.coverage.invariants;
+    assert_eq!(invariants.len(), 1);
+    assert_eq!(
+        (
+            invariants[0].name.as_str(),
+            invariants[0].function.as_str(),
+            invariants[0].cells.as_slice()
+        ),
+        (
+            "never-halted",
+            "neverHalted",
+            &["k".to_owned(), "halted".to_owned()][..]
+        )
+    );
+    let named = file
+        .coverage
+        .argued
+        .iter()
+        .map(|a| a.invariant.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(named, [Some("never-halted"), None]);
+    assert!(decode("").unwrap().coverage.invariants.is_empty());
+    for (text, error) in [
+        (
+            "[[coverage.invariant]]\nname = \"i\"\ncells = [\"k\"]\n".to_owned(),
+            "coverage.invariant[0].function: missing required key",
+        ),
+        (
+            "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\n".to_owned(),
+            "coverage.invariant[0].cells: missing required key",
+        ),
+        (
+            "[[coverage.invariant]]\nfunction = \"f\"\ncells = [\"k\"]\n".to_owned(),
+            "coverage.invariant[0].name: missing required key",
+        ),
+        (
+            "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = []\n".to_owned(),
+            "coverage.invariant[0].cells: names no cell: an invariant reads the cells its \
+             function takes, one per parameter",
+        ),
+        (
+            "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = [\"k\", \"k\"]\n"
+                .to_owned(),
+            "coverage.invariant[0].cells: names `k` twice",
+        ),
+        (
+            "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = \"k\"\n".to_owned(),
+            "coverage.invariant[0].cells: expected an array of cell names",
+        ),
+        (
+            format!("{table}proof = {{ k2lean = \"../lean\" }}\n"),
+            "coverage.invariant[0].proof: unknown key",
+        ),
+        (
+            format!("{table}{table}"),
+            "coverage.invariant[1].name: `never-halted` is declared twice \
+             (coverage.invariant[0] declares it first)",
+        ),
+        (
+            format!("{entry}invariant = \"never-halted\"\n"),
+            "coverage.argued[0].invariant: `never-halted` names no [[coverage.invariant]] table",
+        ),
+        (
+            format!("{table}{entry}invariant = 1\n"),
+            "coverage.argued[0].invariant: expected a string",
+        ),
+        (
+            "[coverage]\ninvariant = \"i\"\n".to_owned(),
+            "coverage.invariant: expected [[coverage.invariant]] tables",
+        ),
+    ] {
+        assert_eq!(decode(&text).unwrap_err(), error, "{text}");
     }
 }
 
@@ -605,6 +729,233 @@ mod kink_tier {
                 format!("{path}: rules: {WAKE} is open (was argued)"),
                 format!("{path}: {I}: argued -> unreached"),
             ]
+        );
+    }
+
+    /// The invariant the guards fixture's arguments name: no program halts the machine, a
+    /// function of the `<k>` cell.
+    const NEVER_HALTED: (&str, &str, &[&str]) = ("never-halted", "neverHalted", &["k"]);
+
+    /// Every argued item says what its argument rests on (`argument_check`): its text alone where
+    /// its entry names no invariant (`text`), else the invariant, whose checks this build does not
+    /// run (`unchecked`, the connection and the evidence `not-run`). The settings list the
+    /// invariants, the summary counts the argued items by standing and lists no failed argument,
+    /// the text states each standing, and the coverage lock gives each argued item's standing
+    /// under `[arguments]`: a standing that moves makes `--locked` stale, naming the item, while
+    /// the header and the obligations are unchanged.
+    #[test]
+    #[ignore = "kink"]
+    fn each_argued_item_states_its_standing_and_the_lock_records_it() {
+        let dir = guards("standing");
+        let (baseline, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_YES, "{baseline:#}");
+        let list = flips(&baseline, false);
+        let lock = dir.join("coverage.lock");
+        let path = lock.to_str().unwrap();
+        let run = |locked: bool| {
+            let mut options = vec!["--lock", path];
+            if locked {
+                options.push("--locked");
+            }
+            coverage(&dir, &options, Derived::Flips(&list))
+        };
+        argue_on(
+            &dir,
+            &[NEVER_HALTED],
+            &[
+                (WAKE, "the corpus never halts the machine", None),
+                (WAKE_HELD, "no state is halted", Some(NEVER_HALTED.0)),
+            ],
+        );
+        let (document, status) = run(false);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        assert_eq!(
+            item(&document, "rules", WAKE)["argument_check"],
+            json!({"standing": "text"})
+        );
+        assert_eq!(
+            item(&document, "requirements", WAKE_HELD)["argument_check"],
+            json!({
+                "invariant": "never-halted",
+                "standing": "unchecked",
+                "connection": {"status": "not-run"},
+                "evidence": {"status": "not-run"},
+                "proof": null,
+            })
+        );
+        assert_eq!(
+            document["settings"]["invariants"],
+            json!([{"name": "never-halted", "function": "neverHalted", "cells": ["k"],
+                    "identity": null}])
+        );
+        assert_eq!(
+            document["settings"]["argued"][1],
+            json!({"item": WAKE_HELD, "argument": "no state is halted",
+                   "invariant": "never-halted"})
+        );
+        let summary = &document["summary"];
+        assert_eq!(
+            summary["argued_by_standing"],
+            json!({"text": 1, "connected": 0, "checked_on_runs": 0, "proved": 0, "unchecked": 1})
+        );
+        assert_eq!(summary["argued"], 2, "{summary:#}");
+        assert_eq!(summary["failed_arguments"], json!([]));
+        let text = text(&document).unwrap();
+        assert!(
+            text.contains(&format!(
+                "argued:\n  {WAKE} [text]: the corpus never halts the machine\n"
+            )),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "  {WAKE_HELD} [unchecked, invariant never-halted]: no state is halted\n"
+            )),
+            "{text}"
+        );
+        let recorded = fs::read_to_string(&lock).unwrap();
+        assert!(
+            recorded.contains(&format!(
+                "\n[arguments]\n\"{WAKE}\" = \"text\"\n\"{WAKE_HELD}\" = \"unchecked\"\n\n[flips]\nrun = true\n"
+            )),
+            "{recorded}"
+        );
+        assert_eq!(recorded, verdicts(&document).unwrap());
+
+        // The same items argued on their text alone: only the requirement's standing moves.
+        argue(
+            &dir,
+            &[
+                (WAKE, "the corpus never halts the machine"),
+                (WAKE_HELD, "no state is halted"),
+            ],
+        );
+        let (stale, status) = run(true);
+        assert_eq!(status, EXIT_NO, "{stale:#}");
+        let state = &stale["lock"];
+        assert_eq!(state["status"], "stale", "{state:#}");
+        assert_eq!(
+            (
+                &state["header"],
+                &state["header_changes"],
+                &state["open_changes"]
+            ),
+            (&json!(false), &json!([]), &json!([])),
+            "{state:#}"
+        );
+        assert_eq!(
+            state["argument_changes"],
+            json!([{"obligation": WAKE_HELD, "recorded": "unchecked", "now": "text"}])
+        );
+        assert_eq!(
+            stale_lines(&stale),
+            [format!("{path}: arguments: {WAKE_HELD}: unchecked -> text")]
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+        assert_eq!(
+            stale["summary"]["argued_by_standing"]["text"], 2,
+            "{:#}",
+            stale["summary"]
+        );
+    }
+
+    /// An invariant no entry names is refused (`invariant-unused`), and so is an entry that names
+    /// one on an item it cannot argue (`argued-invariant-unsupported`): a function equation, a
+    /// syntax production and a flip, each named with what it is, while an entry on a rewrite
+    /// rule or on a requirement of one is accepted. Both refusals are at stage `coverage`.
+    #[test]
+    #[ignore = "kink"]
+    fn invariants_unused_or_on_items_they_cannot_argue_are_refused() {
+        let dir = guards("invariant-refusals");
+        with_nop(&dir);
+        let (baseline, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_YES, "{baseline:#}");
+        let list = flips(&baseline, false);
+        let refusal = |document: &Value| {
+            let spec = &document["spec"];
+            assert_eq!(
+                (&spec["outcome"], &spec["stage"]),
+                (&json!("refused"), &json!("coverage")),
+                "{spec:#}"
+            );
+            (
+                spec["reason"].as_str().unwrap().to_owned(),
+                spec["detail"].as_str().unwrap().to_owned(),
+            )
+        };
+
+        argue_on(
+            &dir,
+            &[NEVER_HALTED, ("spare", "spare", &["k"])],
+            &[(
+                WAKE,
+                "the corpus never halts the machine",
+                Some(NEVER_HALTED.0),
+            )],
+        );
+        let (refused, status) = coverage(&dir, &["--tier", "1"], Derived::Flips(&list));
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        let (reason, detail) = refusal(&refused);
+        assert_eq!(reason, "invariant-unused");
+        assert!(
+            detail.contains("no [[coverage.argued]] entry names: `spare`"),
+            "{detail}"
+        );
+        assert!(!detail.contains("never-halted"), "{detail}");
+
+        let high_held = baseline["families"]["requirements"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["rule"] == "rule:GUARDS.high")
+            .and_then(|item| item["id"].as_str())
+            .unwrap_or_else(|| panic!("no requirement of high: {baseline:#}"))
+            .to_owned();
+        let on = Some(NEVER_HALTED.0);
+        argue_on(
+            &dir,
+            &[NEVER_HALTED],
+            &[
+                (WAKE, "the corpus never halts the machine", on),
+                (WAKE_HELD, "the corpus never halts the machine", on),
+                ("rule:GUARDS.high", "no program stores high", on),
+                (&high_held, "no program stores high", on),
+                (
+                    "syntax:nop",
+                    "no program needs a step that does nothing",
+                    on,
+                ),
+                (I, "only a halted machine reads the interrupt flag", on),
+            ],
+        );
+        let (refused, status) = coverage(&dir, &["--tier", "1"], Derived::Flips(&list));
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        let (reason, detail) = refusal(&refused);
+        assert_eq!(reason, "argued-invariant-unsupported");
+        assert!(
+            detail.contains(&format!(
+                "`rule:GUARDS.high` (equation); `{high_held}` (equation); `syntax:nop` (syntax); \
+                 `{I}` (flips)"
+            )),
+            "{detail}"
+        );
+        assert!(!detail.contains(&format!("`{WAKE}`")), "{detail}");
+        assert!(!detail.contains(&format!("`{WAKE_HELD}`")), "{detail}");
+
+        argue_on(
+            &dir,
+            &[NEVER_HALTED],
+            &[
+                (WAKE, "the corpus never halts the machine", on),
+                (WAKE_HELD, "the corpus never halts the machine", on),
+            ],
+        );
+        let (accepted, status) = coverage(&dir, &["--tier", "1"], Derived::Flips(&list));
+        assert_eq!(status, EXIT_YES, "{accepted:#}");
+        assert_eq!(
+            accepted["summary"]["argued_by_standing"]["unchecked"], 2,
+            "{:#}",
+            accepted["summary"]
         );
     }
 }

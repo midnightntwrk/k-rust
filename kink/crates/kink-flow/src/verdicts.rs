@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 20
+//! version = 21
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -42,6 +42,10 @@
 //! ]
 //! argued = [
 //! ]
+//!
+//! [arguments]
+//! "requirement:crate::wake:held" = "text"
+//! "flip--halted+wake--I" = "text"
 //!
 //! [flips]
 //! run = true
@@ -83,15 +87,20 @@
 //! `[requirements]`, `[syntax]`, and `[rule_windows]` and `[syntax_paths]` where the document has
 //! the family, at a depth above 1; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
 //! and, where it has any, of its undecided ones (`undecided`; [`crate::coverage::undecided_ids`]),
-//! and for the flips family whether it ran and, when it ran, each flip (`[[flip]]`, in item order)
-//! with its status (`argued` for an argued one), a refused flip's reason, a distinguished flip's
-//! `killer`, and an undistinguished flip's `horizon` where it rests on one, as a run rendering
-//! gives a survivor's. It lists no programs and no counts, so that it moves only when a gap opens or
-//! closes, an argument is added or removed, or a killer changes: a case that covers nothing new
-//! renders the same bytes. An argument's text is not rendered, since it explains a verdict rather
-//! than records one; its id is, since an argued obligation leaves the open ones without any
-//! program covering it, and a lock that did not say so would show a gap closing that no program
-//! closed. A flip's
+//! then each argued item, of every family, with the standing of its argument (`[arguments]`,
+//! one `"<id>" = "<standing>"` line per item, in family then item order, the section written
+//! where no item is argued; [`crate::coverage::argument_standings`]), and for the flips family
+//! whether it ran and, when it ran, each flip (`[[flip]]`, in item order) with its status
+//! (`argued` for an argued one), a refused flip's reason, a distinguished flip's `killer`, and an
+//! undistinguished flip's `horizon` where it rests on one, as a run rendering gives a survivor's.
+//! It lists no programs and no counts, so that it moves only when a gap opens or closes, an
+//! argument is added or removed or its standing moves, or a killer changes: a case that covers
+//! nothing new renders the same bytes. An argument's text is not rendered, since it explains a
+//! verdict rather than records one; its id is, since an argued obligation leaves the open ones
+//! without any program covering it, and a lock that did not say so would show a gap closing that
+//! no program closed. Its standing is, since it is what the argument rests on, a function of the
+//! specification, the corpus and the checks the build runs: a lock that did not say so would
+//! show an argument resting on its text alone the same as one a check decided. A flip's
 //! killer is the recorded one (the coverage lock's) while it kills, else the first killing
 //! program in the search's order, a function of the inputs and the record, as a run's is. A
 //! `run` document
@@ -131,7 +140,9 @@
 //! `[settings] mcdc`, `horizon`, `killed_by`) has one value per line, with a trailing comma, from
 //! the key's line to a `]` on its own, an empty array included: so a lock's diff of a set that
 //! changed is exactly the lines of the values that joined or left it, in the set's order, and
-//! no other line moves. `tiers`, at most two numbers, is inline.
+//! no other line moves. `tiers`, at most two numbers, is inline. `[arguments]` is a table, not
+//! an array, so that each item's line carries its standing: a standing that moves changes that
+//! item's line alone, and an argument added or removed adds or removes its line.
 
 use serde_json::{Value, json};
 use std::fmt::Write as _;
@@ -185,8 +196,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// reason shows a new version, not a corpus change; 20 since every array of strings or inline
 /// tables the rendering writes has one value per line, an empty one included (module
 /// documentation), so that a lock whose layout moves shows a new version; its values are
-/// unchanged.
-pub const VERDICTS_VERSION: u64 = 20;
+/// unchanged; 21 since a `coverage` rendering lists each argued item with the standing of its
+/// argument (`[arguments]`, one line per item, an empty section where none is argued), so that a
+/// lock records what each argument rests on and a standing that moves makes it stale.
+pub const VERDICTS_VERSION: u64 = 21;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -397,6 +410,11 @@ fn coverage(text: &mut String, document: &Value) {
         if !undecided.is_empty() {
             line(text, "undecided", &strings(&undecided));
         }
+    }
+    // One line per argued item, the section included where there is none, as an empty array is.
+    text.push_str("\n[arguments]\n");
+    for (id, standing) in crate::coverage::argument_standings(document) {
+        line(text, &string(&id), &string(&standing));
     }
     let flips = &document["families"]["flips"];
     if flips.is_object() {

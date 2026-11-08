@@ -31,10 +31,13 @@
 //! by the kill search `run` makes ([`crate::search`]), keyed by the flip's id, so the recorded
 //! killer is tried first and kept while it still kills, else the first killing program in the
 //! search's order. The rendering also lists each family's open and argued obligations (`[rules]
-//! open`, `[rules] argued`, ...), which are read only to report what changed, as a row's status
-//! is.
+//! open`, `[rules] argued`, ...), and each argued item's standing (`[arguments]`, one
+//! `"<id>" = "<standing>"` line per item), which are read only to report what changed, as a row's
+//! status is: a standing that moves changes the text, so `--locked` finds the lock stale, and the
+//! lock's state names the item (`argument_changes`).
 //! Its header is what comes before the first family: the schema, version, profile and build lines,
-//! the specification and the settings.
+//! the specification and the settings. `[arguments]` is no part of it: its keys are item ids, a
+//! verdict per line, as a family's arrays are.
 
 use crate::verdicts::{VERDICTS_SCHEMA, lock_text};
 use kink_corpus::Store;
@@ -155,6 +158,10 @@ pub struct Lock {
     /// report what changed; empty for a run's and for a lock written before arguments were
     /// rendered.
     pub argued: BTreeMap<String, Vec<String>>,
+    /// A coverage lock's standing of each argued item (`[arguments]`), by id, read only to report
+    /// what changed; empty for a run's and for a lock written before standings were rendered. A
+    /// value that is not a string is left out, as an `open` that is not an array of strings is.
+    pub arguments: BTreeMap<String, String>,
 }
 
 /// One `[[mutation]]` of a lock.
@@ -181,6 +188,9 @@ pub struct Settle<'a> {
     pub stopped: bool,
 }
 
+/// The section of a coverage lock that gives each argued item's standing.
+const ARGUMENTS: &str = "arguments";
+
 /// The next step of a lock that does not decode.
 const REFUSED_NEXT: &str = "resolve the file, or delete it to start from the search's killers";
 
@@ -205,6 +215,13 @@ impl Lock {
             }
             Err(e) => return Err(refused(format!("cannot be read: {e}"))),
         };
+        Self::decode(path, text, kind)
+    }
+
+    /// The lock of `kind` at `path` whose file's text is `text`; a text that does not decode is
+    /// the refusal's detail ([`Lock::read_kind`]).
+    fn decode(path: &Path, text: String, kind: LockKind) -> Result<Self, String> {
+        let refused = |what: String| format!("{}: {what}; {REFUSED_NEXT}", path.display());
         let table: toml::Table = text
             .parse()
             .map_err(|e: toml::de::Error| refused(format!("is not TOML: {}", e.message())))?;
@@ -274,6 +291,16 @@ impl Lock {
                 })
                 .collect(),
         };
+        let arguments = match kind {
+            LockKind::Run => BTreeMap::new(),
+            LockKind::Coverage => table
+                .get(ARGUMENTS)
+                .and_then(toml::Value::as_table)
+                .into_iter()
+                .flatten()
+                .filter_map(|(id, standing)| Some((id.clone(), standing.as_str()?.to_owned())))
+                .collect(),
+        };
         Ok(Self {
             kind,
             path: path.to_path_buf(),
@@ -282,6 +309,7 @@ impl Lock {
             header: header_values(&table, kind),
             open: listed("open"),
             argued: listed("argued"),
+            arguments,
         })
     }
 
@@ -351,6 +379,7 @@ impl Lock {
             Value::Null
         };
         let open = (kind == LockKind::Coverage).then(|| self.open_changes(document));
+        let arguments = (kind == LockKind::Coverage).then(|| self.argument_changes(document));
         let value = |status: &str, reason: Option<&str>, header: bool, changes: Vec<Value>| {
             let mut value = json!({
                 "path": path,
@@ -363,6 +392,9 @@ impl Lock {
             });
             if let Some(open) = &open {
                 value["open_changes"] = json!(open);
+            }
+            if let Some(arguments) = &arguments {
+                value["argument_changes"] = json!(arguments);
             }
             value
         };
@@ -586,6 +618,27 @@ impl Lock {
         }
         changes
     }
+
+    /// Each argued item of a coverage lock whose standing differs between the lock's
+    /// `[arguments]` and `document`: `{obligation, recorded, now}`, either side null where that side
+    /// has no line for it, in the document's order, then the lock's ids the document does not argue,
+    /// in id order.
+    fn argument_changes(&self, document: &Value) -> Vec<Value> {
+        let now = crate::coverage::argument_standings(document);
+        let mut changes = Vec::new();
+        for (id, standing) in &now {
+            let recorded = self.arguments.get(id);
+            if recorded != Some(standing) {
+                changes.push(json!({"obligation": id, "recorded": recorded, "now": standing}));
+            }
+        }
+        for (id, recorded) in &self.arguments {
+            if !now.iter().any(|(argued, _)| argued == id) {
+                changes.push(json!({"obligation": id, "recorded": recorded, "now": null}));
+            }
+        }
+        changes
+    }
 }
 
 /// The run document's `lock` of a lock at `path` when nothing was compared or written, for
@@ -605,7 +658,8 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
 }
 
 /// The header of a decoded lock or rendering of `kind`: each key outside its rows (`[[mutation]]`,
-/// `[[flip]]`) and, for a coverage lock, outside its family sections (`[rules]`, ...; [`head`]),
+/// `[[flip]]`) and, for a coverage lock, outside its family sections (`[rules]`, ...; [`head`])
+/// and its `[arguments]`,
 /// a section's keys as `section.key`, with its value as JSON (a string, an integer or a boolean
 /// as itself, any other value as its TOML text).
 fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value> {
@@ -621,7 +675,7 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
             _ if key == kind.row() => {}
             toml::Value::Table(_)
                 if kind == LockKind::Coverage
-                    && crate::coverage::FAMILIES.contains(&key.as_str()) => {}
+                    && (crate::coverage::FAMILIES.contains(&key.as_str()) || key == ARGUMENTS) => {}
             toml::Value::Table(section) => {
                 for (inner, value) in section {
                     header.insert(format!("{key}.{inner}"), json(value));
@@ -638,7 +692,10 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
 /// The header keys of a rendering's text, in the order of its lines, as [`header_values`]
 /// names them: a key before any table, or `section.key` in a `[section]`; none in a
 /// `[[mutation]]` row, and none from the continuation lines of a multi-line array (a value, a
-/// string or an inline table, or its closing `]`), which belong to the key that opened it.
+/// string or an inline table, or its closing `]`), which belong to the key that opened it, nor
+/// from a line whose key is quoted (an `[arguments]` line, whose key is an item id): the
+/// rendering quotes no header key, so such a line is no header line, and [`header_values`]
+/// leaves its section out.
 fn header_key_order(text: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut section: Option<&str> = Some("");
@@ -694,6 +751,7 @@ fn head(kind: LockKind, text: &str) -> &str {
         LockKind::Coverage => text.match_indices("\n[").map(|(at, _)| at).find(|&at| {
             let line = text[at + 1..].lines().next().unwrap_or_default();
             line == "[[flip]]"
+                || line == "[arguments]"
                 || crate::coverage::FAMILIES.iter().any(|family| {
                     line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) == Some(family)
                 })
@@ -718,8 +776,10 @@ pub fn refused_value(path: &Path, detail: &str) -> Value {
 /// killed -> survived`, and for a coverage lock one per obligation whose openness differs
 /// (`lock.open_changes`: `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements:
 /// requirement:x:held is no longer open`, `coverage.lock: rules: rule:x is argued (was open)`)
-/// before them; when neither the header nor any
-/// obligation nor any row's verdict differs, one line naming the first difference
+/// and one per argued item whose standing differs where no such line names it
+/// (`lock.argument_changes`: `coverage.lock: arguments: rule:x: text -> unchecked`) before them;
+/// when neither the header nor any obligation nor any standing nor any row's verdict differs,
+/// one line naming the first difference
 /// (`lock.difference`: the rows' order, or a line of text); empty otherwise.
 #[must_use]
 pub fn stale_lines(document: &Value) -> Vec<String> {
@@ -771,10 +831,33 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
     let open = lock["open_changes"]
         .as_array()
         .map_or(&[][..], Vec::as_slice);
-    // A file that differs neither in its header nor in an obligation nor in a row's verdict differs
-    // in its row order or its text: the first difference says which.
+    // A standing whose item an obligation's or a row's change already names moved with the item's
+    // argued state (an argument added or removed): that line says so.
+    let named = open
+        .iter()
+        .map(|change| &change["obligation"])
+        .chain(changes.iter().map(|change| &change[kind.row()]))
+        .filter_map(Value::as_str)
+        .collect::<BTreeSet<_>>();
+    let arguments = lock["argument_changes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|change| {
+            change["obligation"]
+                .as_str()
+                .is_some_and(|id| !named.contains(id))
+        })
+        .collect::<Vec<_>>();
+    // A file that differs neither in its header nor in an obligation nor in a standing nor in a
+    // row's verdict differs in its row order or its text: the first difference says which.
     let difference = &lock["difference"];
-    if lock["header"] != true && changes.is_empty() && open.is_empty() && difference.is_object() {
+    if lock["header"] != true
+        && changes.is_empty()
+        && open.is_empty()
+        && arguments.is_empty()
+        && difference.is_object()
+    {
         let side = |value: &Value| {
             value.as_str().map_or_else(
                 || "the end of the file".to_owned(),
@@ -815,6 +898,15 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             (None, None) => "is unchanged".to_owned(),
         };
         lines.push(format!("{path}: {family}: {id} {what}"));
+    }
+    for change in arguments {
+        let side = |value: &Value| value.as_str().unwrap_or("none").to_owned();
+        lines.push(format!(
+            "{path}: arguments: {}: {} -> {}",
+            change["obligation"].as_str().unwrap_or("?"),
+            side(&change["recorded"]),
+            side(&change["now"])
+        ));
     }
     for change in changes {
         let id = change[kind.row()].as_str().unwrap_or("?");
@@ -880,6 +972,7 @@ mod tests {
             header: header_values(&text.parse().unwrap(), kind),
             open: BTreeMap::new(),
             argued: BTreeMap::new(),
+            arguments: BTreeMap::new(),
         }
     }
 
@@ -1092,6 +1185,134 @@ mod tests {
                 "verdicts.lock: the header's z3_library_sha256 differs: recorded \"aaaa\", now \
                  \"bbbb\" (another Z3 build)"
             ]
+        );
+    }
+
+    /// A coverage lock reads `[arguments]` as each argued item's standing, outside its header:
+    /// the lines, whose keys are quoted item ids, give no header key and are no part of the head.
+    /// A standing that moves makes a `--locked` run stale, with no header change: the lock's
+    /// state names the item (`argument_changes`) and the line (`difference`), and `stale_lines`
+    /// names the move. An argument added with its item names the item once, by the obligation's
+    /// change.
+    #[test]
+    fn a_moved_standing_makes_the_lock_stale_and_names_its_line() {
+        let document = |argued: &[(&str, &str)], open: &[&str]| {
+            let mut items = argued
+                .iter()
+                .map(|(id, standing)| {
+                    json!({"id": id, "status": "argued", "argument_check": {"standing": standing}})
+                })
+                .collect::<Vec<_>>();
+            items.extend(open.iter().map(
+                |id| json!({"id": id, "status": "matched", "obligation": true, "covered": false}),
+            ));
+            json!({
+                "schema": crate::coverage::COVERAGE_SCHEMA,
+                "spec": {"outcome": "admitted"},
+                "settings": {"tiers": [1], "depth": 1, "mcdc": []},
+                "families": {
+                    "rules": {"items": items},
+                    "requirements": {"items": []},
+                    "syntax": {"items": []},
+                    "flips": {"run": false},
+                },
+            })
+        };
+        let text = |document: &Value| lock_text(document).unwrap();
+        let recorded = document(&[("rule:a", "text"), ("rule:b", "text")], &[]);
+        let recorded_text = text(&recorded);
+        assert!(
+            recorded_text.contains(
+                "\n[arguments]\n\"rule:a\" = \"text\"\n\"rule:b\" = \"text\"\n\n[flips]\n"
+            ),
+            "{recorded_text}"
+        );
+        let kind = LockKind::Coverage;
+        let lock =
+            Lock::decode(Path::new(COVERAGE_LOCK_FILE), recorded_text.clone(), kind).unwrap();
+        assert_eq!(
+            lock.arguments,
+            BTreeMap::from([
+                ("rule:a".to_owned(), "text".to_owned()),
+                ("rule:b".to_owned(), "text".to_owned()),
+            ])
+        );
+        assert!(
+            lock.header.keys().all(|key| !key.starts_with("arguments")),
+            "{:?}",
+            lock.header
+        );
+        assert!(
+            header_key_order(&recorded_text)
+                .iter()
+                .all(|key| !key.starts_with("arguments")),
+            "{recorded_text}"
+        );
+        assert!(!head(kind, &recorded_text).contains("[arguments]"));
+
+        let store = Store::new("/nonexistent");
+        let locked = Settle {
+            locked: true,
+            verify: false,
+            only: &[],
+            stopped: false,
+        };
+        let (same, _) = lock.settle(&store, &recorded, locked);
+        assert_eq!(same["status"], "unchanged", "{same:#}");
+        assert_eq!(same["argument_changes"], json!([]));
+
+        let moved = document(&[("rule:a", "text"), ("rule:b", "unchecked")], &[]);
+        let (stale, _) = lock.settle(&store, &moved, locked);
+        assert_eq!(
+            (&stale["status"], &stale["header"], &stale["header_changes"]),
+            (&json!("stale"), &json!(false), &json!([])),
+            "{stale:#}"
+        );
+        assert_eq!(
+            stale["argument_changes"],
+            json!([{"obligation": "rule:b", "recorded": "text", "now": "unchecked"}])
+        );
+        let line = recorded_text
+            .split('\n')
+            .position(|line| line == "\"rule:b\" = \"text\"")
+            .unwrap()
+            + 1;
+        assert_eq!(
+            stale["difference"],
+            json!({"kind": "text", "line": line, "recorded": "\"rule:b\" = \"text\"",
+                   "now": "\"rule:b\" = \"unchecked\""})
+        );
+        let mut with_lock = moved.clone();
+        with_lock["lock"] = stale;
+        assert_eq!(
+            stale_lines(&with_lock),
+            ["coverage.lock: arguments: rule:b: text -> unchecked"]
+        );
+
+        // An argument removed: its item's obligation names it, and its standing's line is not
+        // named again.
+        let reopened = document(&[("rule:a", "text")], &["rule:b"]);
+        let (stale, _) = lock.settle(&store, &reopened, locked);
+        assert_eq!(
+            stale["argument_changes"],
+            json!([{"obligation": "rule:b", "recorded": "text", "now": null}])
+        );
+        let mut with_lock = reopened.clone();
+        with_lock["lock"] = stale;
+        assert_eq!(
+            stale_lines(&with_lock),
+            ["coverage.lock: rules: rule:b is open (was argued)"]
+        );
+
+        // A line removed by hand, the item still argued: the standing's change names it.
+        let edited = recorded_text.replace("\"rule:b\" = \"text\"\n", "");
+        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), edited, kind).unwrap();
+        let (stale, _) = lock.settle(&store, &recorded, locked);
+        let mut with_lock = recorded.clone();
+        with_lock["lock"] = stale;
+        assert_eq!(
+            stale_lines(&with_lock),
+            ["coverage.lock: arguments: rule:b: none -> text"]
         );
     }
 }

@@ -255,6 +255,10 @@ pub struct CoverageSection {
     /// the order written, each item at most once; empty by default. Whether each names an item a
     /// family lists is the `coverage` command's to say, since the ids are the document's.
     pub argued: Vec<ArguedItem>,
+    /// `[[coverage.invariant]]`: the invariants argued entries name, in the order written, each
+    /// name at most once; empty by default. Whether an entry uses each, and whether the front end
+    /// resolves its function and cells, is the `coverage` command's to say.
+    pub invariants: Vec<Invariant>,
     /// Whether the manifest has a `[coverage]` section (the document's `settings.source`).
     pub declared: bool,
 }
@@ -316,6 +320,25 @@ pub struct ArguedItem {
     pub item: String,
     /// `argument`: why no program covers it, for the reader of the document; never parsed.
     pub argument: String,
+    /// `invariant`: the name of the `[[coverage.invariant]]` the argument rests on, a table the
+    /// manifest declares; `None`: the argument is its text alone.
+    pub invariant: Option<String>,
+}
+
+/// One `[[coverage.invariant]]` table: a property claimed of every state the baseline definition
+/// reaches, which an argued entry names (`invariant`) so that its argument rests on more than its
+/// text (`crate::coverage`, "Argued obligations"). The names are the front end's: a KRS corpus
+/// names the function by KRS path and the cells by Rust field path, kink-flow's K front end by
+/// K label and K cell name. kink-flow reads neither; a front end that resolves invariants does.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Invariant {
+    /// `name`: how argued entries name it; nonempty, unique among the tables.
+    pub name: String,
+    /// `function`: the invariant, a function of the cells of result `Bool`, compiled into the
+    /// baseline definition.
+    pub function: String,
+    /// `cells`: the cells it reads, one per parameter, in order; nonempty, without repeats.
+    pub cells: Vec<String>,
 }
 
 /// The default of `[coverage] max_obligations`.
@@ -329,6 +352,7 @@ impl Default for CoverageSection {
             max_obligations: NonZeroU64::new(DEFAULT_MAX_OBLIGATIONS)
                 .expect("the default is positive"),
             argued: Vec::new(),
+            invariants: Vec::new(),
             declared: false,
         }
     }
@@ -1242,13 +1266,14 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
 }
 
 /// `[coverage]`: `depth` and `max_obligations` positive integers, `mcdc` a Boolean or an array
-/// of nonempty names without repeats, `argued` an array of tables ([`argued`]).
+/// of nonempty names without repeats, `invariant` and `argued` arrays of tables ([`invariants`],
+/// [`argued`]).
 fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
     let section = table(value, "coverage")?;
     known_keys(
         section,
         "coverage",
-        &["depth", "mcdc", "max_obligations", "argued"],
+        &["depth", "mcdc", "max_obligations", "invariant", "argued"],
     )?;
     let positive = |name: &str, default: NonZeroU64| match section.get(name) {
         None => Ok(default),
@@ -1294,20 +1319,79 @@ fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
         }
     }
     let mcdc = if all { Mcdc::All } else { Mcdc::Rules(mcdc) };
-    let argued = section.get("argued").map(argued).transpose()?;
+    let invariants = section
+        .get("invariant")
+        .map(invariants)
+        .transpose()?
+        .unwrap_or_default();
+    let argued = section
+        .get("argued")
+        .map(|value| argued(value, &invariants))
+        .transpose()?;
     Ok(CoverageSection {
         depth,
         mcdc,
         max_obligations,
         argued: argued.unwrap_or_default(),
+        invariants,
         declared: true,
     })
 }
 
-/// `[[coverage.argued]]`: tables of exactly `item`, a nonempty id, and `argument`, a text that is
-/// not blank, no item named twice. An argument stands in for a program, so one that says nothing
-/// is no argument; one item argued twice would leave its document to choose between two texts.
-fn argued(value: &Value) -> Result<Vec<ArguedItem>, ManifestError> {
+/// `[[coverage.invariant]]`: tables of exactly `name`, a nonempty name no other table has,
+/// `function`, a nonempty name, and `cells`, a nonempty array of nonempty names without repeats.
+/// An entry names an invariant by its name, so two tables of one name would leave the entry's
+/// argument resting on either; a function reads its cells one per parameter, so a function of no
+/// cell is no property of a state, and a cell named twice is one parameter written twice.
+fn invariants(value: &Value) -> Result<Vec<Invariant>, ManifestError> {
+    let Value::Array(entries) = value else {
+        return Err(ManifestError::new(
+            "coverage.invariant",
+            "expected [[coverage.invariant]] tables",
+        ));
+    };
+    let mut invariants = Vec::<Invariant>::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let prefix = format!("coverage.invariant[{index}]");
+        let entry = table(entry, &prefix)?;
+        known_keys(entry, &prefix, &["name", "function", "cells"])?;
+        let name = required_string(entry, &prefix, "name")?;
+        if let Some(first) = invariants.iter().position(|i| i.name == name) {
+            return Err(ManifestError::new(
+                join(&prefix, "name"),
+                format!(
+                    "`{name}` is declared twice (coverage.invariant[{first}] declares it first)"
+                ),
+            ));
+        }
+        let function = required_string(entry, &prefix, "function")?;
+        let key = join(&prefix, "cells");
+        if !entry.contains_key("cells") {
+            return Err(missing(&key));
+        }
+        let cells = names(entry, &prefix, "cells", "cell names")?;
+        if cells.is_empty() {
+            return Err(ManifestError::new(
+                key,
+                "names no cell: an invariant reads the cells its function takes, one per \
+                 parameter",
+            ));
+        }
+        invariants.push(Invariant {
+            name,
+            function,
+            cells,
+        });
+    }
+    Ok(invariants)
+}
+
+/// `[[coverage.argued]]`: tables of `item`, a nonempty id, `argument`, a text that is not blank,
+/// and optionally `invariant`, the name of one of `invariants`; no item named twice. An argument
+/// stands in for a program, so one that says nothing is no argument; one item argued twice would
+/// leave its document to choose between two texts; an invariant no table declares is nothing the
+/// argument can rest on.
+fn argued(value: &Value, invariants: &[Invariant]) -> Result<Vec<ArguedItem>, ManifestError> {
     let Value::Array(entries) = value else {
         return Err(ManifestError::new(
             "coverage.argued",
@@ -1318,7 +1402,7 @@ fn argued(value: &Value) -> Result<Vec<ArguedItem>, ManifestError> {
     for (index, entry) in entries.iter().enumerate() {
         let prefix = format!("coverage.argued[{index}]");
         let entry = table(entry, &prefix)?;
-        known_keys(entry, &prefix, &["item", "argument"])?;
+        known_keys(entry, &prefix, &["item", "argument", "invariant"])?;
         let item = string(
             entry
                 .get("item")
@@ -1339,7 +1423,20 @@ fn argued(value: &Value) -> Result<Vec<ArguedItem>, ManifestError> {
                 format!("`{item}` is argued twice (coverage.argued[{first}] argues it first)"),
             ));
         }
-        argued.push(ArguedItem { item, argument });
+        let invariant = optional_string(entry, &prefix, "invariant")?;
+        if let Some(name) = &invariant
+            && !invariants.iter().any(|declared| &declared.name == name)
+        {
+            return Err(ManifestError::new(
+                join(&prefix, "invariant"),
+                format!("`{name}` names no [[coverage.invariant]] table"),
+            ));
+        }
+        argued.push(ArguedItem {
+            item,
+            argument,
+            invariant,
+        });
     }
     Ok(argued)
 }

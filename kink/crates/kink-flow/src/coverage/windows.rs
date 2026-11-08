@@ -366,6 +366,7 @@ pub(super) fn derive(
             for derived in [
                 "argument",
                 "argument_needless",
+                "argument_check",
                 "unargued_status",
                 "argued_by",
             ] {
