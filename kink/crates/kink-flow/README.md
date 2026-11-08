@@ -452,7 +452,7 @@ A rule is covered when it fires, not when it matches: a rule whose left-hand sid
 The programs whose coverage witnesses a mutant's compiled edit (`run` step 3: applied for an edit confined to a rule's right-hand side or `ensures`, matched for any other site-local edit, every program otherwise; a definedness claim kink withdraws adds none through coverage) are a mutation row's `witnesses`.
 The result record names the matched sentences `coverage.sentences`: it is a cache record, read only by kink-flow, and renaming its keys would miss every result cache without changing what any record means.
 
-## `kink-flow coverage FLOW.toml [--tier 1] [--verify] [--cache DIR] [--output json|text|verdicts]`
+## `kink-flow coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR] [--output json|text|verdicts]`
 
 Asks what the corpus covers of the obligations the specification states.
 An obligation is an item derived from the definition alone, before any program runs, so each family's universe is a function of the definition, and the document states its size.
@@ -462,8 +462,10 @@ Each family's coverage is set arithmetic over the programs' result records, so a
 The command replaces `results`, whose program rows and rule rows it holds: two documents listing rule statuses would be two answers to one question.
 `kink-flow results` is a usage error that names `coverage`.
 
-`--tier 1`, the default, asks for the families read from the baseline runs, the only tier this build computes.
-Tier 2's one family, condition flips, runs mutants and needs a front end that generates the flips and judges each as a mutation, which no front end of this build has; a document states only tiers it computed, so `--tier 2` is a usage error that says so (the flips family below).
+`--tier 2`, the default, asks for both tiers: the families read from the baseline runs, and tier 2's one family, condition flips, whose mutants the kill search runs.
+`--tier 1` asks for the first alone, and runs no mutant.
+The flips come from a front end that derives them from the definition's source and judges each (`FrontEnd::derived`, "Front ends"); kink-flow's own command line reads K alone, so it derives none, and its flips family says so.
+A document states only the tiers it computed: `settings.tiers` is `[1, 2]` where the flips ran, else `[1]`.
 `--output text` prints a summary for a reader: one line per family with covered / obligations and the measure, the programs that count for nothing with their causes, and one line per open target with its position, its pattern and its fuzz job; its wording may change with no coverage changing, so it is no lock.
 `--output verdicts` is the lock format ("Verdicts").
 
@@ -637,8 +639,38 @@ Field values are a front end's: a value of a field of a `k::bits!` template is r
 K has no notion of such a template, so kink-flow selects no binder and builds no field-value item.
 A front end that has templates names their binders in its selection (`SyntaxSelection::binders`, `(axiom, variable, cap)`), every baseline run records the values they took, and the family lists them (`binders`: per binder `{axiom, variable, sentences, values: [{value, programs}], truncated_by, nonliteral_by, uncounted}`); the front end adds an item of kind `field-value` per field value of its universe, with its `status` and its target's text (`krs.target`), before `coverage::derive` counts them.
 
+**Flips.** Tier 2: each condition flip a front end derives from the definition's source is an obligation.
+A flip negates one condition atom, or toggles one bit of an encoding, in a closed set of sentences that the atom keeps apart, so the flipped definition is one the source language admits and the question is whether the corpus notices the swapped outcomes.
+Generating the flips needs the source language's guard families and admitting each needs its judge, so the front end supplies the list: each entry with its id, its operator (`flip` or `bitflip`), the atom's text, its judgement (the K patch, in `MUTATIONS.toml`'s edit format, or the judge's refusal) and the occurrences it changes, each a node of a sentence's condition (by its path in the rule item's `guard.operands`) or a sentence's match.
+Each is an item `{id, operator, text, atom, occurrences, sentences, status, kink_status, judge, reason, next, detail, digest, killer, killer_source, witnesses, waits_on, live_runs, calls}`:
+
+| Status | Counted | Meaning |
+| --- | --- | --- |
+| `distinguished` | yes, covered | the kill search killed the mutant; `killer` is the first killing program in the search's order |
+| `undistinguished` | yes, open | the search ran the mutant on every comparable program, and none told it apart |
+| `unreached` | yes, open | no comparable program reached an occurrence (below): deduced, with no mutant run |
+| `unknown` | yes, open | the search gave no verdict (kink's `unknown` or `timeout`, or an error), with kink's reason |
+| `refused` | no | the front end's judge, or kink-flow's resolution or admission of the patch (`judge`), refused it, with the reason: a disagreement between the generator and an admission, which a definition's tests pin to zero |
+| `equivalent` | no | kink proves no program can tell the mutant apart (its `equivalent` or `unkillable` status) |
+
+These are not kink's `killed` and `survived`: an `unreached` status rests on a deduction, not on runs, and the family reports what the corpus covers.
+The measure is distinguished / (obligations − refused − equivalent); `counts` gives each status and `not_generated` the flips the generator does not generate (listed apart with their reasons, never counted); `search` gives the search's `outcome_cache` counts and its `live_runs`.
+Every admitted flip is resolved first: one kink-flow cannot resolve is `refused`; one whose occurrences no comparable program reached is `unreached`; every other one runs, in the list's order, through `run`'s kill search, first-kill, with its outcome cache.
+An outcome record is keyed by the mutation's patch digest, never by its id or its list, so a flip equal to an authored mutation shares its records: what `run` learned of a program, `coverage` decides from the cache, and the other way round.
+
+The unreached deduction reads the comparable programs' cached records.
+A condition node is reached where it took an outcome (`true`, `false` or `undefined`) in the rule's guard row; a match is reached where the sentence was entered at the front end's level (`krs.matched_by` where the front end reads templates, else `matched_by`).
+An occurrence is undecided, and counts as reached, where the records cannot say it was not evaluated: a node a program left undecided, a guard a program left undecided or stopped in or the solver refuted (the solver reads every atom of the condition), a program whose recorded coverage is not complete, and an occurrence the rows do not place (no rule item, no guard, an unreadable skeleton, no node at the path; `unplaced` says why); a flip that names no occurrence is undecided too.
+A flip is `unreached` when it names occurrences and none is reached or undecided.
+It is sound: the flip changes only those occurrences, in place, and the operands before each are unchanged, so the mutant's run reaches the same positions with the same states, and by induction on the steps of a baseline run that never evaluates an occurrence, the mutant's run takes the same steps, every guard verdict and every function value it uses agreeing; for a bit flip the closed set of arms has a domain the toggle maps onto itself, so an input no arm of it matched matches none in the mutant either.
+So no comparable program can tell the flip apart, and running it would say no more; the deduction saves the costliest outcome, a survivor run on every program, and points at the tier-1 obligations that explain it (`waits_on`: the open requirements of a node, else the rule).
+Each occurrence lists `reached_by`, `undecided_by`, `unplaced`, a node's `true_by` and `false_by`, and its `rule`.
+
+Under `--tier 1`, or where the front end derives none, the family is `{tier: 2, run: false, obligations, reason, items: []}`: `obligations` is the derived count under `--tier 1` (null where none is derived) and no status is shown, since a status read from the cache alone would depend on what the cache holds.
+No front end of this build gives coverage the flips: kink-flow's own reads K alone, which gives neither the guard families nor a judge; krs derives and judges a definition's condition flips, but its front end gives coverage none of them.
+The family's `reason` says which.
+
 **Not built.** `rule_windows` and `syntax_paths` (depth above 1) are `null`.
-`flips`, the tier-2 family of condition flips, needs a front end that gives coverage the flips it generates, each judged as a mutation of the specification, which no front end of this build does (krs derives and judges a definition's condition flips, but no verb hands them to coverage): it is `{tier: 2, run: false, obligations: null, reason, items: []}`, the reason saying so.
 
 The measure is per family: no weighted total is given, since nothing weighs a rule against an operand's truth.
 `summary.open`, the count of open obligations, is the one scalar, and zero means done.
@@ -655,6 +687,9 @@ A rule's name is its KRS item where a front end named it (`krs.item`), else its 
 - A requirement asks for `a case that enters <rule> with <valuation>`: the truths of `reaching`, then the node's own; for the root, its condition holding or false, with the valuation of its node where it has one.
 - An unreached production asks for `a case in which a step takes <production> as an operand, or inspects or builds it`, naming the rules that inspect it and those that build it (`rules`, both), each a thing to make fire; a production no rule writes says that only a step that takes it as an operand reaches it. A field value states the front end's text.
 - An item with `touched_only_by` adds the programs that touch it but are not comparable, and asks to make one comparable.
+- An `undistinguished` flip asks for `a case whose result changes when <atom> is negated in <rules>` (`toggled` for a bit), naming the values of the atom the corpus reached in each rule, with the programs that reached an occurrence (`programs`, the templates of a fuzz job) and the `fuzz --kill <flip id>` job.
+- An `unreached` flip asks for `a case that reaches <atom> in <rules>`, naming the open tier-1 obligations it waits on.
+- An `unknown` flip asks for a comparable run of its mutant, with kink's reason.
 
 `file` and `line` are the front end's position of the rule where it gives one, else the K source's.
 `pattern` is, for an `unmatched` rewrite rule, its left-hand side as K text that `query` and `fuzz --pattern ID --patterns PATTERNS.toml` take ("Checking a pattern"): the rule's body as written, each rewrite replaced by its left side, without the `requires`, each variable written without a sort given the sort the rule's parse inferred for it, and, where the compile places the rule in the main cell (a body of one item that is no cell, for a rule that is not `anywhere`, macro-like or a simplification), placed at the head of that cell's contents, as the compile places it.
@@ -663,13 +698,15 @@ It is `null` for every other target, where the rule's text cannot be read, and f
 
 ### The document
 
-`{schema: "kink-flow-coverage", version: 2, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, stop?}`.
+`{schema: "kink-flow-coverage", version: 3, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, stop?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
 Version 2 builds the syntax family, where version 1 had `null`.
+Version 3 runs the flips family where a front end derives the flips: `settings.tiers` `[1, 2]`, the family's items, counts, measure and search, its targets, and `summary.per_family.flips`.
 `settings` is `{tiers, depth, mcdc, max_obligations, source}` (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, not_cached?, cache_error?, unable_to_kill?}` (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, measure, counts, items}` where built.
-`summary` is `{programs, comparable, computed, mismatches, open, argued, per_family}`, `per_family` giving each built family's `{obligations, covered, argued, open}`; nothing is argued in this build (`argued` 0).
+`summary` is `{programs, comparable, computed, mismatches, open, argued, per_family}`, `per_family` giving each built family's `{obligations, covered, argued, open}` (the flips' where they ran, their obligations less the refused and equivalent ones); nothing is argued in this build (`argued` 0).
+The exit status is `coverage`'s (above), joined with 3 for an `unknown` flip and 2 for a flip whose search ended in an error; a refused flip is no finding about the corpus.
 `baseline_runs` counts the command's baseline runs (`coverage --verify` runs every program live: `live` is the number of programs, `reused` 0).
 `spec.execution_digest` (`{kind, digest}`, the result cache's key, beside `spec.digest`), `spec.exclusion`, `spec.short_circuit` and `result_cache: {enabled, reason}` are as in the run document.
 A refused specification has `families` null.
@@ -1330,7 +1367,7 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 9
+version = 10
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
@@ -1341,7 +1378,7 @@ krs_annotation = 5            # coverage: a document the KRS front end annotated
 outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below
 
 [settings]                    # coverage: the tiers computed and [coverage]'s values
-tiers = [1]
+tiers = [1, 2]
 depth = 1
 mcdc = []
 
@@ -1351,8 +1388,21 @@ open = ["rule:calc.k:23"]
 [requirements]
 open = []
 
+[syntax]
+open = []
+
 [flips]                       # coverage: whether the flips family ran
-run = false
+run = true
+
+[[flip]]                      # coverage: each flip, where they ran, in item order
+id = "flip--dispatch+run+wake+halted--H"
+status = "distinguished"
+killer = "irq"                # a distinguished flip's first killer in the search's order
+
+[[flip]]
+id = "flip--refused"
+status = "refused"
+reason = "not-judged"         # a refused flip's reason
 
 [[mutation]]                  # run: each mutation it judged, in list order
 id = "add-becomes-sub"
@@ -1371,7 +1421,8 @@ a run that a corpus error stopped ends with `[stopped]`, the mutation and the re
 An `invalid-mutation` or `not-admitted` mutation, which its author must fix before it is judged, has its `reason`, as a refused specification has: the reason is a function of the specification and the mutation alone (the resolution, the mutant's compile, its consistency, its stop), so it is the refusal's verdict, and a lock shows which refusal moved.
 A refusal's or a stop's text is not part of the rendering, since it explains a refusal rather than records a verdict: `kink-flow` prints it on stderr (`kink_flow::verdicts::refusal_details`), one line per refused specification or list, per mutation its author must fix (`mutation <id>: <status> <reason>: <detail>`), and for a stop.
 
-A coverage rendering lists ids, which name a rule by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line` ("The document" under `coverage`); it lists no program and no count, so it moves only when a gap opens or closes, and a case that covers nothing new renders the same bytes.
+A coverage rendering lists ids, which name a rule by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line` ("The document" under `coverage`); it lists no program and no count, so it moves only when a gap opens or closes or a flip's status or killer moves, and a case that covers nothing new renders the same bytes.
+Where the flips ran, each is listed (`[[flip]]`) with its status, a refused flip's reason and a distinguished flip's killer; version 10 holds this section, since no document that renders under version 10 without it renders differently: a flips family that ran is new input.
 The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`); version 3 adds `stop.krs.when`, the stop condition as the corpus wrote it, and spells items as version 2 does; version 4 named a `results` document's guard nodes by KRS construct, and version 5 annotates the `coverage` document that replaced it, whose item ids spell items as version 2 does.
 Two renderings of the same verdicts under different annotation versions differ in that line and in the rule names only.
 A run rendering names no rule, so it has no `krs_annotation` line, which could only move a lock without any verdict moving.
@@ -1639,7 +1690,8 @@ Both decode `FLOW.toml` with `ManifestFile::decode` and run the engine unchanged
   A front end then sets on it what only it knows: how typed inputs are read (`with_input_decoder`) and which sentences are claim helpers (`with_claim_helpers`, by module and label; `coverage` above).
 - `report::stored_report(directory, options, spelling)` is `report` for the corpus whose manifest is in `directory`, so a front end prints the stored run document without building the specification.
 - `FlowCommand::parse(verb, files, options)` reads a verb's options exactly as `kink-flow <verb>` does, the corpus's files given by the front end (`CommandFiles`: kink-flow's operands, or the front end's layout), and `dispatch(manifest, command, front)` runs it on the large stack kink's definitions need.
-- `FrontEnd` is what a front end adds: `spelling`, how next steps spell its commands, with whatever selects its corpus (the trait `CommandSpelling`; kink-flow's own is `KinkFlowSpelling`); `refused`, the mutations its own checks refused, each with an `InvalidReason::External { name, next }`; and `annotate`, applied to every document before it is printed and, for `run`, before each write of the report.
+- `FrontEnd` is what a front end adds: `spelling`, how next steps spell its commands, with whatever selects its corpus (the trait `CommandSpelling`; kink-flow's own is `KinkFlowSpelling`); `refused`, the mutations its own checks refused, each with an `InvalidReason::External { name, next }`; `annotate`, applied to every document before it is printed and, for `run`, before each write of the report; and `derived`, the condition flips it derives for `coverage`'s flips family (`flips::Derived::Flips` with a `DerivedList`), or why it derives none (`Derived::None`, kink-flow's own: `flips::DERIVES_NONE`).
+  `coverage` reads the rules' items as `annotate` names them before it deduces which flips are unreached, so a front end's match (`krs.matched_by`) decides a match occurrence.
   A refused mutation's `run` row has status `invalid-mutation`, the front end's reason, detail and next step (`action`), and nothing is resolved, compiled or run for it, so no outcome record or memo record is written; `check --mutations` adds the refusal to its row, and a `fuzz` kill job of it is refused.
 - `check_corpus_mutations` and `check_mutations_document` let a front end add its findings (`Finding::refused` for a refusal) and its own row keys (`MutationCheckRow::extra`, rendered after kink-flow's keys) between the check and its document.
 - `visit_rules` visits every object of a document that names a sentence of the baseline (a `module` and an `index`; in `spec.exclusion`, the `authors` of each compiled sentence), with the sentence and its label, so a front end can add its own names to every rule a document names.
