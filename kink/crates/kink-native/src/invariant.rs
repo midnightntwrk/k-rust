@@ -59,9 +59,15 @@
 //! such a state, matched by `L`, where `F` holds and the obligation does. A left-hand side with a
 //! builtin collection is no such term (its instances need the collection's keys distinct), so
 //! there a satisfiable predicate is [`Undecided::InstancesUnshown`]. Every other outcome is
-//! [`Connection::Undecided`] with its cause. Each `Unknown` the solver answers to this module's
-//! satisfiability question is counted in the caller's counter, as the leaf questions of
-//! [`crate::feasibility`] are.
+//! [`Connection::Undecided`] with its cause. Each `Unknown` the solver answers is counted in the
+//! caller's counter, as the leaf questions of [`crate::feasibility`] are: that of this module's
+//! satisfiability question, and each the simplification reports (its `UndecidedPredicate` and
+//! `UndecidedCondition` diagnostics, for the residual it decides and the equation conditions it
+//! leaves open).
+//!
+//! The whole decision, the simplification and every solver question, runs on the proof route
+//! whatever evaluation mode the caller is in: an answer never rests on a value the definition
+//! leaves to the implementation.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -71,9 +77,12 @@ use std::sync::Arc;
 use k_rust::names::BuiltinSort;
 use k_rust_backend::coverage::Connective;
 use k_rust_backend::definition::BackendDefinition;
+use k_rust_backend::diagnostic::{self, BackendDiagnostic};
 use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
 use k_rust_backend::rule::{Predicate, RewriteRule};
-use k_rust_backend::simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver};
+use k_rust_backend::simplify::{
+    ConditionIndeterminacy, SimplificationOptions, simplify_and_decide_predicate_with_solver,
+};
 use k_rust_backend::smt::{Satisfiability, SmtError, SmtSolver};
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::term::{Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
@@ -347,6 +356,7 @@ fn applied(
             if let TermKind::Application { arguments, .. } = cell.kind()
                 && let [content] = arguments.as_slice()
             {
+                let content = bound(content);
                 let sort = content.sort();
                 if sort == *parameter {
                     return Ok(content.clone());
@@ -366,6 +376,19 @@ fn applied(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Term::application(Arc::clone(symbol), Vec::new(), arguments))
+}
+
+/// `term` with a binding conjunction at its root, `\and(t, X)` or `\and(X, t)` of a variable `X`,
+/// read as `t`: a left-hand side writes a cell's content so where it names the content and binds it
+/// (`<a> (0 #Or 1) </a>` binds each alternative to a variable). Where the conjunction is defined,
+/// which it is at every state the left-hand side matches, `t` denotes the element it denotes, and
+/// `t` says more of it than `X`.
+fn bound(term: &Term) -> &Term {
+    match term.kind() {
+        TermKind::And(left, right) if matches!(right.kind(), TermKind::Variable(_)) => bound(left),
+        TermKind::And(left, right) if matches!(left.kind(), TermKind::Variable(_)) => bound(right),
+        _ => term,
+    }
 }
 
 /// Whether `symbol` is a function of result sort `Bool` without sort parameters.
@@ -606,6 +629,12 @@ fn dealiased(term: &Term, alias: &impl Fn(&Term, &Term) -> bool) -> Option<Term>
 
 /// The connection of `question` at the left-hand side `lhs` (module documentation, "How the
 /// answer is decided").
+///
+/// The whole decision runs on the proof route, the solver's questions included: the solver reads
+/// a hook whose value the definition leaves to the implementation by the evaluation mode it is
+/// asked in, so a question asked in an execution's scope could rest on k-rust's chosen value,
+/// which is no consequence of the definition. Whatever scope the caller is in, the answer is the
+/// definition's.
 fn decide(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
@@ -614,6 +643,21 @@ fn decide(
     question: &Predicate,
     undecided: &Cell<usize>,
 ) -> Connection {
+    with_evaluation(EvaluationMode::Proof, || {
+        decide_on_the_proof_route(definition, solver, inhabitation, lhs, question, undecided)
+    })
+}
+
+/// The work of [`decide`], which runs it on the proof route.
+fn decide_on_the_proof_route(
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    inhabitation: &Inhabitation,
+    lhs: &Term,
+    question: &Predicate,
+    undecided: &Cell<usize>,
+) -> Connection {
+    let count = || undecided.set(undecided.get().saturating_add(1));
     let shown = |connection: Connection| {
         if instances(lhs, question, inhabitation) {
             connection
@@ -621,7 +665,11 @@ fn decide(
             Connection::Undecided(Undecided::InstancesUnshown)
         }
     };
-    let simplified = with_evaluation(EvaluationMode::Proof, || {
+    // The simplification asks the solver itself (its residual's decision, and the conditions of
+    // the equations it applies) and reports an `Unknown` it keeps the subject of only as an
+    // `UndecidedPredicate` or `UndecidedCondition` diagnostic, each counted here. The diagnostics
+    // still reach the caller's collector (`diagnostic::collect` forwards them).
+    let (simplified, diagnostics) = diagnostic::collect(|| {
         simplify_and_decide_predicate_with_solver(
             definition,
             question,
@@ -630,6 +678,19 @@ fn decide(
             solver,
         )
     });
+    for diagnostic in &diagnostics {
+        if let BackendDiagnostic::UndecidedPredicate {
+            reason: ConditionIndeterminacy::SmtUnknown(_),
+            ..
+        }
+        | BackendDiagnostic::UndecidedCondition {
+            reason: ConditionIndeterminacy::SmtUnknown(_),
+            ..
+        } = diagnostic
+        {
+            count();
+        }
+    }
     let residual = match simplified {
         Err(stop) => {
             stop.forgo_refinement();
@@ -654,7 +715,7 @@ fn decide(
         }
         Ok(Ok(Satisfiability::Sat)) => Connection::Undecided(Undecided::Inexact),
         Ok(Ok(Satisfiability::Unknown(reason))) => {
-            undecided.set(undecided.get().saturating_add(1));
+            count();
             Connection::Undecided(Undecided::SolverUnknown(reason))
         }
         Ok(Err(SmtError::Unavailable)) => Connection::Undecided(Undecided::NoSolver),
@@ -1060,5 +1121,328 @@ mod tests {
             );
             assert_eq!(undecided.get(), 0);
         });
+    }
+
+    /// A solver with scripted answers to both kinds of question that records the evaluation mode
+    /// each question is asked in.
+    struct Probing {
+        sat: Result<Satisfiability, SmtError>,
+        validity: Result<Validity, SmtError>,
+        modes: std::cell::RefCell<Vec<k_rust_backend::evaluation::EvaluationMode>>,
+    }
+
+    impl Probing {
+        fn new(
+            sat: Result<Satisfiability, SmtError>,
+            validity: Result<Validity, SmtError>,
+        ) -> Self {
+            Self {
+                sat,
+                validity,
+                modes: std::cell::RefCell::default(),
+            }
+        }
+    }
+
+    impl SmtSolver for Probing {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            self.modes
+                .borrow_mut()
+                .push(k_rust_backend::evaluation::current());
+            Ok(self.sat.clone())
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            self.modes
+                .borrow_mut()
+                .push(k_rust_backend::evaluation::current());
+            Ok(self.validity.clone())
+        }
+    }
+
+    /// A connection asked from inside an execution's scope (a run's or an evidence callback's)
+    /// still asks every solver question on the proof route, so no answer rests on a value the
+    /// definition leaves to the implementation. Both profiles: the solver is scripted.
+    #[test]
+    fn every_solver_question_is_asked_on_the_proof_route() {
+        use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
+        with_fixture(|definition, _| {
+            let cells = memory();
+            let walk = Some(Invariant {
+                symbol: "LbloutsideRom",
+                cells: &cells,
+            });
+            let solver = Probing::new(
+                Ok(Satisfiability::Sat),
+                Ok(Validity::Unknown("scripted".into())),
+            );
+            let undecided = Cell::new(0);
+            let answer = with_evaluation(EvaluationMode::Execution, || {
+                ask(
+                    definition,
+                    &solver,
+                    "readz",
+                    Valuation::Held,
+                    walk,
+                    &undecided,
+                )
+            });
+            assert_eq!(answer, Connection::Undecided(Undecided::Inexact));
+            let modes = solver.modes.borrow();
+            assert!(!modes.is_empty());
+            assert!(
+                modes.iter().all(|mode| *mode == EvaluationMode::Proof),
+                "{modes:?}"
+            );
+        });
+    }
+
+    /// The simplification's own `Unknown`s are counted, though its result is only the undecided
+    /// residual: here every validity question is undecided and the satisfiability question finds
+    /// an approximate model, so the connection is `Inexact` with an undecided answer counted for
+    /// each validity question. Both profiles: the solver is scripted.
+    #[test]
+    fn an_unknown_of_the_simplification_is_counted() {
+        with_fixture(|definition, _| {
+            let cells = memory();
+            let walk = Some(Invariant {
+                symbol: "LbloutsideRom",
+                cells: &cells,
+            });
+            let solver = Probing::new(
+                Ok(Satisfiability::Sat),
+                Ok(Validity::Unknown("scripted".into())),
+            );
+            let undecided = Cell::new(0);
+            assert_eq!(
+                ask(
+                    definition,
+                    &solver,
+                    "readz",
+                    Valuation::Held,
+                    walk,
+                    &undecided
+                ),
+                Connection::Undecided(Undecided::Inexact)
+            );
+            // Two validity questions, both reported: the definedness condition of the walk's
+            // equation at the binding of `A`, and the residual's decision.
+            let modes = solver.modes.borrow();
+            assert_eq!(modes.len(), 3, "{modes:?}");
+            assert_eq!(undecided.get(), 2);
+        });
+    }
+
+    /// A cell the rule binds by an alias (`#as C`) is read through the conjunction the alias
+    /// compiles to, and the left-hand side with the alias read as its cell shows an instance at a
+    /// model.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_cell_bound_by_an_alias_is_read_through_it() {
+        with_fixture(|definition, solver| {
+            let cells = scalars();
+            let ordered = Some(Invariant {
+                symbol: "Lblordered",
+                cells: &cells,
+            });
+            let undecided = Cell::new(0);
+            let ask = |valuation| {
+                ask(
+                    definition, solver, "aliased", valuation, ordered, &undecided,
+                )
+            };
+            assert_eq!(ask(Valuation::Held), Connected);
+            assert_eq!(ask(Valuation::Refuted), NotConnected);
+            assert_eq!(undecided.get(), 0);
+        });
+    }
+
+    /// An axiom compiled to several rules is connected only where each of its rules is: `either`
+    /// matches `<a> 0 </a>` or `<a> 1 </a>`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_axiom_of_several_rules_is_connected_only_where_each_is() {
+        with_fixture(|definition, solver| {
+            let id = axiom(definition, "either");
+            let alternatives = definition
+                .rewrite_theory()
+                .values()
+                .flat_map(|priorities| priorities.values())
+                .flatten()
+                .filter(|rule| rule.rule.attributes.unique_id == id)
+                .count();
+            assert_eq!(alternatives, 2);
+            let cells = [cell("a")];
+            let undecided = Cell::new(0);
+            let ask = |symbol| {
+                ask(
+                    definition,
+                    solver,
+                    "either",
+                    Valuation::Matches,
+                    Some(Invariant {
+                        symbol,
+                        cells: &cells,
+                    }),
+                    &undecided,
+                )
+            };
+            // `a <=Int 0` excludes `<a> 1 </a>` only; `a >Int 1` excludes both.
+            assert_eq!(ask("Lblsmall"), NotConnected);
+            assert_eq!(ask("Lblbig"), Connected);
+            assert_eq!(undecided.get(), 0);
+        });
+    }
+
+    /// The valuation of a node reached through `orBool` (every operand before it false) and
+    /// through `impliesBool` (the right operand where the left one is true) carries the truths
+    /// that reach it.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn disjunctions_and_implications_reach_their_operands_by_the_written_order() {
+        with_fixture(|definition, solver| {
+            let scalar_cells = scalars();
+            let undecided = Cell::new(0);
+            let reached = |path: &'static [u32], truth| Valuation::Reached { path, truth };
+            // `disjoint` requires `A >Int B orBool B >Int A`. Under `inRom(a, b)`, `B <Int A`,
+            // the first atom holds, so the second, reached only where the first is false, is
+            // reached with neither truth; without the reaching truth, the second false would be
+            // `B <=Int A`, which the invariant admits.
+            let below = Some(Invariant {
+                symbol: "LblinRom",
+                cells: &scalar_cells,
+            });
+            assert_eq!(
+                atoms(definition, &axiom(definition, "disjoint")),
+                [vec![0, 0, 0], vec![0, 0, 1]]
+            );
+            for (path, truth, expected) in [
+                (&[0, 0, 0][..], true, NotConnected),
+                (&[0, 0, 0][..], false, Connected),
+                (&[0, 0, 1][..], true, Connected),
+                (&[0, 0, 1][..], false, Connected),
+            ] {
+                assert_eq!(
+                    ask(
+                        definition,
+                        solver,
+                        "disjoint",
+                        reached(path, truth),
+                        below,
+                        &undecided
+                    ),
+                    expected,
+                    "disjoint {path:?} {truth}"
+                );
+            }
+            // `implied` requires `A >Int B impliesBool B >Int A`. Under `a <=Int b` the left
+            // atom is false, so the right one, reached only where the left is true, is reached
+            // with neither truth; without the reaching truth, the right false would be
+            // `B <=Int A`, which the invariant admits at `A = B`.
+            let ordered = Some(Invariant {
+                symbol: "Lblordered",
+                cells: &scalar_cells,
+            });
+            assert_eq!(
+                atoms(definition, &axiom(definition, "implied")),
+                [vec![0, 0, 0], vec![0, 0, 1]]
+            );
+            for (path, truth, expected) in [
+                (&[0, 0, 0][..], true, Connected),
+                (&[0, 0, 0][..], false, NotConnected),
+                (&[0, 0, 1][..], true, Connected),
+                (&[0, 0, 1][..], false, Connected),
+            ] {
+                assert_eq!(
+                    ask(
+                        definition,
+                        solver,
+                        "implied",
+                        reached(path, truth),
+                        ordered,
+                        &undecided
+                    ),
+                    expected,
+                    "implied {path:?} {truth}"
+                );
+            }
+            assert_eq!(undecided.get(), 0);
+        });
+    }
+
+    /// The matching-logic connectives reach their operands as the Boolean ones do: `\and` and the
+    /// `requires`' conjuncts where the earlier ones hold, `\or` where they do not, the right of
+    /// `\implies` where its left holds, the operand of `\not` and of `\iff` where the node is.
+    /// The atoms are opaque here: only the shape of the valuation is checked.
+    #[test]
+    fn predicate_connectives_reach_their_operands_by_the_written_order() {
+        use std::sync::Arc;
+
+        use k_rust_backend::term::Term;
+
+        use super::reached;
+
+        let atom = |value: i64| Predicate::Ceil(Term::int(value));
+        let not = |predicate: Predicate| Predicate::Not(Arc::new(predicate));
+        let and = |predicates: Vec<Predicate>| Predicate::And(predicates.into());
+        let (p, q, r) = (atom(1), atom(2), atom(3));
+        let or = Predicate::Or(vec![q.clone(), r.clone()].into());
+        let implies = Predicate::Implies(Arc::new(q.clone()), Arc::new(r.clone()));
+        let iff = Predicate::Iff(Arc::new(q.clone()), Arc::new(r.clone()));
+        let conjunction = Predicate::And(vec![q.clone(), r.clone()].into());
+        let rows = [
+            (
+                vec![p.clone(), or.clone()],
+                vec![1, 1],
+                false,
+                and(vec![p.clone(), not(q.clone()), not(r.clone())]),
+            ),
+            (vec![or.clone()], vec![0, 0], true, q.clone()),
+            (
+                vec![implies.clone()],
+                vec![0, 1],
+                true,
+                and(vec![q.clone(), r.clone()]),
+            ),
+            (vec![implies.clone()], vec![0, 0], false, not(q.clone())),
+            (vec![iff.clone()], vec![0, 1], true, r.clone()),
+            (
+                vec![conjunction.clone()],
+                vec![0, 1],
+                false,
+                and(vec![q.clone(), not(r.clone())]),
+            ),
+            (vec![not(q.clone())], vec![0, 0], true, q.clone()),
+            (
+                vec![p.clone(), q.clone()],
+                vec![1],
+                true,
+                and(vec![p.clone(), q.clone()]),
+            ),
+        ];
+        for (requires, path, truth, expected) in rows {
+            assert_eq!(
+                reached(&requires, &path, truth),
+                Ok(expected),
+                "{path:?} {truth}"
+            );
+        }
+        assert_eq!(
+            reached(std::slice::from_ref(&p), &[0, 0], true),
+            Err(Refusal::NoNode(vec![0, 0]))
+        );
+        assert_eq!(
+            reached(&[implies], &[0, 2], true),
+            Err(Refusal::NoNode(vec![0, 2]))
+        );
     }
 }

@@ -6,6 +6,10 @@ module INVMEM-SYNTAX
   syntax Op ::= read(Int) [symbol(read)]
               | "bump" [symbol(bump)]
               | "tie" [symbol(tie)]
+              | "aliased" [symbol(aliased)]
+              | "either" [symbol(either)]
+              | "disjoint" [symbol(disjoint)]
+              | "implied" [symbol(implied)]
 endmodule
 
 module INVMEM
@@ -54,4 +58,23 @@ module INVMEM
 
   rule [bump]: <k> bump => .K ... </k> <a> A </a> <b> B </b> requires A >Int B
   rule [tie]:  <k> tie => .K ... </k> <a> A </a> <b> B </b> requires A >Int B andBool B >Int A
+
+  // `small` and `big` read one cell, for the alternatives of `either`.
+  syntax Bool ::= small(Int) [function, total, symbol(small)]
+                | big(Int) [function, total, symbol(big)]
+  rule small(A) => A <=Int 0
+  rule big(A) => A >Int 1
+
+  // A cell bound by an alias that the right-hand side reads.
+  syntax Int ::= aOf(ACell) [function, total, symbol(aOf)]
+  rule aOf(<a> X </a>) => X
+  rule [aliased]: <k> aliased => .K ... </k> (<a> A </a> #as C) <b> B => aOf(C) </b>
+    requires A >Int B
+  // An axiom whose left-hand side has two alternatives.
+  rule [either]: <k> either => .K ... </k> <a> (0 #Or 1) </a>
+  // Guards whose second atom is reached through a disjunction and an implication.
+  rule [disjoint]: <k> disjoint => .K ... </k> <a> A </a> <b> B </b>
+    requires A >Int B orBool B >Int A
+  rule [implied]: <k> implied => .K ... </k> <a> A </a> <b> B </b>
+    requires A >Int B impliesBool B >Int A
 endmodule
