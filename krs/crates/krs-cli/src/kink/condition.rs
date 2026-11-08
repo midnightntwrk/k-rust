@@ -22,8 +22,11 @@
 //! The identity is `{observer: {definition, definition_ir}, function, cells}`: the observer's
 //! name as written (`null` for the baseline) and its Definition IR digest (the digest the
 //! evidence's identity names, [`super::render::definition_digest`]), the function's full KRS path
-//! and the cells as written. The digest decides every answer the observer gives, and the path and
-//! the cells which question it is asked.
+//! and the cells as written; with a named observer also `subject: {definition_ir}`, the
+//! baseline's Definition IR digest, with whose declarations the cells are read. The digest
+//! decides every answer the observer gives, the subject how each cell's term is read, and the
+//! path and the cells which question it is asked. kink-campaign holds equal stops as one value
+//! with one oracle, so the identity names everything the oracle depends on.
 
 use std::sync::Arc;
 
@@ -103,7 +106,7 @@ impl KrsCondition {
             .map_err(unresolved)?;
         condition.cells = resolved.cell_symbols().map(<[String]>::to_vec).collect();
         let digest = definition_digest(condition.observer.definition()).map_err(unresolved)?;
-        let identity = json!({
+        let mut identity = json!({
             "observer": {
                 "definition": condition.when.observer,
                 "definition_ir": digest,
@@ -111,6 +114,12 @@ impl KrsCondition {
             "function": resolved.function_path(),
             "cells": condition.when.cells,
         });
+        // A named observer reads the cells with the baseline's declarations (the subject), which
+        // its own digest does not name; the baseline as observer is its own subject.
+        if let Subject::Inputs(_) = &condition.subject {
+            identity["subject"] =
+                json!({"definition_ir": definition_digest(definition).map_err(unresolved)?});
+        }
         Ok(StopWhen::new(identity, Arc::new(condition)))
     }
 

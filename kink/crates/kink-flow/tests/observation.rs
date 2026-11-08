@@ -957,6 +957,10 @@ impl kink_flow::ObservationFunctions for Unasked {
         &[]
     }
 
+    fn filtered(&self, _: usize) -> bool {
+        false
+    }
+
     fn with_evaluator(
         &self,
         _: &mut dyn FnMut(&mut dyn kink_flow::ObservationEvaluator),

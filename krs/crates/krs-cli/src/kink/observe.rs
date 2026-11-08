@@ -32,9 +32,13 @@
 //!
 //! The identity is `{observer: {definition, definition_ir}, declaration}`: the observer's name
 //! as written (`null` for the baseline) and its Definition IR digest, and the declaration with
-//! KRS's spellings as written. The digest and the names decide every function a name resolves to
-//! and every answer it gives; the baseline's declarations, which read the cells, are named by
-//! every key already.
+//! KRS's spellings as written; with a named observer also `subject: {definition_ir}`, the
+//! baseline's Definition IR digest. The digest and the names decide every function a name
+//! resolves to and every answer it gives, and the subject how each cell's term is read as a value
+//! of the observer: the baseline as observer is its own subject, a named observer reads the cells
+//! with the baseline's declarations. kink-campaign holds equal declarations as one value with one
+//! oracle, so two corpora whose baselines differ give two declarations even where they name one
+//! observer.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -365,13 +369,19 @@ impl KrsObservations {
             .map_err(unresolved)?;
         functions.cells = resolved.read_cells();
         let digest = definition_digest(functions.observer.definition()).map_err(unresolved)?;
-        let identity = json!({
+        let mut identity = json!({
             "observer": {
                 "definition": functions.spec.observer,
                 "definition_ir": digest,
             },
             "declaration": written_value(&functions.spec),
         });
+        // A named observer reads the cells with the baseline's declarations (the subject), which
+        // its own digest does not name; the baseline as observer is its own subject.
+        if let Subject::Inputs(_) = &functions.subject {
+            identity["subject"] =
+                json!({"definition_ir": definition_digest(definition).map_err(unresolved)?});
+        }
         Ok(ObserveFunctions::new(identity, Arc::new(functions)))
     }
 
@@ -396,6 +406,13 @@ impl KrsObservations {
 impl ObservationFunctions for KrsObservations {
     fn cells(&self) -> &[Vec<String>] {
         &self.cells
+    }
+
+    fn filtered(&self, class: usize) -> bool {
+        self.spec
+            .points
+            .get(class)
+            .is_some_and(|point| point.when.is_some())
     }
 
     fn with_evaluator(

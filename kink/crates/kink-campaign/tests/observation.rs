@@ -1070,6 +1070,10 @@ impl ObservationFunctions for Halved {
         &[]
     }
 
+    fn filtered(&self, _: usize) -> bool {
+        true
+    }
+
     fn with_evaluator(
         &self,
         body: &mut dyn FnMut(&mut dyn ObservationEvaluator),
@@ -1177,5 +1181,246 @@ fn a_front_ends_functions_give_the_contents_and_filter_the_events() {
                 }
             )])
         );
+    });
+}
+
+/// A front end whose observer gave no request an evaluator: it reads `cells` besides the
+/// declaration's, and says whether its class has a filter (`filtered`).
+struct Unloaded {
+    cells: Vec<Vec<String>>,
+    filtered: bool,
+}
+
+impl ObservationFunctions for Unloaded {
+    fn cells(&self) -> &[Vec<String>] {
+        &self.cells
+    }
+
+    fn filtered(&self, _: usize) -> bool {
+        self.filtered
+    }
+
+    fn with_evaluator(
+        &self,
+        _: &mut dyn FnMut(&mut dyn ObservationEvaluator),
+    ) -> Result<(), String> {
+        Err("the observer does not load".to_owned())
+    }
+}
+
+/// `observe` with `functions` set on its declaration, whose identity is `identity`: equal
+/// declarations are one interned value with one oracle, so each distinct oracle names its own.
+fn with_functions(
+    options: RunOptions,
+    identity: serde_json::Value,
+    functions: impl ObservationFunctions + 'static,
+) -> RunOptions {
+    RunOptions {
+        observe: options.observe.with_functions(ObserveFunctions::new(
+            identity,
+            std::sync::Arc::new(functions),
+        )),
+        ..options
+    }
+}
+
+/// An observer that gives no request an evaluator leaves every filter undecided: whether a point
+/// is an event is not known, so a class with a filter opens its channel at its first point, and
+/// halt's bound -1, which ends the mutant before its first tick, kills nothing there, though the
+/// baseline ticks: its filter may hold at none of its ticks. A class with no filter keeps every
+/// tick as an event, each an undecided element: counted, the baseline's first tick is an element
+/// at 0, a fact of its path, so the mutant's END there is a decided difference.
+#[test]
+fn a_request_without_an_evaluator_opens_each_filtered_class_at_its_first_point() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("console")];
+        let campaign = campaign(&validator, &tests, DEPTH);
+        let generation = replaced(validator.baseline(), HALT, "1000000", "-1");
+        let counted = || observe(vec![clock(Stutter::Count)], Vec::new());
+        let filtered = run(
+            &campaign,
+            &generation,
+            with_functions(
+                counted(),
+                serde_json::json!({"unloaded": {"filtered": true}}),
+                Unloaded {
+                    cells: Vec::new(),
+                    filtered: true,
+                },
+            ),
+        );
+        let Some(Observation::Recorded(record)) = &filtered.baseline[0].notes.observation else {
+            panic!("the baseline records its channels");
+        };
+        assert_eq!(record.channels[0].horizon(), Some(0));
+        let ChannelEnd::Open(opened) = &record.channels[0].end else {
+            panic!("the filtered class opens at its first point");
+        };
+        assert_eq!(
+            opened.opening,
+            kink_campaign::Opening::UndecidedElement,
+            "{opened:?}"
+        );
+        assert!(
+            opened.reason.contains("its filter is not known here"),
+            "{opened:?}"
+        );
+        assert_ne!(filtered.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(verdict(&filtered).outcome, OracleOutcome::Unknown);
+
+        let unfiltered = run(
+            &campaign,
+            &generation,
+            with_functions(
+                counted(),
+                serde_json::json!({"unloaded": {"filtered": false}}),
+                Unloaded {
+                    cells: Vec::new(),
+                    filtered: false,
+                },
+            ),
+        );
+        assert_eq!(unfiltered.mutants[0].report.status, MutantStatus::Killed);
+        let distinguished = verdict(&unfiltered);
+        assert_eq!(distinguished.position, position("clock", 0, true));
+        assert_eq!(distinguished.element, Some(Element::End));
+    });
+}
+
+/// [`Halved`], whose filter is not known where the count is 4: counted, the clock's events are
+/// the counts 0 and 2, and its channel opens at its element 2, the point at 4, since whether that
+/// point is an event is not known. tick's count step 1 becomes 3: the mutant's even counts are 0
+/// and 6, its element 1 is 3 against the baseline's 1, before the open point: killed there.
+struct Unsure;
+
+impl ObservationFunctions for Unsure {
+    fn cells(&self) -> &[Vec<String>] {
+        &[]
+    }
+
+    fn filtered(&self, _: usize) -> bool {
+        true
+    }
+
+    fn with_evaluator(
+        &self,
+        body: &mut dyn FnMut(&mut dyn ObservationEvaluator),
+    ) -> Result<(), String> {
+        body(&mut Unsure);
+        Ok(())
+    }
+}
+
+impl ObservationEvaluator for Unsure {
+    fn holds(&mut self, class: usize, state: &ProbeState<'_>) -> Option<Result<bool, String>> {
+        match count_of(state) {
+            Ok(4) => Some(Err("the filter is not known at 4".to_owned())),
+            _ => Halved.holds(class, state),
+        }
+    }
+
+    fn content(
+        &mut self,
+        class: usize,
+        state: &ProbeState<'_>,
+        value: bool,
+    ) -> Result<Evaluated, String> {
+        Halved.content(class, state, value)
+    }
+
+    fn elements(
+        &mut self,
+        log: usize,
+        item: &Pattern,
+        value: bool,
+    ) -> Result<Vec<Evaluated>, String> {
+        Halved.elements(log, item, value)
+    }
+
+    fn item_digest(&mut self, item: &Pattern) -> [u8; 32] {
+        Halved.item_digest(item)
+    }
+}
+
+/// [`Unsure`]'s filter, not known at the count 4, opens the counted clock's channel there.
+#[test]
+fn an_undecided_filter_opens_a_counted_class_at_its_point() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("console")];
+        let campaign = campaign(&validator, &tests, DEPTH);
+        let options = with_functions(
+            observe(vec![clock(Stutter::Count)], Vec::new()),
+            serde_json::json!({"unsure": 4}),
+            Unsure,
+        );
+        let faster = replaced(validator.baseline(), TICK, "1", "3");
+        let killed = run(&campaign, &faster, options);
+        let Some(Observation::Recorded(record)) = &killed.baseline[0].notes.observation else {
+            panic!("the baseline records its channels");
+        };
+        assert_eq!(record.channels[0].horizon(), Some(2));
+        let ChannelEnd::Open(opened) = &record.channels[0].end else {
+            panic!("the class opens at the undecided filter");
+        };
+        assert_eq!(
+            opened.opening,
+            kink_campaign::Opening::UndecidedElement,
+            "{opened:?}"
+        );
+        assert!(
+            opened.reason.contains("the filter is not known at 4"),
+            "{opened:?}"
+        );
+        assert_eq!(killed.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(verdict(&killed).position, position("clock", 1, false));
+    });
+}
+
+/// The cells a front end's functions read besides the declaration's are read cells of it, which
+/// a mutant's admission reads with the declaration's: functions that read a cell no symbol of the
+/// configuration heads give no read signature to compare, so the mutant whose tick steps by 3 is
+/// not admitted (`observation-incompatible`), while the same functions reading `<n>`, or no other
+/// cell, admit it.
+#[test]
+fn a_cell_a_front_ends_functions_read_is_a_read_cell_for_admission() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("console")];
+        let campaign = campaign(&validator, &tests, DEPTH);
+        let generation = replaced(validator.baseline(), TICK, "1", "3");
+        let cell = |name: &str| {
+            vec![
+                "Lbl'-LT-'generatedTop'-GT-'".to_owned(),
+                format!("Lbl'-LT-'{name}'-GT-'"),
+            ]
+        };
+        for (cells, refused) in [
+            (Vec::new(), false),
+            (vec![cell("n")], false),
+            (vec![cell("nosuch")], true),
+        ] {
+            let options = with_functions(
+                observe(vec![clock(Stutter::Count)], Vec::new()),
+                serde_json::json!({"unloaded": {"cells": cells}}),
+                Unloaded {
+                    cells: cells.clone(),
+                    filtered: false,
+                },
+            );
+            let run = run(&campaign, &generation, options);
+            let mutant = &run.mutants[0];
+            assert_eq!(
+                mutant.plan.mutant_failure,
+                refused.then_some(MutantScopeFailure::ObservationIncompatible),
+                "{cells:?}"
+            );
+            assert_eq!(
+                mutant.report.status == MutantStatus::NotAdmitted,
+                refused,
+                "{cells:?}"
+            );
+        }
     });
 }

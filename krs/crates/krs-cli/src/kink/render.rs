@@ -101,12 +101,17 @@
 //! a Rust path or a component's name; a log's element its document), or the channel's closure
 //! there. The evidence is `krs-difference/4`: `{format, position: {channel, index, at_end},
 //! kind, at, cell, path, baseline: {element}, mutant: {element}}`, where `kind` is `point` or
-//! `log`, `cell` the log's cell by Rust path or the class's first component whose values differ,
-//! `path` the place inside the two values where they first differ (krs-exec `value_path`), and
-//! `at` all of it as one place (`bus[0]`, `boundary[3].pc`). Each element is the document, or
-//! `"end"`, `"undefined"`, `"cycle"` (the side's path returned to an earlier state, so its channel
-//! has no element there, ever) or `"undecided"`. The document depends on what an end difference's
-//! depends on, and its format enters the tier-1 context beside it.
+//! `log`, `cell` the log's cell by Rust path or the class's first component, in the class's
+//! declared order (its cells, then its components), whose values differ, `path` the place
+//! inside the two values where they first differ (krs-exec `value_path`), and `at` all of it as
+//! one place (`bus[0]`, `boundary[3].pc`). Each element is the document, or `"end"`,
+//! `"undefined"`, `"cycle"` (the side's path returned to an earlier state, so its channel has no
+//! element there, ever) or `"undecided"`. A part of a value that has no document in the typed
+//! encoding (a parametric constructor's application) is shown by its canonical KORE text,
+//! `{"$undocumented": {kore, reason}}` (krs-exec `UNDOCUMENTED`), and `path` stops at it: the
+//! slot decided the difference on the parts' digests, which are digests of that text, so the
+//! kill stands whether or not the part has a document. The document depends on what an end
+//! difference's depends on, and its format enters the tier-1 context beside it.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -261,37 +266,48 @@ impl Observer {
 
     /// `body` with this observer's semantics on this thread, loaded on first use under the
     /// solver options the definition's own compile has.
+    ///
+    /// The semantics is taken out of the thread's cache for the body and put back after it, so
+    /// no borrow of the cache spans the body: a body may use another observer (a stop condition's
+    /// inside an observation's request), or this one again, which then loads another copy, the
+    /// cache keeping each for later uses.
     pub(crate) fn with_loaded<T>(
         &self,
         body: impl FnOnce(&mut Semantics) -> Result<T, String>,
     ) -> Result<T, String> {
-        LOADED.with(|loaded| {
+        let taken = LOADED.with(|loaded| {
             let mut loaded = loaded.borrow_mut();
-            let position = if let Some(position) = loaded.iter().position(|(id, _)| *id == self.id)
-            {
-                position
-            } else {
-                let semantics = Semantics::from_stage(
-                    &self.definition,
-                    self.stage.clone(),
-                    None,
-                    &mut Timings::disabled(),
-                )
-                .map_err(|error| format!("krs cannot load the observer `{}`: {error}", self.name));
-                loaded.push((self.id, semantics));
-                loaded.len() - 1
-            };
-            let semantics = loaded[position]
-                .1
-                .as_mut()
-                .map_err(|reason| reason.clone())?;
-            body(semantics)
-        })
+            let position = loaded.iter().position(|(id, _)| *id == self.id)?;
+            if let Err(reason) = &loaded[position].1 {
+                return Some(Err(reason.clone()));
+            }
+            loaded.swap_remove(position).1.ok().map(Ok)
+        });
+        let mut semantics = match taken {
+            Some(taken) => taken?,
+            None => match Semantics::from_stage(
+                &self.definition,
+                self.stage.clone(),
+                None,
+                &mut Timings::disabled(),
+            ) {
+                Ok(semantics) => semantics,
+                Err(error) => {
+                    let reason = format!("krs cannot load the observer `{}`: {error}", self.name);
+                    LOADED.with(|loaded| loaded.borrow_mut().push((self.id, Err(reason.clone()))));
+                    return Err(reason);
+                }
+            },
+        };
+        let result = body(&mut semantics);
+        LOADED.with(|loaded| loaded.borrow_mut().push((self.id, Ok(semantics))));
+        result
     }
 }
 
 thread_local! {
-    /// Each observer's semantics on this thread, or why it failed to load, by observer id.
+    /// Each observer's semantics on this thread not in use, or why it failed to load, by
+    /// observer id ([`Observer::with_loaded`]).
     static LOADED: RefCell<Vec<(u64, Result<Semantics, String>)>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -439,22 +455,28 @@ fn observation_difference(
         let cell = super::cells::CellNames::of(definition)
             .path_of(&log.cell)
             .map_or_else(|| log.cell.clone(), str::to_owned);
-        let path = values.and_then(|(left, right)| krs_exec::value_path(left, right));
+        let path = values.and_then(|(left, right)| documented_path(left, right));
         ("log", Some(cell), path)
     } else {
-        // A class's content is an object of its components by name: the first that differs.
+        // A class's content is an object of its components by name: the first that differs, in
+        // the class's declared order (its cells, then its components), then any other name.
+        let declared = declared_components(definition, observe, &position.channel);
         let differing = values.and_then(|(left, right)| {
             let (Value::Object(left), Value::Object(right)) = (left, right) else {
                 return None;
             };
-            left.keys()
+            let rest = left
+                .keys()
                 .chain(right.keys())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
+                .filter(|name| !declared.contains(name))
+                .collect::<BTreeSet<_>>();
+            declared
+                .iter()
+                .chain(rest)
                 .find(|name| left.get(*name) != right.get(*name))
                 .map(|name| {
                     let path = match (left.get(name), right.get(name)) {
-                        (Some(left), Some(right)) => krs_exec::value_path(left, right),
+                        (Some(left), Some(right)) => documented_path(left, right),
                         _ => None,
                     };
                     (name.clone(), path)
@@ -492,6 +514,52 @@ fn observation_difference(
         "baseline": {"element": baseline},
         "mutant": {"element": mutant},
     }))
+}
+
+/// The path at which two unequal documents differ ([`krs_exec::value_path`]); `None` where
+/// either is a part with no document, shown whole by its KORE text ([`krs_exec::UNDOCUMENTED`]).
+fn documented_path(left: &Value, right: &Value) -> Option<String> {
+    let undocumented = |value: &Value| {
+        value
+            .as_object()
+            .is_some_and(|object| object.len() == 1 && object.contains_key(krs_exec::UNDOCUMENTED))
+    };
+    if undocumented(left) || undocumented(right) {
+        return None;
+    }
+    krs_exec::value_path(left, right)
+}
+
+/// The names of the components of the point class `channel` of `observe`, the declaration bound
+/// to `definition`, in its declared order: each cell by Rust path, then each named component.
+fn declared_components(
+    definition: &DefinitionIr,
+    observe: Option<&ObserveSection>,
+    channel: &str,
+) -> Vec<String> {
+    let Some(point) =
+        observe.and_then(|observe| observe.points.iter().find(|point| point.name == channel))
+    else {
+        return Vec::new();
+    };
+    let cells = super::cells::CellNames::of(definition);
+    let components = point
+        .front_end
+        .get("components")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|component| component["name"].as_str().map(str::to_owned));
+    point
+        .cells
+        .iter()
+        .map(|cell| {
+            cells
+                .path_of(cell)
+                .map_or_else(|| cell.clone(), str::to_owned)
+        })
+        .chain(components)
+        .collect()
 }
 
 /// Admit `expectation`, its views resolved, unless a view has no value at its expected end

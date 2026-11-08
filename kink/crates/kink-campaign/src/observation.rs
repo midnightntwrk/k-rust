@@ -81,6 +81,12 @@
 //!   either stuttering mode, since whether the point is an event at all is not known, so neither
 //!   is the index of any later element. A log read at the class's points is read at every point
 //!   of it, its filter not applying;
+//! - a request the front end gives no evaluator (its observer does not load, for one) knows no
+//!   function's value: every content and log element is undecided, and every filter, so a class
+//!   with one opens its channel at its first point ([`ObservationFunctions::filtered`]). A class
+//!   without one keeps its points, each an undecided element: under [`Stutter::Count`] each is
+//!   one unknown position, so a side's END against such an element is still a decided difference,
+//!   the number of points being a fact of the path;
 //! - each item a log appends contributes the elements the front end gives it
 //!   ([`ObservationEvaluator::elements`]), none or several, in order; an item it gives none for
 //!   is one undecided element, which opens the log's channel. The baseline's append check
@@ -571,12 +577,19 @@ pub trait ObservationFunctions: Send + Sync {
     /// that denotes another value on it than on the baseline (`observation-incompatible`).
     fn cells(&self) -> &[Vec<String>];
 
+    /// Whether the point class `class` (by position) has a filter, which keeps only some of its
+    /// points ([`ObservationEvaluator::holds`]). Known without an evaluator: a request given none
+    /// opens such a class's channel at its first point.
+    fn filtered(&self, class: usize) -> bool;
+
     /// Run `body` once with the evaluator of one request, on the calling thread.
     ///
     /// # Errors
     ///
     /// Why no evaluator can be given here (its observer does not load, for example); `body` is
-    /// then not run, and every element of the request is undecided.
+    /// then not run, and every content and log element of the request is undecided, and every
+    /// filter: a class with one opens its channel at its first point (module documentation,
+    /// "Functions of an observer").
     fn with_evaluator(
         &self,
         body: &mut dyn FnMut(&mut dyn ObservationEvaluator),
@@ -704,11 +717,12 @@ impl std::fmt::Debug for ObserveFunctions {
 }
 
 /// How one request's probe gets its contents: kink's identity contents, a front end's evaluator,
-/// or none, with why (every element is then undecided).
+/// or none, with why and the front end's functions (every element and every filter is then
+/// undecided).
 pub(crate) enum Evaluation<'e> {
     Kink,
     Front(&'e mut dyn ObservationEvaluator),
-    Missing(String),
+    Missing(String, &'e ObserveFunctions),
 }
 
 impl<'e> Evaluation<'e> {
@@ -720,7 +734,7 @@ impl<'e> Evaluation<'e> {
         match self {
             Self::Kink => Evaluation::Kink,
             Self::Front(evaluator) => Evaluation::Front(evaluator),
-            Self::Missing(reason) => Evaluation::Missing(reason),
+            Self::Missing(reason, functions) => Evaluation::Missing(reason, functions),
         }
     }
 }
@@ -740,10 +754,13 @@ pub(crate) fn evaluating<T>(observe: Observe, body: impl FnOnce(Evaluation<'_>) 
     });
     match (result, body) {
         (Some(result), _) => result,
-        (None, Some(body)) => body(Evaluation::Missing(match given {
-            Err(reason) => format!("the observer gave the run no evaluation: {reason}"),
-            Ok(()) => "the observer gave the run no evaluation".to_owned(),
-        })),
+        (None, Some(body)) => body(Evaluation::Missing(
+            match given {
+                Err(reason) => format!("the observer gave the run no evaluation: {reason}"),
+                Ok(()) => "the observer gave the run no evaluation".to_owned(),
+            },
+            functions,
+        )),
         (None, None) => unreachable!("a body taken gives a result"),
     }
 }
@@ -1466,7 +1483,7 @@ impl<'a> ObservationProbe<'a> {
                     _ => Element::Undecided,
                 };
             }
-            Evaluation::Missing(_) => return Element::Undecided,
+            Evaluation::Missing(..) => return Element::Undecided,
         }
         let Resolution::Point { cells, .. } = &self.resolved.channels[channel] else {
             unreachable!("only a point class has a content");
@@ -1513,7 +1530,7 @@ impl<'a> ObservationProbe<'a> {
                     Err(_) => Element::Undecided,
                 };
             }
-            Evaluation::Missing(_) => return Element::Undecided,
+            Evaluation::Missing(..) => return Element::Undecided,
         }
         item.free_variables()
             .is_empty()
@@ -1582,7 +1599,7 @@ impl<'a> ObservationProbe<'a> {
                     .content(channel, state, false)
                     .map(|evaluated| evaluated.digest);
             }
-            Evaluation::Missing(reason) => return Err(reason.clone()),
+            Evaluation::Missing(reason, _) => return Err(reason.clone()),
         }
         let Resolution::Point { cells, .. } = &self.resolved.channels[channel] else {
             unreachable!("only a point class has a content");
@@ -1623,7 +1640,7 @@ impl<'a> ObservationProbe<'a> {
     fn item_key(&mut self, item: &Pattern) -> Option<[u8; 32]> {
         match &mut self.evaluation {
             Evaluation::Front(evaluator) => Some(evaluator.item_digest(item)),
-            Evaluation::Kink | Evaluation::Missing(_) => self.item(item.clone()).ok(),
+            Evaluation::Kink | Evaluation::Missing(..) => self.item(item.clone()).ok(),
         }
     }
 
@@ -1640,7 +1657,7 @@ impl<'a> ObservationProbe<'a> {
                     .collect(),
                 Err(reason) => vec![Err(reason)],
             },
-            Evaluation::Missing(reason) => vec![Err(reason.clone())],
+            Evaluation::Missing(reason, _) => vec![Err(reason.clone())],
         }
     }
 
@@ -1648,12 +1665,18 @@ impl<'a> ObservationProbe<'a> {
     /// identity contents and for a class with no filter, where its filter is decided to hold
     /// under a front end's functions. A filter not known there opens the channel, under either
     /// stuttering mode: whether the point is an event at all is not known, so neither is the
-    /// index of any later element.
+    /// index of any later element. A request the front end gave no evaluator knows no filter,
+    /// so a class with one opens at its first point.
     fn keeps(&mut self, channel: usize, state: &ProbeState<'_>) -> bool {
-        let Evaluation::Front(evaluator) = &mut self.evaluation else {
-            return true;
+        let holds = match &mut self.evaluation {
+            Evaluation::Kink => None,
+            Evaluation::Front(evaluator) => evaluator.holds(channel, state),
+            Evaluation::Missing(reason, functions) => functions
+                .oracle
+                .filtered(channel)
+                .then(|| Err(format!("its filter is not known here: {reason}"))),
         };
-        match evaluator.holds(channel, state) {
+        match holds {
             None | Some(Ok(true)) => true,
             Some(Ok(false)) => false,
             Some(Err(reason)) => {

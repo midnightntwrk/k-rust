@@ -4508,6 +4508,16 @@ fn a_stop_condition_is_evaluated_in_its_named_observer() {
         *digest, baseline["stop"]["when"]["observer"]["definition_ir"],
         "{when:#}"
     );
+    // The cells are read with the definition's declarations, the subject, which a named
+    // observer's identity names beside it; the definition as observer is its own subject.
+    assert_eq!(
+        when["subject"]["definition_ir"], baseline["stop"]["when"]["observer"]["definition_ir"],
+        "{when:#}"
+    );
+    assert!(
+        baseline["stop"]["when"].get("subject").is_none(),
+        "{baseline:#}"
+    );
     let program = &document["programs"][0];
     assert_eq!(program["class"], "comparable", "{program:#}");
 
@@ -4618,6 +4628,12 @@ pub fn Requested(pending: Term<Int>) -> Term<Bool> {
     pending != 0
 }
 
+/// Whether the address is past the second: a condition and a view of `pc` no rule applies.
+#[k::function(total, internal)]
+pub fn Late(pc: Term<Int>) -> Term<Bool> {
+    pc >= 2
+}
+
 k::rules! {
     for Cpu;
 
@@ -4644,16 +4660,35 @@ const BOUNDARY_PACKAGE: &str = "krs-cli-kink-boundary";
 /// The observer of [`BOUNDARY`], a second package of its workspace that depends on it.
 const BOUNDARY_OBSERVER_PACKAGE: &str = "krs-cli-kink-boundary-observe";
 
-/// The observer's source: a view of an address that no definition imports.
+/// The observer's source: a view of an address, a filter, a component of two cells and a log's
+/// element function, which no definition imports.
 const BOUNDARY_OBSERVER: &str = r"//! An observer of the boundary machine, imported by no definition.
 
 use k::Term;
-use k::builtin::Int;
+use k::builtin::{Bool, Int, List};
 
 /// The page of an address: the address halved.
 #[k::function(total, internal)]
 pub fn Page(pc: Term<Int>) -> Term<Int> {
     pc / 2
+}
+
+/// Whether the address is past the second.
+#[k::function(total, internal)]
+pub fn Far(pc: Term<Int>) -> Term<Bool> {
+    pc >= 2
+}
+
+/// How many addresses are left before the limit.
+#[k::function(total, internal)]
+pub fn Left(pc: Term<Int>, limit: Term<Int>) -> Term<Int> {
+    limit - pc
+}
+
+/// A bus read as an element: its address past 100.
+#[k::function(total, internal)]
+pub fn Shifted(pc: Term<Int>) -> Term<List<Int>> {
+    [pc + 100]
 }
 ";
 
@@ -4665,7 +4700,13 @@ const BOUNDARY_RULES: &str = "[\"crate::boundary_dispatch\", \"crate::boundary_f
 /// after three fetches, compared by the `bus` log, read where a path ends or returns to an
 /// earlier state (`kink`), and by its ends alone (`corpora/ends`), and one whose limit no run reaches, compared
 /// by the page of `pc` at every boundary, counted, the page a view the observer package
-/// evaluates (`corpora/viewed`); every run is cut at depth 40. The
+/// evaluates (`corpora/viewed`). Beside them: the bus log of runs that stop after a fetch where
+/// the definition's `Late` holds of `pc` (`corpora/stopped`) or where the observer's `Far` does,
+/// the log then evaluated in the observer too (`corpora/stopped-observed`); `pc` at every
+/// boundary through the definition's `Late` as a view (`corpora/late`, with a mutation of `Late`'s
+/// equation in `late.toml`); `pc` and the observer's `Left` of `pc` and `limit` at the
+/// boundaries where the observer's `Far` holds (`corpora/functions`); and the bus log through the
+/// observer's element function `Shifted` (`corpora/elements`). Every run is cut at depth 40. The
 /// mutations are FB-34's `Halted` flip, the sibling flip of `halted` in the four boundary
 /// sentences (`halted.toml`, one edit per sentence, as the flips family spells it: `notBool
 /// (T)`, and a rendered negation's operand for its negation), and a fetch that moves `pc` by two
@@ -4715,10 +4756,34 @@ fn boundary() -> Arc<Project> {
              name = \"boundary\"\nbefore = {BOUNDARY_RULES}\nstutter = \"count\"\ncells = \
              [\"pc\"]\nviews = {{ pc = \"Page\" }}\n"
         );
+        let named_observer = format!("observer = \"{BOUNDARY_OBSERVER_PACKAGE}:main\"");
+        let stopped = format!(
+            "\n[stop]\nafter = [\"crate::fetch\"]\nwhen = {{ function = \"Late\", cells = [\"pc\"] }}\n{observed}"
+        );
+        let stopped_observed = format!(
+            "\n[stop]\nafter = [\"crate::fetch\"]\nwhen = {{ function = \"Far\", cells = [\"pc\"], {named_observer} }}\n\n[observe]\n{named_observer}\n{observed}"
+        );
+        let late = format!(
+            "\n[[observe.point]]\nname = \"boundary\"\nbefore = {BOUNDARY_RULES}\nstutter = \"count\"\n\
+             cells = [\"pc\"]\nviews = {{ pc = \"Late\" }}\n"
+        );
+        let functions = format!(
+            "\n[observe]\n{named_observer}\n\n[[observe.point]]\nname = \"boundary\"\nbefore = {BOUNDARY_RULES}\n\
+             stutter = \"count\"\ncells = [\"pc\"]\ncomponents = [{{ name = \"left\", function = \"Left\", \
+             cells = [\"pc\", \"limit\"] }}]\nwhen = {{ function = \"Far\", cells = [\"pc\"] }}\n"
+        );
+        let elements = format!(
+            "\n[observe]\n{named_observer}\n\n[[observe.log]]\nname = \"bus\"\ncell = \"bus\"\nelement = \"Shifted\"\n"
+        );
         for (corpus, observe, limit) in [
             ("kink", observed, 3),
             ("corpora/ends", "", 3),
             ("corpora/viewed", viewed.as_str(), 1000),
+            ("corpora/stopped", stopped.as_str(), 5),
+            ("corpora/stopped-observed", stopped_observed.as_str(), 5),
+            ("corpora/late", late.as_str(), 5),
+            ("corpora/functions", functions.as_str(), 1000),
+            ("corpora/elements", elements.as_str(), 3),
         ] {
             files.push((
                 format!("{corpus}/FLOW.toml"),
@@ -4769,6 +4834,11 @@ fn boundary() -> Arc<Project> {
             .into_bytes(),
         ));
         files.push((
+            "corpora/late/late.toml".to_owned(),
+            b"[[mutation]]\nid = \"later\"\nmisunderstanding = \"an address is late past the third\"\n\n  [[mutation.edit]]\n  rule = \"late\"\n  find = \"Pc:Int >=Int 2\"\n  replace = \"Pc:Int >=Int 3\"\n"
+                .to_vec(),
+        ));
+        files.push((
             "kink/mutations/fetch.toml".to_owned(),
             b"[[mutation]]\nid = \"stride\"\nmisunderstanding = \"a fetch moves pc by two\"\n\n  [[mutation.edit]]\n  rule = \"fetch\"\n  find = \"Pc:Int +Int 1\"\n  replace = \"Pc:Int +Int 2\"\n"
                 .to_vec(),
@@ -4812,6 +4882,7 @@ fn an_idle_forever_flip_is_killed_by_the_bus_log_and_unknown_by_its_ends() {
         Value::Null,
         "{observe:#}"
     );
+    assert!(observe["functions"].get("subject").is_none(), "{observe:#}");
     assert_eq!(
         observe["krs"],
         json!({"items": {}, "cells": {"bus": "bus"}}),
@@ -4894,6 +4965,237 @@ fn a_view_of_an_observation_is_evaluated_in_its_observer_package() {
         json!({"pc": "Page"}),
         "{functions:#}"
     );
+    // The definition's digest, the subject the cells are read with, beside the observer's.
+    let subject = &functions["subject"]["definition_ir"];
+    assert!(subject.is_string(), "{functions:#}");
+    assert_ne!(
+        *subject, functions["observer"]["definition_ir"],
+        "{functions:#}"
+    );
+}
+
+/// A stop condition and observations in one corpus: each run stops after the first fetch at
+/// which `pc` is past the second, as the definition's `Late` (`corpora/stopped`) or the observer
+/// package's `Far` (`corpora/stopped-observed`) says, and is compared by the bus log too, read in
+/// the definition or in that observer. The condition is asked inside the log's request, so both
+/// are evaluated in one run, in one observer or in two. A fetch that moves `pc` by two stops at
+/// its first fetch, where the baseline stops at its second: killed.
+#[test]
+fn a_stop_condition_and_observations_are_evaluated_in_one_run() {
+    let project = boundary();
+    for corpus in ["corpora/stopped", "corpora/stopped-observed"] {
+        let output = project.kink(
+            "run",
+            &[
+                "--corpus",
+                corpus,
+                "--mutations",
+                "kink/mutations/fetch.toml",
+            ],
+        );
+        let run = json(&output);
+        assert_eq!(run["mutations"][0]["status"], "killed", "{corpus}: {run:#}");
+        assert!(run["stop"]["when"].is_object(), "{corpus}: {run:#}");
+        assert_eq!(
+            run["observe"]["logs"][0]["cell"], "bus",
+            "{corpus}: {run:#}"
+        );
+    }
+}
+
+/// A view in the default observer, the baseline, is the baseline's function on every run: the
+/// mutation of `Late`'s equation, which no rule applies, leaves every run of the mutant as the
+/// baseline's, and the boundaries' views are the baseline's `Late` of `pc` on both. Evaluated in
+/// the mutant, its view at `pc` 2 would be false against the baseline's true.
+#[test]
+fn a_view_in_the_baseline_is_its_function_on_every_definition() {
+    let project = boundary();
+    let output = project.kink(
+        "run",
+        &[
+            "--corpus",
+            "corpora/late",
+            "--mutations",
+            "corpora/late/late.toml",
+        ],
+    );
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "survived", "{run:#}");
+    assert_eq!(
+        row["executed"][0]["slots"]["observations"]["outcome"], "agree",
+        "{run:#}"
+    );
+}
+
+/// A component of two cells and a filter, evaluated in the observer package: the boundaries at
+/// which `Far` holds of `pc` are events, each element `pc` and the observer's `Left` of `pc` and
+/// `limit`. A fetch that moves `pc` by two has its events at 2 and 4, the baseline at 2 and 3:
+/// killed at `boundary[1]`, at `pc`, the class's first component in its declared order whose
+/// values differ (before `left`, which differs too).
+#[test]
+fn components_and_a_filter_are_evaluated_in_their_observer_package() {
+    let project = boundary();
+    let output = project.kink(
+        "run",
+        &[
+            "--corpus",
+            "corpora/functions",
+            "--mutations",
+            "kink/mutations/fetch.toml",
+        ],
+    );
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["at"], "boundary[1].pc", "{difference:#}");
+    assert_eq!(difference["cell"], "pc", "{difference:#}");
+    assert_eq!(
+        difference["baseline"]["element"],
+        json!({"pc": 3, "left": 997}),
+        "{difference:#}"
+    );
+    assert_eq!(
+        difference["mutant"]["element"],
+        json!({"pc": 4, "left": 996}),
+        "{difference:#}"
+    );
+    let declaration = &run["observe"]["functions"]["declaration"]["points"][0];
+    assert_eq!(
+        declaration["when"],
+        json!({"function": "Far", "cells": ["pc"]}),
+        "{declaration:#}"
+    );
+}
+
+/// A log's element function, evaluated in the observer package: each address the bus reads is
+/// the element `Shifted` gives it. FB-34's `Halted` flip never fetches and returns to its start:
+/// killed at `bus[0]`, where the baseline's element is its first address past 100.
+#[test]
+fn a_logs_element_function_is_evaluated_in_its_observer_package() {
+    let project = boundary();
+    let output = project.kink(
+        "run",
+        &[
+            "--corpus",
+            "corpora/elements",
+            "--mutations",
+            "kink/mutations/halted.toml",
+        ],
+    );
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["at"], "bus[0]", "{difference:#}");
+    assert_eq!(difference["baseline"]["element"], 100, "{difference:#}");
+    assert_eq!(difference["mutant"]["element"], "cycle", "{difference:#}");
+    assert_eq!(
+        run["observe"]["functions"]["declaration"]["logs"][0]["element"], "Shifted",
+        "{run:#}"
+    );
+}
+
+/// A counter whose `last` cell holds the application of a parametric constructor from its
+/// second tick on: `wrap(v(n))`, a value the typed encoding has no document for.
+const WRAPPED: &str = r##"use k::builtin::{Int, KSequence};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Micro: KItem;
+    Val: KResult;
+}
+
+#[k::constructors(sort = Micro, result = KResult)]
+pub enum Step {
+    #[k::syntax("#tick")]
+    Tick,
+}
+
+#[k::constructors(sort = Val, result = KResult)]
+pub enum ValSyntax {
+    #[k::syntax("v({n})")]
+    V { n: Int },
+}
+
+/// `wrap(x)` has the sort of `x`.
+#[k::constructor(sort = S, syntax = "wrap({inner})")]
+pub struct Wrap<S: ?Sized> {
+    pub inner: Term<S>,
+}
+
+#[k::configuration]
+pub struct Counter {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub n: Int,
+    #[k::cell]
+    pub last: Val,
+}
+
+impl Counter {
+    #[k::init]
+    pub fn init(start: Int) -> Self {
+        Self {
+            k: k::k![Step::Tick],
+            n: start,
+            last: ValSyntax::V(0),
+        }
+    }
+}
+
+k::rules! {
+    for Counter;
+
+    tick: { k: [Step::Tick, ..], n, last: _ } => { k: [Step::Tick, ..], n: n + 1, last: Wrap::<Val>(ValSyntax::V(n)) };
+}
+"##;
+
+/// A kill at an element with no document in the typed encoding stands, decided on its digest,
+/// and its evidence shows the part by its canonical KORE text with why it has no document. The
+/// `last` cell before each tick holds `v(0)`, `wrap(v(0))`, `wrap(v(1))`, ...; a tick that adds
+/// two to `n` holds `wrap(v(2))` at the third tick, where the baseline holds `wrap(v(1))`.
+#[test]
+fn a_kill_at_a_value_with_no_document_shows_its_kore() {
+    let project = project_of(
+        "krs-cli-kink-wrapped",
+        "WRAPPED",
+        &[
+            ("src/lib.rs".to_owned(), WRAPPED.as_bytes().to_vec()),
+            (
+                "kink/FLOW.toml".to_owned(),
+                b"[spec]\nkrs = { definition = \"main\" }\n\n[budget]\nmax_depth = 12\n\n[[observe.point]]\nname = \"ticks\"\nbefore = [\"crate::tick\"]\nstutter = \"count\"\ncells = [\"last\"]\n\n[[program]]\ncases = \"cases/*.toml\"\n".to_vec(),
+            ),
+            (
+                "kink/cases/zero.toml".to_owned(),
+                b"[inputs]\nstart = 0\n".to_vec(),
+            ),
+            (
+                "kink/mutations/tick.toml".to_owned(),
+                b"[[mutation]]\nid = \"double\"\nmisunderstanding = \"a tick adds two\"\n\n  [[mutation.edit]]\n  rule = \"tick\"\n  find = \"N:Int +Int 1\"\n  replace = \"N:Int +Int 2\"\n".to_vec(),
+            ),
+        ],
+    );
+    let output = project.kink("run", &["--mutations", "kink/mutations/tick.toml"]);
+    let run = json(&output);
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}");
+    let difference = &row["executed"][0]["difference"];
+    assert_eq!(difference["at"], "ticks[2].last", "{difference:#}");
+    assert_eq!(difference["path"], Value::Null, "{difference:#}");
+    for (side, n) in [("baseline", 1), ("mutant", 2)] {
+        let shown = &difference[side]["element"]["last"]["$undocumented"];
+        let kore = shown["kore"].as_str().unwrap_or_default();
+        assert!(kore.contains("Lblwrap"), "{side}: {difference:#}");
+        assert!(kore.contains(&format!("\"{n}\"")), "{side}: {difference:#}");
+        let reason = shown["reason"].as_str().unwrap_or_default();
+        assert!(
+            reason.contains("parametric constructor"),
+            "{side}: {difference:#}"
+        );
+    }
 }
 
 /// A stop names a configuration rule of the root package, an item of a dependency crate and an

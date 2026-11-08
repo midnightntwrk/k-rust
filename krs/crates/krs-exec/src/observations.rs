@@ -1721,6 +1721,15 @@ fn content_value(pieces: &[(&str, Piece)]) -> Json {
     )
 }
 
+/// The key of the value an evaluating oracle keeps for a part that has no document in the
+/// typed encoding (a parametric constructor's application, for one, which no form of the
+/// encoding writes): `{"$undocumented": {"kore": TEXT, "reason": WHY}}`, the part's canonical
+/// KORE, the text its digest is taken of, and why it has no document. The typed encoding writes
+/// no `$undocumented` form, so no document reads as one. Its element's digest is the one a
+/// documented part would have, so a comparison is decided as for any element; only what a reader
+/// is shown differs.
+pub const UNDOCUMENTED: &str = "$undocumented";
+
 /// One element an evaluating oracle gives a front end that keeps its own channels
 /// ([`ObservationOracle::evaluator`]): its digest, and its value in the typed encoding where the
 /// oracle keeps values.
@@ -1729,7 +1738,8 @@ pub struct Evaluated {
     /// The element's digest, as a recording keeps it.
     pub digest: ElementDigest,
     /// The element's value in the typed encoding, where the oracle keeps values: an object of a
-    /// class's components by name, or a log's element.
+    /// class's components by name, or a log's element; a part with no document is shown by its
+    /// KORE text ([`UNDOCUMENTED`]).
     pub value: Option<Json>,
 }
 
@@ -1793,6 +1803,10 @@ pub struct ObservationOracle<'o> {
     refusal: Option<ObservationRefusal>,
     difference: Option<String>,
     read_end: bool,
+    /// Whether a kept value with no document in the typed encoding is shown by its KORE text
+    /// ([`UNDOCUMENTED`]) rather than make its element have no value: an evaluating oracle's,
+    /// whose front end decides on digests and shows the values only to a reader.
+    shows_undocumented: bool,
 }
 
 impl<'o> ObservationOracle<'o> {
@@ -1892,6 +1906,7 @@ impl<'o> ObservationOracle<'o> {
             refusal: None,
             difference: None,
             read_end: false,
+            shows_undocumented: false,
         })
     }
 
@@ -1923,7 +1938,8 @@ impl<'o> ObservationOracle<'o> {
     /// and the elements one item of a log contributes ([`Self::item_elements`]), each as a
     /// recording of this oracle takes it, its digest and, under [`Self::keep_values`], its
     /// value. The functions are evaluated in `observer` as [`Self::record`] evaluates them,
-    /// within `budget` polls each.
+    /// within `budget` polls each. A kept part with no document in the typed encoding is shown
+    /// by its KORE text ([`UNDOCUMENTED`]), its element keeping its digest.
     ///
     /// # Errors
     ///
@@ -1933,7 +1949,7 @@ impl<'o> ObservationOracle<'o> {
         observer: Option<&'o mut Semantics>,
         budget: Option<u64>,
     ) -> Result<Self, ExecError> {
-        Self::new(
+        let mut oracle = Self::new(
             resolved,
             observer,
             budget,
@@ -1941,7 +1957,9 @@ impl<'o> ObservationOracle<'o> {
                 values: false,
                 refuse_no_value: false,
             },
-        )
+        )?;
+        oracle.shows_undocumented = true;
+        Ok(oracle)
     }
 
     /// Whether the elements this evaluating oracle gives carry their values in the typed
@@ -2414,14 +2432,36 @@ impl<'o> ObservationOracle<'o> {
         let value = self
             .keeps_values()
             .then(|| {
-                crate::encode::encode(index, &value, declared)
-                    .map_err(|error| format!("has no document in the typed encoding: {error}"))
+                crate::encode::encode(index, &value, declared).or_else(|error| {
+                    self.undocumented(
+                        &bytes,
+                        format!("has no document in the typed encoding: {error}"),
+                    )
+                })
             })
             .transpose()?;
         Ok(Piece {
             digest: ElementDigest::of(&bytes),
             value,
         })
+    }
+
+    /// The value kept for a part whose canonical KORE is `kore` and which has no document in the
+    /// typed encoding, `reason` saying why: shown by its KORE text where this oracle shows such a
+    /// part ([`UNDOCUMENTED`]); `reason` otherwise, which leaves its element with no value.
+    fn undocumented(&self, kore: &[u8], reason: String) -> Result<Json, String> {
+        if !self.shows_undocumented {
+            return Err(reason);
+        }
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "kore".to_owned(),
+            Json::String(String::from_utf8_lossy(kore).into_owned()),
+        );
+        body.insert("reason".to_owned(), Json::String(reason));
+        let mut shown = serde_json::Map::new();
+        shown.insert(UNDOCUMENTED.to_owned(), Json::Object(body));
+        Ok(Json::Object(shown))
     }
 
     /// The piece of `value`, a value of the observer `index` at type `declared`.
@@ -2448,10 +2488,12 @@ impl<'o> ObservationOracle<'o> {
                     value,
                     &declared.cloned().unwrap_or_else(InputType::untyped),
                 )
-                .map_err(|error| {
-                    unknown(format!(
-                        "its value has no document in the typed encoding: {error}"
-                    ))
+                .or_else(|error| {
+                    self.undocumented(
+                        &bytes,
+                        format!("its value has no document in the typed encoding: {error}"),
+                    )
+                    .map_err(unknown)
                 })
             })
             .transpose()?;
