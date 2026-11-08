@@ -25,7 +25,7 @@
 //!
 //! [[cost]]
 //! mode = "rule condition"
-//! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active; an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
+//! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active, which one walk of the d keys active around it decides by their cached hashes; the condition's set of active keys is the one around it with its key added, one node sharing that set, so a recursion of depth d through equation conditions holds d nodes at once (ActiveConditions); an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
@@ -95,11 +95,11 @@
 //!
 //! [[cost]]
 //! mode = "lookup (every nested equation-condition decision outside an execution and outside any run with a console)"
-//! bound = "no allocation: the key's own part (the rule id, the anchor, the q predicates) is hashed where it is (term hashes are cached), and one set lookup of that hash ends the lookup where no kept key has the part; otherwise the memo's copies of the known list and the active set are found, each by one comparison with the copy last found at the caller's place, O(k) predicates and O(a) keys compared down to the first difference, and where that fails one hash lookup by content that hashes them; then one map lookup, whose own part compares by content and whose shared parts by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss copies the q predicate handles, for a verdict kept after the decision, which it pays (backend.simplify.term, rule condition)."
+//! bound = "no allocation: the key's own part (the rule id, the anchor, the q predicates) is hashed where it is (term hashes are cached), and one set lookup of that hash ends the lookup where no kept key has the part; otherwise the memo's copies of the known list and the active set are found, each by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference and, for the active set, its size and kept hash and then O(a) nodes walked to the part it shares with the copy, the keys above that part compared pairwise (the copy's hashed once where both have many there), and where that fails one hash lookup by content, which hashes the known list and reads the active set's kept hash; then one map lookup, whose own part compares by content and whose shared parts by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss copies the q predicate handles, for a verdict kept after the decision, which it pays (backend.simplify.term, rule condition)."
 //!
 //! [[cost]]
 //! mode = "retention"
-//! bound = "per kept verdict: its key's own part (q predicate handles, the anchor handle, a shared rule id), the hash of that part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list, active set and rule id, one copy (k predicate handles, a keys) shared by every key that names it, and at most 4,096 noted places of a caller's copy per kind. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
+//! bound = "per kept verdict: its key's own part (q predicate handles, the anchor handle, a shared rule id), the hash of that part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list and rule id, one copy (k predicate handles), and per distinct active set one handle on it, which keeps its a nodes alive and is counted as holding all of them, each shared by every key that names it, and at most 4,096 noted places of a caller's copy per kind. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
@@ -174,12 +174,14 @@ use crate::{
     transition::{ExecutionEvaluationContext, ExecutionIoState},
 };
 
+pub(crate) mod active;
 mod log;
 pub(crate) mod normal_forms;
 mod result;
 pub(crate) mod scan;
 
 use crate::coverage::{Selection, by_priority, every};
+pub(crate) use active::ActiveConditions;
 pub use log::{Iter as LogIter, Log};
 pub(crate) use result::FoundBottom;
 use result::{Accumulated, AccumulatedMark, HookOutcome};
@@ -646,7 +648,7 @@ fn simplify_term_entry(
     measure::bump(Counter::SimplifyInvocations);
     let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
-    let active_conditions = BTreeSet::new();
+    let active_conditions = ActiveConditions::new();
     let path_condition = PathConditionReplacements::new(known_predicates);
     let assumptions = TermAssumptions {
         predicates: known_predicates,
@@ -1122,7 +1124,7 @@ fn simplify_predicates_entry(
     measure::bump(Counter::SimplifyInvocations);
     let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
-    let active_conditions = BTreeSet::new();
+    let active_conditions = ActiveConditions::new();
     match simplify_predicates_with_budget(
         definition,
         predicates,
@@ -1690,7 +1692,7 @@ fn simplify_predicates_with_budget(
     known_predicates: &[Predicate],
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Vec<Predicate>> {
     simplify_conjunction_with_budget(
@@ -1715,7 +1717,7 @@ fn simplify_conjunction_with_budget(
     known_predicates: &[Predicate],
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     settled: Option<&Predicate>,
 ) -> SimplifyResult<Vec<Predicate>> {
@@ -2084,7 +2086,7 @@ fn simplify_rule_predicates(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Vec<Predicate>> {
     let key = (condition_key.0.to_owned(), condition_key.1.clone());
@@ -2095,8 +2097,7 @@ fn simplify_rule_predicates(
         note_condition_reentry();
         return Ok(predicates.to_vec());
     }
-    let mut active_conditions = active_conditions.clone();
-    active_conditions.insert(key);
+    let active_conditions = active_conditions.with(key);
     let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
     simplify_predicates_with_budget(
@@ -2138,7 +2139,7 @@ fn simplify_rule_predicates_or_keep(
     predicates: Vec<Predicate>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Vec<Predicate>> {
     match simplify_rule_predicates(
@@ -2281,7 +2282,7 @@ fn evaluate_equation_condition(
     guard: GuardSite<'_>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationCondition> {
     let rule_id = rule.unique_id.as_str();
@@ -2423,7 +2424,7 @@ fn condition_memo_probe<'a>(
     matched: &crate::condition::MatchedEquation,
     known_predicates: &'a [Predicate],
     options: SimplificationOptions,
-    active_conditions: &'a BTreeSet<(String, Term)>,
+    active_conditions: &'a ActiveConditions,
     solver: &dyn SmtSolver,
     nested: bool,
 ) -> ControlFlow<EquationCondition, Option<Box<PendingKey<'a>>>> {
@@ -2684,7 +2685,7 @@ struct ConditionMemo {
     /// Every known-predicate list a key names, once.
     knowns: InternTable<[Predicate]>,
     /// Every set of active rule-condition keys a key names, once.
-    actives: InternTable<BTreeSet<ConditionKey>>,
+    actives: InternTable<ActiveConditions>,
     /// Every rule id a key names, once.
     rule_ids: FxHashSet<Arc<str>>,
     /// The estimate of the bytes held ([`CONDITION_MEMO_BYTES`]).
@@ -2947,19 +2948,12 @@ impl ConditionMemo {
     }
 
     /// The one copy of `active` the memo holds, made now if there is none.
-    fn intern_active(
-        &mut self,
-        active: &BTreeSet<ConditionKey>,
-    ) -> Interned<BTreeSet<ConditionKey>> {
+    fn intern_active(&mut self, active: &ActiveConditions) -> Interned<ActiveConditions> {
         let place = set_place(active);
         if let Some(held) = self.actives.find(active, place) {
             return Interned(Arc::clone(held));
         }
-        self.retained += active
-            .iter()
-            .map(|(rule_id, _)| 2 * std::mem::size_of::<ConditionKey>() + rule_id.capacity())
-            .sum::<usize>()
-            + 2 * std::mem::size_of::<Arc<BTreeSet<ConditionKey>>>();
+        self.retained += active.retained_bytes();
         Interned(self.actives.insert(place, Arc::new(active.clone())))
     }
 
@@ -3039,8 +3033,8 @@ fn slice_place(known: &[Predicate]) -> (usize, usize) {
 }
 
 /// The place of an active-key set, for [`InternTable::find`].
-fn set_place(active: &BTreeSet<ConditionKey>) -> (usize, usize) {
-    (std::ptr::from_ref(active).addr(), active.len())
+fn set_place(active: &ActiveConditions) -> (usize, usize) {
+    (active.address(), active.len())
 }
 
 /// The address of a value the memo holds ([`Interned`]).
@@ -3067,7 +3061,7 @@ struct ConditionMemoKey {
     head_hash: u64,
     head: ConditionMemoHead,
     known: Interned<[Predicate]>,
-    active: Interned<BTreeSet<ConditionKey>>,
+    active: Interned<ActiveConditions>,
 }
 
 /// What a [`ConditionMemoKey`] holds of its own.
@@ -3208,7 +3202,7 @@ struct ConditionMemoProbe<'a, 'i> {
     requires: &'i [Predicate],
     bindings: &'i [Predicate],
     known: &'a [Predicate],
-    active: &'a BTreeSet<ConditionKey>,
+    active: &'a ActiveConditions,
 }
 
 impl<'a, 'i> ConditionMemoProbe<'a, 'i> {
@@ -3222,7 +3216,7 @@ impl<'a, 'i> ConditionMemoProbe<'a, 'i> {
         bindings: &'i [Predicate],
         known: &'a [Predicate],
         options: SimplificationOptions,
-        active: &'a BTreeSet<ConditionKey>,
+        active: &'a ActiveConditions,
         solver: &dyn SmtSolver,
     ) -> Option<Self> {
         #[cfg(test)]
@@ -3297,7 +3291,7 @@ struct PendingKey<'a> {
     requires: Box<[Predicate]>,
     bindings: Box<[Predicate]>,
     known: &'a [Predicate],
-    active: &'a BTreeSet<ConditionKey>,
+    active: &'a ActiveConditions,
 }
 
 /// [`evaluate_equation_condition`]'s decision itself.
@@ -3312,7 +3306,7 @@ fn decide_equation_condition(
     matched: crate::condition::MatchedEquation,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationCondition> {
     let rule_id = rule.unique_id.as_str();
@@ -3585,7 +3579,7 @@ fn simplify_predicate(
 ) -> SimplifyResult<Predicate> {
     let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
-    let active_conditions = BTreeSet::new();
+    let active_conditions = ActiveConditions::new();
     let known_index = KnownConjuncts::of(known_predicates);
     let path_condition = PathConditionReplacements::new(known_predicates);
     let assumptions = PredicateAssumptions::new(
@@ -3714,7 +3708,7 @@ fn simplify_predicate_with_budget(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     stop::with_stack_headroom(|| {
@@ -3736,7 +3730,7 @@ fn simplify_predicate_on_stack(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let _apart = crate::rule::ApartScope::enter();
@@ -3880,7 +3874,7 @@ fn negation(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let mut inner_remaining = *remaining;
@@ -3917,7 +3911,7 @@ fn disjunction(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let inner = inner
@@ -3958,7 +3952,7 @@ fn predicate_operand(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Simplification> {
     let mut term_remaining = remaining;
@@ -3987,7 +3981,7 @@ fn other_predicate(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let simplify_term = |term: &Term| {
@@ -4181,7 +4175,7 @@ fn equality_of_sides(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     // A side rewritten to `C /\ l'` is used, with `C` conjoined, only when the other
@@ -4297,7 +4291,7 @@ fn ceil_of_term_conjunctions(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> Option<SimplifyResult<Predicate>> {
     // `ceil_term` states only the operands' definedness of a term-level conjunction,
@@ -4347,7 +4341,7 @@ fn ceil_of_operand(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let simplified = simplified?.into_parts();
@@ -4458,7 +4452,7 @@ fn defined_arm(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     if assumptions.contains(&Predicate::Ceil(term.clone())) {
@@ -4623,7 +4617,7 @@ fn absence_arm(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<AtomStep> {
     let simplify_term = |term: &Term| {
@@ -4703,7 +4697,7 @@ fn predicate_theories(
     assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     // Every predicate this function returns is hereditarily normalized: a constant, a
@@ -5111,7 +5105,7 @@ fn apply_ceil_theory(
     predicate: &Predicate,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<Option<Predicate>> {
@@ -5162,7 +5156,7 @@ fn apply_ceil_equation(
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
@@ -5206,7 +5200,7 @@ fn apply_ceil_equation_instance(
     substitution: Substitution,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
     let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
@@ -5551,7 +5545,7 @@ fn apply_predicate_theory(
     predicate: &Predicate,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<Option<Predicate>> {
@@ -5622,7 +5616,7 @@ fn apply_predicate_equation(
     predicate: &Predicate,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
     debug_assert!(
@@ -7017,7 +7011,7 @@ fn simplify_with_budget(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -7046,7 +7040,7 @@ fn simplify_on_stack(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -7098,7 +7092,7 @@ fn simplify_through_record(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -7147,7 +7141,7 @@ fn subterm_lookup<'a>(
     assumptions: &TermAssumptions<'a>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &'a BTreeSet<ConditionKey>,
+    active_conditions: &'a ActiveConditions,
     solver: &dyn SmtSolver,
     in_execution: bool,
 ) -> normal_forms::Lookup<'a> {
@@ -7184,7 +7178,7 @@ fn simplify_lineage(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -7399,7 +7393,7 @@ impl Lineage {
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         remaining: &mut usize,
-        active_conditions: &BTreeSet<(String, Term)>,
+        active_conditions: &ActiveConditions,
         solver: &dyn SmtSolver,
         mut execution: Option<&mut ExecutionEvaluationContext>,
     ) -> SimplifyResult<ControlFlow<Term, Term>> {
@@ -7630,7 +7624,7 @@ impl Lineage {
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         remaining: &mut usize,
-        active_conditions: &BTreeSet<(String, Term)>,
+        active_conditions: &ActiveConditions,
         solver: &dyn SmtSolver,
         execution: Option<&mut ExecutionEvaluationContext>,
     ) -> ControlFlow<Simplification, Term> {
@@ -8010,7 +8004,7 @@ fn matches_top_equation(
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Option<(String, Vec<Predicate>)>> {
     let groups = applicable_groups(definition.simplification_theory(), &term_index(term));
@@ -8084,7 +8078,7 @@ fn top_equation_instance(
     substitution: Substitution,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Vec<Predicate>, ()>> {
     let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
@@ -8156,7 +8150,7 @@ fn simplify_children(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -8227,7 +8221,7 @@ fn simplify_child(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
     accumulated: &mut Accumulated,
@@ -8301,7 +8295,7 @@ fn simplify_plain_children(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -8362,7 +8356,7 @@ fn simplify_other_children(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -8870,7 +8864,7 @@ fn simplify_root(
     before_children: Option<&Term>,
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
     retry: Option<Box<UnspecifiedRetry>>,
@@ -9078,7 +9072,7 @@ fn unspecified_function_scan(
     term: &Term,
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     execution: Option<&ExecutionEvaluationContext>,
     retry: Option<Box<UnspecifiedRetry>>,
@@ -10059,7 +10053,7 @@ enum RecordedOutcome {
 struct EvaluationGiven<'a> {
     assumptions: &'a TermAssumptions<'a>,
     options: SimplificationOptions,
-    active: &'a BTreeSet<ConditionKey>,
+    active: &'a ActiveConditions,
     console: Option<usize>,
     solver: &'a dyn SmtSolver,
 }
@@ -10085,7 +10079,7 @@ struct Record {
     reached: Option<Arc<StackPrefix>>,
     /// The stack and the active rule-condition keys when the evaluation began.
     stack: Option<Arc<StackPrefix>>,
-    active: BTreeSet<ConditionKey>,
+    active: ActiveConditions,
     /// The evaluation mode it ran in (`crate::evaluation`). Records live only while a lineage is
     /// open, and the mode changes only where an execution, a search or an effect observer
     /// begins, never inside a lineage, so a record is never looked up in another mode than the
@@ -10124,7 +10118,7 @@ impl Record {
         }
         // No key it inserted is active now: none is active that was not when it began, or none of
         // those it inserted.
-        let keys = active.iter().all(|key| self.active.contains(key))
+        let keys = active.is_subset(&self.active)
             || (!self.reads.unbounded
                 && active.iter().all(|key| !self.reads.inserted.contains(key)));
         if !keys {
@@ -10551,7 +10545,7 @@ fn apply_theory<K: TermTheory>(
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<TheoryScan<K>> {
@@ -10595,7 +10589,7 @@ fn apply_theory_noting_cuts<K: TermTheory>(
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
     contingent: &mut Option<usize>,
@@ -10654,7 +10648,7 @@ fn decide_equation_bindings(
     matched: MatchedEquation,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<DecidedEquation> {
     let decided = matched.decide(|obligations| {
@@ -10754,7 +10748,7 @@ fn apply_equation(
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
     applied_instance: &Cell<usize>,
@@ -10871,7 +10865,7 @@ fn instances_to_scan<'r>(
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
 ) -> SimplifyResult<
@@ -10955,7 +10949,7 @@ fn set_aside_instance(
     instance: SetAsideInstance,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
@@ -11035,7 +11029,7 @@ fn apply_literal_equation_instance(
     literal: MatchSolution,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
@@ -11160,7 +11154,7 @@ fn decide_unused_instance<T, N>(
     equalities: Vec<Predicate>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<T, N>> {
     if rule.requires.is_empty() && equalities.is_empty() {
@@ -11427,7 +11421,7 @@ fn apply_equation_instance(
     substitution: Substitution,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     let instance = equation_instance(definition, rule, term, substitution)?;
@@ -11470,7 +11464,7 @@ fn apply_prepared_equation_instance(
     instance: EquationInstance,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
@@ -11523,7 +11517,7 @@ fn equation_instance_result(
     matched: crate::condition::MatchedEquation,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     // The definedness obligations are not a reason to refuse the equation: an obligation the
@@ -11668,7 +11662,7 @@ fn evaluate_ensures(
     ensures: InstantiatedCondition,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &ActiveConditions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EnsuresVerdict> {
     // An `ensures` constrains the result only where its terms are defined.
@@ -11899,7 +11893,7 @@ mod tests {
             &predicate,
             &[],
             SimplificationOptions::default(),
-            &BTreeSet::new(),
+            &ActiveConditions::new(),
             &NoSolver,
             &mut IndeterminateAttempts::default(),
         )
@@ -12185,7 +12179,7 @@ mod tests {
                 &subject,
                 known,
                 SimplificationOptions::default(),
-                &BTreeSet::new(),
+                &ActiveConditions::new(),
                 solver,
                 &mut IndeterminateAttempts::default(),
             )
@@ -12227,7 +12221,7 @@ mod tests {
                 &guarded,
                 &[],
                 SimplificationOptions::default(),
-                &BTreeSet::new(),
+                &ActiveConditions::new(),
                 &NoSolver,
                 &mut IndeterminateAttempts::default(),
             )
@@ -13012,7 +13006,7 @@ mod tests {
             predicates: &[],
             path_condition: &path_condition,
         };
-        let given = |active: &BTreeSet<ConditionKey>| {
+        let given = |active: &ActiveConditions| {
             UnspecifiedValues::recorded(
                 &application,
                 &EvaluationGiven {
@@ -13032,7 +13026,7 @@ mod tests {
         reads.key(&own, false);
         reads.key(&around, true);
         reads.key(&own, true);
-        let began = BTreeSet::from([around.clone()]);
+        let began = ActiveConditions::new().with(around.clone());
         UnspecifiedValues::record(
             &application,
             RecordedOutcome::Failed {
@@ -13051,7 +13045,7 @@ mod tests {
             },
         );
         assert!(given(&began));
-        assert!(!given(&BTreeSet::new()));
+        assert!(!given(&ActiveConditions::new()));
     }
 
     /// A record is served only where no application it found not open is open, also when the
@@ -13076,7 +13070,7 @@ mod tests {
             predicates: &[],
             path_condition: &path_condition,
         };
-        let active = BTreeSet::new();
+        let active = ActiveConditions::new();
         let given = EvaluationGiven {
             assumptions: &assumptions,
             options: SimplificationOptions::default(),
@@ -13127,7 +13121,7 @@ mod tests {
         let [made_under_top, made_under_none] = ["top", "none"]
             .map(|name| term(&definition, &format!(r#"\dv{{SortString{{}}}}("{name}")"#)));
         let path_condition = PathConditionReplacements::new(&[]);
-        let active = BTreeSet::new();
+        let active = ActiveConditions::new();
         let under = |predicates: &[Predicate], application: &Term, record: bool| {
             let assumptions = TermAssumptions {
                 predicates,
@@ -13188,7 +13182,7 @@ mod tests {
             predicates: &[],
             path_condition: &path_condition,
         };
-        let active = BTreeSet::new();
+        let active = ActiveConditions::new();
         let given = EvaluationGiven {
             assumptions: &assumptions,
             options: SimplificationOptions::default(),
@@ -13246,7 +13240,7 @@ mod tests {
         let stated = PathConditionReplacements::new(&equality);
         let unstated = PathConditionReplacements::new(&[]);
         assert!(!stated.substitution.is_empty());
-        let active = BTreeSet::new();
+        let active = ActiveConditions::new();
         let under = |path_condition: &PathConditionReplacements, record: bool| {
             let assumptions = TermAssumptions {
                 predicates: &equality,
@@ -14247,7 +14241,7 @@ mod literal_admission_tests {
                 candidate,
                 &[],
                 SimplificationOptions::default(),
-                &BTreeSet::new(),
+                &ActiveConditions::new(),
                 &NoSolver,
                 SetAsideRequires::Unused,
             ) {

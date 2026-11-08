@@ -296,3 +296,44 @@ fn deepest() {
         println!("{name}: {fits} levels, {} bytes per level", STACK / fits);
     }
 }
+
+/// A recursion through an equation's `requires` keeps, at its deepest, one node of the set of
+/// rule conditions active against re-entry per level: each level's set is the one around it with
+/// that level's key added, sharing it (`simplify::ActiveConditions`). Copying the set around
+/// would keep `levels(levels + 1)/2` keys alive at once, which grows a recursion's memory with the
+/// square of its depth. The evaluation is ground and concrete, as in an execution.
+#[test]
+fn a_recursion_through_a_requires_keeps_one_active_condition_node_per_level() {
+    let syntax = parse_definition(DEFINITION).expect("the fixture parses");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the fixture internalizes");
+    let levels = 300;
+    let subject = term(
+        &definition,
+        &format!(r#"ok{{}}(\dv{{SortInt{{}}}}("7"), \dv{{SortInt{{}}}}("{levels}"))"#),
+    );
+    let expected = term(&definition, r#"\dv{SortBool{}}("true")"#);
+    let peak = std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(STACK)
+            .spawn_scoped(scope, || {
+                let (simplified, peak) = crate::simplify::active::peak_nodes(|| {
+                    simplify(&definition, &subject, SimplificationOptions::unbounded())
+                });
+                let simplified = simplified
+                    .expect("the evaluation does not stop")
+                    .expect("the evaluation does not fail");
+                assert_eq!(simplified.term, expected);
+                peak
+            })
+            .expect("the thread starts")
+            .join()
+            .expect("the work does not panic")
+    });
+    // Every level `N > 0` decides its condition with its own key active, and none more is made
+    // per level.
+    assert!(
+        (levels..=levels + 1).contains(&peak),
+        "{peak} active-condition nodes alive at once over {levels} levels"
+    );
+}

@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "retention"
-//! bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), per distinct path condition, one copy (p binding and replacement handles), and per distinct nonempty active set, one copy (a rule-identifier and anchor pairs), each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
+//! bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), per distinct path condition, one copy (p binding and replacement handles), and per distinct nonempty active set, one handle on it, which keeps its a nodes (a rule identifier and an anchor each) alive and is counted as holding all of them, each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
 //! ```
 //!
 //! A simplification is a function of what it reads: the term, the path condition it is
@@ -103,7 +103,6 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeSet,
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -112,7 +111,7 @@ use k_rust_kore::measure::{self, Counter};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
-    ConditionKey, InternTable, Interned, PathConditionReplacements, Simplification,
+    ActiveConditions, InternTable, Interned, PathConditionReplacements, Simplification,
     SimplificationError, SimplificationOptions, TermAssumptions, UNSPECIFIED_VALUES,
     UnspecifiedEvaluation, set_place, slice_place, solver_address,
 };
@@ -154,7 +153,7 @@ struct NormalForms {
     path_conditions: InternTable<PathConditionReplacements>,
     /// Every nonempty set of rule conditions active against re-entry a subterm's key names,
     /// once.
-    actives: InternTable<BTreeSet<ConditionKey>>,
+    actives: InternTable<ActiveConditions>,
     /// The estimate of the bytes held ([`NORMAL_FORMS_BYTES`]).
     retained: usize,
     /// The addresses of the term nodes `retained` counts ([`NormalForms::count_new_nodes`]).
@@ -309,7 +308,7 @@ struct NormalFormKey {
     path_condition: Option<Interned<PathConditionReplacements>>,
     /// The rule conditions active against re-entry a subterm is simplified under, the record's
     /// copy ([`NormalForms::actives`]); `None` where none is, as at a destination.
-    active: Option<Interned<BTreeSet<ConditionKey>>>,
+    active: Option<Interned<ActiveConditions>>,
     scalars: Scalars,
 }
 
@@ -544,7 +543,7 @@ struct Subject<'a> {
     /// `None` where the path condition is the one `known` gives ([`NormalFormKey::path_condition`]).
     path_condition: Option<&'a PathConditionReplacements>,
     /// `None` where no rule condition is active against re-entry ([`NormalFormKey::active`]).
-    active: Option<&'a BTreeSet<ConditionKey>>,
+    active: Option<&'a ActiveConditions>,
 }
 
 /// A simplification's inputs, borrowed where they are but the renaming, for a lookup and a
@@ -713,7 +712,7 @@ pub(super) fn subterm_lookup<'a>(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     remaining: &mut usize,
-    active: &'a BTreeSet<ConditionKey>,
+    active: &'a ActiveConditions,
     execution: bool,
     simplify: impl FnOnce(&mut usize) -> Stoppable<Result<Simplification, SimplificationError>>,
 ) -> Lookup<'a> {
@@ -1226,19 +1225,12 @@ impl NormalForms {
     }
 
     /// The one copy of `active` the record holds, made now if there is none.
-    fn intern_active(
-        &mut self,
-        active: &BTreeSet<ConditionKey>,
-    ) -> Interned<BTreeSet<ConditionKey>> {
+    fn intern_active(&mut self, active: &ActiveConditions) -> Interned<ActiveConditions> {
         let place = set_place(active);
         if let Some(held) = self.actives.find(active, place) {
             return Interned(Arc::clone(held));
         }
-        self.retained += active
-            .iter()
-            .map(|(rule_id, _)| 2 * std::mem::size_of::<ConditionKey>() + rule_id.capacity())
-            .sum::<usize>()
-            + 2 * std::mem::size_of::<Arc<BTreeSet<ConditionKey>>>();
+        self.retained += active.retained_bytes();
         Interned(self.actives.insert(place, Arc::new(active.clone())))
     }
 
@@ -1361,7 +1353,6 @@ fn check_served(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
 
     use k_rust_kore::{
         kore::parser::{parse_definition, parse_pattern},
@@ -1494,7 +1485,7 @@ mod tests {
         /// The predicates the path condition is built from, where it is not built from `known`
         /// (as for a conjunct of a conjunction, simplified under the others' equalities).
         path_condition: Option<&'a [Predicate]>,
-        active: BTreeSet<(String, Term)>,
+        active: ActiveConditions,
         options: SimplificationOptions,
         remaining: usize,
         execution: bool,
@@ -1505,7 +1496,7 @@ mod tests {
             Self {
                 known,
                 path_condition: None,
-                active: BTreeSet::new(),
+                active: ActiveConditions::new(),
                 options: SimplificationOptions::default(),
                 remaining: SimplificationOptions::default().max_iterations,
                 execution: false,
@@ -1707,7 +1698,7 @@ mod tests {
         let subject = term(&definition, "f{}(Y:SortInt{})");
         let known = [above(&definition, "0")];
         let active = |rule: &str| Given {
-            active: BTreeSet::from([(rule.to_owned(), subject.clone())]),
+            active: ActiveConditions::new().with((rule.to_owned(), subject.clone())),
             ..Given::under(&known)
         };
         let runs = || {
@@ -1762,7 +1753,7 @@ mod tests {
                 let (none, met_again) = (
                     Given::under(&known),
                     Given {
-                        active: BTreeSet::from([("g-pos".to_owned(), subject.clone())]),
+                        active: ActiveConditions::new().with(("g-pos".to_owned(), subject.clone())),
                         ..Given::under(&known)
                     },
                 );
