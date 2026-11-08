@@ -2485,11 +2485,11 @@ endmodule
     fn a_rule_jobs_confirmation_reads_the_targeted_rules_entry_only() {
         let dir = steps_flow("rule-target");
         let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
-        // A `[coverage]` section `coverage` refuses (a depth above 1, an `mcdc` list) does not
-        // stop a confirmation, which reads only the rule's own lists.
+        // A `[coverage]` section (a depth above 1, which `coverage` refuses, and an `mcdc`
+        // selection) does not stop a confirmation, which reads only the rule's own lists.
         let mut sectioned = manifest.clone();
         sectioned.coverage.depth = std::num::NonZeroU64::new(2).unwrap();
-        sectioned.coverage.mcdc = vec!["STEPS.big".to_owned()];
+        sectioned.coverage.mcdc = kink_flow::manifest::Mcdc::Rules(vec!["STEPS.big".to_owned()]);
         sectioned.coverage.declared = true;
         let confirm_on = |manifest: &FlowManifest, rule: &'static str, fired: bool| {
             let manifest = manifest.clone();

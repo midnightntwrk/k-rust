@@ -126,6 +126,43 @@
 //! needless argument, a finding ([`argue`]): kept, it would turn the item's next regression into
 //! `argued` instead of `open`, hiding the gap the family exists to show.
 //!
+//! # Unique-cause MC/DC
+//!
+//! `[coverage] mcdc` selects guarded rules by name (`true` selects every one), and each selected
+//! rule whose condition states requirements gains a deeper level of them (`level` `mcdc`, id
+//! `requirement:<name>:<operand>:mcdc`): one per authored atom of its condition. The obligation
+//! of an atom `a` is a unique-cause pair: two valuation combinations the comparable programs'
+//! runs recorded ([`crate::guards`], `guard.combinations`), one where the condition held and one
+//! where it was refuted, in which `a` has the two truths and every other atom of the condition,
+//! the tests a front end inserted and the conjuncts the compile added included, has one decided
+//! truth. Such a pair shows `a` deciding the condition by itself: the condition with `a`
+//! replaced by either constant differs from the condition on one of the pair's entries, so a
+//! corpus that has the pair tells the condition from both conditions in which `a` decides
+//! nothing. A pair in
+//! which another atom also changes does not: in `A andThenBool B`, (true, true) held and (false,
+//! false) refuted do not tell the condition from `B`. That is why every other atom is fixed, and
+//! not only masked as the short-circuit reading would let it be: the outcome classes of the
+//! default level already state what masking pairs would, and the deeper level states what they
+//! cannot. A combination's atoms carry the strict reading's truths, also of an atom the
+//! short-circuit reading did not reach, so the pair is read from the records with no run; an
+//! `undecided` atom has no known truth, so it fixes nothing.
+//!
+//! An atom with a pair is `covered` by the programs of the pair (`pair`: each side's valuation,
+//! outcome and programs). One without is `open`, or [`UNDECIDED`] where a comparable program's
+//! record of the condition left a combination out (`truncated_by`): a record keeps the least
+//! combinations up to a bound, so the pair may be among those it left out. An undecided
+//! requirement is neither covered nor open (`counts.undecided`); it keeps its target, so
+//! `summary.open`, what is left to settle, counts it. Its target and an open one's name the
+//! valuation needed (`needed`): a recorded combination with the atom's truth negated, where the
+//! condition, evaluated on the definition's skeleton of it, then takes the other outcome,
+//! against the combination it pairs with. Where the atom is a function of the other atoms
+//! (`X >Int 0` beside `X >Int 10`), no valuation can pair, and the obligation is argued
+//! (`[[coverage.argued]]`). The requirements family gains `mcdc` (`rules`, the rule ids
+//! selected, and the level's `obligations` and `covered`) and its counts `undecided`; a selected
+//! rule's guard keeps its combinations and every other guard drops them, so without a selection
+//! the document is what it was. A name that selects no rule whose condition states requirements
+//! is refused before any mutant runs ([`stale_mcdc`]).
+//!
 //! The derived part of the document (every family but the rules' items, the targets and the
 //! summary) is a function of the rules' items as the front end annotated them ([`derive`]), so a
 //! front end that names rules and groups guards at its own level has its names in every id,
@@ -181,8 +218,13 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `{<channel>: {elements, opening}}`, and each open channel's `open` has `opening`), each flip
 /// has `horizon` (an undistinguished flip's agreements up to a horizon, null otherwise), a
 /// prefix program none of whose channels kept an element within its budget or closed by a cycle
-/// is `unknown`, and a program row's channel can be `closed` by `cycle`.
-pub const COVERAGE_VERSION: u64 = 7;
+/// is `unknown`, and a program row's channel can be `closed` by `cycle`; 8 since
+/// `[coverage] mcdc` is read: `settings.mcdc` may be `true`, and under a selection the selected
+/// rules' guards keep their valuation combinations (`guard.combinations`), the requirements
+/// family lists their unique-cause requirements (`level` `mcdc`, status `covered`, `open` or
+/// `undecided`, with `pair`, `needed` and `truncated_by`), its counts have `undecided`, and it
+/// has `mcdc`; without one the document is version 7's.
+pub const COVERAGE_VERSION: u64 = 8;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -200,6 +242,10 @@ pub const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
 /// The status of an obligation of any family that no program covers and `[[coverage.argued]]`
 /// argues: counted in its family's obligations, neither covered nor open, and no target.
 pub const ARGUED: &str = "argued";
+/// The status of a unique-cause requirement no recorded pair covers while some program's record
+/// of the condition left a valuation combination out: the record cannot say whether it is
+/// covered. Not covered, not open; it keeps its target.
+pub const UNDECIDED: &str = "undecided";
 /// Why an argued item's argument is needless (`argument_needless`): a program covers it.
 pub const NEEDLESS_COVERED: &str = "covered";
 /// Why an argued item's argument is needless: the item is listed but is no obligation.
@@ -255,8 +301,8 @@ impl CoverageOptions {
 }
 
 /// The refusal of a `[coverage]` value this build cannot honour, or `None`: a depth above 1
-/// (rule windows and syntax paths are not built) and an `mcdc` list (unique-cause obligations are
-/// not built). It is given before the specification is admitted, so nothing runs.
+/// (rule windows and syntax paths are not built). It is given before the specification is
+/// admitted, so nothing runs.
 fn unsupported(manifest: &FlowManifest, depth: NonZeroU64) -> Option<AdmissionRefusal> {
     let section = &manifest.coverage;
     let refusal = |reason: &str, detail: String| AdmissionRefusal {
@@ -275,16 +321,6 @@ fn unsupported(manifest: &FlowManifest, depth: NonZeroU64) -> Option<AdmissionRe
             format!(
                 "{asked}: this build counts single items only (depth 1); the families of \
                  sequences (rule windows, syntax paths) are not built"
-            ),
-        ));
-    }
-    if !section.mcdc.is_empty() {
-        return Some(refusal(
-            "mcdc-unsupported",
-            format!(
-                "[coverage] mcdc names {}: unique-cause obligations are not built; remove the \
-                 key",
-                section.mcdc.join(", ")
             ),
         ));
     }
@@ -481,7 +517,9 @@ pub fn coverage_front(
     document["spec"]["exclusion"] = runner.definition_exclusion();
     document["spec"]["short_circuit"] = runner.short_circuit();
     let mut document = front.annotated(document);
-    if let Some(refusal) = stale_argued(&document, manifest, front.derived, front.spelling) {
+    if let Some(refusal) = stale_argued(&document, manifest, front.derived, front.spelling)
+        .or_else(|| stale_mcdc(&document, manifest, front.spelling))
+    {
         record.refusal = Some(refusal);
         return (refused(&record), false);
     }
@@ -682,7 +720,7 @@ fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
     json!({
         "tiers": if flips { json!([1, 2]) } else { json!([1]) },
         "depth": depth.get(),
-        "mcdc": section.mcdc,
+        "mcdc": section.mcdc.value(),
         "max_obligations": section.max_obligations.get(),
         "argued": section
             .argued
@@ -753,6 +791,52 @@ fn stale_argued(
              its `id` in the coverage document, so correct the id or remove the entry",
             if stale.len() == 1 { "an item" } else { "items" },
             stale.join("; ")
+        ),
+    })
+}
+
+/// The refusal of `[coverage] mcdc` names that select no rule, or `None`. A name selects a rule
+/// when it is the name the document's ids give a rule whose condition states requirements
+/// ([`derive`]): a name that is a misspelling, a rule the definition no longer has, or a rule
+/// with no authored condition asks for obligations no condition has, and a document that
+/// silently left them out would read as if the author's selection had none open. It is refused
+/// before any mutant runs (stage `coverage`, reason `mcdc-stale`), naming every such name.
+fn stale_mcdc(
+    document: &Value,
+    manifest: &FlowManifest,
+    spelling: &dyn CommandSpelling,
+) -> Option<AdmissionRefusal> {
+    let crate::manifest::Mcdc::Rules(names) = &manifest.coverage.mcdc else {
+        return None;
+    };
+    if names.is_empty() {
+        return None;
+    }
+    let mut probe = document.clone();
+    derive(&mut probe, spelling);
+    let selected = probe["families"]["requirements"]["mcdc"]["rules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<BTreeSet<_>>();
+    let stale = names
+        .iter()
+        .filter(|name| !selected.contains(format!("rule:{name}").as_str()))
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>();
+    if stale.is_empty() {
+        return None;
+    }
+    Some(AdmissionRefusal {
+        stage: "coverage".into(),
+        reason: "mcdc-stale".into(),
+        detail: format!(
+            "[coverage] mcdc names {} that no rule whose condition states requirements has: {}; \
+             a rule is named as its id `rule:<name>` in the coverage document spells it, so \
+             correct the name or remove it",
+            if stale.len() == 1 { "a rule" } else { "rules" },
+            listed(&stale)
         ),
     })
 }
@@ -1162,6 +1246,7 @@ fn rule_items(
                 other_guards.get(&key),
                 skeletons.as_deref().map_err(|reason| *reason),
                 &printer,
+                !manifest.coverage.mcdc.is_off(),
             );
         }
         if let Some(reason) = no_signal.get(&at) {
@@ -1911,15 +1996,11 @@ struct Node {
     undecided_by: Vec<String>,
 }
 
-/// The requirements of one guarded rule item, `name` its name (module documentation).
-fn requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> Vec<Value> {
-    let guard = &rule["guard"];
-    if !crate::guards::authored_condition(guard) {
-        return Vec::new();
-    }
-    let tree = Tree::of(guard);
+/// The requirement nodes of `guard`, a rule item's guard: a front end's authored operands where
+/// it grouped the guard (`guard.krs`), else the operands with outcomes of their own.
+fn requirement_nodes(guard: &Value, tree: &Tree<'_>) -> Vec<Node> {
     let grouped = &guard["krs"];
-    let nodes: Vec<Node> = if grouped.is_object() {
+    if grouped.is_object() {
         grouped["authored"]
             .as_array()
             .into_iter()
@@ -1956,7 +2037,37 @@ fn requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> 
                 }
             })
             .collect()
-    };
+    }
+}
+
+/// The label of each node in an id: its text, with `@<path>` added where two nodes of one
+/// condition share a text.
+fn node_labels(nodes: &[Node]) -> Vec<String> {
+    let mut seen = BTreeMap::<&str, usize>::new();
+    for node in nodes {
+        *seen.entry(node.text.as_str()).or_default() += 1;
+    }
+    nodes
+        .iter()
+        .map(|node| {
+            if seen[node.text.as_str()] > 1 {
+                format!("{}@{}", node.text, node.path)
+            } else {
+                node.text.clone()
+            }
+        })
+        .collect()
+}
+
+/// The requirements of one guarded rule item, `name` its name (module documentation).
+fn requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> Vec<Value> {
+    let guard = &rule["guard"];
+    if !crate::guards::authored_condition(guard) {
+        return Vec::new();
+    }
+    let tree = Tree::of(guard);
+    let grouped = &guard["krs"];
+    let nodes = requirement_nodes(guard, &tree);
     let (held, refuted) = if grouped.is_object() {
         (ids(&grouped["held_by"]), ids(&grouped["refuted_by"]))
     } else {
@@ -2102,16 +2213,7 @@ fn requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> 
         };
         items.push(value);
     }
-    let mut seen = BTreeMap::<&str, usize>::new();
-    for node in &nodes {
-        *seen.entry(node.text.as_str()).or_default() += 1;
-    }
-    for node in &nodes {
-        let label = if seen[node.text.as_str()] > 1 {
-            format!("{}@{}", node.text, node.path)
-        } else {
-            node.text.clone()
-        };
+    for (node, label) in nodes.iter().zip(node_labels(&nodes)) {
         for (truth, by) in [(true, &node.true_by), (false, &node.false_by)] {
             let restates = |restated: &Option<(String, bool)>| {
                 restated
@@ -2135,6 +2237,247 @@ fn requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> 
         }
     }
     items
+}
+
+/// The `level` of a requirement of the unique-cause level (module documentation, "Unique-cause
+/// MC/DC").
+pub const MCDC: &str = "mcdc";
+
+/// The unique-cause obligations of one guarded rule item `[coverage] mcdc` selects, `name` its
+/// name (module documentation, "Unique-cause MC/DC"): one per authored atom of its condition,
+/// read from the guard's valuation combinations ([`crate::guards`], `guard.combinations`).
+fn mcdc_requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> Vec<Value> {
+    let guard = &rule["guard"];
+    if !crate::guards::authored_condition(guard) {
+        return Vec::new();
+    }
+    let tree = Tree::of(guard);
+    let nodes = requirement_nodes(guard, &tree);
+    let labels = node_labels(&nodes);
+    let combinations = &guard["combinations"];
+    let atoms = combinations["atoms"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    let rows = combinations["rows"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    let truncated = ids(&combinations["truncated_by"]);
+    // The operands: the author's atoms, each with its position in the combinations.
+    let operands = nodes
+        .iter()
+        .zip(&labels)
+        .filter(|(node, _)| {
+            tree.operands.get(node.path.as_str()).map(|o| &o["kind"]) == Some(&json!("atom"))
+        })
+        .filter_map(|(node, label)| {
+            let ordinal = atoms.iter().position(|atom| atom == node.path.as_str())?;
+            Some((node, label, ordinal))
+        })
+        .collect::<Vec<_>>();
+    let truth = |row: &Value, ordinal: usize| -> String {
+        row["truths"][ordinal]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    // A valuation of the operands, as the document and a target state it.
+    let valuation = |truths: &dyn Fn(usize) -> String| {
+        operands
+            .iter()
+            .map(|(node, _, ordinal)| {
+                json!({"node": node.path, "text": node.text, "truth": truths(*ordinal)})
+            })
+            .collect::<Vec<_>>()
+    };
+    let decided = |row: &Value| crate::guards::decided(row["outcome"].as_str().unwrap_or_default());
+    let side = |row: &Value| {
+        json!({
+            "valuation": valuation(&|ordinal| truth(row, ordinal)),
+            "outcome": row["outcome"],
+            "programs": row["programs"],
+        })
+    };
+    let (file, line) = position(rule);
+    let mut items = Vec::new();
+    for (node, label, ordinal) in &operands {
+        let two_valued = |row: &Value| match truth(row, *ordinal).as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        };
+        // A unique-cause pair: a held and a refuted combination in which the operand has the two
+        // truths and every other atom one decided truth.
+        let pair = rows
+            .iter()
+            .filter(|held| decided(held) == Some(true))
+            .flat_map(|held| rows.iter().map(move |refuted| (held, refuted)))
+            .find(|(held, refuted)| {
+                decided(refuted) == Some(false)
+                    && two_valued(held)
+                        .zip(two_valued(refuted))
+                        .is_some_and(|(a, b)| a != b)
+                    && (0..atoms.len())
+                        .filter(|other| other != ordinal)
+                        .all(|other| {
+                            let value = truth(held, other);
+                            value != "undecided" && value == truth(refuted, other)
+                        })
+            });
+        // Where there is none, the valuations that would make one with a recorded combination:
+        // the operand's truth negated, where the condition then takes the other outcome.
+        let mut needed = Vec::<Value>::new();
+        if pair.is_none() {
+            for row in rows {
+                let (Some(outcome), Some(own)) = (decided(row), two_valued(row)) else {
+                    continue;
+                };
+                let flipped = match row["flipped"][node.path.as_str()].as_str() {
+                    Some("held") => true,
+                    Some("refuted") => false,
+                    _ => continue,
+                };
+                if flipped == outcome {
+                    continue;
+                }
+                let truths = |other: usize| {
+                    if other == *ordinal {
+                        (!own).to_string()
+                    } else {
+                        truth(row, other)
+                    }
+                };
+                let wanted = valuation(&truths);
+                if needed
+                    .iter()
+                    .any(|known| known["valuation"] == json!(wanted))
+                {
+                    continue;
+                }
+                needed.push(json!({
+                    "valuation": wanted,
+                    "outcome": if flipped { "held" } else { "refuted" },
+                    "against": side(row),
+                }));
+            }
+        }
+        let covered_by = pair.map_or_else(Vec::new, |(held, refuted)| {
+            without(
+                ids(&held["programs"])
+                    .into_iter()
+                    .chain(ids(&refuted["programs"]))
+                    .collect(),
+                &[],
+            )
+        });
+        let covered = pair.is_some();
+        let status = if covered {
+            "covered"
+        } else if truncated.is_empty() {
+            "open"
+        } else {
+            UNDECIDED
+        };
+        items.push(json!({
+            "id": format!("requirement:{name}:{label}:{MCDC}"),
+            "rule": rule_id,
+            "level": MCDC,
+            "node": node.path,
+            "text": node.text,
+            "file": file,
+            "line": line,
+            "status": status,
+            "covered": covered,
+            "covered_by": covered_by,
+            "pair": pair.map_or(Value::Null, |(held, refuted)| json!([side(held), side(refuted)])),
+            "needed": needed,
+            "truncated_by": truncated,
+            "entered_by": entered,
+        }));
+    }
+    items
+}
+
+/// The target text of a unique-cause requirement `requirement` of the rule named `name`: the
+/// valuation the first of its `needed` asks for, against the recorded combination it pairs with;
+/// else the pair in general, and why no recorded combination gives one; and, for an undecided
+/// one, why the record cannot say.
+fn mcdc_target(name: &str, requirement: &Value) -> String {
+    let operand = requirement["text"].as_str().unwrap_or_default();
+    let stated = |valuation: &Value| {
+        listed(
+            &valuation
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|step| {
+                    format!(
+                        "{} {}",
+                        step["text"].as_str().unwrap_or_default(),
+                        step["truth"].as_str().unwrap_or_default()
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+    let holds = |outcome: &Value| {
+        if crate::guards::decided(outcome.as_str().unwrap_or_default()) == Some(true) {
+            "holds"
+        } else {
+            "is false"
+        }
+    };
+    let mut text = match requirement["needed"]
+        .as_array()
+        .and_then(|needed| needed.first())
+    {
+        Some(needed) => {
+            let against = &needed["against"];
+            format!(
+                "a case that enters {name} with {}, where its condition {}: against {}'s {}, \
+                 where it {}, {operand} alone decides it",
+                stated(&needed["valuation"]),
+                holds(&needed["outcome"]),
+                listed(&ids(&against["programs"])),
+                stated(&against["valuation"]),
+                holds(&against["outcome"]),
+            )
+        }
+        None if requirement["entered_by"]
+            .as_array()
+            .is_none_or(Vec::is_empty) =>
+        {
+            format!(
+                "two cases that enter {name}, differ only in {operand}, and differ in whether \
+                 its condition holds"
+            )
+        }
+        None => format!(
+            "two cases that enter {name}, differ only in {operand}, and differ in whether its \
+             condition holds; no recorded valuation with every other atom decided lets \
+             {operand} alone change the condition: where {operand} is a function of the other \
+             operands, argue the obligation"
+        ),
+    };
+    if requirement["status"] == UNDECIDED {
+        let truncated = ids(&requirement["truncated_by"]);
+        text.push_str(&format!(
+            "; undecided: the {} of {} {} only part of {} combinations of this condition, so \
+             such a pair may be among those left out",
+            if truncated.len() == 1 {
+                "record"
+            } else {
+                "records"
+            },
+            listed(&truncated),
+            if truncated.len() == 1 {
+                "keeps"
+            } else {
+                "keep"
+            },
+            if truncated.len() == 1 { "its" } else { "their" },
+        ));
+    }
+    text
 }
 
 /// A list of names as a sentence reads it: `a`, `a and b`, `a, b and c`.
@@ -2182,6 +2525,15 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     });
     unargue(document);
     let argued_entries = argued_entries(document);
+    let mcdc = document["settings"]["mcdc"].clone();
+    let mcdc_on = mcdc == true || mcdc.as_array().is_some_and(|names| !names.is_empty());
+    let selects = |name: &str| {
+        mcdc == true
+            || mcdc
+                .as_array()
+                .is_some_and(|names| names.iter().any(|selected| selected == name))
+    };
+    let mut mcdc_rules = Vec::new();
     let Some(items) = document
         .get_mut("families")
         .and_then(|families| families.get_mut("rules"))
@@ -2261,11 +2613,19 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             ))
         });
         let held_id = format!("requirement:{name}:held");
-        let requirements = if obligation && item.get("guard").is_some() {
+        let mut requirements = if obligation && item.get("guard").is_some() {
             requirements(&name, &id, item, &entered)
         } else {
             Vec::new()
         };
+        // The unique-cause level, for a rule `[coverage] mcdc` selects whose condition states
+        // requirements; the combinations stay only in the rows it reads them from.
+        if !requirements.is_empty() && selects(&name) {
+            requirements.extend(mcdc_requirements(&name, &id, item, &entered));
+            mcdc_rules.push(id.clone());
+        } else if let Some(guard) = item.get_mut("guard").and_then(Value::as_object_mut) {
+            guard.remove("combinations");
+        }
         if obligation && !covered {
             let (text, job) = if status == MATCHED {
                 let requirement = !argued_entries.contains_key(&held_id)
@@ -2312,6 +2672,19 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         }
         for requirement in &requirements {
             if requirement["covered"] == true {
+                continue;
+            }
+            if requirement["level"] == MCDC {
+                requirement_targets.push(json!({
+                    "family": "requirements",
+                    "item": requirement["id"],
+                    "text": mcdc_target(&name, requirement),
+                    "file": file,
+                    "line": line,
+                    "programs": entered,
+                    "pattern": null,
+                    "fuzz": null,
+                }));
                 continue;
             }
             let truth = requirement["truth"].as_str().unwrap_or_default();
@@ -2372,6 +2745,10 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         .filter(|item| item["covered"] == true)
         .count();
     let requirement_obligations = requirement_items.len();
+    let requirement_undecided = requirement_items
+        .iter()
+        .filter(|item| item["status"] == UNDECIDED)
+        .count();
     let rules = &mut document["families"]["rules"];
     rules["obligations"] = json!(obligations);
     rules["covered"] = json!(fired);
@@ -2392,10 +2769,23 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "measure": measure(requirement_covered, requirement_obligations),
         "counts": {
             "covered": requirement_covered,
-            "open": requirement_obligations - requirement_covered,
+            "open": requirement_obligations - requirement_covered - requirement_undecided,
         },
         "items": requirement_items,
     });
+    if mcdc_on {
+        let level = requirement_items
+            .iter()
+            .filter(|item| item["level"] == MCDC)
+            .collect::<Vec<_>>();
+        let requirements = &mut families["requirements"];
+        requirements["counts"]["undecided"] = json!(requirement_undecided);
+        requirements["mcdc"] = json!({
+            "rules": mcdc_rules,
+            "obligations": level.len(),
+            "covered": level.iter().filter(|item| item["covered"] == true).count(),
+        });
+    }
     let (syntax_counts, syntax_targets) = derive_syntax(&mut families["syntax"], &rule_ids);
     families["rule_windows"] = Value::Null;
     families["syntax_paths"] = Value::Null;
@@ -2412,9 +2802,11 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             ))
         })
         .collect::<BTreeMap<_, _>>();
+    // An unreached flip waits on the reached truths that explain it; a unique-cause pair
+    // explains no reach.
     let requirement_ids = requirement_items
         .iter()
-        .filter(|item| item["covered"] == false)
+        .filter(|item| item["covered"] == false && item["level"] != MCDC)
         .filter_map(|item| {
             Some((
                 (
@@ -2634,7 +3026,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
                         less(counts, &status.replace('-', "_"));
                     }
                 }
-                "requirements" => less(counts, "open"),
+                "requirements" => less(counts, status.as_str().unwrap_or("open")),
                 _ => less(counts, "unreached"),
             }
         }
@@ -3088,6 +3480,12 @@ pub fn text(document: &Value) -> Result<String, String> {
             percent(&value["measure"]),
             argued_note(value)
         ));
+        if let Some(level) = value["mcdc"].as_object() {
+            out.push_str(&format!(
+                "; unique-cause: {} of {} covered, {} undecided",
+                level["covered"], level["obligations"], value["counts"]["undecided"]
+            ));
+        }
         if family == "rules" {
             let counts = &value["counts"];
             out.push_str(&format!(
@@ -3230,12 +3628,19 @@ pub fn text(document: &Value) -> Result<String, String> {
 }
 
 /// The open ids of each family of a coverage document, in item order: what its verdicts
-/// rendering lists ([`crate::verdicts`]). An argued item is not open.
+/// rendering lists ([`crate::verdicts`]). An argued item is not open, nor is an undecided one.
 #[must_use]
 pub fn open_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
     tier_one_ids(document, |item| {
-        item["covered"] == false && item["status"] != ARGUED
+        item["covered"] == false && item["status"] != ARGUED && item["status"] != UNDECIDED
     })
+}
+
+/// The undecided ids of each tier-1 family of a coverage document, in item order ([`UNDECIDED`]):
+/// what its verdicts rendering lists apart from the open ones ([`crate::verdicts`]).
+#[must_use]
+pub fn undecided_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
+    tier_one_ids(document, |item| item["status"] == UNDECIDED)
 }
 
 /// The argued ids of each tier-1 family of a coverage document, in item order: what its verdicts

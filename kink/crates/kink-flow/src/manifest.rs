@@ -232,10 +232,9 @@ pub struct CoverageSection {
     /// `depth`: the length of the sequences the deeper families count (rule windows, syntax
     /// paths); 1, the default, counts single items.
     pub depth: NonZeroU64,
-    /// `mcdc`: the rules whose requirements gain unique-cause obligations, each by its name as a
-    /// document names a rule (a KRS item through the krs front end, a label in kink-flow), in
-    /// the order written, without repeats; empty by default.
-    pub mcdc: Vec<String>,
+    /// `mcdc`: the guarded rules whose requirements gain unique-cause obligations
+    /// ([`Mcdc`]); none by default.
+    pub mcdc: Mcdc,
     /// `max_obligations`: the most obligations a universe of depth above 1 may hold before
     /// `coverage` refuses with the counts rather than guess a depth; 100 000 by default.
     pub max_obligations: NonZeroU64,
@@ -245,6 +244,54 @@ pub struct CoverageSection {
     pub argued: Vec<ArguedItem>,
     /// Whether the manifest has a `[coverage]` section (the document's `settings.source`).
     pub declared: bool,
+}
+
+/// `[coverage] mcdc`: which guarded rules' conditions gain the unique-cause obligations
+/// (`crate::coverage`, "Unique-cause MC/DC"), a level of the requirements family an author opts
+/// into rule by rule. A condition is one decision, and its unique-cause obligations are one per
+/// operand of it, so a rule is the unit an author selects: an obligation for some of a
+/// condition's operands and not the others would not say whether each operand decides it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Mcdc {
+    /// The rules named, each by its name as the document's ids spell it (`rule:<name>`: a KRS
+    /// item through the krs front end, a label in kink-flow, `:<label>` added where two rules
+    /// share one), in the order written, without repeats. Empty (the default, or `false`) asks
+    /// for none.
+    Rules(Vec<String>),
+    /// `true`: every rule whose condition states requirements.
+    All,
+}
+
+impl Default for Mcdc {
+    fn default() -> Self {
+        Self::Rules(Vec::new())
+    }
+}
+
+impl Mcdc {
+    /// Whether no rule is selected.
+    #[must_use]
+    pub fn is_off(&self) -> bool {
+        matches!(self, Self::Rules(names) if names.is_empty())
+    }
+
+    /// Whether the rule named `name` (as the document's ids spell it) is selected.
+    #[must_use]
+    pub fn selects(&self, name: &str) -> bool {
+        match self {
+            Self::Rules(names) => names.iter().any(|selected| selected == name),
+            Self::All => true,
+        }
+    }
+
+    /// The document's `settings.mcdc`: the names, or `true`.
+    #[must_use]
+    pub fn value(&self) -> serde_json::Value {
+        match self {
+            Self::Rules(names) => serde_json::json!(names),
+            Self::All => serde_json::Value::Bool(true),
+        }
+    }
 }
 
 /// One `[[coverage.argued]]` entry: an obligation that no program is written for, with the
@@ -265,7 +312,7 @@ impl Default for CoverageSection {
     fn default() -> Self {
         Self {
             depth: NonZeroU64::MIN,
-            mcdc: Vec::new(),
+            mcdc: Mcdc::default(),
             max_obligations: NonZeroU64::new(DEFAULT_MAX_OBLIGATIONS)
                 .expect("the default is positive"),
             argued: Vec::new(),
@@ -1136,8 +1183,8 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
     })
 }
 
-/// `[coverage]`: `depth` and `max_obligations` positive integers, `mcdc` an array of nonempty
-/// names without repeats, `argued` an array of tables ([`argued`]).
+/// `[coverage]`: `depth` and `max_obligations` positive integers, `mcdc` a Boolean or an array
+/// of nonempty names without repeats, `argued` an array of tables ([`argued`]).
 fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
     let section = table(value, "coverage")?;
     known_keys(
@@ -1160,8 +1207,10 @@ fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
     let max_obligations = positive("max_obligations", defaults.max_obligations)?;
     let key = "coverage.mcdc";
     let mut mcdc = Vec::new();
+    let mut all = false;
     match section.get("mcdc") {
         None => {}
+        Some(Value::Boolean(value)) => all = *value,
         Some(Value::Array(entries)) => {
             for (index, entry) in entries.iter().enumerate() {
                 let name = match entry {
@@ -1179,8 +1228,14 @@ fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
                 mcdc.push(name);
             }
         }
-        Some(_) => return Err(ManifestError::new(key, "expected an array of rule names")),
+        Some(_) => {
+            return Err(ManifestError::new(
+                key,
+                "expected an array of rule names, or true for every rule",
+            ));
+        }
     }
+    let mcdc = if all { Mcdc::All } else { Mcdc::Rules(mcdc) };
     let argued = section.get("argued").map(argued).transpose()?;
     Ok(CoverageSection {
         depth,

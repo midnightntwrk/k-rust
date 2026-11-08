@@ -1,0 +1,21 @@
+# kink-flow corpus manifest for the MC/DC fixture. `both` (A andThenBool B) is entered with both
+# operands true and both false, so neither operand has a unique-cause pair; `either`
+# (A orElseBool B) is entered with each operand alone true and both false, so each has one;
+# `big` (X > 0 andThenBool X > 10) has one for `X >Int 10` and none can exist for `X >Int 0`,
+# which `X >Int 10` implies.
+[spec]
+entry = "mcdc.k"
+main_module = "MCDC"
+syntax_module = "MCDC-SYNTAX"
+
+[[program]]
+id = "one"
+text = "both(true, true) ; either(false, false) ; big(20)"
+
+[[program]]
+id = "two"
+text = "both(false, false) ; either(true, false) ; big(5)"
+
+[[program]]
+id = "three"
+text = "either(false, true) ; big(-1)"

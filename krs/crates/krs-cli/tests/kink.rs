@@ -277,6 +277,25 @@ fn guarded() -> Arc<Project> {
             .concat();
         }
         files.push(("corpora/unentered/FLOW.toml".to_owned(), flow.into_bytes()));
+        // A corpus that selects `boundary_dispatch` for the unique-cause level by its KRS item.
+        let mut flow = "[spec]\nkrs = { definition = \"main\" }\n\n[coverage]\nmcdc = \
+                        [\"crate::boundary_dispatch\"]\n"
+            .to_owned();
+        for (id, program) in [("irq", "raise ; boundary"), ("idle", "boundary")] {
+            flow += &[
+                "\n[[program]]\nid = \"",
+                id,
+                "\"\nfile = \"cases/",
+                id,
+                ".g\"\n",
+            ]
+            .concat();
+            files.push((
+                format!("corpora/mcdc/cases/{id}.g"),
+                format!("{program}\n").into_bytes(),
+            ));
+        }
+        files.push(("corpora/mcdc/FLOW.toml".to_owned(), flow.into_bytes()));
         project_of("krs-cli-kink-guarded", "GUARDED", &files)
     })
 }
@@ -710,6 +729,67 @@ fn requirement_of<'d>(document: &'d Value, id: &str) -> &'d Value {
         .iter()
         .find(|item| item["id"] == id)
         .unwrap_or_else(|| panic!("no requirement {id}"))
+}
+
+/// `[coverage] mcdc` selects a rule by its KRS item, and its unique-cause requirements are named
+/// by the Rust text of each authored atom: over `raise ; boundary` (`irq` true) and `boundary`
+/// (`irq` false), both with `halted` false and `ime` true, `irq` alone decides
+/// `!halted && irq && ime`, while `halted` and `ime` are open with the valuation that would pair
+/// with `irq`'s case. No other rule gains the level.
+#[test]
+fn a_rule_selected_by_its_krs_item_gains_unique_cause_requirements() {
+    let project = guarded();
+    let output = project.kink("coverage", &["--tier", "1", "--corpus", "corpora/mcdc"]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert_eq!(
+        document["settings"]["mcdc"],
+        json!(["crate::boundary_dispatch"])
+    );
+    let level = requirement_ids(&document)
+        .into_iter()
+        .filter(|id| id.ends_with(":mcdc"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        level,
+        [
+            "requirement:crate::boundary_dispatch:halted:mcdc",
+            "requirement:crate::boundary_dispatch:irq:mcdc",
+            "requirement:crate::boundary_dispatch:ime:mcdc",
+        ]
+    );
+    let irq = requirement_of(&document, "requirement:crate::boundary_dispatch:irq:mcdc");
+    assert_eq!(irq["status"], "covered", "{irq:#}");
+    assert_eq!(irq["covered_by"], json!(["irq", "idle"]), "{irq:#}");
+    for (id, valuation) in [
+        (
+            "requirement:crate::boundary_dispatch:halted:mcdc",
+            "halted true, irq true and ime true, where its condition is false",
+        ),
+        (
+            "requirement:crate::boundary_dispatch:ime:mcdc",
+            "halted false, irq true and ime false, where its condition is false",
+        ),
+    ] {
+        assert_eq!(requirement_of(&document, id)["status"], "open");
+        let target = document["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|target| target["item"] == id)
+            .unwrap_or_else(|| panic!("no target {id}: {document:#}"));
+        assert!(
+            target["text"].as_str().unwrap().contains(&format!(
+                "a case that enters crate::boundary_dispatch with {valuation}: against irq's \
+                 halted false, irq true and ime true, where it holds"
+            )),
+            "{target:#}"
+        );
+    }
+    assert_eq!(
+        document["families"]["requirements"]["mcdc"]["rules"],
+        json!(["rule:crate::boundary_dispatch"])
+    );
 }
 
 /// Which conjuncts of a condition are the author's is a fact of the definition, not of the cases
@@ -3026,7 +3106,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 7);
+    assert_eq!(document["version"], 8);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -5414,7 +5494,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 14\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 15\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 13
+//! version = 15
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -72,6 +72,7 @@
 //! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
 //! family the ids of its open obligations and of its argued ones, in item order (`[rules]`,
 //! `[requirements]`, `[syntax]`; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
+//! and, where it has any, of its undecided ones (`undecided`; [`crate::coverage::undecided_ids`]),
 //! and for the flips family whether it ran and, when it ran, each flip (`[[flip]]`, in item order)
 //! with its status (`argued` for an argued one), a refused flip's reason, a distinguished flip's
 //! `killer`, and an undistinguished flip's `horizon` where it rests on one, as a run rendering
@@ -149,8 +150,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// than covered; 14 since each horizon names why its channel opened (`opening`: `bound`,
 /// `undecided-element`, `branch`, `undecided-path`, `cycle`), so that a lock shows whether a larger budget
 /// could observe more, and a `coverage` rendering gives an undistinguished flip that rests on a
-/// horizon its `horizon`.
-pub const VERDICTS_VERSION: u64 = 14;
+/// horizon its `horizon`; 15 since
+/// `[coverage] mcdc` is read: `mcdc` is the names or `true`, and a family
+/// with undecided obligations lists them (`undecided`, beside `open`, which leaves them out), so
+/// that a lock shows a pair the record cannot decide apart from one no program shows.
+pub const VERDICTS_VERSION: u64 = 15;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -329,24 +333,37 @@ fn coverage(text: &mut String, document: &Value) {
         };
         line(text, "tiers", &numbers(&settings["tiers"]));
         line(text, "depth", &settings["depth"].to_string());
-        let mcdc = settings["mcdc"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        line(text, "mcdc", &strings(&mcdc));
+        let mcdc = if settings["mcdc"] == true {
+            "true".to_owned()
+        } else {
+            strings(
+                &settings["mcdc"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
+            )
+        };
+        line(text, "mcdc", &mcdc);
     }
     if !document["families"].is_object() {
         return;
     }
     let argued = crate::coverage::argued_ids(document);
-    for ((family, open), (_, argued)) in crate::coverage::open_ids(document).into_iter().zip(argued)
+    let undecided = crate::coverage::undecided_ids(document);
+    for (((family, open), (_, argued)), (_, undecided)) in crate::coverage::open_ids(document)
+        .into_iter()
+        .zip(argued)
+        .zip(undecided)
     {
         let _ = write!(text, "\n[{family}]\n");
         line(text, "open", &strings(&open));
         line(text, "argued", &strings(&argued));
+        if !undecided.is_empty() {
+            line(text, "undecided", &strings(&undecided));
+        }
     }
     let flips = &document["families"]["flips"];
     if flips.is_object() {

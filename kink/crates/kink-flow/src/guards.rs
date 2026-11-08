@@ -445,12 +445,16 @@ fn node_outcomes(entries: &[(&str, &Value)], nodes: usize) -> Vec<NodeOutcomes> 
 /// a program entered the condition, or why the definition's skeleton of it cannot be read: the
 /// guard then shows no node, whichever programs entered it, so that the nodes it shows never
 /// depend on the programs. The outcomes the programs of `others` saw are listed apart, as
-/// `uncounted` (null when none entered it): they count for no outcome of the guard.
+/// `uncounted` (null when none entered it): they count for no outcome of the guard. With
+/// `combinations`, a guard that shows the nodes of an authored conjunct also has its comparable
+/// programs' valuation combinations in display terms ([`combinations_value`]), which the
+/// unique-cause level of the requirements reads.
 pub(crate) fn row_guard(
     entries: Option<&SentenceGuards<'_>>,
     others: Option<&SentenceGuards<'_>>,
     skeletons: Result<&[Value], &str>,
     printer: &dyn AtomPrinter,
+    combinations: bool,
 ) -> Value {
     let mut guard = json!({
         "held_by": [], "refuted_by": [], "undefined_by": [], "solver_refuted_by": [],
@@ -578,6 +582,9 @@ pub(crate) fn row_guard(
             "nodes": uncounted_nodes,
         });
     }
+    if combinations && authored > 0 {
+        guard["combinations"] = combinations_value(&nodes, &rendering.shown, &entries);
+    }
     if authored == 0 {
         let quantified = conjuncts.iter().any(|(index, _)| {
             nodes[*index].shape["kore"]
@@ -591,6 +598,155 @@ pub(crate) fn row_guard(
         });
     }
     guard
+}
+
+/// Whether a combination's guard outcome (a record's token) is a decision: `held`, or a
+/// refutation of any kind. An undecided or stopped attempt decided nothing.
+#[must_use]
+pub fn decided(outcome: &str) -> Option<bool> {
+    match outcome {
+        "held" => Some(true),
+        _ if outcome.starts_with("refuted") => Some(false),
+        _ => None,
+    }
+}
+
+/// The truth of a skeleton's condition (every conjunct, the compile's included) under `atoms`,
+/// the two-valued truth of each atom by preorder ordinal, `None` where an atom it reads has
+/// none or a node is of no shape it knows. With every atom two-valued, the strict and the
+/// short-circuit readings of the Boolean connectives agree, so this is the condition's value.
+fn evaluate(nodes: &[Node<'_>], atoms: &[Option<bool>]) -> Option<bool> {
+    let ordinal = |index: usize| {
+        nodes[..index]
+            .iter()
+            .filter(|node| matches!(node.shape["node"].as_str(), Some("term" | "predicate")))
+            .count()
+    };
+    let children = |index: usize| {
+        let path = &nodes[index].path;
+        nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.path.len() == path.len() + 1 && node.path.starts_with(path))
+            .map(|(child, _)| child)
+            .collect::<Vec<_>>()
+    };
+    fn value(
+        nodes: &[Node<'_>],
+        index: usize,
+        atoms: &[Option<bool>],
+        ordinal: &dyn Fn(usize) -> usize,
+        children: &dyn Fn(usize) -> Vec<usize>,
+    ) -> Option<bool> {
+        let shape = nodes[index].shape;
+        let operands = || {
+            children(index)
+                .into_iter()
+                .map(|child| value(nodes, child, atoms, ordinal, children))
+                .collect::<Option<Vec<_>>>()
+        };
+        match shape["node"].as_str()? {
+            "term" | "predicate" => atoms.get(ordinal(index)).copied().flatten(),
+            "equals" => {
+                let literal = shape["literal"].as_bool()?;
+                match operands()?.as_slice() {
+                    [one] => Some(*one == literal),
+                    _ => None,
+                }
+            }
+            "connective" => {
+                let operands = operands()?;
+                match (shape["connective"].as_str()?, operands.as_slice()) {
+                    ("notBool" | "\\not", [one]) => Some(!one),
+                    ("andBool" | "andThenBool" | "\\and", all) => Some(all.iter().all(|b| *b)),
+                    ("orBool" | "orElseBool" | "\\or", any) => Some(any.iter().any(|b| *b)),
+                    ("impliesBool" | "\\implies", [a, b]) => Some(!a || *b),
+                    ("xorBool", [a, b]) => Some(a != b),
+                    ("\\iff", [a, b]) => Some(a == b),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+    let mut held = true;
+    for (index, node) in nodes.iter().enumerate() {
+        if node.path.len() == 1 {
+            held &= value(nodes, index, atoms, &ordinal, &children)?;
+        }
+    }
+    Some(held)
+}
+
+/// A guard's valuation combinations in display terms (`guard.combinations`): `atoms`, the
+/// display path of each atom of the record's combinations in preorder (`null` for an atom of a
+/// conjunct the compile added, which no node shows); `rows`, each distinct combination of the
+/// comparable programs' `entries` (`truths`, the record's truth of each atom, and `outcome`, the
+/// entry's guard outcome) with the `programs` that made it, in corpus order, and `flipped`, for
+/// each shown atom, the outcome (`held` or `refuted`) the condition takes under the combination
+/// with that atom's two-valued truth negated, null where another atom has no two-valued truth;
+/// and `truncated_by`, the programs whose record left a combination out (`combinations_truncated`),
+/// since the least ones kept are a function of the full set but not all of it.
+fn combinations_value(
+    nodes: &[Node<'_>],
+    shown: &[Option<String>],
+    entries: &[(&str, &Value)],
+) -> Value {
+    let atoms = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| matches!(node.shape["node"].as_str(), Some("term" | "predicate")))
+        .map(|(index, _)| shown[index].clone())
+        .collect::<Vec<_>>();
+    let mut rows = std::collections::BTreeMap::<(Vec<String>, String), Programs>::new();
+    let mut truncated = Programs::default();
+    for (program, axiom) in entries {
+        if axiom["combinations_truncated"] == true {
+            truncated.add(program);
+        }
+        for combination in axiom["combinations"].as_array().into_iter().flatten() {
+            let truths = combination["atoms"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|truth| truth.as_str().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>();
+            if truths.len() != atoms.len() {
+                continue;
+            }
+            let outcome = combination["outcome"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            rows.entry((truths, outcome)).or_default().add(program);
+        }
+    }
+    let two_valued = |truth: &str| match truth {
+        TRUE => Some(true),
+        FALSE => Some(false),
+        _ => None,
+    };
+    let rows = rows
+        .into_iter()
+        .map(|((truths, outcome), programs)| {
+            let values = truths.iter().map(|t| two_valued(t)).collect::<Vec<_>>();
+            let mut flipped = serde_json::Map::new();
+            for (ordinal, path) in atoms.iter().enumerate() {
+                let Some(path) = path else {
+                    continue;
+                };
+                let mut negated = values.clone();
+                negated[ordinal] = values[ordinal].map(|truth| !truth);
+                let outcome = evaluate(nodes, &negated).map_or(Value::Null, |held| {
+                    json!(if held { "held" } else { "refuted" })
+                });
+                flipped.insert(path.clone(), outcome);
+            }
+            json!({"truths": truths, "outcome": outcome, "programs": programs.0,
+                   "flipped": flipped})
+        })
+        .collect::<Vec<_>>();
+    json!({"atoms": atoms, "rows": rows, "truncated_by": truncated.0})
 }
 
 /// The gaps of `guard`, a row's guard, as a reader reports them: its `never` (of `held` and
@@ -739,7 +895,13 @@ mod tests {
             {"module": "M", "index": 0, "axioms": [chain("a", &["false"])]},
         ]}});
         let guards = SentenceGuards::of([("p", &record)]);
-        let guard = row_guard(guards.get(&("M".to_owned(), 0)), None, Ok(&[]), &Verbatim);
+        let guard = row_guard(
+            guards.get(&("M".to_owned(), 0)),
+            None,
+            Ok(&[]),
+            &Verbatim,
+            false,
+        );
         let operands = guard["operands"].as_array().unwrap();
         let paths = operands
             .iter()
@@ -779,6 +941,7 @@ mod tests {
             others.get(&("M".to_owned(), 0)),
             Ok(&[skeleton]),
             &Verbatim,
+            false,
         );
         let operands = guard["operands"].as_array().unwrap();
         assert_eq!(operands.len(), 4, "{guard:#}");
@@ -802,13 +965,19 @@ mod tests {
             {"module": "M", "index": 0, "axioms": [chain("a", &["false"]), other]},
         ]}});
         let guards = SentenceGuards::of([("p", &record)]);
-        let differing = row_guard(guards.get(&("M".to_owned(), 0)), None, Ok(&[]), &Verbatim);
+        let differing = row_guard(
+            guards.get(&("M".to_owned(), 0)),
+            None,
+            Ok(&[]),
+            &Verbatim,
+            false,
+        );
         assert_eq!(differing["operands"], json!([]));
         assert_eq!(
             differing["operands_reason"],
             "the sentence compiles to conditions of different shapes"
         );
-        let unentered = row_guard(None, None, Ok(&[]), &Verbatim);
+        let unentered = row_guard(None, None, Ok(&[]), &Verbatim, false);
         assert_eq!(
             unentered["operands_reason"],
             "no comparable program entered the condition"
@@ -821,6 +990,7 @@ mod tests {
             None,
             Err("the skeleton cannot be read"),
             &Verbatim,
+            false,
         );
         assert_eq!(unreadable["operands"], json!([]));
         assert_eq!(unreadable["operands_reason"], "the skeleton cannot be read");
@@ -831,7 +1001,13 @@ mod tests {
             "outcomes": ["held"], "combinations": [], "combinations_truncated": false,
         }]}]}});
         let guards = SentenceGuards::of([("p", &quantified)]);
-        let guard = row_guard(guards.get(&("M".to_owned(), 1)), None, Ok(&[]), &Verbatim);
+        let guard = row_guard(
+            guards.get(&("M".to_owned(), 1)),
+            None,
+            Ok(&[]),
+            &Verbatim,
+            false,
+        );
         assert_eq!(guard["compiled"][0]["true_by"], json!(["p"]));
         assert!(
             guard["operands_reason"]

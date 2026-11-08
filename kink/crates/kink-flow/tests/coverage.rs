@@ -1011,7 +1011,7 @@ mod kink_tier {
     }
 
     /// `[coverage]` is decoded by every command and refused by `coverage` where this build cannot
-    /// honour it, before anything runs.
+    /// honour it, or where an `mcdc` name selects no rule, before any mutant runs.
     #[test]
     #[ignore = "kink"]
     fn unsupported_coverage_settings_are_refused_with_their_reason() {
@@ -1020,7 +1020,7 @@ mod kink_tier {
         let text = fs::read_to_string(&manifest).unwrap();
         for (section, reason) in [
             ("[coverage]\ndepth = 2\n", "depth-unsupported"),
-            ("[coverage]\nmcdc = [\"GUARDS.wake\"]\n", "mcdc-unsupported"),
+            ("[coverage]\nmcdc = [\"GUARDS.nowhere\"]\n", "mcdc-stale"),
         ] {
             write(&manifest, &format!("{section}\n{text}"));
             let (document, status) = run(&manifest, false);
@@ -1542,9 +1542,10 @@ text = 'h(opaque(1), 2)'
         // The coverage document's first version replaced the results document's version 11; its
         // second builds the syntax family; its third runs the flips family where a front end
         // derives the flips; its fourth has the coverage lock and each flip's recorded killer; its
-        // fifth names the observation channels; its sixth reads the argued obligations.
+        // fifth names the observation channels; its sixth reads the argued obligations; its
+        // seventh names each horizon's opening; its eighth reads the unique-cause selection.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 7);
+        assert_eq!(document["version"], 8);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
