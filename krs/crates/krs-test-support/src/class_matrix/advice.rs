@@ -673,12 +673,6 @@ pub const UNCHECKED: &[Unchecked] = &[
     },
     Unchecked {
         class: "instance-list-shape",
-        forms: &["`cell: rest`"],
-        shards: &["sweep"],
-        reason: "the advice is S5-Q1's no-effect refusal of a written `[..]` on a collection (its own red), binding the whole content with a binder at the cell's name; the sweep's whole-binder column writes it as `x`, and the class's advised case writes the instances",
-    },
-    Unchecked {
-        class: "instance-list-shape",
         forms: &[
             r"`[{Ajob,Lgl,Qgl} \{ .. \}\, ..]`",
             r"`\{ {Aacct,Hobj,Lgm,Lgs,Qgm,Qgs} \{ .. \}\, .. \}`",
@@ -705,12 +699,6 @@ pub const UNCHECKED: &[Unchecked] = &[
         ],
         shards: &["terms"],
         reason: "the advice is the builtin call an operator denotes, at the placeholder `..`, which no case writes; the class's advised case writes `int::add(x, 1)` only (an advised case per operator is a generator follow-up)",
-    },
-    Unchecked {
-        class: "optional-without-presence",
-        forms: &["`cell: rest`"],
-        shards: &["sweep"],
-        reason: "the advice is S5-Q1's no-effect refusal of a written `[..]` on an optional List leaf (its own red), binding the whole content with a binder at the cell's name; the class's advised case writes `Some(..)`",
     },
     Unchecked {
         class: "optional-without-presence",
