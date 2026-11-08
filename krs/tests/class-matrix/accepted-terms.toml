@@ -12684,7 +12684,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> V0:KItem |-> V1:KItem ... </env>
+<env> V0:KItem |-> _ ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

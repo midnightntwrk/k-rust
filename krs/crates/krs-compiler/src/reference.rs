@@ -2213,9 +2213,10 @@ fn is_initializer_lint_allow(attribute: &syn::Attribute) -> bool {
 /// Every binder is one the elaborated rule declares, typed at the sort it declares it, and every
 /// frame it names (the configuration's `state`, a collection's other instances, an instance
 /// child's tail) is printed by that name, so the print names what the lowered rule names. A
-/// sorted `_` (the wildcard a `for Sort` head `_` elaborates to) prints as a binder of its sort
-/// used once ([`wildcard_names`]). The clause gives what the rule is about
-/// ([`rule_subject_type`]), the fn's name, its outer attributes and its `#[k::exists]` helpers.
+/// sorted `_` (the wildcard a `for Sort` head `_` and a map read's value `_` elaborate to)
+/// prints as a binder of its sort used once ([`wildcard_names`]). The clause gives what the rule
+/// is about ([`rule_subject_type`]), the fn's name, its outer attributes and its `#[k::exists]`
+/// helpers.
 #[expect(
     clippy::too_many_lines,
     reason = "One rule projection keeps its two sides visibly paired."
@@ -2229,32 +2230,12 @@ fn render_rule(
     bundle: &krs_ir::DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
-    let mut reserved = printed
-        .bindings
-        .iter()
-        .map(|binding| binding.name.clone())
-        .collect::<BTreeSet<_>>();
-    // A map entry's `x -> _` value is recorded as a binding named `_`, used
-    // once and at the sort a narrowing `_: S` gives it, so it denotes what
-    // a fresh binder of that sort used once does; it prints as one, since
-    // `_` is no Rust binder a typed parameter can name.
-    let value = printed
-        .bindings
-        .iter()
-        .any(|binding| binding.name == "_")
-        .then(|| fresh_ident("value", &mut reserved))
-        .transpose()?;
-    let binder = |name: &str| match &value {
-        Some(fresh) if name == "_" => Ok(fresh.clone()),
-        _ => rust_ident(name),
-    };
     let mut parameters = Vec::new();
     for binding in &printed.bindings {
         let krs_ir::ProtocolRuleBindingKind::Term { sort } = &binding.kind else {
             continue;
         };
-        let name = binder(&binding.name)?;
-
+        let name = rust_ident(&binding.name)?;
         let ty = render_binding_type(&sort.sort, package)?;
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
     }
@@ -2268,7 +2249,6 @@ fn render_rule(
         descriptor_index,
         root: &root,
         brackets: &brackets,
-        value: value.as_ref(),
     };
     let results = printed
         .result
@@ -2481,14 +2461,14 @@ fn render_binding_type(
 /// The names the sorted wildcards `wildcards` (each by its reserved id, with its sort) print by,
 /// each the name of the binder that stands for it.
 ///
-/// A sorted wildcard (the elaboration's `_` of a `for Sort` head) matches any one item of its
-/// sort and is used nowhere else. A binder declared at that sort and written only there matches
-/// what the wildcard matches and constrains nothing else, so it means the wildcard; it is named
-/// `_<sort>`, the sort's name in snake case (`_stmt` for `Stmt`, `_int` for `k::builtin::Int`), so
-/// that it reads as unused. Each name is fresh against every identifier of `printed_parts` (the
-/// rule's print: its binders, frames and the items it names) and against the names chosen before
-/// it: `_stmt`, then `_stmt_2`. K spells it apart from every other variable of the sentence,
-/// which the emitter's naming of variables decides.
+/// A sorted wildcard (the elaboration's `_` of a `for Sort` head or of a map read's value)
+/// matches any one item of its sort and is used nowhere else. A binder declared at that sort and
+/// written only there matches what the wildcard matches and constrains nothing else, so it means
+/// the wildcard; it is named `_<sort>`, the sort's name in snake case (`_stmt` for `Stmt`, `_int`
+/// for `k::builtin::Int`), so that it reads as unused. Each name is fresh against every
+/// identifier of `printed_parts` (the rule's print: its binders, frames and the items it names)
+/// and against the names chosen before it: `_stmt`, then `_stmt_2`. K spells it apart from every
+/// other variable of the sentence, which the emitter's naming of variables decides.
 fn wildcard_names<'w, 't>(
     wildcards: impl IntoIterator<Item = (&'w str, &'w krs_ir::DescriptorSortRef)>,
     printed_parts: impl IntoIterator<Item = &'t TokenStream>,
@@ -2685,8 +2665,6 @@ struct CellRendering<'a> {
     /// What the rule is about, relative to which each cell is named.
     root: &'a StableItemId,
     brackets: &'a ListBrackets<'a>,
-    /// The fresh name a map read's `_` value prints by.
-    value: Option<&'a Ident>,
 }
 
 /// One cell of an elaborated rule's subject (`before`) and of its result (`after`, absent where
@@ -2721,7 +2699,6 @@ fn render_rule_cell(
             }
         })
     };
-    let value = rendering.value;
     let map_entry = |map: &krs_ir::ProtocolRuleMap<DescriptorTerm>,
                      pattern: bool|
      -> Result<entries::Entry, ReferenceExpansionError> {
@@ -2732,12 +2709,7 @@ fn render_rule_cell(
             .iter()
             .map(|item| {
                 let key = render_term(&item.key, pattern, package, bundle)?;
-                let value = match (&item.value, value) {
-                    (DescriptorTerm::Variable { name, .. }, Some(value)) if name == "_" => {
-                        quote!(#value)
-                    }
-                    (term, _) => render_term(term, pattern, package, bundle)?,
-                };
+                let value = render_term(&item.value, pattern, package, bundle)?;
                 Ok((key, value))
             })
             .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
@@ -5093,25 +5065,6 @@ fn rename_identifiers(tokens: TokenStream, names: &BTreeMap<String, Ident>) -> T
         .collect()
 }
 
-fn fresh_ident(
-    base: &str,
-    reserved: &mut BTreeSet<String>,
-) -> Result<Ident, ReferenceExpansionError> {
-    if !reserved.contains(base) {
-        reserved.insert(base.to_owned());
-        return rust_ident(base);
-    }
-    let mut ordinal = 1_u32;
-    loop {
-        let candidate = format!("{base}{ordinal}");
-        if !reserved.contains(candidate.as_str()) {
-            reserved.insert(candidate.clone());
-            return rust_ident(&candidate);
-        }
-        ordinal += 1;
-    }
-}
-
 /// The Rust identifier that names `value`: the identifier itself, or the raw
 /// identifier of a name that is reserved in the edition KRS packages use
 /// (`r#type`, `r#gen`).
@@ -5640,7 +5593,7 @@ impl Error for ReferenceExpansionError {
 mod tests {
     use super::{
         Bindings, PathScope, ReferenceExpansionError, WrittenPaths, authored_paths, configured_out,
-        contains_use_tree, fresh_ident, rename_hidden_tokens, render_declared_path,
+        contains_use_tree, rename_hidden_tokens, render_declared_path,
         render_reference_token_term_type, render_sort_marker, render_term, rust_ident,
         sort_snake_name, wildcard_names, written_path,
     };
@@ -5826,13 +5779,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_name_from_an_authored_base_that_is_no_identifier_fails_typed() {
-        let mut reserved = std::collections::BTreeSet::from(["tail".to_owned()]);
-        assert_eq!(
-            fresh_ident("tail", &mut reserved).unwrap().to_string(),
-            "tail1"
-        );
-        assert!(unprintable(&fresh_ident("", &mut reserved)));
+    fn a_hidden_binder_named_by_no_identifier_fails_typed() {
         // A record update's hidden binder is named after what follows its prefix, which an
         // authored identifier may leave empty.
         assert!(unprintable(&rename_hidden_tokens(quote::quote!(

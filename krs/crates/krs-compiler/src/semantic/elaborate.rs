@@ -147,7 +147,7 @@ pub(super) fn printed_readable_rules(
         let DescriptorPayload::ConfigurationRule(lowered) = lowered.payload() else {
             continue;
         };
-        let sorts = lowered
+        let mut sorts = lowered
             .bindings
             .iter()
             .filter_map(|binding| match &binding.kind {
@@ -157,7 +157,33 @@ pub(super) fn printed_readable_rules(
                 )),
                 _ => None,
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>();
+        // A map read's value `_` is declared a sorted wildcard at the value it reads, whose key
+        // the readable rule's binder for it has too.
+        for extra in &rule.extras {
+            let ProtocolHeadRuleExtra::HaveMap { entries, .. } = extra else {
+                continue;
+            };
+            for entry in entries {
+                let wildcard = lowered
+                    .bindings
+                    .iter()
+                    .find_map(|binding| match &binding.kind {
+                        ProtocolRuleBindingKind::Term { sort }
+                            if sort.key == entry.value_key
+                                && krs_ir::SemanticId::new(binding.name.clone()).is_ok_and(
+                                    |id| matches!(id.kind(), krs_ir::SemanticIdKind::Wildcard),
+                                ) =>
+                        {
+                            Some(super::catalog::semantic_sort_ref(&sort.sort))
+                        }
+                        _ => None,
+                    });
+                if let Some(sort) = wildcard {
+                    sorts.insert(entry.value_binding.clone(), sort);
+                }
+            }
+        }
         match elaborate(descriptor, rule, &sorts, declarations, catalog)? {
             Ok(elaboration) => {
                 printed.insert(descriptor.id().clone(), elaboration.descriptor);
@@ -263,6 +289,10 @@ struct Names {
     tails: usize,
     /// Sorted wildcards declared so far.
     wildcards: usize,
+    /// The sort of each map read's value `_` ([`map_value_wildcards`]), by the binder the
+    /// readable rule reads it with: each is declared a sorted wildcard where it is read, or is
+    /// the unsorted `_` where it has none narrower than `KItem`.
+    value_wildcards: BTreeMap<String, Option<DescriptorSortRef>>,
     /// The frames these names bind, and the sorted wildcards of a `for Sort` head, in the order
     /// named.
     frames: Vec<ProtocolRuleBinding<DescriptorSortReference>>,
@@ -307,6 +337,17 @@ impl Names {
         key: &ProvenanceKey,
         sort: &DescriptorSortReference,
     ) -> DescriptorTerm {
+        let name = self.wildcard(key, &sort.sort);
+        DescriptorTerm::Variable {
+            key: key.clone(),
+            path_key: key.clone(),
+            name,
+        }
+    }
+
+    /// A wildcard of `sort` declared at `key`: the reserved wildcard id, unique among the
+    /// rule's ids, which the rule's other names never take.
+    fn wildcard(&mut self, key: &ProvenanceKey, sort: &DescriptorSortRef) -> String {
         let name = krs_ir::SemanticId::wildcard(self.wildcards)
             .as_str()
             .to_owned();
@@ -316,15 +357,11 @@ impl Names {
             kind: ProtocolRuleBindingKind::Term {
                 sort: DescriptorSortReference {
                     key: key.clone(),
-                    sort: sort.sort.clone(),
+                    sort: sort.clone(),
                 },
             },
         });
-        DescriptorTerm::Variable {
-            key: key.clone(),
-            path_key: key.clone(),
-            name,
-        }
+        name
     }
 }
 
@@ -354,7 +391,23 @@ impl Elaborator<'_> {
         };
         let mut bindings = Vec::new();
         let mut universals = Vec::new();
+        let read_values = map_value_wildcards(rule);
+        let mut value_wildcards = BTreeMap::new();
         for binding in &rule.bindings {
+            // A map read's value `_` is no binder: it is declared a sorted wildcard where it is
+            // read, as a head `_` is, except at the framework's `KItem`, the sort of every value
+            // of a map, where it narrows nothing and is the `_` a `cells!` map writes there. (A
+            // printed rule's elaboration finds no sort for that one: its lowered elaboration
+            // declares none.)
+            if read_values.contains(binding.name.as_str()) {
+                let sort = self
+                    .sorts
+                    .get(&binding.name)
+                    .map(descriptor_sort)
+                    .filter(|sort| !is_k_item(sort));
+                value_wildcards.insert(binding.name.clone(), sort);
+                continue;
+            }
             let sort = self
                 .sorts
                 .get(&binding.name)
@@ -407,6 +460,7 @@ impl Elaborator<'_> {
                 .collect(),
             tails: 0,
             wildcards: 0,
+            value_wildcards,
             frames: Vec::new(),
         };
         let state = names.fresh("state");
@@ -639,11 +693,23 @@ impl Elaborator<'_> {
             } => {
                 let items = entries
                     .iter()
-                    .map(|entry| ProtocolRuleMapItem {
-                        key_key: entry.key_key.clone(),
-                        key: entry.key.clone(),
-                        value_key: entry.value_key.clone(),
-                        value: keys.variable(&entry.value_key, &entry.value_binding),
+                    .map(|entry| {
+                        // A value `_` is a wildcard of its sort, declared where it is read.
+                        let value = match names.value_wildcards.get(&entry.value_binding) {
+                            Some(None) => keys.wildcard(&entry.value_key),
+                            Some(Some(sort)) => {
+                                let sort = sort.clone();
+                                let name = names.wildcard(&entry.value_key, &sort);
+                                keys.variable(&entry.value_key, &name)
+                            }
+                            None => keys.variable(&entry.value_key, &entry.value_binding),
+                        };
+                        ProtocolRuleMapItem {
+                            key_key: entry.key_key.clone(),
+                            key: entry.key.clone(),
+                            value_key: entry.value_key.clone(),
+                            value,
+                        }
                     })
                     .collect();
                 // A read leaves the other entries as they are; a block-form `have` read, which
@@ -801,6 +867,94 @@ fn first_in_subject<'r>(rule: &'r DescriptorHeadRule, name: &str) -> Option<&'r 
         ProtocolHeadRuleExtra::RewriteState { before, .. } => terms(before.terms()),
         ProtocolHeadRuleExtra::RewriteList { before, .. } => terms(before.terms()),
     })
+}
+
+/// Whether `sort` is the framework's `KItem`, the sort of every value of a map.
+fn is_k_item(sort: &DescriptorSortRef) -> bool {
+    matches!(sort, DescriptorSortRef::Declared(id)
+        if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
+}
+
+/// The binders a readable rule reads its map values `_` with (`x -> _`, `have m[x -> let _]`):
+/// the first `_` keeps that spelling and each later one is `_1`, `_2`, .. (krs-syntax
+/// `MapValueWildcards`), each read once and named nowhere else.
+///
+/// Such a value matches whatever the entry maps to, at its sort, and constrains nothing else:
+/// it is the wildcard of that sort, the same construct as a `for Sort` head `_` (R1b), so it
+/// elaborates to a sorted wildcard (at `KItem`, to the `_` of a `cells!` map). A binder spelled so that the rule names elsewhere is a binder
+/// the author wrote and uses, and stays one.
+fn map_value_wildcards(rule: &DescriptorHeadRule) -> BTreeSet<&str> {
+    let mut reads = BTreeMap::<&str, usize>::new();
+    for extra in &rule.extras {
+        if let ProtocolHeadRuleExtra::HaveMap { entries, .. } = extra {
+            for entry in entries {
+                *reads.entry(entry.value_binding.as_str()).or_default() += 1;
+            }
+        }
+    }
+    let spelled_as_wildcard = |name: &str| {
+        name.strip_prefix('_').is_some_and(|ordinal| {
+            ordinal.is_empty() || ordinal.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    };
+    reads
+        .into_iter()
+        .filter(|(name, count)| {
+            *count == 1 && spelled_as_wildcard(name) && !named_beside_map_reads(rule, name)
+        })
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// Whether `name` occurs in `rule` anywhere but as a map read's value binder: in the
+/// computation's items or result, a cell's terms or a map read's key, a map update, or a
+/// condition.
+fn named_beside_map_reads(rule: &DescriptorHeadRule, name: &str) -> bool {
+    let mut terms: Vec<&DescriptorTerm> = Vec::new();
+    if let Some(head) = &rule.head {
+        terms.extend(&head.items);
+        match &head.result {
+            Some(ProtocolHeadRuleResult::Replace(term)) => terms.push(term),
+            Some(ProtocolHeadRuleResult::Splice(splice)) => terms.extend(splice.terms()),
+            Some(ProtocolHeadRuleResult::Erase) | None => {}
+        }
+    }
+    for extra in &rule.extras {
+        match extra {
+            ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                terms.extend(entries.iter().map(|entry| &entry.key));
+            }
+            ProtocolHeadRuleExtra::UpdateMap {
+                base_binding,
+                update,
+                ..
+            } => {
+                if base_binding == name {
+                    return true;
+                }
+                terms.push(update);
+            }
+            ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
+                terms.push(before);
+                terms.extend(after);
+            }
+            ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                terms.extend(before.terms());
+                terms.extend(after.iter().flat_map(ProtocolRuleStateTerm::terms));
+            }
+            ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
+                terms.extend(before.terms());
+                terms.extend(after.iter().flat_map(krs_ir::ProtocolHeadRuleList::terms));
+            }
+        }
+    }
+    terms.extend(
+        [&rule.requires, &rule.ensures]
+            .into_iter()
+            .flatten()
+            .map(|condition| &condition.term),
+    );
+    terms.into_iter().any(|term| first_in(term, name).is_some())
 }
 
 /// Where `name` first occurs in `term`, in preorder.
@@ -1464,6 +1618,13 @@ impl<'a> NodeKeys<'a> {
     }
 
     /// A variable term naming `name`, which the elaboration writes at the node `key` names.
+    /// The wildcard `_` at `key`.
+    fn wildcard(&mut self, key: &ProvenanceKey) -> DescriptorTerm {
+        let mut term = DescriptorTerm::Wildcard { key: key.clone() };
+        self.term(&mut term);
+        term
+    }
+
     fn variable(&mut self, key: &ProvenanceKey, name: &str) -> DescriptorTerm {
         let mut term = DescriptorTerm::Variable {
             key: key.clone(),

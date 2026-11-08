@@ -179,9 +179,9 @@ fn emit(target: &Path, manifest: &Path, output: &Path) -> (String, String) {
 /// distinct entries; a call's arguments bind and its head does not; a key
 /// equal to its value keeps that meaning. A value `_` binds a value of its
 /// own, at the cell's value sort or the sort `_: S` writes, so two of them
-/// read two entries whatever their values. `krs expand` writes the same
-/// rules as `cells!` maps, which emit the same K, a value `_` as a fresh
-/// binder.
+/// read two entries whatever their values: each is K's `_` of its sort. `krs
+/// expand` writes the same rules as `cells!` maps, which emit the same K, a
+/// value `_` as a binder of its sort used once.
 #[test]
 fn a_free_map_read_key_matches_any_entry() {
     let target = shared_fixture_target();
@@ -232,11 +232,11 @@ fn a_free_map_read_key_matches_any_entry() {
             ),
             (
                 "wild",
-                "<k> seq (seq (pick)) => .K ... </k> <env> A:Id |-> V5F:Value B:Id |-> V5F31:Value ... </env> <acc> _ => 1 </acc>",
+                "<k> seq (seq (pick)) => .K ... </k> <env> A:Id |-> _:Value B:Id |-> _:Value ... </env> <acc> _ => 1 </acc>",
             ),
             (
                 "typed-wild",
-                "<k> seq (seq (two)) => .K ... </k> <raw> Rk:Id |-> V5F:Value Rj:Id |-> V5F31:Value ... </raw> <acc> _ => 1 </acc>",
+                "<k> seq (seq (two)) => .K ... </k> <raw> Rk:Id |-> _:Value Rj:Id |-> _:Value ... </raw> <acc> _ => 1 </acc>",
             ),
         ]
     "#]]
@@ -253,17 +253,33 @@ fn a_free_map_read_key_matches_any_entry() {
     assert!(
         printed.contains("map![kk -> vv, ..]")
             && printed.contains("map![_ -> x, _ -> y, ..]")
-            && printed.contains("map![a -> value, b -> _1, ..]")
-            && printed.contains("map![rk -> value, rj -> _1, ..]"),
+            && printed.contains("map![a -> _value, b -> _value_2, ..]")
+            && printed.contains("map![rk -> _value, rj -> _value_2, ..]"),
         "{expanded}"
     );
     let pasted = package(temporary.path(), "map-read-expanded", &expanded);
     let (pasted, _) = emit(target.path(), &pasted, &temporary.path().join("pasted"));
     for (label, body) in &rules {
-        // The first value `_` is printed as the binder `value`.
-        let framed = sentence(&pasted, label).replace("|-> Value:", "|-> V5F:");
-        assert_eq!(&framed, body, "{label}");
+        // A value `_` is printed as a binder of its sort used once, which K reads as `_`.
+        assert_eq!(
+            &once_used_as_wildcards(&sentence(&pasted, label)),
+            body,
+            "{label}"
+        );
     }
+}
+
+/// `sentence` with each variable spelled from an underscore (`_Value:Value`, a binder the print
+/// writes for a wildcard and uses once) written as K's `_` of its sort (`_:Value`).
+fn once_used_as_wildcards(sentence: &str) -> String {
+    sentence
+        .split(' ')
+        .map(|token| match token.split_once(':') {
+            Some((name, sort)) if name.len() > 1 && name.starts_with('_') => format!("_:{sort}"),
+            _ => token.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A map read's key is a pattern in every form, read by one reader: a bare
@@ -469,8 +485,8 @@ k::rules! {
 
 /// Each `have m[k] -> let _` binds a value of its own, as a record read's
 /// value `_` does: two of them read entries of different values, and
-/// `_: S` narrows each. `krs expand` writes them as fresh binders, which emit
-/// the same K.
+/// `_: S` narrows each: each is K's `_` of its sort. `krs expand` writes them
+/// as binders of their sort used once, which emit the same K.
 #[test]
 fn two_have_wildcards_are_two_binders() {
     let target = shared_fixture_target();
@@ -483,11 +499,11 @@ fn two_have_wildcards_are_two_binders() {
         [
             (
                 "both",
-                "<k> get X:Id => skip ... </k> <env> X:Id |-> V5F:Value ... </env> <other> X:Id |-> V5F31:Value ... </other>".to_owned(),
+                "<k> get X:Id => skip ... </k> <env> X:Id |-> _:Value ... </env> <other> X:Id |-> _:Value ... </other>".to_owned(),
             ),
             (
                 "typed",
-                "<k> typed X:Id => skip ... </k> <env> X:Id |-> V5F:Value ... </env> <raw> X:Id |-> V5F31:Value ... </raw>".to_owned(),
+                "<k> typed X:Id => skip ... </k> <env> X:Id |-> _:Value ... </env> <raw> X:Id |-> _:Value ... </raw>".to_owned(),
             ),
         ]
     );
@@ -496,14 +512,17 @@ fn two_have_wildcards_are_two_binders() {
     assert!(success, "{stderr}");
     let printed = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        printed.contains("map![x -> value, ..]") && printed.contains("map![x -> _1, ..]"),
+        printed.contains("map![x -> _value, ..]") && printed.contains("map![x -> _value_2, ..]"),
         "{expanded}"
     );
     let pasted = package(temporary.path(), "map-read-have-wild-expanded", &expanded);
     let (pasted, _) = emit(target.path(), &pasted, &temporary.path().join("pasted"));
     for (label, body) in &rules {
-        let framed = sentence(&pasted, label).replace("|-> Value:", "|-> V5F:");
-        assert_eq!(&framed, body, "{label}");
+        assert_eq!(
+            &once_used_as_wildcards(&sentence(&pasted, label)),
+            body,
+            "{label}"
+        );
     }
 
     // One binder read twice would need equal values; `x` maps to 1 and 2.

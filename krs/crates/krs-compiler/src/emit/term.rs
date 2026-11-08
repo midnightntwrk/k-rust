@@ -765,9 +765,33 @@ fn render_map(
         if index != 0 {
             output.push(MapOperation::CONCATENATION.separator);
         }
+        // A value wildcard declared at a sort narrower than `KItem` (a readable map read's `_`,
+        // narrowed by `_: S` or at the cell's value sort) matches only values of that sort,
+        // and K's map value position is `KItem`, where a bare `_` would match any: it names
+        // its sort, `K |-> _:S`, as a variable read once there would.
+        let spec = MapOperation::Item.spec();
+        if is_wildcard(&entry.value)
+            && context.sort_name_ref(entry.value.sort())? != "KItem"
+            && let CollectionNotation::Mixfix { pieces } = spec.k_notation
+            && let [open, arrow, close] = pieces
+        {
+            let parenthesize = parenthesize_collection_operand(spec, 0, &entry.key, open, arrow);
+            output.push(open);
+            if parenthesize {
+                output.push("(");
+            }
+            output.append(render_term_with_binders(&entry.key, context, false, names)?);
+            if parenthesize {
+                output.push(")");
+            }
+            output.push(arrow);
+            output.append(render_sequence_wildcard(&entry.value, context)?);
+            output.push(close);
+            continue;
+        }
         render_collection(
             result_sort,
-            MapOperation::Item.spec(),
+            spec,
             [&entry.key, &entry.value].into_iter(),
             context,
             names,
