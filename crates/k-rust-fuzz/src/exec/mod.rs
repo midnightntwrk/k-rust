@@ -700,6 +700,12 @@ pub(crate) struct TargetNeeds {
     /// Ask for the committed transitions (`collectCommitted`): an all-paths `fired` target on a
     /// state set, whose rule may fire on an absorbed arrival's path only (FZ-STATESET-MATCH).
     pub(crate) collect_committed: bool,
+    /// Ask for the guard outcomes of these rules and equations (`collectGuards`): a coverage
+    /// target's guard facts (`crate::target::coverage`).
+    pub(crate) collect_guards: Option<k_rust::backend::GuardCollection>,
+    /// Ask for the bindings of fired instances (`collectBindings`): a coverage target's operand,
+    /// binder and alternative facts.
+    pub(crate) collect_bindings: Option<k_rust::backend::BindingCollection>,
 }
 
 /// The state matching an any-state case asks of its run ([`TargetNeeds::match_states`]).
@@ -760,6 +766,8 @@ impl CaseRequestShape {
                 proof_agreement: need.proof_agreement,
             }),
             collect_committed: needs.collect_committed,
+            collect_guards: needs.collect_guards.clone(),
+            collect_bindings: needs.collect_bindings.clone(),
             ..ExecuteRequest::new(placeholder)
         };
         Self {
@@ -837,6 +845,8 @@ impl CaseRequestShape {
         shape.request.collect_counts = false;
         shape.request.match_states = None;
         shape.request.collect_committed = false;
+        shape.request.collect_guards = None;
+        shape.request.collect_bindings = None;
         shape.data_end = true;
         shape
     }

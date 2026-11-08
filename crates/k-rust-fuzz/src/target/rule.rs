@@ -65,6 +65,41 @@ pub(crate) fn resolve_rule_recorded(
     rule: &RuleRef,
     recorded: &RecordedPaths,
 ) -> Result<String, TargetProblem> {
+    let (entry, entries) = matching(catalog, rule, recorded)?;
+    // The permanent refusal first: an equation stays refused in M1 whatever its attributes.
+    if entry.kind != CompiledRuleKind::Rewrite {
+        return Err(TargetProblem::Equation);
+    }
+    if entry.id == "UNKNOWN" {
+        return Err(TargetProblem::UnknownId);
+    }
+    if entry.shared_identity || entries > 1 {
+        return Err(TargetProblem::SharedIdentity);
+    }
+    if !entry.executable {
+        return Err(TargetProblem::NotExecutable);
+    }
+    Ok(entry.id.clone())
+}
+
+/// The one catalog entry `rule` names, whatever its kind, identity, or executability: the
+/// matching of [`resolve_rule_recorded`], with how many entries matched (several share its id),
+/// refusing a reference no entry matches and one that matches entries with different ids
+/// (`crate::target::coverage::resolve_axiom` judges the entry otherwise).
+pub(crate) fn matching_entry<'c>(
+    catalog: &'c [CompiledRuleOutput],
+    rule: &RuleRef,
+    recorded: &RecordedPaths,
+) -> Result<&'c CompiledRuleOutput, TargetProblem> {
+    matching(catalog, rule, recorded).map(|(entry, _)| entry)
+}
+
+/// The first entry `rule` matches and how many match, all with one id.
+fn matching<'c>(
+    catalog: &'c [CompiledRuleOutput],
+    rule: &RuleRef,
+    recorded: &RecordedPaths,
+) -> Result<(&'c CompiledRuleOutput, usize), TargetProblem> {
     let matching: Vec<&CompiledRuleOutput> = match rule {
         RuleRef::Label(label) => {
             let exact: Vec<_> = catalog
@@ -118,20 +153,7 @@ pub(crate) fn resolve_rule_recorded(
             catalog, rule, recorded,
         ))));
     };
-    // The permanent refusal first: an equation stays refused in M1 whatever its attributes.
-    if entry.kind != CompiledRuleKind::Rewrite {
-        return Err(TargetProblem::Equation);
-    }
-    if entry.id == "UNKNOWN" {
-        return Err(TargetProblem::UnknownId);
-    }
-    if entry.shared_identity || matching.len() > 1 {
-        return Err(TargetProblem::SharedIdentity);
-    }
-    if !entry.executable {
-        return Err(TargetProblem::NotExecutable);
-    }
-    Ok(entry.id.clone())
+    Ok((entry, matching.len()))
 }
 
 /// The entries of `catalog` with an origin written in the catalog file `file` whose location

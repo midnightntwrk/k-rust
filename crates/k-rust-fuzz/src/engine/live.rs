@@ -762,6 +762,15 @@ impl LiveCases {
         Ok(target::rule_names(&catalog))
     }
 
+    /// A coverage target's facts, as the target resolved them; `None` for every other target
+    /// kind.
+    pub(crate) fn coverage_facts(&self) -> Option<&[crate::target::coverage::ResolvedFact]> {
+        match &self.judge {
+            Judge::Target(target) => target.coverage_facts(),
+            Judge::Differential(_) => None,
+        }
+    }
+
     /// The catalog id of a rule target's rule, as the target resolved it; `None` for every
     /// other target kind.
     pub(crate) fn target_rule_id(&self) -> Option<&str> {
@@ -1722,6 +1731,11 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         guards,
         comparisons,
         progress: None,
+        record: covered
+            .coverage
+            .as_ref()
+            .filter(|coverage| coverage.conditions.is_some() || coverage.bindings.is_some())
+            .map(|coverage| Box::new(coverage.clone())),
         outside_determinism: sides
             .iter()
             .any(|side| !side.determinism_breaks().is_empty()),
@@ -1949,7 +1963,8 @@ fn any_state_pattern(target: &crate::Target) -> Option<&str> {
         TargetKind::Rule(_)
         | TargetKind::Pattern(_)
         | TargetKind::Differential(_)
-        | TargetKind::Observer(_) => None,
+        | TargetKind::Observer(_)
+        | TargetKind::Coverage(_) => None,
     }
 }
 

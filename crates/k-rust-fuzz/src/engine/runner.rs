@@ -46,6 +46,9 @@ pub(crate) struct CaseRun {
     /// For an observer target, the greatest progress the observer answered on the run
     /// (`target::JudgedRun::progress`); `None` otherwise.
     pub(crate) progress: Option<u32>,
+    /// The run's coverage record, kept where it holds condition records or bindings, which a
+    /// coverage target's score reads (`crate::score::coverage`); `None` otherwise.
+    pub(crate) record: Option<Box<k_rust::backend::RunCoverageOutput<k_rust::kore::ast::Pattern>>>,
     /// The case is outside the determinism contract (ARCHITECTURE 5.4).
     pub(crate) outside_determinism: bool,
     /// Why the case was rejected; `Some` exactly when `class` is `rejected`.
@@ -202,6 +205,7 @@ impl CaseRun {
             guards: Guards::new(),
             comparisons: Vec::new(),
             progress: None,
+            record: None,
             outside_determinism: false,
             rejection: Some(reason),
             unjudged: None,

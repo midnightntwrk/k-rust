@@ -166,6 +166,8 @@ fn the_request_follows_the_options_and_the_target_needs() {
             proof_agreement: true,
         }),
         collect_committed: true,
+        collect_guards: None,
+        collect_bindings: None,
     };
     let shape = CaseRequestShape::new(&options, &needs);
     let state = parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a pattern");

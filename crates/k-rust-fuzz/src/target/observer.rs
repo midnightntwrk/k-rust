@@ -482,7 +482,10 @@ impl ResolvedTarget {
                     every_path,
                 })
             }
-            Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
+            Resolved::Rule { .. }
+            | Resolved::PatternFinal
+            | Resolved::Differential
+            | Resolved::Coverage { .. } => {
                 let result = executor.run(initial, shape, &self.matchers(), cancel)?;
                 let judgement = self.judge_run(&result, shape.all_paths(), shape.state_set());
                 let (judgement, comparable, every_path) =

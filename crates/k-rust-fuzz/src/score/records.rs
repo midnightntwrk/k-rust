@@ -1009,3 +1009,137 @@ mod tests {
         assert_eq!(one(fails, Refuted), Some(Distance::normalized(1u32.into())));
     }
 }
+
+/// What a coverage target's guard fact asks of an entry of its rule's condition
+/// (`crate::target::coverage`): the condition held (`Outcome(true)`) or was refuted
+/// (`Outcome(false)`), or the node at a path of the written `requires` was reached with a truth.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GuardGoal<'a> {
+    /// The guard outcome: held when `true`, refuted when `false`.
+    Outcome(bool),
+    /// The node at this path (the conjunct's index, then the operand's index at each level
+    /// down) reached with this truth.
+    Node(&'a [u32], bool),
+}
+
+/// Each complete record of `rule` in `conditions` (the records [`guards`] lists, in its order):
+/// how far its entry is from `goal`, and the ground `Int` and `String` values it binds (as
+/// [`GuardEntry::reads`]).
+///
+/// A node is reached, as the backend's guard outcomes read it, where its conjunct is and every
+/// conjunct before it is `true`, and below a connective where the operands before it decide
+/// nothing yet: a conjunction's are `true`, a disjunction's `false`, and the consequent of an
+/// implication is reached where its antecedent is `true`; the operands of an exclusive
+/// connective, a negation and an `\equals(b, literal)` are reached where their node is. So the
+/// valuation that reaches a node with a truth is a conjunction of those operands' truths and the
+/// node's own, and its distance is the algebra's distance of that conjunction
+/// (`super::distance`): 0 exactly where the entry reached the node with the truth. The outcome
+/// `held` is the conjunction of the conjuncts, `refuted` its negation; an entry whose verdict
+/// is the goal's is at 0 whatever its atoms say (a refutation by the path shows no false atom).
+/// A record a value the definition leaves open was read for (`chosen`), and a path the
+/// condition does not have, give no distance.
+pub(crate) fn goal_entries(
+    conditions: &[RuleConditionsOutput],
+    rule: &str,
+    goal: GuardGoal<'_>,
+) -> Vec<(Option<Distance>, Vec<Operand>)> {
+    conditions
+        .iter()
+        .filter(|recorded| recorded.rule == rule)
+        .flat_map(|recorded| &recorded.records)
+        .filter(|record| record.verdict != Some(VerdictOutput::Reentered))
+        .map(|record| {
+            let reads = record
+                .bindings
+                .iter()
+                .filter_map(|binding| match &binding.value {
+                    RecordedValueOutput::Value { term } => operand(term),
+                    _ => None,
+                })
+                .collect();
+            (goal_distance(record, goal), reads)
+        })
+        .collect()
+}
+
+/// [`goal_entries`]' distance of one record.
+fn goal_distance(record: &ConditionRecordOutput, goal: GuardGoal<'_>) -> Option<Distance> {
+    if record.chosen {
+        return None;
+    }
+    let conjuncts = || {
+        Cond::And(
+            record
+                .condition
+                .iter()
+                .map(|conjunct| node(conjunct).0)
+                .collect(),
+        )
+    };
+    match goal {
+        GuardGoal::Outcome(held) => {
+            let decided = match record.verdict {
+                Some(VerdictOutput::Held) => Some(true),
+                Some(VerdictOutput::Refuted) => Some(false),
+                _ => None,
+            };
+            if decided == Some(held) {
+                return Some(Distance::zero());
+            }
+            let cond = conjuncts();
+            distance(&if held {
+                cond
+            } else {
+                Cond::Not(Box::new(cond))
+            })
+        }
+        GuardGoal::Node(path, truth) => {
+            let (first, rest) = path.split_first()?;
+            let index = usize::try_from(*first).ok()?;
+            let mut needed = record
+                .condition
+                .get(..index)?
+                .iter()
+                .map(|conjunct| node(conjunct).0)
+                .collect::<Vec<_>>();
+            let mut at = record.condition.get(index)?;
+            for step in rest {
+                let step = usize::try_from(*step).ok()?;
+                at = match at {
+                    ConditionNodeOutput::Connective {
+                        connective,
+                        children,
+                        ..
+                    } => {
+                        use ConnectiveOutput as C;
+                        let before = children.get(..step)?;
+                        match connective {
+                            C::AndBool | C::AndThenBool | C::And => {
+                                needed.extend(before.iter().map(|child| node(child).0));
+                            }
+                            C::OrBool | C::OrElseBool | C::Or => {
+                                needed.extend(
+                                    before
+                                        .iter()
+                                        .map(|child| Cond::Not(Box::new(node(child).0))),
+                                );
+                            }
+                            C::ImpliesBool | C::Implies if step == 1 => {
+                                needed.push(node(&children[0]).0);
+                            }
+                            _ => {}
+                        }
+                        children.get(step)?
+                    }
+                    ConditionNodeOutput::Equals { child, .. } if step == 0 => child,
+                    ConditionNodeOutput::Equals { .. } | ConditionNodeOutput::Atom(_) => {
+                        return None;
+                    }
+                };
+            }
+            let own = node(at).0;
+            needed.push(if truth { own } else { Cond::Not(Box::new(own)) });
+            distance(&Cond::And(needed))
+        }
+    }
+}

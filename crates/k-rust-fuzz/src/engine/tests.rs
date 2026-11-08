@@ -58,6 +58,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         guards: std::collections::BTreeMap::new(),
         comparisons: Vec::new(),
         progress: None,
+        record: None,
         outside_determinism: false,
         rejection: None,
         unjudged: matches!(

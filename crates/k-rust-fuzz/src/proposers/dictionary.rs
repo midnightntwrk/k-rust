@@ -195,7 +195,7 @@ pub(crate) fn harvest(
             }
             None => Harvest::everything(graph, 0),
         },
-        TargetKind::Observer(_) => Harvest::everything(graph, 0),
+        TargetKind::Observer(_) | TargetKind::Coverage(_) => Harvest::everything(graph, 0),
     })
 }
 
@@ -251,7 +251,10 @@ impl Harvest {
                         .map_err(CampaignError::Target)?,
                 )
             }
-            TargetKind::Pattern(_) | TargetKind::Differential(_) | TargetKind::Observer(_) => None,
+            TargetKind::Pattern(_)
+            | TargetKind::Differential(_)
+            | TargetKind::Observer(_)
+            | TargetKind::Coverage(_) => None,
         };
         let graph =
             RuleGraph::of_backend(&mut backend).map_err(|error| CampaignError::Definition {

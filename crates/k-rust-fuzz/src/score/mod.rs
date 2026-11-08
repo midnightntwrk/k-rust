@@ -53,6 +53,7 @@
 //! Pattern and differential targets are not scored yet: the signals they need are not reported
 //! (FZ-12 report, "Open: other target kinds"), and the climb proposer refuses them.
 
+pub(crate) mod coverage;
 pub(crate) mod distance;
 pub(crate) mod records;
 
@@ -176,6 +177,9 @@ pub(crate) struct Signals<'a> {
     pub(crate) guards: &'a Guards,
     /// For an observer target, the greatest progress the observer reported on the run.
     pub(crate) progress: Option<u32>,
+    /// The run's coverage record where the case kept it (condition records or bindings), which
+    /// a coverage target's score reads (`coverage`); `None` otherwise.
+    pub(crate) coverage: Option<&'a k_rust::backend::RunCoverageOutput<k_rust::kore::ast::Pattern>>,
 }
 
 /// The scorer of a campaign's target (ARCHITECTURE 6.4).
@@ -187,6 +191,8 @@ pub(crate) enum Scorer {
     /// progress ([`crate::target::ObserverVerdict::Progress`]) the observer answered on the
     /// run, normalized as an atom's distance; no distance when it answered none.
     Observer,
+    /// A coverage target (`coverage`): the least of its facts' scores.
+    Coverage(coverage::CoverageScorer),
 }
 
 impl Scorer {
@@ -195,6 +201,7 @@ impl Scorer {
         match self {
             Self::Rule(rule) => rule.condition_rules(),
             Self::Observer => Vec::new(),
+            Self::Coverage(coverage) => coverage.condition_rules(),
         }
     }
 
@@ -202,6 +209,7 @@ impl Scorer {
     pub(crate) fn score(&self, signals: Signals<'_>) -> Scored {
         match self {
             Self::Rule(rule) => rule.score(signals),
+            Self::Coverage(coverage) => coverage.score(signals),
             Self::Observer => Scored {
                 score: Score {
                     level: Level::At(0),
@@ -219,7 +227,7 @@ impl Scorer {
     pub(crate) fn blocked(&self, signals: Signals<'_>) -> Option<Blocked> {
         match self {
             Self::Rule(rule) => rule.blocked(signals),
-            Self::Observer => None,
+            Self::Observer | Self::Coverage(_) => None,
         }
     }
 }
@@ -470,6 +478,7 @@ mod tests {
                 matched: &ids(matched),
                 guards: &guards,
                 progress: None,
+                coverage: None,
             })
             .score
     }
@@ -483,6 +492,7 @@ mod tests {
                     matched: &[],
                     guards: &Guards::new(),
                     progress,
+                    coverage: None,
                 })
                 .score
         };
@@ -603,6 +613,7 @@ mod tests {
             matched: &ids(&["t"]),
             guards: &guards,
             progress: None,
+            coverage: None,
         });
         assert_eq!(scored.reads, vec![Operand::Int(2.into())]);
         // Without a guard distance, nothing was read.
@@ -611,6 +622,7 @@ mod tests {
             matched: &[],
             guards: &Guards::new(),
             progress: None,
+            coverage: None,
         });
         assert!(scored.reads.is_empty());
     }
@@ -641,6 +653,7 @@ mod tests {
                     matched: &coverage.matched,
                     guards: &guards,
                     progress: None,
+                    coverage: None,
                 })
                 .score
         };

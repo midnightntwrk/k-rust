@@ -1582,6 +1582,7 @@ fn observation(
         matched: &run.matched,
         guards: &run.guards,
         progress: run.progress,
+        coverage: run.record.as_deref(),
     };
     let miss_scorer = settings
         .scorer

@@ -131,10 +131,12 @@ pub(crate) const RUNTIME_PROBABILITY: (u32, u32) = (1, 4);
 
 /// The climb's parameters for a campaign whose target is `target`, as the report records them
 /// ([`ClimbParameters`]): an observer target's score reads no condition records, so its cases
-/// request none (`condition-rules` is `none`).
+/// request none (`condition-rules` is `none`); a coverage target's reads those of the rules its
+/// facts name and of their keyed predecessors (`fact-rules-and-keyed-predecessors`).
 pub(crate) fn parameters(target: &TargetKind) -> ClimbParameters {
     let condition_rules = match target {
         TargetKind::Observer(_) => "none",
+        TargetKind::Coverage(_) => "fact-rules-and-keyed-predecessors",
         TargetKind::Rule(_) | TargetKind::Pattern(_) | TargetKind::Differential(_) => {
             "target-and-keyed-predecessors"
         }
@@ -159,9 +161,10 @@ pub(crate) fn parameters(target: &TargetKind) -> ClimbParameters {
         max_comparisons: u32::try_from(super::runtime::MAX_COMPARISONS).unwrap_or(u32::MAX),
         runtime_condition_rules: match target {
             TargetKind::Rule(_) => "dictionary-guard-rules",
-            TargetKind::Observer(_) | TargetKind::Pattern(_) | TargetKind::Differential(_) => {
-                "none"
-            }
+            TargetKind::Observer(_)
+            | TargetKind::Pattern(_)
+            | TargetKind::Differential(_)
+            | TargetKind::Coverage(_) => "none",
         }
         .into(),
         runtime_guard_radius: u32::try_from(super::dictionary::RADIUS).unwrap_or(u32::MAX),

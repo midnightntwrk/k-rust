@@ -9,6 +9,7 @@
 
 mod any_state;
 mod comparable;
+pub(crate) mod coverage;
 pub(crate) mod differential;
 #[cfg(test)]
 mod fixture_tests;
@@ -22,6 +23,7 @@ use std::{collections::BTreeMap, fmt};
 use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, HaltReasonOutput};
 use serde::{Deserialize, Serialize};
 
+pub use coverage::{CoverageFact, CoverageTarget};
 pub(crate) use observer::JudgedRun;
 pub use observer::{
     ConfigurationView, Observer, ObserverHandle, ObserverTarget, ObserverVerdict, contains_symbol,
@@ -138,7 +140,10 @@ impl Target {
         self.run_to_completion
             && self.data_end
             && !self.negated_property
-            && matches!(self.kind, TargetKind::Rule(_) | TargetKind::Pattern(_))
+            && matches!(
+                self.kind,
+                TargetKind::Rule(_) | TargetKind::Pattern(_) | TargetKind::Coverage(_)
+            )
     }
 }
 
@@ -155,6 +160,9 @@ pub enum TargetKind {
     Differential(DifferentialTarget),
     /// A client observer accepts (ARCHITECTURE 4.1, 9.2), fed after the run (`observer`).
     Observer(ObserverTarget),
+    /// The run records one of a set of coverage facts: a guard node's truth, a guard outcome, a
+    /// firing, an operand's head or a binder's value (`coverage`, CS-8).
+    Coverage(CoverageTarget),
 }
 
 /// A rule target (ARCHITECTURE 4.2).
@@ -424,6 +432,11 @@ enum Resolved {
         /// The observation filter: the rules whose steps are observed, or every event.
         rules: Option<Vec<String>>,
     },
+    /// A coverage target's facts, each rule by its catalog id.
+    Coverage {
+        /// The facts, in the target's order.
+        facts: Vec<coverage::ResolvedFact>,
+    },
 }
 
 /// For each leaf of `result`, whether it is an end leaf that matches the target's only matcher
@@ -481,7 +494,11 @@ fn pattern_reached(result: &CaseResult) -> Result<Vec<bool>, EngineDefect> {
 /// over a path, which the merge key omits. The differential target's sides ask for state sets
 /// themselves (`differential::plan`).
 pub(crate) fn case_state_set(kind: &TargetKind, paths: PathMode) -> bool {
-    paths == PathMode::AllPaths && matches!(kind, TargetKind::Rule(_) | TargetKind::Pattern(_))
+    paths == PathMode::AllPaths
+        && matches!(
+            kind,
+            TargetKind::Rule(_) | TargetKind::Pattern(_) | TargetKind::Coverage(_)
+        )
 }
 
 /// The result modality of each kind of run a campaign of `target` on `paths` makes
@@ -505,19 +522,21 @@ pub(crate) fn execution_modality(target: &Target, paths: PathMode) -> ExecutionM
             every_path: None,
             any_state: None,
         },
-        TargetKind::Rule(_) | TargetKind::Pattern(_) => ExecutionModality {
-            cases: modality(case_state_set(&target.kind, paths)),
-            every_path: Some(ResultModality::StateSet),
-            // The run that matches the reached states is the case's own.
-            any_state: matches!(
-                &target.kind,
-                TargetKind::Pattern(PatternTarget {
-                    at: PatternAt::AnyState,
-                    ..
-                })
-            )
-            .then(|| modality(case_state_set(&target.kind, paths))),
-        },
+        TargetKind::Rule(_) | TargetKind::Pattern(_) | TargetKind::Coverage(_) => {
+            ExecutionModality {
+                cases: modality(case_state_set(&target.kind, paths)),
+                every_path: Some(ResultModality::StateSet),
+                // The run that matches the reached states is the case's own.
+                any_state: matches!(
+                    &target.kind,
+                    TargetKind::Pattern(PatternTarget {
+                        at: PatternAt::AnyState,
+                        ..
+                    })
+                )
+                .then(|| modality(case_state_set(&target.kind, paths))),
+            }
+        }
     }
 }
 
@@ -763,6 +782,21 @@ impl ResolvedTarget {
             }
             TargetKind::Differential(_) => Resolved::Differential,
             TargetKind::Observer(target) => observer::resolve(target, executor)?,
+            TargetKind::Coverage(coverage_target) => {
+                let catalog = executor.backend_mut().rule_catalog(None).map_err(|error| {
+                    CampaignError::Definition {
+                        message: format!("the rule catalog is not available: {error}"),
+                    }
+                })?;
+                let (catalog, recorded) = rule::relative_catalog(
+                    catalog,
+                    &SourceNames::of(&definition.frontend_definition),
+                );
+                Resolved::Coverage {
+                    facts: coverage::resolve(coverage_target, &catalog, &recorded)
+                        .map_err(CampaignError::Target)?,
+                }
+            }
         };
         Ok(Self {
             target: target.clone(),
@@ -803,6 +837,17 @@ impl ResolvedTarget {
             Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => {
                 TargetNeeds::default()
             }
+            // A firing of a rewrite rule is read from the committed transitions; the guard and
+            // binding facts from the collections they name.
+            Resolved::Coverage { facts } => {
+                let (guards, bindings) = coverage::collections(facts);
+                TargetNeeds {
+                    collect_committed: true,
+                    collect_guards: guards,
+                    collect_bindings: bindings,
+                    ..TargetNeeds::default()
+                }
+            }
         };
         TargetNeeds {
             data_end: self.target.requires_data_end(),
@@ -818,7 +863,16 @@ impl ResolvedTarget {
             Resolved::PatternFinal
             | Resolved::PatternAnyState
             | Resolved::Differential
-            | Resolved::Observer { .. } => None,
+            | Resolved::Observer { .. }
+            | Resolved::Coverage { .. } => None,
+        }
+    }
+
+    /// A coverage target's facts, resolved; `None` for every other kind.
+    pub(crate) fn coverage_facts(&self) -> Option<&[coverage::ResolvedFact]> {
+        match &self.resolved {
+            Resolved::Coverage { facts } => Some(facts),
+            _ => None,
         }
     }
 
@@ -929,37 +983,13 @@ impl ResolvedTarget {
     ) -> Result<Judgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         let data_end = self.target.requires_data_end();
-        let (reached, blocked) = match &self.resolved {
-            Resolved::Rule { id, mode } => (
-                rule::rule_reached_ends(id, *mode, run_to_completion, data_end, result),
-                rule::blocked(id, result.coverage.as_ref()),
-            ),
-            Resolved::PatternFinal => (pattern_reached(result)?, false),
-            Resolved::Differential => {
-                return Err(EngineDefect {
-                    case: None,
-                    description: "a differential case was judged as a single run".to_owned(),
-                });
-            }
-            Resolved::Observer { .. } => {
-                return Err(EngineDefect {
-                    case: None,
-                    description: "an observer case was judged without its observed run".to_owned(),
-                });
-            }
-            Resolved::PatternAnyState => {
-                return Err(EngineDefect {
-                    case: None,
-                    description: "an any-state case was judged without its observed run".to_owned(),
-                });
-            }
-        };
+        let (reached, blocked) = self.reached(result, run_to_completion, data_end)?;
         let coverage_mode = matches!(
             &self.resolved,
             Resolved::Rule {
                 mode: RuleMode::Covered | RuleMode::ConditionReached,
                 ..
-            }
+            } | Resolved::Coverage { .. }
         );
         let (mut class, mut reason) =
             exec::classify_ends_explained(result, &reached, run_to_completion, data_end)?;
@@ -1029,6 +1059,88 @@ impl ResolvedTarget {
         };
         Ok(self.confirmable(judgement, result, term_conjunction))
     }
+
+    /// For [`Self::judge_run`]: which leaves of `result` reach the target, and whether the
+    /// target rule was blocked.
+    fn reached(
+        &self,
+        result: &CaseResult,
+        run_to_completion: bool,
+        data_end: bool,
+    ) -> Result<(Vec<bool>, bool), EngineDefect> {
+        Ok(match &self.resolved {
+            Resolved::Rule { id, mode } => (
+                rule::rule_reached_ends(id, *mode, run_to_completion, data_end, result),
+                rule::blocked(id, result.coverage.as_ref()),
+            ),
+            Resolved::PatternFinal => (pattern_reached(result)?, false),
+            Resolved::Coverage { facts } => (
+                coverage_reached(
+                    facts
+                        .iter()
+                        .any(|fact| coverage::holds(fact, result.coverage.as_ref())),
+                    run_to_completion,
+                    data_end,
+                    result,
+                ),
+                false,
+            ),
+            Resolved::Differential => {
+                return Err(EngineDefect {
+                    case: None,
+                    description: "a differential case was judged as a single run".to_owned(),
+                });
+            }
+            Resolved::Observer { .. } => {
+                return Err(EngineDefect {
+                    case: None,
+                    description: "an observer case was judged without its observed run".to_owned(),
+                });
+            }
+            Resolved::PatternAnyState => {
+                return Err(EngineDefect {
+                    case: None,
+                    description: "an any-state case was judged without its observed run".to_owned(),
+                });
+            }
+        })
+    }
+}
+
+/// The per-leaf reach of a coverage target's run-level fact (`holds`: the run records one of its
+/// facts), as a coverage mode of a rule target reads its run-level fact (ARCHITECTURE 5.3, D13;
+/// `rule::rule_reached_ends`): every leaf of a run of one leaf, else every leaf that could carry
+/// the hit when all can, else those that cannot, so that the case classes by them. A stopped
+/// leaf reaches nothing: a coverage target names no stop rule.
+fn coverage_reached(
+    holds: bool,
+    run_to_completion: bool,
+    data_end: bool,
+    result: &CaseResult,
+) -> Vec<bool> {
+    let qualifies = |leaf: &crate::exec::LeafReport| {
+        leaf.is_clean()
+            && (!run_to_completion
+                || (leaf.natural_end && (!data_end || leaf.data_end == Some(true))))
+    };
+    let reached = if !holds {
+        vec![false; result.leaves.len()]
+    } else if result.leaves.len() <= 1 {
+        vec![true; result.leaves.len()]
+    } else {
+        let qualifies: Vec<bool> = result.leaves.iter().map(qualifies).collect();
+        if qualifies.iter().all(|qualifies| *qualifies) {
+            qualifies
+        } else {
+            qualifies.into_iter().map(|qualifies| !qualifies).collect()
+        }
+    };
+    result
+        .leaves
+        .iter()
+        .zip(reached)
+        .map(|(leaf, reached)| reached && !exec::stopped_state(leaf.halt))
+        .collect()
 }
 
 /// Whether `leaf`'s configuration is judged against a final pattern's

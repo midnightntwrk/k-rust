@@ -48,7 +48,7 @@ use crate::{
         DefinitionRole, DictionaryParameters, EffectiveConstraints, FuzzReport, GenerationCaps,
         HitLabel, ReportIdentity, SolveParameters, Totals, digest_hex,
     },
-    score::{RuleScorer, Scorer},
+    score::{RuleScorer, Scorer, coverage::CoverageScorer},
     spec::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
         ProposerConfig, ProposerKind,
@@ -662,10 +662,14 @@ fn climb_scorer(
     if let TargetKind::Observer(_) = spec.target.kind {
         return Ok(Some(Scorer::Observer));
     }
+    if let (TargetKind::Coverage(_), Some(facts)) = (&spec.target.kind, cases.coverage_facts()) {
+        let scorer = graphs.with(|graph| CoverageScorer::new(graph, facts))?;
+        return Ok(Some(Scorer::Coverage(scorer)));
+    }
     let (TargetKind::Rule(_), Some(target)) = (&spec.target.kind, cases.target_rule_id()) else {
         return Err(CampaignError::InvalidOptions {
-            message: "the climb proposer scores rule and observer targets only in this \
-                      milestone: a pattern or differential target gives it no score"
+            message: "the climb proposer scores rule, coverage and observer targets only in \
+                      this milestone: a pattern or differential target gives it no score"
                 .into(),
         });
     };
@@ -1160,6 +1164,11 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
             spec.target.run_to_completion
         }
         TargetKind::Observer(_) => spec.target.run_to_completion,
+        // A coverage fact is the run's, as a coverage mode's rule is.
+        TargetKind::Coverage(_) => {
+            facts.push("no-run-facts-off-leaves");
+            spec.target.run_to_completion
+        }
     };
     if natural_end {
         if !facts.contains(&"decided-match") {
@@ -1172,7 +1181,7 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
     }
     let rule_or_pattern = matches!(
         spec.target.kind,
-        TargetKind::Rule(_) | TargetKind::Pattern(_)
+        TargetKind::Rule(_) | TargetKind::Pattern(_) | TargetKind::Coverage(_)
     );
     if spec.target.comparable && rule_or_pattern {
         facts.push("comparable-end");

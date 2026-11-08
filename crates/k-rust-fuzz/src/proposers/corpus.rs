@@ -195,7 +195,10 @@ pub(crate) const FOLLOW_DEPTH: u32 = 2;
 pub(crate) fn parameters(target: &TargetKind) -> CorpusParameters {
     let condition_rules = match target {
         TargetKind::Rule(_) => "dictionary-guard-rules",
-        TargetKind::Pattern(_) | TargetKind::Differential(_) | TargetKind::Observer(_) => "none",
+        TargetKind::Pattern(_)
+        | TargetKind::Differential(_)
+        | TargetKind::Observer(_)
+        | TargetKind::Coverage(_) => "none",
     };
     CorpusParameters {
         budget_share: [BUDGET_SHARE.0, BUDGET_SHARE.1],

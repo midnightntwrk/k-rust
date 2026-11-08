@@ -91,7 +91,10 @@ impl ResolvedTarget {
     fn judges_comparability(&self) -> bool {
         matches!(
             self.resolved,
-            Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::PatternAnyState
+            Resolved::Rule { .. }
+                | Resolved::PatternFinal
+                | Resolved::PatternAnyState
+                | Resolved::Coverage { .. }
         )
     }
 
