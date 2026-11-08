@@ -117,7 +117,8 @@
 //!   where the kill search kills its mutant (with its `killer`), `undistinguished` where it runs
 //!   on every comparable program without a kill, `unreached` where no comparable program reached
 //!   an occurrence of the flipped atom (deduced from the guard rows and the front end's match,
-//!   with no mutant run), `unknown` without a verdict, `refused` by a judge, and `equivalent`
+//!   with no mutant run), `unknown` without a verdict (with each executed program's cause),
+//!   `refused` by a judge, and `equivalent`
 //!   where kink proves no program distinguishes it. The measure is distinguished over the
 //!   obligations less the refused and equivalent ones, which no program can meet. The family runs
 //!   under tier 2 (the default) where the front end derives the flips; otherwise, and under
@@ -144,7 +145,9 @@
 //! its production. An `unmatched` rule asks for a case whose run reaches a state
 //! the rule matches; a `matched` one for a case that enters it with its condition holding,
 //! naming the requirement that is open; a requirement for a case that enters the rule with the
-//! valuation that reaches the node with the missing truth, read from the condition's structure;
+//! valuation that reaches the node with the missing truth, read from the condition's structure,
+//! each step an author's node and its truth (a negation restated as its operand with the other
+//! truth, so an `else` reads as the condition before it `false`);
 //! an unreached production for a case in which a step takes it as an operand, or inspects or
 //! builds it, naming the rules that inspect or build it, each a concrete thing to make fire.
 //! An open heating rule asks for a case whose run brings the production to the front of the
@@ -160,7 +163,8 @@
 //! toggled) in its sentences, naming the values of the atom the corpus reached, the programs that
 //! reached it, and `fuzz --kill`; an `unreached` one asks for a case that reaches it and names
 //! the open tier-1 obligations that explain it (`waits_on`); an `unknown` one asks for a
-//! comparable run of its mutant. `pattern` is, for an `unmatched` rewrite rule, its
+//! comparable run of its mutant, with kink's reason, else its status, and each executed
+//! program's cause. `pattern` is, for an `unmatched` rewrite rule, its
 //! left-hand side as a `PATTERNS.toml` pattern ([`rule_pattern`]), which `query` and
 //! `fuzz --pattern` take; `null` for every other target, and where the rule's text cannot be
 //! read or a front end matched the sentence through templates.
@@ -300,8 +304,16 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// since a document of depth above 1 is computed instead of refused (`depth-unsupported`): it has
 /// the rule windows family (`families.rule_windows`, its items, counts, measure, frontier
 /// targets and `summary.per_family.rule_windows`), and a universe above `[coverage]
-/// max_obligations` is refused (`max-obligations`).
-pub const COVERAGE_VERSION: u64 = 12;
+/// max_obligations` is refused (`max-obligations`); 13 since every family shares one static
+/// scope: a claim helper is `claim-helper` whatever the programs did (in version 12 one some
+/// program matched or fired was an obligation), with its `reason`, and a front end's flip that
+/// changes a sentence outside the scope is listed under the flips family's `not_generated`
+/// (`{reason, id, atom, sentences, pair, detail}`) instead of counted, so the denominators of the
+/// rules, requirements, syntax and flips families can differ from version 12's on the same
+/// definition; an `unknown` flip has `causes` (`[{program, cause}]`), which its target states
+/// after its reason or its kink status; and a requirement's `reaching` restates each step
+/// through negations (an `else`'s negation `true` is the condition before it `false`).
+pub const COVERAGE_VERSION: u64 = 13;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -2124,8 +2136,11 @@ impl<'g> Tree<'g> {
     }
 
     /// The text of the node at `path` as an author reads it: an atom's own text (`krs.text`,
-    /// else its K text), a connective's operands joined by its token, leaving out what a front
-    /// end inserted; `None` for a node with nothing of the author's.
+    /// else its K text), a connective's operands joined by its token, a negation its operator
+    /// before its operand, leaving out what a front end inserted; `None` for a node with nothing
+    /// of the author's. A front end's negation is written `!`, whatever token produced it (an
+    /// `else` negates the condition before it), and a K negation its connective and a space
+    /// (`notBool X`); the operand is parenthesized unless its text is one token.
     fn text(&self, path: &str) -> Option<String> {
         let operand = self.operands.get(path)?;
         if self.generated(path) && operand["kind"] == "atom" {
@@ -2138,6 +2153,22 @@ impl<'g> Tree<'g> {
         let Some(children) = children.filter(|_| operand["kind"] != "atom") else {
             return own.map(str::to_owned);
         };
+        if operand["kind"] == "negation"
+            && let [child] = children.as_slice()
+        {
+            let inner = self.text(child.as_str()?)?;
+            let inner = if inner.contains(char::is_whitespace) {
+                format!("({inner})")
+            } else {
+                inner
+            };
+            return Some(if operand["krs"]["text"].is_string() {
+                format!("!{inner}")
+            } else {
+                let connective = operand["connective"].as_str().unwrap_or("notBool");
+                format!("{connective} {inner}")
+            });
+        }
         let token = operand["krs"]["text"]
             .as_str()
             .or_else(|| operand["connective"].as_str())
@@ -2147,26 +2178,41 @@ impl<'g> Tree<'g> {
             .filter_map(Value::as_str)
             .filter_map(|child| {
                 let text = self.text(child)?;
+                // A negation's text is its own operator before a delimited operand.
                 let nested = self
                     .operands
                     .get(child)
-                    .is_some_and(|c| c["kind"] != "atom");
+                    .is_some_and(|c| c["kind"] != "atom" && c["kind"] != "negation");
                 Some(if nested { format!("({text})") } else { text })
             })
             .collect::<Vec<_>>();
         match parts.as_slice() {
             [] => None,
-            [one] if matches!(operand["kind"].as_str(), Some("negation")) => {
-                Some(format!("{token}{one}"))
-            }
             [one] => Some(one.clone()),
             _ => Some(parts.join(&format!(" {token} "))),
         }
     }
 
+    /// The node at `path` with `truth` restated through negations: a negation with `truth` is
+    /// its operand with the other truth, recursively, so that the node is an author's operand
+    /// (a negated negation is its operand with the same truth).
+    fn through_negations<'p>(&'p self, mut path: &'p str, mut truth: bool) -> (&'p str, bool) {
+        while let Some(operand) = self.operands.get(path)
+            && operand["kind"] == "negation"
+            && let Some([child]) = operand["operands"].as_array().map(Vec::as_slice)
+            && let Some(child) = child.as_str()
+        {
+            path = child;
+            truth = !truth;
+        }
+        (path, truth)
+    }
+
     /// The truths of the author's nodes that reach the node at `path`, from the root down: a
     /// conjunction's earlier operands `true`, a disjunction's `false`, an implication's left
-    /// operand `true` for its right one (the reached rule of guard outcomes).
+    /// operand `true` for its right one (the reached rule of guard outcomes). Each step is
+    /// restated through negations ([`Self::through_negations`]): a negation `true` is its operand
+    /// `false`, which is how the author of an `else` reads the condition before it.
     fn reaching(&self, path: &str) -> Vec<(String, bool)> {
         let mut chain = Vec::new();
         let mut child = path;
@@ -2192,7 +2238,10 @@ impl<'g> Tree<'g> {
                 if let Some(truth) = truth {
                     let mut level = earlier
                         .iter()
-                        .filter_map(|sibling| Some((self.text(sibling)?, truth)))
+                        .filter_map(|sibling| {
+                            let (sibling, truth) = self.through_negations(sibling, truth);
+                            Some((self.text(sibling)?, truth))
+                        })
                         .collect::<Vec<_>>();
                     level.extend(chain);
                     chain = level;
@@ -3733,7 +3782,7 @@ fn derive_flips(
                     format!(
                         "a comparable run of the mutant that {changes} {text}{in_names}: kink \
                          gave no verdict ({})",
-                        item["reason"].as_str().unwrap_or("no reason")
+                        no_verdict(&item)
                     ),
                     Vec::new(),
                     Value::Null,
@@ -3758,6 +3807,37 @@ fn derive_flips(
     family["measure"] = measure(distinguished, counted);
     family["items"] = Value::Array(derived);
     targets
+}
+
+/// Why the kill search gave an `unknown` flip no verdict, as its target states it: the row's
+/// `reason` where it has one (a cause of the whole search), else kink's status where it is not
+/// `unknown` (`timeout`, `error`), then each executed program's cause (`causes`, `<program>:
+/// <cause>`), joined by `; `. The search decides `unknown` only from programs it ran, so one of
+/// these is always there; the text says so where none is, rather than invent a cause.
+fn no_verdict(item: &Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(reason) = item["reason"].as_str() {
+        parts.push(reason.to_owned());
+    } else if let Some(status) = item["kink_status"]
+        .as_str()
+        .filter(|status| *status != "unknown")
+    {
+        parts.push(status.to_owned());
+    }
+    for cause in item["causes"].as_array().into_iter().flatten() {
+        if let (Some(program), Some(cause)) = (cause["program"].as_str(), cause["cause"].as_str()) {
+            parts.push(format!("{program}: {cause}"));
+        }
+    }
+    debug_assert!(
+        !parts.is_empty(),
+        "an unknown flip has a reason, a status or a cause: {item:#}"
+    );
+    if parts.is_empty() {
+        "kink recorded no cause".to_owned()
+    } else {
+        parts.join("; ")
+    }
 }
 
 /// The tier-1 obligations an unreached flip waits on, as its target states them: the open ones,
@@ -4151,5 +4231,146 @@ mod tests {
                 "syntax:d",
             ]
         );
+    }
+
+    /// A node of a guard tree: `(path, kind, krs text, K connective, children)`.
+    type TreeNode<'n> = (
+        &'n str,
+        &'n str,
+        Option<&'n str>,
+        Option<&'n str>,
+        &'n [&'n str],
+    );
+
+    /// A guard tree of `nodes`.
+    fn tree_guard(nodes: &[TreeNode<'_>]) -> Value {
+        json!({"operands": nodes.iter().map(|(path, kind, krs, connective, children)| {
+            let mut node = json!({"path": path, "kind": kind, "operands": children});
+            if let Some(text) = krs {
+                node["krs"] = json!({"text": text, "origin": "authored"});
+            }
+            if let Some(connective) = connective {
+                node["connective"] = json!(connective);
+            }
+            node
+        }).collect::<Vec<_>>()})
+    }
+
+    /// An `if`/`else if` chain's condition: each `else` is a negation of the condition before
+    /// it, and the valuation that reaches a later condition names the earlier ones `false`, not
+    /// a negation spelt with its `else` token.
+    #[test]
+    fn reaching_reads_an_else_as_the_condition_before_it_false() {
+        let guard = tree_guard(&[
+            ("0", "conjunction", Some("&&"), None, &["0.0", "0.1", "0.2"]),
+            ("0.0", "negation", Some("else"), None, &["0.0.0"]),
+            ("0.0.0", "atom", Some("requested & 0x01 != 0"), None, &[]),
+            ("0.1", "negation", Some("else"), None, &["0.1.0"]),
+            ("0.1.0", "atom", Some("requested & 0x02 != 0"), None, &[]),
+            ("0.2", "atom", Some("requested & 0x04 != 0"), None, &[]),
+        ]);
+        let tree = Tree::of(&guard);
+        let earlier = |texts: &[&str]| {
+            texts
+                .iter()
+                .map(|text| ((*text).to_owned(), false))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            tree.reaching("0.2"),
+            earlier(&["requested & 0x01 != 0", "requested & 0x02 != 0"])
+        );
+        assert_eq!(tree.reaching("0.1.0"), earlier(&["requested & 0x01 != 0"]));
+        assert_eq!(
+            tree.text("0.1").as_deref(),
+            Some("!(requested & 0x02 != 0)")
+        );
+    }
+
+    /// A compound sibling renders a negation as `!` before its operand, parenthesized unless
+    /// the operand is one token; a negated negation reaching a node is its operand with the
+    /// same truth; a K negation keeps its connective, with a space.
+    #[test]
+    fn a_negation_is_written_before_its_operand() {
+        let guard = tree_guard(&[
+            ("0", "conjunction", Some("&&"), None, &["0.0", "0.1", "0.2"]),
+            ("0.0", "disjunction", Some("||"), None, &["0.0.0", "0.0.1"]),
+            ("0.0.0", "atom", Some("ready"), None, &[]),
+            ("0.0.1", "negation", Some("!"), None, &["0.0.1.0"]),
+            ("0.0.1.0", "atom", Some("value < 0"), None, &[]),
+            ("0.1", "negation", Some("!"), None, &["0.1.0"]),
+            ("0.1.0", "negation", Some("!"), None, &["0.1.0.0"]),
+            ("0.1.0.0", "atom", Some("halted"), None, &[]),
+            ("0.2", "atom", Some("c"), None, &[]),
+        ]);
+        let tree = Tree::of(&guard);
+        assert_eq!(
+            tree.reaching("0.2"),
+            [
+                ("ready || !(value < 0)".to_owned(), true),
+                ("halted".to_owned(), true)
+            ]
+        );
+        assert_eq!(tree.text("0.1").as_deref(), Some("!!halted"));
+        let k = json!({"operands": [
+            {"path": "0", "kind": "negation", "connective": "notBool", "operands": ["0.0"]},
+            {"path": "0.0", "kind": "atom", "text": "X <Int 0", "operands": []},
+            {"path": "1", "kind": "negation", "connective": "notBool", "operands": ["1.0"]},
+            {"path": "1.0", "kind": "atom", "text": "B", "operands": []},
+        ]});
+        let tree = Tree::of(&k);
+        assert_eq!(tree.text("0").as_deref(), Some("notBool (X <Int 0)"));
+        assert_eq!(tree.text("1").as_deref(), Some("notBool B"));
+    }
+
+    /// The target of the unknown flip whose run row is `row`.
+    fn unknown_target(row: &Value) -> String {
+        let mut item = json!({"id": "f", "operator": "flip", "text": "x", "occurrences": []});
+        crate::flips::fill_from_row(&mut item, row);
+        assert_eq!(item["status"], crate::flips::UNKNOWN, "{item:#}");
+        let mut family = json!({"run": true, "items": [item], "not_generated": []});
+        let targets = derive_flips(
+            &mut family,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            "kink-flow fuzz",
+            &BTreeMap::new(),
+        );
+        assert_eq!(targets.len(), 1, "{family:#}");
+        targets[0].1["text"].as_str().unwrap().to_owned()
+    }
+
+    /// An unknown flip's target says why kink gave no verdict: the row's reason, else kink's
+    /// status where it is not `unknown`, then each executed program's cause, in the search's
+    /// order; a program with no cause is not named.
+    #[test]
+    fn an_unknown_flips_target_states_each_programs_cause() {
+        let prefix = "a comparable run of the mutant that negates x: kink gave no verdict";
+        let executed = json!([
+            {"program": "p1", "cause": "the step bound (100) fired"},
+            {"program": "p2", "outcome": "agree", "cause": null},
+            {"program": "p3", "cause": "an undecided end"},
+        ]);
+        assert_eq!(
+            unknown_target(&json!({"status": "unknown", "reason": null, "executed": executed})),
+            format!("{prefix} (p1: the step bound (100) fired; p3: an undecided end)")
+        );
+        assert_eq!(
+            unknown_target(&json!({"status": "timeout", "reason": null, "executed": [
+                {"program": "p1", "cause": "the time limit fired"},
+            ]})),
+            format!("{prefix} (timeout; p1: the time limit fired)")
+        );
+        assert_eq!(
+            unknown_target(&json!({"status": "unknown", "reason": "open-application",
+                                   "executed": [{"program": "p1", "cause": "an open f(1)"}]})),
+            format!("{prefix} (open-application; p1: an open f(1))")
+        );
+        let mut item = json!({"id": "f"});
+        crate::flips::fill_from_row(
+            &mut item,
+            &json!({"status": "killed", "killer": "p1", "executed": executed}),
+        );
+        assert_eq!(item["causes"], json!([]));
     }
 }

@@ -27,7 +27,7 @@
 //! - `equivalent`: kink proves no program can distinguish the mutant (an `equivalent` or
 //!   `unkillable` row), so it is no obligation a program can meet.
 //! - `unknown`: the search gave no verdict (`unknown`, `timeout`, or a corpus error), with kink's
-//!   reason.
+//!   reason where one holds for the whole search, and each executed program's cause (`causes`).
 //!
 //! These are not kink's `killed` and `survived`: an `unreached` status rests on a deduction, not
 //! on runs, and the family reports what the corpus covers, not mutation verdicts. The measure is
@@ -415,7 +415,11 @@ pub fn unreached(occurrences: &[Value]) -> bool {
 /// document): `killed` is `distinguished`, `survived` `undistinguished`, `equivalent` and
 /// `unkillable` `equivalent`, `invalid-mutation` and `not-admitted` `refused` (kink-flow's
 /// admission), and every other status `unknown`. `kink_status` keeps kink's status, and
-/// `horizon` the row's (a survivor's agreements up to a horizon, null where it has none).
+/// `horizon` the row's (a survivor's agreements up to a horizon, null where it has none). An
+/// `unknown` flip's `causes` are the search's own record of what stopped each comparison: one
+/// `{program, cause}` per executed program with a cause, in the search's order (empty for every
+/// other status), since the row's `reason` names a cause only where one holds for the whole
+/// search.
 pub fn fill_from_row(item: &mut Value, row: &Value) {
     let kink = row["status"].as_str().unwrap_or_default();
     let status = match kink {
@@ -440,6 +444,15 @@ pub fn fill_from_row(item: &mut Value, row: &Value) {
     item["witnesses"] = row["witnesses"].clone();
     item["horizon"] = row.get("horizon").cloned().unwrap_or(Value::Null);
     let executed = row["executed"].as_array().map_or(&[][..], Vec::as_slice);
+    item["causes"] = json!(if status == UNKNOWN {
+        executed
+            .iter()
+            .filter(|entry| entry["cause"].is_string())
+            .map(|entry| json!({"program": entry["program"], "cause": entry["cause"]}))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    });
     item["live_runs"] = json!(
         executed
             .iter()
@@ -473,6 +486,7 @@ pub fn item_value(entry: &DerivedEntry, occurrences: Vec<Value>) -> Value {
         "killer_change": null,
         "witnesses": null,
         "horizon": null,
+        "causes": [],
         "waits_on": [],
         "live_runs": 0,
         "calls": 0,
