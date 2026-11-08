@@ -310,18 +310,24 @@ A program whose baseline the clock stopped stays `timeout`, since its horizon wo
 `coverage` exits 0 for a `comparable-prefix` program: it answers what the baseline computes for the declared observation, up to its horizons.
 An end expectation on it is `inconclusive`, since it has no end.
 
+A path that returns, before it has several successors, to an earlier state of itself with nothing new observed closes each channel not yet open or past the baseline's horizon by a cycle (`closed = "cycle"`): the path runs forever and adds no element, so the channel is complete and has no element at its length, ever.
+This proves divergence, which a bound never does.
+k-rust recognizes the return only between states whose configurations are the same ground term with no constraint, with equal stop counts, effects and console, so a symbolic state is never compared; among the states reached since the channels last changed it keeps a fixed number (kink-campaign `CYCLE_STATES`), and a return to a state past them is not recognized.
+A baseline closed so is still `comparable-prefix` (its run goes on to its bound as without observations), and a channel closed by a cycle has no horizon.
+
 A mutant is killed on the channels at the first channel and index at which both sides' elements are decided and differ, END and UNDEF being elements; no element past either side's open point is read, so a budget never kills.
-The mutant's run stops at that difference, or, on a prefix program, once every channel has reached the baseline's horizon or opened.
+A channel closed by a cycle has no element at its length, ever: a mutant that idles forever where the baseline still emits, or ends, is killed there, and so is a mutant that emits, ends or is undefined past a baseline channel closed so, while a mutant closed alike at the same length agrees with no horizon.
+The mutant's run stops at that difference, at its own return, or, on a prefix program, once every channel has reached the baseline's horizon or opened.
 A mutant that agrees with a prefix program up to every horizon survives, with each horizon: the row has `horizon`, `[{program, horizon: {<channel>: n}}]`, its action says that the mutant may differ past it, and `--output verdicts` renders it, so a survivor that rests on a budgeted prefix says so.
 An agreement up to horizons that are all 0 observed nothing, and is `unknown`.
 
 Each executed entry's `slots` has `observations` after the end slots: `position: {channel, index, at_end}` where it distinguished (`at_end` when the difference was read where the mutant's path ended), `horizon` where it agreed up to the baseline's horizons, and `cause` where it was unknown.
 The baseline's record keeps 8 bytes of each element's digest, not its value, so the evidence of a kill only the channels decided is re-derived: a capture run runs the baseline's request again, with a probe that ends the path at the reported element, and the element read there must have the recorded digest, or the mutation is an `error` with reason `observation-capture:<program id>`; the mutant's element is its probe's.
-That evidence is kink's own (`kink-k/1`): `{format, position, baseline: {element}, mutant: {element}}`, each element `{cells: {<cell>: value}}` for a class, `{item: value}` for a log, each value printed as K text, or `end`, `undefined` or `undecided`.
+That evidence is kink's own (`kink-k/1`): `{format, position, baseline: {element}, mutant: {element}}`, each element `{cells: {<cell>: value}}` for a class, `{item: value}` for a log, each value printed as K text, or `end`, `undefined`, `cycle` (the side's channel was closed by a cycle there) or `undecided`.
 A `killed` outcome record keeps it, as it keeps an end difference, so the capture runs once per kill; a test whose ends also distinguished keeps its end evidence.
 
 The `check`, `coverage` and `run` documents (and so `report`) carry `observe`, the declaration as every run compares by it (`{points: [{name, before, after, cells, stutter}], logs: [{name, cell, at}]}`); it is absent without `[observe]`.
-Each program row of a corpus with `[observe]` has `observations`, `{channels: [{name, elements, closed, open}], horizon}`: the number of elements its baseline recorded per channel, `closed` (`end` or `undefined`) or `open` (`{index, reason}`), and each open channel's horizon.
+Each program row of a corpus with `[observe]` has `observations`, `{channels: [{name, elements, closed, open}], horizon}`: the number of elements its baseline recorded per channel, `closed` (`end`, `undefined` or `cycle`) or `open` (`{index, reason}`), and each open channel's horizon; a channel closed by a cycle has none.
 The declaration keys what it changes: each program's result key and the tier-1 context hold `observe`, absent without `[observe]`, so a corpus without one keeps its keys.
 `query` and `fuzz` refuse a corpus with `[observe]` (stage `observe`, reason `unsupported-verb`): their searches compare no channel, so their answers would not be about the observation the corpus states.
 
