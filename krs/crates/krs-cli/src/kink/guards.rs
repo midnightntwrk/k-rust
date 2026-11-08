@@ -39,8 +39,10 @@
 //! condition, ahead of every authored conjunct, as the range test `v >= 0 && v < 2^w` and one
 //! equality per fixed run of the template, most significant first, all of whose tokens take one
 //! span. The occurrence of the template's binder in the sentence's left-hand side carries the
-//! template's own range, its string literal, so the templates of a sentence and their order are
-//! read from its left-hand side, and each template's string gives its number of conjuncts: two,
+//! template's own range, its string literal, or, for a template with an alias
+//! (`op @ k::bits!(..)`), the alias, which the template's invocation follows in the source; so
+//! the templates of a sentence and their order are read from its left-hand side, and each
+//! template's string gives its number of conjuncts: two,
 //! and one per maximal run of fixed bits (`0` and `1`, a space, a field letter or `_` ending a
 //! run). The leading conjuncts of the condition's chain are then the templates', each checked to
 //! be such a test of its binder at one span; a sentence where they are not is listed under
@@ -448,7 +450,107 @@ impl GuardNames {
             authored: conjuncts.iter().any(|conjunct| !inserted(conjunct)),
             inserted: conjuncts.iter().any(inserted),
             binders,
+            conjuncts,
         })
+    }
+
+    /// The `k::bits!` templates of the sentence labelled `label` (as the emission writes it) and
+    /// the conjuncts of its condition after their tests, read as [`Self::read_condition`] reads
+    /// them (module documentation, "Templates"): each template's binder by its K variable name
+    /// and its pattern as the author wrote it, and each later conjunct's Rust text where the
+    /// author wrote it, `None` where KRS inserted it or its text cannot be read, or why the
+    /// condition cannot be read. A sentence without a template, or that the source map does not
+    /// have, has none.
+    pub(crate) fn sentence_templates(&self, label: &str) -> SentenceTemplates {
+        let mut reading = SentenceTemplates {
+            templates: Vec::new(),
+            conjuncts: Ok(Vec::new()),
+        };
+        let Some(range) = self.sentences.get(label) else {
+            return reading;
+        };
+        let sentence = Sentence::of(&self.nodes, range);
+        let Some(condition) = sentence.condition_root() else {
+            return reading;
+        };
+        let binders = sentence.template_binders(self);
+        reading.templates = binders
+            .iter()
+            .map(|binder| {
+                let position = self.position(&binder.range);
+                TemplateSite {
+                    variable: binder
+                        .variable
+                        .split_once(':')
+                        .map_or(binder.variable.as_str(), |(name, _)| name)
+                        .to_owned(),
+                    pattern: self.template_pattern(&binder.range),
+                    literal: position.text.as_deref().and_then(|text| {
+                        text.strip_prefix('"')
+                            .and_then(|rest| rest.strip_suffix('"'))
+                            .map(str::to_owned)
+                    }),
+                    file: position.file,
+                    line: position.line,
+                    column: position.column,
+                }
+            })
+            .collect();
+        if binders.is_empty() {
+            return reading;
+        }
+        reading.conjuncts = self.read_condition(&sentence, condition).map(|condition| {
+            condition
+                .conjuncts
+                .iter()
+                .map(|&conjunct| {
+                    if sentence.nodes[conjunct].inserted.is_some() {
+                        return None;
+                    }
+                    sentence
+                        .covering(conjunct)
+                        .and_then(|range| self.position(&range).text)
+                })
+                .collect()
+        });
+        reading
+    }
+
+    /// The pattern a template's string literal at `range` is the template of, as the author wrote
+    /// it: `alias @ path!(literal, modifiers)`, or `path!(literal, modifiers)` for a template
+    /// with no alias; `None` where the file cannot be read or the literal is not the first
+    /// argument of a macro invocation.
+    fn template_pattern(&self, range: &SourceRange) -> Option<String> {
+        let mut texts = self
+            .texts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = texts.entry(range.file.clone()).or_insert_with(|| {
+            (self.read)(&range.file).map(|text| {
+                let lines = LineIndex::new(&text);
+                (text, lines)
+            })
+        });
+        let (text, _) = entry.as_ref()?;
+        let start = usize::try_from(range.start_byte).ok()?;
+        let end = usize::try_from(range.end_byte).ok()?;
+        pattern_around(text, start, end)
+    }
+
+    /// The label the loaded definition gives the sentence of K module `module` that the emission
+    /// labels `label`: K reads the label of a sentence written `rule [label]:` (or `claim
+    /// [label]:`) as `MODULE.label`, and one written with the attribute `label(label)` as
+    /// written; `None` where the source map has no such sentence.
+    pub(crate) fn stored_label(&self, module: &str, label: &str) -> Option<String> {
+        let range = self.sentences.get(label)?;
+        let text = self.definition.get(range.clone())?.trim_start();
+        Some(
+            if text.starts_with("rule [") || text.starts_with("claim [") {
+                super::annotate::qualified(label, module)
+            } else {
+                label.to_owned()
+            },
+        )
     }
 
     /// The conjuncts at the map node `map_index`: the nodes below its conjunctions (the written
@@ -814,10 +916,13 @@ struct Binder {
 impl Sentence {
     /// The map nodes inside `range`, a sentence's, outer first.
     fn of(nodes: &[MapNode], range: &Range<usize>) -> Self {
+        // `nodes` are sorted by start: those inside `range` start in it.
+        let first = nodes.partition_point(|node| node.range.start < range.start);
         Self {
-            nodes: nodes
+            nodes: nodes[first..]
                 .iter()
-                .filter(|node| range.start <= node.range.start && node.range.end <= range.end)
+                .take_while(|node| node.range.start <= range.end)
+                .filter(|node| node.range.end <= range.end)
                 .cloned()
                 .collect(),
         }
@@ -882,7 +987,7 @@ impl Sentence {
 
     /// The templates of the sentence's left-hand side, in written order: each variable node
     /// outside the condition whose authored range is a string literal, which only a template's
-    /// binder takes.
+    /// hidden binder takes, or an alias a template's invocation follows.
     fn template_binders(&self, names: &GuardNames) -> Vec<Binder> {
         let condition = self
             .nodes
@@ -897,12 +1002,26 @@ impl Sentence {
             {
                 continue;
             }
-            let Some(range) = &node.authored else {
+            let Some(authored) = &node.authored else {
                 continue;
             };
-            let Some(literal) = names.source_slice(range) else {
+            let Some(slice) = names.source_slice(authored) else {
                 continue;
             };
+            // A hidden binder takes the template's own range; an alias is the identifier the
+            // template follows (`op @ k::bits!("..")`).
+            let (range, literal) = if slice.starts_with('"') {
+                (authored.clone(), slice)
+            } else {
+                let Some(range) = names.aliased_literal(authored) else {
+                    continue;
+                };
+                let Some(literal) = names.source_slice(&range) else {
+                    continue;
+                };
+                (range, literal)
+            };
+            let range = &range;
             let Some(template) = literal
                 .strip_prefix('"')
                 .and_then(|rest| rest.strip_suffix('"'))
@@ -1017,6 +1136,44 @@ impl GuardNames {
         }
     }
 
+    /// The string literal of the template `range`, an identifier, is the alias of: the literal
+    /// that opens the `k::bits!(..)` invocation after the `@` that follows it; `None` where no
+    /// such invocation follows it.
+    fn aliased_literal(&self, range: &SourceRange) -> Option<SourceRange> {
+        let mut texts = self
+            .texts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = texts.entry(range.file.clone()).or_insert_with(|| {
+            (self.read)(&range.file).map(|text| {
+                let lines = LineIndex::new(&text);
+                (text, lines)
+            })
+        });
+        let (text, _) = entry.as_ref()?;
+        let end = usize::try_from(range.end_byte).ok()?;
+        let after = text.get(end..)?;
+        let rest = after.trim_start().strip_prefix('@')?.trim_start();
+        let path = rest
+            .char_indices()
+            .find(|(_, character)| {
+                !(character.is_ascii_alphanumeric() || matches!(character, '_' | ':'))
+            })
+            .map_or(rest.len(), |(at, _)| at);
+        if !rest[..path].ends_with("bits") {
+            return None;
+        }
+        let rest = rest[path..].trim_start().strip_prefix('!')?.trim_start();
+        let rest = rest.strip_prefix('(')?.trim_start();
+        let close = rest.strip_prefix('"')?.find('"')?;
+        let start = end + (after.len() - rest.len());
+        Some(SourceRange {
+            file: range.file.clone(),
+            start_byte: u32::try_from(start).ok()?,
+            end_byte: u32::try_from(start + close + 2).ok()?,
+        })
+    }
+
     /// The text of `range` in its file, where the file is available.
     fn source_slice(&self, range: &SourceRange) -> Option<String> {
         let mut texts = self
@@ -1089,6 +1246,98 @@ struct Condition {
     authored: bool,
     /// Whether a conjunct after the templates' tests is a test KRS inserted.
     inserted: bool,
+    /// The map nodes of the conjuncts after the templates' tests, in written order.
+    conjuncts: Vec<usize>,
+}
+
+/// The `k::bits!` templates of a sentence and the conjuncts after their tests
+/// ([`GuardNames::sentence_templates`]).
+pub(crate) struct SentenceTemplates {
+    /// The templates, in written order.
+    pub(crate) templates: Vec<TemplateSite>,
+    /// Each conjunct of the condition after the templates' tests: its Rust text where the author
+    /// wrote it, `None` where KRS inserted it or its text cannot be read; `Err` says why the
+    /// condition cannot be read.
+    pub(crate) conjuncts: Result<Vec<Option<String>>, Unmatched>,
+}
+
+/// One `k::bits!` template of a sentence ([`SentenceTemplates`]).
+pub(crate) struct TemplateSite {
+    /// The binder's K variable name (`Op`).
+    pub(crate) variable: String,
+    /// The template's pattern as the author wrote it (`op @ k::bits!("01 rr ss")`), `None` where
+    /// its source cannot be read.
+    pub(crate) pattern: Option<String>,
+    /// The template's string, without its quotes.
+    pub(crate) literal: Option<String>,
+    /// The string literal's position in the package's current source.
+    pub(crate) file: Option<String>,
+    pub(crate) line: Option<u32>,
+    pub(crate) column: Option<u32>,
+}
+
+/// The pattern around a template's string literal at `start..end` of `text` (a Rust file):
+/// from the alias before `@`, if any, through the macro's path and `!(` to the `)` that closes
+/// it; `None` where the literal is not the first argument of a macro invocation.
+fn pattern_around(text: &str, start: usize, end: usize) -> Option<String> {
+    let before = text.get(..start)?.trim_end().strip_suffix('(')?.trim_end();
+    let before = before.strip_suffix('!')?.trim_end();
+    let path = before.len()
+        - before
+            .chars()
+            .rev()
+            .take_while(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | ':')
+            })
+            .map(char::len_utf8)
+            .sum::<usize>();
+    let path_text = &before[path..];
+    if !path_text.ends_with("bits") {
+        return None;
+    }
+    let mut from = path;
+    let ahead = before[..path].trim_end();
+    if let Some(aliased) = ahead.strip_suffix('@') {
+        let aliased = aliased.trim_end();
+        let alias = aliased.len()
+            - aliased
+                .chars()
+                .rev()
+                .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+                .map(char::len_utf8)
+                .sum::<usize>();
+        if alias < aliased.len() {
+            from = alias;
+        }
+    }
+    // The `)` that closes the invocation, past nested brackets and string literals.
+    let mut depth = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut close = None;
+    for (offset, character) in text.get(end..)?.char_indices() {
+        if in_string {
+            match (escaped, character) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth > 0 => depth -= 1,
+            ')' => {
+                close = Some(end + offset);
+                break;
+            }
+            ']' | '}' => return None,
+            _ => {}
+        }
+    }
+    Some(text.get(from..=close?)?.to_owned())
 }
 
 /// Put `grouped`, a guard's `krs`, in `row`, and, where the sentence has templates, its row's

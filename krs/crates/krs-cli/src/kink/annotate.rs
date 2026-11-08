@@ -62,6 +62,12 @@
 //! KRS item (`rule:crate::plus_succ`), a requirement by the Rust text of its operand, and each
 //! target carries the item's Rust position.
 //!
+//! A `coverage` document's syntax family is named at the KRS level ([`super::syntax`]): each
+//! production item gains `krs`, the Rust path and position of the variant or struct that
+//! declares it, and each value of a `k::bits!` template's field over the template's arm domain
+//! is added as an item of kind `field-value`, reached where a comparable program's run bound the
+//! template's binder to a value with that field value, with the encodings that reach it.
+//!
 //! Every annotated document carries `krs.version` ([`ANNOTATION_VERSION`]), the version of how
 //! its `krs` objects read, so that a reader can refuse an annotation it does not know: version 2
 //! names an item as above, while the annotation before it, which carried no version, named it as
@@ -70,7 +76,10 @@
 //! know to read beside `stop.when`; version 4 names a `results` document's guard nodes and reads a
 //! template-guarded sentence's match as its KRS pattern's, as above; version 5 annotates the
 //! `coverage` document, which replaced the `results` document, whose ids, targets and counts are
-//! read from the names and the grouping above.
+//! read from the names and the grouping above; version 6 names the `coverage` document's syntax
+//! family at the KRS level ([`super::syntax`]): each production by the Rust path of its
+//! declaration, and the field values of every `k::bits!` template as items of their own, which
+//! a reader of version 5 would count as nothing it knows.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -112,7 +121,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 5;
+pub(crate) const ANNOTATION_VERSION: u64 = 6;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -166,6 +175,8 @@ pub(crate) struct Annotator {
     result_names: Option<super::cells::ResultNames>,
     /// The names of a `coverage` document's guard nodes ([`super::guards`]).
     guards: Option<super::guards::GuardNames>,
+    /// The syntax family at the KRS level ([`super::syntax`]).
+    syntax: Option<std::sync::Arc<super::syntax::KrsSyntax>>,
 }
 
 impl Annotator {
@@ -242,6 +253,7 @@ impl Annotator {
             stop_items: None,
             result_names: None,
             guards: None,
+            syntax: None,
         }
     }
 
@@ -264,6 +276,16 @@ impl Annotator {
     /// ([`super::guards`]).
     pub(crate) fn naming_guards(mut self, guards: super::guards::GuardNames) -> Self {
         self.guards = Some(guards);
+        self
+    }
+
+    /// This annotator naming a `coverage` document's syntax family at the KRS level
+    /// ([`super::syntax`]).
+    pub(crate) fn naming_syntax(
+        mut self,
+        syntax: std::sync::Arc<super::syntax::KrsSyntax>,
+    ) -> Self {
+        self.syntax = Some(syntax);
         self
     }
 
@@ -384,6 +406,10 @@ impl Annotator {
             }
         });
         self.annotate_labels(document);
+        // After the rules: a field value's target reads its sentence's `krs.matched_by`.
+        if let Some(syntax) = &self.syntax {
+            syntax.annotate(document);
+        }
         unnamed.sort_by_key(ToString::to_string);
         unnamed.dedup();
         unmatched_guards.sort_by_key(ToString::to_string);

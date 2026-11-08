@@ -16,14 +16,17 @@
 //! submodule makes; a name that selects no rewrite rule refuses the corpus at stage `stop`,
 //! reason `stop-unresolved`), the stop condition `[stop] when` names with KRS's spellings,
 //! resolved as `krs run --stop-when` resolves one and handed to kink as the condition it asks at
-//! each arrival (the `condition` submodule; reason `stop-condition-unresolved`), and the
-//! mutations its own checks refuse (`checks`), and the definition's condition flips, which
-//! `coverage` runs as its flips family and `fuzz --kill <flip-id>` names (`flips`, each with the
-//! guard nodes it changes, which `guards` places); on the way
+//! each arrival (the `condition` submodule; reason `stop-condition-unresolved`), the syntax
+//! family's authored sorts and the `k::bits!` binders whose values every baseline run records
+//! (the `syntax` submodule), the mutations its own checks refuse (`checks`), and the
+//! definition's condition flips, which `coverage` runs as its flips family and `fuzz --kill
+//! <flip-id>` names (`flips`, each with the guard nodes it changes, which `guards` places); on
+//! the way
 //! out, the labels each `[stop]` name selects (`stop.krs.items`), the compared cells by Rust path
 //! (`result.krs`), to every rule a document names, the KRS item and the Rust position the
-//! sentence was emitted from (`annotate`), and next steps spelled as `krs kink` commands
-//! (`spelling`).
+//! sentence was emitted from (`annotate`), the syntax family's productions by Rust path and its
+//! templates' field values with their encodings (`syntax`), and next steps spelled as `krs kink`
+//! commands (`spelling`).
 //!
 //! Every verb but `emit` prints one kink-flow document (or, with `--output verdicts`, its
 //! deterministic rendering) with one more key, `definition`: the path of `kink/definition.k`
@@ -70,6 +73,7 @@ mod inputs;
 mod render;
 mod spelling;
 mod stop;
+mod syntax;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -680,8 +684,10 @@ fn run_flow(
     let output = command.output();
     let verb = command.verb();
     tell_progress(&command, "run: binding the corpus to the emitted K");
+    let sources = outcome.sources.clone();
+    let (guard_names, syntax) = front_syntax(emitted, &sources);
     let (manifest, stop_items, result_names) =
-        match bound_manifest(&command, declared, emitted, observers) {
+        match bound_manifest(&command, declared, emitted, observers, &syntax) {
             Ok(bound) => bound,
             Err(mut document) => {
                 document["definition"] = definition;
@@ -689,11 +695,14 @@ fn run_flow(
             }
         };
     resolve_rule(&mut command, emitted);
-    let sources = outcome.sources.clone();
-    let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command))
-        .naming_stop(stop_items)
-        .naming_result(result_names);
-    let annotator = naming_guards(annotator, &command, emitted, &sources);
+    let annotator = naming_guards(
+        annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command))
+            .naming_stop(stop_items)
+            .naming_result(result_names)
+            .naming_syntax(syntax),
+        &command,
+        guard_names,
+    );
     let baseline = kept.as_ref().map(|kept| checks::Baseline {
         emitted,
         retained: &kept.retained,
@@ -775,25 +784,37 @@ fn run_flow(
     finish(outcome, &document, status_code, output)
 }
 
-/// `annotator`, naming the guard nodes of the rows by KRS construct where `command` is
-/// `coverage`, the one command whose document has guards ([`guards`]), reading authored files
-/// from `sources`.
+/// `annotator`, naming the guard nodes of the rows by KRS construct by `guard_names` where
+/// `command` is `coverage`, the one command whose document has guards ([`guards`]).
 fn naming_guards(
     annotator: annotate::Annotator,
     command: &FlowCommand,
+    guard_names: guards::GuardNames,
+) -> annotate::Annotator {
+    if matches!(command, FlowCommand::Coverage { .. }) {
+        annotator.naming_guards(guard_names)
+    } else {
+        annotator
+    }
+}
+
+/// The guard names of `emitted` ([`guards`]), reading authored files from `sources`, and its
+/// syntax family at the KRS level ([`syntax`]). Every verb binds the family's selection: the
+/// bindings a baseline run records are part of its result's key, so every verb reads and writes
+/// the records of one key.
+fn front_syntax(
     emitted: &EmittedDefinition,
     sources: &DiagnosticSources,
-) -> annotate::Annotator {
-    if !matches!(command, FlowCommand::Coverage { .. }) {
-        return annotator;
-    }
+) -> (guards::GuardNames, Arc<syntax::KrsSyntax>) {
     let read = sources.clone();
-    annotator.naming_guards(guards::GuardNames::new(
+    let guard_names = guards::GuardNames::new(
         &emitted.definition,
         &emitted.source_map,
         &emitted.ir,
         move |file| read.source_text(file),
-    ))
+    );
+    let syntax = Arc::new(syntax::KrsSyntax::new(emitted, &guard_names, sources));
+    (guard_names, syntax)
 }
 
 /// `document`'s lock named by its path as documents show it, `lock.1`, where kink-flow named it
@@ -884,7 +905,8 @@ fn tell_progress(command: &FlowCommand, line: &str) {
 }
 
 /// The corpus `declared` bound to the K of `emitted`, with what only the front end knows of it
-/// ([`with_front_end_facts`], the expectations' views evaluated in `observers`), the cells
+/// ([`with_front_end_facts`], the expectations' views evaluated in `observers`, and the syntax
+/// family's authored sorts and template binders, `syntax`'s selection), the cells
 /// `[result]` names by Rust path or K name as the K names kink-flow reads ([`cells::bind`]), and
 /// the rules `[stop]` names by KRS item or label as the exact K labels kink-flow reads
 /// ([`stop::bind`]); the labels each `[stop]` name selects, and the cells by path that the
@@ -894,6 +916,7 @@ fn bound_manifest(
     declared: ManifestFile,
     emitted: &EmittedDefinition,
     observers: render::Observers,
+    syntax: &syntax::KrsSyntax,
 ) -> Result<(kink_flow::FlowManifest, Option<Value>, cells::ResultNames), Value> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
@@ -907,13 +930,12 @@ fn bound_manifest(
     // same compile.
     let decoder = Arc::new(inputs::KrsInputs::new(emitted.ir.clone()));
     let observers = Arc::new(observers);
-    let (manifest, stop_items) = stop::bind(
-        with_front_end_facts(manifest, emitted, decoder.clone(), Arc::clone(&observers)),
-        &decoder,
-        &observers,
-        &emitted.ir,
-    )
-    .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
+    // A selection that names one binder twice is refused as a manifest is: no run records it.
+    let manifest = with_front_end_facts(manifest, emitted, decoder.clone(), Arc::clone(&observers))
+        .with_syntax(syntax.selection())
+        .map_err(|error| command.manifest_refused(&error))?;
+    let (manifest, stop_items) = stop::bind(manifest, &decoder, &observers, &emitted.ir)
+        .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
     Ok((manifest, stop_items, result_names))
 }
 

@@ -326,7 +326,7 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
-    assert_eq!(document["krs"]["version"], 5, "{:#}", document["krs"]);
+    assert_eq!(document["krs"]["version"], 6, "{:#}", document["krs"]);
     // krs's front end gives coverage its condition flips: the family ran, and the flip of `irq`
     // across the halted machine's two transitions, which test `halted` first, is unreached on a
     // corpus that never halts, with no mutant run.
@@ -664,7 +664,7 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     let verdicts = project.kink("coverage", &["--output", "verdicts"]);
     assert_status(&verdicts, 0);
     let verdicts = stdout(&verdicts);
-    assert!(verdicts.contains("krs_annotation = 5"), "{verdicts}");
+    assert!(verdicts.contains("krs_annotation = 6"), "{verdicts}");
     assert!(
         verdicts.contains("\"rule:crate::boundary_wake\""),
         "{verdicts}"
@@ -1297,8 +1297,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     }
     assert_eq!(
         document["krs"],
-        serde_json::json!({"version": 5}),
-        "every rule is named, by version 5 of the annotation"
+        serde_json::json!({"version": 6}),
+        "every rule is named, by version 6 of the annotation"
     );
     // The story's two equations fire and have no condition, and they inspect both constructors
     // of `Nat` (`plus_succ` also builds `s`): nothing is open.
@@ -1328,7 +1328,7 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     let verdicts = stdout(&output);
     // Its header says which annotation version spells the names.
     assert!(
-        verdicts.lines().any(|line| line == "krs_annotation = 5"),
+        verdicts.lines().any(|line| line == "krs_annotation = 6"),
         "{verdicts}"
     );
     assert!(
@@ -3114,7 +3114,7 @@ impl Machine {
         record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert_eq!(document["krs"], serde_json::json!({"version": 5}));
+    assert_eq!(document["krs"], serde_json::json!({"version": 6}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
