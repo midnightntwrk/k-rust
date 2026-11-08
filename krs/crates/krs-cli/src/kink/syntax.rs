@@ -75,7 +75,9 @@
 //! instance binds is left out; a template without a field records nothing). A field value is
 //! reached when some comparable program's run bound the binder to a value `b` with `f(b)` the
 //! value. Each item of kind `field-value` is
-//! `{kind, template, field, value, status, reached_by, uncounted: {operand_of}, krs}`, with
+//! `{kind, template, field, value, status, reached_by, uncounted: {operand_of}, binder, krs}`,
+//! with `binder = {axiom, variable, encodings}` the binder as the selection names it and the
+//! encodings below (what `fuzz --cover` reads, kink-flow's field-value contract), and
 //! `krs = {item, rule, label, file, line, column, encodings, matched_by, target}`: `item` names
 //! it (`crate::decode_ld:r=3`), `encodings` are the points of the domain where the field has the
 //! value, in hexadecimal and in runs, the inputs an author writes to reach it, and `matched_by`
@@ -456,7 +458,22 @@ impl KrsSyntax {
     }
 }
 
+/// The syntax family's status of an item the programs `reached_by` reached.
+fn reached_status(reached_by: &[String]) -> &'static str {
+    if reached_by.is_empty() {
+        kink_flow::coverage::UNREACHED
+    } else {
+        kink_flow::coverage::REACHED
+    }
+}
+
 impl Template {
+    /// A field-value item's `binder`: the binder a fired instance binds, as the selection names
+    /// it, and `runs`, the points at which the field has the value; what `fuzz --cover` reads.
+    fn binder(&self, runs: &[String]) -> Value {
+        json!({"axiom": self.stored, "variable": self.variable, "encodings": runs})
+    }
+
     /// The field-value items of this template, named after `name`, of the comparable and other
     /// programs `binder` (kink-flow's `families.syntax.binders` entry, if some program bound the
     /// binder) lists; `rule` is the sentence's rules item and `programs` the document's.
@@ -547,13 +564,10 @@ impl Template {
                     "template": self.literal,
                     "field": letter.to_string(),
                     "value": value.to_string(),
-                    "status": if reached_by.is_empty() {
-                        kink_flow::coverage::UNREACHED
-                    } else {
-                        kink_flow::coverage::REACHED
-                    },
+                    "status": reached_status(&reached_by),
                     "reached_by": reached_by,
                     "uncounted": {"operand_of": uncounted},
+                    "binder": self.binder(&runs),
                     "krs": {
                         "item": format!("{name}:{letter}={value}"),
                         "rule": self.rule,

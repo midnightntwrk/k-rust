@@ -77,7 +77,9 @@
 //!   it selects no template binder and builds no field-value item: a front end that has
 //!   templates selects their binders (`SyntaxSelection::binders`), whose values the records keep
 //!   and the family lists (`binders`), and adds an item of kind [`FIELD_VALUE`] per field value
-//!   of its universe, with its status and its target's text, before [`derive`].
+//!   of its universe, with its status, its target's text, and the binder it reads with the
+//!   binder's values at which the field has the value (`binder = {axiom, variable, encodings}`,
+//!   the encodings hexadecimal points and runs `0xA-0xB`), before [`derive`].
 //! - `rule_windows` and `syntax_paths` (depth above 1) are not built; each is `null`.
 //! - `flips` (tier 2, condition flips; [`crate::flips`]): each flip a front end derives from the
 //!   definition's source ([`crate::cli::FrontEnd::derived`]) is an obligation, `distinguished`
@@ -114,11 +116,13 @@
 //! builds it, naming the rules that inspect or build it, each a concrete thing to make fire.
 //! An open heating rule asks for a case whose run brings the production to the front of the
 //! computation with a term that is not a result at its position (for a context, reaches a
-//! state the context matches with such a term in its hole); the fuzz's rule jobs target
-//! authored rules, so its `fuzz` is `null`.
+//! state the context matches with such a term in its hole).
 //! `programs` are the comparable programs that entered the rule, the templates of a fuzz job;
-//! `fuzz` spells the fuzz job that looks for a program for a rewrite rule (`--matched`,
-//! `--fired`), `null` where none applies. A flip's target follows in tier 2: an
+//! `fuzz` spells the fuzz job that looks for a program: for a rewrite rule `--matched` or
+//! `--fired` with the rule, for a requirement, a production, a field value whose item names its
+//! binder, a heating rule and a function equation `--cover` with the obligation's id
+//! (`crate::fuzz_goal`), and `null` where none applies (a unique-cause requirement, which a pair
+//! of entries covers, and a field value without a binder). A flip's target follows in tier 2: an
 //! `undistinguished` flip asks for a case whose result changes when the atom is negated (a bit
 //! toggled) in its sentences, naming the values of the atom the corpus reached, the programs that
 //! reached it, and `fuzz --kill`; an `unreached` one asks for a case that reaches it and names
@@ -185,7 +189,7 @@
 
 use crate::{
     admit::admit_spec,
-    cli::{CommandSpelling, FrontEnd, Verb},
+    cli::{CommandSpelling, FrontEnd, Verb, shell_word},
     digest::ExecutionDigest,
     evidence::EndReader,
     flips::{Derived, DerivedList, FLIPS_TIER_ONE, Judged},
@@ -246,8 +250,11 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// version 8 would count obligations it does not know as rules; 10 since a program row's
 /// `observations` for a run with several paths gives its prefix sets' facts, `{paths, real,
 /// channels: [{name, complete_to}], horizon}`, where version 9 showed each channel open at 0 by
-/// `branch` whatever was explored.
-pub const COVERAGE_VERSION: u64 = 10;
+/// `branch` whatever was explored; 11 since a target's `fuzz` spells `fuzz --cover <item>` for
+/// every open requirement but a unique-cause one, every unreached production, every unreached
+/// field value whose item names its `binder` (`{axiom, variable, encodings}`, a front end's),
+/// every open heating rule and every open function equation, where version 10 had `null`.
+pub const COVERAGE_VERSION: u64 = 11;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -575,6 +582,39 @@ pub fn coverage_front(
         (None, Derived::None(reason)) => flips_not_run(None, reason),
     };
     (document, ok)
+}
+
+/// The tier-1 obligations of the admitted specification `spec` (`record` its admission) under
+/// `manifest`'s syntax selection, as no program covers any: the coverage document of a corpus
+/// with no program and the default `[coverage]` section, annotated by `front` and derived with
+/// its spelling, so that every item has the id `coverage` gives it. A family's universe is a
+/// function of the definition and the front end's selection, so this lists every obligation of
+/// the families tier 1 reads (`fuzz --cover` resolves an id in it, `crate::fuzz_goal`), each open;
+/// nothing runs and no cache is read.
+pub(crate) fn universe(
+    spec: &crate::admit::AdmittedSpec,
+    record: &AdmissionRecord,
+    manifest: &FlowManifest,
+    front: &FrontEnd<'_>,
+) -> Value {
+    let mut empty = manifest.clone();
+    empty.programs = Vec::new();
+    empty.coverage = crate::manifest::CoverageSection::default();
+    let items = rule_items(spec, &empty, &[]);
+    let syntax = syntax_family(spec, &empty, &[], &items);
+    let mut document = document(
+        record,
+        None,
+        settings(&empty, empty.coverage.depth, false),
+        Vec::new(),
+        Some((items, syntax)),
+        Vec::new(),
+        Value::Null,
+    );
+    document["families"]["flips"] = flips_not_run(None, FLIPS_TIER_ONE);
+    let mut document = front.annotated(document);
+    derive(&mut document, front.spelling);
+    document
 }
 
 /// The flips family of a document whose flips do not run: how many obligations it has, where
@@ -2801,6 +2841,8 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         *counts.entry(name.as_str()).or_default() += 1;
     }
     let fuzz = spelling.command(Verb::Fuzz);
+    // The fuzz job that looks for a program covering an obligation by its id (`fuzz --cover`).
+    let cover = |id: &str| json!(format!("{fuzz} --template ID --cover {}", shell_word(id)));
     let mut status_counts = BTreeMap::<&'static str, usize>::new();
     let mut requirement_items = Vec::new();
     let mut targets = Vec::new();
@@ -2897,7 +2939,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
                 "line": line,
                 "programs": if status == MATCHED { entered.clone() } else { Vec::new() },
                 "pattern": null,
-                "fuzz": null,
+                "fuzz": cover(&id),
             }));
         } else if obligation && !covered {
             let (text, job) = if status == MATCHED {
@@ -2939,7 +2981,9 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
                 },
                 "fuzz": match (rewrite, &rule_spelling) {
                     (true, Some(rule)) => json!(format!("{fuzz} --template ID {job} {rule}")),
-                    _ => Value::Null,
+                    // An equation's firing (an instance that gave a result) is a coverage fact
+                    // the rule jobs do not target.
+                    _ => cover(&id),
                 },
             }));
         }
@@ -3003,7 +3047,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
                 "line": line,
                 "programs": entered,
                 "pattern": null,
-                "fuzz": null,
+                "fuzz": requirement["id"].as_str().map_or(Value::Null, cover),
             }));
         }
         requirement_items.extend(requirements);
@@ -3060,7 +3104,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             "covered": level.iter().filter(|item| item["covered"] == true).count(),
         });
     }
-    let (syntax_counts, syntax_targets) = derive_syntax(&mut families["syntax"], &rule_ids);
+    let (syntax_counts, syntax_targets) = derive_syntax(&mut families["syntax"], &rule_ids, &fuzz);
     families["rule_windows"] = Value::Null;
     families["syntax_paths"] = Value::Null;
     targets.extend(requirement_targets);
@@ -3337,6 +3381,7 @@ fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
 fn derive_syntax(
     family: &mut Value,
     rule_ids: &BTreeMap<SentenceRef, String>,
+    fuzz: &str,
 ) -> (Option<(usize, usize)>, Vec<Value>) {
     let mut targets = Vec::new();
     if family["reason"].is_string() {
@@ -3463,6 +3508,9 @@ fn derive_syntax(
                 .filter(|id| !inspecting.contains(id))
                 .cloned(),
         );
+        // A production's facts are the definition's; a field value's are its front end's binder
+        // (`binder`), without which no run's fact reaches it.
+        let fuzzable = kind != FIELD_VALUE || item["binder"].is_object();
         targets.push(json!({
             "family": "syntax",
             "item": id,
@@ -3472,7 +3520,11 @@ fn derive_syntax(
             "programs": [],
             "rules": sentences,
             "pattern": null,
-            "fuzz": null,
+            "fuzz": if fuzzable {
+                json!(format!("{fuzz} --template ID --cover {}", shell_word(&id)))
+            } else {
+                Value::Null
+            },
         }));
     }
     let (covered, obligations) = by_kind
@@ -3969,7 +4021,7 @@ mod tests {
     #[test]
     fn an_unread_syntax_family_counts_nothing() {
         let mut family = json!({"tier": 1, "items": [], "binders": [], "reason": "unreadable"});
-        let (counts, targets) = derive_syntax(&mut family, &BTreeMap::new());
+        let (counts, targets) = derive_syntax(&mut family, &BTreeMap::new(), "kink-flow fuzz");
         assert_eq!(counts, None);
         assert!(targets.is_empty());
         for key in ["obligations", "covered", "measure", "counts"] {
@@ -4004,7 +4056,7 @@ mod tests {
             ],
             "binders": [],
         });
-        let (counts, targets) = derive_syntax(&mut family, &BTreeMap::new());
+        let (counts, targets) = derive_syntax(&mut family, &BTreeMap::new(), "kink-flow fuzz");
         assert_eq!(counts, Some((0, 7)));
         assert_eq!(targets.len(), 7);
         let ids = family["items"]

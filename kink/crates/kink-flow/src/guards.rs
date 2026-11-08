@@ -600,6 +600,49 @@ pub(crate) fn row_guard(
     guard
 }
 
+/// The path in the written `requires` (the backend's node path: the conjunct's index, then the
+/// operand's index at each level down) of each node a row's guard shows, by its display path,
+/// for the skeleton `axiom` (a record value, [`skeleton_values`]): the rendering of
+/// [`row_guard`], which shows each `\equals(b, true)` conjunct's `b` at the conjunct's index and
+/// reads a left-nested chain of one conjunction or disjunction as one n-ary node.
+pub(crate) fn display_paths(axiom: &Value) -> std::collections::BTreeMap<String, Vec<u32>> {
+    struct Silent;
+    impl AtomPrinter for Silent {
+        fn print(&self, _: &str) -> String {
+            String::new()
+        }
+    }
+    let nodes = skeleton(axiom);
+    let mut rendering = Rendering {
+        nodes: &nodes,
+        printer: &Silent,
+        shown: vec![None; nodes.len()],
+        operands: Vec::new(),
+    };
+    for node in nodes.iter().filter(|node| node.path.len() == 1) {
+        let conjunct = node.path[0];
+        if node.shape["node"] == "equals"
+            && node.shape["literal"] == true
+            && let Some(root) = rendering.index(&[conjunct, 0])
+        {
+            rendering.show(root, conjunct.to_string());
+        }
+    }
+    rendering
+        .shown
+        .iter()
+        .zip(&nodes)
+        .filter_map(|(shown, node)| {
+            let path = node
+                .path
+                .iter()
+                .map(|step| u32::try_from(*step).ok())
+                .collect::<Option<Vec<_>>>()?;
+            Some((shown.clone()?, path))
+        })
+        .collect()
+}
+
 /// Whether a combination's guard outcome (a record's token) is a decision: `held`, or a
 /// refutation of any kind. An undecided or stopped attempt decided nothing.
 #[must_use]

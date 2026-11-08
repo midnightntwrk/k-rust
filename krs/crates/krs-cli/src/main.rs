@@ -255,8 +255,8 @@ Usage:
   krs kink query   --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]...
                    [--verify] [--cache DIR] [--locked]
   krs kink fuzz    --package P --definition D [--corpus DIR] [--templates PATH] --template ID
-                   (--kill MUTATION | --matched RULE | --fired RULE | --pattern ID) [kink-flow's
-                   fuzz options] [--locked]
+                   (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE
+                   | --cover ITEM | --pattern ID) [kink-flow's fuzz options] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
@@ -397,8 +397,8 @@ const KINK_VERB_USAGE: [(&str, &str); 7] = [
     (
         "fuzz",
         "krs kink fuzz --package P --definition D [--corpus DIR] [--templates PATH] --template ID \
-         (--kill MUTATION | --matched RULE | --fired RULE | --pattern ID) [kink-flow's fuzz \
-         options] [--locked]",
+         (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | \
+         --pattern ID) [kink-flow's fuzz options] [--locked]",
     ),
 ];
 

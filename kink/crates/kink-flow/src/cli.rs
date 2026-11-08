@@ -76,8 +76,8 @@ macro_rules! usage_line {
          FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
-         | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
-         [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
+         | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | --pattern ID \
+         --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
          [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
          [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
          <topic>.toml files; --help (or -h), anywhere, prints the loop, the mutation format and \
@@ -463,6 +463,14 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
         "the job: hole values whose program fires RULE",
     ),
     option(
+        "--refuted RULE",
+        "the job: hole values whose program refutes RULE's condition (its requirement refuted)",
+    ),
+    option(
+        "--cover ITEM",
+        "the job: hole values whose program covers this obligation of coverage (a target's item)",
+    ),
+    option(
         "--pattern ID",
         "the job: hole values whose program hits this pattern of --patterns",
     ),
@@ -630,8 +638,8 @@ impl Verb {
             Self::Query => "query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]",
             Self::Fuzz => {
                 "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
-                 MUTATIONS | --matched RULE | --fired RULE | --pattern ID --patterns \
-                 PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] \
+                 MUTATIONS | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | \
+                 --pattern ID --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] \
                  [--time-limit-ms T] [--stack-stops N] [--open-stops N] \
                  [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
                  [--no-filter]"
@@ -1698,6 +1706,22 @@ fn fuzz_command(
             &request.options,
             front,
         ),
+        FuzzJobRequest::Refuted { rule } => crate::fuzz::fuzz_front(
+            manifest,
+            &templates,
+            &request.template,
+            FuzzJob::Refuted { rule },
+            &request.options,
+            front,
+        ),
+        FuzzJobRequest::Cover { item } => crate::fuzz::fuzz_front(
+            manifest,
+            &templates,
+            &request.template,
+            FuzzJob::Cover { item },
+            &request.options,
+            front,
+        ),
         FuzzJobRequest::Pattern { id, patterns } => {
             let list = match PatternList::read(patterns) {
                 Ok(list) => list,
@@ -1947,6 +1971,10 @@ pub enum FuzzJobRequest {
     },
     /// `--matched RULE` (`fired` false) or `--fired RULE`: a rule's `matched_by` or `fired_by`.
     Rule { rule: String, fired: bool },
+    /// `--refuted RULE`: the requirement that the rule's condition is refuted.
+    Refuted { rule: String },
+    /// `--cover ITEM`: the coverage obligation whose id is `ITEM`.
+    Cover { item: String },
     /// `--pattern ID --patterns PATTERNS.toml`.
     Pattern { id: String, patterns: PathBuf },
 }
@@ -1959,7 +1987,7 @@ fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
 }
 
 /// The usage error of a `fuzz` command line that names more than one job.
-const ONE_JOB: &str = "give one job: --kill, --matched, --fired or --pattern";
+const ONE_JOB: &str = "give one job: --kill, --matched, --fired, --refuted, --cover or --pattern";
 
 /// `kink-flow fuzz`'s options; a job's list is `--mutations` or `--patterns`, else the front
 /// end's `files`.
@@ -1967,6 +1995,7 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     let mut options = FuzzOptions::default();
     let (mut template, mut mutation, mut mutations) = (None, None, None);
     let (mut rule, mut pattern, mut patterns, mut fired) = (None, None, None, false);
+    let (mut refuted, mut cover) = (false, None);
     let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
     let mut stack_stops = None;
     let mut open_stops = None;
@@ -1991,8 +2020,8 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
             }
             // No rule is spelled with a leading `--` (a `FILE:LINE`, a label or a compiled id),
             // so an option there is a missing rule, not a rule kink-flow would then refuse.
-            flag @ ("--matched" | "--fired") => {
-                if rule.is_some() {
+            flag @ ("--matched" | "--fired" | "--refuted") => {
+                if rule.is_some() || cover.is_some() {
                     return Err(ONE_JOB.into());
                 }
                 let value = args
@@ -2001,6 +2030,18 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
                     .ok_or_else(|| format!("{flag} needs a rule"))?;
                 rule = Some(value.clone());
                 fired = flag == "--fired";
+                refuted = flag == "--refuted";
+            }
+            // No obligation's id starts with `--` (`rule:`, `requirement:`, `syntax:`).
+            "--cover" => {
+                if rule.is_some() || cover.is_some() {
+                    return Err(ONE_JOB.into());
+                }
+                let value = args
+                    .next()
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or("--cover needs an obligation's id")?;
+                cover = Some(value.clone());
             }
             "--reach" => {
                 return Err(
@@ -2090,6 +2131,11 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
         }
     }
     let template = template.ok_or("give --template ID")?;
+    // A `--cover` job takes the rule job's place in the match below, its operand an item's id.
+    let covering = cover.is_some();
+    if let Some(item) = cover {
+        rule = Some(item);
+    }
     let job = match (mutation, rule, pattern) {
         (Some(mutation), None, None) => {
             if patterns.is_some() {
@@ -2126,7 +2172,13 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
             if mutations.is_some() || patterns.is_some() {
                 return Err("--mutations and --patterns belong to --kill and --pattern".into());
             }
-            FuzzJobRequest::Rule { rule, fired }
+            if covering {
+                FuzzJobRequest::Cover { item: rule }
+            } else if refuted {
+                FuzzJobRequest::Refuted { rule }
+            } else {
+                FuzzJobRequest::Rule { rule, fired }
+            }
         }
         (None, None, Some(id)) => {
             if mutations.is_some() {
@@ -2147,7 +2199,8 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
         (None, None, None) => {
             return Err(
                 "give the job: --kill MUTATION --mutations MUTATIONS.toml, --matched RULE, \
-                        --fired RULE, or --pattern ID --patterns PATTERNS.toml"
+                        --fired RULE, --refuted RULE, --cover ITEM, or --pattern ID --patterns \
+                        PATTERNS.toml"
                     .into(),
             );
         }

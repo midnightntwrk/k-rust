@@ -1272,8 +1272,8 @@ fn bound_spec(emitted: &EmittedDefinition) -> SpecSection {
     }
 }
 
-/// `fuzz --matched RULE` and `fuzz --fired RULE` take a label or a suffix of whole components of
-/// one, as a mutation's `rule` anchor does: a `RULE` that names exactly one emitted rule this way
+/// `fuzz --matched RULE`, `fuzz --fired RULE` and `fuzz --refuted RULE` take a label or a suffix
+/// of whole components of one, as a mutation's `rule` anchor does: a `RULE` that names exactly one emitted rule this way
 /// is given to kink-flow as that rule's module-qualified label; anything else (`FILE:LINE`, a
 /// compiled id, a name that matches no rule or several) is given unchanged, and kink-flow resolves
 /// or refuses it with its own listing.
@@ -1281,7 +1281,8 @@ fn resolve_rule(command: &mut FlowCommand, emitted: &EmittedDefinition) {
     let FlowCommand::Fuzz { request, .. } = command else {
         return;
     };
-    let FuzzJobRequest::Rule { rule, .. } = &mut request.job else {
+    let (FuzzJobRequest::Rule { rule, .. } | FuzzJobRequest::Refuted { rule }) = &mut request.job
+    else {
         return;
     };
     let matches = emitted

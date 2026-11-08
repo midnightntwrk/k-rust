@@ -174,6 +174,18 @@ impl Package {
         }
     }
 
+    /// `krs kink fuzz ARGUMENTS` on the package.
+    fn fuzz(&self, arguments: &[&str]) -> Output {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, self.target.path());
+        process
+            .current_dir(self.directory.path())
+            .args(["kink", "fuzz"])
+            .args(arguments)
+            .args(["--package", "krs-cli-kink-syntax", "--definition", "main"]);
+        process.output().unwrap()
+    }
+
     /// `krs kink coverage ARGUMENTS` on the package.
     fn coverage(&self, arguments: &[&str]) -> Output {
         let mut process = krs_command!();
@@ -366,6 +378,46 @@ fn a_missing_field_value_lists_its_encodings() {
     );
     let binder = binder(document, "syntax--decode_ld", "VarOp");
     assert_eq!(binder_values(binder), ["16", "21"]);
+}
+
+/// A missing field value is a fuzz goal: its item names the binder a fired instance binds and
+/// the encodings at which the field has the value, its target spells `fuzz --cover`, and the job
+/// finds an opcode in `0x18-0x1b` over the `load` case's first opcode, which `coverage` confirms
+/// as reaching the value (CS-8).
+#[test]
+fn a_field_value_job_finds_an_encoding_that_reaches_the_value() {
+    let (document, ..) = documents();
+    let id = "syntax:crate::decode_ld:r=2";
+    let missing = item(document, id);
+    assert_eq!(missing["binder"]["variable"], "VarOp", "{missing:#}");
+    assert_eq!(strings(&missing["binder"]["encodings"]), ["0x18-0x1b"]);
+    let hint = target(document, id)["fuzz"].as_str().unwrap();
+    assert!(
+        hint.ends_with(&format!("--template ID --cover {id}")),
+        "{hint}"
+    );
+    assert!(hint.starts_with("krs kink fuzz "), "{hint}");
+
+    let package = Package::new();
+    fs::write(
+        package.directory.path().join("kink/TEMPLATES.toml"),
+        "[[template]]\nid = \"load\"\nprogram = \"load\"\n\n  [[template.hole]]\n  name = \"OP\"\n  \
+         sort = \"Int\"\n  find = \"16\"\n  literal = \"16\"\n  range = { min = 0, max = 63 }\n",
+    )
+    .unwrap();
+    let output = package.fuzz(&["--template", "load", "--cover", id, "--cases", "200"]);
+    let fuzzed = json(&output);
+    assert_eq!(output.status.code(), Some(0), "{fuzzed:#}");
+    assert_eq!(fuzzed["job"]["kind"], "cover", "{fuzzed:#}");
+    assert_eq!(fuzzed["job"]["item"]["id"], id, "{fuzzed:#}");
+    assert_eq!(fuzzed["job"]["item"]["kind"], "field-value", "{fuzzed:#}");
+    let confirmation = &fuzzed["attempts"][0]["confirmation"];
+    assert_eq!(confirmation["status"], "covered", "{confirmation:#}");
+    let op = fuzzed["attempts"][0]["candidate"]["holes"][0]["k-text"]
+        .as_str()
+        .and_then(|op| op.parse::<u32>().ok())
+        .unwrap_or_else(|| panic!("{fuzzed:#}"));
+    assert!((0x18..=0x1b).contains(&op), "{fuzzed:#}");
 }
 
 /// The literal hole `op != 0x1f` is no point of the template's domain: no field value lists it

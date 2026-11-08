@@ -127,7 +127,9 @@ use k_rust_fuzz::{
         digest_hex,
     },
     spec::{DEFAULT_REJECTION_CAP, ProgramSource as FuzzProgram, ProgramText},
-    target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
+    target::{
+        CoverageTarget, DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget,
+    },
     values::GenerationBounds,
 };
 use kink_campaign::{MutantAdmission, claim_free_mutant};
@@ -200,8 +202,16 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// Version 12 names, under the Z3 profile, the Z3 build the confirmations were decided on (`z3`,
 /// [`crate::with_z3_build`]): a confirmation is a kink run of the program found, whose classes and
 /// kill are a function of the build that counts its solver queries' units.
+/// Version 13 (CS-8) adds the coverage-gap jobs, `--refuted RULE` (job kind `refuted`, with
+/// `job.rule`) and `--cover ITEM` (kind `cover`): each has `job.item`, the obligation it covers
+/// (`{id, family, kind, file, line, facts}`), is refused at stage `item` (reasons
+/// `unknown-item`, `mcdc-requirement`, `no-requirement`, `no-obligation`, `no-binder`,
+/// `no-skeleton`, `no-syntax-facts`, `no-fact`), runs a k-rust-fuzz coverage target with the
+/// climb beside blind sampling, and has the confirmation statuses `covered` and `not-covered`
+/// (reason `listed`, `not-listed` or `unknown-item`) beside `not-comparable`. The other jobs'
+/// documents are version 12's.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 12;
+pub const FUZZ_VERSION: u32 = 13;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -1712,6 +1722,15 @@ pub enum FuzzJob<'a> {
     /// `--pattern ID --patterns PATTERNS.toml`: hole values whose program reaches a configuration
     /// matching the pattern (a `hit` of kink's `query`).
     Pattern { list: &'a PatternList, id: &'a str },
+    /// `--refuted RULE`: hole values whose program's all-paths baseline run is comparable and
+    /// refutes the rule's condition on some entry, covering the requirement
+    /// `requirement:<RULE's name>:refuted` (as [`Self::Cover`] of that id).
+    Refuted { rule: &'a str },
+    /// `--cover ITEM`: hole values whose program's all-paths baseline run is comparable and
+    /// covers the coverage obligation `ITEM` (its id in the `coverage` document: a requirement,
+    /// a production or field value of the syntax family, a rule or heating rule;
+    /// [`crate::fuzz_goal`]).
+    Cover { item: &'a str },
 }
 
 impl FuzzJob<'_> {
@@ -1721,7 +1740,14 @@ impl FuzzJob<'_> {
             Self::Rule { fired: false, .. } => "matched",
             Self::Rule { fired: true, .. } => "fired",
             Self::Pattern { .. } => "pattern",
+            Self::Refuted { .. } => "refuted",
+            Self::Cover { .. } => "cover",
         }
+    }
+
+    /// Whether the job's goal is a coverage obligation ([`crate::fuzz_goal`]).
+    const fn covers(&self) -> bool {
+        matches!(self, Self::Refuted { .. } | Self::Cover { .. })
     }
 }
 
@@ -2006,7 +2032,10 @@ pub fn fuzz_front(
             };
             Some(entry)
         }
-        FuzzJob::Rule { .. } | FuzzJob::Pattern { .. } => None,
+        FuzzJob::Rule { .. }
+        | FuzzJob::Pattern { .. }
+        | FuzzJob::Refuted { .. }
+        | FuzzJob::Cover { .. } => None,
     };
     let pattern_entry = match job {
         FuzzJob::Pattern { list, id } => {
@@ -2017,7 +2046,10 @@ pub fn fuzz_front(
             };
             Some(entry)
         }
-        FuzzJob::Kill { .. } | FuzzJob::Rule { .. } => None,
+        FuzzJob::Kill { .. }
+        | FuzzJob::Rule { .. }
+        | FuzzJob::Refuted { .. }
+        | FuzzJob::Cover { .. } => None,
     };
     let (record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
@@ -2095,8 +2127,57 @@ pub fn fuzz_front(
     // The job's own target, resolved against the baseline before any campaign; a rule job's
     // authored rule is the one whose `coverage` entry its confirmation reads.
     let mut rule_at = None;
+    let mut goal_item = None;
     let kind = match job {
         FuzzJob::Kill { .. } => None,
+        FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
+            let goal = match job {
+                FuzzJob::Refuted { rule } => match resolve_rule(manifest, &spec, rule) {
+                    Ok(target) => {
+                        document["job"]["rule"] = target.value();
+                        crate::fuzz_goal::refuted_item(
+                            &spec,
+                            &record,
+                            manifest,
+                            front,
+                            &target.at.at,
+                        )
+                    }
+                    Err(refusal) => {
+                        return refuse(
+                            document,
+                            refusal,
+                            "name one authored rewrite rule of the specification: FILE:LINE (a \
+                             line of the rule), its label (MODULE.x when the bare label is \
+                             ambiguous), or its 64-hex id (the refusal's detail lists the rules \
+                             nearest the reference, with their ids, when it finds any)",
+                        );
+                    }
+                },
+                FuzzJob::Cover { item } => {
+                    crate::fuzz_goal::resolve(&spec, &record, manifest, front, item)
+                }
+                _ => unreachable!("a coverage job"),
+            };
+            match goal {
+                Ok(goal) => {
+                    document["job"]["item"] = goal.value.clone();
+                    goal_item = Some(goal.item.clone());
+                    Some(TargetKind::Coverage(CoverageTarget { facts: goal.facts }))
+                }
+                Err((reason, detail)) => {
+                    return refuse(
+                        document,
+                        Refusal::new("item", reason, detail),
+                        &format!(
+                            "name an obligation of `{}` by its id (a target's `item`): a \
+                             requirement, a production or field value, a rule or a heating rule",
+                            spelling.verb(Verb::Coverage)
+                        ),
+                    );
+                }
+            }
+        }
         FuzzJob::Rule { rule, fired } => match resolve_rule(manifest, &spec, rule) {
             Ok(target) => {
                 document["job"]["rule"] = target.value();
@@ -2372,8 +2453,8 @@ pub fn fuzz_front(
         },
         // A rule job: kink counts a program in `matched_by` (`fired_by`) only when its all-paths
         // baseline run is comparable, so the hit's run of every path must be (`comparable`),
-        // which also needs data ends.
-        Some(kind @ TargetKind::Rule(_)) => Target {
+        // which also needs data ends; so does a coverage goal, which kink counts the same way.
+        Some(kind @ (TargetKind::Rule(_) | TargetKind::Coverage(_))) => Target {
             kind,
             run_to_completion: true,
             negated_property: false,
@@ -2421,7 +2502,14 @@ pub fn fuzz_front(
             },
             ..CaseOptions::default()
         },
-        proposers: ProposerConfig::default(),
+        // A coverage goal's distance is how near the run's records come to its facts (the
+        // guard's recorded truths, the binder's values; k-rust-fuzz's coverage score), which the
+        // climb follows from blind cases; every other job samples blind, as it did.
+        proposers: if job.covers() {
+            coverage_proposers()
+        } else {
+            ProposerConfig::default()
+        },
         bounds: GenerationBounds::default(),
         rejection_cap: DEFAULT_REJECTION_CAP,
         seed: options.seed,
@@ -2538,7 +2626,9 @@ pub fn fuzz_front(
         let mut loads = loads.into_iter();
         let job_kind = match job {
             FuzzJob::Kill { .. } => FilterJob::Kill,
-            FuzzJob::Rule { .. } => FilterJob::Reach,
+            FuzzJob::Rule { .. } | FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
+                FilterJob::Reach
+            }
             FuzzJob::Pattern { .. } => FilterJob::Pattern,
         };
         let baseline = loads
@@ -2688,6 +2778,10 @@ pub fn fuzz_front(
             "choose a template whose run comes near the rule, and ends on every path with values"
         }
         FuzzJob::Pattern { .. } => "choose a template whose run comes near the pattern",
+        FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
+            "choose a template whose run comes near the obligation (one of the programs its \
+             target names), and ends on every path with values"
+        }
     };
     let ok = match &report.outcome {
         CampaignOutcome::WitnessFound { witness } => {
@@ -2750,8 +2844,17 @@ pub fn fuzz_front(
                     offered_case = Some(case);
                     break;
                 }
-                let mut confirmation =
-                    confirm(manifest, options, job, rule_at.as_ref(), &fragment.program);
+                let mut confirmation = confirm(
+                    manifest,
+                    options,
+                    job,
+                    Confirming {
+                        rule_at: rule_at.as_ref(),
+                        item: goal_item.as_deref(),
+                        front,
+                    },
+                    &fragment.program,
+                );
                 confirmation["case"] = json!(which);
                 let confirmed = confirmation["confirmed"] == true;
                 attempt["candidate"] = candidate;
@@ -2784,7 +2887,9 @@ pub fn fuzz_front(
                      Try another template, seed or hole range",
                     match job {
                         FuzzJob::Kill { .. } => "run",
-                        FuzzJob::Rule { .. } => "coverage",
+                        FuzzJob::Rule { .. } | FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
+                            "coverage"
+                        }
                         FuzzJob::Pattern { .. } => "query",
                     },
                     last["status"].as_str().unwrap_or("refused"),
@@ -2855,6 +2960,9 @@ pub fn fuzz_front(
                         FuzzJob::Kill { .. } => "run (killed, with the fragment as killer)",
                         FuzzJob::Rule { .. } => "coverage (comparable, and listed for the rule)",
                         FuzzJob::Pattern { .. } => "query (the claim is confirmed)",
+                        FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
+                            "coverage (comparable, and listed as covering the obligation)"
+                        }
                     }
                 )
             } else {
@@ -2881,6 +2989,12 @@ pub fn fuzz_front(
                          PATTERNS.toml, then run `{} --only {pattern}`: kink's own search \
                          confirms the claim",
                         spelling.command(Verb::Query)
+                    ),
+                    FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => format!(
+                        "{append}, then run `{}`: the obligation {} is covered once kink's own \
+                         run of the program is comparable",
+                        spelling.command(Verb::Coverage),
+                        goal_item.as_deref().unwrap_or_default()
                     ),
                 };
                 action.push_str(". This command did not confirm it (--no-confirm)");
@@ -3433,23 +3547,80 @@ pub fn confirm_program(
     program: &Program,
 ) -> Value {
     let refused = |reason: &str, cause: String| json!({"confirmed": false, "status": "refused", "reason": reason, "cause": cause});
-    let rule_at = match job {
+    let front = FrontEnd::default();
+    let admitted = || {
+        let (record, admitted) = admit_spec(manifest);
+        match admitted {
+            Some((spec, _)) => Ok((record, spec)),
+            None => Err(record.refusal.as_ref().map_or_else(
+                || refused("refused", String::new()),
+                |r| refused(&r.reason, format!("{}: {}", r.stage, r.detail)),
+            )),
+        }
+    };
+    let (rule_at, item) = match job {
         FuzzJob::Rule { rule, .. } => {
-            let (record, admitted) = admit_spec(manifest);
-            let Some((spec, _)) = admitted else {
-                return record.refusal.as_ref().map_or_else(
-                    || refused("refused", String::new()),
-                    |r| refused(&r.reason, format!("{}: {}", r.stage, r.detail)),
-                );
+            let spec = match admitted() {
+                Ok((_, spec)) => spec,
+                Err(refusal) => return refusal,
             };
             match resolve_rule(manifest, &spec, rule) {
-                Ok(target) => Some(target.at.at),
+                Ok(target) => (Some(target.at.at), None),
                 Err(refusal) => return refused(&refusal.reason, refusal.detail),
             }
         }
-        FuzzJob::Kill { .. } | FuzzJob::Pattern { .. } => None,
+        FuzzJob::Refuted { rule } => {
+            let (record, spec) = match admitted() {
+                Ok(admitted) => admitted,
+                Err(refusal) => return refusal,
+            };
+            let goal = resolve_rule(manifest, &spec, rule)
+                .map_err(|refusal| (refusal.reason, refusal.detail))
+                .and_then(|target| {
+                    crate::fuzz_goal::refuted_item(&spec, &record, manifest, &front, &target.at.at)
+                        .map_err(|(reason, detail)| (reason.to_owned(), detail))
+                });
+            match goal {
+                Ok(goal) => (None, Some(goal.item)),
+                Err((reason, detail)) => return refused(&reason, detail),
+            }
+        }
+        FuzzJob::Cover { item } => (None, Some(item.to_owned())),
+        FuzzJob::Kill { .. } | FuzzJob::Pattern { .. } => (None, None),
     };
-    confirm(manifest, options, job, rule_at.as_ref(), program)
+    confirm(
+        manifest,
+        options,
+        job,
+        Confirming {
+            rule_at: rule_at.as_ref(),
+            item: item.as_deref(),
+            front: &front,
+        },
+        program,
+    )
+}
+
+/// What a confirmation reads beside the job: a rule job's authored rule, a coverage goal's
+/// obligation id, and the front end whose annotation names the obligation.
+#[derive(Clone, Copy)]
+struct Confirming<'a> {
+    rule_at: Option<&'a SentenceRef>,
+    item: Option<&'a str>,
+    front: &'a FrontEnd<'a>,
+}
+
+/// The proposers of a coverage goal's campaign: blind sampling and the climb, at equal weight
+/// (k-rust-fuzz spends at most half of the cases on the climb, which climbs from the cases blind
+/// sampling makes).
+fn coverage_proposers() -> ProposerConfig {
+    ProposerConfig {
+        weights: BTreeMap::from([
+            (k_rust_fuzz::spec::ProposerKind::Blind, 1),
+            (k_rust_fuzz::spec::ProposerKind::Climb, 1),
+        ]),
+        ..ProposerConfig::default()
+    }
 }
 
 /// kink's own verdict on a candidate (KF-T4), by kink's code on an overlay of the flow: its
@@ -3466,9 +3637,10 @@ fn confirm(
     manifest: &FlowManifest,
     options: &FuzzOptions,
     job: FuzzJob<'_>,
-    rule_at: Option<&SentenceRef>,
+    confirming: Confirming<'_>,
     program: &Program,
 ) -> Value {
+    let rule_at = confirming.rule_at;
     let scratch = match Scratch::new() {
         Ok(scratch) => scratch,
         Err(error) => {
@@ -3582,6 +3754,51 @@ fn confirm(
                     "not-comparable"
                 } else if listed {
                     "listed"
+                } else {
+                    "not-listed"
+                },
+                "class": program["class"],
+                "cause": if program["cause"].is_null() {
+                    document["spec"]["detail"].clone()
+                } else {
+                    program["cause"].clone()
+                },
+            })
+        }
+        FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => {
+            // The obligation is named as the front end names it, so the document is the
+            // front end's, at tier 1: the item's covering list reads only the baseline record.
+            let (document, _) = crate::coverage::command(
+                &overlay,
+                &crate::coverage::CoverageOptions {
+                    cache,
+                    tier: crate::coverage::Tier::One,
+                    ..crate::coverage::CoverageOptions::default()
+                },
+                confirming.front,
+            );
+            let program = document["programs"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let comparable = program["class"] == "comparable";
+            let covered = confirming
+                .item
+                .and_then(|item| crate::fuzz_goal::covered_by(&document, item, id));
+            json!({
+                "confirmed": comparable && covered == Some(true),
+                "status": match (comparable, covered) {
+                    (false, _) => "not-comparable",
+                    (true, Some(true)) => "covered",
+                    (true, _) => "not-covered",
+                },
+                "reason": if !comparable {
+                    "not-comparable"
+                } else if covered == Some(true) {
+                    "listed"
+                } else if covered.is_none() {
+                    "unknown-item"
                 } else {
                     "not-listed"
                 },

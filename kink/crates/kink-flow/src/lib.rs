@@ -54,6 +54,7 @@ pub mod expect;
 pub mod flips;
 pub mod fuzz;
 pub mod fuzz_filter;
+pub(crate) mod fuzz_goal;
 pub mod guards;
 pub mod lock;
 pub mod manifest;
