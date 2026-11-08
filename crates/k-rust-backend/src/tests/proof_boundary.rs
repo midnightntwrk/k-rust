@@ -327,8 +327,7 @@ fn a_state_the_destination_check_shows_empty_is_vacuous_after_a_step_only() {
 
 /// The remainder of a step whose lower-priority rule could not be decided on it is a state
 /// whose successors are unknown: the proof does not step it again, and it is an `Indeterminate`
-/// leaf carrying the lower rule's reason, at the depth of the state it remains of. The branch
-/// the higher-priority rule took is explored as usual.
+/// leaf carrying the lower rule's reason, at the depth of the state it remains of.
 #[test]
 fn a_remainder_left_undecided_by_a_lower_priority_rule_is_an_indeterminate_leaf() {
     let rules = [
@@ -348,15 +347,14 @@ fn a_remainder_left_undecided_by_a_lower_priority_rule_is_an_indeterminate_leaf(
         validity: Validity::Contingent,
     };
     let result = prove(&definition, &claim, ProofOptions::default(), &solver);
-    let proven = leaves_where(&result, |outcome| {
-        matches!(outcome, ProofLeafOutcome::Proven(_))
-    });
-    assert_eq!(
-        proven
-            .iter()
-            .map(|leaf| (head(&leaf.pattern.term), leaf.depth))
-            .collect::<Vec<_>>(),
-        [("b".to_owned(), 1)],
+    // The branch `wrap-a` took reaches `b()`, a proven leaf at depth 1, deeper than the
+    // remainder's leaf at depth 0, which is the horizon: it is not reported.
+    assert!(
+        leaves_where(&result, |outcome| matches!(
+            outcome,
+            ProofLeafOutcome::Proven(_)
+        ))
+        .is_empty(),
         "{result:#?}"
     );
     let indeterminate = leaves_where(&result, |outcome| {
@@ -376,7 +374,7 @@ fn a_remainder_left_undecided_by_a_lower_priority_rule_is_an_indeterminate_leaf(
         remainder.trace.last().map(|entry| entry.kind),
         Some(TraceKind::Remainder)
     );
-    assert_eq!(result.leaves.len(), 2, "{result:#?}");
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
     assert_eq!(result.status, ProofStatus::Indeterminate);
 }
 
@@ -502,4 +500,110 @@ fn an_undecided_destination_ends_the_branch_before_its_step() {
         "{result:#?}"
     );
     assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+}
+
+/// Leaves every validity question about `f` undecided and finds every other one contingent;
+/// every satisfiability question is satisfiable.
+struct UndecidedOnF;
+
+impl SmtSolver for UndecidedOnF {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Sat))
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(Ok(if mentions_symbol(checked, "f") {
+            Validity::Unknown("scripted".into())
+        } else {
+            Validity::Contingent
+        }))
+    }
+}
+
+/// `start(X)` steps to `wrap(X)` and, where `X` is not `a`, to `r(X)`. The destination check on
+/// `wrap(X)` is undecided, an `Indeterminate` leaf; `r(X)` has no successor, and its constraint
+/// `¬(X = a)` has no exact translation, so it is a `Failed` leaf that certifies nothing. Under
+/// either order of the two rules, so of the two successors, the claim is `Failed`, the strongest
+/// of its leaves at depth 1, the horizon, and reports the same leaves: stopping the search at
+/// its first leaf that is not proven would give the status of whichever successor comes first.
+#[test]
+fn a_claim_with_an_indeterminate_and_a_failed_leaf_is_failed_under_either_rule_order() {
+    let to_wrap = rule("to-wrap", "start{}(X:SortS{})", "wrap{}(X:SortS{})", None);
+    let to_r = r#"
+                symbol r{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        start{}(X:SortS{}),
+                        \not{SortS{}}(\equals{SortS{}, SortS{}}(X:SortS{}, a{}()))
+                    ),
+                    \and{SortS{}}(r{}(X:SortS{}), \top{SortS{}}())
+                ) [label{}("to-r")]"#;
+    let y = Variable::new("Y", crate::term::Sort::simple("SortS"));
+    let solver = UndecidedOnF;
+    let reports = [format!("{to_wrap}{to_r}"), format!("{to_r}{to_wrap}")].map(|rules| {
+        let definition = definition(&rules);
+        let claim = claim(
+            pattern(&definition, "start{}(X:SortS{})", Vec::new()),
+            vec![
+                pattern(&definition, "done{}()", Vec::new()),
+                pattern(
+                    &definition,
+                    "wrap{}(Y:SortS{})",
+                    vec![Predicate::Equals(
+                        term(&definition, "f{}(Y:SortS{})"),
+                        term(&definition, "a{}()"),
+                    )],
+                ),
+            ],
+            std::slice::from_ref(&y),
+        );
+        let report = |max_counterexamples| {
+            let result = prove(
+                &definition,
+                &claim,
+                ProofOptions {
+                    max_counterexamples,
+                    ..ProofOptions::default()
+                },
+                &solver,
+            );
+            assert_eq!(result.explored_states, 3, "{rules}: {result:#?}");
+            assert_eq!(result.unexplored_states, 0, "{rules}: {result:#?}");
+            (
+                result.status,
+                result
+                    .leaves
+                    .iter()
+                    .map(|leaf| (leaf.outcome.clone(), leaf.depth, head(&leaf.pattern.term)))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        (report(1), report(2))
+    });
+    let failed = (ProofLeafOutcome::Stuck, 1, "r".to_owned());
+    let indeterminate = (
+        ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+        1,
+        "wrap".to_owned(),
+    );
+    for (one, two) in &reports {
+        assert_eq!(*one, (ProofStatus::Failed, vec![failed.clone()]));
+        assert_eq!(
+            *two,
+            (
+                ProofStatus::Failed,
+                vec![failed.clone(), indeterminate.clone()]
+            )
+        );
+    }
+    assert_eq!(reports[0], reports[1]);
 }

@@ -24852,16 +24852,30 @@ module RESTART-SPEC
   claim <k> count(1) => .K ... </k> <n> 0 => ?M:Int </n> ensures ?M >Int 1 [label(frame-restarts)]
 endmodule
 "#;
-    let leaves = kprove_claim_leaves(
-        ("restart-probe.k", definition),
-        ("restart-spec.k", specification),
-        "RESTART-SPEC",
-        "RESTART-PROBE",
-        &["frame-restarts"],
-        &[],
+    let leaves = |extra_args: &[&str]| {
+        kprove_claim_leaves(
+            ("restart-probe.k", definition),
+            ("restart-spec.k", specification),
+            "RESTART-SPEC",
+            "RESTART-PROBE",
+            &["frame-restarts"],
+            extra_args,
+        )
+    };
+    // .K can still move, so execution continues to halt at depth 3, which is terminal outside the
+    // target. The part of the depth-2 state whose frame no rule takes is a dead end the proof
+    // does not certify, and it is shallower: with one leaf that is not proven asked for, the
+    // proof ends at depth 2, `failed`. With two, it goes on to depth 3, where halt certifies the
+    // refutation.
+    assert_eq!(leaves(&[]), [failed_stuck_leaf("frame-restarts")]);
+    assert_eq!(
+        leaves(&["--max-counterexamples", "2"]),
+        [(
+            "frame-restarts".to_owned(),
+            "disproved".to_owned(),
+            vec!["stuck (certified)".to_owned(), "stuck".to_owned()],
+        )]
     );
-    // .K can still move, so execution continues to halt, which is terminal outside the target.
-    assert_eq!(leaves, [refuted_leaf("frame-restarts")]);
 }
 
 /// The `[[proof]]` cases of `scripts/reference-differential.toml` whose sources are committed

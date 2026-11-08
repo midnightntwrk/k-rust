@@ -3431,7 +3431,7 @@ id = "backend.proof.search"
 provenance = "declared"
 area = "backend"
 name = "reachability-logic proof search"
-variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
+variable = "s = explored states: every state of the search tree no deeper than the depth of its max_counterexamples-th shallowest leaf that is not proven, or within the depth and breadth bounds when it has fewer such leaves; c = circularities; u = states still pending when the breadth limit is reached; l = leaves that are not proven"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendProofSearch"
@@ -3450,6 +3450,11 @@ symbol = "Backend::prove_using"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
 symbol = "prove_claim"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "search_claim"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -3479,6 +3484,16 @@ symbol = "stuck_leaf"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
+symbol = "terminal_instance_leaf"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "report_leaves"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
 symbol = "ProofLeaf::proven_vacuously"
 
 [[node.sites]]
@@ -3488,7 +3503,7 @@ symbol = "ProofLeaf::with_contradicted_total"
 
 [[node.cost]]
 mode = "one proof"
-bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus, once per proof at its first implication check (prepare_destinations, again only after a stop there), one walk of each destination term down to its maximal ground subterms outside the operands a short-circuit hook may leave unevaluated and one simplification under no assumption of each distinct such subterm that lacks the evaluated mark, whose determined ground function steps no budget bounds (as in any simplification of the destination), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus, once per proof at its first implication check (prepare_destinations, again only after a stop there), one walk of each destination term down to its maximal ground subterms outside the operands a short-circuit hook may leave unevaluated and one simplification under no assumption of each distinct such subterm that lacks the evaluated mark, whose determined ground function steps no budget bounds (as in any simplification of the destination), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each current target whose condition or obligation is refuted on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus at each term-mismatched current target on a certifiable trace to which no claim applied and that has a variable of sort K one is_sat query and one rewrite step on its terminal instance (terminal_instance_leaf), plus, for a claim that is not proven, a sort of the l leaves by status and depth and one canonical state key (RequestNames::state_key) for each such leaf that ties with the last one reported and for each proven leaf (report_leaves), plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 
 [[node.cost]]
 mode = "facade evidence projection"
@@ -3837,7 +3852,7 @@ symbol = "PatternDigest::of"
 
 [[node.cost]]
 mode = "bounded execution"
-bound = "O(min(s, max_work)) state pops, plus initialization and callee work below; max_depth limits rewrite depth and max_breadth limits the queued frontier, not the per-state branching factor, so neither gives a b^d total-state bound (remainders can also be queued at the same depth). Exploration is unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+bound = "O(min(s, max_work)) state pops, plus initialization and callee work below; max_depth limits rewrite depth and max_breadth limits the queued frontier, not the per-state branching factor, so neither gives a b^d total-state bound (remainders can also be queued at the same depth). Exploration is unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; under strategy any, a step the sequential step takes by a cut-point or terminal rule selected also takes one all-path rewrite step from its state, with the condition and normal-form memos set aside so that it is served from none and fills none, and normalizes the successors of that step's candidates until two are defined (Execution::siblings); under an in-process successor reading, each candidate and remainder of a step holding a selected rule's candidate is externalized once, its path condition only, and read once (Execution::read_stop_step); and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"

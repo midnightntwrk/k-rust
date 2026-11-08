@@ -57,15 +57,15 @@
 //!    cancellation observed at any point, including one a refinement observed and set aside, as
 //!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after its
 //!    work returns. [`Backend::prove_kore`] reports a cancellation as that `Err` unless the proof's
-//!    verdict no longer depends on the work the cancellation prevented: it keeps `Ok` when the
-//!    status is `disproved` (a certified refutation, which further exploration cannot change), when
-//!    no state was left unexplored, or when the leaves that are not proven reached
-//!    `max_counterexamples`. Any other cancelled proof (`indeterminate`, `depth-bound`,
-//!    `breadth-bound`, or `failed` below the limit) could change status if it went on, so it is the
-//!    `Err`. A failed solver prelude is always an `Err`. So a cancelled operation answers `Err`
-//!    with the `Cancelled` cause, except a cancellation observed during an execution (under the
-//!    default `cancelledResult: partial`) or search run, which is a `cancelled` leaf or entry, and
-//!    a proof whose verdict it could not change.
+//!    verdict no longer depends on the work the cancellation prevented (`ProofResult::settled`):
+//!    it keeps `Ok` when no state it left unexplored could add a leaf at most as deep as the
+//!    proof's horizon, the depth of its `max_counterexamples`-th shallowest leaf that is not
+//!    proven (any state, before it has that many), or when a certified refutation (`disproved`)
+//!    lies no deeper than every state it left. Any other cancelled proof could change status if
+//!    it went on, so it is the `Err`. A failed solver prelude is always an `Err`. So a cancelled
+//!    operation answers `Err` with the `Cancelled` cause, except a cancellation observed during an
+//!    execution (under the default `cancelledResult: partial`) or search run, which is a
+//!    `cancelled` leaf or entry, and a proof whose verdict it could not change.
 //! 4. A cancellation that lands after the boundary's entry poll and before the run's first poll
 //!    still gives, under `cancelledResult: partial` (the default), `Ok` with a depth-0 `cancelled`
 //!    leaf (a search: a `cancelled` entry for its initial state), in both builds; under `error` the
@@ -2206,6 +2206,10 @@ pub struct ProveRequest {
     pub max_depth: Option<u64>,
     pub min_depth: u64,
     pub breadth_limit: Option<usize>,
+    /// How many leaves that are not proven the proof looks for, and at most how many it reports
+    /// (`ProofOptions::max_counterexamples`): it explores every state no deeper than the
+    /// shallowest depth holding that many, and its status is the strongest among the leaves down
+    /// to that depth, whatever order the search reaches them in.
     pub max_counterexamples: usize,
     /// Maximum simplifier iterations per proof step, counted as for
     /// `ExecuteRequest::max_simplification_iterations`: determined ground function evaluation
@@ -3729,23 +3733,7 @@ impl Backend {
                 Some(cause @ StopCause::SolverPrelude(_)) => {
                     return Err(BackendError::from(cause.clone()));
                 }
-                Some(cause @ StopCause::Cancelled)
-                    if !cancellation_keeps_verdict(
-                        result.status,
-                        result
-                            .leaves
-                            .iter()
-                            .filter(|leaf| {
-                                !matches!(
-                                    leaf.outcome,
-                                    ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
-                                )
-                            })
-                            .count(),
-                        result.unexplored_states,
-                        request.max_counterexamples,
-                    ) =>
-                {
+                Some(cause @ StopCause::Cancelled) if !result.settled => {
                     return Err(BackendError::from(cause.clone()));
                 }
                 Some(
@@ -4185,24 +4173,6 @@ fn implication_failure(failure: ImplicationFailure) -> ImplicationFailureOutput 
         ImplicationFailure::PartialCoverage => ImplicationFailureOutput::PartialCoverage,
         ImplicationFailure::ConsequentCondition => ImplicationFailureOutput::ConsequentCondition,
     }
-}
-
-/// Whether a proof that a cancellation ended keeps its verdict: the status is one that further
-/// exploration cannot change, or the exploration had finished when the cancellation was
-/// observed. A certified refutation (`Disproved`) is a fact about the definition; with no state
-/// left unexplored, or with as many leaves that are not proven as the request allows
-/// counterexamples, the proof would have ended there without the cancellation. Every other
-/// status could change if the proof went on.
-///
-/// `not_proven` counts the proof's leaves that are neither proven nor trusted, as the proof
-/// counts counterexamples.
-fn cancellation_keeps_verdict(
-    status: ProofStatus,
-    not_proven: usize,
-    unexplored_states: u64,
-    max_counterexamples: usize,
-) -> bool {
-    status == ProofStatus::Disproved || unexplored_states == 0 || not_proven >= max_counterexamples
 }
 
 /// The published outcome of a proof leaf, with the words of its reason; a predicate they name is
@@ -7994,36 +7964,5 @@ endmodule
         assert_eq!(error.stop_cause(), None);
         assert_eq!(error.message(), "could not select backend module: none");
         assert_eq!(error.to_string(), "could not select backend module: none");
-    }
-
-    /// A cancelled proof keeps its verdict exactly when no further exploration could change it.
-    #[test]
-    fn a_cancelled_proof_keeps_only_a_verdict_further_work_cannot_change() {
-        // A certified refutation stands whatever remains.
-        assert!(cancellation_keeps_verdict(ProofStatus::Disproved, 1, 5, 2));
-        // The exploration had finished: nothing unexplored, or the counterexample limit reached.
-        assert!(cancellation_keeps_verdict(ProofStatus::Failed, 1, 0, 2));
-        assert!(cancellation_keeps_verdict(ProofStatus::Failed, 1, 3, 1));
-        assert!(cancellation_keeps_verdict(
-            ProofStatus::Indeterminate,
-            2,
-            1,
-            2
-        ));
-        // Anything else could change if the proof went on.
-        for status in [
-            ProofStatus::Failed,
-            ProofStatus::Indeterminate,
-            ProofStatus::DepthBound,
-            ProofStatus::BreadthBound,
-        ] {
-            assert!(!cancellation_keeps_verdict(status, 1, 1, 2), "{status:?}");
-        }
-        assert!(!cancellation_keeps_verdict(
-            ProofStatus::Indeterminate,
-            0,
-            1,
-            1
-        ));
     }
 }

@@ -164,11 +164,12 @@ reaches (`sym-one` ending with 11, `sym-two` writing `b` too, `set-get`
 reading back 11, `unmatched-keys` with 11 at `a`, the `moved` claims with
 their two entries in the other order, wrong only where `b` is `a`): neither
 route may prove it, as the `conc` and ablation fixtures pin a claim that
-fails. `krs prove` reports each false claim by its first leaf that is not
-proven: it disproves `set-get-false`, reports `sym-one-false` and
-`sym-two-false` `failed` at a dead end it does not certify (`got(10)`, reached
-by narrowing the frame to `get(A) ~> ..`), and the three others
-`indeterminate`.
+fails. `krs prove` reports each false claim by the strongest status among its
+leaves down to the depth of its shallowest leaf that is not proven, whatever
+order the rules are tried in: it disproves `set-get-false` and
+`sym-one-false`, whose end state with nothing left to run is a dead end
+outside the destination, reports `sym-two-false` `failed` at a dead end it
+does not certify, and the three others `indeterminate`.
 
 Set collections selected by computed instances (NT-10): `set-instance-claims`
 is the configuration-cells gate's `set-instances` definition with three
@@ -414,19 +415,21 @@ CELL_MAPS_SPEC = "KRS-CELL-MAPS-SPEC"
 CELL_MAPS_CLAIMS = (
     "sym-one", "sym-two", "set-get", "unmatched-keys", "moved-one", "moved-rest",
 )
-# Each claim with a false end state: neither route may prove it. `krs prove` ends a claim at its
-# first leaf that is not proven, and lists a state's successors in the order the definition's
-# rules are tried (item order), so that order decides which leaf a false claim reports. It
-# disproves the concrete `got(11)` (stuck at `got(10)`). On the two `sym` controls the first such
-# leaf comes from narrowing the claim's frame `Tail` to `get(A) ~> ..`: `got(10)`, outside the
-# destination and without a successor, a dead end that does refute the claim, but its condition
-# is that `K` equation, which no exact solver query shows satisfiable and which the instance
-# emptying every computation contradicts, so the leaf is not certified and the claim is `failed`.
-# The three other end maps end with a leaf whose condition, a negated equality of terms over the
-# symbolic keys, it cannot decide, and reports `indeterminate`.
+# Each claim with a false end state: neither route may prove it. `krs prove` explores every state
+# as deep as a claim's shallowest leaf that is not proven and reports the strongest status among
+# the leaves there, so the order in which the definition's rules are tried (item order) does not
+# decide it. It disproves the concrete `got(11)` (stuck at `got(10)`). After `two`, `sym-one-false`
+# is at `<k> Tail </k>` with 10 at `A`, whose map differs from the destination's 11 under every
+# instance (a term mismatch); its instance with the empty computation for `Tail` has no successor,
+# a certified refutation at depth 1, so the claim is `disproved`. `sym-two-false`'s end map is not
+# shown outside the destination on every instance, and its leaf at that depth is the part of the
+# end state whose frame no rule takes: a dead end whose condition, negated `K` equations, no exact
+# solver query decides, so the leaf is not certified and the claim is `failed`. The three other
+# end maps end with a leaf whose condition, a negated equality of terms over the symbolic keys, it
+# cannot decide, and reports `indeterminate`.
 CELL_MAPS_STATUSES = {
     **dict.fromkeys(CELL_MAPS_CLAIMS, "proven"),
-    "sym-one-false": "failed",
+    "sym-one-false": "disproved",
     "sym-two-false": "failed",
     "set-get-false": "disproved",
     "unmatched-keys-false": "indeterminate",

@@ -1097,7 +1097,8 @@ struct KproveArgs {
     #[arg(long = "breadth", value_name = "BRANCHES")]
     breadth_limit: Option<usize>,
 
-    /// Stop an all-path proof after finding this many counterexamples.
+    /// End a proof once it has explored every state as deep as its COUNT-th shallowest leaf that
+    /// is not proven, and print at most COUNT such leaves.
     #[arg(long, default_value = "1", value_name = "COUNT")]
     max_counterexamples: NonZeroUsize,
 
