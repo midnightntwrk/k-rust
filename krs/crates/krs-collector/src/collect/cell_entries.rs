@@ -413,7 +413,7 @@ pub(super) fn judge_readable(
         groups: target.groups(),
     }
     .judge_located();
-    subject_limit(&judged, subject.len(), authored)?;
+    subject_limit(&judged, authored)?;
     if judged.is_ok()
         && let Some(entry) = result.iter().find(|entry| {
             matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_)))
@@ -484,19 +484,16 @@ pub(super) fn judge_readable(
     }
 }
 
-/// The refusal `authored`'s parser left until its subject's entries are admitted, a subject's map
-/// read of a cell the result writes (M3), where `judged` admits the first `subjects` entries (the
-/// subject's): the limit of the subject's entry answers before any result entry's refusal.
+/// The refusal `authored`'s parser left until the sentence's entries are admitted, a subject's
+/// map read of a cell the result writes (M3): a limit, which never hides a principle, so it
+/// answers only where `judged` admits every entry, the result's as well as the subject's, and
+/// before the parser's other deferred refusals.
 fn subject_limit<T, U>(
-    judged: &Result<T, (usize, U)>,
-    subjects: usize,
+    judged: &Result<T, U>,
     authored: &LocatedCells,
 ) -> Result<(), CollectionError> {
-    let admitted = judged
-        .as_ref()
-        .map_or_else(|(at, _)| *at >= subjects, |_| true);
     match authored.after.iter().find(|after| after.subject) {
-        Some(limit) if admitted => Err(limit.refused()),
+        Some(limit) if judged.is_ok() => Err(limit.refused()),
         _ => Ok(()),
     }
 }

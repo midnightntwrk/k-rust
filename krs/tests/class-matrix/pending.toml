@@ -442,20 +442,6 @@ match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: 
 finding = "S5-F2"
 kind = "diagnostic"
 
-# S5-H1, diagnostic+rust-syntax: 32 reds
-
-# sweep: 28
-[[family]]
-match = 'sweep/{claim/result/env/0,claim/result/env/G \{ a: x \},claim/result/env/G \{ a: x\, .. \},claim/result/env/G \{ a: x\, b: y\, .. \},claim/result/env/Some(G \{ .. \}),claim/result/env/Some(x),claim/result/env/[..],claim/result/env/[G \{ a: x\, .. \}\, ..],claim/result/env/[x\, ..],claim/result/env/[x],claim/result/env/\{ G \{ a: x\, b: y \} \},readable/result/env/0,readable/result/env/G \{ a: x \},readable/result/env/G \{ a: x\, .. \},readable/result/env/G \{ a: x\, b: y\, .. \},readable/result/env/Some(G \{ .. \}),readable/result/env/Some(x),readable/result/env/[..],readable/result/env/[G \{ a: x\, .. \}\, ..],readable/result/env/[x\, ..],readable/result/env/[x],readable/result/env/\{ G \{ a: x\, b: y \} \},claim/result/env/\{ G \{ a: x\, .. \}\, .. \},claim/result/env/\{ G \{ b: x\, .. \}\, .. \},claim/result/env/\{ x\, .. \},readable/result/env/\{ G \{ a: x\, .. \}\, .. \},readable/result/env/\{ G \{ b: x\, .. \}\, .. \},readable/result/env/\{ x\, .. \}}'
-finding = "S5-H1"
-kind = "diagnostic+rust-syntax"
-
-# sweep: 4
-[[family]]
-match = 'sweep/{claim,readable}/result/env/{None,x}'
-finding = "S5-H1"
-kind = "diagnostic+rust-syntax"
-
 # S5-K1, diagnostic: 14 reds
 
 # sweep: 6

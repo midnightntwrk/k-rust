@@ -61,7 +61,7 @@ what = "an author mistake reported unlocated, at the wrong entry, or under an in
 ["S0-9"]
 owner = "S5"
 kind = "diagnostic"
-what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`). The computation result's fit, a list rest's place, `[..]` naming no element, an item after a k result's `..`, a map read in a collection's result and a subject map read of a written non-Map cell wait for the kind too; on a Map leaf that map read is S5-H1's limit. Left: a `Some(..)`/`None` on a `?` child inside a group record term (`unmatched-optional-result`), a map read in a group record's Map child (`M { mm: { y -> x, .. }, .. }`, beside S5-B1), binder-sort, the `cells!` fragment-child and `KCell` messages, the initializer route, and K8 advice that follows a subject's `Some([..])`"
+what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`). The computation result's fit, a list rest's place, `[..]` naming no element, an item after a k result's `..`, a map read in a collection's result and a subject map read of a written non-Map cell wait for the kind too; on a Map leaf that map read is the M3 limit, which answers only once every entry, the result's too, is admitted (a limit never hides a principle). Left: a `Some(..)`/`None` on a `?` child inside a group record term (`unmatched-optional-result`), a map read in a group record's Map child (`M { mm: { y -> x, .. }, .. }`, beside S5-B1), binder-sort, the `cells!` fragment-child and `KCell` messages, the initializer route, and K8 advice that follows a subject's `Some([..])`"
 by_test = { k8 = "S5" }
 
 ["S5-B1"]
@@ -83,11 +83,6 @@ what = "a `cells!` group fragment's child is read as a term, where readable `G {
 owner = "S5"
 kind = "bug"
 what = "an instance record naming a `?` child (`acounter: Some(y)`, `acounter: None`) or a group child's `*` collection (`aqueue: Aqueue { ajob: [..] }`) has a meaning (P1, P2; the orchestrator's G3 ruling) and no lowering: the limit instance-child-multiplicity (TRI-B2). TRI-L: the macros carry such a child as its presence and the collector says the limit at the child once the sentence's entries are admitted, so the principles of the same entry answer first (`absence-test-without-creation`, g3-b and the g6 contexts; `record-update-base`, g1-f; `record-remainder-in-cells-term`, `cells!` g1-a); a `Some(..)` or `None` inside a group record an instance child writes, or in a List collection's bracket reading, is a term rustc reads, so the macros say the limit there, and the compiler's instance-child and group-child checks say it by the declaration. Open: a `cells!` update `..j` of a `*` grandchild's instance an instance record labels is refused `invalid-record-update` (`cells!` g4-c)"
-
-["S5-H1"]
-owner = "S5"
-kind = "feature"
-what = "a result on a Map leaf whose subject entry matched the map with a readable map read (`env: { z -> y, .. }`) is refused for that match (\"a preserved map-item cell is omitted from the machine-rule result\"): the subject's map read is a frame the result may not replace, the stated M3 limitation (design:M3), so the result entry's own answer is never reached (S5.0g item 3a fixes, F-6)"
 
 ["S5-K1"]
 owner = "S5"
