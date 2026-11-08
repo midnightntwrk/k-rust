@@ -58,12 +58,14 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// coverage-gap jobs `--refuted` and `--cover`; the digest moved by the key `item` alone, since
 /// their job kinds are computed by `FuzzJob::kind`, their refusal's stage and reasons are
 /// arguments of `Refusal::new`, and their confirmation statuses are values of a `match` the
-/// reader does not take.
+/// reader does not take. Version 14 adds a kill job's `job.expect` and the warning
+/// `expected-to-survive`; the digest moved by the key `expect` alone, since a warning kind passed
+/// to `warning(..)` is not a value the reader takes and `job.expect`'s value is computed.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    13,
+    14,
     10,
     2,
-    "9048966198fe94b79a6bce603c65fcfa9bce7574fe41cec278d31de6e7ff12b4",
+    "179e82f51d6917507e5d02393fd95c44a1a94018a08be7291d0e9ec2889133df",
 );
 
 /// `source` without `//` comments, string literals kept whole.

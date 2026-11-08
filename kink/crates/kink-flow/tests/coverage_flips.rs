@@ -1105,7 +1105,7 @@ fn a_kill_job_of_a_refused_or_unknown_flip_is_refused() {
     };
     let (document, status) = fuzz("flip--wake--I", Derived::Flips(&list));
     assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{document:#}");
-    assert_eq!(document["version"], 13, "{document:#}");
+    assert_eq!(document["version"], 14, "{document:#}");
     let job = &document["job"];
     assert_eq!(
         (&job["kind"], &job["flip"], &job["status"], &job["outcome"]),

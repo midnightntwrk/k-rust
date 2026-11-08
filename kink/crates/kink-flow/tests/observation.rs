@@ -470,7 +470,7 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
     let dir = fixture("run", &[]);
     let manifest = dir.join("FLOW.toml");
     let (document, _) = search(&manifest, RunMode::Search);
-    assert_eq!(document["version"], 36);
+    assert_eq!(document["version"], 37);
     assert_eq!(
         document["observe"],
         FlowManifest::read(&manifest)
