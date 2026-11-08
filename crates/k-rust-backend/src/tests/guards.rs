@@ -1305,6 +1305,35 @@ fn every_instance_of_the_applied_equation_has_an_entry() {
     assert_eq!(equation.combinations.len(), 2, "{equation:?}");
 }
 
+/// A conjunction one of whose conjuncts is false is refuted whatever its other conjuncts are,
+/// reached or not, tried or not: `mMixed`'s open first conjunct and false second one read
+/// `refuted-false`, and `mUndef`'s, whose second conjunct is false for an undefined `1 / 0`,
+/// `refuted-undefined`, declared after the equation that applies at 0 (untried) as before it
+/// (tried).
+#[test]
+fn a_false_conjunct_refutes_the_guard_whatever_the_conjuncts_before_it() {
+    let axioms = ["mZero", "mMixed", "mUndef"];
+    let forward = undecided_definition(false);
+    let guards = guards_of(&forward, call(&forward, "m", 0), &axioms);
+    assert_eq!(guard(&guards, "mZero").outcomes, set(&[GuardOutcome::Held]));
+    let mixed = guard(&guards, "mMixed");
+    assert_eq!(
+        mixed.outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::False)])
+    );
+    assert_eq!(
+        reached(mixed, &[0]),
+        set(&[NodeOutcome::Undecided(OperandCause::Unevaluated)])
+    );
+    assert_eq!(reached(mixed, &[1]), set(&[]));
+    assert_eq!(
+        guard(&guards, "mUndef").outcomes,
+        set(&[GuardOutcome::Refuted(Refutation::Undefined)])
+    );
+    let reverse = undecided_definition(true);
+    assert_eq!(guards, guards_of(&reverse, call(&reverse, "m", 0), &axioms));
+}
+
 /// An equation holding a literal whose element the definition leaves open gets no untried
 /// entry: after `omZero` applies at 0, `omNarrow`, whose literal is determined, is refuted
 /// there, and `omWide`, the same equation but for its literal, has none.

@@ -34,9 +34,9 @@
 //! where a higher group applies, and gets none. An untried entry is evaluated as a tried one
 //! is, with the same bounds and the same cache, so an entry's outcomes do not depend on whether
 //! the run tried it first. Its guard outcome is read from that evaluation, since there is no
-//! attempt: the first conjunct that is not `true` decides it, `held` where there is none,
-//! refuted where it is `false` or undefined (whatever the later conjuncts are), and `undecided`
-//! with cause [`AttemptCause::Untried`] where it is undecided. No solver is asked:
+//! attempt, by the reading that also classes a tried entry's refutation: `held` where every
+//! conjunct is `true`, refuted where some conjunct is false, whatever the others are, reached
+//! or not, and otherwise `undecided` with cause [`AttemptCause::Untried`]. No solver is asked:
 //! the evaluation shares no solver state with the run. The work is off the run's clock and
 //! changes nothing the run does.
 //!
@@ -276,12 +276,13 @@ pub enum GuardOutcome {
     Stopped,
 }
 
-/// How a refuted entry's own evaluation reads its condition.
+/// How a refuted entry's own evaluation reads its condition, the conjunction of its
+/// conjuncts, whatever their order.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Refutation {
-    /// The first reached conjunct that is false is false.
+    /// Some conjunct is false with its operands defined.
     False,
-    /// The first reached conjunct that is false is `\equals(b, literal)` of an undefined `b`.
+    /// Some conjunct is false, and each that is is `\equals(b, literal)` of an undefined `b`.
     Undefined,
     /// The evaluation found no conjunct false: the attempt's solver or its path condition
     /// refuted the condition.
@@ -913,34 +914,70 @@ impl Slot {
             fold.node(conjunct, reached);
             reached = reached && conjunct.value() == Truth::True;
         }
-        let refutation = condition
-            .iter()
-            .find(|conjunct| conjunct.value() != Truth::True)
-            .filter(|conjunct| conjunct.value() == Truth::False)
-            .map_or(Refutation::Decided, |conjunct| match conjunct {
-                ConditionNode::Equals { child, .. } if child.value() == Truth::Undefined => {
-                    Refutation::Undefined
-                }
-                _ => Refutation::False,
-            });
-        // The first conjunct that is not `true` decides the condition where the run did not
-        // try it: none holds it, a `false` or `undefined` one refutes it whatever the later
-        // conjuncts are, and an undecided one leaves it open, the later conjuncts unreached.
-        let untried = match condition
-            .iter()
-            .find(|conjunct| conjunct.value() != Truth::True)
-            .map(ConditionNode::value)
-        {
-            None => GuardOutcome::Held,
-            Some(Truth::False) => GuardOutcome::Refuted(refutation),
-            Some(Truth::Undefined) => GuardOutcome::Refuted(Refutation::Undefined),
-            Some(Truth::True | Truth::Undecided) => GuardOutcome::Undecided(AttemptCause::Untried),
+        let reading = Reading::of(condition);
+        let refutation = match reading {
+            Reading::Refuted(refutation) => refutation,
+            Reading::Held | Reading::Open => Refutation::Decided,
+        };
+        let untried = match reading {
+            Reading::Held => GuardOutcome::Held,
+            Reading::Refuted(refutation) => GuardOutcome::Refuted(refutation),
+            Reading::Open => GuardOutcome::Undecided(AttemptCause::Untried),
         };
         Folded {
             reached: fold.reached,
             refutation,
             atoms: fold.atoms,
             untried,
+        }
+    }
+}
+
+/// What an entry's own evaluation, without the solver, reads its condition, the conjunction of
+/// its conjuncts, as. One reading serves the refutation of a tried entry and the guard outcome
+/// of an untried one, so that the two agree on every evaluation.
+///
+/// A conjunct is a predicate, two-valued, so the conjunction is false wherever one conjunct is
+/// false, whatever the others are, reached or not: the reading of an entry does not depend on
+/// the order of its conjuncts. A conjunct `\equals(b, literal)` of an undefined `b` is false
+/// because `b` has no value, which no decision about `b`'s value separates: the refutation is
+/// [`Refutation::Undefined`] where every false conjunct is such, and [`Refutation::False`] where
+/// some conjunct is false with its operands defined.
+#[derive(Clone, Copy)]
+enum Reading {
+    /// Every conjunct is `true`.
+    Held,
+    /// Some conjunct is false: [`Refutation::False`] or [`Refutation::Undefined`].
+    Refuted(Refutation),
+    /// No conjunct is false and some is undecided.
+    Open,
+}
+
+impl Reading {
+    fn of(condition: &[ConditionNode]) -> Self {
+        let mut undefined = false;
+        let mut open = false;
+        for conjunct in condition {
+            match (conjunct, conjunct.value()) {
+                (_, Truth::True) => {}
+                (ConditionNode::Equals { child, .. }, Truth::False)
+                    if child.value() == Truth::Undefined =>
+                {
+                    undefined = true;
+                }
+                (_, Truth::False) => return Self::Refuted(Refutation::False),
+                // A predicate is never undefined (`conditions::Evaluation::predicate`); were one,
+                // it would be false for want of a value, as an undefined `\equals` operand is.
+                (_, Truth::Undefined) => undefined = true,
+                (_, Truth::Undecided) => open = true,
+            }
+        }
+        if undefined {
+            Self::Refuted(Refutation::Undefined)
+        } else if open {
+            Self::Open
+        } else {
+            Self::Held
         }
     }
 }
