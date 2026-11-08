@@ -420,7 +420,7 @@ What only a run shows (a timeout, a final configuration kink does not compare, a
 It prints one JSON document:
 
 ```json
-{"schema": "kink-flow-check", "version": 11, "k_rust_revision": "...", "profile": "no-z3",
+{"schema": "kink-flow-check", "version": 14, "k_rust_revision": "...", "profile": "no-z3",
  "spec": {"outcome": "admitted", "stage": null, "reason": null, "detail": null,
           "files": [{"name": "calc.k", "sha256": "..."}], "exclusion": null,
           "short_circuit": null, "baseline_findings": null},
@@ -469,6 +469,9 @@ Version 10 (CF-24g) adds the named cases of a case document, each a program whos
 Version 11 lets `result` name cells inside `?` and `*` cells, each compared or left out in every instance, and a narrowing's `compared` name the key of each Map that encloses a named cell; the reasons `unobservable-cell-position` and `result-cell-position` are gone, and a Map's key left out is refused (`map-key-left-out`) ("Which cells are compared").
 Version 12 adds `stop.when` under a stop condition, the reason `unsupported-front-end` at stage `stop`, and, under a condition, reads `stop-hides-edit` from the comparable programs' coverage ("Where a run ends").
 Version 13 adds `observe` for a corpus with `[observe]` (absent without one), the declaration as every run compares by it, the stage `observe` (reasons `point-unresolved`, `cell-refused`, `backend-error` and `unsupported-front-end`) and the warning `point-rule-deleted` ("What a run observes").
+Version 14 adds `z3` under the Z3 profile, the Z3 build, `{version, library_sha256}`, as the run document names it ("The report: the run document"); the portable document has no such member.
+Each case's expectation and the coverage warnings are read from result records, whose classes and coverage the baseline runs decided by asking the solver, and a record is read only under a key that names the Z3 build ("The cache directory"), so under Z3 what `check` says is a function of the build as much as of the profile.
+The document every verb prints for a manifest that does not decode is built from the check document's header, so it names the build too.
 
 Exit status ("Exit status"): 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
 1 when a program is `excluded` or the baseline has no data (`spec.baseline_findings`), and nothing is refused;
@@ -1659,7 +1662,11 @@ Version 14 gives each horizon its `opening` (`bound`, `undecided-element`, `bran
 Prints the stored run document again, byte for byte as `run` printed it.
 It reads only the cache's `report.json`, whose place depends on the manifest's directory and `--cache` alone, so it loads no specification and runs nothing.
 When there is none, or it is not a run document of the current version, it prints
-`{schema: "kink-flow-report", version: 1, k_rust_revision, profile, outcome: "missing" | "unreadable", path, detail}`.
+`{schema: "kink-flow-report", version: 2, k_rust_revision, profile, z3?, outcome: "missing" | "unreadable", path, detail}`.
+Version 2 adds `z3` under the Z3 profile, the Z3 build of the process that looked, as every kink-flow document names it; the portable document has no such member.
+
+A run document is printed only when this build could have written it: when it names this kink build and semantics identity (`kink_build`, `kink`) and, under the Z3 profile, this Z3 build (`z3`).
+Under Z3 a status is a function of the Z3 build that counted its solver queries' units, and a dynamically linked Z3 is outside the executable `kink_build` digests, so after its shared library is replaced the stored document is `unreadable`, with a `detail` that names both builds, until `run` decides it again.
 
 With `--output verdicts` it prints the rendering of the stored run document ("Verdicts: `--output verdicts`"), which is what `run --output verdicts` printed, since the rendering is a function of the document alone.
 When there is no stored run document to render, it prints nothing on stdout and the reason on stderr (`missing run report PATH: DETAIL`, `unreadable run report PATH: DETAIL`).
@@ -1698,9 +1705,9 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 
 ### Answers
 
-The command prints one document, `{schema: "kink-flow-query", version: 3, k_rust_revision, profile, kink_build, kink, spec, programs, patterns, rows, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data}`:
+The command prints one document, `{schema: "kink-flow-query", version: 4, k_rust_revision, profile, z3?, kink_build, kink, spec, programs, patterns, rows, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data}`:
 `programs` are the `coverage` rows (the result cache is brought up to date first),
-`data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. Version 2 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"). Version 3 answers `no` under the Z3 profile where the search received no undecided solver answer, with a `cause` naming that count, and names the count in the `cause` of an `unknown` it withholds a `no` for (below). A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, pattern_list}`.
+`data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. Version 2 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"). Version 3 answers `no` under the Z3 profile where the search received no undecided solver answer, with a `cause` naming that count, and names the count in the `cause` of an `unknown` it withholds a `no` for (below). Version 4 adds `z3` under the Z3 profile, the Z3 build the answers were decided on, as the run document names it: whether the search's solver queries are decided within their units is a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too; the portable document has no such member. A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, z3?, pattern_list}`.
 `patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus}` (`kore` is the compiled target),
 and `rows` one row per (pattern, program asked) `{pattern, program, claimed, answer, cause, witness, cached, wall_ms, claim}`.
 
@@ -1863,8 +1870,9 @@ An id that is neither a mutation of the list nor a derived flip is refused (`unk
 
 ### The document
 
-`{schema: "kink-flow-fuzz", version: 9, k_rust_revision, profile, kink_build, kink, spec, template, job, sides, assembly, findings, assumed, attempts: [{seed, fuzz, candidate, confirmation}], program, stopped, action, warnings}`.
-`k_rust_revision` is k-rust's build identity (`k_rust::build_identity`: its version and a digest of its sources), as in every kink-flow document, and the value the embedded report's `identity.k-rust-revision` records (GUIDE-USABILITY 5, within version 4); `kink.k_rust_revision`, the semantics identity's component, is the version alone, and `kink_build` pins the whole executable:
+`{schema: "kink-flow-fuzz", version: 12, k_rust_revision, profile, z3?, kink_build, kink, spec, template, job, sides, assembly, findings, assumed, attempts: [{seed, fuzz, candidate, confirmation}], program, stopped, action, warnings}`.
+`k_rust_revision` is k-rust's build identity (`k_rust::build_identity`: its version and a digest of its sources), as in every kink-flow document, and the value the embedded report's `identity.k-rust-revision` records (GUIDE-USABILITY 5, within version 4); `kink.k_rust_revision`, the semantics identity's component, is the version alone, and `kink_build` pins the whole executable.
+`z3`, under the Z3 profile only (version 12), is the Z3 build, `{version, library_sha256}`, as the run document names it: a confirmation is a kink run of the candidate, whose classes and kill are a function of the build that counts its solver queries' units, and a dynamically linked Z3 is outside the executable `kink_build` pins:
 - `spec`: admitted, with the flow's `assume_joined`, whether the baseline has data under them (`has_data`) and its unnamed findings, as `run` reads them; or the refusal.
 - `template`: its id, source, the start sort used and where it came from (`template`, `program` or `default`), its variables, its hole declarations and `last_run` (`{found, current, template: {program, class, cause}, mutation: {status, reason, witnesses}, suggested_templates}`, or `{found: false, detail}`).
 - `job`: `{kind: "kill", mutation, outcome: fuzzed | refused, path_mode, filter: {on, id}}` (`id`: the witness filter's identity, `null` with `--no-filter`), with kink's `status`, `reason`, `claims` and `inconsistent_pairs` when kink refuses the mutation, `status`, `reason` and `weakening` (the run row's) when kink decides it from its edit, and the claims the mutant withdrew otherwise. A rule job has `kind: "matched"` or `kind: "fired"` and `rule: {module, index, file, start_line, label, id, untargeted_ids}` (a refused rule has refusal stage `rule`); a pattern job `kind: "pattern"` and `pattern: {id, text, kore}`. Both have `sides.baseline` only and no `mutant_anchor`.
@@ -1894,6 +1902,7 @@ Version 7 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsu
 Version 8 adds `template.last_run.mutation.witnesses_global` and the warning `global-witnesses`.
 Version 9 refuses a kill job of a mutation `run` decides from its edit (stage `mutation`, reason `unkillable` or `equivalent`, with `job.weakening`) in place of the warning `unkillable`, and adds the `stopped` value `stack-stops` with `--stack-stops N`, and the warnings `stack-stop` and `not-ceil-free`. Version 10 adds the `stopped` value `open-stops` with `--open-stops N` and the warnings `open-application` and `last-run-without-mutation`, gives `global-witnesses` only where the template's program reaches no edited rule, and names the job's own list and cache in each next step that runs `run`.
 Version 11 adds the kill job of a condition flip a front end derives (below): a kill job's `job.flip` says whether its mutation is one, a refused flip is refused at stage `mutation` with `job.status` `refused` and the judge's reason, and a flip's next steps that would run `run` run `coverage`.
+Version 12 adds `z3` under the Z3 profile (above).
 `tests/formats.rs` ties the version to the document's keys and enumerated values and to the report version it embeds.
 
 ## Front ends
