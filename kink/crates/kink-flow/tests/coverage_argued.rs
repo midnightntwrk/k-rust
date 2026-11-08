@@ -766,28 +766,36 @@ mod kink_tier {
         dir
     }
 
+    /// The same order with its cells swapped, `b <=Int a`, an invariant under another function
+    /// with the same equation, and a claim false of every state.
+    const REVERSED: (&str, &str, &[&str]) = ("reversed", "ordered", &["b", "a"]);
+    const ORDERED_TOO: (&str, &str, &[&str]) = ("ordered-too", "orderedToo", &["a", "b"]);
+    const NEVER: (&str, &str, &[&str]) = ("never", "never", &["a"]);
+
     /// An argued item's invariant is checked by its connection, through kink-flow's K front end
     /// (the function by its K label, the cells by their K names, `settings.invariants[].identity`):
-    /// - `bump`'s condition `A >Int B` under `a <=Int b` has no model at its left-hand side, so
-    ///   the connection holds (`connected`), and so does `readzRom`'s `inRom(E, A)` under the
-    ///   walk over `memory`'s bindings, which unfolds at the binding the rule matches;
-    /// - the same invariant as a fold over `keys_list(memory)` does not unfold there, so
-    ///   `readz`'s refuted condition stays `unchecked`, with the cause;
-    /// - `bump`'s left-hand side alone, the obligation of a rule never matched, is satisfiable
-    ///   under `a <=Int b` at a state it matches: the argument fails, so `rule:bump` is open again
-    ///   with its target and `argument_failed`, and the summary lists it; the command exits 1.
+    /// - a firing of `bump`, the one fact that covers `rule:bump`, needs `A >Int B`, which has no
+    ///   model at its left-hand side under `a <=Int b`, so the connection holds; so does
+    ///   `readzRom`'s `inRom(E, A)` under the walk over `memory`'s bindings, which unfolds at the
+    ///   binding the rule matches. Neither is `connected`: nothing shows the invariant holds of
+    ///   any state, so both stay `unchecked`, with that reason;
+    /// - the walk as a fold over `keys_list(memory)` does not unfold there, so `readz`'s refuted
+    ///   condition is undecided, with the cause;
+    /// - the same order with its cells swapped, `b <=Int a`, admits `bump`'s condition at a state
+    ///   it matches: the argument of `requirement:bump:held` fails, so the item is open again with
+    ///   its target and `argument_failed`, and the summary lists it; the command exits 1.
     ///
-    /// A second run reads every answer from the cache.
+    /// A second run reads every answer from the cache; another function, and another definition,
+    /// each ask again. An invariant false of every state excludes everything and still leaves the
+    /// item `unchecked` (exit 3).
     #[test]
     #[ignore = "kink"]
     fn an_invariants_connection_holds_fails_or_is_undecided() {
         let dir = invariant("connection");
-        argue_on(
-            &dir,
-            &[ORDERED, OUTSIDE_ROM, OUTSIDE_ROM_KEYS],
-            &[
-                (BUMP, "no state has a above b", Some(ORDERED.0)),
-                (BUMP_HELD, "no state has a above b", Some(ORDERED.0)),
+        let entries = |bump: (&'static str, &'static str, &'static [&'static str])| {
+            vec![
+                (BUMP, "no state has a above b", Some(bump.0)),
+                (BUMP_HELD, "no state has a above b", Some(REVERSED.0)),
                 (
                     READZ_ROM_HELD,
                     "memory holds no ROM address",
@@ -798,35 +806,48 @@ mod kink_tier {
                     "memory holds no ROM address",
                     Some(OUTSIDE_ROM_KEYS.0),
                 ),
-            ],
+            ]
+        };
+        argue_on(
+            &dir,
+            &[ORDERED, REVERSED, OUTSIDE_ROM, OUTSIDE_ROM_KEYS],
+            &entries(ORDERED),
         );
         let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{document:#}");
         assert_eq!(document["version"], 17);
         let check = |id: &str| &item(&document, "requirements", id)["argument_check"];
-        let held = check(BUMP_HELD);
+        let fired = &item(&document, "rules", BUMP)["argument_check"];
         assert_eq!(
             (
-                &held["invariant"],
-                &held["standing"],
-                &held["connection"]["status"]
+                &fired["invariant"],
+                &fired["standing"],
+                &fired["connection"]["status"]
             ),
-            (&json!("ordered"), &json!("connected"), &json!("holds")),
-            "{held:#}"
+            (&json!("ordered"), &json!("unchecked"), &json!("holds")),
+            "{fired:#}"
         );
-        assert_eq!(held["connection"]["model"], Value::Null);
-        assert_eq!(held["connection"]["cached"], false);
-        assert_eq!(held["evidence"], json!({"status": "not-run"}));
-        let axioms = held["connection"]["axioms"].as_array().unwrap();
-        assert!(!axioms.is_empty(), "{held:#}");
         assert!(
-            axioms.iter().all(|axiom| axiom["answer"] == "connected"),
-            "{held:#}"
+            fired["reason"].as_str().is_some_and(|reason| {
+                reason.contains("the evidence that the invariant holds on runs is not run")
+            }),
+            "{fired:#}"
+        );
+        assert_eq!(fired["connection"]["model"], Value::Null);
+        assert_eq!(fired["connection"]["cached"], false);
+        assert_eq!(fired["evidence"], json!({"status": "not-run"}));
+        let axioms = fired["connection"]["axioms"].as_array().unwrap();
+        assert!(!axioms.is_empty(), "{fired:#}");
+        assert!(
+            axioms
+                .iter()
+                .all(|axiom| axiom["answer"] == "connected" && axiom["valuation"] == "held"),
+            "{fired:#}"
         );
         let walk = check(READZ_ROM_HELD);
         assert_eq!(
             (&walk["standing"], &walk["connection"]["status"]),
-            (&json!("connected"), &json!("holds")),
+            (&json!("unchecked"), &json!("holds")),
             "{walk:#}"
         );
         let fold = check(READZ_REFUTED);
@@ -836,19 +857,15 @@ mod kink_tier {
             "{fold:#}"
         );
         assert!(fold["connection"]["reason"].is_string(), "{fold:#}");
-        assert_eq!(
-            item(&document, "requirements", READZ_REFUTED)["status"],
-            "argued"
-        );
 
-        let bump = item(&document, "rules", BUMP);
-        assert_eq!(bump["status"], "unmatched", "{bump:#}");
-        assert!(bump.get("argument_check").is_none(), "{bump:#}");
-        let failed = &bump["argument_failed"];
-        assert_eq!(failed["check"], "connection", "{bump:#}");
+        let held = item(&document, "requirements", BUMP_HELD);
+        assert_eq!(held["status"], "open", "{held:#}");
+        assert!(held.get("argument_check").is_none(), "{held:#}");
+        let failed = &held["argument_failed"];
+        assert_eq!(failed["check"], "connection", "{held:#}");
         let detail = failed["detail"].as_str().unwrap();
         assert!(
-            detail.contains("satisfies the invariant `ordered`")
+            detail.contains("satisfies the invariant `reversed`")
                 && detail.ends_with("so the invariant does not exclude the item"),
             "{detail}"
         );
@@ -857,23 +874,23 @@ mod kink_tier {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|target| target["item"] == BUMP),
+                .any(|target| target["item"] == BUMP_HELD),
             "{:#}",
             document["targets"]
         );
         let summary = &document["summary"];
         assert_eq!(
             summary["failed_arguments"],
-            json!([{"family": "rules", "item": BUMP, "check": "connection", "detail": detail}])
+            json!([{"family": "requirements", "item": BUMP_HELD, "check": "connection",
+                    "detail": detail}])
         );
         assert_eq!(
             summary["argued_by_standing"],
-            json!({"text": 0, "connected": 2, "checked_on_runs": 0, "proved": 0, "unchecked": 1})
+            json!({"text": 0, "connected": 0, "checked_on_runs": 0, "proved": 0, "unchecked": 3})
         );
         assert_eq!(summary["argued"], 3, "{summary:#}");
 
         let invariants = document["settings"]["invariants"].as_array().unwrap();
-        let identity = &invariants[0]["identity"];
         let cell = |name: &str| {
             json!([
                 "Lbl'-LT-'generatedTop'-GT-'",
@@ -881,6 +898,7 @@ mod kink_tier {
                 format!("Lbl'-LT-'{name}'-GT-'")
             ])
         };
+        let identity = &invariants[0]["identity"];
         assert_eq!(
             (&identity["symbol"], &identity["cells"]),
             (&json!("Lblordered"), &json!([cell("a"), cell("b")])),
@@ -892,19 +910,24 @@ mod kink_tier {
         );
         assert_eq!(
             invariants[1]["identity"]["cells"],
+            json!([cell("b"), cell("a")])
+        );
+        assert_eq!(
+            invariants[2]["identity"]["cells"],
             json!([cell("memory"), cell("romEnd")])
         );
 
         let text = text(&document).unwrap();
         assert!(
             text.contains(&format!(
-                "  {BUMP_HELD} [connected, invariant ordered]: no state has a above b\n"
+                "  {BUMP} [unchecked, invariant ordered]: no state has a above b\n"
             )),
             "{text}"
         );
         assert!(
             text.contains(&format!(
-                "failed arguments:\n  {BUMP} [the connection fails]: {detail}; it is open again\n"
+                "failed arguments:\n  {BUMP_HELD} [the connection fails]: {detail}; it is open \
+                 again\n"
             )),
             "{text}"
         );
@@ -912,32 +935,69 @@ mod kink_tier {
         // A second run asks nothing: every answer is the cache's.
         let (again, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{again:#}");
-        let connection = &item(&again, "requirements", BUMP_HELD)["argument_check"]["connection"];
-        assert_eq!(connection["cached"], true, "{connection:#}");
-        assert_eq!(connection["status"], "holds", "{connection:#}");
+        let connection = |document: &Value| {
+            item(document, "rules", BUMP)["argument_check"]["connection"].clone()
+        };
+        assert_eq!(connection(&again)["cached"], true, "{again:#}");
+        assert_eq!(connection(&again)["status"], "holds");
         assert_eq!(
             again["summary"]["failed_arguments"],
             summary["failed_arguments"]
         );
 
-        // Without the refuted and the connected arguments, the undecided one is left: the
-        // corpus is done only by a claim nothing confirmed, so the command has no answer.
+        // Another function with the same equation is another question.
         argue_on(
             &dir,
-            &[OUTSIDE_ROM_KEYS],
-            &[(
-                READZ_REFUTED,
-                "memory holds no ROM address",
-                Some(OUTSIDE_ROM_KEYS.0),
-            )],
+            &[ORDERED_TOO, REVERSED, OUTSIDE_ROM, OUTSIDE_ROM_KEYS],
+            &entries(ORDERED_TOO),
         );
-        let (undecided, status) = coverage(&dir, &["--tier", "1"], Derived::default());
-        assert_eq!(status, EXIT_UNANSWERED, "{undecided:#}");
+        let (other, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(
+            (&connection(&other)["status"], &connection(&other)["cached"]),
+            (&json!("holds"), &json!(false)),
+            "{other:#}"
+        );
+        // So is the same function of another definition.
+        let source = dir.join("invariant.k");
+        let k = fs::read_to_string(&source).unwrap();
+        let equation = "rule orderedToo(A, B) => A <=Int B";
+        assert!(k.contains(equation), "{k}");
+        fs::write(
+            &source,
+            k.replace(equation, "rule orderedToo(A, B) => notBool (B <Int A)"),
+        )
+        .unwrap();
+        let (edited, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(
+            (
+                &connection(&edited)["status"],
+                &connection(&edited)["cached"]
+            ),
+            (&json!("holds"), &json!(false)),
+            "{edited:#}"
+        );
+
+        // An invariant false of every state excludes everything, and shows nothing: the item
+        // stays unchecked, and the command has no answer.
+        argue_on(
+            &dir,
+            &[NEVER],
+            &[(BUMP, "no state is ever reached", Some(NEVER.0))],
+        );
+        let (never, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{never:#}");
+        let check = &item(&never, "rules", BUMP)["argument_check"];
+        assert_eq!(
+            (&check["standing"], &check["connection"]["status"]),
+            (&json!("unchecked"), &json!("holds")),
+            "{check:#}"
+        );
     }
 
     /// Every argued item says what its argument rests on (`argument_check`): its text alone where
-    /// its entry names no invariant (`text`), else the invariant and its connection (`connected`
-    /// where it holds). The settings list the invariants, the summary counts the argued items by
+    /// its entry names no invariant (`text`), else the invariant and its connection (`unchecked`,
+    /// a connection that holds included, while the evidence is not run, so the command exits 3).
+    /// The settings list the invariants, the summary counts the argued items by
     /// standing, the text states each standing, and the coverage lock gives each argued item's
     /// standing under `[arguments]`: a standing that moves makes `--locked` stale, naming the
     /// item, while the header and the obligations are unchanged.
@@ -963,14 +1023,14 @@ mod kink_tier {
             ],
         );
         let (document, status) = run(false);
-        assert_eq!(status, EXIT_YES, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         assert_eq!(
             item(&document, "rules", BUMP)["argument_check"],
             json!({"standing": "text"})
         );
         assert_eq!(
             item(&document, "requirements", BUMP_HELD)["argument_check"]["standing"],
-            "connected"
+            "unchecked"
         );
         assert_eq!(
             document["settings"]["argued"][1],
@@ -980,7 +1040,7 @@ mod kink_tier {
         let summary = &document["summary"];
         assert_eq!(
             summary["argued_by_standing"],
-            json!({"text": 1, "connected": 1, "checked_on_runs": 0, "proved": 0, "unchecked": 0})
+            json!({"text": 1, "connected": 0, "checked_on_runs": 0, "proved": 0, "unchecked": 1})
         );
         assert_eq!(summary["failed_arguments"], json!([]));
         let text = text(&document).unwrap();
@@ -993,7 +1053,7 @@ mod kink_tier {
         let recorded = fs::read_to_string(&lock).unwrap();
         assert!(
             recorded.contains(&format!(
-                "\n[arguments]\n\"{BUMP}\" = \"text\"\n\"{BUMP_HELD}\" = \"connected\"\n"
+                "\n[arguments]\n\"{BUMP}\" = \"text\"\n\"{BUMP_HELD}\" = \"unchecked\"\n"
             )),
             "{recorded}"
         );
@@ -1022,11 +1082,11 @@ mod kink_tier {
         );
         assert_eq!(
             state["argument_changes"],
-            json!([{"obligation": BUMP_HELD, "recorded": "connected", "now": "text"}])
+            json!([{"obligation": BUMP_HELD, "recorded": "unchecked", "now": "text"}])
         );
         assert_eq!(
             stale_lines(&stale),
-            [format!("{path}: arguments: {BUMP_HELD}: connected -> text")]
+            [format!("{path}: arguments: {BUMP_HELD}: unchecked -> text")]
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }

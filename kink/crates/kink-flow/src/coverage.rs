@@ -253,9 +253,12 @@
 //! (`invariant-unsupported-front-end`). Each argued item under an invariant is checked by its
 //! connection (`invariants`, "The connection"): whether the invariant excludes, at the left-hand
 //! side of each axiom of the item's rule, the valuation of each fact of a run's records that
-//! would cover the item. A connection that holds gives the standing [`STANDING_CONNECTED`]; one
-//! that is undecided leaves the item [`STANDING_UNCHECKED`] with the cause, and the command then
-//! exits 3, since nothing confirmed the claim it is done by. A connection that fails refutes the
+//! would cover the item. A connection that holds shows only that the invariant excludes the item,
+//! not that it holds of any state (an invariant false everywhere excludes everything), so the
+//! item stays [`STANDING_UNCHECKED`], with the reason that the evidence is not run; one that is
+//! undecided leaves it [`STANDING_UNCHECKED`] with the cause. The command then exits 3, since
+//! nothing confirmed the claim it is done by; [`STANDING_CONNECTED`] needs the evidence on runs
+//! too, which this build does not check. A connection that fails refutes the
 //! argument: a state the rule matches satisfies the invariant and has the item's valuation, so the
 //! argument stands in for nothing. The item goes back to its status, with its target, carries
 //! `argument_failed` (`{check, detail}`), and the summary lists it in `failed_arguments`; the
@@ -413,8 +416,9 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// connection: each `settings.invariants` entry has the `identity` its front end resolved
 /// (`{definition, symbol, cells}`, with the front end's own members), the document has
 /// `argument_checks` (by item id, `{invariant, connection}`), an argued item's
-/// `argument_check.connection` is `{status, axioms, reason, model, cached, smt_unknown}` with
-/// status `holds` (standing `connected`) or `undecided` (standing `unchecked`), and an item whose
+/// `argument_check` has `reason` and `connection`, `{status, axioms, reason, model, cached,
+/// smt_unknown}` with status `holds` or `undecided`, its standing `unchecked` either way while
+/// the evidence is not run, and an item whose
 /// connection `fails` is not argued: it keeps its status and target, has `argument_failed`
 /// (`{check, detail}`), is listed in `summary.failed_arguments`, and the text lists it under
 /// `failed arguments`.
@@ -3819,8 +3823,11 @@ fn failed_arguments(document: &Value) -> BTreeMap<String, String> {
 /// An argued item's `argument_check`, what its argument rests on (module documentation, "Argued
 /// obligations"): the standing [`STANDING_TEXT`] where its entry names no invariant; under the
 /// invariant `invariant`, the connection `check` gives for the item ([`ARGUMENT_CHECKS`], `not-run`
-/// where none was asked), the evidence not run and no proof: the standing [`STANDING_CONNECTED`]
-/// where the connection holds, else [`STANDING_UNCHECKED`].
+/// where none was asked), the evidence not run and no proof, and the standing
+/// [`STANDING_UNCHECKED`] with its `reason`. A connection that holds shows only that the
+/// invariant excludes the item, not that it holds of any state (one false everywhere excludes
+/// everything), and [`STANDING_CONNECTED`] also needs the evidence, which this build does not
+/// run.
 fn argument_check(invariant: Option<&String>, check: Option<&Value>) -> Value {
     match invariant {
         None => json!({"standing": STANDING_TEXT}),
@@ -3829,14 +3836,23 @@ fn argument_check(invariant: Option<&String>, check: Option<&Value>) -> Value {
                 || json!({"status": CHECK_NOT_RUN}),
                 |check| check["connection"].clone(),
             );
-            let standing = if connection["status"] == CONNECTION_HOLDS {
-                STANDING_CONNECTED
+            let reason = if connection["status"] == CONNECTION_HOLDS {
+                "the connection holds, and the evidence that the invariant holds on runs is not \
+                 run"
+                .to_owned()
             } else {
-                STANDING_UNCHECKED
+                format!(
+                    "the connection is {}: {}",
+                    connection["status"].as_str().unwrap_or(CHECK_NOT_RUN),
+                    connection["reason"]
+                        .as_str()
+                        .unwrap_or("no connection was asked")
+                )
             };
             json!({
                 "invariant": name,
-                "standing": standing,
+                "standing": STANDING_UNCHECKED,
+                "reason": reason,
                 "connection": connection,
                 "evidence": {"status": CHECK_NOT_RUN},
                 "proof": null,

@@ -23,17 +23,17 @@
 //! facts of a run's records that `fuzz --cover` searches for (`crate::fuzz_goal`): a guard node
 //! reached with a truth, a guard outcome, or a firing. Each fact is a valuation of one compiled
 //! axiom at its left-hand side (kink-native [`kink_native::invariant::Valuation`]): a node reached
-//! with its truth, the condition held or refuted, and for a `rule:` item the left-hand side alone
-//! where the rule was never matched (the obligation is then to reach a state it matches) and the
-//! condition held where it was matched and never fired (a rule fires only where it holds). The
+//! with its truth, the condition held or refuted, and for a `rule:` item, which only a firing
+//! covers, the condition held (a rule fires where its left-hand side matches and its condition
+//! holds), whether or not the rule was matched. The
 //! connection asks of each fact whether the invariant and the valuation have no model at that
 //! left-hand side (kink-native [`kink_native::invariant::connection`]). The item's obligation is
 //! the disjunction of its facts, so it is excluded wherever the invariant holds exactly when each
 //! fact is:
 //!
 //! - `holds` when every fact is connected;
-//! - `fails` when one is not: kink-native shows a state the axiom matches where the invariant
-//!   holds and the fact does, so the invariant does not exclude the item;
+//! - `fails` when one is not: kink-native shows that a state the axiom matches satisfies the
+//!   invariant and the fact, so the invariant does not exclude the item;
 //! - `undecided` otherwise, with the first undecided fact's cause, and for an item with no fact
 //!   of a run's records (none can be checked).
 //!
@@ -44,9 +44,19 @@
 //!
 //! Each answer is kept in the connection memo ([`crate::memo::connection_key`]) under the
 //! execution digest, the axiom, the valuation, the function's symbol and the cells' paths, kink's
-//! build and the solver: the question is built from those alone. An answer cut short by a stop is
-//! not kept, and neither is any answer of a run whose build cannot be named. `--verify` reads and
-//! writes no record. A connection whose every answer was read from the memo is `cached`.
+//! build and the solver: the question is built from those alone. Only a connected or not
+//! connected answer, and the solver's `Unknown` within the key's bounds, is kept, each rule's
+//! answer judged apart ([`kept`]); nothing of a run whose build cannot be named is kept, and
+//! `--verify` reads and writes no record. A connection whose every answer was read from the memo
+//! is `cached`.
+//!
+//! # What a connection shows
+//!
+//! A connection that holds shows that the invariant excludes the item at its rule's left-hand
+//! side, not that the invariant holds of any state the definition reaches: an invariant false
+//! everywhere excludes everything. So an argument whose connection holds still rests on the
+//! invariant's own claim, and its standing stays `unchecked` while no evidence is checked. A
+//! failing connection reports the axiom and the valuation, not a model.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -63,10 +73,13 @@ use k_rust::names::BuiltinSort;
 use k_rust_fuzz::target::{CoverageFact, RuleRef};
 use kink_campaign::CellLayout;
 use kink_corpus::admission::AdmissionRefusal;
-use kink_native::invariant::{Connection, Invariant as Asked, Undecided, Valuation, connection};
+use kink_native::invariant::{
+    Connection, Invariant as Asked, Undecided, Valuation, combined as combined_rules,
+    rule_connections,
+};
 use serde_json::{Map, Value, json};
 
-use super::{ARGUED, HEATING, MATCHED};
+use super::ARGUED;
 use crate::admit::AdmittedSpec;
 use crate::digest::ExecutionDigest;
 use crate::manifest::{FlowManifest, Invariant};
@@ -304,11 +317,10 @@ pub(super) fn resolve(
     Ok(resolved)
 }
 
-/// A valuation as a connection memo key and a document state it: `matches`, `held`, `refuted`,
-/// or `{path, truth}` of a reached node.
+/// A valuation as a connection memo key and a document state it: `held`, `refuted`, or
+/// `{path, truth}` of a reached node.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Fact {
-    Matches,
     Held,
     Refuted,
     Reached(Vec<u32>, bool),
@@ -317,7 +329,6 @@ enum Fact {
 impl Fact {
     fn value(&self) -> Value {
         match self {
-            Self::Matches => json!("matches"),
             Self::Held => json!("held"),
             Self::Refuted => json!("refuted"),
             Self::Reached(path, truth) => json!({"path": path, "truth": truth}),
@@ -326,7 +337,6 @@ impl Fact {
 
     fn valuation(&self) -> Valuation<'_> {
         match self {
-            Self::Matches => Valuation::Matches,
             Self::Held => Valuation::Held,
             Self::Refuted => Valuation::Refuted,
             Self::Reached(path, truth) => Valuation::Reached {
@@ -339,7 +349,6 @@ impl Fact {
     /// The valuation in words, for a failure's detail.
     fn text(&self) -> String {
         match self {
-            Self::Matches => "its left-hand side matches".to_owned(),
             Self::Held => "its condition holds".to_owned(),
             Self::Refuted => "its condition is refuted".to_owned(),
             Self::Reached(path, truth) => format!(
@@ -353,48 +362,68 @@ impl Fact {
     }
 }
 
+/// Why the facts of an argued item are not read.
+enum Unread {
+    /// The definition gives the item no fact a run's records can show (no guard skeleton, for
+    /// one): the connection is undecided, with this cause.
+    Facts(String),
+    /// A fact names its rule otherwise than by `UNIQUE_ID`, or is of a kind its family never
+    /// gives: kink-flow's own error, which refuses the command (`internal-error`).
+    Internal(String),
+}
+
 /// The facts of a run's records that cover the argued item `item` of family `family` of the
 /// derived document `probe`, each as an axiom and its valuation (module documentation, "The
-/// connection"), or why none can be read.
+/// connection").
 fn facts(
     probe: &Value,
     spec: &AdmittedSpec,
     family: &str,
     item: &Value,
-) -> Result<Vec<(String, Fact)>, String> {
+) -> Result<Vec<(String, Fact)>, Unread> {
     let mut facts = Vec::new();
-    let mut add = |axiom: &RuleRef, fact: Fact| {
-        if let RuleRef::UniqueId(axiom) = axiom {
+    let mut add = |axiom: &RuleRef, fact: Fact| match axiom {
+        RuleRef::UniqueId(axiom) => {
             let entry = (axiom.clone(), fact);
             if !facts.contains(&entry) {
                 facts.push(entry);
             }
+            Ok(())
         }
+        other => Err(Unread::Internal(format!(
+            "a fact of `{}` names its rule as {other:?}, not by its UNIQUE_ID",
+            item["id"].as_str().unwrap_or("?")
+        ))),
+    };
+    let unexpected = |fact: &CoverageFact| {
+        Unread::Internal(format!(
+            "the {family} item `{}` has the fact {fact:?}, which its family never gives",
+            item["id"].as_str().unwrap_or("?")
+        ))
     };
     if family == "requirements" {
-        for fact in
-            crate::fuzz_goal::requirement_facts(probe, spec, item).map_err(|(_, detail)| detail)?
+        for fact in crate::fuzz_goal::requirement_facts(probe, spec, item)
+            .map_err(|(_, detail)| Unread::Facts(detail))?
         {
-            match fact {
+            match &fact {
                 CoverageFact::GuardNode { rule, node, truth } => {
-                    add(&rule, Fact::Reached(node, truth));
+                    add(rule, Fact::Reached(node.clone(), *truth))?;
                 }
                 CoverageFact::GuardOutcome { rule, held } => {
-                    add(&rule, if held { Fact::Held } else { Fact::Refuted });
+                    add(rule, if *held { Fact::Held } else { Fact::Refuted })?;
                 }
-                _ => {}
+                _ => return Err(unexpected(&fact)),
             }
         }
     } else {
-        // A rule matched and never fired is covered where its condition holds; one never matched
-        // where its left-hand side matches first.
-        let status = item.get("unargued_status").unwrap_or(&item["status"]);
-        let matched = status == MATCHED;
-        let fired = crate::fuzz_goal::rule_facts(spec, item).map_err(|(_, detail)| detail)?;
-        debug_assert!(item["kind"] != HEATING || fired.len() <= 1);
-        for fact in fired {
-            if let CoverageFact::Fired { rule, .. } = fact {
-                add(&rule, if matched { Fact::Held } else { Fact::Matches });
+        // A rules item is covered by a firing of the rule: a step, where the left-hand side
+        // matches and the condition holds, whatever the rule's status.
+        for fact in
+            crate::fuzz_goal::rule_facts(spec, item).map_err(|(_, detail)| Unread::Facts(detail))?
+        {
+            match &fact {
+                CoverageFact::Fired { rule, .. } => add(rule, Fact::Held)?,
+                _ => return Err(unexpected(&fact)),
             }
         }
     }
@@ -452,7 +481,7 @@ impl Answer {
 struct Question {
     item: String,
     invariant: String,
-    facts: Result<Vec<(String, Fact)>, String>,
+    facts: Result<Vec<(String, Fact)>, Unread>,
 }
 
 /// The connection of each argued item of the derived document `probe` whose entry names an
@@ -511,6 +540,7 @@ pub(super) fn connections(
     let ask = |definition: &BackendDefinition, solver: &dyn SmtSolver| {
         let mut checks = Map::new();
         let mut refused = Vec::new();
+        let mut internal = Vec::new();
         for question in &questions {
             let Some((invariant, _)) = resolved.get(&question.invariant) else {
                 continue;
@@ -520,7 +550,11 @@ pub(super) fn connections(
                 cells: &invariant.cells,
             };
             let connection = match &question.facts {
-                Err(reason) => undecided(&format!(
+                Err(Unread::Internal(error)) => {
+                    internal.push(error.clone());
+                    continue;
+                }
+                Err(Unread::Facts(reason)) => undecided(&format!(
                     "no fact of a run's records covers the item: {reason}"
                 )),
                 Ok(facts) => {
@@ -548,7 +582,7 @@ pub(super) fn connections(
                             continue;
                         }
                         let unknowns = Cell::new(0);
-                        match connection(
+                        match rule_connections(
                             definition,
                             solver,
                             axiom,
@@ -556,10 +590,13 @@ pub(super) fn connections(
                             Some(asked),
                             &unknowns,
                         ) {
-                            Ok(connection) => {
+                            Ok(rules) => {
+                                // Kept only where every rule's own answer is one the memo keeps.
+                                let keep = rules.iter().all(kept);
+                                let connection = combined_rules(rules);
                                 let answer = Answer::of(&connection, unknowns.get());
                                 if let (Some(key), Some(path)) = (&key, &path)
-                                    && connection != Connection::Undecided(Undecided::Stopped)
+                                    && keep
                                 {
                                     memo::write_connection(&store, path, key, &answer.record());
                                 }
@@ -586,10 +623,18 @@ pub(super) fn connections(
                 json!({"invariant": question.invariant, "connection": connection}),
             );
         }
-        Ok::<_, BackendError>((checks, refused))
+        Ok::<_, BackendError>((checks, refused, internal))
     };
     match backend.with_solver(None, ask) {
-        Ok((_, refused)) if !refused.is_empty() => Err(AdmissionRefusal {
+        Ok((_, _, internal)) if !internal.is_empty() => Err(AdmissionRefusal {
+            stage: "coverage".into(),
+            reason: "internal-error".into(),
+            detail: format!(
+                "kink-flow cannot state an argued item's connection: {}",
+                internal.join("; ")
+            ),
+        }),
+        Ok((_, refused, _)) if !refused.is_empty() => Err(AdmissionRefusal {
             stage: "coverage".into(),
             reason: "invariant-unresolved".into(),
             detail: format!(
@@ -598,7 +643,7 @@ pub(super) fn connections(
                 refused.join("; ")
             ),
         }),
-        Ok((checks, _)) => Ok(Value::Object(checks)),
+        Ok((checks, _, _)) => Ok(Value::Object(checks)),
         // The backend asked nothing: every connection is undecided, with its cause.
         Err(error) => Ok(Value::Object(
             questions
@@ -615,6 +660,20 @@ pub(super) fn connections(
                 .collect(),
         )),
     }
+}
+
+/// Whether the connection memo keeps `connection`, one rule's answer to a fact's question: a
+/// connected or not connected one, a function of the key's inputs, and an `Unknown` the solver
+/// answered within the key's bounds. An answer the build's profile, a solver failure, a failed
+/// simplification, a stop, an approximate model or an instance not shown gave is not kept: it is
+/// asked again. A fact's answer is kept only where each rule's answer is.
+fn kept(connection: &Connection) -> bool {
+    matches!(
+        connection,
+        Connection::Connected
+            | Connection::NotConnected
+            | Connection::Undecided(Undecided::SolverUnknown(_))
+    )
 }
 
 /// An undecided connection that asked nothing, for `reason`.

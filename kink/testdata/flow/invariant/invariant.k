@@ -48,6 +48,12 @@ module INVARIANT
   rule ordered(A, B) => A <=Int B
   syntax Int ::= gap(Int, Int) [function, total, symbol(gap)]
   rule gap(A, B) => B -Int A
+  // The same order under another function, and a claim false of every state, which therefore
+  // excludes everything.
+  syntax Bool ::= orderedToo(Int, Int) [function, total, symbol(orderedToo)]
+  rule orderedToo(A, B) => A <=Int B
+  syntax Bool ::= never(Int) [function, total, symbol(never)]
+  rule never(A) => A <Int A
 
   rule [readz]:    <k> read(A) => .K ... </k> <memory> (A |-> _) _ </memory> <romEnd> E </romEnd>
     requires notBool inRom(E, A)

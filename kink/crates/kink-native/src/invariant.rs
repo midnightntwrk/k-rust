@@ -247,7 +247,8 @@ impl std::error::Error for Refusal {}
 /// solver answers adds one to `undecided`.
 ///
 /// One rule not connected makes the axiom not connected; otherwise one undecided rule makes it
-/// undecided, with the first such rule's cause in the rewrite theory's order.
+/// undecided, with the first such rule's cause in the rewrite theory's order
+/// ([`rule_connections`] gives each rule's answer).
 ///
 /// # Errors
 ///
@@ -261,6 +262,43 @@ pub fn connection(
     invariant: Option<Invariant<'_>>,
     undecided: &Cell<usize>,
 ) -> Result<Connection, Refusal> {
+    Ok(combined(rule_connections(
+        definition, solver, axiom, valuation, invariant, undecided,
+    )?))
+}
+
+/// The answer of [`connection`] from the answers of an axiom's rules: not connected where one
+/// is, else undecided with the first undecided cause, else connected.
+#[must_use]
+pub fn combined(answers: Vec<Connection>) -> Connection {
+    let mut first_undecided = None;
+    for answer in answers {
+        match answer {
+            Connection::Connected => {}
+            Connection::NotConnected => return Connection::NotConnected,
+            Connection::Undecided(cause) => {
+                first_undecided.get_or_insert(cause);
+            }
+        }
+    }
+    first_undecided.map_or(Connection::Connected, Connection::Undecided)
+}
+
+/// The answer of [`connection`] at each rewrite rule of `definition` whose `UNIQUE_ID` is
+/// `axiom`, in the rewrite theory's order, up to and including the first rule not connected,
+/// which decides the axiom: a caller that keeps an answer can judge each rule's apart.
+///
+/// # Errors
+///
+/// As [`connection`].
+pub fn rule_connections(
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    axiom: &str,
+    valuation: Valuation<'_>,
+    invariant: Option<Invariant<'_>>,
+    undecided: &Cell<usize>,
+) -> Result<Vec<Connection>, Refusal> {
     let rules = definition
         .rewrite_theory()
         .values()
@@ -273,25 +311,24 @@ pub fn connection(
         return Err(Refusal::NoRule(axiom.to_owned()));
     }
     let inhabitation = Inhabitation::of(definition);
-    let mut first_undecided = None;
+    let mut answers = Vec::new();
     for rule in &rules {
         let question = question(definition, rule, valuation, invariant)?;
-        match decide(
+        let answer = decide(
             definition,
             solver,
             &inhabitation,
             &rule.lhs,
             &question,
             undecided,
-        ) {
-            Connection::Connected => {}
-            Connection::NotConnected => return Ok(Connection::NotConnected),
-            Connection::Undecided(cause) => {
-                first_undecided.get_or_insert(cause);
-            }
+        );
+        let decides = answer == Connection::NotConnected;
+        answers.push(answer);
+        if decides {
+            break;
         }
     }
-    Ok(first_undecided.map_or(Connection::Connected, Connection::Undecided))
+    Ok(answers)
 }
 
 /// `F(t₁, …, tₙ) = true ∧ V` for `rule` (module documentation).
