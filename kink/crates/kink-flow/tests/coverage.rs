@@ -1579,7 +1579,7 @@ text = 'h(opaque(1), 2)'
         // seventh names each horizon's opening; its eighth reads the unique-cause selection; its
         // ninth lists the heating rules in the rules family.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 9);
+        assert_eq!(document["version"], 10);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2289,7 +2289,7 @@ endmodule
         // because a record's bindings hold the alternatives a fired instance took and only the
         // operand heads of variables the axiom reads. v20, because a record's coverage holds the
         // heating and cooling rules it matched and fired by id.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v21");
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v22");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

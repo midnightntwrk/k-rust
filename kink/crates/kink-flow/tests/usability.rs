@@ -647,7 +647,7 @@ text = 'h(opaque(1), 2)'
         // U8 stage 4b: version 25 names cells inside `?` and `*` cells in `result`.
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`.
-        assert_eq!(document["version"], 35);
+        assert_eq!(document["version"], 36);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],
