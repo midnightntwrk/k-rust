@@ -117,6 +117,11 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// crashes occur (fix round S-E), and `totals.first-outside-determinism`, the first case a re-run may differ
 /// at (S3). A version-9 reader refuses the new fields, and `--replay` refuses a version-9
 /// witness by its version.
+///
+/// Within version 10 (CS-8): a campaign's target may be of kind `coverage`
+/// ([`crate::target::CoverageTarget`], `facts`), whose climb parameters name `condition-rules`
+/// `fact-rules-and-keyed-predecessors`; the report of every other target is unchanged. A reader
+/// of the earlier version-10 reports refuses the new kind.
 pub const REPORT_VERSION: u32 = 10;
 
 /// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
@@ -803,7 +808,8 @@ pub struct ClimbParameters {
     /// `target-and-keyed-predecessors` for a rule target (the target and its direct
     /// predecessors in the rule graph whose right-hand side keys the head of `<k>`, or all of
     /// them when none does), `none` for an observer target, whose score reads the observer's
-    /// progress instead.
+    /// progress instead, and `fact-rules-and-keyed-predecessors` for a coverage target (the
+    /// rewrite rules its facts name and their keyed predecessors).
     pub condition_rules: String,
     /// The most condition entries recorded per rule and run (no rule is recorded under
     /// `condition-rules` `none`).

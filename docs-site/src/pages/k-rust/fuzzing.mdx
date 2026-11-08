@@ -6,6 +6,7 @@ This guide is for an author, a person or an LLM agent, who has a K definition an
 
 - **Kill a survivor.** A mutation of the definition survives because no test program tells it apart from the definition. Find an input on which the two give different results.
 - **Reach an unmatched rule.** No test program matches some rule (its run never begins to decide the rule's condition). Find an input whose run does.
+- **Cover an open obligation.** `coverage` lists an obligation no test program covers: a guard no program refuted, an operand never seen `false`, a production no step touched, a position no run heated. Find an input whose run covers it.
 - **Hit a pattern.** You want a program that gets into some situation (a division by zero about to run, a balance above a limit). Find an input whose run reaches a configuration matching a K pattern.
 
 You do not hand the tool a blank page. You give it a program you already have, with some of its literals marked as *holes*, and the tool searches for hole values that do the job.
@@ -261,7 +262,7 @@ kink-flow coverage FLOW.toml > coverage.json
   },
   "targets": [
     { "item": "rule:!__IMP-SYNTAX_BExp_BExp:heat:1", "file": "imp.k", "line": 17,
-      "pattern": null, "fuzz": null },
+      "pattern": null, "fuzz": "…--cover 'rule:!__IMP-SYNTAX_BExp_BExp:heat:1'" },
     { "item": "rule:imp.k:47", "file": "imp.k", "line": 47,
       "pattern": "<k> - I1:Int ...</k>", "fuzz": "…--matched imp.k:47" },
     { "item": "rule:imp.k:50", "file": "imp.k", "line": 50,
@@ -274,7 +275,7 @@ kink-flow coverage FLOW.toml > coverage.json
 
 The rules family also has one heating item per argument position that a `strict` or `seqstrict` attribute names: the compile turns each position into a heating rule, which moves a subterm that is not yet a result to the front of the computation, and the item is covered where some run did so.
 `imp.k` has ten such positions (`counts.heating`), and the corpus's runs heat all of them but the operand of `!`, which no program uses, so the fourth unmatched item is that heating rule, `rule:!__IMP-SYNTAX_BExp_BExp:heat:1` on line 17.
-Its target has no `pattern` and no `fuzz` job: the fuzz's rule jobs target authored rules, and a program that reaches rule 50 with an operand to evaluate covers it too (below).
+Its target has no `pattern`, and its `fuzz` job is `--cover` with the item's id ("Cover an open obligation", below); a program that reaches rule 50 with an operand to evaluate covers it too.
 
 Each authored rule's target has a `pattern`, the rule's left-hand side as a `PATTERNS.toml` pattern, with the sorts the rule's parse inferred for its variables and in the `<k>` cell where the rule runs, so `query` can check whether a program reaches it and `fuzz --pattern` can look for one.
 Name the rule by `FILE:LINE`, as a `coverage` target spells it (a label works too, but these rules have none):
@@ -339,8 +340,35 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template bang-holes --matched imp.k:50
 ```
 
 kink counts a program as matching or firing a rule only when its run on every path ends in values kink can compare, so the witness must end naturally, on every path, in data.
-Only rewrite rules can be targets: a function's equation is refused before any case (`equation-target`), although `coverage` lists it; write a program that calls the function and target a rewrite rule that uses its result.
+`--matched` and `--fired` target rewrite rules only: a function's equation is refused before any case (`equation-target`), although `coverage` lists it; its target's job is `--cover` with its id, which looks for a program in whose run the equation gives a result.
 Which rules coverage is meant to cover, and which rule targets are not built yet, are stated in [kink's README, section "What coverage covers"](https://github.com/midnightntwrk/k-rust/blob/main/kink/README.md#what-coverage-covers): an `unmatched` simplification, `symbolic` or ceil equation is out of scope and needs no witness.
+
+## Cover an open obligation
+
+Beside the rules, `coverage` lists the requirements of each guard (each operand seen `true` and `false`, the condition held and refuted), the productions of the specification's own sorts, and the heating rules, and gives each open one a target.
+Every such target, but a unique-cause requirement's (a pair of entries covers it, which no one run states), has a `fuzz` job: `--cover` with the obligation's id.
+The impu corpus never heats the operand of `!`, never divides by zero (`requirement:imp.k:45:refuted`, the refutation of rule 45's `I2 =/=Int 0`), and never builds `- I`:
+
+```sh
+cd /tmp/fuzz-impu
+kink-flow coverage FLOW.toml --tier 1 > coverage.json
+kink-flow fuzz FLOW.toml TEMPLATES.toml --template bang-holes --cover 'rule:!__IMP-SYNTAX_BExp_BExp:heat:1' --cases 100 > heat.json
+```
+
+```json
+{
+  "stopped": null,
+  "job": { "kind": "cover", "item": { "id": "rule:!__IMP-SYNTAX_BExp_BExp:heat:1", "family": "rules", "kind": "heating", "facts": 1 } },
+  "program": { "id": "bang-holes-fz-3feceba6", "confirmed": true },
+  "attempts": [{ "confirmation": { "confirmed": true, "status": "covered", "reason": "listed" } }]
+}
+```
+
+The job states the obligation as the facts of a run's records that cover it, any one of which suffices: for a requirement, its operand reached with the missing truth (or the condition held or refuted); for a production, a step that takes it as an operand, inspects it or builds it; for a heating rule or a rule, its step.
+The search reads the records `coverage` reads (k-rust's guard outcomes, bindings and steps), and its distance is how near they come to a fact: how far the guard's recorded truths are from the valuation that reaches the operand, or the bound values from the wanted ones; the climb follows it beside blind sampling.
+kink's own `coverage` on the fragment confirms the program covers the obligation (`covered`), and, as for a rule job, only a program whose run on every path ends in values counts.
+`--refuted RULE` is `--cover` of `requirement:<RULE's name>:refuted`, with `RULE` named as for `--matched`.
+A krs front end's field value (`syntax:crate::decode_ld:r=2`) is covered by a run whose instance of the template's sentence binds an encoding the item lists (its `binder`).
 
 ## Hit a pattern
 
