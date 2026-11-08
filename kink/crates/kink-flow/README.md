@@ -373,7 +373,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | Command | It asks | 1 (a finding) | 3 (no answer) |
 | --- | --- | --- | --- |
 | `check` | whether every verdict the corpus promises is possible before any mutant runs | a program every baseline run of which is `excluded`, or a baseline without data (`spec.baseline_findings`) | none |
-| `coverage` | what the corpus covers, whether each program's baseline run can count, and whether it meets its expectation | an `unmet` expectation; a needless argument (an argued item a program covers, or that is no obligation); under `--locked`, a coverage lock the command would change (an open obligation is no finding) | a program that is `timeout` or `unknown` (a `comparable-prefix` program is an answer); an `inconclusive` expectation |
+| `coverage` | what the corpus covers, whether each program's baseline run can count, and whether it meets its expectation | an `unmet` expectation; a needless argument (an argued item a program covers, or that is no obligation); under `--locked`, a coverage lock the command would change (an open obligation is no finding) | a program that is `timeout` or `unknown` (a `comparable-prefix` program is an answer); an `inconclusive` expectation; an argued item whose standing is `unchecked` ("Argued obligations") |
 | `run` | each selected mutation's verdict, and whether it is the verdict the mutation expects | an `unmet` expectation (`expect`, "`MUTATIONS.toml`"), with or without `--locked`; under `--locked`, a lock the run would change (a stored record that differs from the live value, as a `--verify` mismatch is); a verdict alone is no finding: `killed`, `survived`, `equivalent` and `unkillable` are answers | a mutation that is `timeout` or `unknown`; an `inconclusive` expectation |
 | `report` | what the last `run` answered | as that run | as that run |
 | `query` | whether each program reaches a state matching each pattern | a refuted claim (`no` for a program the pattern claims) | an `unknown` answer |
@@ -909,12 +909,19 @@ invariant = "memory-outside-rom"
 
 - A `[[coverage.invariant]]` table has exactly `name`, unique among the tables, `function`, a Bool function of the cells compiled into the baseline definition, and `cells`, the cells it reads, one per parameter, nonempty and without repeats; an entry's `invariant` names a table the manifest declares.
   Entries share an invariant by its name.
-- An invariant argues `rule:` and `requirement:` items of rewrite rules: it is a property of states, and an item's argument rests on it through the rule's left-hand side, a whole configuration whose cells the invariant reads.
-  An entry that names one on any other item is refused at stage `coverage`, reason `argued-invariant-unsupported`, naming each such item with what it is (`equation`, whose left-hand side binds a function's arguments, not cells; or its family: a syntax item, a rule window, a syntax path or a flip is no single left-hand side with a valuation, and a flip changes the definition, of whose runs an invariant of the baseline says nothing).
+- An invariant argues the `rule:` items of rewrite rules and their held, refuted and node requirements: it is a property of states, and an item's argument rests on it through the rule's left-hand side, a whole configuration whose cells the invariant reads, with the valuation that defines the item.
+  An entry that names one on any other item is refused at stage `coverage`, reason `argued-invariant-unsupported`, naming each such item with what it is:
+  `equation`, whose left-hand side binds a function's arguments, not cells;
+  `out-of-scope`, `claim-helper` or `no-coverage-signal`, a rule that is no obligation, or a requirement of one;
+  `mcdc`, a unique-cause requirement, whose obligation is a pair of runs showing one operand's independent effect, not a valuation at one left-hand side;
+  `syntax`, `rule_windows` or `syntax_paths`, none of which is one left-hand side with a valuation;
+  `flip`, which changes the definition, of whose runs an invariant of the baseline says nothing.
 - A table no entry names is refused at stage `coverage`, reason `invariant-unused`: it would be resolved and checked on no item's behalf.
+  Where both apply, the first refusal also names the tables that only its refused entries name, which removing those entries' `invariant` would leave unused, so that one run names both.
 - Each argued item has `argument_check`, what its argument rests on, and its `standing`: `text` where its entry names no invariant (`{standing: "text"}`); under an invariant, `{invariant, standing, connection, evidence, proof}`.
   The standings are `text`, `connected` (the connection holds and the evidence is vacuous), `checked-on-runs` (both hold), `proved` (also a proof) and `unchecked` (a check did not decide).
   This build runs no check of an invariant: an item under one is `unchecked`, its `connection` and `evidence` `{status: "not-run"}` and its `proof` null, and it stays `argued`.
+  An `unchecked` item makes `coverage` exit 3: a corpus whose argument rests on an invariant no check decided is done only by its own claim, so the answer is inconclusive.
   An item argued by a part (`argued_by`) has the part's `argument_check`.
 - `summary.argued_by_standing` counts the argued items by standing, `{text, connected, checked_on_runs, proved, unchecked}`, adding up to `summary.argued`; `summary.failed_arguments` lists the arguments a check refuted, none while no check runs.
 - The text rendering states each argued item's standing, and its invariant where it names one: `  requirement:x:held [unchecked, invariant never-halted]: <argument>`.
