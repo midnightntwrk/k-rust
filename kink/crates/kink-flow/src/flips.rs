@@ -16,7 +16,10 @@
 //!   admission, which a definition's tests pin to zero.
 //! - `unreached`: no comparable program reached any occurrence of the flipped atom (below), so
 //!   the corpus cannot distinguish the flip, and no mutant runs.
-//! - `distinguished`: the kill search killed the mutant, with its `killer`.
+//! - `distinguished`: the kill search killed the mutant, with its `killer`: the coverage lock's
+//!   recorded killer while it still kills, else the first killing program in the search's order
+//!   ([`crate::lock`]; `recorded_killer`, and `killer_change` saying why the killer is not the
+//!   recorded one).
 //! - `undistinguished`: the search ran the mutant on every comparable program and none
 //!   distinguished it.
 //! - `equivalent`: kink proves no program can distinguish the mutant (an `equivalent` or
@@ -350,6 +353,8 @@ pub fn fill_from_row(item: &mut Value, row: &Value) {
     item["digest"] = row["digest"].clone();
     item["killer"] = row["killer"].clone();
     item["killer_source"] = row["killer_source"].clone();
+    item["recorded_killer"] = row["recorded_killer"].clone();
+    item["killer_change"] = row["killer_change"].clone();
     item["witnesses"] = row["witnesses"].clone();
     let executed = row["executed"].as_array().map_or(&[][..], Vec::as_slice);
     item["live_runs"] = json!(
@@ -381,6 +386,8 @@ pub fn item_value(entry: &DerivedEntry, occurrences: Vec<Value>) -> Value {
         "digest": null,
         "killer": null,
         "killer_source": null,
+        "recorded_killer": null,
+        "killer_change": null,
         "witnesses": null,
         "waits_on": [],
         "live_runs": 0,

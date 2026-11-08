@@ -1,5 +1,6 @@
 //! The killer record, `verdicts.lock` (`run --lock FILE`): one recorded killer per killed
-//! mutation, kept while it still kills.
+//! mutation, kept while it still kills; and the coverage lock, `coverage.lock` (`coverage --lock
+//! FILE`), one recorded killer per distinguished flip by the same rule ([`LockKind`]).
 //!
 //! The record is an input. A run reads one fact from it: for each mutation id, the program id it
 //! names as killer, which the search tries first ([`crate::search`], tier 2). Every status still
@@ -20,6 +21,19 @@
 //! `status` and `reason`, when they are strings, are read only to report what changed. A version-5
 //! lock has no `killer` lines, so it records no killer. A file that is not TOML, has another
 //! schema or document, or repeats an id does not decode, and the run is refused ([`Lock::read`]).
+//!
+//! # The coverage lock
+//!
+//! A coverage lock is the same record over a `coverage` document ([`LockKind::Coverage`]): its
+//! text is the coverage verdicts rendering, `document` is `coverage`, and its rows are the flips
+//! (`[[flip]]`), each with its `id`, `status`, a refused flip's `reason` and a distinguished flip's
+//! `killer`. A flip's killer is a mutation's killer under another name: the flip's mutant is run
+//! by the kill search `run` makes ([`crate::search`]), keyed by the flip's id, so the recorded
+//! killer is tried first and kept while it still kills, else the first killing program in the
+//! search's order. The rendering also lists each family's open obligations (`[rules] open`,
+//! `[requirements] open`), which are read only to report what changed, as a row's status is.
+//! Its header is what comes before the first family: the schema, version, profile and build lines,
+//! the specification and the settings.
 
 use crate::verdicts::{VERDICTS_SCHEMA, lock_text};
 use kink_corpus::Store;
@@ -34,18 +48,100 @@ use std::{
 /// `run --lock` (kink-flow itself has no default path).
 pub const LOCK_FILE: &str = "verdicts.lock";
 
+/// The coverage lock's file name in a corpus directory, the path the krs front end gives
+/// `coverage --lock` (kink-flow itself has no default path).
+pub const COVERAGE_LOCK_FILE: &str = "coverage.lock";
+
+/// Which document a lock records: a run's verdicts (`verdicts.lock`), one row per mutation, or a
+/// coverage command's (`coverage.lock`), one row per flip (module documentation).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LockKind {
+    /// `run --lock`: `document = "run"`, `[[mutation]]` rows.
+    #[default]
+    Run,
+    /// `coverage --lock`: `document = "coverage"`, `[[flip]]` rows.
+    Coverage,
+}
+
+impl LockKind {
+    /// The `document` a lock of this kind names.
+    #[must_use]
+    pub const fn document(self) -> &'static str {
+        match self {
+            Self::Run => "run",
+            Self::Coverage => "coverage",
+        }
+    }
+
+    /// The name of a row's table (`[[mutation]]`, `[[flip]]`).
+    #[must_use]
+    pub const fn row(self) -> &'static str {
+        match self {
+            Self::Run => "mutation",
+            Self::Coverage => "flip",
+        }
+    }
+
+    /// The file name a corpus directory keeps a lock of this kind under.
+    #[must_use]
+    pub const fn file(self) -> &'static str {
+        match self {
+            Self::Run => LOCK_FILE,
+            Self::Coverage => COVERAGE_LOCK_FILE,
+        }
+    }
+
+    /// The kind of the lock `document`'s rendering is: a coverage document's is a coverage lock,
+    /// every other a run's.
+    fn of(document: &Value) -> Self {
+        if document["schema"] == crate::coverage::COVERAGE_SCHEMA {
+            Self::Coverage
+        } else {
+            Self::Run
+        }
+    }
+
+    /// The rows of `document` a lock of this kind records: a run's mutations, a coverage
+    /// document's flips.
+    fn rows(self, document: &Value) -> &[Value] {
+        let rows = match self {
+            Self::Run => &document["mutations"],
+            Self::Coverage => &document["families"]["flips"]["items"],
+        };
+        rows.as_array().map_or(&[][..], Vec::as_slice)
+    }
+
+    /// What the rendering writes of a row of `document`: `{status, killer, reason}`.
+    fn now(self, row: &Value) -> Value {
+        match self {
+            Self::Run => json!({
+                "status": row["status"],
+                "killer": row["killer"],
+                "reason": crate::verdicts::rendered_reason(row),
+            }),
+            Self::Coverage => crate::verdicts::rendered_flip(row),
+        }
+    }
+}
+
 /// What a lock decodes to: each row's recorded facts, in the file's order.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Lock {
+    /// What the lock records.
+    pub kind: LockKind,
     /// The path the run reads and writes.
     pub path: PathBuf,
     /// The file's text; `None` when the file is absent.
     pub text: Option<String>,
     /// The rows, in the file's order.
     pub rows: Vec<LockRow>,
-    /// The file's header: each key outside its `[[mutation]]` rows (a section's as
-    /// `section.key`) with its value, read only to name what changed ([`header_values`]).
+    /// The file's header: each key outside its rows (a section's as `section.key`, a coverage
+    /// lock's family sections left out) with its value, read only to name what changed
+    /// ([`header_values`]).
     pub header: BTreeMap<String, Value>,
+    /// A coverage lock's open obligations by family (`[rules] open`, ...), read only to report
+    /// what changed; empty for a run's.
+    pub open: BTreeMap<String, Vec<String>>,
 }
 
 /// One `[[mutation]]` of a lock.
@@ -76,14 +172,20 @@ pub struct Settle<'a> {
 const REFUSED_NEXT: &str = "resolve the file, or delete it to start from the search's killers";
 
 impl Lock {
-    /// Read the lock at `path`: an absent file is an empty lock; a file that does not decode is
-    /// the refusal's detail (module documentation).
+    /// Read the run lock (`verdicts.lock`) at `path` ([`Lock::read_kind`]).
     pub fn read(path: &Path) -> Result<Self, String> {
+        Self::read_kind(path, LockKind::Run)
+    }
+
+    /// Read the lock of `kind` at `path`: an absent file is an empty lock; a file that does not
+    /// decode is the refusal's detail (module documentation).
+    pub fn read_kind(path: &Path, kind: LockKind) -> Result<Self, String> {
         let refused = |what: String| format!("{}: {what}; {REFUSED_NEXT}", path.display());
         let text = match fs::read_to_string(path) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self {
+                    kind,
                     path: path.to_path_buf(),
                     ..Self::default()
                 });
@@ -96,27 +198,34 @@ impl Lock {
         if table.get("schema").and_then(toml::Value::as_str) != Some(VERDICTS_SCHEMA) {
             return Err(refused(format!("its schema is not {VERDICTS_SCHEMA:?}")));
         }
-        if table.get("document").and_then(toml::Value::as_str) != Some("run") {
-            return Err(refused(
-                "its document is not \"run\": a lock is the verdicts of a run".to_owned(),
-            ));
+        let document = kind.document();
+        if table.get("document").and_then(toml::Value::as_str) != Some(document) {
+            return Err(refused(match kind {
+                LockKind::Run => {
+                    "its document is not \"run\": a lock is the verdicts of a run".to_owned()
+                }
+                LockKind::Coverage => "its document is not \"coverage\": a coverage lock is the \
+                                       verdicts of a coverage command"
+                    .to_owned(),
+            }));
         }
-        let mutations = match table.get("mutation") {
+        let noun = kind.row();
+        let listed = match table.get(noun) {
             None => &[][..],
             Some(toml::Value::Array(rows)) => rows.as_slice(),
-            Some(_) => return Err(refused("its mutation is not an array of tables".to_owned())),
+            Some(_) => return Err(refused(format!("its {noun} is not an array of tables"))),
         };
-        let mut rows = Vec::with_capacity(mutations.len());
+        let mut rows = Vec::with_capacity(listed.len());
         let mut seen = BTreeSet::new();
-        for (index, row) in mutations.iter().enumerate() {
+        for (index, row) in listed.iter().enumerate() {
             let Some(row) = row.as_table() else {
-                return Err(refused(format!("mutation {} is not a table", index + 1)));
+                return Err(refused(format!("{noun} {} is not a table", index + 1)));
             };
             let Some(id) = row.get("id").and_then(toml::Value::as_str) else {
-                return Err(refused(format!("mutation {} has no string id", index + 1)));
+                return Err(refused(format!("{noun} {} has no string id", index + 1)));
             };
             if !seen.insert(id.to_owned()) {
-                return Err(refused(format!("the mutation {id:?} is listed twice")));
+                return Err(refused(format!("the {noun} {id:?} is listed twice")));
             }
             let killer = match row.get("killer") {
                 None => None,
@@ -135,11 +244,30 @@ impl Lock {
                 reason: string("reason"),
             });
         }
+        // A coverage lock's open obligations: each family section's `open`, when it is an array
+        // of strings; read only to report what changed.
+        let open = match kind {
+            LockKind::Run => BTreeMap::new(),
+            LockKind::Coverage => table
+                .iter()
+                .filter(|(family, _)| crate::coverage::FAMILIES.contains(&family.as_str()))
+                .filter_map(|(family, section)| {
+                    let ids = section.get("open")?.as_array()?;
+                    let ids = ids
+                        .iter()
+                        .map(|id| id.as_str().map(str::to_owned))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some((family.clone(), ids))
+                })
+                .collect(),
+        };
         Ok(Self {
+            kind,
             path: path.to_path_buf(),
             text: Some(text),
             rows,
-            header: header_values(&table),
+            header: header_values(&table, kind),
+            open,
         })
     }
 
@@ -190,13 +318,15 @@ impl Lock {
             let reason = if refused { "refused" } else { "stopped" };
             return (self.not_written(reason), true);
         }
-        let Ok(text) = lock_text(document) else {
-            return (self.not_written("refused"), true);
+        let text = match lock_text(document) {
+            Ok(text) if LockKind::of(document) == self.kind => text,
+            _ => return (self.not_written("refused"), true),
         };
+        let kind = self.kind;
         let header = self
             .text
             .as_deref()
-            .is_none_or(|old| head(old) != head(&text));
+            .is_none_or(|old| head(kind, old) != head(kind, &text));
         let header_changes = self.header_changes(&text);
         let changes = self.changes(document, run.only);
         // Under `--only` the rows it did not select may differ from the file's: only the selected
@@ -206,8 +336,9 @@ impl Lock {
         } else {
             Value::Null
         };
+        let open = (kind == LockKind::Coverage).then(|| self.open_changes(document));
         let value = |status: &str, reason: Option<&str>, header: bool, changes: Vec<Value>| {
-            json!({
+            let mut value = json!({
                 "path": path,
                 "status": status,
                 "reason": reason,
@@ -215,7 +346,11 @@ impl Lock {
                 "header_changes": header_changes,
                 "changes": changes,
                 "difference": difference,
-            })
+            });
+            if let Some(open) = &open {
+                value["open_changes"] = json!(open);
+            }
+            value
         };
         if run.locked {
             let differs = if run.only.is_empty() {
@@ -273,10 +408,11 @@ impl Lock {
             (order, ids)
         };
         let (old_order, old_set) = ids(&mut self.rows.iter().map(|row| row.id.clone()));
-        let rendered = Lock::read_text(text);
+        let rendered = Lock::read_text(text, self.kind);
         let (new_order, new_set) = ids(&mut rendered.into_iter());
         if old_order != new_order && old_set == new_set {
-            let (old_ids, new_ids) = (id_lines(old), id_lines(text));
+            let row = self.kind.row();
+            let (old_ids, new_ids) = (id_lines(old, row), id_lines(text, row));
             let first = old_order.iter().zip(&new_order).position(|(a, b)| a != b);
             if let Some(((line, recorded), (_, now))) =
                 first.and_then(|at| old_ids.get(at).zip(new_ids.get(at)))
@@ -307,7 +443,7 @@ impl Lock {
         }
         let now = text
             .parse::<toml::Table>()
-            .map(|table| header_values(&table))
+            .map(|table| header_values(&table, self.kind))
             .unwrap_or_default();
         let mut keys = header_key_order(text);
         keys.retain(|key| now.contains_key(key));
@@ -325,14 +461,14 @@ impl Lock {
             .collect()
     }
 
-    /// The mutation ids of the rendering `text`, in its order; none for a text that does not
-    /// decode, which a rendering always does.
-    fn read_text(text: &str) -> Vec<String> {
+    /// The row ids (mutations, flips) of the rendering `text` of a lock of `kind`, in its order;
+    /// none for a text that does not decode, which a rendering always does.
+    fn read_text(text: &str, kind: LockKind) -> Vec<String> {
         let Ok(table) = text.parse::<toml::Table>() else {
             return Vec::new();
         };
         table
-            .get("mutation")
+            .get(kind.row())
             .and_then(toml::Value::as_array)
             .into_iter()
             .flatten()
@@ -358,29 +494,56 @@ impl Lock {
             .collect::<BTreeMap<_, _>>();
         let mut seen = BTreeSet::new();
         let mut changes = Vec::new();
-        for row in document["mutations"].as_array().into_iter().flatten() {
+        for row in self.kind.rows(document) {
             let id = row["id"].as_str().unwrap_or_default();
             if !selected(id) {
                 continue;
             }
             seen.insert(id.to_owned());
-            let now = json!({
-                "status": row["status"],
-                "killer": row["killer"],
-                "reason": crate::verdicts::rendered_reason(row),
-            });
+            let now = self.kind.now(row);
             let before = recorded.get(id).cloned();
             if before.as_ref() != Some(&now) {
-                changes.push(json!({"mutation": id, "recorded": before, "now": now}));
+                changes.push(json!({self.kind.row(): id, "recorded": before, "now": now}));
             }
         }
         for row in &self.rows {
             if selected(&row.id) && only.is_empty() && !seen.contains(&row.id) {
                 changes.push(json!({
-                    "mutation": row.id,
+                    self.kind.row(): row.id,
                     "recorded": recorded[row.id.as_str()],
                     "now": null,
                 }));
+            }
+        }
+        changes
+    }
+
+    /// Each obligation of a coverage lock whose openness differs between the lock and `document`:
+    /// `{family, obligation, recorded, now}`, each side `"open"` where that side lists it open and
+    /// null where it does not (it is covered, or no longer an obligation), in family order, then
+    /// the document's order, then the lock's order.
+    fn open_changes(&self, document: &Value) -> Vec<Value> {
+        let now = crate::coverage::open_ids(document)
+            .into_iter()
+            .map(|(family, open)| (family.to_owned(), open))
+            .collect::<BTreeMap<_, _>>();
+        let mut changes = Vec::new();
+        for family in crate::coverage::FAMILIES {
+            let (recorded, current) = (self.open.get(family), now.get(family));
+            let listed = |ids: Option<&Vec<String>>, id: &str| {
+                ids.is_some_and(|ids| ids.iter().any(|open| open == id))
+            };
+            for id in current.into_iter().flatten() {
+                if !listed(recorded, id) {
+                    changes.push(json!({"family": family, "obligation": id,
+                                        "recorded": null, "now": "open"}));
+                }
+            }
+            for id in recorded.into_iter().flatten() {
+                if !listed(current, id) {
+                    changes.push(json!({"family": family, "obligation": id,
+                                        "recorded": "open", "now": null}));
+                }
             }
         }
         changes
@@ -403,10 +566,11 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
     })
 }
 
-/// The header of a decoded lock or rendering: each key outside its `[[mutation]]` rows, a
-/// section's keys as `section.key`, with its value as JSON (a string, an integer or a boolean
+/// The header of a decoded lock or rendering of `kind`: each key outside its rows (`[[mutation]]`,
+/// `[[flip]]`) and, for a coverage lock, outside its family sections (`[rules]`, ...; [`head`]),
+/// a section's keys as `section.key`, with its value as JSON (a string, an integer or a boolean
 /// as itself, any other value as its TOML text).
-fn header_values(table: &toml::Table) -> BTreeMap<String, Value> {
+fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value> {
     let json = |value: &toml::Value| match value {
         toml::Value::String(text) => json!(text),
         toml::Value::Integer(number) => json!(number),
@@ -416,12 +580,15 @@ fn header_values(table: &toml::Table) -> BTreeMap<String, Value> {
     let mut header = BTreeMap::new();
     for (key, value) in table {
         match value {
+            _ if key == kind.row() => {}
+            toml::Value::Table(_)
+                if kind == LockKind::Coverage
+                    && crate::coverage::FAMILIES.contains(&key.as_str()) => {}
             toml::Value::Table(section) => {
                 for (inner, value) in section {
                     header.insert(format!("{key}.{inner}"), json(value));
                 }
             }
-            _ if key == "mutation" => {}
             value => {
                 header.insert(key.clone(), json(value));
             }
@@ -454,15 +621,16 @@ fn header_key_order(text: &str) -> Vec<String> {
     keys
 }
 
-/// The `id` line of each `[[mutation]]` row of a lock's text, in order, with its line number
-/// counted from 1: the first line of the row's table that sets `id`.
-fn id_lines(text: &str) -> Vec<(u64, &str)> {
+/// The `id` line of each `[[<row>]]` row of a lock's text (`[[mutation]]`, `[[flip]]`), in order,
+/// with its line number counted from 1: the first line of the row's table that sets `id`.
+fn id_lines<'t>(text: &'t str, row: &str) -> Vec<(u64, &'t str)> {
+    let table = format!("[[{row}]]");
     let mut lines = Vec::new();
     let mut in_row = false;
     for (number, line) in (1_u64..).zip(text.split('\n')) {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            in_row = trimmed == "[[mutation]]";
+            in_row = trimmed == table;
         } else if in_row
             && trimmed
                 .strip_prefix("id")
@@ -475,9 +643,21 @@ fn id_lines(text: &str) -> Vec<(u64, &str)> {
     lines
 }
 
-/// The lines of a rendering before its first `[[mutation]]`: the header and the `[spec]` section.
-fn head(text: &str) -> &str {
-    text.find("\n[[mutation]]").map_or(text, |end| &text[..end])
+/// The header of a rendering of a lock of `kind`: a run's lines before its first `[[mutation]]`
+/// (the header and the `[spec]` section), a coverage document's before its first family section
+/// or `[[flip]]` (the header, the `[spec]` and the `[settings]`).
+fn head(kind: LockKind, text: &str) -> &str {
+    let end = match kind {
+        LockKind::Run => text.find("\n[[mutation]]"),
+        LockKind::Coverage => text.match_indices("\n[").map(|(at, _)| at).find(|&at| {
+            let line = text[at + 1..].lines().next().unwrap_or_default();
+            line == "[[flip]]"
+                || crate::coverage::FAMILIES.iter().any(|family| {
+                    line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) == Some(family)
+                })
+        }),
+    };
+    end.map_or(text, |end| &text[..end])
 }
 
 /// The run document's `lock` of a lock that does not decode: `{path, outcome: "refused",
@@ -493,25 +673,32 @@ pub fn refused_value(path: &Path, detail: &str) -> Value {
 /// "7ca2…", now "1f0e…" (another Z3 build) ``), or one saying that the header differs when no
 /// value does (the file is absent, or a comment or spacing differs); then one per row,
 /// `verdicts.lock: plus/a: killer t4 -> t2 (t4: not-in-corpus)`, `verdicts.lock: plus/c:
-/// killed -> survived`; when neither the header nor any row's verdict differs, one line naming
-/// the first difference (`lock.difference`: the rows' order, or a line of text); empty
-/// otherwise.
+/// killed -> survived`, and for a coverage lock one per obligation whose openness differs
+/// (`lock.open_changes`: `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements:
+/// requirement:x:held is no longer open`) before them; when neither the header nor any
+/// obligation nor any row's verdict differs, one line naming the first difference
+/// (`lock.difference`: the rows' order, or a line of text); empty otherwise.
 #[must_use]
 pub fn stale_lines(document: &Value) -> Vec<String> {
     let lock = &document["lock"];
     if lock["status"] != "stale" {
         return Vec::new();
     }
-    let path = lock["path"].as_str().unwrap_or(LOCK_FILE);
+    let kind = LockKind::of(document);
+    let path = lock["path"].as_str().unwrap_or(kind.file());
     let mut lines = Vec::new();
     if lock["header"] == true {
         let header_changes = lock["header_changes"]
             .as_array()
             .map_or(&[][..], Vec::as_slice);
         if header_changes.is_empty() {
+            let first = match kind {
+                LockKind::Run => "its first mutation",
+                LockKind::Coverage => "its first family",
+            };
             lines.push(format!(
                 "{path}: the header differs (the file is absent, or a comment or spacing before \
-                 its first mutation differs)"
+                 {first} differs)"
             ));
         }
         for change in header_changes {
@@ -536,12 +723,15 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             ));
         }
     }
-    let rows = document["mutations"].as_array();
+    let rows = kind.rows(document);
     let changes = lock["changes"].as_array().map_or(&[][..], Vec::as_slice);
-    // A file that differs neither in its header nor in a row's verdict differs in its row order or
-    // its text: the first difference says which.
+    let open = lock["open_changes"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    // A file that differs neither in its header nor in an obligation nor in a row's verdict differs
+    // in its row order or its text: the first difference says which.
     let difference = &lock["difference"];
-    if lock["header"] != true && changes.is_empty() && difference.is_object() {
+    if lock["header"] != true && changes.is_empty() && open.is_empty() && difference.is_object() {
         let side = |value: &Value| {
             value.as_str().map_or_else(
                 || "the end of the file".to_owned(),
@@ -554,10 +744,14 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             side(&difference["recorded"]),
             side(&difference["now"])
         );
+        let (order, written) = match kind {
+            LockKind::Run => ("the mutation list's", "the list's order"),
+            LockKind::Coverage => ("the flips family's", "the family's order"),
+        };
         lines.push(if difference["kind"] == "order" {
             format!(
-                "{path}: its rows are in another order than the mutation list's (first at {at}); \
-                 a run writes them in the list's order"
+                "{path}: its rows are in another order than {order} (first at {at}); a run \
+                 writes them in {written}"
             )
         } else {
             format!(
@@ -566,8 +760,20 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             )
         });
     }
+    for change in open {
+        let (family, id) = (
+            change["family"].as_str().unwrap_or("?"),
+            change["obligation"].as_str().unwrap_or("?"),
+        );
+        let what = if change["now"].is_null() {
+            "is no longer open"
+        } else {
+            "is open"
+        };
+        lines.push(format!("{path}: {family}: {id} {what}"));
+    }
     for change in changes {
-        let id = change["mutation"].as_str().unwrap_or("?");
+        let id = change[kind.row()].as_str().unwrap_or("?");
         let (recorded, now) = (&change["recorded"], &change["now"]);
         let text = |value: &Value| value.as_str().unwrap_or("none").to_owned();
         let line = match (recorded.is_null(), now.is_null()) {
@@ -582,8 +788,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             }
             _ => {
                 let why = rows
-                    .into_iter()
-                    .flatten()
+                    .iter()
                     .find(|row| row["id"] == id)
                     .and_then(|row| row["killer_change"].as_str());
                 let because = match (recorded["killer"].as_str(), why) {
@@ -612,7 +817,7 @@ mod tests {
 
     fn lock(text: &str) -> Lock {
         let path = PathBuf::from("verdicts.lock");
-        let rows = Lock::read_text(text)
+        let rows = Lock::read_text(text, LockKind::Run)
             .into_iter()
             .map(|id| LockRow {
                 id,
@@ -620,10 +825,12 @@ mod tests {
             })
             .collect();
         Lock {
+            kind: LockKind::Run,
             path,
             text: Some(text.to_owned()),
             rows,
-            header: header_values(&text.parse().unwrap()),
+            header: header_values(&text.parse().unwrap(), LockKind::Run),
+            open: BTreeMap::new(),
         }
     }
 

@@ -1541,9 +1541,9 @@ text = 'h(opaque(1), 2)'
         assert_eq!(rules(&document)[0]["id"], "rule:loop.k:19");
         // The coverage document's first version replaced the results document's version 11; its
         // second builds the syntax family; its third runs the flips family where a front end
-        // derives the flips.
+        // derives the flips; its fourth has the coverage lock and each flip's recorded killer.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 3);
+        assert_eq!(document["version"], 4);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

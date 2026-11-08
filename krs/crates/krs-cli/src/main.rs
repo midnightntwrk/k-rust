@@ -273,6 +273,8 @@ The corpus is <package>/kink (or --corpus DIR):
   definition.k      the package's emitted K, which kink judges; written by krs kink
   verdicts.lock     each mutation's verdict and its one recorded killer, which run tries
                     first and keeps while it still kills; written by krs kink run
+  coverage.lock     each family's open obligations, each condition flip's status and its
+                    one recorded killer, kept by the same rule; written by krs kink coverage
   .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
                     holding /.kink-flow/ keeps them out)
 
@@ -291,8 +293,8 @@ The loop:
   3. krs kink run; for each survivor write a case that kills it, or argue that no case
      can and drop the mutation, or keep it with the argument in its misunderstanding
      (its status stays survived); run again (cached outcomes are not re-run)
-  4. commit definition.k and verdicts.lock with the corpus; CI runs krs kink emit --check
-     and krs kink run --locked
+  4. commit definition.k, verdicts.lock and coverage.lock with the corpus; CI runs krs kink
+     emit --check, krs kink run --locked and krs kink coverage --locked
 
 A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
   [[mutation]]
@@ -318,7 +320,10 @@ it, and emit --check exits 2 when it is stale: the gate a CI runs. run of the co
 mutation list (no --mutations) keeps kink/verdicts.lock (kink-flow's --lock; --lock FILE names
 another): it tries each recorded killer first, keeps it while it still kills, and rewrites the
 file after a run of the whole list; under --locked it leaves the file unwritten and exits 1
-when the run would change it. report builds nothing: it
+when the run would change it. coverage keeps kink/coverage.lock (--lock FILE names another) by
+the same rule for the condition flips, and rewrites it after a run with the manifest's own
+settings (not under --tier 1 or --depth); under --locked such a run leaves it unwritten and
+exits 1 when it would change it. report builds nothing: it
 prints the last run's stored document (or its verdicts) as that run printed it, exits as
 that run did, and takes no --locked. run --progress prints a line on stderr as each phase
 starts (the build, the binding, the checks of the list, the specification's admission, the
@@ -330,13 +335,13 @@ Exit status, by what the caller does next, as krs run's (krs --help):
      got a verdict, killed, survived, equivalent or unkillable (run, report), every pattern
      answered (query), the fuzz found a witness or proved the mutant equivalent, verdicts
      are possible (check), definition.k is fresh (emit)
-  1  a finding: a --verify mismatch, a verdicts.lock run --locked would change (run), an
-     unmet expectation (coverage), a refuted pattern claim (query), a case excluded on the
-     baseline or a baseline without data (check)
+  1  a finding: a --verify mismatch, a verdicts.lock or coverage.lock --locked would change
+     (run, coverage), an unmet expectation (coverage), a refuted pattern claim (query), a
+     case excluded on the baseline or a baseline without data (check)
   2  the question could not be asked: a usage error, a package krs refuses, a stale
      definition.k (--locked, emit --check), a refused manifest, specification, case,
-     mutation list, verdicts.lock, mutation, pattern or template, hole values the fuzz
-     mostly rejected, a failed run or cache write
+     mutation list, lock, mutation, pattern or template, hole values the fuzz mostly
+     rejected, a failed run or cache write
   3  no answer: a case or mutation that timed out or is unknown, an inconclusive
      expectation, an unknown pattern answer, a fuzz that ended without a witness kink accepts
 A command with several parts exits 2 when one could not be asked, else 1 when one is a
@@ -554,6 +559,11 @@ fn kink_verb_help(verb: &str) -> String {
             "write nothing, and exit 2 when definition.k is not the package's current emission",
         )),
         "report" => {}
+        "coverage" => own.push(option(
+            "--locked",
+            "refuse a stale kink/definition.k instead of writing it, and leave coverage.lock \
+             unwritten, exiting 1 when the lock of a run with the manifest's settings would differ",
+        )),
         "run" => own.push(option(
             "--locked",
             "refuse a stale kink/definition.k instead of writing it, and leave verdicts.lock \

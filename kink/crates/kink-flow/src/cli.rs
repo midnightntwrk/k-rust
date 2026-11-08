@@ -68,8 +68,8 @@ macro_rules! usage_line {
     () => {
         "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
          MUTATIONS] [--cache DIR] | kink-flow \
-         coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR] \
-         [--output json|text|verdicts] | kink-flow run \
+         coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE [--locked]] \
+         [--cache DIR] [--output json|text|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
          [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
@@ -374,7 +374,20 @@ const COVERAGE_OPTIONS: &[VerbOption] = &[
         "1: the families read from the baseline runs, no mutant run; 2 (the default): also the \
          condition flips, where the front end derives them",
     ),
+    option(
+        "--depth N",
+        "count sequences of length N instead of [coverage] depth (the lock is left unwritten)",
+    ),
     VERIFY,
+    option(
+        "--lock FILE",
+        "the coverage lock: try each flip's recorded killer first, and rewrite FILE after a run \
+         with the manifest's own settings",
+    ),
+    option(
+        "--locked",
+        "with --lock: write nothing, and exit 1 when the run would change FILE",
+    ),
     CACHE,
     option(
         "--output json|text|verdicts",
@@ -604,8 +617,8 @@ impl Verb {
         match self {
             Self::Check => "check FLOW.toml [--mutations MUTATIONS] [--cache DIR]",
             Self::Coverage => {
-                "coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR] [--output \
-                 json|text|verdicts]"
+                "coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE \
+                 [--locked]] [--cache DIR] [--output json|text|verdicts]"
             }
             Self::Run => {
                 "run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] [--lock FILE \
@@ -1190,11 +1203,7 @@ pub fn run_command(
             }
         },
         FlowCommand::Coverage { options, .. } => {
-            // The derived part reads the rules as the front end named them, so it follows the
-            // annotation; `derive` and the annotation are idempotent.
-            let (document, ok) = crate::coverage::coverage_front(manifest, options, front);
-            let mut document = front.annotated(document);
-            crate::coverage::derive(&mut document, front.spelling);
+            let (document, ok) = crate::coverage::command(manifest, options, front);
             let status = completed(coverage_status(&document), ok);
             (document, status)
         }
@@ -1361,7 +1370,7 @@ fn baseline_status(row: &Value) -> u8 {
 /// is a disagreement between the flips' generator and an admission, not a fault of the corpus.
 #[must_use]
 pub fn coverage_status(document: &Value) -> u8 {
-    if spec_refused(document) {
+    if spec_refused(document) || document["lock"]["outcome"] == "refused" {
         return EXIT_UNASKED;
     }
     let programs = document["programs"]
@@ -1384,7 +1393,21 @@ pub fn coverage_status(document: &Value) -> u8 {
             }
         })
         .fold(EXIT_YES, exit_join);
-    exit_join(exit_join(programs, flips), mismatch_status(document))
+    exit_join(
+        exit_join(exit_join(programs, flips), mismatch_status(document)),
+        lock_status(document),
+    )
+}
+
+/// The status of a document's lock: [`EXIT_NO`] when `--locked` found the command would change
+/// it (`stale`: a stored record that differs from the live value, as `--verify` reports one),
+/// [`EXIT_UNASKED`] when it could not be written, else [`EXIT_YES`].
+fn lock_status(document: &Value) -> u8 {
+    match document["lock"]["status"].as_str() {
+        Some("stale") => EXIT_NO,
+        Some("not-written") if document["lock"]["reason"] == "write-failed" => EXIT_UNASKED,
+        _ => EXIT_YES,
+    }
 }
 
 /// [`EXIT_NO`] when a document's `mismatches` lists a stored record that differs from the live
@@ -1453,14 +1476,9 @@ pub fn run_status(document: &Value) -> u8 {
             exit_join(status, record_status(row))
         })
         .fold(EXIT_YES, exit_join);
-    let lock = match document["lock"]["status"].as_str() {
-        Some("stale") => EXIT_NO,
-        Some("not-written") if document["lock"]["reason"] == "write-failed" => EXIT_UNASKED,
-        _ => EXIT_YES,
-    };
     exit_join(
         exit_join(exit_join(programs, mutations), mismatch_status(document)),
-        lock,
+        lock_status(document),
     )
 }
 
@@ -1718,15 +1736,49 @@ fn coverage_options(args: &[String]) -> Result<(CoverageOptions, OutputFormat), 
                     _ => return Err(format!("--tier {value:?}: expected 1 or 2")),
                 });
             }
+            "--depth" if options.depth.is_none() => {
+                let value = args.next().ok_or("--depth needs a positive integer")?;
+                options.depth = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("--depth {value:?}: expected a positive integer"))?,
+                );
+            }
             "--verify" if !options.verify => options.verify = true,
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
+            "--lock" if options.lock.is_none() => {
+                let file = args.next().ok_or("--lock needs a file")?;
+                options.lock = Some(PathBuf::from(file));
+            }
+            "--locked" if !options.locked => options.locked = true,
             _ => return Err(repeated(arg)),
         }
     }
     options.tier = tier.unwrap_or_default();
+    if options.locked {
+        // `--locked` asks whether a run with the manifest's own settings writes the lock: a run
+        // that computes no flip, or another depth, cannot answer it.
+        if options.lock.is_none() {
+            return Err("--locked compares the run with its lock: give --lock FILE".to_owned());
+        }
+        if options.tier == Tier::One {
+            return Err(
+                "--locked compares a run of the manifest's own settings with its lock, \
+                        and --tier 1 runs no flip: drop one of them"
+                    .to_owned(),
+            );
+        }
+        if options.depth.is_some() {
+            return Err(
+                "--locked compares a run of the manifest's own settings with its lock, \
+                        and --depth replaces [coverage] depth: drop one of them"
+                    .to_owned(),
+            );
+        }
+    }
     Ok((options, output.unwrap_or_default()))
 }
 
@@ -2145,7 +2197,8 @@ pub fn invalid_mutations(document: &Value) -> u64 {
         .sum()
 }
 
-/// `kink-flow coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR]`: the coverage document
+/// `kink-flow coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE [--locked]]
+/// [--cache DIR]`: the coverage document
 /// ([`crate::coverage`]) and the exit status ([`coverage_status`]): [`EXIT_YES`] when every
 /// program is comparable and meets its expectation, if it has one; [`EXIT_NO`] when an
 /// expectation is unmet or `--verify` found a mismatch; [`EXIT_UNANSWERED`] for a program that

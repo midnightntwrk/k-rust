@@ -2,12 +2,12 @@
 //! what the corpus and the specification decide, and nothing that depends on the host, the build,
 //! the cache or the order the work was done in. It is the format of recorded outputs and, without
 //! `killed_by`, of a corpus's `verdicts.lock` ([`lock_text`], [`crate::lock`]), which `run --lock`
-//! writes, so that a change of a verdict shows in review and an unchanged corpus renders the same
-//! bytes.
+//! writes, and of its `coverage.lock`, which `coverage --lock` writes, so that a change of a
+//! verdict shows in review and an unchanged corpus renders the same bytes.
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 10
+//! version = 11
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -72,8 +72,9 @@
 //! flip (`[[flip]]`, in item order) with its status, a refused flip's reason, and a distinguished
 //! flip's `killer`. It lists no programs and no counts, so that it moves only when a gap opens or
 //! closes or a killer changes: a case that covers nothing new renders the same bytes. A flip's
-//! killer is the first killing program in the search's order, a function of the inputs, as a
-//! run's is. A `run` document
+//! killer is the recorded one (the coverage lock's) while it kills, else the first killing
+//! program in the search's order, a function of the inputs and the record, as a run's is. A
+//! `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), and, when a corpus error stopped it, the mutation and the reason under
@@ -103,7 +104,7 @@
 //! `killed_by` lines, and a full rendering of a run with no kill is the first-kill rendering. A
 //! `timeout` class or status depends on the host by its nature.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fmt::Write as _;
 
 /// The `schema` of the rendering.
@@ -125,11 +126,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `results` document: its rendering (`document = "coverage"`) gives the settings and each
 /// family's open obligations by id, and no case; 10 since a `coverage` rendering lists the open
 /// obligations of the syntax family (`[syntax]`), so that a lock that gains the section shows a
-/// new version, not a moved verdict. A `coverage` rendering whose flips ran lists each flip
-/// (`[[flip]]`) within version 10: no document that renders under it without that section renders
-/// differently, since a flips family that ran is new input, so no moved line of an existing
-/// rendering can be read as a moved verdict.
-pub const VERDICTS_VERSION: u64 = 10;
+/// new version, not a moved verdict; 11 since a `coverage` rendering whose flips ran lists each
+/// flip (`[[flip]]`) with its status, a refused flip's reason and a distinguished flip's killer,
+/// the recorded one while it kills, so that a `coverage.lock` records the flips' verdicts.
+pub const VERDICTS_VERSION: u64 = 11;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -142,10 +142,13 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
 /// The text of a `verdicts.lock` (`run --lock`, [`crate::lock`]): the rendering of a run document
 /// without `killed_by`, so that a first-kill and a full run of the same inputs write the same
 /// bytes, and for a first-kill run `run --output verdicts`, `report --output verdicts` and the lock
-/// are the same bytes. The error names what the document is when it is not a run document.
+/// are the same bytes. The text of a `coverage.lock` (`coverage --lock`) is the rendering of a
+/// coverage document, which has no `killed_by`: `coverage --output verdicts` and the lock are the
+/// same bytes. The error names what the document is when it is neither.
 pub fn lock_text(document: &Value) -> Result<String, String> {
-    if document["schema"] != crate::report::RUN_SCHEMA {
-        return Err("a lock is the rendering of a run document".to_owned());
+    let schema = &document["schema"];
+    if schema != crate::report::RUN_SCHEMA && schema != crate::coverage::COVERAGE_SCHEMA {
+        return Err("a lock is the rendering of a run or coverage document".to_owned());
     }
     render(document, false)
 }
@@ -333,19 +336,33 @@ fn coverage(text: &mut String, document: &Value) {
     for item in flips["items"].as_array().into_iter().flatten() {
         text.push_str("\n[[flip]]\n");
         line(text, "id", &string(item["id"].as_str().unwrap_or_default()));
-        let status = item["status"].as_str().unwrap_or_default();
-        line(text, "status", &string(status));
-        if status == crate::flips::REFUSED
-            && let Some(reason) = item["reason"].as_str()
-        {
-            line(text, "reason", &string(reason));
-        }
-        if status == crate::flips::DISTINGUISHED
-            && let Some(killer) = item["killer"].as_str()
-        {
-            line(text, "killer", &string(killer));
+        let rendered = rendered_flip(item);
+        for key in ["status", "reason", "killer"] {
+            if let Some(value) = rendered[key].as_str() {
+                line(text, key, &string(value));
+            }
         }
     }
+}
+
+/// What a coverage rendering writes of a flip item, beside its id: `{status, killer, reason}`, a
+/// refused flip's `reason` and a distinguished flip's `killer`, null where the rendering writes
+/// none (module documentation).
+#[must_use]
+pub fn rendered_flip(item: &Value) -> Value {
+    let status = item["status"].as_str().unwrap_or_default();
+    let only = |wanted: &str, key: &str| {
+        if status == wanted {
+            item[key].as_str().map_or(Value::Null, |value| json!(value))
+        } else {
+            Value::Null
+        }
+    };
+    json!({
+        "status": status,
+        "killer": only(crate::flips::DISTINGUISHED, "killer"),
+        "reason": only(crate::flips::REFUSED, "reason"),
+    })
 }
 
 /// Whether a run document's row is of a mutation its author must fix before it is judged:

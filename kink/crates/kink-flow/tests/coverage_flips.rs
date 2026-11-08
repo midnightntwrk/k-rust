@@ -1,15 +1,18 @@
 //! The flips family of `coverage` (tier 2): a front end's derived flips, each deduced unreached
 //! with no mutant run or run by the kill search, on the guards fixture, whose corpus never halts
 //! (so `I` is never reached in `wake` and `halted`) and writes only address 0 (so swapping `low`
-//! and `high` changes no result).
+//! and `high` changes no result); and the coverage lock (`--lock`, `--locked`), which records each
+//! distinguished flip's killer by the killer-record rule.
 
 mod flow_support;
 
 use flow_support::{copy_dir, flow};
 use kink_flow::{
     CommandFiles, EditAction, EditSpec, FlowCommand, FlowManifest, FrontEnd,
-    cli::{EXIT_YES, dispatch},
+    cli::{EXIT_NO, EXIT_UNASKED, EXIT_YES, dispatch},
     flips::{Derived, DerivedEntry, DerivedList, Judged, Occurrence, Reach},
+    lock::stale_lines,
+    verdicts::verdicts,
 };
 use kink_patch::SentenceRef;
 use serde_json::{Value, json};
@@ -183,6 +186,104 @@ fn outcome_files(dir: &Path) -> usize {
             .map(|context| fs::read_dir(context.path()).map_or(0, Iterator::count))
             .sum()
     })
+}
+
+/// The id of the flip of `H`, which `irq` and `idle` both distinguish (`irq` first in the
+/// search's order).
+const H: &str = "flip--dispatch+run+wake+halted--H";
+/// The id of the flip of `I`, which no program reaches.
+const I: &str = "flip--halted+wake--I";
+
+/// The parser: `--lock FILE` once, `--locked` once and only with `--lock`, and neither with
+/// `--tier 1` nor with `--depth`, which run other settings than the manifest's; `--depth` a
+/// positive integer.
+#[test]
+fn the_coverage_lock_options_parse() {
+    let parse = |args: &[&str]| {
+        FlowCommand::parse(
+            "coverage",
+            CommandFiles::default(),
+            &args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(),
+        )
+    };
+    let FlowCommand::Coverage { options, .. } =
+        parse(&["--locked", "--lock", "coverage.lock"]).unwrap()
+    else {
+        panic!("coverage");
+    };
+    assert_eq!(
+        (options.lock, options.locked, options.depth),
+        (Some(PathBuf::from("coverage.lock")), true, None)
+    );
+    let FlowCommand::Coverage { options, .. } = parse(&["--depth", "2", "--lock", "c"]).unwrap()
+    else {
+        panic!("coverage");
+    };
+    assert_eq!(options.depth.map(std::num::NonZeroU64::get), Some(2));
+    assert_eq!(
+        parse(&["--locked"]).unwrap_err(),
+        "--locked compares the run with its lock: give --lock FILE"
+    );
+    for args in [
+        &["--lock", "c", "--locked", "--tier", "1"][..],
+        &["--lock", "c", "--locked", "--depth", "1"][..],
+    ] {
+        let error = parse(args).unwrap_err();
+        assert!(
+            error.starts_with("--locked compares a run of the manifest's own settings"),
+            "{error}"
+        );
+    }
+    assert_eq!(
+        parse(&["--depth", "0"]).unwrap_err(),
+        "--depth \"0\": expected a positive integer"
+    );
+    assert_eq!(
+        parse(&["--lock", "a", "--lock", "b"]).unwrap_err(),
+        "--lock specified more than once"
+    );
+}
+
+/// A coverage lock that does not decode refuses the command before admission: not TOML, a run's
+/// lock (another document), or a repeated flip. Exit 2, `lock.outcome` refused, the rendering's
+/// `[lock]` section, no program, and the file is left as it was.
+#[test]
+fn an_undecodable_coverage_lock_refuses_the_command() {
+    let dir = guards("undecodable");
+    let lock = dir.join("coverage.lock");
+    let flip = "[[flip]]\nid = \"f\"\nstatus = \"unreached\"\n";
+    for (text, detail) in [
+        ("not = toml = at all\n".to_owned(), "is not TOML"),
+        (
+            "schema = \"kink-flow-verdicts\"\nversion = 11\ndocument = \"run\"\n".to_owned(),
+            "its document is not \"coverage\"",
+        ),
+        (
+            format!(
+                "schema = \"kink-flow-verdicts\"\nversion = 11\ndocument = \"coverage\"\n\n\
+                 {flip}\n{flip}"
+            ),
+            "the flip \"f\" is listed twice",
+        ),
+    ] {
+        fs::write(&lock, &text).unwrap();
+        let (document, status) = coverage(
+            &dir,
+            &["--lock", lock.to_str().unwrap()],
+            Derived::default(),
+        );
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
+        assert_eq!(document["lock"]["outcome"], "refused", "{document:#}");
+        let message = document["lock"]["detail"].as_str().unwrap();
+        assert!(message.contains(detail), "{message}");
+        assert!(document.get("programs").is_none(), "{document:#}");
+        let rendering = verdicts(&document).unwrap();
+        assert!(
+            rendering.ends_with("\n[lock]\noutcome = \"refused\"\n"),
+            "{rendering}"
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), text);
+    }
 }
 
 mod kink_tier {
@@ -466,5 +567,301 @@ mod kink_tier {
             rules["families"]["flips"]["reason"],
             kink_flow::flips::DERIVES_NONE
         );
+    }
+
+    /// The flips of `H` and `I`.
+    fn h_and_i(rules: &Value) -> DerivedList {
+        DerivedList {
+            entries: vec![h_flip(rules), i_flip(rules)],
+            ..DerivedList::default()
+        }
+    }
+
+    /// `text` with the `[[flip]]` row of `id` given `key = "value"` in place of its own (or
+    /// added after its status).
+    fn with_row_key(text: &str, id: &str, key: &str, value: &str) -> String {
+        let start = text
+            .find(&format!("\n[[flip]]\nid = \"{id}\"\n"))
+            .unwrap_or_else(|| panic!("no row {id}: {text}"));
+        let end = text[start + 1..]
+            .find("\n[[flip]]")
+            .map_or(text.len(), |at| start + 1 + at);
+        let mut row = text[start..end]
+            .lines()
+            .filter(|line| !line.starts_with(&format!("{key} = ")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        row.push_str(&format!("\n{key} = \"{value}\"\n"));
+        format!("{}{row}{}", &text[..start], &text[end..])
+    }
+
+    /// A distinguished flip's killer is the lock's while it still kills: `idle` recorded stays
+    /// the killer although `irq` comes first in the search's order. A recorded killer that no
+    /// longer kills (`write`) or is no longer in the corpus is replaced by the first killer in the
+    /// search's order, the coverage witnesses first, and the lock is rewritten with it. A flip
+    /// decided with no run keeps no killer. The lock is the `--output verdicts` rendering.
+    #[test]
+    #[ignore = "kink"]
+    fn a_distinguished_flips_killer_is_the_recorded_one_while_it_kills() {
+        let dir = guards("killer");
+        let rules = baseline(&dir);
+        let list = h_and_i(&rules);
+        let lock = dir.join("coverage.lock");
+        let options = ["--lock", lock.to_str().unwrap()];
+        let run = || {
+            let (document, status) = coverage(&dir, &options, Derived::Flips(&list));
+            assert_eq!(status, EXIT_YES, "{document:#}");
+            document
+        };
+
+        // No record: the first killer in the search's order, and the lock is created.
+        let first = run();
+        let h = item(&first, H);
+        assert_eq!(
+            (&h["killer"], &h["recorded_killer"], &h["killer_change"]),
+            (&json!("irq"), &Value::Null, &json!("no-record")),
+            "{h:#}"
+        );
+        assert_eq!(first["lock"]["status"], "created", "{:#}", first["lock"]);
+        let recorded = fs::read_to_string(&lock).unwrap();
+        assert_eq!(recorded, verdicts(&first).unwrap());
+        assert!(
+            recorded.contains(&format!(
+                "\n[[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"irq\"\n"
+            )),
+            "{recorded}"
+        );
+
+        // `idle` also distinguishes the mutant: recorded, it stays the killer, from the
+        // one-program call over it, and the lock does not move.
+        let idle = with_row_key(&recorded, H, "killer", "idle");
+        fs::write(&lock, &idle).unwrap();
+        let kept = run();
+        let h = item(&kept, H);
+        assert_eq!(
+            (&h["killer"], &h["killer_source"], &h["killer_change"]),
+            (&json!("idle"), &json!("record"), &Value::Null),
+            "{h:#}"
+        );
+        assert_eq!(h["recorded_killer"], "idle");
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), idle);
+
+        // `write` never steps, so it does not distinguish the mutant; `gone` is no program.
+        for (killer, change) in [("write", "no-longer-kills"), ("gone", "not-in-corpus")] {
+            fs::write(&lock, with_row_key(&recorded, H, "killer", killer)).unwrap();
+            let replaced = run();
+            let h = item(&replaced, H);
+            assert_eq!(
+                (&h["killer"], &h["recorded_killer"], &h["killer_change"]),
+                (&json!("irq"), &json!(killer), &json!(change)),
+                "{h:#}"
+            );
+            assert_eq!(replaced["lock"]["status"], "written");
+            assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+        }
+
+        // A killer recorded for the unreached flip is not run, and the rendering names none.
+        fs::write(&lock, with_row_key(&recorded, I, "killer", "irq")).unwrap();
+        let unreached = run();
+        let i = item(&unreached, I);
+        assert_eq!(
+            (
+                &i["status"],
+                &i["killer"],
+                &i["recorded_killer"],
+                &i["killer_change"]
+            ),
+            (
+                &json!("unreached"),
+                &Value::Null,
+                &json!("irq"),
+                &json!("not-run")
+            ),
+            "{i:#}"
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+    }
+
+    /// The lock is left as it is by a command that runs other settings than the manifest's:
+    /// `--tier 1` (no flip runs) and a `--depth` other than `[coverage] depth`, which still reads
+    /// the recorded killers. A refused specification leaves it too.
+    #[test]
+    #[ignore = "kink"]
+    fn the_lock_is_unchanged_under_tier_one_and_another_depth() {
+        let dir = guards("partial");
+        let rules = baseline(&dir);
+        let list = h_and_i(&rules);
+        let lock = dir.join("coverage.lock");
+        let run = |extra: &[&str]| {
+            let mut options = vec!["--lock", lock.to_str().unwrap()];
+            options.extend_from_slice(extra);
+            coverage(&dir, &options, Derived::Flips(&list))
+        };
+        // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
+        // keep but rewrite (its header and open obligations are a hand's).
+        let text = format!(
+            "schema = \"kink-flow-verdicts\"\nversion = 11\ndocument = \"coverage\"\n\n\
+             [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
+        );
+        fs::write(&lock, &text).unwrap();
+
+        let (tier_one, status) = run(&["--tier", "1"]);
+        assert_eq!(status, EXIT_YES, "{tier_one:#}");
+        assert_eq!(
+            (&tier_one["lock"]["status"], &tier_one["lock"]["reason"]),
+            (&json!("not-written"), &json!("tier-1"))
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), text);
+
+        // `[coverage] depth = 2`, which this build refuses, explored at `--depth 1`.
+        let manifest = dir.join("FLOW.toml");
+        let mut flow = fs::read_to_string(&manifest).unwrap();
+        flow.push_str("\n[coverage]\ndepth = 2\n");
+        fs::write(&manifest, flow).unwrap();
+        let (refused, status) = run(&[]);
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        assert_eq!(refused["spec"]["reason"], "depth-unsupported");
+        assert_eq!(refused["lock"]["reason"], "refused");
+        let (explored, status) = run(&["--depth", "1"]);
+        assert_eq!(status, EXIT_YES, "{explored:#}");
+        assert_eq!(explored["settings"]["depth"], 1);
+        assert_eq!(
+            (&explored["lock"]["status"], &explored["lock"]["reason"]),
+            (&json!("not-written"), &json!("depth"))
+        );
+        let h = item(&explored, H);
+        assert_eq!(
+            (&h["killer"], &h["killer_change"]),
+            (&json!("idle"), &Value::Null)
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), text);
+    }
+
+    /// `--locked` writes nothing: an absent lock, or one the command would change, is a finding
+    /// (exit 1, `stale`), and each change is named, as `kink-flow` prints it on stderr: a flip's
+    /// killer and status, an obligation that is no longer open, and a header from another Z3
+    /// build, which is stale although every row agrees. An unchanged lock gives the statuses'
+    /// exit.
+    #[test]
+    #[ignore = "kink"]
+    fn locked_names_each_change_and_exits_one() {
+        let dir = guards("locked");
+        let rules = baseline(&dir);
+        let list = h_and_i(&rules);
+        let lock = dir.join("coverage.lock");
+        let path = lock.to_str().unwrap();
+        let run = |locked: bool| {
+            let mut options = vec!["--lock", path];
+            if locked {
+                options.push("--locked");
+            }
+            coverage(&dir, &options, Derived::Flips(&list))
+        };
+        let (absent, status) = run(true);
+        assert_eq!(status, EXIT_NO, "{absent:#}");
+        assert_eq!(
+            (&absent["lock"]["status"], &absent["lock"]["header"]),
+            (&json!("stale"), &json!(true))
+        );
+        assert!(!lock.exists());
+        let (written, status) = run(false);
+        assert_eq!(status, EXIT_YES, "{written:#}");
+        let recorded = fs::read_to_string(&lock).unwrap();
+        let (unchanged, status) = run(true);
+        assert_eq!(status, EXIT_YES, "{unchanged:#}");
+        assert_eq!(unchanged["lock"]["status"], "unchanged");
+        assert_eq!(unchanged["lock"]["changes"], json!([]));
+        assert_eq!(unchanged["lock"]["open_changes"], json!([]));
+
+        let edited = with_row_key(&recorded, H, "killer", "gone");
+        let edited = with_row_key(&edited, I, "status", "distinguished");
+        let edited = edited.replacen(
+            "\n[rules]\nopen = [",
+            "\n[rules]\nopen = [\"rule:gone\", ",
+            1,
+        );
+        assert!(edited.contains("\"rule:gone\""), "{edited}");
+        fs::write(&lock, &edited).unwrap();
+        let (stale, status) = run(true);
+        assert_eq!(status, EXIT_NO, "{stale:#}");
+        assert_eq!(stale["lock"]["status"], "stale");
+        assert_eq!(stale["lock"]["header"], false, "{:#}", stale["lock"]);
+        assert_eq!(
+            stale["lock"]["open_changes"],
+            json!([{"family": "rules", "obligation": "rule:gone", "recorded": "open", "now": null}])
+        );
+        assert_eq!(
+            stale_lines(&stale),
+            [
+                format!("{path}: rules: rule:gone is no longer open"),
+                format!("{path}: {H}: killer gone -> irq (gone: not-in-corpus)"),
+                format!("{path}: {I}: distinguished -> unreached"),
+            ]
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), edited);
+
+        // A lock recorded on another Z3 build differs in its header alone, and each moved build
+        // line is named. Under the Z3 profile the rendering names the build (`z3_version`, and
+        // `z3_library_sha256` where the build knows its library); without it, it names none, so
+        // the recorded line is one the rendering does not have.
+        let other_build = match recorded
+            .lines()
+            .find(|line| line.starts_with("z3_library_sha256 = "))
+        {
+            Some(line) => recorded.replacen(line, "z3_library_sha256 = \"another-build\"", 1),
+            None => recorded.replacen(
+                "\nprofile = ",
+                "\nz3_library_sha256 = \"another-build\"\nprofile = ",
+                1,
+            ),
+        };
+        assert_ne!(other_build, recorded);
+        fs::write(&lock, &other_build).unwrap();
+        let (stale, status) = run(true);
+        assert_eq!(status, EXIT_NO, "{stale:#}");
+        assert_eq!(
+            (&stale["lock"]["status"], &stale["lock"]["header"]),
+            (&json!("stale"), &json!(true))
+        );
+        assert_eq!(stale["lock"]["changes"], json!([]));
+        assert_eq!(stale["lock"]["open_changes"], json!([]));
+        let header_changes = stale["lock"]["header_changes"].as_array().unwrap();
+        assert_eq!(header_changes.len(), 1, "{:#}", stale["lock"]);
+        assert_eq!(header_changes[0]["key"], "z3_library_sha256");
+        assert_eq!(header_changes[0]["recorded"], "another-build");
+        let lines = stale_lines(&stale);
+        assert_eq!(lines.len(), 1, "{lines:#?}");
+        assert!(
+            lines[0].starts_with(&format!(
+                "{path}: the header's z3_library_sha256 differs: recorded \"another-build\", now "
+            )) && lines[0].ends_with(" (another Z3 build)"),
+            "{lines:#?}"
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), other_build);
+
+        // The binary names each change on stderr: kink-flow's own front end derives no flips,
+        // so the recorded flips would be removed.
+        fs::write(&lock, &recorded).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_kink-flow"))
+            .args([
+                "coverage",
+                "FLOW.toml",
+                "--lock",
+                "coverage.lock",
+                "--locked",
+            ])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(&format!(
+                "kink-flow: coverage.lock: {H}: removed, was distinguished"
+            )),
+            "{stderr}"
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }
 }

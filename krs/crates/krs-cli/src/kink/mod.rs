@@ -41,6 +41,12 @@
 //! lock it would write with the file, and a difference is a finding (exit 1). So a CI runs `krs
 //! kink emit --check` and `krs kink run --locked`.
 //!
+//! `coverage` keeps the corpus's coverage lock, `<corpus>/coverage.lock` (kink-flow `coverage
+//! --lock`: one recorded killer per distinguished flip, by the same rule), unless the command
+//! names a lock. A run with the manifest's own settings rewrites it; `--tier 1` and `--depth`
+//! leave it unwritten, and krs's `--locked` adds kink-flow's only to a run with the manifest's
+//! own settings. So a CI also runs `krs kink coverage --locked`.
+//!
 //! `report` builds nothing. The stored run document is a file of the corpus's cache, whose place
 //! depends on the corpus directory and `--cache` alone, so `report` reads the corpus manifest and
 //! prints that document as the run printed it; its `definition` is the run's, since the run
@@ -95,6 +101,8 @@ pub const LOCK_FILE: &str = kink_flow::lock::LOCK_FILE;
 /// family has `run: false` and this reason.
 pub const FLIPS_NOT_GIVEN: &str = "krs derives the definition's condition flips and judges each, \
      but its front end gives coverage none of them";
+/// The coverage lock's name inside the corpus directory (kink-flow `coverage --lock`).
+pub const COVERAGE_LOCK_FILE: &str = kink_flow::lock::COVERAGE_LOCK_FILE;
 
 /// The exit statuses of kink-flow's command line, which `krs kink` keeps: the four actions of
 /// krs's executing commands (`crate::exit_status`). The command answered its question.
@@ -128,7 +136,7 @@ pub struct KinkRequest {
     pub corpus: Option<PathBuf>,
     /// `--locked`: refuse a `kink/definition.k` that differs from the emission instead of
     /// rewriting it, and under `run` with a lock leave `verdicts.lock` unwritten, a run that
-    /// would change it being a finding.
+    /// would change it being a finding (under `coverage`, `coverage.lock`).
     pub locked: bool,
     /// The verb and its own options.
     pub verb: KinkVerb,
@@ -522,7 +530,11 @@ fn flow_command(
     let observers = render::Observers::new(selection_request(request), outcome.sources.clone());
     // The lock's path as kink-flow reads it, and as documents show it: relative to the root
     // package, as `definition.path` is.
-    let lock = corpus.join(LOCK_FILE);
+    let lock = corpus.join(if verb == Verb::Coverage {
+        COVERAGE_LOCK_FILE
+    } else {
+        LOCK_FILE
+    });
     let lock = (
         lock.display().to_string(),
         emit::shown_path(&lock, paths.root),
@@ -574,7 +586,8 @@ struct Built<'a> {
     emitted: &'a EmittedDefinition,
     kept: Option<KeptLowering>,
     observers: render::Observers,
-    /// The killer record's path as kink-flow reads it, and as documents show it.
+    /// The corpus lock's path (the killer record's, or the coverage lock's) as kink-flow reads
+    /// it, and as documents show it.
     lock: (String, String),
 }
 
@@ -1001,10 +1014,16 @@ fn command_files(
     Ok((files, rest))
 }
 
-/// [`command_files`], with the corpus's killer record for a `run` of the corpus's own mutation
-/// list: `--lock <corpus>/verdicts.lock` unless the command names a lock or another list
-/// (`--mutations`), and kink-flow's `--locked` when krs's `--locked` is given and a lock is in
-/// use, so that the run leaves the lock unwritten and a run that would change it is a finding.
+/// [`command_files`], with the corpus's locks. A `run` of the corpus's own mutation list gets its
+/// killer record, `--lock <corpus>/verdicts.lock`, unless the command names a lock or another
+/// list (`--mutations`). A `coverage` command gets its coverage lock, `--lock
+/// <corpus>/coverage.lock`, unless it names a lock: kink-flow reads it for each flip's recorded
+/// killer and rewrites it only after a run with the manifest's own settings. kink-flow's
+/// `--locked` is added when krs's `--locked` is given and a lock is in use, so that the command
+/// leaves the lock unwritten and one that would change it is a finding; for `coverage`, only
+/// when the command runs the manifest's own settings (neither `--tier 1` nor `--depth`), since
+/// another run leaves the lock unwritten and cannot say whether the manifest's run would change
+/// it.
 fn flow_arguments(
     corpus: &Path,
     verb: Verb,
@@ -1012,15 +1031,24 @@ fn flow_arguments(
     locked: bool,
 ) -> Result<(CommandFiles, Vec<String>), String> {
     let (files, mut rest) = command_files(corpus, verb, options)?;
-    if verb != Verb::Run {
-        return Ok((files, rest));
-    }
     let named = |flag: &str| options.iter().any(|arg| arg == flag);
-    if !named("--lock") && !named("--mutations") {
+    // The lock a verb keeps by default: none for a run of another list.
+    let default = match verb {
+        Verb::Run if named("--mutations") => None,
+        Verb::Run => Some(LOCK_FILE),
+        Verb::Coverage => Some(COVERAGE_LOCK_FILE),
+        _ => return Ok((files, rest)),
+    };
+    if let Some(lock) = default.filter(|_| !named("--lock")) {
         rest.push("--lock".to_owned());
-        rest.push(corpus.join(LOCK_FILE).display().to_string());
+        rest.push(corpus.join(lock).display().to_string());
     }
-    if locked && rest.iter().any(|arg| arg == "--lock") {
+    let manifest_settings = verb != Verb::Coverage
+        || (!named("--depth")
+            && !options
+                .windows(2)
+                .any(|pair| pair[0] == "--tier" && pair[1] == "1"));
+    if locked && manifest_settings && rest.iter().any(|arg| arg == "--lock") {
         rest.push("--locked".to_owned());
     }
     Ok((files, rest))

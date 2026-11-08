@@ -3051,8 +3051,10 @@ pub(crate) struct DerivedContext<'a, 's> {
 /// authored one's records: what either learns of a program, the other decides from the cache.
 ///
 /// No memo is consulted and no mutant is compiled ahead: both only save time, and neither moves
-/// a row ([`RunOptions::memo`], [`RunOptions::compile_workers`]). Nothing is written but the
-/// outcome records: no run report and no lock, which are `run`'s.
+/// a row ([`RunOptions::memo`], [`RunOptions::compile_workers`]). Each row carries
+/// `recorded_killer` and `killer_change` against `recorded`, as a run's row does
+/// ([`Search::record_fields`]). Nothing is written but the outcome records: no run report, and
+/// no lock, which the caller settles ([`crate::lock::Lock::settle`]).
 pub(crate) fn search_derived(
     context: DerivedContext<'_, '_>,
     mutations: &[(&Mutation, &Result<ResolvedMutation, InvalidMutation>)],
@@ -3096,7 +3098,8 @@ pub(crate) fn search_derived(
     let mut stopped = None;
     let mut ok = true;
     for (mutation, resolution) in mutations {
-        let (row, corpus_error) = search.search_one(mutation, resolution);
+        let (mut row, corpus_error) = search.search_one(mutation, resolution);
+        search.record_fields(&mut row, mutation);
         if row.get("cache_error").is_some()
             || (row["status"] == "error" && row["reason"] == "no-comparable-program")
         {

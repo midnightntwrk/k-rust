@@ -120,6 +120,7 @@ use crate::{
     digest::ExecutionDigest,
     evidence::EndReader,
     flips::{Derived, DerivedList, FLIPS_TIER_ONE, Judged},
+    lock::{Lock, LockKind, Settle},
     manifest::FlowManifest,
     mutation::qualified_label,
     results::{
@@ -138,7 +139,8 @@ use kink_patch::{SentenceRef, Sha256Digest};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    num::NonZeroU64,
+    path::{Path, PathBuf},
 };
 
 /// The `schema` of the coverage document.
@@ -148,8 +150,10 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// syntax family is built (`families.syntax`, its items, binders, counts and targets, and its
 /// line of the summary), where version 1 had `null`; 3 since the flips family runs where a front
 /// end derives the flips (`settings.tiers` `[1, 2]`, the family's items, counts, measure and
-/// search, its targets and `summary.per_family.flips`).
-pub const COVERAGE_VERSION: u64 = 3;
+/// search, its targets and `summary.per_family.flips`); 4 since the document has its coverage
+/// lock (`lock`, null without `--lock`) and each flip its `recorded_killer` and `killer_change`,
+/// and `settings.depth` is the depth computed (`--depth`, else `[coverage] depth`).
+pub const COVERAGE_VERSION: u64 = 4;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -196,25 +200,45 @@ pub struct CoverageOptions {
     pub cache: Option<PathBuf>,
     /// The tiers asked for.
     pub tier: Tier,
+    /// `--depth N`: the depth asked for instead of `[coverage] depth`, for exploration.
+    pub depth: Option<NonZeroU64>,
+    /// `--lock FILE`: the coverage lock ([`crate::lock`], [`LockKind::Coverage`]), read for each
+    /// flip's recorded killer and rewritten after a run with the manifest's own settings
+    /// ([`command`]).
+    pub lock: Option<PathBuf>,
+    /// `--locked`: compare the run with its lock, and leave the lock unwritten.
+    pub locked: bool,
+}
+
+impl CoverageOptions {
+    /// The depth the command computes: `--depth`, else `[coverage] depth`.
+    #[must_use]
+    pub fn depth(&self, manifest: &FlowManifest) -> NonZeroU64 {
+        self.depth.unwrap_or(manifest.coverage.depth)
+    }
 }
 
 /// The refusal of a `[coverage]` value this build cannot honour, or `None`: a depth above 1
 /// (rule windows and syntax paths are not built) and an `mcdc` list (unique-cause obligations are
 /// not built). It is given before the specification is admitted, so nothing runs.
-fn unsupported(manifest: &FlowManifest) -> Option<AdmissionRefusal> {
+fn unsupported(manifest: &FlowManifest, depth: NonZeroU64) -> Option<AdmissionRefusal> {
     let section = &manifest.coverage;
     let refusal = |reason: &str, detail: String| AdmissionRefusal {
         stage: "coverage".into(),
         reason: reason.into(),
         detail,
     };
-    if section.depth.get() > 1 {
+    if depth.get() > 1 {
+        let asked = if depth == section.depth {
+            format!("[coverage] depth = {depth}")
+        } else {
+            format!("--depth {depth}")
+        };
         return Some(refusal(
             "depth-unsupported",
             format!(
-                "[coverage] depth = {}: this build counts single items only (depth 1); the \
-                 families of sequences (rule windows, syntax paths) are not built",
-                section.depth
+                "{asked}: this build counts single items only (depth 1); the families of \
+                 sequences (rule windows, syntax paths) are not built"
             ),
         ));
     }
@@ -236,19 +260,110 @@ fn unsupported(manifest: &FlowManifest) -> Option<AdmissionRefusal> {
 /// (`crate::cli::coverage_status`). The derived part ([`derive`]) is left for the caller to add
 /// once a front end has annotated the rules, `spelling` saying how its fuzz jobs are spelled.
 /// kink-flow's own front end derives no flips, so the flips family does not run
-/// ([`coverage_front`]).
+/// ([`coverage_front`]). No lock is read or written: `options.lock` is the command's
+/// ([`command`]).
 pub fn coverage(manifest: &FlowManifest, options: &CoverageOptions) -> (Value, bool) {
-    coverage_front(manifest, options, &FrontEnd::default())
+    coverage_front(manifest, options, &FrontEnd::default(), None)
+}
+
+/// The command `coverage` for a front end: [`coverage_front`] with the lock `options.lock`
+/// names, annotated and derived, and the lock settled ([`settle_lock`]). A lock that does not
+/// decode refuses the command before the specification is admitted, with no family and no
+/// program ([`lock_refused`]).
+pub fn command(
+    manifest: &FlowManifest,
+    options: &CoverageOptions,
+    front: &FrontEnd<'_>,
+) -> (Value, bool) {
+    let lock = match options
+        .lock
+        .as_deref()
+        .map(|path| Lock::read_kind(path, LockKind::Coverage))
+        .transpose()
+    {
+        Ok(lock) => lock,
+        Err(detail) => {
+            let path = options.lock.as_deref().unwrap_or_else(|| Path::new(""));
+            return (front.annotated(lock_refused(path, &detail)), false);
+        }
+    };
+    // The derived part reads the rules as the front end named them, so it follows the
+    // annotation; `derive` and the annotation are idempotent.
+    let (document, mut ok) = coverage_front(manifest, options, front, lock.as_ref());
+    let mut document = front.annotated(document);
+    derive(&mut document, front.spelling);
+    if let Some(lock) = &lock {
+        ok &= settle_lock(&mut document, lock, manifest, options);
+    }
+    (document, ok)
+}
+
+/// Settle the coverage lock of a command whose document is `document` (annotated and derived,
+/// since the rendering names rules as the front end does): set the document's `lock` and return
+/// whether no write failed. The lock is compared and written only after a run with the
+/// manifest's own settings, which judged every flip: under `--tier 1` (no flip runs) it is left
+/// as it is with reason `tier-1`, under a `--depth` other than `[coverage] depth` with reason
+/// `depth`, and after a search a corpus error stopped with reason `stopped`; otherwise as
+/// [`Lock::settle`] settles a run's (`--locked` compares, `--verify` writes nothing).
+pub fn settle_lock(
+    document: &mut Value,
+    lock: &Lock,
+    manifest: &FlowManifest,
+    options: &CoverageOptions,
+) -> bool {
+    let partial = if document["spec"]["outcome"] == "refused" {
+        None
+    } else if options.tier == Tier::One {
+        Some("tier-1")
+    } else if options.depth(manifest) != manifest.coverage.depth {
+        Some("depth")
+    } else {
+        None
+    };
+    if let Some(reason) = partial {
+        document["lock"] = lock.not_written(reason);
+        return true;
+    }
+    let store = kink_corpus::Store::new(cache_directory(manifest, options.cache.as_deref()));
+    let stopped = !document["families"]["flips"]["search"]["stopped"].is_null();
+    let (value, written) = lock.settle(
+        &store,
+        document,
+        Settle {
+            locked: options.locked,
+            verify: options.verify,
+            only: &[],
+            stopped,
+        },
+    );
+    document["lock"] = value;
+    written
+}
+
+/// The coverage document of a command whose lock at `path` does not decode: it names the refused
+/// lock (`lock: {path, outcome: "refused", detail}`), and has no specification, no program and
+/// no family, since the lock is read before admission.
+#[must_use]
+pub fn lock_refused(path: &Path, detail: &str) -> Value {
+    json!({
+        "schema": COVERAGE_SCHEMA,
+        "version": COVERAGE_VERSION,
+        "k_rust_revision": crate::k_rust_revision(),
+        "profile": SolverProfile::BUILD.name(),
+        "lock": crate::lock::refused_value(path, detail),
+    })
 }
 
 /// [`coverage`] for a front end: under tier 2, the flips it derives
 /// ([`FrontEnd::derived`]) are deduced unreached or run by the kill search
-/// ([`crate::flips`]), reading the rules' items as the front end annotates them; the document is
-/// returned annotated.
+/// ([`crate::flips`]), reading the rules' items as the front end annotates them, each flip's
+/// recorded killer read from `lock` (tried first while it kills); the document is returned
+/// annotated, with no `lock` settled ([`command`] settles it).
 pub fn coverage_front(
     manifest: &FlowManifest,
     options: &CoverageOptions,
     front: &FrontEnd<'_>,
+    lock: Option<&Lock>,
 ) -> (Value, bool) {
     // Every document names the stop, a refused specification's too, as `check` and `run` do.
     let stopped = |mut document: Value| {
@@ -263,7 +378,8 @@ pub fn coverage_front(
         Derived::Flips(list) if options.tier == Tier::Two => Some(list),
         _ => None,
     };
-    let settings = settings(manifest, flips.is_some());
+    let depth = options.depth(manifest);
+    let settings = settings(manifest, depth, flips.is_some());
     let refused = |record: &AdmissionRecord| {
         stopped(document(
             record,
@@ -275,7 +391,7 @@ pub fn coverage_front(
             Value::Null,
         ))
     };
-    if let Some(refusal) = unsupported(manifest) {
+    if let Some(refusal) = unsupported(manifest, depth) {
         let mut record = AdmissionRecord::new(crate::admit::SPEC_RECORD_NAME);
         record.refusal = Some(refusal);
         return (refused(&record), false);
@@ -343,7 +459,7 @@ pub fn coverage_front(
                     } else {
                         crate::search::RunMode::Search
                     },
-                    recorded: BTreeMap::new(),
+                    recorded: lock.map(Lock::killers).unwrap_or_default(),
                     spelling: front.spelling,
                 },
             );
@@ -460,6 +576,14 @@ fn run_flips(
         }
         items.push(item);
     }
+    // A flip decided before any run (refused or unreached) keeps no killer: its recorded one,
+    // if any, was not run (`killer_change` `not-run`, as a run's row decided before any run).
+    for item in &mut items {
+        if let Some(killer) = item["id"].as_str().and_then(|id| context.recorded.get(id)) {
+            item["recorded_killer"] = json!(killer);
+            item["killer_change"] = json!("not-run");
+        }
+    }
     let selected = runs
         .iter()
         .map(|(_, mutation, resolution)| (mutation, resolution))
@@ -504,13 +628,14 @@ fn run_flips(
     (family, searched.ok)
 }
 
-/// The document's `settings`: the tiers computed (tier 2 where the flips run), `[coverage]`'s
-/// values, and whether the manifest declared them (`source`).
-fn settings(manifest: &FlowManifest, flips: bool) -> Value {
+/// The document's `settings`: the tiers computed (tier 2 where the flips run), the depth
+/// computed (`--depth`, else `[coverage] depth`), `[coverage]`'s other values, and whether the
+/// manifest declared them (`source`).
+fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
     let section = &manifest.coverage;
     json!({
         "tiers": if flips { json!([1, 2]) } else { json!([1]) },
-        "depth": section.depth.get(),
+        "depth": depth.get(),
         "mcdc": section.mcdc,
         "max_obligations": section.max_obligations.get(),
         "source": if section.declared { "manifest" } else { "default" },
@@ -1394,6 +1519,7 @@ fn document(
         "baseline_runs": baseline_runs,
         "data": null,
         "result": null,
+        "lock": null,
     }))
 }
 
@@ -2511,6 +2637,13 @@ pub fn text(document: &Value) -> Result<String, String> {
         ));
     }
     let mut out = String::new();
+    if document["lock"]["outcome"] == "refused" {
+        out.push_str(&format!(
+            "coverage: the coverage lock is refused: {}\n",
+            document["lock"]["detail"].as_str().unwrap_or("no detail"),
+        ));
+        return Ok(out);
+    }
     if document["spec"]["outcome"] == "refused" {
         out.push_str(&format!(
             "coverage: the specification is refused at stage {}, {}: {}\n",
