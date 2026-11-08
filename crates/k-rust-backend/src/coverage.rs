@@ -83,7 +83,8 @@ mod guards;
 mod windows;
 
 pub use bindings::{
-    AxiomOperands, BinderKey, BinderValues, BindingCollection, FiredAlternative, RunBindings,
+    AxiomOperands, AxiomPaths, BinderKey, BinderValues, BindingCollection, FiredAlternative,
+    RunBindings, SyntaxPath,
 };
 pub(crate) use bindings::{CarriedBindings, Fired};
 
@@ -250,7 +251,11 @@ pub(crate) use windows::{Forward, WindowCollection, WindowPath};
 /// binders were bound to at fired instances, capped to the least ones ([`RunBindings`]). A
 /// rewrite rule's instance is fired where the run committed to its successor (as for
 /// `committed`, whether or not the collection reports `committed`), a term equation's where it
-/// gave a result (a site of `applied` that has its substitution). Each is a union over the
+/// gave a result (a site of `applied` that has its substitution). Under a collection with a depth
+/// `D` above 1 it also holds, per axiom, the syntax paths of length `2..=D` its fired instances
+/// touched: the sequences of named symbols along consecutive argument positions that start at a
+/// position the instance inspected, built or took as an operand and lie in its left-hand side
+/// or right-hand side under its substitution. Each is a union over the
 /// fired instances of a function of the instance, so like the sets it depends on neither the
 /// multiplicity nor the order of the instances, and it is a deterministic function of the same
 /// inputs (`bindings`).

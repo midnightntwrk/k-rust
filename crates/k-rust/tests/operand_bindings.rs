@@ -246,3 +246,55 @@ fn bindings_change_nothing_else_need_coverage_and_select_a_binder_once() {
     let capabilities = serde_json::to_value(definition.backend().capabilities()).unwrap();
     assert_eq!(capabilities["coverageBindings"], true);
 }
+
+/// A collection with a depth records, per rule and equation, the syntax paths of length up to it
+/// that its fired instances touched: `split` inspects `seq` and reads both its operands, so it
+/// records `seq` holding each instruction and the rest of the program at its arguments, and the
+/// rest's own root holding its first instruction. Without a depth no `paths` key is written, and
+/// at any depth asking changes no other field of the result under either modality.
+#[test]
+fn a_depth_records_the_syntax_paths_of_fired_instances() {
+    let definition = bindings();
+    let deep = || BindingCollection {
+        depth: std::num::NonZeroUsize::new(2),
+        ..collection(definition)
+    };
+    let result: Value =
+        serde_json::from_str(&definition.run(Some(deep()), ResultModalityOutput::PathSet)).unwrap();
+    let paths = result["coverage"]["bindings"]["paths"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{result:#}"));
+    let split = paths
+        .iter()
+        .find(|axiom| axiom["axiom"] == definition.id("split"))
+        .unwrap_or_else(|| panic!("{result:#}"));
+    assert_eq!(
+        split["paths"],
+        json!([
+            {"symbols": ["Lblseq", "Lblinc"], "positions": [0]},
+            {"symbols": ["Lblseq", "Lblinc"], "positions": [1]},
+            {"symbols": ["Lblseq", "Lblop"], "positions": [0]},
+            {"symbols": ["Lblseq", "Lblseq"], "positions": [1]},
+        ]),
+        "{result:#}"
+    );
+    let shallow: Value = serde_json::from_str(
+        &definition.run(Some(collection(definition)), ResultModalityOutput::PathSet),
+    )
+    .unwrap();
+    assert!(
+        shallow["coverage"]["bindings"].get("paths").is_none(),
+        "{shallow:#}"
+    );
+    for modality in [
+        ResultModalityOutput::StateSet,
+        ResultModalityOutput::PathSet,
+    ] {
+        let mut on: Value = serde_json::from_str(&definition.run(Some(deep()), modality)).unwrap();
+        let off: Value = serde_json::from_str(&definition.run(None, modality)).unwrap();
+        on["coverage"].as_object_mut().unwrap().remove("bindings");
+        assert_eq!(on, off, "{modality:?}");
+    }
+    let capabilities = serde_json::to_value(definition.backend().capabilities()).unwrap();
+    assert_eq!(capabilities["coverageBindingPaths"], true);
+}

@@ -230,6 +230,8 @@ export interface BackendCapabilities {
   coverageCommitted: boolean
   /** `execute` and `executeObserved` accept `collectWindows` beside `collectCoverage`. */
   coverageWindows: boolean
+  /** `execute` and `executeObserved` accept `collectBindings.depth`, and report `RunBindings.paths`. */
+  coverageBindingPaths: boolean
   /** `execute` and `executeObserved` accept `matchStates` and report `stateMatches`. */
   stateMatches: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
@@ -771,6 +773,12 @@ export interface BindingCollection {
   symbols?: string[]
   /** Template binders: a rule or equation by `UNIQUE_ID` or label, a variable by its name in the definition, and the most values kept. */
   binders?: { axiom: string; variable: string; cap: number }[]
+  /**
+   * The longest syntax path recorded, a positive integer: the sequences of the named symbols
+   * along consecutive argument positions, of length 2 up to it, that start at a position a fired
+   * instance inspected, built or took as an operand. Absent: no path is recorded.
+   */
+  depth?: number
 }
 
 /** The bindings of a run's fired instances. */
@@ -789,6 +797,12 @@ export interface RunBindings {
     truncated?: boolean
     nonliteral?: boolean
   }[]
+  /**
+   * Present exactly when the collection set `depth`: per rule and equation, by id, the syntax
+   * paths its fired instances touched, each `symbols` (KORE names, outermost first) and
+   * `positions` (the 0-based argument positions between them).
+   */
+  paths?: { axiom: string; paths: { symbols: string[]; positions: number[] }[] }[]
 }
 
 /** Which rules' and equations' guard outcomes an execute request collects (`collectGuards`). */

@@ -219,6 +219,7 @@ pub(crate) fn collections(
                 cap,
             })
             .collect(),
+        depth: None,
     });
     (guards, bindings)
 }

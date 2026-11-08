@@ -1,8 +1,8 @@
 //! Bindings of fired instances (`crate::coverage::bindings`): a run that asks for them records,
 //! per axiom, the named symbols that were the head of an operand of a fired instance (a value
 //! bound to a left-hand-side variable the axiom reads elsewhere), the values selected template
-//! binders were bound to, capped, and the alternatives of an axiom with several that its fired
-//! instances took.
+//! binders were bound to, capped, the alternatives of an axiom with several that its fired
+//! instances took, and, under a depth, the syntax paths they touched.
 //!
 //! The axioms carry labels and, but for `scaleAny`, no `UNIQUE_ID`, so each other one's id is
 //! its label. Every run here
@@ -70,9 +70,9 @@ fn cell_rule(label: &str, head: &str, rhs: &str, priority: u32) -> String {
 }
 
 /// The authored symbols, which a front end names.
-const AUTHORED: [&str; 12] = [
+const AUTHORED: [&str; 13] = [
     "Lblinc", "Lblhalt", "Lblghost", "Lblop", "Lblev", "Lblnop", "Lblgate", "Lblmark", "Lblcopy",
-    "Lblpair", "Lblleft", "Lblright",
+    "Lblpair", "Lblleft", "Lblright", "Lblnest",
 ];
 
 fn definition() -> BackendDefinition {
@@ -164,6 +164,17 @@ fn definition() -> BackendDefinition {
             "sf{}(K:SortK{}, F:SortInstr{})",
             50,
         ),
+        // Inspects `nest(pair(nop, X))`, whose `X` it never reads, and builds `ev(ghost)`.
+        rule(
+            "nest",
+            &item("Lblnest{}(Lblpair{}(Lblnop{}(), X:SortInstr{}))"),
+            &format!(
+                "st{{}}(kseq{{}}({}, K:SortK{{}}))",
+                item("Lblev{}(Lblghost{}())")
+            ),
+            "",
+            40,
+        ),
         // One rule per disjunct of its left-hand side.
         rule(
             "either",
@@ -239,6 +250,7 @@ fn definition() -> BackendDefinition {
             symbol Lblright{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
             symbol Lblsplit{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
             symbol Lblpair{{}}(SortInstr{{}}, SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lblnest{{}}(SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol sf{{}}(SortK{{}}, SortInstr{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol wrap{{}}(SortInstr{{}}) : SortInstr{{}} [function{{}}(), total{{}}()]
             symbol st{{}}(SortK{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
@@ -754,5 +766,163 @@ fn a_fired_instance_names_the_alternative_it_took() {
             alternative("split", None, Some(1)),
         ],
         "{bindings:?}"
+    );
+}
+
+/// The syntax paths `axiom`'s fired instances touched, each as `symbol/position/symbol/...`;
+/// empty when it recorded none.
+fn paths(bindings: &RunBindings, axiom: &str) -> BTreeSet<String> {
+    bindings
+        .paths
+        .as_ref()
+        .expect("the collection set a depth")
+        .iter()
+        .find(|paths| paths.axiom == axiom)
+        .map(|paths| {
+            paths
+                .paths
+                .iter()
+                .map(|path| {
+                    let mut text = path.symbols[0].clone();
+                    for (position, symbol) in path.positions.iter().zip(&path.symbols[1..]) {
+                        text.push_str(&format!("/{position}/{symbol}"));
+                    }
+                    text
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn depth(depth: usize) -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::new(depth).expect("a positive depth")
+}
+
+/// Without a depth no path is recorded and `paths` is absent; a depth of 1 records none, its
+/// paths being the operand heads and the axioms' own symbols. Collecting at any depth changes
+/// nothing else in the result (`bindings_of`).
+#[test]
+fn syntax_paths_are_recorded_only_under_a_depth_above_1() {
+    let definition = definition();
+    let program = [item("Lblev{}(Lblpair{}(Lblnop{}(), Lblghost{}()))")];
+    let (none, _) = bindings_of(
+        &definition,
+        state(&definition, &program),
+        authored(),
+        |_| {},
+    );
+    assert_eq!(none.paths, None, "{none:?}");
+    let (one, _) = bindings_of(
+        &definition,
+        state(&definition, &program),
+        authored().with_depth(depth(1)),
+        |_| {},
+    );
+    assert_eq!(one.paths, Some(Vec::new()), "{one:?}");
+    assert_eq!(one.operands, none.operands);
+}
+
+/// `ev` takes `I = pair(nop, ghost)` as an operand below its own `ev`: at depth 2 its paths are
+/// the step from `ev` into the value's root and the steps from the root into its arguments; at
+/// depth 3 also those that go on one position further, from `ev` through the root. The value's
+/// root is touched, so paths start there; nothing below it is, so none starts lower, and the
+/// function `weight` its right-hand side passes `I` to breaks every path through it. The paths
+/// of depth 2 are the paths of length 2 of depth 3.
+#[test]
+fn a_read_value_is_walked_to_one_position_less_than_the_depth() {
+    let definition = definition();
+    let program = [item("Lblev{}(Lblpair{}(Lblnop{}(), Lblghost{}()))")];
+    let at = |d| {
+        bindings_of(
+            &definition,
+            state(&definition, &program),
+            authored().with_depth(depth(d)),
+            |_| {},
+        )
+        .0
+    };
+    let two = at(2);
+    assert_eq!(
+        paths(&two, "ev"),
+        set(&["Lblev/0/Lblpair", "Lblpair/0/Lblnop", "Lblpair/1/Lblghost"]),
+        "{two:?}"
+    );
+    let three = at(3);
+    assert_eq!(
+        paths(&three, "ev"),
+        set(&[
+            "Lblev/0/Lblpair",
+            "Lblpair/0/Lblnop",
+            "Lblpair/1/Lblghost",
+            "Lblev/0/Lblpair/0/Lblnop",
+            "Lblev/0/Lblpair/1/Lblghost",
+        ]),
+        "{three:?}"
+    );
+    // `weightAny` gives 7 whatever its argument, so it reads no value.
+    assert!(paths(&three, "weightAny").is_empty(), "{three:?}");
+}
+
+/// `nest` inspects `nest(pair(nop, X))` and builds `ev(ghost)`: the paths of its own text are
+/// recorded, and none through `X`, which it never reads, though the program holds `ghost` there.
+/// The step it builds then fires `ev`, whose operand `ghost` sits below its `ev`. A
+/// state-set run and a path-set run record the same paths.
+#[test]
+fn an_axioms_own_text_gives_its_paths_and_an_unread_value_none() {
+    use crate::search::ResultModality;
+    let definition = definition();
+    let program = [item("Lblnest{}(Lblpair{}(Lblnop{}(), Lblghost{}()))")];
+    let runs = [ResultModality::PathSet, ResultModality::StateSet].map(|modality| {
+        bindings_of(
+            &definition,
+            state(&definition, &program),
+            authored().with_depth(depth(3)),
+            |options| options.result_modality = modality,
+        )
+        .0
+    });
+    assert_eq!(runs[0], runs[1]);
+    let bindings = &runs[0];
+    assert_eq!(
+        paths(bindings, "nest"),
+        set(&[
+            "Lblnest/0/Lblpair",
+            "Lblpair/0/Lblnop",
+            "Lblnest/0/Lblpair/0/Lblnop",
+            "Lblev/0/Lblghost",
+        ]),
+        "{bindings:?}"
+    );
+    assert_eq!(
+        paths(bindings, "ev"),
+        set(&["Lblev/0/Lblghost"]),
+        "{bindings:?}"
+    );
+}
+
+/// A matched rule whose guard was refuted records no path, as it records no head: `gate(1, ev(nop))`
+/// is matched and refuted, and `drop`, which discards the instruction, reads none of it.
+#[test]
+fn a_refuted_entry_records_no_path() {
+    let definition = definition();
+    let gate = |n| item(&format!("Lblgate{{}}({}, Lblev{{}}(Lblnop{{}}()))", int(n)));
+    let (refuted, coverage) = bindings_of(
+        &definition,
+        state(&definition, &[gate(1)]),
+        authored().with_depth(depth(2)),
+        |_| {},
+    );
+    assert!(coverage.matched.contains("gate"), "{coverage:?}");
+    assert_eq!(refuted.paths, Some(Vec::new()), "{refuted:?}");
+    let (fired, _) = bindings_of(
+        &definition,
+        state(&definition, &[gate(200)]),
+        authored().with_depth(depth(2)),
+        |_| {},
+    );
+    assert_eq!(
+        paths(&fired, "gate"),
+        set(&["Lblgate/1/Lblev", "Lblev/0/Lblnop"]),
+        "{fired:?}"
     );
 }

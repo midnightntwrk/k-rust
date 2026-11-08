@@ -552,6 +552,9 @@ pub struct BackendCapabilities {
     /// An execution accepts `collect_windows` beside `collect_coverage`
     /// ([`RunCoverageOutput::windows`]).
     pub coverage_windows: bool,
+    /// An execution's `collect_bindings` accepts a `depth`, and its bindings then report the
+    /// syntax paths of its fired instances ([`BindingsOutput::paths`]).
+    pub coverage_binding_paths: bool,
     /// An execution accepts `match_states` ([`ExecuteRequest::match_states`]) and reports
     /// [`ExecutionResult::state_matches`].
     pub state_matches: bool,
@@ -1222,8 +1225,9 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   the named symbols that were the head, through injections, of a value a fired instance bound
 ///   to a left-hand-side variable that the axiom reads elsewhere, the values of the selected
 ///   template binders, and the alternatives of an axiom with several that a fired instance took
-///   ([`BindingsOutput`]). A rewrite rule's instance is fired where the run committed to its
-///   successor, as for `committed`; an equation's where it gave a result.
+///   ([`BindingsOutput`]), and, where the collection sets a `depth` `D`, the syntax paths of
+///   length `2..=D` the fired instances touched. A rewrite rule's instance is fired where the run
+///   committed to its successor, as for `committed`; an equation's where it gave a result.
 ///
 /// - `windows`, present exactly when the request set `collect_windows` to `d`: every sequence of
 ///   at most `d` rewrite rules, by id, that some path committed to as consecutive steps, a step
@@ -1267,20 +1271,29 @@ pub struct BindingCollection {
     /// selected at most once, under its axiom's `UNIQUE_ID` or its label.
     #[serde(default)]
     pub binders: Vec<BinderSelection>,
+    /// The longest syntax path recorded (a positive integer; [`BindingsOutput::paths`]): every
+    /// sequence of the named symbols along consecutive argument positions, of length `2..=depth`,
+    /// that starts at a position a fired instance inspected, built or took as an operand and lies
+    /// in its left-hand or right-hand side under its substitution (docs/compatibility.md, "Run
+    /// coverage"). Absent by default, and then no path is recorded; a depth of 1 records none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<std::num::NonZeroUsize>,
 }
 
 impl BindingCollection {
-    /// The symbols `symbols`, with no binder selected.
+    /// The symbols `symbols`, with no binder selected and no path recorded.
     pub fn new<S: Into<String>>(symbols: impl IntoIterator<Item = S>) -> Self {
         Self {
             symbols: symbols.into_iter().map(Into::into).collect(),
             binders: Vec::new(),
+            depth: None,
         }
     }
 
     /// The backend's collection, or the binder selected twice.
     fn into_backend(self) -> Result<k_rust_backend::coverage::BindingCollection, (String, String)> {
         let mut collection = k_rust_backend::coverage::BindingCollection::new(self.symbols);
+        collection.depth = self.depth;
         for BinderSelection {
             axiom,
             variable,
@@ -1324,6 +1337,33 @@ pub struct BindingsOutput {
     /// empty).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alternatives: Vec<FiredAlternativeOutput>,
+    /// Per rule and equation with at least one, sorted by id, the syntax paths of length
+    /// `2..=depth` its fired instances touched; present exactly when the collection set a
+    /// `depth` ([`BindingCollection::depth`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paths: Option<Vec<AxiomPathsOutput>>,
+}
+
+/// The syntax paths one rule's or equation's fired instances touched ([`BindingsOutput::paths`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AxiomPathsOutput {
+    /// The axiom's `UNIQUE_ID`.
+    pub axiom: String,
+    /// The paths, sorted.
+    pub paths: Vec<SyntaxPathOutput>,
+}
+
+/// A syntax path `(P1, i1, P2, ..., Pn)`: `symbols` are `P1, ..., Pn` by KORE name, and
+/// `positions` the 0-based argument positions `i1, ..., i(n-1)`, `symbols[j + 1]` being the head,
+/// through injections, of argument `positions[j]` of `symbols[j]`'s application.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SyntaxPathOutput {
+    /// The symbols, outermost first.
+    pub symbols: Vec<String>,
+    /// The argument positions between them.
+    pub positions: Vec<usize>,
 }
 
 /// An alternative of an axiom with several that a fired instance took: the axiom's rules share
@@ -2652,6 +2692,7 @@ impl Backend {
             coverage_bindings: true,
             coverage_committed: true,
             coverage_windows: true,
+            coverage_binding_paths: true,
             state_matches: true,
             stack_stops: true,
             smt_unknowns: true,
@@ -4507,6 +4548,35 @@ mod tests {
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["coverageCounts"], true);
+    }
+
+    /// Syntax paths are declared where the facade reads and writes them: the collection's depth,
+    /// the bindings' paths and a capability flag, true in every build; a collection without a
+    /// depth writes no `depth` and reads back without one.
+    #[test]
+    fn the_syntax_paths_match_typescript_declarations() {
+        assert_typescript_member("BindingCollection", "depth?: number");
+        assert_typescript_member(
+            "RunBindings",
+            "paths?: { axiom: string; paths: { symbols: string[]; positions: number[] }[] }[]",
+        );
+        assert_typescript_member("BackendCapabilities", "coverageBindingPaths: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageBindingPaths"], true);
+        let collection = BindingCollection::new(["LblA"]);
+        assert_eq!(
+            serde_json::to_value(&collection).unwrap(),
+            serde_json::json!({"symbols": ["LblA"], "binders": []})
+        );
+        let deep: BindingCollection =
+            serde_json::from_value(serde_json::json!({"symbols": ["LblA"], "depth": 2})).unwrap();
+        assert_eq!(deep.depth, std::num::NonZeroUsize::new(2));
     }
 
     /// Rule windows are declared where the facade reads and writes them: the request's option,

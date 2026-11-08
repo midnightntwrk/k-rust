@@ -1625,7 +1625,10 @@ fn productions(
 /// `ResultRun::bindings`): the symbols of the syntax family's productions ([`productions`]),
 /// recorded where one is the head of an operand of a fired instance, and the front end's template
 /// binders. kink-flow's own reading selects no binder: a K sentence has no notion of a template's
-/// field, so the field values of the syntax family are a front end's to add ([`derive`]).
+/// field, so the field values of the syntax family are a front end's to add ([`derive`]). The
+/// collection names no depth: the run's tables carry the command's (kink-native
+/// `DefinitionTables::with_depth`), which a run at a depth above 1 sends with it, so that the
+/// bindings also record the syntax paths through these symbols.
 #[must_use]
 pub fn binding_collection(
     spec: &crate::admit::AdmittedSpec,
@@ -1655,6 +1658,7 @@ pub fn binding_collection(
                 },
             )
             .collect(),
+        depth: None,
     }
 }
 

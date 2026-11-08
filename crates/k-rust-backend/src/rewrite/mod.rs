@@ -712,9 +712,12 @@ pub struct ExecutionOptions {
     /// ([`crate::coverage::RunCoverage::bindings`]): per axiom, the symbols the collection names
     /// that were the head of an operand of a committed rewrite step or of a term equation's
     /// instance that gave a result, and the values of the template binders it selects, capped
-    /// ([`crate::coverage::BindingCollection`]). Off by default (`None`); ignored without
+    /// ([`crate::coverage::BindingCollection`]), and, under a collection with a depth `D` above 1,
+    /// the syntax paths of length up to `D` they touched. Off by default (`None`); ignored without
     /// `collect_coverage`. It evaluates nothing: each fired instance costs one pass over the
-    /// substitution its match produced. Collecting changes nothing else in the result.
+    /// substitution its match produced, and with a depth a walk of its axiom's text and of each
+    /// read value to `D - 1` positions below its root. Collecting changes nothing else in the
+    /// result.
     pub collect_bindings: Option<crate::coverage::BindingCollection>,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///

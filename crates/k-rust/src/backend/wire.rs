@@ -2356,6 +2356,22 @@ fn run_bindings_output(bindings: k_rust_backend::coverage::RunBindings) -> super
                 rhs: alternative.rhs,
             })
             .collect(),
+        paths: bindings.paths.map(|paths| {
+            paths
+                .into_iter()
+                .map(|axiom| super::AxiomPathsOutput {
+                    axiom: axiom.axiom,
+                    paths: axiom
+                        .paths
+                        .into_iter()
+                        .map(|path| super::SyntaxPathOutput {
+                            symbols: path.symbols,
+                            positions: path.positions,
+                        })
+                        .collect(),
+                })
+                .collect()
+        }),
     }
 }
 
