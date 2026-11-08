@@ -2214,9 +2214,9 @@ fn is_initializer_lint_allow(attribute: &syn::Attribute) -> bool {
 /// frame it names (the configuration's `state`, a collection's other instances, an instance
 /// child's tail) is printed by that name, so the print names what the lowered rule names. A
 /// sorted `_` (the wildcard a `for Sort` head `_` and a map read's value `_` elaborate to)
-/// prints as a binder of its sort used once ([`wildcard_names`]). The clause gives what the rule
-/// is about ([`rule_subject_type`]), the fn's name, its outer attributes and its `#[k::exists]`
-/// helpers.
+/// prints as a binder of its sort used once ([`wildcard_names`]). The fn is typed by what the
+/// elaborated rule is about, its subject; the clause gives the fn's name, its outer attributes
+/// and its `#[k::exists]` helpers.
 #[expect(
     clippy::too_many_lines,
     reason = "One rule projection keeps its two sides visibly paired."
@@ -2240,8 +2240,12 @@ fn render_rule(
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
     }
 
-    // The `cells!` rule is typed by what the clause is about, and names each cell relative to it.
-    let root = rule_subject_type(rule, descriptor_index);
+    // The `cells!` rule is typed by what the elaborated rule is about (R4-B), and names each
+    // cell relative to it: a group wherever the group is held, else the configuration.
+    let root = match &printed.subject_configuration.subject {
+        Some(krs_ir::DescriptorSubject::Group { declaration }) => declaration.clone(),
+        None => printed.subject_configuration.configuration.clone(),
+    };
     let brackets = ListBrackets::of(rule);
     let mut rendering = CellRendering {
         package,
@@ -2940,78 +2944,6 @@ fn list_kind(
     } else {
         entries::ListKind::Builtin
     }
-}
-
-/// The type of a rule's `cells!` subject and result: what the rule is about.
-///
-/// A rule for a cell group names only the group's cells and is a step of the group at its one
-/// position, of one instance of it where an optional cell or a Map collection holds it; its
-/// `cells!` form is typed by the group, whatever holds the group, and names the group's cells
-/// flat. A table clause (`for Sort`) names no cell and runs at the definition's main cell, so
-/// where the main cell lies in an instance it is a step of that instance, about the group the
-/// innermost holder holds. Every other rule is about the whole configuration.
-fn rule_subject_type(rule: &DescriptorHeadRule, index: &DescriptorIndex<'_>) -> StableItemId {
-    match (&rule.subject, &rule.head_sort, &rule.computation_cell) {
-        (Some(krs_ir::DescriptorSubject::Group { declaration }), _, _) => declaration.clone(),
-        (None, Some(_), Some(main)) => instance_group(&rule.configuration, &main.cell, index)
-            .unwrap_or_else(|| rule.configuration.clone()),
-        (None, _, _) => rule.configuration.clone(),
-    }
-}
-
-/// The group held by the innermost optional (`?`) or collection (`*`) cell on the path from
-/// `configuration` to `cell`, absent where every holder on the path is a fixed cell.
-fn instance_group(
-    configuration: &StableItemId,
-    cell: &krs_ir::DescriptorCellIdentity,
-    index: &DescriptorIndex<'_>,
-) -> Option<StableItemId> {
-    /// Whether `cell` lies below `owner`; on the way to it, `instances` gains the group of each
-    /// `?` or `*` cell, outermost first.
-    fn reaches<'a>(
-        owner: &'a StableItemId,
-        cell: &krs_ir::DescriptorCellIdentity,
-        index: &DescriptorIndex<'a>,
-        instances: &mut Vec<&'a StableItemId>,
-        visiting: &mut BTreeSet<&'a StableItemId>,
-    ) -> bool {
-        let Ok(declaration) = index.cell_owner(owner) else {
-            return false;
-        };
-        for field in &declaration.fields {
-            if field.reference.cell == *cell {
-                return true;
-            }
-            let krs_ir::ProtocolCellContent::Nested { declaration } = &field.content else {
-                continue;
-            };
-            let group = &declaration.declaration;
-            if !visiting.insert(group) {
-                continue;
-            }
-            let multiplicity = krs_ir::cell_kind::CellView::multiplicity(
-                &krs_ir::cell_kind::DescriptorCell::new(field, index),
-            );
-            let instance = multiplicity != krs_ir::cell_kind::Multiplicity::One;
-            if instance {
-                instances.push(group);
-            }
-            let found = reaches(group, cell, index, instances, visiting);
-            visiting.remove(group);
-            if found {
-                return true;
-            }
-            if instance {
-                instances.pop();
-            }
-        }
-        false
-    }
-    let owner = index.get(configuration)?.id();
-    let mut instances = Vec::new();
-    reaches(owner, cell, index, &mut instances, &mut BTreeSet::new())
-        .then(|| instances.last().copied().cloned())
-        .flatten()
 }
 
 /// Whether a `#[k::requires]` of `item` holds the operator `==`.

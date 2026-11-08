@@ -384,10 +384,11 @@ impl Elaborator<'_> {
             .clone()
             .or_else(|| rule.head_sort.as_ref().map(|sort| sort.key.clone()))
             .unwrap_or_else(|| rule.pattern_key.clone());
+        let subject = self.subject();
         let configuration = |key: ProvenanceKey| DescriptorConfigurationReference {
             key,
             configuration: rule.configuration.clone(),
-            subject: rule.subject.clone(),
+            subject: subject.clone(),
         };
         let mut bindings = Vec::new();
         let mut universals = Vec::new();
@@ -519,6 +520,40 @@ impl Elaborator<'_> {
             fresh: rule.fresh.clone(),
             evaluation: rule.evaluation.clone(),
             claim,
+        })
+    }
+
+    /// What the rule is about (R4-B): the subject the clause names; for a table clause (`for
+    /// Sort`, which names no configuration), the instance it is a step of where its cells lie in
+    /// instances. Such a clause runs at the main cell wherever the main cell lies, and the cells
+    /// it names lie in one instance of each holder on their deepest chain
+    /// ([`crate::instance_keys::rule_instances`], the one definition), so it is a step of one
+    /// instance of the innermost holder whose instance holds every cell it names: a rule for
+    /// that holder's group, which names those cells as the group's. Every other rule, and a
+    /// table clause whose cells lie outside every instance or on no one chain, is about the
+    /// configuration.
+    fn subject(&self) -> Option<krs_ir::DescriptorSubject> {
+        let rule = self.rule;
+        if rule.subject.is_some() || rule.configuration_key.is_some() || rule.head_sort.is_none() {
+            return rule.subject.clone();
+        }
+        let main = rule.computation_cell.as_ref()?;
+        let named =
+            std::iter::once(&main.cell).chain(rule.extras.iter().map(|extra| match extra {
+                ProtocolHeadRuleExtra::HaveMap { cell, .. }
+                | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteCell { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteState { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteList { cell, .. } => &cell.cell,
+            }));
+        let paths = named
+            .map(|cell| instance_path(&rule.configuration, cell, self.declarations))
+            .collect::<Option<Vec<_>>>()?;
+        let holding = paths.iter().map(Vec::len).min()?.checked_sub(1)?;
+        let chain = crate::instance_keys::rule_instances(paths)?;
+        let (_, group) = chain.get(holding)?;
+        Some(krs_ir::DescriptorSubject::Group {
+            declaration: group.clone(),
         })
     }
 
@@ -873,6 +908,58 @@ fn first_in_subject<'r>(rule: &'r DescriptorHeadRule, name: &str) -> Option<&'r 
 fn is_k_item(sort: &DescriptorSortRef) -> bool {
     matches!(sort, DescriptorSortRef::Declared(id)
         if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
+}
+
+/// The optional (`?`) and collection (`*`) cells strictly above `cell` in `configuration`,
+/// outermost first, each with the group it holds: the instances `cell` lies in. `None` where
+/// `cell` is no cell of `configuration`.
+fn instance_path(
+    configuration: &StableItemId,
+    cell: &krs_ir::DescriptorCellIdentity,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<Vec<(krs_ir::DescriptorCellIdentity, StableItemId)>> {
+    /// Whether `cell` lies below `owner`; on the way to it, `path` gains each `?` or `*` cell
+    /// with its group, outermost first.
+    fn reaches<'a>(
+        owner: &'a StableItemId,
+        cell: &krs_ir::DescriptorCellIdentity,
+        declarations: &DescriptorIndex<'a>,
+        path: &mut Vec<(krs_ir::DescriptorCellIdentity, StableItemId)>,
+        visiting: &mut BTreeSet<&'a StableItemId>,
+    ) -> bool {
+        let Ok(declaration) = declarations.cell_owner(owner) else {
+            return false;
+        };
+        for field in &declaration.fields {
+            if field.reference.cell == *cell {
+                return true;
+            }
+            let ProtocolCellContent::Nested { declaration } = &field.content else {
+                continue;
+            };
+            let group = &declaration.declaration;
+            if !visiting.insert(group) {
+                continue;
+            }
+            let instance =
+                declared_multiplicity(field, declarations) != krs_ir::cell_kind::Multiplicity::One;
+            if instance {
+                path.push((field.reference.cell.clone(), group.clone()));
+            }
+            let found = reaches(group, cell, declarations, path, visiting);
+            visiting.remove(group);
+            if found {
+                return true;
+            }
+            if instance {
+                path.pop();
+            }
+        }
+        false
+    }
+    let owner = declarations.get(configuration)?.id();
+    let mut path = Vec::new();
+    reaches(owner, cell, declarations, &mut path, &mut BTreeSet::new()).then_some(path)
 }
 
 /// The binders a readable rule reads its map values `_` with (`x -> _`, `have m[x -> let _]`):
