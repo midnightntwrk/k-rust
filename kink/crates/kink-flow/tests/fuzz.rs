@@ -31,7 +31,7 @@ use kink_corpus::ProgramSource;
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList,
-    cli::{EXIT_NO, EXIT_UNASKED, execute},
+    cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, execute},
     coverage::CoverageOptions,
     fuzz::{
         AssemblyCheck, FuzzJob, FuzzOptions, TemplateList, TemplateSource, check_assembly,
@@ -1635,6 +1635,92 @@ note = "narrows the pattern to a nonzero second argument"
         let action = document["action"].as_str().unwrap();
         assert!(
             action.starts_with("the mutation expects to survive, and this program distinguishes"),
+            "{action}"
+        );
+        // The same witness unconfirmed (`--no-confirm`) is a candidate: nothing shows the corpus
+        // kills, so the claim is neither refuted nor confirmed.
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            None,
+            "divisor",
+            "end-guard-dropped",
+            imp_options(100),
+        );
+        assert!(ok, "{:#}", document["action"]);
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        assert_eq!(document["program"]["confirmed"], false, "{document:#}");
+        assert_eq!(kink_flow::cli::fuzz_status(&document), EXIT_UNANSWERED);
+        let action = document["action"].as_str().unwrap();
+        assert!(
+            action.starts_with(
+                "the mutation expects to survive, and this program may distinguish its mutant \
+                 from the specification, but it does not refute the expectation yet: kink's own \
+                 run did not confirm the kill (--no-confirm)"
+            ),
+            "{action}"
+        );
+    }
+
+    /// A witness of a mutation expected to survive whose kill kink confirms only under premises
+    /// `FLOW.toml` lacks (given with `--assume-joined`) does not refute the expectation: on the
+    /// flow as it stands kink counts no kill, so the job is unanswered (exit status 3), and the
+    /// action names the premises. The job is the one of
+    /// `a_premise_given_on_the_command_line_confirms_under_the_overlay`, on a copy of its list in
+    /// which the mutation expects to survive.
+    #[test]
+    #[ignore = "kink"]
+    fn a_witness_of_a_mutation_expected_to_survive_under_a_missing_premise_is_no_finding() {
+        let dir = scratch("expected-to-survive-premise");
+        flow_support::copy_dir(&flow("findings/r3-plainq"), &dir);
+        let list = dir.join("MUTATIONS.toml");
+        let text = fs::read_to_string(&list).unwrap().replacen(
+            "id = \"store-changed\"\n",
+            "id = \"store-changed\"\nexpect = \"survive\"\n",
+            1,
+        );
+        assert!(text.contains("expect = \"survive\""), "{text}");
+        fs::write(&list, text).unwrap();
+        let (strict, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(REPRO_TEMPLATE),
+            "go",
+            "store-changed",
+            FuzzOptions::default(),
+        );
+        let names = strict["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(REPRO_TEMPLATE),
+            "go",
+            "store-changed",
+            FuzzOptions {
+                assume_joined: names.into_iter().collect(),
+                confirm: true,
+                ..FuzzOptions::default()
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["job"]["expect"], "survive");
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        assert_eq!(document["program"]["confirmed"], true, "{document:#}");
+        let premises = document["program"]["premises"].as_array().unwrap();
+        assert!(!premises.is_empty() && premises.iter().all(|p| p["in_flow"] == false));
+        assert_eq!(kink_flow::cli::fuzz_status(&document), EXIT_UNANSWERED);
+        let action = document["action"].as_str().unwrap();
+        assert!(
+            action.starts_with(
+                "the mutation expects to survive, and this program may distinguish its mutant \
+                 from the specification, but it does not refute the expectation yet: the kill \
+                 rests on premises FLOW.toml's [spec] assume_joined lacks ("
+            ),
             "{action}"
         );
     }

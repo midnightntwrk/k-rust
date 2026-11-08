@@ -1583,12 +1583,20 @@ pub fn query_status(document: &Value) -> u8 {
 /// campaign that `aborted`, and one stopped `rejected-out`, whose generated hole values mostly do
 /// not read back or violate their sort, so that the template's holes must be fixed before cases
 /// can be asked and more cases cannot help, could not ask ([`EXIT_UNASKED`]). A witness of a kill
-/// job whose mutation expects to survive (`job.expect` `survive`) refutes that expectation, a
-/// finding ([`EXIT_NO`]).
+/// job whose mutation expects to survive (`job.expect` `survive`) is a candidate refutation of
+/// that expectation ([`crate::fuzz::refutes_survival`]): a finding ([`EXIT_NO`]) when kink's own
+/// run confirmed the kill on the flow as it stands, with no premise `FLOW.toml` lacks; otherwise
+/// the claim is neither refuted nor confirmed, and the job is unanswered ([`EXIT_UNANSWERED`]).
 #[must_use]
 pub fn fuzz_status(document: &Value) -> u8 {
     match document["stopped"].as_str() {
-        None if document["stopped"].is_null() && document["job"]["expect"] == "survive" => EXIT_NO,
+        None if document["stopped"].is_null() && document["job"]["expect"] == "survive" => {
+            if crate::fuzz::refutes_survival(&document["program"]) {
+                EXIT_NO
+            } else {
+                EXIT_UNANSWERED
+            }
+        }
         None if document["stopped"].is_null() => EXIT_YES,
         Some("equivalent") => EXIT_YES,
         Some(
@@ -2269,8 +2277,10 @@ fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), Stri
 /// MUTATIONS.toml | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) [options]
 /// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit status of
 /// its `stopped` ([`fuzz_status`]): [`EXIT_YES`] for a witness or `equivalent`, [`EXIT_NO`] for a
-/// witness of a mutation expected to survive;
-/// [`EXIT_UNANSWERED`] when the search ended without a witness kink accepts; [`EXIT_UNASKED`]
+/// confirmed witness, needing no premise `FLOW.toml` lacks, of a mutation expected to survive;
+/// [`EXIT_UNANSWERED`] when the search ended without a witness kink accepts, or with a witness of
+/// such a mutation that does not refute its expectation (unconfirmed, or resting on a premise
+/// `FLOW.toml` lacks); [`EXIT_UNASKED`]
 /// when an input, the template or the mutation is refused (`refused`), the campaign is
 /// `not-comparable`, or it `aborted` (the README's and the guide's table).
 pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value, u8) {

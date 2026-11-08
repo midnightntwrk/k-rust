@@ -127,7 +127,7 @@ use crate::{
     cli::{CommandSpelling, Verb},
     evidence::{EndReader, HEAD_CAP},
     manifest::{Budget, FlowManifest},
-    mutation::{EditedRule, InvalidReason, RuleText},
+    mutation::{EditedRule, InvalidReason, Mutation, RuleText},
     results::{ResultClass, corpus_cache_directory, kebab, non_value_text},
     search::REPORT_FILE,
 };
@@ -253,8 +253,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `branch` whatever was explored; 37 since a mutation can state the verdict it expects
 /// (`expect`, [`crate::Expect`]): every row carries `expect` (`survive`, `kill` or null) and
 /// `expectation` (null without `expect`, else `{verdict, detail}`, [`mutation_expectation`]), a
-/// met control's `survived` row asks nothing ([`EXPECTED_SURVIVOR_ACTION`]), and the document
-/// carries `expectations`, the ids of the rows whose expectation is met, unmet and inconclusive.
+/// met control's `survived` row asks nothing ([`EXPECTED_SURVIVOR_ACTION`]) unless its survival
+/// rests on a horizon or a hidden edit, and the document carries `expectations`, the ids of the
+/// rows whose expectation is met, unmet and inconclusive, and of the mutations stating one that
+/// have no row (`unchecked`).
 pub const RUN_VERSION: u64 = 37;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -1307,7 +1309,8 @@ fn slot_cause(outcome: OracleOutcome, mutant: Option<&OracleSide>, budget: Budge
 }
 
 /// The action of a `survived` row whose mutation expects to survive, met
-/// ([`mutation_expectation`]): the run asks nothing of a control the corpus does not kill.
+/// ([`mutation_expectation`]) with no qualification ([`survival_limits`]): the run asks nothing
+/// of a control the corpus does not kill.
 pub const EXPECTED_SURVIVOR_ACTION: &str = "nothing: it survived, as its expectation states";
 
 /// The `expectation` member of a mutation row whose mutation states `expect` (the row's own
@@ -1315,11 +1318,15 @@ pub const EXPECTED_SURVIVOR_ACTION: &str = "nothing: it survived, as its expecta
 /// as the row's `status` answers the claim, null for a row without `expect`. It is a function of
 /// the row's status, which does not depend on the schedule, so it is the same under `--full` and
 /// first-kill; `detail` names what the row says against the claim (the killers, the status, the
-/// programs left undecided), and says when a met control is vacuous.
+/// programs left undecided), and says when a met control is vacuous or met only within limits.
 ///
 /// - `killed`: a kill is a difference in every model, so a control's claim is false of the
 ///   corpus (unmet) and a kill expectation's met.
-/// - `survived`: no program distinguished, so a control is met and a kill expectation unmet.
+/// - `survived`: no program distinguished, so a control is met and a kill expectation unmet. A
+///   survival that rests on a horizon (`horizon`) or on a stop that hides the edit
+///   (`stop_hides_edit`) is weaker: no program observed past the horizon, or took the edited step,
+///   so the control is met only within what the runs observed, and `detail` says so
+///   ([`survival_limits`]).
 /// - `equivalent`, `unkillable`: no program of any corpus can kill the mutant, which a control's
 ///   claim follows from (met, but vacuous: it tests no observation) and a kill expectation's
 ///   contradicts (unmet).
@@ -1345,7 +1352,7 @@ pub fn mutation_expectation(row: &Value) -> Value {
             Some(format!("{expected}, killed by {}", killers(row))),
         ),
         "killed" => ("met", None),
-        "survived" if survive => ("met", None),
+        "survived" if survive => ("met", survival_limits(row)),
         "survived" => ("unmet", Some(format!("{expected}, survived"))),
         "equivalent" | crate::search::UNKILLABLE if survive => (
             "met",
@@ -1376,6 +1383,45 @@ pub fn mutation_expectation(row: &Value) -> Value {
         ),
     };
     json!({"verdict": verdict, "detail": detail})
+}
+
+/// What limits a met control's survival, null when nothing does: a survivor some program of
+/// which agreed only up to the horizon of a baseline's observation channel (`horizon`), on which
+/// the mutant may differ past it, and one whose edited rule's step the stop hides from every
+/// program (`stop_hides_edit`), on which no run shows what the edit changes. Either way the
+/// control's claim holds only of what the runs observed, which is weaker than survival.
+fn survival_limits(row: &Value) -> Option<String> {
+    let mut limits = Vec::new();
+    let horizons = row["horizon"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["program"].as_str())
+        .collect::<Vec<_>>();
+    if !horizons.is_empty() {
+        limits.push(format!(
+            "{} agreed only up to the horizon of a baseline's observation channel (horizon), and \
+             the mutant may differ past it",
+            horizons.join(", ")
+        ));
+    }
+    if row["stop_hides_edit"]
+        .as_array()
+        .is_some_and(|hidden| !hidden.is_empty())
+    {
+        limits.push(
+            "the stop hides the edit from every program (stop_hides_edit), so no run shows what \
+             it changes"
+                .to_owned(),
+        );
+    }
+    (!limits.is_empty()).then(|| {
+        format!(
+            "met only within what the runs observed: {}; the row's action says what would \
+             observe more",
+            limits.join("; ")
+        )
+    })
 }
 
 /// The programs that killed a row: its `killed_by` (`--full`), else its `killer`.
@@ -1427,15 +1473,20 @@ fn with_reason(row: &Value, status: &str) -> String {
 }
 
 /// Each row's `expectation` ([`mutation_expectation`]), and the `survived` row of a met control
-/// asks nothing ([`EXPECTED_SURVIVOR_ACTION`]); the run document's `expectations`: the ids of the
-/// rows whose expectation is `met`, `unmet` and `inconclusive`, in row order.
-pub fn check_expectations(mutations: &mut [Value]) -> Value {
+/// whose survival nothing limits asks nothing ([`EXPECTED_SURVIVOR_ACTION`]; one resting on a
+/// horizon or a hidden edit keeps its action); the run document's `expectations`: the ids of the
+/// rows whose expectation is `met`, `unmet` and `inconclusive`, in row order, and `unchecked`,
+/// the ids of the mutations of `list` that state `expect` and have no row (the run stopped before
+/// them at a corpus error, or `--only` left them out), in list order, so that no expectation the
+/// run did not check reads as met.
+pub fn check_expectations(mutations: &mut [Value], list: &[Mutation]) -> Value {
     let mut verdicts = BTreeMap::from([
         ("met", Vec::new()),
         ("unmet", Vec::new()),
         ("inconclusive", Vec::new()),
+        ("unchecked", Vec::new()),
     ]);
-    for row in mutations {
+    for row in mutations.iter_mut() {
         let expectation = mutation_expectation(row);
         if let Some(ids) = expectation["verdict"]
             .as_str()
@@ -1446,11 +1497,23 @@ pub fn check_expectations(mutations: &mut [Value]) -> Value {
         if row["status"] == "survived"
             && row["expect"] == crate::Expect::Survive.as_str()
             && expectation["verdict"] == "met"
+            && expectation["detail"].is_null()
         {
             row["action"] = json!(EXPECTED_SURVIVOR_ACTION);
         }
         row["expectation"] = expectation;
     }
+    let unchecked = list
+        .iter()
+        .filter(|mutation| mutation.expect.is_some())
+        .filter(|mutation| {
+            !mutations
+                .iter()
+                .any(|row| row["id"] == mutation.id.as_str())
+        })
+        .map(|mutation| json!(mutation.id))
+        .collect();
+    verdicts.insert("unchecked", unchecked);
     json!(verdicts)
 }
 

@@ -2724,6 +2724,7 @@ pub fn run_front(
                 lock: lock
                     .as_ref()
                     .map_or(Value::Null, |lock| lock.not_written("refused")),
+                list: &list.mutations,
                 ..Accounting::NONE
             },
         ));
@@ -3058,6 +3059,7 @@ pub fn run_front(
                 // Nothing is written to the lock before the run ends.
                 lock: lock.as_ref().map_or(Value::Null, Lock::pending),
                 coverage: Some(&stop_coverage),
+                list: &list.mutations,
             },
         ));
         match store.write_json(&report_path, &document) {
@@ -3104,6 +3106,7 @@ pub fn run_front(
             observe: manifest.observe_value(),
             lock: Value::Null,
             coverage: Some(&stop_coverage),
+            list: &list.mutations,
         },
     );
     // The lock, compared and written once the run's rows are final (README, "The killer
@@ -3931,6 +3934,9 @@ struct Accounting<'m> {
     /// survivor's `stop_hides_edit` is read under a stop condition; `None` where no run judged
     /// the programs.
     coverage: Option<&'m crate::check::CorpusCoverage>,
+    /// The mutations of the run's list, whose expectations without a row the document lists as
+    /// unchecked (`crate::report::check_expectations`); empty where no list decoded.
+    list: &'m [Mutation],
 }
 
 impl Accounting<'_> {
@@ -3948,6 +3954,7 @@ impl Accounting<'_> {
         observe: None,
         lock: Value::Null,
         coverage: None,
+        list: &[],
     };
 }
 
@@ -3980,8 +3987,9 @@ fn document(
             hides.annotate_survivor(row);
         }
     }
-    // Each row's expectation, from its status: the same on every run of the same verdicts.
-    let expectations = crate::report::check_expectations(&mut mutations);
+    // Each row's expectation, from its status: the same on every run of the same verdicts; and
+    // each one the run did not check.
+    let expectations = crate::report::check_expectations(&mut mutations, accounting.list);
     let survivors = survivors(&mutations);
     // The kill matrix of a full run, from its rows (`report::matrix`); null under first-kill, whose
     // rows hold only the cells up to the first kill, and when the specification is refused.

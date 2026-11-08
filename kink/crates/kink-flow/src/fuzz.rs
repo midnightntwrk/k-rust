@@ -213,8 +213,10 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// Version 14 adds `job.expect` to a kill job, the verdict its mutation states it expects
 /// (`survive`, `kill` or null, [`crate::Expect`]), and the warning `expected-to-survive`: the
 /// search of a mutation expected to survive is not refused, since it is the most direct attempt
-/// to refute the claim, and a witness it finds is a finding (`crate::cli::fuzz_status`), whose
-/// action says so. The other jobs' documents are version 13's.
+/// to refute the claim, and a witness it finds is a finding when kink confirmed it and it needs no
+/// premise the flow lacks ([`refutes_survival`], `crate::cli::fuzz_status`), whose action says
+/// so; another witness of it is a candidate, and its action says what is left to decide. The
+/// other jobs' documents are version 13's.
 /// `tests/formats.rs` ties the version to the document's shape.
 pub const FUZZ_VERSION: u32 = 14;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
@@ -1231,6 +1233,22 @@ fn premises(manifest: &FlowManifest, options: &FuzzOptions, report: &FuzzReport)
         .collect()
 }
 
+/// Whether the `program` of a kill job's fuzz document (null without a witness) refutes the
+/// expectation of a mutation expected to survive: kink's own run confirmed the kill
+/// (`confirmed`), and the kill rests on no premise `FLOW.toml`'s `[spec] assume_joined` lacks
+/// (every `premises` entry `in_flow`). A witness that `--no-confirm` left unconfirmed, or whose
+/// kill needs a premise the flow does not state, is a candidate: the corpus as it stands has not
+/// been shown to distinguish the mutant, so the claim is neither refuted nor confirmed.
+#[must_use]
+pub fn refutes_survival(program: &Value) -> bool {
+    program["confirmed"] == true
+        && program["premises"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|premise| premise["in_flow"] != false)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Guards: definition exclusions, assembly, the last run's facts
 // ---------------------------------------------------------------------------------------------
@@ -2194,8 +2212,8 @@ pub fn fuzz_front(
             "expected-to-survive",
             "the mutation states expect = \"survive\": no program of the corpus should \
              distinguish its mutant from the specification. This search is an attempt to refute \
-             that claim: a witness it finds is a finding (exit status 1), a program on which what \
-             the edit changes is observable",
+             that claim: a witness kink confirms, needing no premise FLOW.toml lacks, is a \
+             finding (exit status 1), a program on which what the edit changes is observable",
         ));
     }
     document["warnings"] = json!(warnings);
@@ -3082,7 +3100,7 @@ pub fn fuzz_front(
                     missing.join(", ")
                 ));
             }
-            if expects_survival {
+            if expects_survival && refutes_survival(&document["program"]) {
                 // The witness refutes the mutation's expectation: it is the finding, and the
                 // program what shows it.
                 action = format!(
@@ -3090,6 +3108,24 @@ pub fn fuzz_front(
                      from the specification: what the edit changes is observable on it. Fix the \
                      specification, or the mutation's expectation; to keep the program as a \
                      test, {action}"
+                );
+            } else if expects_survival {
+                // A candidate only: the corpus as it stands has not been shown to kill.
+                let mut open = Vec::new();
+                if !confirmed {
+                    open.push("kink's own run did not confirm the kill (--no-confirm)".to_owned());
+                }
+                if !missing.is_empty() {
+                    open.push(format!(
+                        "the kill rests on premises FLOW.toml's [spec] assume_joined lacks ({})",
+                        missing.join(", ")
+                    ));
+                }
+                action = format!(
+                    "the mutation expects to survive, and this program may distinguish its mutant \
+                     from the specification, but it does not refute the expectation yet: {}. To \
+                     decide it, {action}",
+                    open.join(", and ")
                 );
             }
             document["action"] = json!(action);
