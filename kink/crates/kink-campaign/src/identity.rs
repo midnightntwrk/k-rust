@@ -152,8 +152,11 @@ use std::{path::Path, sync::OnceLock};
 /// a v19 record has none, so every heating rule would read unmatched. v21: a record's
 /// `observations` holds `paths`, each channel's prefix set over the run's paths, where the run
 /// split (kink-campaign `PathRecord`); a v20 record of such a run holds channels opened at the
-/// branch, which would read as a prefix that observed nothing.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v21";
+/// branch, which would read as a prefix that observed nothing. v22: a record's program summary
+/// `observations` of a run with several paths gives its prefix sets' facts (`paths`, `real`, each
+/// channel's `complete_to`); a v21 record of such a run summarizes it as channels open at 0 by
+/// the branch.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v22";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -243,8 +243,11 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// sentences: each rules item has `kind` (`rule`, or `heating` with `heating`), a heating item is
 /// an obligation named `rule:<production>:heat:<position>` (`rule:<context>:heat`), its status
 /// read from the records' `strictness`, and the family's counts have `heating`, so a reader of
-/// version 8 would count obligations it does not know as rules.
-pub const COVERAGE_VERSION: u64 = 9;
+/// version 8 would count obligations it does not know as rules; 10 since a program row's
+/// `observations` for a run with several paths gives its prefix sets' facts, `{paths, real,
+/// channels: [{name, complete_to}], horizon}`, where version 9 showed each channel open at 0 by
+/// `branch` whatever was explored.
+pub const COVERAGE_VERSION: u64 = 10;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";

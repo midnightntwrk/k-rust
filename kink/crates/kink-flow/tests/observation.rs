@@ -1077,4 +1077,20 @@ fn a_difference_of_prefix_sets_names_the_side_outside() {
         }),
         "{dropped:#}"
     );
+    // The program's row gives the prefix sets' facts: two paths (again's merges into left's,
+    // with one history), a real record, and every channel explored to its end.
+    let program = &document["programs"][0];
+    assert_eq!(
+        program["observations"],
+        json!({
+            "paths": 2,
+            "real": true,
+            "channels": [
+                {"name": "finished", "complete_to": null},
+                {"name": "out", "complete_to": null},
+            ],
+            "horizon": {},
+        }),
+        "{program:#}"
+    );
 }

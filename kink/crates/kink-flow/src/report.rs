@@ -241,8 +241,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// a channel's `closed` can be `cycle`, and an element of the observation evidence `cycle`; 35
 /// since a run that splits is compared by prefix sets: a slot's `position` names the side
 /// `outside` the other's set where they differ, and that kill's evidence is
-/// `kink-k-sets/1` ([`crate::evidence::K_SET_EVIDENCE_VERSION`]).
-pub const RUN_VERSION: u64 = 35;
+/// `kink-k-sets/1` ([`crate::evidence::K_SET_EVIDENCE_VERSION`]); 36 since a program row's
+/// `observations` for a run with several paths gives its prefix sets' facts, `{paths, real,
+/// channels: [{name, complete_to}], horizon}`, where version 35 showed each channel open at 0 by
+/// `branch` whatever was explored.
+pub const RUN_VERSION: u64 = 36;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.

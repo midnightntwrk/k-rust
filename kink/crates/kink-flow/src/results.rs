@@ -472,8 +472,39 @@ pub fn baseline_row(evidence: &TestEvidence) -> Value {
 /// number recorded, `closed` and `open` as the record has them, and `horizon` each open channel's
 /// horizon by name, `{elements, opening}` (kink-campaign `Horizon::value`); `None` for a row
 /// without a record.
+///
+/// A record of a run with several paths (its `paths`) holds no element in `channels`, each open
+/// at 0 by `branch`, so its summary gives the prefix sets' facts instead: `{paths, real, channels:
+/// [{name, complete_to}], horizon}`, the number of paths, whether the record is real, and per
+/// channel the horizon to which every path is explored (null where every path is explored to its
+/// end), which `horizon` holds by name for each channel that has one.
 fn observations_summary(row: &Value) -> Option<Value> {
     let record = row.get("observations")?;
+    if let Some(paths) = record.get("paths").filter(|paths| paths.is_object()) {
+        let mut horizon = serde_json::Map::new();
+        let names = record["channels"].as_array()?;
+        let channels = paths["channels"]
+            .as_array()?
+            .iter()
+            .zip(names)
+            .map(|(sets, channel)| {
+                let name = channel["name"].clone();
+                if sets["complete_to"].is_object() {
+                    horizon.insert(
+                        name.as_str().unwrap_or_default().to_owned(),
+                        sets["complete_to"].clone(),
+                    );
+                }
+                json!({"name": name, "complete_to": sets["complete_to"]})
+            })
+            .collect::<Vec<_>>();
+        return Some(json!({
+            "paths": paths["paths"],
+            "real": paths["real"],
+            "channels": channels,
+            "horizon": horizon,
+        }));
+    }
     let channels = record["channels"].as_array()?;
     let mut horizon = serde_json::Map::new();
     let channels = channels
