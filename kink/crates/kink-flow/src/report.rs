@@ -232,8 +232,14 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// [`crate::evidence`]), a survivor some program of which agreed only up to a horizon carries
 /// `horizon` and says so in its action, and a mutant on which a point class's rule labels no
 /// rewrite rule, or whose declarations of the observed cells' sorts are not the specification's,
-/// is `not-admitted`, reason `point-unresolved` or `observation-incompatible`.
-pub const RUN_VERSION: u64 = 33;
+/// is `not-admitted`, reason `point-unresolved` or `observation-incompatible`; 34 since every
+/// horizon names why its channel opened: a horizon is `{elements, opening}` in the slot
+/// `observations` and a survivor's `horizon`, a program row's `observations` gives each open
+/// channel's `opening` and its horizon so, a survivor's action raises the bound only where some
+/// horizon's opening is `bound` or `cycle`, and a prefix program none of whose channels kept an
+/// element within its budget or closed by a cycle is `unknown`, since it observed nothing; and
+/// a channel's `closed` can be `cycle`, and an element of the observation evidence `cycle`.
+pub const RUN_VERSION: u64 = 34;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
@@ -251,9 +257,10 @@ pub fn observation_verdict(notes: &kink_campaign::RunNotes) -> Option<&Observati
 
 /// What the observation slot reports beside its outcome, as an executed entry's slot and an
 /// outcome record keep it: `{position: {channel, index, at_end}}` where it distinguished,
-/// `{horizon: {<channel>: n}}` where it agreed and some channel's agreement rests on the
-/// baseline's horizon, `{cause}` where it was unknown; null otherwise (an agreement to every
-/// channel's end).
+/// `{horizon: {<channel>: {elements, opening}}}` where it agreed and some channel's agreement
+/// rests on the baseline's horizon, each with the number of elements agreed on and why the
+/// baseline's channel opened there (kink-campaign `Opening::name`), `{cause}` where it was
+/// unknown; null otherwise (an agreement to every channel's end).
 #[must_use]
 pub fn observation_slot(verdict: &ObservationVerdict) -> Value {
     match verdict.outcome {
@@ -265,7 +272,12 @@ pub fn observation_slot(verdict: &ObservationVerdict) -> Value {
             }})
         }),
         OracleOutcome::Agree if !verdict.horizon.is_empty() => {
-            json!({"horizon": verdict.horizon})
+            let horizon = verdict
+                .horizon
+                .iter()
+                .map(|(channel, at)| (channel.clone(), at.value()))
+                .collect::<serde_json::Map<_, _>>();
+            json!({"horizon": horizon})
         }
         OracleOutcome::Unknown => verdict
             .cause
@@ -292,8 +304,8 @@ pub fn with_observation(slots: &mut Value, observation: &Value) {
 }
 
 /// The agreements up to a horizon of a survivor's executed entries: `[{program, horizon}]`, each
-/// program whose observation slot agreed only up to the baseline's horizons, in the entries'
-/// order; empty when none did.
+/// program whose observation slot agreed only up to the baseline's horizons (`horizon` as the
+/// slot has it, [`observation_slot`]), in the entries' order; empty when none did.
 #[must_use]
 pub fn survivor_horizons(executed: &[Value]) -> Vec<Value> {
     executed
@@ -481,8 +493,39 @@ pub fn refused_action(reason: InvalidReason) -> Option<String> {
 }
 
 /// The pseudo-reason [`action`] reads for a `survived` row some program of which agreed only up to
-/// a horizon (the row's `horizon`); the row's own `reason` stays null.
+/// a horizon a larger budget can move (the row's `horizon`, opening `bound` or `cycle`); the
+/// row's own `reason` stays null.
 pub const HORIZON_REASON: &str = "horizon";
+
+/// The pseudo-reason [`action`] reads for a `survived` row some program of which agreed only up to
+/// a horizon, and every such horizon is where the baseline's channel opened for a reason of its
+/// run, not of the budget (an undecided element, a branch, an undecided path): a larger budget
+/// reaches the same horizon. The row's own `reason` stays null.
+pub const HORIZON_OPENED_REASON: &str = "horizon-opened";
+
+/// The pseudo-reason of a survivor's horizons ([`survivor_horizons`]): [`HORIZON_REASON`] when
+/// some channel's horizon is where a bound cut the baseline's path, or past a cycle-closed
+/// baseline channel where the mutant's path may have been cut (opening `cycle`), else
+/// [`HORIZON_OPENED_REASON`].
+#[must_use]
+pub fn horizon_reason(horizons: &[Value]) -> &'static str {
+    let bound = horizons.iter().any(|entry| {
+        entry["horizon"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .any(|(_, at)| {
+                [kink_campaign::Opening::Bound, kink_campaign::Opening::Cycle]
+                    .iter()
+                    .any(|opening| at["opening"] == opening.name())
+            })
+    });
+    if bound {
+        HORIZON_REASON
+    } else {
+        HORIZON_OPENED_REASON
+    }
+}
 
 /// What a status asks of the LLM, as `kink-flow` spells its commands
 /// ([`action_spelled`]); `None` for `killed`. `reason` refines `error`.
@@ -491,8 +534,18 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         "killed" => return None,
         "survived" if reason == Some(HORIZON_REASON) => {
             "raise the bound or write another program: every executed program agreed, and some \
-             agreed only up to the horizon its baseline's observation channels reached within the \
-             budget (horizon): the mutant may differ past it, which no program observed"
+             agreed only up to the horizon of a baseline's observation channel (horizon): the \
+             mutant may differ past it, which no program observed; a larger budget observes more \
+             of a channel whose opening is bound, may observe more of the mutant's where it is \
+             cycle (the baseline's channel is complete, and the mutant's run stopped before \
+             showing whether it emits more), and observes no more of any other"
+        }
+        "survived" if reason == Some(HORIZON_OPENED_REASON) => {
+            "write another program: every executed program agreed, and some agreed only up to the \
+             horizon of a baseline's observation channel (horizon), which opened there at an \
+             undecided element, a branch or an undecided path (its opening), not at a bound, so \
+             a larger budget observes no more of it: the mutant may differ past it, which no \
+             program observed"
         }
         "survived" => {
             "write a program that matches an edited rule and whose final configuration the edit \

@@ -21,7 +21,9 @@
 //!   ([`crate::lock`]; `recorded_killer`, and `killer_change` saying why the killer is not the
 //!   recorded one).
 //! - `undistinguished`: the search ran the mutant on every comparable program and none
-//!   distinguished it.
+//!   distinguished it. Under `[observe]`, a flip some program of which agreed only up to its
+//!   baseline's observation horizons has `horizon`, as the run row's (each such program, each
+//!   channel's horizon with why it opened), so the obligation says that it rests on a prefix.
 //! - `equivalent`: kink proves no program can distinguish the mutant (an `equivalent` or
 //!   `unkillable` row), so it is no obligation a program can meet.
 //! - `unknown`: the search gave no verdict (`unknown`, `timeout`, or a corpus error), with kink's
@@ -334,7 +336,8 @@ pub fn unreached(occurrences: &[Value]) -> bool {
 /// A flip item's status, reason and verdict fields from its run row (a row of the run
 /// document): `killed` is `distinguished`, `survived` `undistinguished`, `equivalent` and
 /// `unkillable` `equivalent`, `invalid-mutation` and `not-admitted` `refused` (kink-flow's
-/// admission), and every other status `unknown`. `kink_status` keeps kink's status.
+/// admission), and every other status `unknown`. `kink_status` keeps kink's status, and
+/// `horizon` the row's (a survivor's agreements up to a horizon, null where it has none).
 pub fn fill_from_row(item: &mut Value, row: &Value) {
     let kink = row["status"].as_str().unwrap_or_default();
     let status = match kink {
@@ -357,6 +360,7 @@ pub fn fill_from_row(item: &mut Value, row: &Value) {
     item["recorded_killer"] = row["recorded_killer"].clone();
     item["killer_change"] = row["killer_change"].clone();
     item["witnesses"] = row["witnesses"].clone();
+    item["horizon"] = row.get("horizon").cloned().unwrap_or(Value::Null);
     let executed = row["executed"].as_array().map_or(&[][..], Vec::as_slice);
     item["live_runs"] = json!(
         executed
@@ -390,6 +394,7 @@ pub fn item_value(entry: &DerivedEntry, occurrences: Vec<Value>) -> Value {
         "recorded_killer": null,
         "killer_change": null,
         "witnesses": null,
+        "horizon": null,
         "waits_on": [],
         "live_runs": 0,
         "calls": 0,
@@ -492,6 +497,34 @@ mod tests {
         let rule = item(guard(json!([node("0", &[], &[], &[])])));
         let value = occurrence_value(&operand("0"), Some(&rule), &["t".to_owned()]);
         assert!(!unreached(&[value]));
+    }
+
+    /// An undistinguished flip whose run row rests on a horizon carries it, and a coverage
+    /// rendering writes it with each channel's opening; a distinguished flip has none.
+    #[test]
+    fn an_undistinguished_flip_carries_and_renders_its_horizon() {
+        let horizon = json!([{"program": "run",
+                              "horizon": {"clock": {"elements": 16, "opening": "bound"}}}]);
+        let mut item = json!({"id": "f"});
+        fill_from_row(
+            &mut item,
+            &json!({"status": "survived", "reason": null, "horizon": horizon}),
+        );
+        assert_eq!(item["status"], UNDISTINGUISHED);
+        assert_eq!(item["horizon"], horizon);
+        let document = json!({"schema": crate::coverage::COVERAGE_SCHEMA,
+                              "families": {"flips": {"run": true, "items": [item]}}});
+        let text = crate::verdicts::verdicts(&document).unwrap();
+        assert!(
+            text.contains(
+                "horizon = [{ program = \"run\", channel = \"clock\", elements = 16, \
+                 opening = \"bound\" }]"
+            ),
+            "{text}"
+        );
+        let mut killed = json!({"id": "g"});
+        fill_from_row(&mut killed, &json!({"status": "killed", "killer": "run"}));
+        assert_eq!(killed["horizon"], Value::Null);
     }
 
     #[test]

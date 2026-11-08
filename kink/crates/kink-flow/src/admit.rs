@@ -1237,8 +1237,8 @@ fn observe_resolved(
             format!(
                 "{}: a function of an observer is evaluated on the values of the cells it reads, \
                  and kink-flow's K front end reads terms of a K definition with no observer to \
-                 evaluate it in; run the corpus through a front end that states values (`krs \
-                 kink`), or observe the cells as they are",
+                 evaluate it in: observer functions need a front end that reads values, which \
+                 `krs kink` will be and does not yet accept them; observe the cells as they are",
                 keys.join(", ")
             ),
         ));

@@ -26,8 +26,9 @@ pub use identity::{
     writer_difference,
 };
 pub use observation::{
-    BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, Closure, Comparison, Element, Log,
-    OBSERVATION_VERSION, Observation, ObservationVerdict, Observe, PointClass, Position, Stutter,
+    BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, Closure, Comparison, Element, Horizon,
+    Log, OBSERVATION_VERSION, Observation, ObservationVerdict, Observe, Opened, Opening,
+    PointClass, Position, Stutter,
 };
 mod manifest;
 mod oracle;

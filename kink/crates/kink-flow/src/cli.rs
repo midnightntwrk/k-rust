@@ -1348,7 +1348,8 @@ fn record_status(row: &Value) -> u8 {
 /// The status of a program's baseline row of a `coverage` document by its class
 /// ([`crate::results::ResultClass`]): `comparable` and `comparable-prefix` [`EXIT_YES`] (a
 /// prefix program answers what the baseline computes for the declared observation, up to its
-/// horizons); `timeout` and `unknown`
+/// horizons, and some channel of it kept an element within its budget: one that kept none is
+/// `unknown`, since it observed nothing); `timeout` and `unknown`
 /// [`EXIT_UNANSWERED`], since the run has no end kink compares; `refused` and `error`
 /// [`EXIT_UNASKED`]; joined with [`EXIT_UNASKED`] for a result record it could not write.
 fn program_status(row: &Value) -> u8 {

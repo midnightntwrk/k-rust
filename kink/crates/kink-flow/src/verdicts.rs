@@ -73,8 +73,9 @@
 //! family the ids of its open obligations and of its argued ones, in item order (`[rules]`,
 //! `[requirements]`, `[syntax]`; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
 //! and for the flips family whether it ran and, when it ran, each flip (`[[flip]]`, in item order)
-//! with its status (`argued` for an argued one), a refused flip's reason, and a distinguished
-//! flip's `killer`. It lists no programs and no counts, so that it moves only when a gap opens or
+//! with its status (`argued` for an argued one), a refused flip's reason, a distinguished flip's
+//! `killer`, and an undistinguished flip's `horizon` where it rests on one, as a run rendering
+//! gives a survivor's. It lists no programs and no counts, so that it moves only when a gap opens or
 //! closes, an argument is added or removed, or a killer changes: a case that covers nothing new
 //! renders the same bytes. An argument's text is not rendered, since it explains a verdict rather
 //! than records one; its id is, since an argued obligation leaves the open ones without any
@@ -86,8 +87,9 @@
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), a survivor that rests on a horizon its `horizon` (each program whose
-//! observation channels agreed only up to its baseline's horizon, with each channel and the
-//! number of elements agreed on: a function of the budget, not of the host), and, when a corpus error stopped it, the mutation and the reason under
+//! observation channels agreed only up to its baseline's horizon, with each channel, the number
+//! of elements agreed on and why the channel opened there, `opening`: a function of the result
+//! key, not of the host), and, when a corpus error stopped it, the mutation and the reason under
 //! `[stopped]` (the mutations after it have no status). A refused specification has its `stage`
 //! and `reason` under `[spec]`, a refused mutation list its `outcome` under `[mutation_list]` (a
 //! run document of a list that does not decode has no `[spec]`), and a refused lock its `outcome`
@@ -141,11 +143,14 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// the recorded one while it kills, so that a `coverage.lock` records the flips' verdicts; 12 since
 /// a survivor some program of which agreed only up to its baseline's observation horizon (`[observe]`)
 /// has `horizon`, each such program's channels and the number of elements they agreed on, so that
-/// a lock shows when a survivor rests on a budgeted prefix; 13 since
+/// a lock shows when a survivor rests on a prefix; 13 since
 /// a `coverage` rendering lists each family's argued obligations (`argued`, beside `open`) and an
 /// argued flip has status `argued`, so that a lock records which obligations are argued rather
-/// than covered.
-pub const VERDICTS_VERSION: u64 = 13;
+/// than covered; 14 since each horizon names why its channel opened (`opening`: `bound`,
+/// `undecided-element`, `branch`, `undecided-path`, `cycle`), so that a lock shows whether a larger budget
+/// could observe more, and a `coverage` rendering gives an undistinguished flip that rests on a
+/// horizon its `horizon`.
+pub const VERDICTS_VERSION: u64 = 14;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -361,12 +366,16 @@ fn coverage(text: &mut String, document: &Value) {
                 line(text, key, &string(value));
             }
         }
+        if let Some(horizons) = rendered["horizon"].as_array() {
+            line(text, "horizon", &rendered_horizons(horizons));
+        }
     }
 }
 
-/// What a coverage rendering writes of a flip item, beside its id: `{status, killer, reason}`, a
-/// refused flip's `reason` and a distinguished flip's `killer`, null where the rendering writes
-/// none (module documentation).
+/// What a coverage rendering writes of a flip item, beside its id: `{status, killer, reason,
+/// horizon}`, a refused flip's `reason`, a distinguished flip's `killer` and an undistinguished
+/// flip's `horizon` (its run row's, [`rendered_horizons`]), null where the rendering writes none
+/// (module documentation).
 #[must_use]
 pub fn rendered_flip(item: &Value) -> Value {
     let status = item["status"].as_str().unwrap_or_default();
@@ -381,7 +390,38 @@ pub fn rendered_flip(item: &Value) -> Value {
         "status": status,
         "killer": only(crate::flips::DISTINGUISHED, "killer"),
         "reason": only(crate::flips::REFUSED, "reason"),
+        "horizon": if status == crate::flips::UNDISTINGUISHED {
+            item["horizon"].clone()
+        } else {
+            Value::Null
+        },
     })
+}
+
+/// A survivor's agreements up to a horizon (a run row's `horizon`, `[{program, horizon:
+/// {<channel>: {elements, opening}}}]`) as a rendering writes them: one inline table per program
+/// and channel, `{ program, channel, elements, opening }`.
+fn rendered_horizons(horizons: &[Value]) -> String {
+    let items = horizons
+        .iter()
+        .flat_map(|entry| {
+            let program = entry["program"].as_str().unwrap_or_default();
+            entry["horizon"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(move |(channel, at)| {
+                    format!(
+                        "{{ program = {}, channel = {}, elements = {}, opening = {} }}",
+                        string(program),
+                        string(channel),
+                        at["elements"].as_u64().unwrap_or_default(),
+                        string(at["opening"].as_str().unwrap_or_default())
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    format!("[{}]", items.join(", "))
 }
 
 /// Whether a run document's row is of a mutation its author must fix before it is judged:
@@ -420,25 +460,9 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
             line(text, "reason", &string(reason));
         }
         // A survivor some program of which agreed only up to its baseline's horizon: each such
-        // program's channels and the elements they agreed on.
+        // program's channels, the elements they agreed on and why each opened.
         if let Some(horizons) = row["horizon"].as_array() {
-            let items = horizons
-                .iter()
-                .flat_map(|entry| {
-                    let program = entry["program"].as_str().unwrap_or_default();
-                    entry["horizon"].as_object().into_iter().flatten().map(
-                        move |(channel, elements)| {
-                            format!(
-                                "{{ program = {}, channel = {}, elements = {} }}",
-                                string(program),
-                                string(channel),
-                                elements.as_u64().unwrap_or_default()
-                            )
-                        },
-                    )
-                })
-                .collect::<Vec<_>>();
-            line(text, "horizon", &format!("[{}]", items.join(", ")));
+            line(text, "horizon", &rendered_horizons(horizons));
         }
         if row["status"] != "killed" {
             continue;

@@ -18,11 +18,15 @@
 //! delete `tick` (`tick-deleted`) and halt the console before its fourth tick (`halt-early`).
 
 use kink_campaign::{
-    BaselineRecord, ChannelEnd, ChannelRecord, Element, ObservationVerdict, OracleOutcome, Position,
+    BaselineRecord, ChannelEnd, ChannelRecord, Element, ObservationVerdict, Opened, Opening,
+    OracleOutcome, Position,
 };
 use kink_flow::{
     FlowManifest,
-    cli::{CheckOptions, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check, check_with},
+    cli::{
+        CheckOptions, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, FuzzJobRequest, FuzzRequest, check,
+        check_with,
+    },
     coverage::{CoverageOptions, coverage},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context},
     manifest::{Budget, ManifestError},
@@ -420,19 +424,23 @@ fn a_prefix_program_is_recorded_under_its_declaration() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let (cold, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{cold:#}");
-    assert_eq!(cold["version"], 6);
+    assert_eq!(cold["version"], 7);
     assert_eq!(cold["observe"], manifest.observe_value().unwrap());
     let program = &cold["programs"][0];
     assert_eq!(program["class"], "comparable-prefix", "{program:#}");
     assert_eq!(program["cached"], false, "{program:#}");
+    // The clock opens where the depth bound cut the path, the log at `show(6)`, which is no value.
     assert_eq!(
         program["observations"]["horizon"],
-        json!({"clock": 16, "out": 2})
+        json!({"clock": {"elements": 16, "opening": "bound"},
+               "out": {"elements": 2, "opening": "undecided-element"}})
     );
     let channels = program["observations"]["channels"].as_array().unwrap();
     assert_eq!(channels[0]["elements"], 16);
     assert_eq!(channels[0]["closed"], Value::Null);
     assert_eq!(channels[0]["open"]["index"], 16);
+    assert_eq!(channels[0]["open"]["opening"], "bound");
+    assert_eq!(channels[1]["open"]["opening"], "undecided-element");
     assert_eq!(channels[1]["elements"], 2);
     let (warm, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{warm:#}");
@@ -462,7 +470,7 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
     let dir = fixture("run", &[]);
     let manifest = dir.join("FLOW.toml");
     let (document, _) = search(&manifest, RunMode::Search);
-    assert_eq!(document["version"], 33);
+    assert_eq!(document["version"], 34);
     assert_eq!(
         document["observe"],
         FlowManifest::read(&manifest)
@@ -512,18 +520,22 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
 
     let survivor = row(&document, "console/stall-longer");
     assert_eq!(survivor["status"], "survived", "{survivor:#}");
+    let horizon = json!({"clock": {"elements": 16, "opening": "bound"},
+                         "out": {"elements": 2, "opening": "undecided-element"}});
     assert_eq!(
         survivor["horizon"],
-        json!([{"program": "run", "horizon": {"clock": 16, "out": 2}}]),
+        json!([{"program": "run", "horizon": horizon}]),
         "{survivor:#}"
     );
+    // The clock's horizon is a bound's, so a larger budget observes more of it.
+    let action = survivor["action"].as_str().unwrap();
     assert!(
-        survivor["action"].as_str().unwrap().contains("horizon"),
+        action.contains("horizon") && action.starts_with("raise the bound"),
         "{survivor:#}"
     );
     assert_eq!(
         entry(&document, "console/stall-longer")["slots"]["observations"],
-        json!({"outcome": "agree", "horizon": {"clock": 16, "out": 2}})
+        json!({"outcome": "agree", "horizon": horizon})
     );
 
     assert_eq!(
@@ -544,11 +556,12 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
 
     // The verdicts rendering says which survivor rests on a horizon.
     let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
-    assert!(verdicts.contains("version = 13"), "{verdicts}");
+    assert!(verdicts.contains("version = 14"), "{verdicts}");
     assert!(
         verdicts.contains(
-            "horizon = [{ program = \"run\", channel = \"clock\", elements = 16 }, \
-             { program = \"run\", channel = \"out\", elements = 2 }]"
+            "horizon = [{ program = \"run\", channel = \"clock\", elements = 16, \
+             opening = \"bound\" }, { program = \"run\", channel = \"out\", elements = 2, \
+             opening = \"undecided-element\" }]"
         ),
         "{verdicts}"
     );
@@ -691,7 +704,7 @@ fn run_verify_rederives_observation_outcomes() {
 /// A difference is reported only when both sides' values re-derive it: the capture run of the
 /// baseline reads the element whose digest the record keeps, a record whose digest bytes the
 /// capture run's element does not have is an error, and so is a mutant element equal to the
-/// baseline's.
+/// baseline's or undecided against its content.
 #[test]
 fn a_capture_run_rederives_the_baselines_element() {
     let dir = fixture("capture", &[]);
@@ -726,7 +739,7 @@ fn a_capture_run_rederives_the_baselines_element() {
             .iter()
             .map(digest)
             .collect(),
-        end: ChannelEnd::Open("the path was cut by a bound".to_owned()),
+        end: ChannelEnd::Open(Opened::new(Opening::Bound, "the path was cut by a bound")),
     };
     let mut baseline = BaselineRecord {
         channels: vec![channel(0), channel(1)],
@@ -758,6 +771,19 @@ fn a_capture_run_rederives_the_baselines_element() {
         .observed_difference(&test, &baseline, &verdict(1))
         .unwrap_err();
     assert!(equal.contains("are equal"), "{equal}");
+    // A recorded content differs in every model from a content or a closure, never from an
+    // element whose value is not known.
+    let undecided = runner
+        .observed_difference(
+            &test,
+            &baseline,
+            &ObservationVerdict {
+                element: Some(Element::Undecided),
+                ..verdict(2)
+            },
+        )
+        .unwrap_err();
+    assert!(undecided.contains("only from a closure"), "{undecided}");
     baseline.channels[0].elements[1] = Some([0; 8]);
     let mismatch = runner
         .observed_difference(&test, &baseline, &verdict(2))
@@ -765,6 +791,122 @@ fn a_capture_run_rederives_the_baselines_element() {
     assert!(
         mismatch.contains("does not have the recorded digest"),
         "{mismatch}"
+    );
+}
+
+/// Under `count` an event whose content is not decided is still an element: the log cell before
+/// each tick holds `show(6)`, no value, from the seventh tick on, so the baseline's element 6 is
+/// undecided, and a mutant that halts once the count passes 5 ends its channel there. END against
+/// an element, decided or not, is a decided difference; the capture run re-derives the baseline's
+/// undecided element, and the mutant is killed with that evidence.
+#[test]
+fn an_end_against_an_undecided_element_kills_under_count() {
+    let dir = fixture("count-end", &[]);
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"console.k\"\nmain_module = \"CONSOLE\"\n\
+         syntax_module = \"CONSOLE-SYNTAX\"\n\n[budget]\nmax_depth = 24\n\n\
+         [[observe.point]]\nname = \"trace\"\nbefore = [\"CONSOLE.tick\"]\n\
+         stutter = \"count\"\ncells = [\"out\"]\n\n\
+         [[program]]\nid = \"run\"\ntext = \"run\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("mutations/console.toml"),
+        "[[mutation]]\nid = \"halt-after-five\"\n\
+         misunderstanding = \"the console halts once the count passes 5\"\n\n\
+         [[mutation.edit]]\nrule = \"halt\"\nfind = \"N >Int 1000000\"\n\
+         replace = \"N >Int 5\"\n",
+    )
+    .unwrap();
+    let (document, _) = search(&dir.join("FLOW.toml"), RunMode::Search);
+    assert_eq!(document["programs"][0]["class"], "comparable-prefix");
+    assert_eq!(
+        status(&document, "console/halt-after-five"),
+        ("killed".to_owned(), Value::Null),
+        "{document:#}"
+    );
+    let killed = entry(&document, "console/halt-after-five");
+    assert_eq!(
+        killed["difference"],
+        json!({
+            "format": "kink-k/1",
+            "position": {"channel": "trace", "index": 6, "at_end": true},
+            "baseline": {"element": "undecided"},
+            "mutant": {"element": "end"},
+        }),
+        "{killed:#}"
+    );
+}
+
+/// A horizon says why its channel opened, and the survivor's action follows it: observing the
+/// log cell before each tick (collapsed) and the log, both of which open at `show(6)` (no value)
+/// before the depth bound cuts the path, a mutant that agrees up to them survives with the
+/// opening `undecided-element`, and its action does not ask for a larger budget, which would
+/// reach the same element.
+#[test]
+fn a_horizon_not_cut_by_a_bound_asks_for_another_program() {
+    let dir = fixture("opened", &[]);
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"console.k\"\nmain_module = \"CONSOLE\"\n\
+         syntax_module = \"CONSOLE-SYNTAX\"\n\n[budget]\nmax_depth = 24\n\n\
+         [[observe.point]]\nname = \"clock\"\nbefore = [\"CONSOLE.tick\"]\n\
+         stutter = \"collapse\"\ncells = [\"out\"]\n\n\
+         [[observe.log]]\nname = \"out\"\ncell = \"out\"\nat = [\"clock\"]\n\n\
+         [[program]]\nid = \"run\"\ntext = \"run\"\n",
+    )
+    .unwrap();
+    let mutations = fs::read_to_string(dir.join("mutations/console.toml")).unwrap();
+    let stall = &mutations[mutations
+        .find("[[mutation]]\nid = \"stall-longer\"")
+        .unwrap()..];
+    let stall = &stall[..stall[1..]
+        .find("[[mutation]]")
+        .map_or(stall.len(), |end| end + 1)];
+    fs::write(dir.join("mutations/console.toml"), stall).unwrap();
+    let (document, _) = search(&dir.join("FLOW.toml"), RunMode::Search);
+    let survivor = row(&document, "console/stall-longer");
+    assert_eq!(survivor["status"], "survived", "{survivor:#}");
+    let horizon = &survivor["horizon"][0]["horizon"];
+    assert_eq!(
+        *horizon,
+        json!({"clock": {"elements": 3, "opening": "undecided-element"},
+               "out": {"elements": 2, "opening": "undecided-element"}}),
+        "{survivor:#}"
+    );
+    let action = survivor["action"].as_str().unwrap();
+    assert!(
+        action.starts_with("write another program") && !action.contains("raise the bound"),
+        "{action}"
+    );
+}
+
+/// A prefix program none of whose channels kept an element within its budget observed nothing:
+/// observing only `stall`, which no run of `run` takes, the program is `unknown`, its cause says
+/// why each channel opened, and `coverage` exits as for any program it cannot compare.
+#[test]
+fn a_prefix_program_that_observed_nothing_is_unknown() {
+    let dir = fixture("nothing", &[]);
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"console.k\"\nmain_module = \"CONSOLE\"\n\
+         syntax_module = \"CONSOLE-SYNTAX\"\n\n[budget]\nmax_depth = 24\n\n\
+         [[observe.point]]\nname = \"stalls\"\nbefore = [\"CONSOLE.stall\"]\n\
+         stutter = \"collapse\"\ncells = [\"n\"]\n\n\
+         [[program]]\nid = \"run\"\ntext = \"run\"\n",
+    )
+    .unwrap();
+    let (document, status) =
+        kink_flow::cli::coverage(&dir.join("FLOW.toml"), &CoverageOptions::default());
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "unknown", "{program:#}");
+    let cause = program["cause"].as_str().unwrap();
+    assert!(
+        cause.starts_with("observed-nothing:")
+            && cause.contains("`stalls` opened before its first element (bound"),
+        "{cause}"
     );
 }
 

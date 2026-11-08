@@ -627,14 +627,71 @@ impl Closure {
     }
 }
 
+/// Why a channel opened: what ended what its side can observe of it, which says what could
+/// observe more. A bound is a fact of the budget, and so may be a cycle's horizon (where the
+/// mutant's path was cut); every other opening is a fact of the run, which a larger budget
+/// reaches again.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Opening {
+    /// A deterministic bound (the depth bound or the work bound) cut the path.
+    Bound,
+    /// The element there is undecided: a content with a part that is no value, under
+    /// [`Stutter::Collapse`], or a log item that is no value or a log cell that holds no list of
+    /// known items.
+    UndecidedElement,
+    /// The path branched there: only one path is compared.
+    Branch,
+    /// The path's states or its end are not decided: the leaf is not settled, its end is no
+    /// value and no bound cut it, or the run gave no single leaf.
+    UndecidedPath,
+    /// The log's cell did not only grow by appending.
+    NotAppended,
+    /// Only in a survivor's horizon, never in a record: the baseline's channel is complete and
+    /// silent after its path returned to an earlier state ([`Closure::Cycle`]), and the mutant's
+    /// channel stopped being observed past every baseline element (its path was cut, or its
+    /// channel opened) before it showed whether it emits more.
+    Cycle,
+}
+
+impl Opening {
+    /// The record name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Bound => "bound",
+            Self::UndecidedElement => "undecided-element",
+            Self::Branch => "branch",
+            Self::UndecidedPath => "undecided-path",
+            Self::NotAppended => "log-not-appended",
+            Self::Cycle => "cycle",
+        }
+    }
+}
+
+/// Where and why a channel opened: the [`Opening`], and the reason in words.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Opened {
+    pub opening: Opening,
+    pub reason: String,
+}
+
+impl Opened {
+    #[must_use]
+    pub fn new(opening: Opening, reason: impl Into<String>) -> Self {
+        Self {
+            opening,
+            reason: reason.into(),
+        }
+    }
+}
+
 /// Where a recorded channel ends: closed by END or UNDEF after its elements, complete and silent
 /// after a return of its path ([`Closure::Cycle`]), or open there.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChannelEnd {
     Closed(Closure),
-    /// The channel is open after its elements, for this reason (a bound, a branch, an undecided
-    /// element or end).
-    Open(String),
+    /// The channel is open after its elements, as it opened.
+    Open(Opened),
 }
 
 /// One channel of a baseline's run: its elements, each as the first 8 bytes of its digest or
@@ -651,6 +708,18 @@ impl ChannelRecord {
     #[must_use]
     pub fn horizon(&self) -> Option<usize> {
         matches!(self.end, ChannelEnd::Open(_)).then_some(self.elements.len())
+    }
+
+    /// The channel's horizon with why it opened ([`Horizon`]); `None` for a closed channel.
+    #[must_use]
+    pub fn open_horizon(&self) -> Option<Horizon> {
+        match &self.end {
+            ChannelEnd::Open(opened) => Some(Horizon {
+                elements: self.elements.len(),
+                opening: opened.opening,
+            }),
+            ChannelEnd::Closed(_) => None,
+        }
     }
 }
 
@@ -676,8 +745,9 @@ pub struct BaselineRecord {
 impl BaselineRecord {
     /// The record as a result record keeps it: `{channels: [{name, elements, closed, open}],
     /// prefix, crashed}`, each element the hex of its 8 digest bytes (null where it was undecided),
-    /// `closed` `"end"`, `"undefined"` or `"cycle"` for a closed channel (else null), and `open` `{index,
-    /// reason}` for an open one (else null), `index` its horizon. Every field is destructured, so a
+    /// `closed` `"end"`, `"undefined"` or `"cycle"` for a closed channel (else null), and `open`
+    /// `{index, opening, reason}` for an open one (else null), `index` its horizon and `opening`
+    /// why it opened ([`Opening::name`]). Every field is destructured, so a
     /// new one does not compile until it is recorded here.
     #[must_use]
     pub fn value(&self) -> Value {
@@ -708,9 +778,13 @@ impl BaselineRecord {
                     .collect::<Vec<_>>();
                 let (closed, open) = match end {
                     ChannelEnd::Closed(closure) => (json!(closure.name()), Value::Null),
-                    ChannelEnd::Open(reason) => (
+                    ChannelEnd::Open(Opened { opening, reason }) => (
                         Value::Null,
-                        json!({"index": elements.len(), "reason": reason}),
+                        json!({
+                            "index": elements.len(),
+                            "opening": opening.name(),
+                            "reason": reason,
+                        }),
                     ),
                 };
                 json!({"name": name, "elements": elements, "closed": closed, "open": open})
@@ -759,9 +833,10 @@ pub struct ObservationVerdict {
     pub outcome: OracleOutcome,
     /// The first decided difference, on `Distinguish`.
     pub position: Option<Position>,
-    /// On `Agree`, each channel whose agreement rests on the baseline's prefix: the number of
-    /// elements it agrees on, its horizon. Empty when every channel agreed to its end.
-    pub horizon: BTreeMap<String, usize>,
+    /// On `Agree`, each channel whose agreement rests on the baseline's prefix: its horizon, the
+    /// number of elements it agrees on, with why the baseline's channel opened there. Empty when
+    /// every channel agreed to its end.
+    pub horizon: BTreeMap<String, Horizon>,
     /// On `Unknown`, why.
     pub cause: Option<String>,
     /// On `Distinguish`, the mutant's element at the position: the content its probe read, or
@@ -770,6 +845,22 @@ pub struct ObservationVerdict {
     /// Where the mutant's path returned to an earlier state of itself, when it did (module
     /// documentation, "Cycles"): the depth of the earlier state and of the state of the return.
     pub cycle: Option<(u64, u64)>,
+}
+
+/// A channel's horizon: the number of elements its baseline's record holds before the channel's
+/// open point, and why the channel opened there.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Horizon {
+    pub elements: usize,
+    pub opening: Opening,
+}
+
+impl Horizon {
+    /// The horizon as a document gives it: `{elements, opening}`.
+    #[must_use]
+    pub fn value(self) -> Value {
+        json!({"elements": self.elements, "opening": self.opening.name()})
+    }
 }
 
 /// The facts of a run's one leaf the slot reads: whether its state is real (the path up to it
@@ -933,7 +1024,7 @@ pub(crate) struct ChannelTrace {
     /// The full digest of the last element kept, for collapse.
     last: Option<[u8; 32]>,
     /// Why the channel opened after its elements, when it did.
-    open: Option<String>,
+    open: Option<Opened>,
     /// For a log: the items read so far (their full digests on the baseline, where each read is
     /// checked to hold them as its prefix), the number read, and the last handle on the cell.
     items: Vec<[u8; 32]>,
@@ -1238,8 +1329,10 @@ impl<'a> ObservationProbe<'a> {
         }
         let read = self.trace.channels[channel].read;
         let Some(length) = state.list_len(&path) else {
-            self.trace.channels[channel].open =
-                Some("the log cell holds no list of known items".to_owned());
+            self.trace.channels[channel].open = Some(Opened::new(
+                Opening::UndecidedElement,
+                "the log cell holds no list of known items",
+            ));
             return None;
         };
         if length < read {
@@ -1301,7 +1394,7 @@ impl<'a> ObservationProbe<'a> {
                 )
             });
         }
-        self.trace.channels[channel].open = Some(why);
+        self.trace.channels[channel].open = Some(Opened::new(Opening::NotAppended, why));
     }
 
     /// Whether every channel reached the baseline's horizon or opened, on a mutant of a prefix
@@ -1385,7 +1478,10 @@ fn compare_element(
             None
         }
         Err(reason) => {
-            trace.open = Some(format!("undecided element at {index}: {reason}"));
+            trace.open = Some(Opened::new(
+                Opening::UndecidedElement,
+                format!("undecided element at {index}: {reason}"),
+            ));
             return None;
         }
     };
@@ -1439,7 +1535,12 @@ fn record_element(
             trace.last = None;
             trace.elements.push(None);
         }
-        Err(reason) => trace.open = Some(format!("undecided element at {index}: {reason}")),
+        Err(reason) => {
+            trace.open = Some(Opened::new(
+                Opening::UndecidedElement,
+                format!("undecided element at {index}: {reason}"),
+            ));
+        }
     }
 }
 
@@ -1497,9 +1598,12 @@ impl Probe for ObservationProbe<'_> {
         }
         self.trace.branched = Some(depth);
         for channel in &mut self.trace.channels {
-            channel
-                .open
-                .get_or_insert_with(|| format!("the path branched at depth {depth}"));
+            channel.open.get_or_insert_with(|| {
+                Opened::new(
+                    Opening::Branch,
+                    format!("the path branched at depth {depth}"),
+                )
+            });
         }
     }
 
@@ -1639,14 +1743,23 @@ pub(crate) fn record(
         None
     };
     let open = |halts: &[HaltClass]| match halts {
-        [halt] if bound(halt) => "the path was cut by a bound".to_owned(),
-        [halt] => format!("the path ended undecided ({halt:?})"),
-        _ => "the run gave no single leaf".to_owned(),
+        [halt] if bound(halt) => Opened::new(Opening::Bound, "the path was cut by a bound"),
+        [halt] => Opened::new(
+            Opening::UndecidedPath,
+            format!("the path ended undecided ({halt:?})"),
+        ),
+        _ => Opened::new(Opening::UndecidedPath, "the run gave no single leaf"),
     };
     let unsettled = match facts {
         None => "the run gave no leaf",
         Some(facts) if !facts.real => "the path's states are not shown real",
         Some(_) => "k-rust reported a diagnostic on the path",
+    };
+    let unsettled_open = || {
+        Opened::new(
+            Opening::UndecidedPath,
+            format!("the path is not settled: {unsettled}"),
+        )
     };
     let channels = trace
         .channels
@@ -1655,7 +1768,7 @@ pub(crate) fn record(
         .map(|(mut channel, name)| {
             if !settled && !channel.elements.is_empty() {
                 channel.elements.clear();
-                channel.open = Some(format!("the path is not settled: {unsettled}"));
+                channel.open = Some(unsettled_open());
             }
             let closure = if channel.silent {
                 Some(Closure::Cycle)
@@ -1666,11 +1779,9 @@ pub(crate) fn record(
                 name: name.clone(),
                 elements: channel.elements,
                 end: match (channel.open, closure) {
-                    (Some(reason), _) => ChannelEnd::Open(reason),
+                    (Some(opened), _) => ChannelEnd::Open(opened),
                     (None, Some(closure)) if settled => ChannelEnd::Closed(closure),
-                    (None, Some(_)) => {
-                        ChannelEnd::Open(format!("the path is not settled: {unsettled}"))
-                    }
+                    (None, Some(_)) => ChannelEnd::Open(unsettled_open()),
                     (None, None) => ChannelEnd::Open(open(halts)),
                 },
             }
@@ -1828,7 +1939,7 @@ pub(crate) fn judge(
         };
         match mutant_closure {
             Some(kind) if emitted < recorded_length => {
-                // END or UNDEF against a content element.
+                // END or UNDEF against an element, a content whether decided or not.
                 return distinguish(channel, emitted, true, Some(kind.element()));
             }
             Some(kind) => match recorded.end {
@@ -1837,11 +1948,18 @@ pub(crate) fn judge(
                     return distinguish(channel, emitted, true, Some(kind.element()));
                 }
                 ChannelEnd::Open(_) => {
-                    horizon.insert(name(channel), recorded_length);
+                    horizon.extend(recorded.open_horizon().map(|at| (name(channel), at)));
                 }
             },
+            // `reached` is set only against an open channel. Against a complete and silent one
+            // the comparison stops where the mutant's channel stopped being observed, past every
+            // baseline element: the horizon's opening is the baseline's cycle.
             None if mutant.reached || (agrees_to_horizon && emitted >= recorded_length) => {
-                horizon.insert(name(channel), recorded_length);
+                let at = recorded.open_horizon().unwrap_or(Horizon {
+                    elements: recorded_length,
+                    opening: Opening::Cycle,
+                });
+                horizon.insert(name(channel), at);
             }
             None => {
                 open.get_or_insert_with(|| {
@@ -1850,8 +1968,10 @@ pub(crate) fn judge(
                         name(channel),
                         mutant
                             .open
-                            .as_deref()
-                            .unwrap_or("the mutant's path has no decided end")
+                            .as_ref()
+                            .map_or("the mutant's path has no decided end", |opened| {
+                                opened.reason.as_str()
+                            })
                     )
                 });
             }
@@ -1860,7 +1980,7 @@ pub(crate) fn judge(
     if open.is_none()
         && baseline.prefix
         && !closed_alike
-        && horizon.values().all(|length| *length == 0)
+        && horizon.values().all(|at| at.elements == 0)
     {
         open = Some(
             "every channel's horizon is 0: the baseline's prefix observed nothing within its \
@@ -1964,7 +2084,11 @@ mod tests {
     }
 
     fn cut() -> ChannelEnd {
-        ChannelEnd::Open("the path was cut by a bound".to_owned())
+        ChannelEnd::Open(Opened::new(Opening::Bound, "the path was cut by a bound"))
+    }
+
+    fn at(elements: usize, opening: Opening) -> Horizon {
+        Horizon { elements, opening }
     }
 
     fn baseline(channels: Vec<ChannelRecord>, prefix: bool) -> BaselineRecord {
@@ -2146,7 +2270,10 @@ mod tests {
         done.answer = Some(Answer::Done);
         let verdict = judge(&record, &compared(done, SETTLED), Some(UNDETERMINED), false);
         assert_eq!(verdict.outcome, OracleOutcome::Agree);
-        assert_eq!(verdict.horizon, BTreeMap::from([("clock".to_owned(), 2)]));
+        assert_eq!(
+            verdict.horizon,
+            BTreeMap::from([("clock".to_owned(), at(2, Opening::Bound))])
+        );
 
         let two = baseline(
             vec![channel("clock", &[1], cut()), channel("out", &[2], cut())],
@@ -2158,17 +2285,28 @@ mod tests {
         assert_eq!(verdict.outcome, OracleOutcome::Agree);
         assert_eq!(
             verdict.horizon,
-            BTreeMap::from([("clock".to_owned(), 1), ("out".to_owned(), 1)])
+            BTreeMap::from([
+                ("clock".to_owned(), at(1, Opening::Bound)),
+                ("out".to_owned(), at(1, Opening::Bound))
+            ])
         );
 
-        let undecided = ChannelEnd::Open("undecided element at 1: no value".to_owned());
+        let undecided = ChannelEnd::Open(Opened::new(
+            Opening::UndecidedElement,
+            "undecided element at 1: no value",
+        ));
         let ending = baseline(vec![channel("clock", &[1], undecided)], false);
         let mut reached = trace(vec![emitted(&[1], true)]);
         reached.ended = true;
         let end = determined_end();
         let verdict = judge(&ending, &compared(reached, SETTLED), Some(&end), false);
         assert_eq!(verdict.outcome, OracleOutcome::Agree);
-        assert_eq!(verdict.horizon, BTreeMap::from([("clock".to_owned(), 1)]));
+        // The horizon says the channel opened at an undecided element, on a baseline that ended:
+        // no bound cut it.
+        assert_eq!(
+            verdict.horizon,
+            BTreeMap::from([("clock".to_owned(), at(1, Opening::UndecidedElement))])
+        );
     }
 
     /// A channel complete and silent after a return: the baseline's prefix program holds 1, 2
@@ -2219,7 +2357,10 @@ mod tests {
             false,
         );
         assert_eq!(verdict.outcome, OracleOutcome::Agree);
-        assert_eq!(verdict.horizon, BTreeMap::from([("clock".to_owned(), 2)]));
+        assert_eq!(
+            verdict.horizon,
+            BTreeMap::from([("clock".to_owned(), at(2, Opening::Cycle))])
+        );
         let cut_before = trace(vec![emitted(&[1], false)]);
         let verdict = judge(
             &record,
@@ -2371,10 +2512,11 @@ mod tests {
                 Some(facts),
             );
             assert_eq!(opened.channels[0].horizon(), Some(0), "{why}");
-            let ChannelEnd::Open(reason) = &opened.channels[0].end else {
+            let ChannelEnd::Open(opened) = &opened.channels[0].end else {
                 panic!("{why}: the channel opens");
             };
-            assert!(reason.contains(why), "{reason}");
+            assert_eq!(opened.opening, Opening::UndecidedPath, "{why}");
+            assert!(opened.reason.contains(why), "{}", opened.reason);
         }
         let mut rewritten = ran();
         rewritten.refusal =

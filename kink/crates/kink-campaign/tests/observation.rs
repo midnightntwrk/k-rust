@@ -858,7 +858,13 @@ fn a_mutant_that_agrees_up_to_the_horizon_survives_with_it() {
         assert_eq!(verdict.outcome, OracleOutcome::Agree);
         assert_eq!(
             verdict.horizon,
-            std::collections::BTreeMap::from([("emitted".to_owned(), 8)])
+            std::collections::BTreeMap::from([(
+                "emitted".to_owned(),
+                kink_campaign::Horizon {
+                    elements: 8,
+                    opening: kink_campaign::Opening::Bound,
+                }
+            )])
         );
     });
 }
@@ -1040,9 +1046,14 @@ fn a_total_residue_leaves_its_state_real_and_its_element_undecided() {
             panic!("the baseline records its channels");
         };
         assert_eq!(record.channels[0].horizon(), Some(2));
-        let ChannelEnd::Open(reason) = &record.channels[0].end else {
+        let ChannelEnd::Open(opened) = &record.channels[0].end else {
             panic!("the log opens at the residue");
         };
-        assert!(!reason.contains("not settled"), "{reason}");
+        assert_eq!(
+            opened.opening,
+            kink_campaign::Opening::UndecidedElement,
+            "{opened:?}"
+        );
+        assert!(!opened.reason.contains("not settled"), "{opened:?}");
     });
 }

@@ -37,7 +37,9 @@
 //! (`observations`, kink-campaign `BaselineRecord::value`: each element's 8 digest bytes, and how
 //! each channel ends), which the run digest covers ([`run_digest`]). A run that a deterministic
 //! bound cut before it ended, every other path complete, is `comparable-prefix`: the campaign
-//! admits it for its channels, each compared up to its horizon, and it can kill by them. The
+//! admits it for its channels, each compared up to its horizon, and it can kill by them. One
+//! none of whose channels kept an element within its budget observed nothing, so it is `unknown`
+//! (reason `observed-nothing` in its cause). The
 //! record's `observations` summarizes the channels for the program's row, and the key names the
 //! declaration ([`result_key`]).
 //!
@@ -94,7 +96,7 @@ use k_rust::{
 };
 use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
-    CampaignOptions, CampaignReport, CampaignRun, CrashPolicy, FinalResult, FirstTests,
+    CampaignOptions, CampaignReport, CampaignRun, ChannelEnd, CrashPolicy, FinalResult, FirstTests,
     OracleDeclaration, OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun,
     StateProjection, TestCase, TestEvidence, run_campaign_multi_ordered, run_campaign_multi_with,
 };
@@ -151,7 +153,8 @@ pub enum ResultClass {
     /// Under `[observe]`, the baseline run has no end within its deterministic bounds (its depth
     /// bound or `[budget] baseline_max_work` cut it, and every other path of it is complete):
     /// its end slots compare nothing, and it can kill by its observation channels, each compared
-    /// up to its horizon (kink-campaign `BaselineRecord::prefix`).
+    /// up to its horizon (kink-campaign `BaselineRecord::prefix`). Some channel kept an element
+    /// within the budget; a prefix program with none is [`Self::Unknown`].
     ComparablePrefix,
     /// The run did not finish within the budget's time.
     Timeout,
@@ -467,7 +470,8 @@ pub fn baseline_row(evidence: &TestEvidence) -> Value {
 /// The observation summary a program's row shows (`observations`), from its baseline row's record
 /// ([`baseline_row`]): `{channels: [{name, elements, closed, open}], horizon}`, `elements` the
 /// number recorded, `closed` and `open` as the record has them, and `horizon` each open channel's
-/// horizon by name; `None` for a row without a record.
+/// horizon by name, `{elements, opening}` (kink-campaign `Horizon::value`); `None` for a row
+/// without a record.
 fn observations_summary(row: &Value) -> Option<Value> {
     let record = row.get("observations")?;
     let channels = record["channels"].as_array()?;
@@ -479,7 +483,7 @@ fn observations_summary(row: &Value) -> Option<Value> {
             if channel["open"].is_object() {
                 horizon.insert(
                     channel["name"].as_str().unwrap_or_default().to_owned(),
-                    json!(elements),
+                    json!({"elements": elements, "opening": channel["open"]["opening"]}),
                 );
             }
             json!({
@@ -929,12 +933,39 @@ impl<'a> BaselineRunner<'a> {
                 }
                 // Under `[observe]`, a run its deterministic bounds cut is compared by its
                 // channels up to their horizons ([`ResultClass::ComparablePrefix`]).
-                let prefix = matches!(
-                    &evidence.notes.observation,
-                    Some(kink_campaign::Observation::Recorded(record)) if record.prefix
-                );
+                let prefix = match &evidence.notes.observation {
+                    Some(kink_campaign::Observation::Recorded(record)) if record.prefix => {
+                        Some(record)
+                    }
+                    _ => None,
+                };
+                // A prefix program none of whose channels kept an element within its budget
+                // observed nothing: no mutant can differ from it within its horizons, so it
+                // covers nothing, and the class is `unknown` (a function of the key). An element
+                // kept undecided (under `count`) is an observed event: END against it decides;
+                // and a channel closed by a cycle observed its silence, which an element decides.
+                if let Some(record) = prefix
+                    && record.channels.iter().all(|channel| {
+                        channel.elements.is_empty() && matches!(channel.end, ChannelEnd::Open(_))
+                    })
+                {
+                    return ProgramResult {
+                        class: ResultClass::Unknown,
+                        cause: Some(observed_nothing_cause(record)),
+                        baseline: None,
+                        final_configuration: None,
+                        ends: None,
+                        coverage: run.baseline_coverage.first().cloned(),
+                        wall_ms,
+                        specification_diagnostics: json!([]),
+                        smt_unknowns: evidence.notes.smt_unknowns,
+                        decider_smt_unknowns: evidence.notes.decider_smt_unknowns,
+                        short_circuit_readings: json!([]),
+                        host: None,
+                    };
+                }
                 ProgramResult {
-                    class: if prefix {
+                    class: if prefix.is_some() {
                         ResultClass::ComparablePrefix
                     } else {
                         ResultClass::Comparable
@@ -1603,6 +1634,36 @@ pub const TIMEOUT_NOT_CACHED: &str = "; a timeout depends on the host's load and
 /// The clause a timeout's cause ends with when the manifest bounds no baseline by work.
 pub const TIMEOUT_BOUND_BY_WORK: &str =
     "; set [budget] baseline_max_work to bound the run by work instead";
+
+/// The cause of a prefix program none of whose observation channels kept an element within its
+/// budget or closed by a cycle (`record`, its baseline's record): each channel with why it
+/// opened.
+fn observed_nothing_cause(record: &kink_campaign::BaselineRecord) -> String {
+    let channels = record
+        .channels
+        .iter()
+        .map(|channel| match &channel.end {
+            ChannelEnd::Open(opened) => format!(
+                "`{}` opened before its first element ({}: {})",
+                channel.name,
+                opened.opening.name(),
+                opened.reason
+            ),
+            ChannelEnd::Closed(closure) => {
+                format!("`{}` closed by {}", channel.name, closure.name())
+            }
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "{OBSERVED_NOTHING}: a bound cut the run before it ended, and none of its observation \
+         channels kept an element within the budget, so no mutant can differ from it within its \
+         horizons: {}",
+        channels.join("; ")
+    )
+}
+
+/// The reason a prefix program that observed nothing is `unknown` ([`observed_nothing_cause`]).
+pub const OBSERVED_NOTHING: &str = "observed-nothing";
 
 /// The cause of a baseline that `[budget] baseline_max_work` stopped: the bound, the leaf
 /// census of the run and how many of the rules a run can observe its leaves had applied, as

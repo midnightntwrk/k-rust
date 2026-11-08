@@ -186,8 +186,8 @@ use crate::{
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
-        HORIZON_REASON, MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action,
-        action_spelled, claims_value, executed_cause, matrix, observation_slot,
+        MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action, action_spelled,
+        claims_value, executed_cause, horizon_reason, matrix, observation_slot,
         observation_verdict, open_application_cause, refused_action, rules_value, slots_value,
         specification_diagnostics_value, survivor_horizons, survivors, typing_diagnostics_value,
         untargeted_rules, unusable_programs, with_observation,
@@ -556,8 +556,8 @@ impl Search<'_, '_> {
     ///
     /// # Errors
     ///
-    /// A difference that is not re-derived (the capture run's element does not have the recorded
-    /// digest, or the two elements are equal) is an error of the run that reported it, reason
+    /// A difference that is not re-derived (the capture run's element is not the recorded one, or
+    /// the two elements do not differ in every model) is an error of the run that reported it, reason
     /// `observation-capture:<program id>`: the run stops, and nothing is written to tier 1 for
     /// the mutation.
     fn observation_differences(
@@ -2991,9 +2991,10 @@ pub fn run_front(
                 .and_then(|refusal| refused_action(refusal.reason))
                 .or_else(|| action_spelled(
                     row["status"].as_str().unwrap_or_default(),
-                    // A survivor that rests on a horizon (`horizon`) is told so.
-                    if row.get("horizon").is_some() {
-                        Some(HORIZON_REASON)
+                    // A survivor that rests on a horizon (`horizon`) is told so, and what would
+                    // observe past it.
+                    if let Some(horizons) = row.get("horizon").and_then(Value::as_array) {
+                        Some(horizon_reason(horizons))
                     } else {
                         row["reason"].as_str()
                     },
@@ -3727,7 +3728,7 @@ fn finish(
         if horizons.is_empty() {
             row["reason"].as_str()
         } else {
-            Some(HORIZON_REASON)
+            Some(horizon_reason(&horizons))
         },
     );
     if !horizons.is_empty() {

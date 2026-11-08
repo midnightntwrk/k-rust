@@ -112,7 +112,8 @@ impl LockKind {
         rows.as_array().map_or(&[][..], Vec::as_slice)
     }
 
-    /// What the rendering writes of a row of `document`: `{status, killer, reason}`.
+    /// What the rendering writes of a row of `document` that a lock compares: `{status, killer,
+    /// reason}` (a horizon is rendered, and compared only as the rendering's text).
     fn now(self, row: &Value) -> Value {
         match self {
             Self::Run => json!({
@@ -120,7 +121,14 @@ impl LockKind {
                 "killer": row["killer"],
                 "reason": crate::verdicts::rendered_reason(row),
             }),
-            Self::Coverage => crate::verdicts::rendered_flip(row),
+            Self::Coverage => {
+                let rendered = crate::verdicts::rendered_flip(row);
+                json!({
+                    "status": rendered["status"],
+                    "killer": rendered["killer"],
+                    "reason": rendered["reason"],
+                })
+            }
         }
     }
 }

@@ -176,8 +176,13 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `comparable-prefix`, a program that can kill by its channels; 6 since
 /// `[[coverage.argued]]` is read: `settings.argued`, an argued item's status `argued` with its
 /// `argument` and `unargued_status`, a needless argument's `argument_needless`, each family's
-/// `argued` and `counts.argued`, and the summary's `covered` and `needless_arguments`.
-pub const COVERAGE_VERSION: u64 = 6;
+/// `argued` and `counts.argued`, and the summary's `covered` and `needless_arguments`; 7 since
+/// each horizon names why its channel opened (a program row's `observations.horizon` is
+/// `{<channel>: {elements, opening}}`, and each open channel's `open` has `opening`), each flip
+/// has `horizon` (an undistinguished flip's agreements up to a horizon, null otherwise), a
+/// prefix program none of whose channels kept an element within its budget or closed by a cycle
+/// is `unknown`, and a program row's channel can be `closed` by `cycle`.
+pub const COVERAGE_VERSION: u64 = 7;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";

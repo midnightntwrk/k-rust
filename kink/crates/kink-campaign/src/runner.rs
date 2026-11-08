@@ -2277,8 +2277,9 @@ fn observing(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservedDifference {
     pub position: crate::observation::Position,
-    /// The baseline's element at the position: the content a capture run of the baseline read,
-    /// or END or UNDEF where its record closes the channel there.
+    /// The baseline's element at the position: the element a capture run of the baseline read,
+    /// a content or, under `count`, an undecided element where the record holds one; or END or
+    /// UNDEF where its record closes the channel there.
     pub baseline: Element,
     /// The mutant's element at the position, as its probe read it
     /// ([`crate::ObservationVerdict::element`]).
@@ -2294,16 +2295,21 @@ pub struct ObservedDifference {
 /// the baseline, with a probe that records its channels as the baseline's probe does and ends
 /// the path at the reported element. The element's digest bytes must be the recorded ones: the
 /// run is then the recorded run up to that element (the record is a function of the request),
-/// and the value read is the one whose digest was compared. Where the baseline's channel is
-/// closed at the position, its element is END or UNDEF, from the record. The mutant's element is
-/// its probe's ([`crate::ObservationVerdict::element`]). The two must differ.
+/// and the value read is the one whose digest was compared, a content. Where the record holds an
+/// undecided element (a class under `count`), the capture run must read an undecided element
+/// there, with no digest: the event exists and its content is not decided. Where the baseline's
+/// channel is closed at the position, its element is END or UNDEF, from the record. The mutant's
+/// element is its probe's ([`crate::ObservationVerdict::element`]). The two must differ in every
+/// model: two contents differ as values, and an undecided element differs only from a closure
+/// (END, UNDEF or a cycle's silence), since it is a content whose value is not known.
 ///
 /// # Errors
 ///
 /// Why the difference is not re-derived: the verdict reports none, the record has no such
-/// channel or is open there, the capture run failed or did not reach the element, its digest
-/// bytes are not the recorded ones, or the two elements are equal. Each is an error of the run
-/// that reported the difference, never a verdict.
+/// channel or is open there, the capture run failed or did not reach the element, its element is
+/// not the recorded one (another digest, or decided where the record's is undecided or the
+/// reverse), or the two elements do not differ in every model. Each is an error of the run that
+/// reported the difference, never a verdict.
 pub fn observed_difference(
     campaign: &Campaign<'_>,
     options: &RunOptions,
@@ -2326,23 +2332,32 @@ pub fn observed_difference(
         .ok_or_else(|| format!("the record has no channel `{}`", position.channel))?;
     let recorded = &record.channels[channel];
     let baseline = match (recorded.elements.get(position.index), &recorded.end) {
-        (Some(Some(digest)), _) => {
+        (Some(recorded), _) => {
             let (element, captured) =
                 capture_element(campaign, options, test, channel, position.index)?;
-            if captured != Some(*digest) {
+            if captured != *recorded {
                 return Err(format!(
                     "the capture run's element {} of `{}` does not have the recorded digest: the \
                      capture run is not the recorded run",
                     position.index, position.channel
                 ));
             }
+            // The digest is a content's: the capture run read a value there, or read none where
+            // the record holds an undecided element.
+            if matches!(element, Element::Content(_)) != recorded.is_some() {
+                return Err(format!(
+                    "the capture run's element {} of `{}` is {} where the record's is {}",
+                    position.index,
+                    position.channel,
+                    decidedness(&element),
+                    if recorded.is_some() {
+                        "a content"
+                    } else {
+                        "undecided"
+                    }
+                ));
+            }
             element
-        }
-        (Some(None), _) => {
-            return Err(format!(
-                "the record's element {} of `{}` is undecided",
-                position.index, position.channel
-            ));
         }
         (None, crate::ChannelEnd::Closed(closure)) => match closure {
             crate::Closure::End => Element::End,
@@ -2362,11 +2377,37 @@ pub fn observed_difference(
             position.index, position.channel
         ));
     }
+    let closure =
+        |element: &Element| matches!(element, Element::End | Element::Undefined | Element::Cycle);
+    if !closure(&baseline)
+        && !closure(&mutant)
+        && (baseline == Element::Undecided || mutant == Element::Undecided)
+    {
+        return Err(format!(
+            "the elements {} of `{}` are {} on the baseline and {} on the mutant: an undecided \
+             content differs in every model only from a closure (END, UNDEF or a cycle)",
+            position.index,
+            position.channel,
+            decidedness(&baseline),
+            decidedness(&mutant)
+        ));
+    }
     Ok(ObservedDifference {
         position,
         baseline,
         mutant,
     })
+}
+
+/// How an element is decided, for an error of [`observed_difference`].
+fn decidedness(element: &Element) -> &'static str {
+    match element {
+        Element::Content(_) => "a content",
+        Element::Undecided => "undecided",
+        Element::End => "END",
+        Element::Undefined => "UNDEF",
+        Element::Cycle => "a cycle's silence",
+    }
 }
 
 /// The element `index` of the channel `channel` of a capture run of the baseline for `test`
