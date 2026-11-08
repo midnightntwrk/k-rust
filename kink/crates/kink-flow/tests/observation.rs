@@ -1009,6 +1009,107 @@ fn query_ignores_the_observations() {
     );
 }
 
+/// A counter that ends: `down(N)` steps to `down(0)`, counting its steps in `<n>`.
+const DOWN: &str = "module DOWN-SYNTAX\n  imports INT-SYNTAX\n  \
+                    syntax Pgm ::= down(Int) [symbol(down)]\nendmodule\n\
+                    module DOWN\n  imports DOWN-SYNTAX\n  imports INT\n  imports BOOL\n  \
+                    configuration <k> $PGM:Pgm </k> <n> 0 </n>\n  \
+                    rule [step]: <k> down(N) => down(N -Int 1) </k> <n> M => M +Int 1 </n> \
+                    requires N >Int 0\nendmodule\n";
+
+/// `query` ignores `[observe]` on a program that ends as well: `down(3)` counts to 3 and never to
+/// 4, a `no` on the search route; with `[stop]` after the second step beside it, the stopped run
+/// reaches 2 and not 3, a `no` past the stop, and the document names both the stop and the
+/// ignored observation.
+#[test]
+fn query_with_observations_answers_no() {
+    let dir = fixture("query-no", &[]);
+    fs::write(dir.join("down.k"), DOWN).unwrap();
+    let spec =
+        "[spec]\nentry = \"down.k\"\nmain_module = \"DOWN\"\nsyntax_module = \"DOWN-SYNTAX\"\n\n";
+    let observe = "[[observe.point]]\nname = \"count\"\nbefore = [\"DOWN.step\"]\n\
+                   stutter = \"collapse\"\ncells = [\"n\"]\n\n";
+    let program = "[[program]]\nid = \"three\"\ntext = \"down(3)\"\n";
+    let stop = "[stop]\nafter = [\"DOWN.step\"]\ncount = 2\n\n";
+    fs::write(
+        dir.join("FLOW-down.toml"),
+        format!("{spec}{observe}{program}"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("FLOW-stopped.toml"),
+        format!("{spec}{stop}{observe}{program}"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"two\"\npattern = \"<n> 2 </n>\"\n\n\
+         [[pattern]]\nid = \"three\"\npattern = \"<n> 3 </n>\"\n\n\
+         [[pattern]]\nid = \"four\"\npattern = \"<n> 4 </n>\"\n",
+    )
+    .unwrap();
+    let ask = |manifest: &str| {
+        let (manifest, patterns) = (dir.join(manifest), dir.join("PATTERNS.toml"));
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || kink_flow::cli::query(&manifest, &patterns, &QueryOptions::default()))
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    let answers = |document: &Value| {
+        ["two", "three", "four"].map(|pattern| {
+            let row = document["rows"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{document:#}"))
+                .iter()
+                .find(|row| row["pattern"] == pattern)
+                .unwrap();
+            (
+                row["route"].as_str().unwrap().to_owned(),
+                row["answer"].as_str().unwrap().to_owned(),
+            )
+        })
+    };
+    let pair = |route: &str, answer: &str| (route.to_owned(), answer.to_owned());
+
+    let (down, status) = ask("FLOW-down.toml");
+    assert_eq!(status, EXIT_YES, "{down:#}");
+    assert_eq!(
+        down["observe"]["ignored"],
+        kink_flow::query::OBSERVE_IGNORED
+    );
+    assert_eq!(down.get("stop"), None, "{down:#}");
+    assert_eq!(
+        answers(&down),
+        [
+            pair("search", "hit"),
+            pair("search", "hit"),
+            pair("search", "no")
+        ]
+    );
+
+    let (stopped, status) = ask("FLOW-stopped.toml");
+    assert_eq!(status, EXIT_YES, "{stopped:#}");
+    assert_eq!(
+        stopped["observe"]["ignored"],
+        kink_flow::query::OBSERVE_IGNORED
+    );
+    assert_eq!(
+        stopped["stop"],
+        json!({"before": [], "after": ["DOWN.step"], "count": 2}),
+        "{stopped:#}"
+    );
+    assert_eq!(
+        answers(&stopped),
+        [
+            pair("stopped-run", "hit"),
+            pair("stopped-run", "no"),
+            pair("stopped-run", "no")
+        ]
+    );
+}
+
 /// Functions a front end set ([`kink_flow::FlowManifest::with_observe_functions`]); none is
 /// evaluated by admission.
 struct Unasked;

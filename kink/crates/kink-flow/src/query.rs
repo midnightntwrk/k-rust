@@ -49,7 +49,9 @@
 //! on the key naming every input; it does not rest on k-rust's determinism: a `hit` and a final
 //! `no` are facts about the definition and the program, which a later search can only fail to
 //! re-derive (an unknown), never contradict. `--verify` re-derives every answer of the selected
-//! patterns live, compares it with each stored record a command without `--verify` would use,
+//! patterns live, compares it with each stored record a command without `--verify` would use
+//! (the answer, and for a hit what is a fact of it: the witness's depth and state, and its
+//! bindings and rules where both sides carry them, [`same_witness`]),
 //! reports every difference (`mismatches`: `{pattern, program, record, cached, live}`) and exits 1
 //! on one; it writes no pattern record. Each live answer is judged with the program's live
 //! baseline run (`ProgramRow::live`), not with a stored result record `--verify` found different.
@@ -605,7 +607,8 @@ fn ask(
     if context.verify {
         if let (Some(stored), Some((_, path))) = (&stored, &keyed)
             && (stored.answer != answer.answer
-                || (stored.answer == "hit" && answer.witness.as_ref() != Some(&stored.witness)))
+                || (stored.answer == "hit"
+                    && !same_witness(answer.witness.as_ref(), &stored.witness)))
         {
             let relative = path
                 .strip_prefix(context.cache)
@@ -656,6 +659,25 @@ fn ask(
         }
     }
     (row, ok)
+}
+
+/// Whether a live hit's witness (`live`) and a stored one agree on what is a fact of the answer:
+/// the matching state's depth and state, and the bindings and the rules wherever both sides carry
+/// them as arrays. Bindings one side could not produce (`{absent: reason}`, a stopped route's) and
+/// the rules the stopped route never reports (null) are left out, and the note and the rendering
+/// are display only, so `--verify` reports a difference only where two answers differ.
+fn same_witness(live: Option<&Value>, stored: &Value) -> bool {
+    let Some(live) = live else {
+        return false;
+    };
+    live["depth"] == stored["depth"]
+        && live["state"] == stored["state"]
+        && ["bindings", "rules"]
+            .iter()
+            .all(|key| match (&live[*key], &stored[*key]) {
+                (Value::Array(live), Value::Array(stored)) => live == stored,
+                _ => true,
+            })
 }
 
 /// A row with its answer: `{pattern, program, claimed, route, answer, cause, witness, cached,

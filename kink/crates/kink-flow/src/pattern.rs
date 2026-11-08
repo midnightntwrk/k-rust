@@ -55,8 +55,9 @@
 //! definition leaves open that nothing records; for a pattern that evaluates nothing agreement
 //! costs a second match and changes no verdict); kink-campaign `judge_matches` answers it, and [`judge`] then applies
 //! the premises both routes share (the load's facts, data, the initial state, the baseline
-//! class). A hit's witness is the reached state and its depth, its bindings matched again by a
-//! search of depth 0 from that state, and `rules` null: the run reports no path to the state.
+//! class). A hit's witness is the reached state and its depth, the bindings of an unconditional
+//! match of the pattern against that state (a search of depth 0 from it, bounded work under no
+//! clock), or `{absent: reason}`, and `rules` null: the run reports no path to the state.
 //!
 //! **Answers** ([`judge`]):
 //! - `hit`: the search returned a decided match: no condition (`constraints` empty), no diagnostic
@@ -1020,31 +1021,11 @@ impl Searcher {
         (outcome, state, wall_ms)
     }
 
-    /// The witness of a stopped run's reach (module docs, the stopped route): its depth and state as the run
-    /// reported them, `rules` null, and the bindings of the reached state matched against the
-    /// pattern again (a search of depth 0 from that state, under the budget's clock), null when
-    /// that match gives none. The bindings are for the reader only: no answer reads them.
+    /// The witness of a stopped run's reach (module docs, the stopped route): its depth and
+    /// state as the run reported them, `rules` null, and the bindings of an unconditional match
+    /// of the pattern against the reached state ([`Self::stopped_bindings`]).
     fn stopped_witness(&mut self, reach: &MatchedState, lowered: &LoweredPattern) -> Value {
-        let request = SearchPatternRequest {
-            state: reach.state.clone(),
-            pattern: lowered.target.clone(),
-            module_name: None,
-            search_type: SearchTypeArg::All,
-            max_depth: Some(0),
-            max_breadth: None,
-            max_results: Some(1),
-            max_simplification_iterations: SIMPLIFICATION_ITERATIONS,
-            schema_version: BACKEND_SCHEMA_VERSION,
-        };
-        let time = Duration::from_millis(self.budget.time_ms);
-        let (result, fired) = watchdog(time, || self.backend.search_pattern_kore(request));
-        let bindings = result
-            .ok()
-            .filter(|_| !fired)
-            .and_then(|response| response.matches.into_iter().next())
-            .map_or(Value::Null, |found| {
-                witness(&found, lowered, &self.rule_names)["bindings"].take()
-            });
+        let bindings = self.stopped_bindings(&reach.state, lowered);
         json!({
             "depth": reach.depth,
             "state": cut(reach.state.to_string()),
@@ -1054,6 +1035,51 @@ impl Searcher {
             "note": STOPPED_WITNESS_NOTE,
         })
     }
+
+    /// The bindings of the author's variables in a match of `lowered` against `state`, a state
+    /// the stopped run reached: a search of depth 0 from `state`, every match it gives, and the
+    /// first of them without a condition, which is the kind of match the run's matcher reached
+    /// (a reach is matched with empty constraints). The work is bounded by itself, not by a
+    /// clock: one normalization of a state already in normal form within the simplification
+    /// bound, and one match, whose solver queries are bounded by the manifest's resource units.
+    /// So with no watchdog to fire, the bindings are a function of the state, the pattern and the
+    /// definition, as the answer they explain is. Where the search fails or gives no match
+    /// without a condition, the bindings are absent, `{absent: reason}`, which no array of
+    /// bindings is (an empty array says the author wrote no variable). The bindings are for the
+    /// reader only: no answer reads them.
+    fn stopped_bindings(&mut self, state: &Pattern, lowered: &LoweredPattern) -> Value {
+        let request = SearchPatternRequest {
+            state: state.clone(),
+            pattern: lowered.target.clone(),
+            module_name: None,
+            search_type: SearchTypeArg::All,
+            max_depth: Some(0),
+            max_breadth: None,
+            max_results: None,
+            max_simplification_iterations: SIMPLIFICATION_ITERATIONS,
+            schema_version: BACKEND_SCHEMA_VERSION,
+        };
+        let absent = |reason: String| json!({ "absent": reason });
+        match self.backend.search_pattern_kore(request) {
+            Err(error) => absent(format!(
+                "matching the reached state against the pattern again failed: {error}"
+            )),
+            Ok(response) => response
+                .matches
+                .iter()
+                .find(|found| found.constraints.is_empty())
+                .map_or_else(
+                    || {
+                        absent(
+                            "matching the reached state against the pattern again gave no match \
+                             without a condition"
+                                .to_owned(),
+                        )
+                    },
+                    |found| witness(found, lowered, &self.rule_names)["bindings"].take(),
+                ),
+        }
+    }
 }
 
 /// The note of a stopped run's witness ([`Searcher::stopped_witness`]).
@@ -1061,7 +1087,8 @@ const STOPPED_WITNESS_NOTE: &str = "the state and the bindings are KORE text (qu
      print them through krs-unparse, the K-text printer kill evidence uses); rules is null: the \
      stopped run reports the depth and the state of the first state it reached that matches, not \
      the rewrite steps of the path to it, and a search for that path could find another path, \
-     past a stop; the bindings match that state against the pattern again";
+     past a stop; the bindings are those of a match of the pattern against that state without a \
+     condition, or {absent: reason} where none was produced";
 
 /// The cause of a stopped run's `unknown` (kink-campaign `MatchUnknown`), in the reader's words,
 /// each naming its cause; `execution` is the run, when it has a result.

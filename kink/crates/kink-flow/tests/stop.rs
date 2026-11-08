@@ -741,12 +741,17 @@ const CLOCK_PATTERNS: &str = "[[pattern]]\nid = \"at-stop\"\npattern = \"<k> clo
 
 /// `kink-flow query` on `manifest` with the clock's patterns, on a thread with the command's stack.
 fn query(manifest: &Path) -> (Value, u8) {
+    query_with(manifest, QueryOptions::default())
+}
+
+/// [`query`] with `options`.
+fn query_with(manifest: &Path, options: QueryOptions) -> (Value, u8) {
     let manifest = manifest.to_path_buf();
     std::thread::Builder::new()
         .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
         .spawn(move || {
             let patterns = manifest.with_file_name("PATTERNS.toml");
-            kink_flow::cli::query(&manifest, &patterns, &QueryOptions::default())
+            kink_flow::cli::query(&manifest, &patterns, &options)
         })
         .unwrap()
         .join()
@@ -798,6 +803,8 @@ fn query_answers_through_the_stopped_run() {
     );
     assert_eq!(hit["witness"]["depth"], 3, "{hit:#}");
     assert_eq!(hit["witness"]["rules"], Value::Null, "{hit:#}");
+    // The pattern binds no variable of the author's: the bindings are produced, and empty.
+    assert_eq!(hit["witness"]["bindings"], json!([]), "{hit:#}");
     let past = answer(&document, "past-stop", "zero");
     assert_eq!(past["answer"], "no", "{past:#}");
     let bound = answer(&document, "phase-three", "zero");
@@ -831,6 +838,154 @@ fn query_answers_through_the_stopped_run() {
         assert_eq!(row["cached"], false, "{row:#}");
     }
     assert_eq!(answer(&two, "past-stop", "zero")["witness"]["depth"], 4);
+}
+
+/// Every pattern record under the default cache of `dir`, with its path.
+fn records(dir: &Path) -> Vec<(PathBuf, Value)> {
+    let mut found = Vec::new();
+    let mut pending = vec![
+        dir.join(kink_flow::results::CACHE_DIRECTORY)
+            .join("patterns"),
+    ];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let record = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+                found.push((path, record));
+            }
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found
+}
+
+/// `record` with its witness replaced by `witness`, its digest recomputed (a forged record the
+/// cache accepts).
+fn forged(record: &Value, witness: Value) -> Value {
+    let mut record = record.clone();
+    record["record_sha256"] = json!(
+        kink_flow::query::record_sha256(
+            &record["key"],
+            record["answer"].as_str().unwrap(),
+            &witness,
+            &record["baseline_run_sha256"],
+        )
+        .to_string()
+    );
+    record["witness"] = witness;
+    record
+}
+
+/// `--verify` compares what a stopped hit's witness states as a fact of the answer, its depth
+/// and state, and the bindings only where both sides produced them: a stored witness whose
+/// bindings are absent, or whose note differs, matches the live one, and one whose depth differs
+/// is a mismatch.
+#[test]
+fn verify_compares_what_a_stopped_witness_states() {
+    let dir = fixture("verify", &[]);
+    fs::write(
+        dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"phase-three\"\npattern = \"<k> clock(N, 3) </k>\"\n",
+    )
+    .unwrap();
+    let manifest = dir.join("FLOW.toml");
+    let (document, status) = query(&manifest);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let [(path, record)] = records(&dir).try_into().unwrap();
+    assert_eq!(record["answer"], "hit", "{record:#}");
+    let verify = || {
+        query_with(
+            &manifest,
+            QueryOptions {
+                verify: true,
+                ..QueryOptions::default()
+            },
+        )
+    };
+
+    let mut witness = record["witness"].clone();
+    witness["bindings"] = json!({"absent": "a forged reason"});
+    witness["note"] = json!("another note");
+    fs::write(&path, forged(&record, witness).to_string()).unwrap();
+    let (document, status) = verify();
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(answer(&document, "phase-three", "zero")["verify"], "match");
+
+    let mut witness = record["witness"].clone();
+    witness["depth"] = json!(99);
+    fs::write(&path, forged(&record, witness).to_string()).unwrap();
+    let (document, status) = verify();
+    assert_eq!(status, kink_flow::cli::EXIT_NO, "{document:#}");
+    assert_eq!(
+        answer(&document, "phase-three", "zero")["verify"],
+        "mismatch"
+    );
+}
+
+/// Both routes keep their records in one cache directory, at the same path for the same
+/// (pattern, program), and neither reads the other's: the stopless clock's search reaches
+/// `clock(4, 0)` (a hit), its stopped run does not (a no), and each command after the other
+/// recomputes its answers and overwrites the record, while a command after one of its own route
+/// reads it.
+#[test]
+fn the_routes_share_a_cache_and_never_read_each_other() {
+    let with_stop = "[spec]\nentry = \"clock.k\"\nmain_module = \"CLOCK\"\nsyntax_module = \"CLOCK-SYNTAX\"\n\n\
+                   [budget]\nmax_depth = 40\n\n[stop]\nbefore = [\"CLOCK.frame\"]\n\n\
+                   [[program]]\nid = \"zero\"\ntext = \"clock(0, 0)\"\n";
+    let plain = with_stop.replace("[stop]\nbefore = [\"CLOCK.frame\"]\n\n", "");
+    let dir = fixture(
+        "routes",
+        &[("stopped", with_stop), ("plain", plain.as_str())],
+    );
+    fs::write(
+        dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"at-stop\"\npattern = \"<k> clock(3, 3) </k>\"\n\n\
+         [[pattern]]\nid = \"past-stop\"\npattern = \"<k> clock(4, 0) </k>\"\n",
+    )
+    .unwrap();
+    let ask = |name: &str| {
+        let (document, status) = query(&dir.join(format!("FLOW-{name}.toml")));
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        ["at-stop", "past-stop"].map(|pattern| {
+            let row = answer(&document, pattern, "zero");
+            (
+                row["route"].as_str().unwrap().to_owned(),
+                row["answer"].as_str().unwrap().to_owned(),
+                row["cached"].as_bool().unwrap(),
+            )
+        })
+    };
+    let row =
+        |route: &str, answer: &str, cached: bool| (route.to_owned(), answer.to_owned(), cached);
+    let stopped_cold = [
+        row("stopped-run", "hit", false),
+        row("stopped-run", "no", false),
+    ];
+    assert_eq!(ask("stopped"), stopped_cold);
+    assert_eq!(
+        ask("plain"),
+        [row("search", "hit", false), row("search", "hit", false)]
+    );
+    let routes = records(&dir)
+        .iter()
+        .map(|(_, record)| record["key"]["modality"].get("route").is_none())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        routes,
+        [true, true],
+        "the search's records replaced the stopped run's"
+    );
+    assert_eq!(ask("stopped"), stopped_cold);
+    assert_eq!(
+        ask("stopped"),
+        [
+            row("stopped-run", "hit", true),
+            row("stopped-run", "no", true),
+        ]
+    );
 }
 
 /// A clock whose `warp` applies beside `frame` from a negative count at phase 3.
