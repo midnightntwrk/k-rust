@@ -100,6 +100,12 @@ pub enum CollectionErrorKind {
     CellKindDisagreement,
     /// A `cells!` entry the entry-admission table refuses, with its class (design S5, §2.3).
     CellEntry(krs_syntax::cell_entries::Refusal),
+    /// A refusal the shared parser left until the sentence's entries are admitted (a readable
+    /// cell whose result is refused by its own notation or pairs with no subject entry, an item
+    /// after a computation's rest), with the parser's registered code, by its place in
+    /// [`codes::REGISTRY`] (which keeps the kind small and `Copy`): the fault is the parser's,
+    /// and only its order waits for the cells' kinds.
+    DeferredSyntax(u16),
     /// A `cells!` result remainder that names no subject frame of its own kind
     /// ([`krs_syntax::StateRuleItem::reuse_refusal`]), asked once the sentence's entries are
     /// admitted, or at once for a sentence whose entries the table does not judge.
@@ -284,6 +290,9 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::RecordUpdateInMatchedField => codes::syntax::INVALID_RECORD_UPDATE,
             CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
             CollectionErrorKind::CellEntry(refusal) => refusal.code(),
+            CollectionErrorKind::DeferredSyntax(place) => codes::REGISTRY
+                .get(usize::from(place))
+                .map_or(codes::collect::SOURCE_SYNTAX, |info| info.code.clone()),
             CollectionErrorKind::ResultRemainderReuse => codes::syntax::UNSUPPORTED_RULE_BODY,
             CollectionErrorKind::CollectionOverwrite
             | CollectionErrorKind::InstanceChildMultiplicity => codes::analysis::COLLECTION_ENTRY,

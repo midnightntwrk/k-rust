@@ -68,6 +68,21 @@ struct After<R> {
     range: Option<R>,
 }
 
+/// The kind of a refusal the parser left until the entries are admitted: its own registered
+/// code, which the collector only raises later (the source's syntax where the parser's code is
+/// no registered one).
+fn deferred(error: &krs_syntax::SyntaxError) -> CollectionErrorKind {
+    let code = error.kind().code();
+    krs_diagnostic::codes::REGISTRY
+        .iter()
+        .position(|info| info.code == code)
+        .and_then(|place| u16::try_from(place).ok())
+        .map_or(
+            CollectionErrorKind::SourceSyntax,
+            CollectionErrorKind::DeferredSyntax,
+        )
+}
+
 impl After<Coordinates> {
     fn of(kind: CollectionErrorKind, error: &krs_syntax::SyntaxError) -> Self {
         Self {
@@ -99,7 +114,7 @@ fn after_admission(
     rule: &krs_syntax::StateRuleItem,
 ) -> Vec<(CollectionErrorKind, krs_syntax::SyntaxError)> {
     rule.misplaced_tail()
-        .map(|error| (CollectionErrorKind::SourceSyntax, error))
+        .map(|error| (deferred(&error), error))
         .into_iter()
         .chain(
             rule.reuse_refusal()
@@ -211,7 +226,7 @@ impl ParsedCells<Coordinates> {
             parameters: Vec::new(),
             after: clause
                 .pairing_refusal()
-                .map(|error| After::of(CollectionErrorKind::SourceSyntax, error))
+                .map(|error| After::of(deferred(error), error))
                 .into_iter()
                 .collect(),
         })

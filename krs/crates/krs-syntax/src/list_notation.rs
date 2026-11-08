@@ -41,6 +41,18 @@ fn list_error(reason: impl Into<String>, span: Span) -> SyntaxError {
 /// The reason given for a second rest in one bracket.
 pub(crate) const TWO_RESTS: &str = "a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`";
 
+/// The reason given for an anonymous `..` in a result's list notation, which names no list.
+pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result";
+
+/// Whether `error` is the refusal of an anonymous `..` in a result's list notation
+/// ([`ANONYMOUS_REST`]).
+pub(crate) fn is_anonymous_rest(error: &SyntaxError) -> bool {
+    matches!(
+        error.kind(),
+        SyntaxErrorKind::InvalidListNotation { reason } if reason == ANONYMOUS_REST
+    )
+}
+
 /// `__list::cons`, `__list::snoc`, or `__list::empty`, its module at `first`
 /// and its name at `last`.
 fn marker_path(name: &str, first: Span, last: Span) -> Path {
@@ -130,10 +142,7 @@ pub(crate) fn result_level(array: &ExprArray) -> Result<ExprCall, SyntaxError> {
             ));
         }
         if range.end.is_none() {
-            return Err(list_error(
-                "an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result",
-                range.limits.span(),
-            ));
+            return Err(list_error(ANONYMOUS_REST, range.limits.span()));
         }
         if elements.len() == 1 {
             return Err(list_error(

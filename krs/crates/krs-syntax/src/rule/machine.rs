@@ -60,6 +60,11 @@ enum MachineResultCell {
     /// A map read `{ k -> v, .. }`, which is a pattern: no lowering writes it in a result, so it
     /// pairs with no subject entry ([`read_with_pairing_deferred`]).
     MapRead(proc_macro2::Group),
+    /// A value its own notation refuses, the notation's refusal: a present content whose list
+    /// notation keeps an anonymous `..` (`Some([..])`), which names no list. Whether a presence
+    /// fits the cell at all is the cell's kind's question, answered first, so the value writes
+    /// nothing and the cell is only read, the refusal carried ([`read_with_pairing_deferred`]).
+    Refused(Box<crate::SyntaxError>),
 }
 
 /// A list cell's matched list, as parsed (F6): the elements before the
@@ -873,7 +878,6 @@ fn item_less_presences(record: &TokenTree) -> Vec<Ident> {
 fn parse_machine_result_record(
     input: ParseStream<'_>,
     states: &[(Ident, StateFamily)],
-    matched: &[&Ident],
     present: &[Ident],
 ) -> Result<Vec<(Ident, MachineResultCell)>, ParseError> {
     let content = input.call(|input| {
@@ -937,23 +941,38 @@ fn parse_machine_result_record(
         // question, which the collector answers first, from the authored spelling. The
         // subject's spelling only picks a reading the value's tokens admit.
         //
-        // L1: presence is lexical. `Some(..)` and `None` are a presence over a cell the subject
-        // does not match, or one whose subject entry is a presence or an instance list,
-        // whatever the cell's kind; the collector then judges that presence against the cell
-        // (`unmatched-optional-result` on a `?` cell, `presence-on-plain-cell` elsewhere).
-        let presence =
-            (family.is_some() || !matched.iter().any(|name| name.unraw() == cell.unraw())) && {
-                let fork = content.fork();
-                fork.parse::<Ident>().is_ok_and(|ident| {
-                    (ident == "None" && (fork.is_empty() || fork.peek(Token![,])))
-                        || (ident == "Some" && fork.peek(syn::token::Paren))
-                })
-            };
+        // L1: presence is lexical. `Some(..)` and `None` are a presence over every cell,
+        // whatever the subject's entry of it and whatever the cell's kind, as they are in the
+        // subject ([`parse_readable_pattern_state`]) and in the entry-admission table, which
+        // reads a presence by its spelling: a presence over a cell that is not `?` is the
+        // class `presence-on-plain-cell`, and over an unmatched `?` cell
+        // `unmatched-optional-result`. A presence over a matched term pairs with no subject
+        // entry, so the collector judges it against the cell first
+        // ([`read_with_pairing_deferred`]).
+        let presence = {
+            let fork = content.fork();
+            fork.parse::<Ident>().is_ok_and(|ident| {
+                (ident == "None" && (fork.is_empty() || fork.peek(Token![,])))
+                    || (ident == "Some" && fork.peek(syn::token::Paren))
+            })
+        };
         let value = if presence {
-            MachineResultCell::State(Box::new(parse_readable_result_state(
-                &content,
-                StateFamily::Optional,
-            )?))
+            // A present content whose list notation keeps an anonymous `..` (`Some([..])`) is
+            // refused by the notation, but only once the cell's kind has answered.
+            let fork = content.fork();
+            match parse_readable_result_state(&fork, StateFamily::Optional) {
+                Ok(state) => {
+                    content.advance_to(&fork);
+                    MachineResultCell::State(Box::new(state))
+                }
+                Err(ParseError::Structured(error))
+                    if crate::list_notation::is_anonymous_rest(&error) =>
+                {
+                    skip_value(&content)?;
+                    MachineResultCell::Refused(Box::new(error))
+                }
+                Err(error) => return Err(error),
+            }
         } else if family == Some(StateFamily::Instances)
             && (content.peek(syn::token::Bracket) || content.peek(syn::token::Brace))
         {
@@ -980,6 +999,14 @@ fn parse_machine_result_record(
         }
     }
     Ok(cells)
+}
+
+/// Skips a record value whose reading is refused: its tokens up to the `,` that ends it.
+fn skip_value(content: ParseStream<'_>) -> Result<(), ParseError> {
+    while !content.is_empty() && !content.peek(Token![,]) {
+        content.parse::<TokenTree>()?;
+    }
+    Ok(())
 }
 
 /// The form step over a readable clause's entries (design S5 §2.3, step 1; §2.4: the macro's):
@@ -1110,12 +1137,8 @@ pub(super) fn parse_machine_clause(
             _ => None,
         })
         .collect::<Vec<_>>();
-    let matched = subject_cells
-        .iter()
-        .map(|(cell, _)| cell)
-        .collect::<Vec<_>>();
     let present = item_less_presences(&pattern_record);
-    let result_cells = parse_machine_result_record(input, &states, &matched, &present)?;
+    let result_cells = parse_machine_result_record(input, &states, &present)?;
     let subject_cells = with_overwritten_cells(subject_cells, &result_cells)?;
     let mut layout = RuleClauseLayout {
         label: TokenRange::for_tokens(name)?,
@@ -2173,7 +2196,10 @@ fn assemble_machine_clause(
     // A result's map read pairs with no subject entry: the cell is only read.
     let mut readable_results = Vec::with_capacity(result_cells.len());
     for (cell, value) in result_cells {
-        if let MachineResultCell::MapRead(map) = value {
+        if let MachineResultCell::Refused(error) = value {
+            // A value its notation refuses writes nothing: the cell is only read.
+            unpaired((**error).clone().into())?;
+        } else if let MachineResultCell::MapRead(map) = value {
             let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
                 crate::cell_entry::EntryForm::Readable,
                 &cell.unraw().to_string(),
@@ -2378,14 +2404,25 @@ fn assemble_machine_clause(
                 // The result is a term written into the cell, whatever its
                 // head: `map::update(e, k, v)` and a user function
                 // `Put(e, k, v)` alike are checked against the cell's type.
+                // A term whose list notation keeps an anonymous `..` (`[x, ..]`, `[G { .. }, ..]`)
+                // names no list, which the notation refuses, but only once the cell's kind has
+                // answered: brackets on a cell that is no list, a computation item after its rest,
+                // .. are the kind's classes first. The cell is then only read, the refusal
+                // carried ([`read_with_pairing_deferred`]).
+                let after = match TermExpression::from_expression((**result).clone()) {
+                    Ok(after) => Some(Box::new(after)),
+                    Err(error) if crate::list_notation::is_anonymous_rest(&error) => {
+                        unpaired(error.into())?;
+                        None
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 extra_bindings.extend(pattern.bindings().iter().cloned());
                 extras.push(RuleExtra::RewriteCell {
                     cell: cell.clone(),
                     before: pattern.clone(),
                     before_tree: before_tree.clone(),
-                    after: Some(Box::new(TermExpression::from_expression(
-                        (**result).clone(),
-                    )?)),
+                    after,
                 });
             }
         }
@@ -2601,6 +2638,8 @@ fn substitute_fields(
             MachineResultCell::Bracket(group) | MachineResultCell::MapRead(group) => {
                 fields.reject_in_state(&group.stream(), cell)?;
             }
+            // A refused value writes nothing ([`assemble_machine_clause`] drops it first).
+            MachineResultCell::Refused(_) => {}
         }
     }
     Ok(output)

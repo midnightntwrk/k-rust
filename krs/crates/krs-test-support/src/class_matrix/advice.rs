@@ -687,10 +687,10 @@ pub const UNCHECKED: &[Unchecked] = &[
         class: "instance-list-shape",
         forms: &[
             r"`[{Ajob,Lgl,Qgl} \{ .. \}\, ..]`",
-            r"`\{ {Aacct,Lgm,Lgs,Qgm,Qgs} \{ .. \}\, .. \}`",
+            r"`\{ {Aacct,Hobj,Lgm,Lgs,Qgm,Qgs} \{ .. \}\, .. \}`",
         ],
         shards: &["readable", "sweep-paths"],
-        reason: "the advice writes the instance mark of a collection's own kind at a collection of a group no accepted case writes instances of: the readable base's nested collections (`aacct`, `ajob`) and the path sweep's collections below a marked ancestor, whose own kind is judged before their path (P3, S1 (b)); the class's advised cases write the instances of `job`, `bag`, `account` and the sweep's collections",
+        reason: "the advice writes the instance mark of a collection's own kind at a collection of a group no accepted case writes instances of: the readable base's nested collections (`aacct`, `ajob`, `hbag`) and the path sweep's collections below a marked ancestor, whose own kind is judged before their path (P3, S1 (b)); the class's advised cases write the instances of `job`, `bag`, `account` and the sweep's collections",
     },
     Unchecked {
         class: "island-at-subject-root",
@@ -724,7 +724,7 @@ pub const UNCHECKED: &[Unchecked] = &[
             r"`{opt,qopt}: Some({H,Q} \{ {hcounter,hframe,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: ..\, .. \})`",
             r"`{opt,qopt}: Some(k::fragment![crate::{H,Q} \{ {hcounter,hframe,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: ..\, .. \}])`",
             r"`{opt,qopt}: Some(k::fragment![crate::{H,Q} \{ {hcounter,hframe,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: v\, ..me \}])`",
-            r"`{opt,qopt}: Some({H,Q} \{ {hcounter,hframe,hogroup,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: v\, ..me \})`",
+            r"`{opt,qopt}: Some({H,Q} \{ {hcounter,hframe,hogroup,holist,hpc,hprog,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: v\, ..me \})`",
         ],
         shards: &["cells", "readable", "sweep-paths"],
         reason: "the advice names the cell inside the record of its optional group ancestor, `Some(G { child: .., .. })` in a subject and the group's update `Some(G { child: v, ..me })` in a result (S1 (b), design §2.7), at that cell, which only a case naming that child of that group writes; the class's advised case writes `Some(..)` on the optional cell `counter`",

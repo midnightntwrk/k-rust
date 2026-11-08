@@ -607,10 +607,6 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "a machine-rule map pattern is `{ key -> value, .. }`",
         ),
         (
-            "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
-            "an anonymous `..` keeps the rest only in a readable record cell",
-        ),
-        (
             "for Expr; x: Wrap(a) => a where update env = map::lookup(env, a);",
             "requires exactly three arguments",
         ),
@@ -1044,6 +1040,37 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], env: { y -> 1, .. } };",
             "reads a map (`{ k -> v, .. }`) in a result",
+        ),
+        // A presence is lexical over a matched term too: it pairs with no term.
+        (
+            "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: Some(n) };",
+            "an ordinary fixed cell's result is one term",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: None };",
+            "an ordinary fixed cell's result is one term",
+        ),
+        // An anonymous `..` in a result's list notation names no list: the notation refuses it
+        // once the cell's kind admits the entry, in a term and in a present content alike.
+        (
+            "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
+            "an anonymous `..` keeps the rest only in a readable record cell",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: C { cc: [n, ..], cn: 0 } };",
+            "an anonymous `..` keeps the rest only in a readable record cell",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], pc: [.., x] };",
+            "an anonymous `..` keeps the rest only in a readable record cell",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], counter: Some([..]) };",
+            "an anonymous `..` keeps the rest only in a readable record cell",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: Some([n, ..]) };",
+            "an anonymous `..` keeps the rest only in a readable record cell",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)
