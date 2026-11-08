@@ -675,6 +675,15 @@ rewritten by `--verify`; delete a mismatching record (or the cache) to recompute
 
 ### Families
 
+Every family shares one scope, a function of the definition and the front end's marks read before any program runs.
+A sentence is no obligation of any family when it is, in this order, a simplification, `symbolic` or ceil equation (`out-of-scope`), a rule none of whose compiled ids a run's coverage can name (`no-coverage-signal`), or an equation of a function only claims apply (`claim-helper`).
+The rules family gives such a sentence that status; the requirements, syntax and field-value families read the rules statuses, so they count none of its conditions or touches; the rule windows family's may-follow graph has no node for it; and a front end's flip that changes it is listed under the flips family's `not_generated`, never resolved, run or counted.
+
+A claim helper is outside the scope whatever the programs did.
+No initializer, program production or sentence a run can take applies it, so a run reaches it only through an input that applies it, and an edit of it changes no step of any run that does not.
+The claims it serves are what tell its equations apart, and a proof of the claims checks that; no case of the corpus can close an obligation on it.
+An item that became an obligation because a typed input applied it would make the universe depend on the corpus: a case that applies a helper would raise the measure without testing any run of the definition, and a corpus would not be done until it did.
+
 **Rules.** Every authored rewrite rule and function equation (`owise`, `anywhere` and the authored equations of an overloaded function included), in sentence order, each an item `{id, module, index, label, file, start_line, end_line, status, obligation, covered, matched_by, fired_by, touched_only_by, uncounted, rewrite, guard?, reason?}`.
 Its status is named for the predicate it tests:
 
@@ -684,10 +693,10 @@ Its status is named for the predicate it tests:
 | `matched` | yes, open | some comparable program matched it and none fired it: its left-hand side matched and its condition was entered, but its right-hand side was never built on a path |
 | `unmatched` | yes, open | no comparable program matched it |
 | `out-of-scope` | no | a simplification, `symbolic` or ceil equation: it states a fact of the definition's functions, which the definition means the same without, so no step computes it and no program needs to run it |
-| `claim-helper` | no | a claim helper no comparable program matched (below) |
+| `claim-helper` | no | an equation of a function only claims apply (below) |
 | `no-coverage-signal` | no | none of its compiled ids can appear in a run's coverage: it compiles to no axiom, or it is a `non-executable`, macro, alias or `smt-lemma` rule; `reason` says which |
 
-The statuses partition the rules with the precedence `out-of-scope`, `no-coverage-signal`, `fired`, `matched`, `claim-helper`, `unmatched` (firing implies matching).
+The statuses partition the rules with the precedence `out-of-scope`, `no-coverage-signal`, `claim-helper`, `fired`, `matched`, `unmatched` (firing implies matching); the first three are the shared scope above.
 The measure is `fired / (fired + matched + unmatched)`; `counts` gives each status.
 `uncounted` lists the programs that are not comparable and match or fire the rule; `touched_only_by`, on an open rule, those of them that would raise its status.
 `rewrite` says whether the rule compiles to a rewrite rule, which a fuzz job can target.
@@ -698,7 +707,7 @@ Claims are proof obligations outside the executable definition, so a claim helpe
 No program text reaches it, but that does not set it apart: no program text reaches a function nothing applies either, and the K alone cannot tell the two apart.
 Only a front end that sees the claims beside the definition names the claim helpers (`FlowManifest::with_claim_helpers`; the krs front end names the sentences its emission marks so, and a K corpus has none).
 A function nothing applies stays `unmatched`: neither a run nor a claim accounts for it.
-A typed input can apply any function, so a claim helper some comparable program matches or fires has that status; one that none matches is `claim-helper`.
+A claim helper is `claim-helper` whatever the programs did, with its `reason`, and no guard row: one a typed input applied lists the programs that matched and fired it (`matched_by`, `fired_by`) as information, and is still no obligation (above).
 
 The family also has the heating rules the compile generates, each an item of `kind` `heating` (an authored rule's `kind` is `rule`) at the authored sentence it was generated from: a `strict` or `seqstrict` production has one per argument position its attribute names and per context alias it uses, and a `context` sentence has one.
 A context says: evaluate the subterm at the hole before the construct around it.
@@ -768,7 +777,8 @@ A front end that has templates names their binders in its selection (`SyntaxSele
 **Flips.** Tier 2: each condition flip a front end derives from the definition's source is an obligation.
 A flip negates one condition atom, or toggles one bit of an encoding, in a closed set of sentences that the atom keeps apart, so the flipped definition is one the source language admits and the question is whether the corpus notices the swapped outcomes.
 Generating the flips needs the source language's guard families and admitting each needs its judge, so the front end supplies the list: each entry with its id, its operator (`flip` or `bitflip`), the atom's text, its judgement (the K patch, in `MUTATIONS.toml`'s edit format, or the judge's refusal) and the occurrences it changes, each a node of a sentence's condition (by its path in the rule item's `guard.operands`) or a sentence's match.
-Each is an item `{id, operator, text, atom, occurrences, sentences, status, kink_status, judge, reason, next, detail, digest, killer, killer_source, recorded_killer, killer_change, witnesses, waits_on, live_runs, calls}`:
+A flip that changes a sentence outside the shared scope (a claim helper, above) is no obligation: kink-flow moves it to `not_generated` as `{reason, id, atom, sentences, pair, detail}`, `reason` the sentence's status (`claim-helper`), before any run, whatever the front end gave, so the list stays a function of the definition and no mutant is spent on it.
+Each obligation is an item `{id, operator, text, atom, occurrences, sentences, status, kink_status, judge, reason, next, detail, digest, killer, killer_source, recorded_killer, killer_change, witnesses, horizon, waits_on, live_runs, calls}`:
 
 | Status | Counted | Meaning |
 | --- | --- | --- |
@@ -1880,7 +1890,8 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 `--kill FLIP` names a condition flip of `coverage`'s flips family where no list holds the id: `--mutations` names a list, whose mutation the id then is, and without it the front end's own list names the mutation only where it holds the id.
 The front end derives its flips (`FrontEnd::derived`; "Flips" under `coverage` above), and the job fuzzes an admitted flip's edits as a kill job of a one-mutation list (`job.flip` true): its confirmation is kink's own `run` of the flip on the flow with the candidate alone, its template's class is read from the last run document, which has no row for a flip, and each next step that would run `run` runs `coverage`, whose flips family runs the flip's kill search.
 A flip the front end's judge refused has no mutant: the job is refused at stage `mutation`, with `job.status` `refused`, the judge's reason and detail, and its next step in `action`.
-An id that is neither a mutation of the list nor a derived flip is refused (`unknown-mutation`), the detail saying what the list and the derived flips hold; kink-flow's own front end derives no flip, so with no list the detail says why.
+An id that is neither a mutation of the list nor a derived flip is refused (`unknown-mutation`), the detail saying what the list and the derived flips hold, and why the flip is not generated where the flips' `not_generated` names the id; kink-flow's own front end derives no flip, so with no list the detail says why.
+A flip that changes a sentence outside the coverage scope (a claim helper) is not generated, as `coverage` lists it, so its kill job is refused the same way once the specification is admitted.
 
 ### Covering a rule and hitting a pattern
 
@@ -1950,7 +1961,7 @@ Both decode `FLOW.toml` with `ManifestFile::decode` and run the engine unchanged
 
 - `ManifestFile` is a decoded `FLOW.toml` whose `[spec]` is a `SpecDecl`: `K` (as written) or `Krs`.
   `ManifestFile::bind` gives the `FlowManifest` every command runs on; a front end binds a KRS declaration to the `SpecSection` of the K it emitted (the declaration's `assume_joined` is kept), and a K declaration binds to itself.
-  A front end then sets on it what only it knows: how typed inputs are read (`with_input_decoder`) and which sentences are claim helpers (`with_claim_helpers`, by module and label; `coverage` above).
+  A front end then sets on it what only it knows: how typed inputs are read (`with_input_decoder`) and which sentences are claim helpers (`with_claim_helpers`, by module and label, and `is_claim_helper(module, label)` to ask; every coverage family's scope, `coverage` above).
 - `report::stored_report(directory, options, spelling)` is `report` for the corpus whose manifest is in `directory`, so a front end prints the stored run document without building the specification.
 - `FlowCommand::parse(verb, files, options)` reads a verb's options exactly as `kink-flow <verb>` does, the corpus's files given by the front end (`CommandFiles`: kink-flow's operands, or the front end's layout), and `dispatch(manifest, command, front)` runs it on the large stack kink's definitions need.
 - `FrontEnd` is what a front end adds: `spelling`, how next steps spell its commands, with whatever selects its corpus (the trait `CommandSpelling`; kink-flow's own is `KinkFlowSpelling`); `refused`, the mutations its own checks refused, each with an `InvalidReason::External { name, next }`; `annotate`, applied to every document before it is printed and, for `run`, before each write of the report; and `derived`, the condition flips it derives for `coverage`'s flips family (`flips::Derived::Flips` with a `DerivedList`), or why it derives none (`Derived::None`, kink-flow's own: `flips::DERIVES_NONE`).

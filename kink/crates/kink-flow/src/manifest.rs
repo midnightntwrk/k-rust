@@ -120,8 +120,9 @@ pub struct FlowManifest {
     /// the definition, only claims apply. Claims are proof obligations outside the executable
     /// definition, so only a front end that sees the claims beside the definition knows which
     /// sentences these are, and sets them ([`Self::with_claim_helpers`]); a decoded `FLOW.toml`
-    /// has none. `coverage` gives such a sentence that no comparable program matched the status
-    /// `claim-helper`, outside the program-coverage denominator.
+    /// has none. Such a sentence is no obligation of any coverage family, whatever the programs
+    /// did ([`Self::is_claim_helper`]): `coverage` gives it the status `claim-helper` and lists
+    /// no condition flip that changes it.
     pub claim_helpers: BTreeSet<(String, String)>,
     /// The front end's reading of the syntax family ([`SyntaxSelection`]), which a front end
     /// that knows which sorts its author declared and which variables are template binders sets
@@ -959,6 +960,17 @@ impl FlowManifest {
     ) -> Self {
         self.claim_helpers = helpers.into_iter().collect();
         self
+    }
+
+    /// Whether the sentence of K module `module` labelled `label` (bare, or `MODULE.x`) is a
+    /// claim helper ([`Self::claim_helpers`]): a helper and a sentence are the same where their
+    /// labels qualified by their modules are, so either may write its label bare.
+    #[must_use]
+    pub fn is_claim_helper(&self, module: &str, label: &str) -> bool {
+        let wanted = crate::mutation::qualified_label(label, module);
+        self.claim_helpers.iter().any(|(helper_module, helper)| {
+            crate::mutation::qualified_label(helper, helper_module) == wanted
+        })
     }
 
     /// This manifest with `syntax` as its reading of the syntax family ([`Self::syntax`]): the

@@ -5,7 +5,7 @@
 use super::{
     ARGUED, FIRED, HEATING, RULE, at_of, ids, listed, measure, position, rule_status, without,
 };
-use crate::results::{BaselineRunner, ProgramRow, ResultClass, no_coverage_signal};
+use crate::results::{BaselineRunner, ProgramRow, ResultClass};
 use k_rust::definition::Sentence;
 use kink_corpus::admission::AdmissionRefusal;
 use kink_native::coverage::MayFollow;
@@ -22,9 +22,9 @@ pub const WINDOW: &str = "window";
 
 /// The universe of the rule windows family of depth `depth`: the may-follow graph of the
 /// specification's authored rewrite rules (kink-native `coverage::may_follow`), restricted to the
-/// rules family's authored rewrite rules (an authored `rule` sentence with a coverage signal), and
-/// the number of its windows of each length `2..=depth`. Both are functions of the definition,
-/// computed before any program runs.
+/// authored `rule` sentences in the scope every family shares ([`super::scope::Scope`]), and the
+/// number of its windows of each length `2..=depth`. Both are functions of the definition and
+/// the front end's marks, computed before any program runs.
 pub(super) struct Universe {
     graph: MayFollow,
     nodes: BTreeSet<SentenceRef>,
@@ -33,19 +33,22 @@ pub(super) struct Universe {
 }
 
 impl Universe {
-    /// The universe of `spec` at `depth`, or why the definition could not be read.
-    pub(super) fn of(spec: &crate::admit::AdmittedSpec, depth: usize) -> Result<Self, String> {
+    /// The universe of `spec` at `depth` under `scope`, or why the definition could not be read.
+    pub(super) fn of(
+        spec: &crate::admit::AdmittedSpec,
+        scope: &super::scope::Scope<'_>,
+        depth: usize,
+    ) -> Result<Self, String> {
         let definition = spec.definition.as_ref().map_err(Clone::clone)?;
         let authors = kink_native::coverage::RuleAuthors::of(&spec.compiled);
         let graph = kink_native::coverage::may_follow(definition, &authors);
-        let silent = no_coverage_signal(spec);
         let nodes = graph
             .sentences()
             .filter(|at| {
-                matches!(
-                    spec.loaded.baseline.sentence(at),
-                    Some(Sentence::Rule { .. })
-                ) && !silent.contains_key(*at)
+                spec.loaded.baseline.sentence(at).is_some_and(|sentence| {
+                    matches!(sentence, Sentence::Rule { .. })
+                        && scope.excludes(at, sentence).is_none()
+                })
             })
             .cloned()
             .collect::<BTreeSet<_>>();

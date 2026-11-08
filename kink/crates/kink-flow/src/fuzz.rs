@@ -1847,7 +1847,10 @@ pub fn fuzz_job(
 /// does not): an admitted flip is fuzzed as a kill job of its edits, as `coverage` runs it; a flip
 /// the front end's judge refused is refused at stage `mutation` with the judge's reason and next
 /// step, since no mutant stands for it; an id that is no derived flip either is refused as an
-/// unknown mutation, naming what the list and the derived flips hold.
+/// unknown mutation, naming what the list and the derived flips hold, and why the flip is not
+/// generated where the list's `not_generated` names it. A flip that changes a sentence outside
+/// the coverage scope is not generated ([`crate::flips::scoped`]), so it is refused as unknown
+/// once the specification is admitted ([`fuzz_front`]).
 pub fn fuzz_derived(
     manifest: &FlowManifest,
     templates: &TemplateList,
@@ -1897,11 +1900,25 @@ pub fn fuzz_derived(
             Err(_) => format!("{} does not decode", path.display()),
         });
         let flips = match derived {
-            Ok(derived) => format!(
-                "no condition flip the front end derives has this id ({} flip{})",
-                derived.entries.len(),
-                if derived.entries.len() == 1 { "" } else { "s" }
-            ),
+            Ok(derived) => {
+                let mut flips = format!(
+                    "no condition flip the front end derives has this id ({} flip{})",
+                    derived.entries.len(),
+                    if derived.entries.len() == 1 { "" } else { "s" }
+                );
+                if let Some(not) = derived
+                    .not_generated
+                    .iter()
+                    .find(|not| not["id"] == mutation)
+                {
+                    flips.push_str(&format!(
+                        ": it is not generated ({}): {}",
+                        not["reason"].as_str().unwrap_or_default(),
+                        not["detail"].as_str().unwrap_or_default()
+                    ));
+                }
+                flips
+            }
             Err(reason) => format!("no flip has this id: {reason}"),
         };
         let detail = listed.map_or_else(|| flips.clone(), |listed| format!("{listed}; {flips}"));
@@ -2075,6 +2092,45 @@ pub fn fuzz_front(
         "has_data": spec.data.has_data(),
         "unnamed_findings": spec.data.unnamed().iter().map(|f| f.value()).collect::<Vec<_>>(),
     });
+    // A front end's flip outside the coverage scope is no derived flip: `coverage` moves it to
+    // `not_generated` before anything reads the list, and so does a kill job of it.
+    if let (
+        FuzzJob::Kill {
+            mutation,
+            flip: true,
+            ..
+        },
+        crate::flips::Derived::Flips(derived),
+    ) = (job, front.derived)
+        && let Some(not) = derived
+            .entries
+            .iter()
+            .find(|entry| entry.id == mutation)
+            .and_then(|entry| {
+                let scope = crate::coverage::scope::Scope::of(&spec, manifest);
+                crate::flips::outside_scope(entry, &spec, &scope)
+            })
+    {
+        let refusal = Refusal::new(
+            "mutation",
+            "unknown-mutation",
+            format!(
+                "no condition flip the front end derives has this id: it is not generated ({}): \
+                 {}",
+                not["reason"].as_str().unwrap_or_default(),
+                not["detail"].as_str().unwrap_or_default()
+            ),
+        );
+        document["job"]["flip"] = json!(false);
+        return refuse(
+            document,
+            refusal,
+            &format!(
+                "name a flip `{}` lists under its flips family",
+                front.spelling.command(Verb::Coverage)
+            ),
+        );
+    }
     let instance = match instance(template, templates, manifest, &inputs, &spec) {
         Ok(instance) => instance,
         Err(refusal) => return refuse(document, refusal, "fix the template"),

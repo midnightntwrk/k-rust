@@ -413,4 +413,56 @@ mod kink_tier {
             .unwrap();
         assert!(!open_line.contains(&format!("\"{j_c1}\"")), "{open_line}");
     }
+
+    /// The rule windows read the scope every family shares: with `c2` marked a claim helper, no
+    /// window has it, though the chain's program takes `c1` then `c2`, and its rules item is
+    /// `claim-helper`, no obligation, with the program that fired it.
+    #[test]
+    #[ignore = "kink"]
+    fn a_claim_helper_is_no_node_of_the_may_follow_graph() {
+        let manifest = corpus(
+            "claim-helper",
+            "[coverage]\ndepth = 2",
+            &[("chain", "c1()")],
+        );
+        let unmarked = document(&manifest);
+        assert_eq!(
+            window(&unmarked, &window_id(&["c1", "c2"]))["status"],
+            "covered"
+        );
+        let marked = kink_flow::FlowManifest::read(&manifest)
+            .unwrap()
+            .with_claim_helpers([("WIN".to_owned(), "c2".to_owned())]);
+        let (mut document, ok) =
+            kink_flow::coverage::coverage(&marked, &CoverageOptions::default());
+        kink_flow::coverage::derive(&mut document, &kink_flow::cli::KinkFlowSpelling);
+        assert!(ok, "{document:#}");
+        let windows = document["families"]["rule_windows"]["items"]
+            .as_array()
+            .unwrap();
+        assert!(!windows.is_empty(), "{document:#}");
+        assert!(
+            windows.iter().all(|window| !window["id"]
+                .as_str()
+                .unwrap()
+                .split([':', ','])
+                .any(|rule| rule == "WIN.c2")),
+            "{document:#}"
+        );
+        let helper = document["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "rule:WIN.c2")
+            .unwrap_or_else(|| panic!("{document:#}"));
+        assert_eq!(
+            (
+                &helper["status"],
+                &helper["obligation"],
+                &helper["fired_by"]
+            ),
+            (&json!("claim-helper"), &json!(false), &json!(["chain"])),
+            "{helper:#}"
+        );
+    }
 }

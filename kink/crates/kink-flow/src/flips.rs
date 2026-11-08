@@ -120,12 +120,18 @@ impl Default for Derived<'_> {
 }
 
 /// A front end's derived flips: every obligation, and the flips its generator does not generate.
+///
+/// The list must be a function of the definition, so the flips that are not obligations are
+/// decided before any run: kink-flow moves an entry that changes a sentence outside the scope
+/// every coverage family shares (a claim helper, a simplification, a rule with no coverage
+/// signal; [`crate::coverage`], "Families") to `not_generated` wherever a list enters
+/// ([`scoped`]), so the scope holds for any front end's list.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DerivedList {
     /// Every obligation, in the front end's order, which must be a function of the definition.
     pub entries: Vec<DerivedEntry>,
     /// The flips not generated, each the front end's value (`{reason, ...}`), shown apart and
-    /// never counted.
+    /// never counted; kink-flow adds the entries outside the coverage scope ([`scoped`]).
     pub not_generated: Vec<Value>,
     /// Why the list is empty, when it is.
     pub none: Option<String>,
@@ -203,6 +209,78 @@ impl DerivedEntry {
             Judged::Refused { .. } => None,
         }
     }
+}
+
+/// `list` with every entry that changes a sentence outside the coverage scope moved to
+/// `not_generated` ([`outside_scope`]), after the front end's own, in the list's order: such an
+/// entry is never resolved, run or counted, so no mutant is spent on a flip no family counts.
+pub(crate) fn scoped(
+    list: &DerivedList,
+    spec: &crate::admit::AdmittedSpec,
+    scope: &crate::coverage::scope::Scope<'_>,
+) -> DerivedList {
+    let mut scoped = DerivedList {
+        entries: Vec::new(),
+        not_generated: list.not_generated.clone(),
+        none: list.none.clone(),
+    };
+    for entry in &list.entries {
+        match outside_scope(entry, spec, scope) {
+            Some(value) => scoped.not_generated.push(value),
+            None => scoped.entries.push(entry.clone()),
+        }
+    }
+    scoped
+}
+
+/// The `not_generated` value of `entry` where one of its occurrences names a sentence outside
+/// the coverage scope (the first such, in occurrence order, gives the reason): `{reason, id,
+/// atom, sentences, pair, detail}`, `reason` the exclusion's status (`claim-helper`,
+/// `out-of-scope`, `no-coverage-signal`) and `sentences` the labels of the sentences it changes
+/// (a sentence with none named `<module>#<index>`); `None` where every occurrence is in scope.
+pub(crate) fn outside_scope(
+    entry: &DerivedEntry,
+    spec: &crate::admit::AdmittedSpec,
+    scope: &crate::coverage::scope::Scope<'_>,
+) -> Option<Value> {
+    let (at, excluded) = entry.occurrences.iter().find_map(|occurrence| {
+        let excluded = scope.excludes_at(spec, &occurrence.sentence)?;
+        Some((&occurrence.sentence, excluded))
+    })?;
+    let name = |sentence: &SentenceRef| -> String {
+        let label = spec
+            .loaded
+            .baseline
+            .sentence(sentence)
+            .and_then(|sentence| match sentence {
+                k_rust::definition::Sentence::Rule { attributes, .. } => attributes
+                    .string(k_rust::definition::AttributeKey::Label)
+                    .map(str::to_owned),
+                _ => None,
+            });
+        label.unwrap_or_else(|| format!("{}#{}", sentence.module, sentence.index))
+    };
+    let mut sentences = Vec::new();
+    for occurrence in &entry.occurrences {
+        let name = name(&occurrence.sentence);
+        if !sentences.contains(&name) {
+            sentences.push(name);
+        }
+    }
+    let first = name(at);
+    Some(json!({
+        "reason": excluded.status(),
+        "id": entry.id,
+        "atom": entry.atom,
+        "sentences": sentences,
+        "pair": null,
+        "detail": format!(
+            "`{}` changes {first}, which is no obligation of any coverage family ({}: {})",
+            entry.id,
+            excluded.status(),
+            excluded.reason()
+        ),
+    }))
 }
 
 /// The program ids of a JSON list, each a string or a `{program}` object.

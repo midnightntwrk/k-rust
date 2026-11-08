@@ -45,6 +45,30 @@ fn coverage(dir: &Path, options: &[&str], derived: Derived<'_>) -> (Value, u8) {
     dispatch(manifest, command, front).expect("the command's thread does not panic")
 }
 
+/// [`coverage`] with a front end that also marks `helpers` (each a label of module `GUARDS`) as
+/// claim helpers.
+fn coverage_marked(
+    dir: &Path,
+    options: &[&str],
+    derived: Derived<'_>,
+    helpers: &[&str],
+) -> (Value, u8) {
+    let options = options.iter().map(|o| (*o).to_owned()).collect::<Vec<_>>();
+    let command = FlowCommand::parse("coverage", CommandFiles::default(), &options).unwrap();
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+        .unwrap()
+        .with_claim_helpers(
+            helpers
+                .iter()
+                .map(|label| ("GUARDS".to_owned(), (*label).to_owned())),
+        );
+    let front = FrontEnd {
+        derived,
+        ..FrontEnd::default()
+    };
+    dispatch(manifest, command, front).expect("the command's thread does not panic")
+}
+
 /// The sentence of the rule labelled `label` in `document`'s rules family.
 fn sentence(document: &Value, label: &str) -> SentenceRef {
     let item = document["families"]["rules"]["items"]
@@ -569,6 +593,110 @@ mod kink_tier {
         );
     }
 
+    /// Every family shares one static scope: with `dispatch` marked a claim helper, its rules
+    /// item is `claim-helper` although programs fire it, and is no obligation; the flip of `H`,
+    /// which changes `dispatch`, is moved to `not_generated` with reason `claim-helper` before
+    /// any run, so it is neither counted nor run nor a target, under tier 2 and in tier 1's count;
+    /// the flip of `I`, which changes no marked sentence, keeps its status; and a kill job of the
+    /// flip of `H` is refused as an unknown mutation that says why it is not generated.
+    #[test]
+    #[ignore = "kink"]
+    fn a_flip_of_a_claim_helper_is_not_generated_whatever_programs_did() {
+        let dir = guards("claim-helper");
+        let rules = baseline(&dir);
+        let at = sentence(&rules, "dispatch");
+        let at = json!({"module": at.module, "index": at.index});
+        let list = h_and_i(&rules);
+        let (document, status) = coverage_marked(&dir, &[], Derived::Flips(&list), &["dispatch"]);
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        let helper = document["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["module"] == at["module"] && item["index"] == at["index"])
+            .unwrap();
+        assert_eq!(helper["status"], "claim-helper", "{helper:#}");
+        assert_eq!(helper["obligation"], false, "{helper:#}");
+        assert_ne!(helper["fired_by"], json!([]), "{helper:#}");
+        let family = &document["families"]["flips"];
+        let ids = family["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, [I], "{family:#}");
+        assert_eq!(item(&document, I)["status"], "unreached", "{family:#}");
+        assert_eq!(family["obligations"], 1, "{family:#}");
+        assert_eq!(family["counts"]["not_generated"], 1, "{family:#}");
+        let not = &family["not_generated"][0];
+        assert_eq!(
+            (&not["reason"], &not["id"], &not["sentences"]),
+            (
+                &json!("claim-helper"),
+                &json!(H),
+                &json!([
+                    "GUARDS.dispatch",
+                    "GUARDS.run",
+                    "GUARDS.wake",
+                    "GUARDS.halted"
+                ])
+            ),
+            "{not:#}"
+        );
+        assert!(
+            not["detail"].as_str().unwrap().starts_with(&format!(
+                "`{H}` changes GUARDS.dispatch, which is no obligation"
+            )),
+            "{not:#}"
+        );
+        assert_eq!(family["search"]["live_runs"], 0, "{family:#}");
+        assert_eq!(outcome_files(&dir), 0);
+        assert!(target(&document, H).is_none(), "{document:#}");
+
+        let (tier_one, status) =
+            coverage_marked(&dir, &["--tier", "1"], Derived::Flips(&list), &["dispatch"]);
+        assert_eq!(status, EXIT_YES, "{tier_one:#}");
+        assert_eq!(tier_one["families"]["flips"]["obligations"], 1);
+
+        fs::write(
+            dir.join("TEMPLATES.toml"),
+            "[[template]]\nid = \"t\"\nprogram = \"irq\"\n",
+        )
+        .unwrap();
+        let command = FlowCommand::parse(
+            "fuzz",
+            CommandFiles {
+                templates: Some(dir.join("TEMPLATES.toml")),
+                ..CommandFiles::default()
+            },
+            &["--template", "t", "--kill", H]
+                .iter()
+                .map(|o| (*o).to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+            .unwrap()
+            .with_claim_helpers([("GUARDS".to_owned(), "dispatch".to_owned())]);
+        let front = FrontEnd {
+            derived: Derived::Flips(&list),
+            ..FrontEnd::default()
+        };
+        let (fuzzed, status) = dispatch(manifest, command, front).unwrap();
+        assert_eq!(status, EXIT_UNASKED, "{fuzzed:#}");
+        let refusal = &fuzzed["job"]["refusal"];
+        assert_eq!(refusal["reason"], "unknown-mutation", "{fuzzed:#}");
+        assert!(
+            refusal["detail"]
+                .as_str()
+                .unwrap()
+                .contains("it is not generated (claim-helper)"),
+            "{fuzzed:#}"
+        );
+        assert!(fuzzed["template"].is_null(), "{fuzzed:#}");
+    }
+
     /// The flips of `H` and `I`.
     fn h_and_i(rules: &Value) -> DerivedList {
         DerivedList {
@@ -898,7 +1026,8 @@ fn a_kill_job_of_a_refused_or_unknown_flip_is_refused() {
                 detail: "the edit is not read back".to_owned(),
             },
         }],
-        not_generated: Vec::new(),
+        not_generated: vec![json!({"reason": "claim-helper", "id": "flip--gone",
+                                    "detail": "it changes a claim helper"})],
         none: None,
     };
     let fuzz = |id: &str, derived: Derived<'_>| {
@@ -959,6 +1088,13 @@ fn a_kill_job_of_a_refused_or_unknown_flip_is_refused() {
     assert_eq!(
         document["job"]["refusal"]["detail"],
         "no condition flip the front end derives has this id (1 flip)",
+        "{document:#}"
+    );
+    let (document, _) = fuzz("flip--gone", Derived::Flips(&list));
+    assert_eq!(
+        document["job"]["refusal"]["detail"],
+        "no condition flip the front end derives has this id (1 flip): it is not generated \
+         (claim-helper): it changes a claim helper",
         "{document:#}"
     );
     let (document, _) = fuzz("flip--nope", Derived::default());

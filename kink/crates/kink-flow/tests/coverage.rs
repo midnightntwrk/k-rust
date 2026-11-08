@@ -1820,14 +1820,15 @@ text = 'h(opaque(1), 2)'
         assert!(rendered.contains("heating 4 of 8 fired"), "{rendered}");
     }
 
-    /// CF-45: a claim helper (an equation of a function only claims apply, named by the front end
-    /// that sees the claims) that no comparable program matched has status `claim-helper` and
-    /// leaves the program-coverage denominator; one that some program fired is `fired`.
-    /// The loop fixture's `double` equation, which `twice` reaches, stands in for the matched one,
-    /// and `unused` and `spin`, which no program reaches, for unmatched ones. A sentence may write
-    /// its label bare or as `MODULE.x`, so the unmatched helpers are named once in each form
-    /// (`unused` bare, `LOOP.spin` qualified), and each form must reach the `claim-helper` status;
-    /// a name that is no sentence's label changes nothing.
+    /// A claim helper (an equation of a function only claims apply, named by the front end that
+    /// sees the claims) has status `claim-helper` and leaves the program-coverage denominator
+    /// whatever the programs did: one that some program fired keeps those programs as
+    /// information and is still no obligation, so the universe does not depend on the corpus.
+    /// The loop fixture's `double` equation, which `twice` fires, stands in for a helper a typed
+    /// input applies, and `unused` and `spin`, which no program reaches, for unreached ones. A
+    /// sentence may write its label bare or as `MODULE.x`, so the unreached helpers are named once
+    /// in each form (`unused` bare, `LOOP.spin` qualified), and each form must reach the
+    /// `claim-helper` status; a name that is no sentence's label changes nothing.
     #[test]
     #[ignore = "kink"]
     fn a_claim_helper_leaves_the_denominator() {
@@ -1866,7 +1867,11 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             listed,
             [
-                (json!("LOOP.double"), json!("fired"), json!(["twice"])),
+                (
+                    json!("LOOP.double"),
+                    json!("claim-helper"),
+                    json!(["twice"])
+                ),
                 (json!("LOOP.spin"), json!("claim-helper"), json!([])),
                 (
                     json!("LOOP.countdown"),
@@ -1878,13 +1883,34 @@ text = 'h(opaque(1), 2)'
                 (json!("LOOP.unused"), json!("claim-helper"), json!([])),
             ]
         );
+        let double = rules(&document)
+            .into_iter()
+            .find(|r| r["label"] == "LOOP.double")
+            .unwrap();
+        assert_eq!(
+            (
+                &double["fired_by"],
+                &double["obligation"],
+                &double["covered"]
+            ),
+            (&json!(["twice"]), &json!(false), &Value::Null),
+            "{double:#}"
+        );
+        assert!(double["guard"].is_null(), "{double:#}");
+        assert!(
+            double["reason"]
+                .as_str()
+                .unwrap()
+                .contains("only claims apply"),
+            "{double:#}"
+        );
         // The four heating rules of loop's strict productions stay open: every program writes an
         // integer as each argument.
         assert_eq!(
             document["summary"]["per_family"]["rules"],
-            json!({"obligations": 8, "covered": 4, "argued": 0, "open": 4})
+            json!({"obligations": 7, "covered": 3, "argued": 0, "open": 4})
         );
-        assert_eq!(document["families"]["rules"]["counts"]["claim_helper"], 2);
+        assert_eq!(document["families"]["rules"]["counts"]["claim_helper"], 3);
         assert_eq!(
             document["families"]["rules"]["counts"]["heating"],
             json!({"obligations": 4, "fired": 0})

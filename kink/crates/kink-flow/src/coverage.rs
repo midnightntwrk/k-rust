@@ -12,6 +12,10 @@
 //!
 //! # Families
 //!
+//! Every family shares one scope ([`scope`]): a simplification, `symbolic` or ceil equation, a
+//! rule k-rust's coverage cannot name, and a claim helper are no obligation of any family, each
+//! read from the definition and the front end's marks before any program runs.
+//!
 //! - `rules`: every authored rewrite rule and function equation (`owise`, `anywhere` and the
 //!   authored equations of an overloaded function included), and every heating rule the compile
 //!   generates from a `strict` or `seqstrict` production (one per argument position the
@@ -28,8 +32,10 @@
 //!   functions that the definition means the same without, so no program's run of one tests
 //!   anything a step computes. A claim helper ([`CLAIM_HELPER`]) serves the claims, which a
 //!   proof checks, and a rule k-rust's coverage cannot name ([`NO_COVERAGE_SIGNAL`]) cannot be
-//!   shown matched; neither is an obligation. The measure is fired / (fired + matched +
-//!   unmatched).
+//!   shown matched; neither is an obligation. These three exclusions are the scope every family
+//!   shares ([`scope`]), read from the definition and the front end's marks alone, so a claim
+//!   helper a typed input applied is still no obligation. The measure is fired / (fired +
+//!   matched + unmatched).
 //! - `requirements`: for each guarded rule of the rules universe whose condition has an
 //!   authored conjunct, each distinct (node, truth) pair of the condition's root and of each
 //!   authored operand node with outcomes of its own (an atom, or an exclusive connective;
@@ -105,7 +111,9 @@
 //!   as `outside_universe` and not counted.
 //! - `syntax_paths` (depth above 1) is not built; it is `null`.
 //! - `flips` (tier 2, condition flips; [`crate::flips`]): each flip a front end derives from the
-//!   definition's source ([`crate::cli::FrontEnd::derived`]) is an obligation, `distinguished`
+//!   definition's source ([`crate::cli::FrontEnd::derived`]) that changes only sentences in the
+//!   scope is an obligation (one that changes a sentence outside it is listed under
+//!   `not_generated`, decided before any run), `distinguished`
 //!   where the kill search kills its mutant (with its `killer`), `undistinguished` where it runs
 //!   on every comparable program without a kill, `unreached` where no comparable program reached
 //!   an occurrence of the flipped atom (deduced from the guard rows and the front end's match,
@@ -229,11 +237,9 @@ use crate::{
     flips::{Derived, DerivedList, FLIPS_TIER_ONE, Judged},
     lock::{Lock, LockKind, Settle},
     manifest::FlowManifest,
-    mutation::qualified_label,
     results::{
         BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory,
-        data_marked, no_coverage_signal, result_cache_value, runner_refusal, sentence_value,
-        update_results,
+        data_marked, result_cache_value, runner_refusal, sentence_value, update_results,
     },
 };
 use k_rust::{
@@ -250,6 +256,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) mod scope;
 mod windows;
 
 /// The `schema` of the coverage document.
@@ -304,7 +311,8 @@ pub const MATCHED: &str = "matched";
 pub const UNMATCHED: &str = "unmatched";
 /// The status of a simplification, `symbolic` or ceil equation: no obligation.
 pub const OUT_OF_SCOPE: &str = "out-of-scope";
-/// The status of a claim helper no comparable program matched: no obligation.
+/// The status of a claim helper, an equation of a function only claims apply, whatever the
+/// programs did: no obligation of any family ([`scope`]).
 pub const CLAIM_HELPER: &str = "claim-helper";
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: no
 /// obligation.
@@ -493,12 +501,9 @@ pub fn coverage_front(
     };
     // Tier 2 is computed only where it runs: the front end derives the flips and tier 1 alone
     // was not asked for.
-    let flips = match front.derived {
-        Derived::Flips(list) if options.tier == Tier::Two => Some(list),
-        _ => None,
-    };
+    let tier_two = matches!(front.derived, Derived::Flips(_)) && options.tier == Tier::Two;
     let depth = options.depth(manifest);
-    let settings = settings(manifest, depth, flips.is_some());
+    let settings = settings(manifest, depth, tier_two);
     let refused = |record: &AdmissionRecord| {
         stopped(document(
             record,
@@ -514,11 +519,20 @@ pub fn coverage_front(
     let Some((spec, mut inputs)) = admitted else {
         return (refused(&record), false);
     };
+    // The one scope of every family; a front end's flip that changes a sentence outside it is
+    // moved to the list's `not_generated` before anything reads the list.
+    let scope = scope::Scope::of(&spec, manifest);
+    let scoped = match front.derived {
+        Derived::Flips(list) => Some(crate::flips::scoped(list, &spec, &scope)),
+        Derived::None(_) => None,
+    };
+    let derived = scoped.as_ref().map_or(front.derived, Derived::Flips);
+    let flips = scoped.as_ref().filter(|_| tier_two);
     // Above depth 1, the rule windows family's universe, from the definition alone; a universe
     // larger than `[coverage] max_obligations` is refused with its counts before any program
     // runs.
     let window_depth = usize::try_from(depth.get()).unwrap_or(usize::MAX);
-    let universe = (window_depth > 1).then(|| windows::Universe::of(&spec, window_depth));
+    let universe = (window_depth > 1).then(|| windows::Universe::of(&spec, &scope, window_depth));
     if let Some(refusal) = universe
         .as_ref()
         .and_then(|universe| universe.as_ref().ok())
@@ -546,7 +560,7 @@ pub fn coverage_front(
         None,
     );
     let mut ok = update.ok();
-    let items = rule_items(&spec, manifest, &update.rows);
+    let items = rule_items(&spec, manifest, &scope, &update.rows);
     let syntax = syntax_family(&spec, manifest, &update.rows, &items);
     let execution: ExecutionDigest = update.execution;
     let programs = data_marked(
@@ -585,13 +599,13 @@ pub fn coverage_front(
             Err(reason) => windows::unread(window_depth, reason),
         };
     }
-    if let Some(refusal) = stale_argued(&document, manifest, front.derived, front.spelling)
+    if let Some(refusal) = stale_argued(&document, manifest, derived, front.spelling)
         .or_else(|| stale_mcdc(&document, manifest, front.spelling))
     {
         record.refusal = Some(refusal);
         return (refused(&record), false);
     }
-    document["families"]["flips"] = match (flips, front.derived) {
+    document["families"]["flips"] = match (flips, derived) {
         (Some(list), _) => {
             let (family, searched) = run_flips(
                 &mut document,
@@ -637,7 +651,7 @@ pub(crate) fn universe(
     let mut empty = manifest.clone();
     empty.programs = Vec::new();
     empty.coverage = crate::manifest::CoverageSection::default();
-    let items = rule_items(spec, &empty, &[]);
+    let items = rule_items(spec, &empty, &scope::Scope::of(spec, &empty), &[]);
     let syntax = syntax_family(spec, &empty, &[], &items);
     let mut document = document(
         record,
@@ -942,30 +956,6 @@ fn stale_mcdc(
     })
 }
 
-/// Whether `sentence` is out of the rules universe ([`OUT_OF_SCOPE`]): a simplification, a
-/// `symbolic` equation, or an equation whose left-hand side is a `#Ceil`.
-fn out_of_scope(sentence: &Sentence) -> bool {
-    let Sentence::Rule {
-        body, attributes, ..
-    } = sentence
-    else {
-        return false;
-    };
-    attributes.has(AttributeKey::Simplification)
-        || attributes.has(AttributeKey::Symbolic)
-        || ceil_left_side(body)
-}
-
-/// Whether a rule's body rewrites a `#Ceil` application at its top.
-fn ceil_left_side(body: &Term) -> bool {
-    match body {
-        Term::Annotated { term, .. } => ceil_left_side(term),
-        Term::Rewrite { left, .. } => ceil_left_side(left),
-        Term::Apply { label, .. } => label.name == "#Ceil",
-        _ => false,
-    }
-}
-
 /// The left-hand side of a rule as K text, a pattern `query` and `fuzz --pattern` take
 /// (README, "PATTERNS.toml"): the text of its body as written, each rewrite replaced by the text
 /// of its left side, without its `requires`, and each variable written without a sort given the
@@ -1217,12 +1207,13 @@ fn rule_pattern(sentence: &Sentence, text: &str, start: usize, cells: &Cells) ->
 /// its left-hand side as a pattern (`pattern`, [`left_side_text`]; `null` otherwise).
 ///
 /// The statuses partition the rules with the precedence [`OUT_OF_SCOPE`],
-/// [`NO_COVERAGE_SIGNAL`], [`FIRED`], [`MATCHED`], [`CLAIM_HELPER`], [`UNMATCHED`]; firing
-/// implies matching. A claim helper (`FlowManifest::claim_helpers`) is an equation of a function
-/// only claims apply: no program text reaches it, but no program text reaches a function nothing
-/// applies either, and such a sentence stays `unmatched`, since neither a run nor a claim accounts
-/// for it; a typed input can still apply any function, so a claim helper some comparable program
-/// matched or fired has that status.
+/// [`NO_COVERAGE_SIGNAL`], [`CLAIM_HELPER`], [`FIRED`], [`MATCHED`], [`UNMATCHED`]; firing
+/// implies matching. The first three are the scope every family shares ([`scope::Scope`]), so
+/// they are read from the definition and the front end's marks alone: a claim helper
+/// (`FlowManifest::claim_helpers`), an equation of a function only claims apply, is no
+/// obligation whatever the programs did, and one a typed input applied keeps the programs that
+/// matched and fired it as information. No program text reaches a function nothing applies
+/// either, but such a sentence stays `unmatched`, since neither a run nor a claim accounts for it.
 ///
 /// Each such item has `kind` [`RULE`]; each `strict` or `seqstrict` production and each
 /// `context` gives its heating items ([`HEATING`], [`heating_item`]) at its own place in that
@@ -1230,6 +1221,7 @@ fn rule_pattern(sentence: &Sentence, text: &str, start: usize, cells: &Cells) ->
 fn rule_items(
     spec: &crate::admit::AdmittedSpec,
     manifest: &FlowManifest,
+    scope: &scope::Scope<'_>,
     rows: &[ProgramRow],
 ) -> Vec<Value> {
     type Lists<'p> = BTreeMap<(String, u64), Vec<&'p str>>;
@@ -1286,7 +1278,6 @@ fn rule_items(
     let guards = crate::guards::SentenceGuards::of(comparable.iter().copied());
     let other_guards = crate::guards::SentenceGuards::of(others.iter().copied());
     let printer = EndReader::of(&spec.compiled);
-    let no_signal = no_coverage_signal(spec);
     let rewrites = crate::fuzz::rewrite_ids(&spec.compiled);
     let authors = kink_native::coverage::RuleAuthors::of(&spec.compiled);
     let mut strictness = BTreeMap::<SentenceRef, Vec<kink_native::coverage::StrictnessRule>>::new();
@@ -1296,11 +1287,6 @@ fn rule_items(
             .or_default()
             .push(rule);
     }
-    let claim_helpers = manifest
-        .claim_helpers
-        .iter()
-        .map(|(module, label)| qualified_label(label, module))
-        .collect::<BTreeSet<_>>();
     let texts = crate::mutation::rule_texts(manifest, &spec.loaded)
         .into_iter()
         .filter_map(|rule| Some(((rule.at.module, rule.at.index), (rule.text?, rule.start?))))
@@ -1308,12 +1294,7 @@ fn rule_items(
     let cells = Cells::of(spec.loaded.baseline.definition());
     let mut items = Vec::new();
     for (at, sentence) in spec.loaded.baseline.authored_sentences() {
-        let Sentence::Rule {
-            requires,
-            attributes,
-            ..
-        } = sentence
-        else {
+        let Sentence::Rule { requires, .. } = sentence else {
             for rule in strictness.get(&at).into_iter().flatten() {
                 items.push(heating_item(spec, sentence, rule, &by_id));
             }
@@ -1331,19 +1312,13 @@ fn rule_items(
                 .collect()
         };
         let (programs, firing) = (list(&matched), list(&fired));
-        let claim_helper = attributes
-            .string(AttributeKey::Label)
-            .is_some_and(|label| claim_helpers.contains(&qualified_label(label, &at.module)));
-        let status = if out_of_scope(sentence) {
-            OUT_OF_SCOPE
-        } else if no_signal.contains_key(&at) {
-            NO_COVERAGE_SIGNAL
+        let excluded = scope.excludes(&at, sentence);
+        let status = if let Some(excluded) = excluded {
+            excluded.status()
         } else if !firing.is_empty() {
             FIRED
         } else if !programs.is_empty() {
             MATCHED
-        } else if claim_helper {
-            CLAIM_HELPER
         } else {
             UNMATCHED
         };
@@ -1387,13 +1362,8 @@ fn rule_items(
                 !manifest.coverage.mcdc.is_off(),
             );
         }
-        if let Some(reason) = no_signal.get(&at) {
-            value["reason"] = json!(reason);
-        } else if status == OUT_OF_SCOPE {
-            value["reason"] = json!(
-                "a simplification, symbolic or ceil equation states a fact of the definition's \
-                 functions, which the definition means the same without: no step computes it"
-            );
+        if let Some(excluded) = excluded {
+            value["reason"] = json!(excluded.reason());
         }
         items.push(value);
     }
