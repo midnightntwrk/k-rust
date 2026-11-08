@@ -173,13 +173,7 @@ match = 'terms/constant/value-root/y @ Cmd::Hold(_)'
 finding = "NT-2-26"
 kind = "diagnostic"
 
-# S0-14, diagnostic: 95 reds
-
-# notation: 42
-[[family]]
-match = 'notation/readable/map-key/{as-body,or-branch}/{k::builtin::list::get(k::builtin::list::item(x)\, 0),k::builtin::list::item(x).len(),k::builtin::list::item(x)[0],k::builtin::list::size(k::builtin::list::item(x)),k::builtin::map::empty().contains_key(x),k::builtin::map::empty().update(x\, 1),k::builtin::map::empty()[x],k::builtin::map::get(k::builtin::map::empty()\, x),k::builtin::map::in_keys(x\, k::builtin::map::empty()),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::builtin::map::update(k::builtin::map::empty()\, x\, 1),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, 2\, 3),k::builtin::set::item(x).to_list(),k::builtin::set::to_list(k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::empty()\, k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::item(x)\, k::builtin::set::item(1)),map![0 -> 1],map![x -> 1\, ..k::builtin::map::empty()],map![x -> 1\, 2 -> 3],set![x\, ..k::builtin::set::empty()],set![x\, 1]}'
-finding = "S0-14"
-kind = "diagnostic"
+# S0-14, diagnostic: 51 reds
 
 # terms: 23
 [[family]]
@@ -199,26 +193,14 @@ match = 'terms/readable/map-key/{as-body,or-branch}/x / 2'
 finding = "S0-14"
 kind = "diagnostic"
 
-# terms: 2
-[[family]]
-match = 'terms/readable/map-key/{beside-fresh,or-branch}/[x\, ..]'
-finding = "S0-14"
-kind = "diagnostic"
-
 # S0-14, diagnostic+rust-syntax: 9 reds
 
 
-# S0-14, k8: 20 reds
+# S0-14, k8: 19 reds
 
-# notation: 2
+# terms: 2
 [[family]]
-match = 'k8/notation/readable/map-key/or-branch/{k::builtin::map::empty().contains_key(x),k::builtin::map::in_keys(x\, k::builtin::map::empty())}'
-finding = "S0-14"
-kind = "k8"
-
-# terms: 1
-[[family]]
-match = 'k8/terms/readable/map-key/beside-fresh/x | 1'
+match = 'k8/terms/readable/map-key/{beside-fresh/x | 1,or-branch/x / 2}'
 finding = "S0-14"
 kind = "k8"
 
