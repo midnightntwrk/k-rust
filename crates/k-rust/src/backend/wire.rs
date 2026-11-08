@@ -2344,6 +2344,15 @@ fn run_bindings_output(bindings: k_rust_backend::coverage::RunBindings) -> super
                 nonliteral: values.nonliteral,
             })
             .collect(),
+        alternatives: bindings
+            .alternatives
+            .into_iter()
+            .map(|alternative| super::FiredAlternativeOutput {
+                axiom: alternative.axiom,
+                lhs: alternative.lhs,
+                rhs: alternative.rhs,
+            })
+            .collect(),
     }
 }
 

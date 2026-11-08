@@ -1587,9 +1587,6 @@ fn requires(
 ) -> Phase<(Vec<Predicate>, Vec<Predicate>, Option<GuardHandle>)> {
     let rule = context.rule;
     crate::coverage::note_matched(&rule.attributes.unique_id);
-    // The equations that discharged the rule's definedness at load stand for the obligations
-    // this attempt would otherwise decide (`ComputedRuleAttributes::discharged_by`).
-    crate::coverage::replay(&rule.computed_attributes.discharged_by);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
     let guard = if crate::coverage::records_conditions() {
@@ -1869,10 +1866,11 @@ fn instantiate(
     let mut condition_knowledge = match_knowledge;
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
     let alternatives = match &rule.rhs {
-        RuleRhs::Term(rhs) => vec![(rhs, &rule.ensures)],
+        RuleRhs::Term(rhs) => vec![(rhs, &rule.ensures, None)],
         RuleRhs::Disjunction(alternatives) => alternatives
             .iter()
-            .map(|alternative| (&alternative.term, &alternative.ensures))
+            .enumerate()
+            .map(|(index, alternative)| (&alternative.term, &alternative.ensures, Some(index)))
             .collect(),
         RuleRhs::Top => return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
         RuleRhs::Bottom => {
@@ -1919,7 +1917,7 @@ fn instantiate(
         && matches!(rule.rhs, RuleRhs::Disjunction(_))
         && crate::path_facts::checking_claims())
     .then(Vec::new);
-    for (rhs, alternative_ensures) in alternatives {
+    for (rhs, alternative_ensures, rhs_index) in alternatives {
         let ensures = rule.ensures.merged(alternative_ensures);
         // The alternative's own work (its right-hand side's construction and simplification)
         // is its candidate's: the path facts it noted (`crate::path_facts`) are emitted into its
@@ -1933,7 +1931,7 @@ fn instantiate(
                         context.definition,
                         rule,
                         pattern,
-                        rhs,
+                        (rhs, rhs_index),
                         &ensures,
                         &substitution,
                         &existential_substitution,
@@ -2176,7 +2174,7 @@ fn apply_rhs_alternative(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
-    rhs: &Term,
+    (rhs, rhs_index): (&Term, Option<usize>),
     ensures: &Condition,
     substitution: &Arc<Substitution>,
     existential_substitution: &Substitution,
@@ -2188,6 +2186,11 @@ fn apply_rhs_alternative(
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
 ) -> Stoppable<RhsAlternativeAttempt> {
+    // The equations that discharged the rule's definedness at load stand for the obligations
+    // this alternative's construction would otherwise decide, here, where the rule's `requires`
+    // held and its result is built (`ComputedRuleAttributes::discharged_by`): a refuted or
+    // undecided `requires` builds nothing, and decides none of them.
+    crate::coverage::replay(&rule.computed_attributes.discharged_by);
     let rhs = substitute(&substitute(rhs, substitution), existential_substitution);
     let io = io.filter(|_| {
         pattern.constraints.is_empty()
@@ -2426,7 +2429,7 @@ fn apply_rhs_alternative(
     // What the instance bound, read from the match's substitution and recorded only where the
     // run commits to the successor (`coverage::read_bindings`); nothing is evaluated.
     let bindings = crate::coverage::CarriedBindings(
-        crate::coverage::read_bindings(definition, rule, substitution).map(Arc::from),
+        crate::coverage::read_bindings(definition, rule, rhs_index, substitution).map(Arc::from),
     );
     Ok(RhsAlternativeAttempt::Applied(RuleApplication {
         applied: AppliedRule {

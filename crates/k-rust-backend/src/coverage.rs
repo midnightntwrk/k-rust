@@ -15,8 +15,10 @@
 //! A rewrite rule's definedness may be discharged when the definition is loaded, before any run
 //! (`BackendDefinition::discharge_rewrite_definedness`): the discharge's own coverage is
 //! collected there and kept on the rule (`ComputedRuleAttributes::discharged_by`), and a run that
-//! begins deciding the rule's `requires` reports its sets as its own, since the discharge removed
-//! the obligations that run would otherwise decide. Equations only the load-time
+//! builds a right-hand side alternative of the rule reports its sets as its own, since the
+//! discharge removed the obligations that construction would otherwise decide: a rule that keeps
+//! its obligation decides it where it builds its result, after its `requires` held, so an
+//! instance whose `requires` was refuted or left undecided decides none of them. Equations only the load-time
 //! confluence check uses are uses by the definition, not by a run, and appear in no run's sets.
 //!
 //! The collection is per thread. Everything an execution evaluates runs on its own thread before
@@ -72,7 +74,9 @@ mod bindings;
 mod conditions;
 mod guards;
 
-pub use bindings::{AxiomOperands, BinderKey, BinderValues, BindingCollection, RunBindings};
+pub use bindings::{
+    AxiomOperands, BinderKey, BinderValues, BindingCollection, FiredAlternative, RunBindings,
+};
 pub(crate) use bindings::{CarriedBindings, Fired};
 
 pub use conditions::{
@@ -108,14 +112,15 @@ pub(crate) use guards::{Decided, GuardHandle};
 ///   D2'), or one function-equation step that refuted or established it (D4);
 /// - a rewrite step built a successor of a rule (`AppliedRule`) or an undefined-step entry of it
 ///   (`TrivialApplication`), whether or not the step kept it;
-/// - a rewrite rule's `requires` phase was entered: the `applied` ids of its
-///   `ComputedRuleAttributes::discharged_by`.
+/// - a rewrite step began building a right-hand side alternative of a rule, its `requires`
+///   having held: the `applied` ids of its `ComputedRuleAttributes::discharged_by`.
 ///
 /// `matched` holds `applied`, plus the id of an axiom when the backend began deciding a
 /// condition of an instance whose left-hand side matched:
 /// - a rewrite rule's `requires` phase was entered, which happens when its left-hand side
-///   matched, or unified under a narrowing condition the solver did not refute; the
-///   `matched` ids of its `discharged_by` are added then too;
+///   matched, or unified under a narrowing condition the solver did not refute;
+/// - a rewrite step began building a right-hand side alternative of a rule: the `matched` ids
+///   of its `discharged_by`;
 /// - an equation's condition evaluation was entered (`simplify::evaluate_equation_condition`):
 ///   for a usable instance of a term, ceil, predicate or `#Top` equation; and, in a function
 ///   scan where a lower group follows (`simplify::scan::SetAsideRequires::Decide`), for an
@@ -194,8 +199,9 @@ pub(crate) use guards::{Decided, GuardHandle};
 /// open: its keys are `applied`, and every count is at least 1. A report is one recording site
 /// of `applied` reached once, so the count of a rewrite rule is the number of successors (one
 /// per right-hand-side alternative) and undefined-step entries its steps built, and that of an
-/// equation the number of instances that gave a result where the backend computed one; an
-/// entry into a rule's `requires` phase reports each `applied` id of its `discharged_by` once.
+/// equation the number of instances that gave a result where the backend computed one; a
+/// right-hand side alternative a step began to build reports each `applied` id of its rule's
+/// `discharged_by` once.
 /// Unlike the sets, the counts depend on multiplicity: on how many states the run explored (so
 /// a `state-set` run that skips a twin subtree counts less than the `path-set` run), on attempts
 /// later rewound or discarded, which count as often as they ran, and on the backend's
@@ -527,28 +533,24 @@ pub(crate) fn records_bindings() -> bool {
 }
 
 /// What an instance of `rule` bound under `substitution`, the bindings its match produced, that
-/// the open collection records (`bindings`): the named heads of its operands and the values of
-/// its selected binders; `None` when it records none, or when the collection collects no
-/// bindings. A rewrite step reads it where it builds a successor and records it where the run
+/// the open collection records (`bindings`): the named heads of its operands, the values of
+/// its selected binders, and, for a rule with several alternatives, the one it took (its
+/// left-hand side's, and `rhs`, the right-hand side alternative a rewrite step built, `None`
+/// for one that is no disjunction and for an equation); `None` when it records none, or when
+/// the collection collects no bindings. A rewrite step reads it where it builds a successor and records it where the run
 /// commits to it ([`note_bindings`]). Out of line, so that the site's frame holds only the
 /// returned reading, boxed (`simplify`'s `tests::recursion_stack`).
 #[inline(never)]
 pub(crate) fn read_bindings(
     definition: &crate::definition::BackendDefinition,
     rule: &crate::rule::RewriteRule,
+    rhs: Option<usize>,
     substitution: &crate::substitution::Substitution,
 ) -> Option<Box<Fired>> {
     if !records_bindings() {
         return None;
     }
-    bindings::read(
-        definition,
-        &rule.attributes,
-        &rule.computed_attributes.variables,
-        &rule.computed_attributes.unbound_variables,
-        substitution,
-    )
-    .map(Box::new)
+    bindings::read(definition, rule, rhs, substitution).map(Box::new)
 }
 
 /// Record `fired`, read from an instance of the axiom `axiom` ([`read_bindings`]), which fired
@@ -569,7 +571,7 @@ pub(crate) fn note_fired(
     substitution: &crate::substitution::Substitution,
 ) {
     if records_bindings()
-        && let Some(fired) = read_bindings(definition, rule, substitution)
+        && let Some(fired) = read_bindings(definition, rule, None, substitution)
     {
         bindings::note(&rule.attributes.unique_id, &fired);
     }

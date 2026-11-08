@@ -1,6 +1,6 @@
 //! Bindings of fired instances: for each axiom, the symbols a request names that were the head
-//! of a value an instance of it took as an operand, and the values selected template binders
-//! were bound to.
+//! of a value an instance of it took as an operand, the values selected template binders were
+//! bound to, and, for an axiom with several alternatives, the ones its instances took.
 //!
 //! A run that collects coverage and asks for bindings (`rewrite::ExecutionOptions::
 //! collect_bindings`, a [`BindingCollection`]) reads, at every fired instance, the substitution
@@ -24,24 +24,40 @@
 //!
 //! Nor do the equations that discharged a rewrite rule's definedness when the definition was
 //! loaded (`ComputedRuleAttributes::discharged_by`), which a run reports to `applied` where it
-//! enters the rule's `requires` (`super::replay`). Their instances were evaluated at load, on
-//! the rule's own terms: what such an instance took as an operand is a subterm of the rule, an
-//! application the rule writes, which is part of what the rule's own instance builds or
-//! inspects, or a variable of the rule, whose value in the run is an operand of the rule's own
-//! instance and is recorded where that instance fires. No instance of the run bound anything
-//! for them, and the entry that replays them may yet be refuted, so recording their load-time
-//! operands would credit a step the run did not take.
+//! builds a right-hand side alternative of the rule (`super::replay`). Their instances were
+//! evaluated at load, on the rule's own terms: what such an instance took as an operand is a
+//! subterm of the rule, an application the rule writes, which is part of what the rule's own
+//! instance builds or inspects, or a variable of the rule, whose value in the run is an operand
+//! of the rule's own instance and is recorded where that instance fires. No instance of the run
+//! bound anything for them, so there is nothing of theirs to read.
 //!
 //! # Operand heads
 //!
 //! For each variable `x` the left-hand side binds (a variable of the axiom that is not among
-//! the ones only its condition, right-hand side or `ensures` mention), the head of `θ(x)` is
-//! read through injections: the symbol of the first application below any number of
-//! `inj{_, _}`. It is recorded for the axiom when the collection names it
-//! ([`BindingCollection::symbols`]). A domain value, a variable, a collection or a term-level
+//! the ones only its condition, right-hand side or `ensures` mention) and some other part of the
+//! axiom reads, the head of `θ(x)` is read through injections: the symbol of the first
+//! application below any number of `inj{_, _}`. It is recorded for the axiom when the
+//! collection names it ([`BindingCollection::symbols`]). A variable the axiom reads is one that
+//! occurs in its right-hand side, `requires` or `ensures`, twice in its left-hand side (the
+//! match compares the two values), or under a concreteness attribute. Any other variable
+//! (`ComputedRuleAttributes::unread_variables`, decided per axiom when it is loaded), such as
+//! `_` in a cell the rule overwrites (`<c> _ => v </c>`), binds a value the step never uses: the
+//! instance is the same whatever it holds, so the value was carried past or dropped, not taken
+//! as an operand, and its head is not recorded. A domain value, a variable, a collection or a term-level
 //! conjunction has no head and records nothing. A continuation variable binds a sequence, whose
 //! head is the sequence's own constructor, so the rest of a program is never recorded unless
 //! the request names that constructor.
+//!
+//! # Alternatives
+//!
+//! An axiom whose left-hand side is a disjunction, or a function equation with several
+//! readings, is loaded as one rule per alternative, all under its `UNIQUE_ID`
+//! (`RewriteRule::lhs_alternative`), and a rewrite rule with a disjunctive right-hand side
+//! builds one successor per alternative of it. `applied` and `committed` name the axiom, so
+//! they cannot tell which alternative an instance took; a fired instance of such an axiom
+//! records the one it took ([`FiredAlternative`]): its rule's left-hand side alternative, and
+//! the right-hand side alternative whose successor the run committed to. So what an alternative
+//! inspects and builds is a fact of the run only where an instance took that alternative.
 //!
 //! # Template binder values
 //!
@@ -90,9 +106,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     definition::BackendDefinition,
-    rule::RuleAttributes,
+    rule::{RewriteRule, RuleAttributes},
     substitution::Substitution,
-    term::{DomainKind, Name, Term, TermKind, Variable, names::rule_variable_definition_name},
+    term::{DomainKind, Name, Term, TermKind, names::rule_variable_definition_name},
 };
 
 /// What a run's binding collection records: the symbols whose occurrence as the head of an
@@ -188,6 +204,28 @@ pub struct RunBindings {
     /// Per selected binder bound at some fired instance, the values it took, sorted by binder
     /// (the axiom's `UNIQUE_ID`, then the variable).
     pub binders: Vec<BinderValues>,
+    /// The alternatives of an axiom with several that some fired instance took, sorted
+    /// ([`FiredAlternative`]).
+    pub alternatives: Vec<FiredAlternative>,
+}
+
+/// An alternative of an axiom with several that a fired instance took: the axiom's rules share
+/// its `UNIQUE_ID`, one per alternative of its left-hand side (`RewriteRule::lhs_alternative`,
+/// a rewrite rule's disjunct or a function equation's reading), and a rewrite rule with a
+/// disjunctive right-hand side builds one successor per alternative of it. The step of a
+/// fired instance took one left-hand side alternative and, for a rewrite rule, built the one
+/// successor the run committed to. An axiom with one alternative of each is never listed.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FiredAlternative {
+    /// The axiom's `UNIQUE_ID`.
+    pub axiom: String,
+    /// The left-hand side alternative, by its position among the axiom's disjuncts or readings;
+    /// `None` when the left-hand side has one.
+    pub lhs: Option<usize>,
+    /// The right-hand side alternative of a rewrite rule, by its position in the disjunction;
+    /// `None` when the right-hand side is no disjunction, and for an equation, whose instance
+    /// gives its whole right-hand side.
+    pub rhs: Option<usize>,
 }
 
 /// The operand heads of one axiom's fired instances.
@@ -221,6 +259,9 @@ pub struct BinderValues {
 pub(crate) struct Fired {
     heads: Vec<Name>,
     values: Vec<(usize, Option<BigInt>)>,
+    /// The alternative the instance took, `(lhs, rhs)`, when its axiom has several
+    /// ([`FiredAlternative`]).
+    alternative: Option<(Option<usize>, Option<usize>)>,
 }
 
 /// A fired instance's reading carried with a rewrite step's successor until the run commits to
@@ -261,6 +302,7 @@ pub(super) struct Sink {
     operands: FxHashMap<String, FxHashSet<Name>>,
     /// What each binder's instances bound so far, by the binder under its axiom's `UNIQUE_ID`.
     values: BTreeMap<BinderKey, Slot>,
+    alternatives: BTreeSet<FiredAlternative>,
 }
 
 /// What a binder's instances bound so far.
@@ -279,6 +321,7 @@ impl Sink {
             resolved: FxHashMap::default(),
             operands: FxHashMap::default(),
             values: BTreeMap::new(),
+            alternatives: BTreeSet::new(),
         }
     }
 
@@ -303,7 +346,11 @@ impl Sink {
                 nonliteral: slot.nonliteral,
             })
             .collect();
-        RunBindings { operands, binders }
+        RunBindings {
+            operands,
+            binders,
+            alternatives: self.alternatives.into_iter().collect(),
+        }
     }
 
     /// The binders of the axiom `attributes` names: each variable some selection names for it
@@ -335,6 +382,16 @@ impl Sink {
     }
 
     fn note(&mut self, axiom: &str, fired: &Fired) {
+        if let Some((lhs, rhs)) = fired.alternative {
+            let alternative = FiredAlternative {
+                axiom: axiom.to_owned(),
+                lhs,
+                rhs,
+            };
+            if !self.alternatives.contains(&alternative) {
+                self.alternatives.insert(alternative);
+            }
+        }
         if !fired.heads.is_empty() {
             let heads = if let Some(heads) = self.operands.get_mut(axiom) {
                 heads
@@ -392,27 +449,34 @@ pub(super) fn recording() -> bool {
     RECORDING.get()
 }
 
-/// Read what an instance of the axiom `attributes` names, whose variables are `variables` of
-/// which `unbound` are not bound by its left-hand side, bound under `substitution`: the named
-/// heads of its operands and the values of its selected binders. `None` when it bound nothing
-/// the collection records. The caller has checked that the open collection collects bindings.
+/// Read what an instance of `rule`, which built its right-hand side alternative `rhs` (`None`
+/// for a right-hand side that is no disjunction, and for an equation), bound under
+/// `substitution`: the named heads of its operands, the values of its selected binders, and
+/// the alternative it took when the rule has several. `None` when it bound nothing the
+/// collection records. The caller has checked that the open collection collects bindings.
 pub(super) fn read(
     definition: &BackendDefinition,
-    attributes: &RuleAttributes,
-    variables: &BTreeSet<Variable>,
-    unbound: &BTreeSet<Variable>,
+    rule: &RewriteRule,
+    rhs: Option<usize>,
     substitution: &Substitution,
 ) -> Option<Fired> {
+    let attributes = &rule.attributes;
+    let computed = &rule.computed_attributes;
     SINK.with_borrow_mut(|sink| {
         let sink = sink.as_mut()?;
         let binders = sink.binders_of(attributes);
         let mut heads = Vec::new();
         let mut values = Vec::new();
         for (variable, value) in substitution {
-            if !variables.contains(variable) || unbound.contains(variable) {
+            if !computed.variables.contains(variable)
+                || computed.unbound_variables.contains(variable)
+            {
                 continue;
             }
-            if let Some(head) = head(value)
+            // A variable no other part of the rule reads was carried past or dropped, not
+            // taken as an operand; a selected binder is read whatever the rule does with it.
+            if !computed.unread_variables.contains(variable)
+                && let Some(head) = head(value)
                 && sink.symbols.contains(&**head)
             {
                 heads.push(Arc::clone(head));
@@ -425,7 +489,13 @@ pub(super) fn read(
                 values.push((position, int_literal(definition, value)));
             }
         }
-        (!heads.is_empty() || !values.is_empty()).then_some(Fired { heads, values })
+        let alternative = (rule.lhs_alternative.is_some() || rhs.is_some())
+            .then_some((rule.lhs_alternative, rhs));
+        (!heads.is_empty() || !values.is_empty() || alternative.is_some()).then_some(Fired {
+            heads,
+            values,
+            alternative,
+        })
     })
 }
 

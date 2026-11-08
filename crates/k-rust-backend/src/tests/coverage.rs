@@ -359,10 +359,19 @@ fn definition() -> BackendDefinition {
             "",
             "",
         ),
+        // `rw` with a guard: its discharge is `rw`'s.
+        rule(
+            "rwg",
+            &format!("rwg{{}}({A})"),
+            &format!("val{{}}(pw{{}}({A}))"),
+            &format!("geInt{{}}({A}, {one})"),
+            "",
+            "",
+        ),
     ];
     let unary = [
         "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
-        "d2", "d4", "rw", "hop",
+        "d2", "d4", "rw", "hop", "rwg",
     ]
     .map(|name| {
         format!(
@@ -613,7 +622,8 @@ fn an_unconditional_ceil_equation_deciding_a_step_is_applied() {
 }
 
 /// (g2) A ceil equation that discharged a rule's definedness at load is carried on the rule and
-/// applied by a run that tries the rule.
+/// applied by a run that builds the rule's result, where the rule would otherwise decide the
+/// obligation the discharge removed.
 #[test]
 fn a_ceil_equation_that_discharged_a_rule_at_load_is_applied() {
     let definition = definition();
@@ -657,6 +667,86 @@ fn a_ceil_equation_that_discharged_a_rule_at_load_is_applied() {
         &["rw", "pwCeil", "gateYes"],
         &["rw", "pwCeil", "gateYes", "gateNo"],
         &program,
+    );
+}
+
+/// (g2) The equations that discharged a guarded rule's definedness stand for the obligation its
+/// result's construction would decide, which a rule whose `requires` is refuted never reaches:
+/// `rwg(0)` matches `rwg` and refutes its guard, so neither `pwCeil` nor `gateYes` is applied,
+/// and neither, nor `gateNo`, is matched. `rwg(1)` holds the guard and builds the result: the
+/// discharge is reported as `rw`'s is. A run that holds the guard and stops before the rule's
+/// step (`rwg` a cut point) built the result all the same, and reports the discharge.
+#[test]
+fn a_discharge_is_reported_where_the_rule_builds_its_result() {
+    let definition = definition();
+    let program = format!("rwg{{}}({})", int(0));
+    let (result, refuted) = covered(&definition, &program);
+    assert!(
+        matches!(halt_reasons(&result)[..], [HaltReason::Stuck]),
+        "{:?}",
+        halt_reasons(&result)
+    );
+    assert_coverage(&refuted, &[], &["rwg"], &program);
+    let program = format!("rwg{{}}({})", int(1));
+    let (_, held) = covered(&definition, &program);
+    assert_coverage(
+        &held,
+        &["rwg", "pwCeil", "gateYes"],
+        &["rwg", "pwCeil", "gateYes", "gateNo"],
+        &program,
+    );
+    let result = execute(
+        &definition,
+        ground(&definition, &program),
+        ExecutionOptions {
+            cut_point_rules: BTreeSet::from(["rwg".to_owned()]),
+            ..collecting()
+        },
+    );
+    assert_coverage(
+        coverage(&result),
+        &["rwg", "pwCeil", "gateYes"],
+        &["rwg", "pwCeil", "gateYes", "gateNo"],
+        &program,
+    );
+}
+
+/// (g2) The equations that discharged a rule's definedness record no bindings: their instances
+/// ran at load, on the rule's own terms, and no instance of the run bound anything for them.
+/// `rw(1)` applies `pwCeil` and `gateYes` and records neither an operand head nor a binder value
+/// of theirs, though the collection names every symbol and selects their binders; `rw`'s own
+/// operand is an `Int`, with no head.
+#[test]
+fn a_discharge_records_no_bindings() {
+    use crate::coverage::BindingCollection;
+    let definition = definition();
+    let program = format!("rw{{}}({})", int(1));
+    let result = execute(
+        &definition,
+        ground(&definition, &program),
+        ExecutionOptions {
+            collect_bindings: Some(
+                BindingCollection::new(["rw", "val", "pw", "gate", "geInt"])
+                    .with_binder("pwCeil", "X", 8)
+                    .with_binder("gateYes", "X", 8)
+                    .with_binder("rw", "A", 8),
+            ),
+            ..collecting()
+        },
+    );
+    let run = coverage(&result);
+    assert!(run.applied.contains("pwCeil"), "{run:?}");
+    assert!(run.applied.contains("gateYes"), "{run:?}");
+    let bindings = run.bindings.as_ref().expect("the run collected bindings");
+    assert!(bindings.operands.is_empty(), "{bindings:?}");
+    assert_eq!(
+        bindings
+            .binders
+            .iter()
+            .map(|values| values.binder.axiom.as_str())
+            .collect::<Vec<_>>(),
+        ["rw"],
+        "{bindings:?}"
     );
 }
 

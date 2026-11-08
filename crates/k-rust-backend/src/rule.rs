@@ -421,15 +421,22 @@ pub struct ComputedRuleAttributes {
     /// attribute constrains it (`unread_map_frames`). An equation's match leaves them unbound
     /// when the subject map is `ceil_free` (`matching::match_equation_in_definition`).
     pub unread_map_frames: BTreeSet<Variable>,
+    /// The variables of the left-hand side whose binding no part of the rule reads
+    /// (`unread_variables`): each occurs once in the left-hand side and nowhere else in the rule,
+    /// and no concreteness attribute constrains it. An instance binds such a variable only to
+    /// carry its value past or drop it, so it is no operand of the instance's step
+    /// (`crate::coverage::bindings`). `unread_map_frames` is the part of it that rests a map
+    /// pattern.
+    pub unread_variables: BTreeSet<Variable>,
     /// For a rewrite rule whose definedness the definition's load discharged
     /// (`BackendDefinition::discharge_rewrite_definedness`), the coverage of that discharge: in
     /// `applied`, the equations it used (the unconditional ceil equations that stated the rule's
     /// terms defined, and those that simplified or decided their conditions); in `matched`, those
     /// and every equation whose condition it began to decide. Empty for any other rule, and for a
     /// rule declared `preserves-definedness`, whose definedness the author asserted. A run that
-    /// begins deciding the rule's `requires` reports both sets as its own
-    /// (`crate::coverage::RunCoverage`): the discharge removed the obligations the run would
-    /// otherwise decide, and a change to any of these equations can change the discharge.
+    /// begins building a right-hand side alternative of the rule reports both sets as its own
+    /// (`crate::coverage::RunCoverage`): the discharge removed the obligations that construction
+    /// would otherwise decide, and a change to any of these equations can change the discharge.
     /// Shared, so that renaming the rule apart copies no set.
     pub discharged_by: Arc<crate::coverage::RunCoverage>,
     /// For a rewrite rule, whether the definition's load discharged its definedness
@@ -4332,7 +4339,7 @@ pub(crate) fn make_rule(
         computed_attributes.variables,
         computed_attributes.unbound_variables,
     ) = rule_variable_sets(&lhs, &rhs, &requires, &ensures, &existentials);
-    computed_attributes.unread_map_frames = unread_map_frames(
+    computed_attributes.unread_variables = unread_variables(
         &lhs,
         &rhs,
         &requires,
@@ -4340,6 +4347,8 @@ pub(crate) fn make_rule(
         &existentials,
         &attributes.concreteness,
     );
+    computed_attributes.unread_map_frames =
+        unread_map_frames(&lhs, &computed_attributes.unread_variables);
     RewriteRule {
         lhs,
         lhs_alternative,
@@ -4680,6 +4689,7 @@ where
             unbound_variables: rename_set(&computed.unbound_variables),
             unbound_result_variables: computed.unbound_result_variables.clone(),
             unread_map_frames: rename_set(&computed.unread_map_frames),
+            unread_variables: rename_set(&computed.unread_variables),
             discharged_by: computed.discharged_by.clone(),
             definedness_discharged: computed.definedness_discharged,
             // A renaming of variables keeps the rule's id, label, origin and claim.
@@ -4884,19 +4894,17 @@ pub(crate) fn rule_variable_sets(
     (all, unbound)
 }
 
-/// The variables of `lhs` that are the rest of one of its map patterns and whose binding no
-/// part of the rule reads: each has the sort of the map it is the rest of, occurs once in `lhs`,
+/// The variables of `lhs` whose binding no part of the rule reads: each occurs once in `lhs`,
 /// and occurs nowhere in `rhs`, `requires`, `ensures` or `existentials`, free or bound, and no
 /// concreteness attribute constrains it.
 ///
-/// Such a variable `M` in `(K1 |-> V1) ... (Kn |-> Vn) M` stands for "the rest of the map",
-/// which exists, of the map's sort, for every map that binds the keys the pattern names; the
-/// instance the rule takes at a match is the same whatever `M` is bound to. A match that has
-/// found those keys therefore need not build the rest to bind it. One occurrence matters: a
-/// second occurrence in `lhs` compares the two rests, and that comparison reads the binding.
-/// A concreteness attribute reads it too, as `rewrite::predicates::check_concreteness` does,
-/// and `Concreteness::All` constrains every variable of `lhs`.
-fn unread_map_frames(
+/// The instance the rule takes at a match is the same whatever such a variable is bound to: the
+/// step neither compares its value with anything, nor decides a condition on it, nor puts it in
+/// its result. One occurrence matters: a second occurrence in `lhs` compares the two values, and
+/// that comparison reads the binding. A concreteness attribute reads it too, as
+/// `rewrite::predicates::check_concreteness` does, and `Concreteness::All` constrains every
+/// variable of `lhs`.
+fn unread_variables(
     lhs: &Term,
     rhs: &RuleRhs,
     requires: &[Predicate],
@@ -4904,31 +4912,20 @@ fn unread_map_frames(
     existentials: &BTreeSet<Variable>,
     concreteness: &Concreteness,
 ) -> BTreeSet<Variable> {
-    fn visit(term: &Term, frames: &mut Vec<Variable>, occurrences: &mut Vec<Variable>) {
-        match term.kind() {
-            TermKind::Variable(variable) => occurrences.push(variable.clone()),
-            TermKind::Map {
-                rest: Some(rest), ..
-            } => {
-                if let TermKind::Variable(variable) = rest.kind()
-                    && variable.sort == term.sort()
-                {
-                    frames.push(variable.clone());
-                }
-            }
-            _ => {}
+    fn visit(term: &Term, occurrences: &mut BTreeMap<Variable, usize>) {
+        if let TermKind::Variable(variable) = term.kind() {
+            *occurrences.entry(variable.clone()).or_default() += 1;
         }
         for child in crate::term::immediate_children(term.kind()) {
-            visit(child, frames, occurrences);
+            visit(child, occurrences);
         }
     }
     if matches!(concreteness, Concreteness::All(_)) {
         return BTreeSet::new();
     }
-    let mut frames = Vec::new();
-    let mut occurrences = Vec::new();
-    visit(lhs, &mut frames, &mut occurrences);
-    if frames.is_empty() {
+    let mut occurrences = BTreeMap::new();
+    visit(lhs, &mut occurrences);
+    if occurrences.is_empty() {
         return BTreeSet::new();
     }
     let mut read = existentials.clone();
@@ -4958,18 +4955,43 @@ fn unread_map_frames(
             constrained.contains_key(&(Name::from(unmarked), variable.sort))
         }
     };
-    frames
+    occurrences
         .into_iter()
-        .filter(|frame| {
-            occurrences
-                .iter()
-                .filter(|variable| *variable == frame)
-                .count()
-                == 1
-                && !read.contains(frame)
-                && !constrained(frame)
+        .filter(|(variable, count)| {
+            *count == 1 && !read.contains(variable) && !constrained(variable)
         })
+        .map(|(variable, _)| variable)
         .collect()
+}
+
+/// The variables of `lhs` that are the rest of one of its map patterns and whose binding no
+/// part of the rule reads: each has the sort of the map it is the rest of and is one of
+/// `unread`, the rule's [`unread_variables`].
+///
+/// Such a variable `M` in `(K1 |-> V1) ... (Kn |-> Vn) M` stands for "the rest of the map",
+/// which exists, of the map's sort, for every map that binds the keys the pattern names; the
+/// instance the rule takes at a match is the same whatever `M` is bound to. A match that has
+/// found those keys therefore need not build the rest to bind it.
+fn unread_map_frames(lhs: &Term, unread: &BTreeSet<Variable>) -> BTreeSet<Variable> {
+    fn visit(term: &Term, unread: &BTreeSet<Variable>, frames: &mut BTreeSet<Variable>) {
+        if let TermKind::Map {
+            rest: Some(rest), ..
+        } = term.kind()
+            && let TermKind::Variable(variable) = rest.kind()
+            && variable.sort == term.sort()
+            && unread.contains(variable)
+        {
+            frames.insert(variable.clone());
+        }
+        for child in crate::term::immediate_children(term.kind()) {
+            visit(child, unread, frames);
+        }
+    }
+    let mut frames = BTreeSet::new();
+    if !unread.is_empty() {
+        visit(lhs, unread, &mut frames);
+    }
+    frames
 }
 
 /// Every variable of `predicates`, free or bound by a quantifier.

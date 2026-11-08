@@ -1150,14 +1150,15 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   `requires`, `ensures`, right-hand side and definedness, another equation's condition, the
 ///   definedness analysis); every equation from which the run decided the definedness of an
 ///   operand that `#if`, `andThenBool` or `orElseBool` does not evaluate (one function-equation
-///   step, or an unconditional ceil equation); and, for every rule whose `requires` the run
-///   began to decide, every equation that the load-time discharge of its definedness applied.
+///   step, or an unconditional ceil equation); and, for every rule of which a step began to
+///   build a right-hand side alternative, its `requires` having held, every equation that the
+///   load-time discharge of its definedness applied.
 /// - `matched`: `applied`, plus every rule and equation whose condition the run began to decide
 ///   for an instance whose left-hand side matched (for a rewrite rule, or unified under a
 ///   narrowing condition the solver did not refute), whatever the verdict, including the
 ///   instances a definedness decision of an unevaluated operand considered and, for every rule
-///   whose `requires` the run began to decide, every equation whose condition its load-time
-///   discharge began to decide.
+///   of which a step began to build a right-hand side alternative, every equation whose
+///   condition its load-time discharge began to decide.
 ///
 /// The lists cover every state the run explored, including leaves a `state-set` result merges
 /// away, and are equal for `execute_kore` and `execute_observed_kore`, for both result
@@ -1206,7 +1207,8 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///
 /// - `bindings`, present exactly when the request set `collect_bindings`: per rule and equation,
 ///   the named symbols that were the head, through injections, of a value a fired instance bound
-///   to a left-hand-side variable, and the values of the selected template binders
+///   to a left-hand-side variable that the axiom reads elsewhere, the values of the selected
+///   template binders, and the alternatives of an axiom with several that a fired instance took
 ///   ([`BindingsOutput`]). A rewrite rule's instance is fired where the run committed to its
 ///   successor, as for `committed`; an equation's where it gave a result.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -1294,6 +1296,29 @@ pub struct BindingsOutput {
     /// Per selected binder bound at some fired instance, sorted by axiom, then variable, the
     /// axiom by its `UNIQUE_ID`.
     pub binders: Vec<BinderValuesOutput>,
+    /// The alternatives of an axiom with several that some fired instance took, sorted by axiom,
+    /// then left-hand side, then right-hand side alternative (wire: present only when not
+    /// empty).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<FiredAlternativeOutput>,
+}
+
+/// An alternative of an axiom with several that a fired instance took: the axiom's rules share
+/// its `UNIQUE_ID`, one per disjunct of its left-hand side (or reading of a function
+/// equation), and a rewrite rule with a disjunctive right-hand side builds one successor per
+/// alternative of it.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FiredAlternativeOutput {
+    /// The axiom's `UNIQUE_ID`.
+    pub axiom: String,
+    /// The left-hand side alternative, by its position; absent when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lhs: Option<usize>,
+    /// The right-hand side alternative of a rewrite rule, by its position in the disjunction;
+    /// absent when the right-hand side is no disjunction, and for an equation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rhs: Option<usize>,
 }
 
 /// The operand heads of one rule's or equation's fired instances.

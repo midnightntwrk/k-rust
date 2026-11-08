@@ -11478,7 +11478,7 @@ fn equation_instance_result(
     // decided above, says nothing about the subject when refuted.
     // What the instance bound, read from its match and recorded where it gives a result
     // (`coverage::read_bindings`); nothing is evaluated.
-    let bindings = crate::coverage::read_bindings(definition, rule, matched.substitution());
+    let bindings = crate::coverage::read_bindings(definition, rule, None, matched.substitution());
     let defined = match decide_equation_bindings(
         definition,
         &rule.attributes,

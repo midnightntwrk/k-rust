@@ -1,6 +1,8 @@
 //! Bindings of fired instances (`crate::coverage::bindings`): a run that asks for them records,
-//! per axiom, the named symbols that were the head of an operand of a fired instance, and the
-//! values selected template binders were bound to, capped.
+//! per axiom, the named symbols that were the head of an operand of a fired instance (a value
+//! bound to a left-hand-side variable the axiom reads elsewhere), the values selected template
+//! binders were bound to, capped, and the alternatives of an axiom with several that its fired
+//! instances took.
 //!
 //! The axioms carry labels and, but for `scaleAny`, no `UNIQUE_ID`, so each other one's id is
 //! its label. Every run here
@@ -13,7 +15,9 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use num_bigint::BigInt;
 
 use crate::{
-    coverage::{BinderKey, BinderValues, BindingCollection, RunBindings, RunCoverage},
+    coverage::{
+        BinderKey, BinderValues, BindingCollection, FiredAlternative, RunBindings, RunCoverage,
+    },
     definition::BackendDefinition,
     rewrite::{ExecutionOptions, ExecutionResult, Pattern, execute},
 };
@@ -54,9 +58,21 @@ fn rule(label: &str, head: &str, rhs: &str, b: &str, priority: u32) -> String {
     )
 }
 
+/// A rewrite rule `sf(kseq(head, K), F) => rhs` of sort `SortS`, a state with one cell `F`.
+fn cell_rule(label: &str, head: &str, rhs: &str, priority: u32) -> String {
+    format!(
+        r#"
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(sf{{}}(kseq{{}}({head}, K:SortK{{}}), F:SortInstr{{}}), \top{{SortS{{}}}}()),
+                \and{{SortS{{}}}}({rhs}, \top{{SortS{{}}}}())
+            ) [label{{}}("{label}"), priority{{}}("{priority}")]"#,
+    )
+}
+
 /// The authored symbols, which a front end names.
-const AUTHORED: [&str; 7] = [
-    "Lblinc", "Lblhalt", "Lblghost", "Lblop", "Lblev", "Lblnop", "Lblgate",
+const AUTHORED: [&str; 12] = [
+    "Lblinc", "Lblhalt", "Lblghost", "Lblop", "Lblev", "Lblnop", "Lblgate", "Lblmark", "Lblcopy",
+    "Lblpair", "Lblleft", "Lblright",
 ];
 
 fn definition() -> BackendDefinition {
@@ -69,11 +85,15 @@ fn definition() -> BackendDefinition {
             &format!("gtInt{{}}(N:SortInt{{}}, {})", int(100)),
             40,
         ),
-        // Matched on every `gate`, fired only above 100; its operand `I` has a head.
+        // Matched on every `gate`, fired only above 100; its operand `I` has a head, and the
+        // step runs it next.
         rule(
             "gate",
             &item("Lblgate{}(N:SortInt{}, I:SortInstr{})"),
-            "st{}(K:SortK{})",
+            &format!(
+                "st{{}}(kseq{{}}({}, K:SortK{{}}))",
+                item("I:SortInstr{}")
+            ),
             &format!("gtInt{{}}(N:SortInt{{}}, {})", int(100)),
             40,
         ),
@@ -100,8 +120,80 @@ fn definition() -> BackendDefinition {
             "",
             40,
         ),
-        // An item bound at sort `KItem`, through its injection.
+        // An item bound at sort `KItem` and dropped: no other part of the rule reads `X`.
         rule("drop", "X:SortKItem{}", "st{}(K:SortK{})", "", 50),
+        // Passes its operand to the function `wrap`, whose equation `wrapAny` gives it back.
+        rule(
+            "wr",
+            &item("Lblwr{}(I:SortInstr{})"),
+            &format!(
+                "st{{}}(kseq{{}}({}, K:SortK{{}}))",
+                item("wrap{}(I:SortInstr{})")
+            ),
+            "",
+            40,
+        ),
+        // `mark` overwrites the cell, whose old value `F` it never reads (`<f> _ => ghost </f>`);
+        // `copy` runs the cell's value next and keeps it.
+        cell_rule(
+            "mark",
+            &item("Lblmark{}()"),
+            "sf{}(K:SortK{}, Lblghost{}())",
+            40,
+        ),
+        cell_rule(
+            "copy",
+            &item("Lblcopy{}()"),
+            &format!(
+                "sf{{}}(kseq{{}}({}, K:SortK{{}}), F:SortInstr{{}})",
+                item("F:SortInstr{}")
+            ),
+            40,
+        ),
+        // `A` occurs twice in the left-hand side: the match compares the two values.
+        cell_rule(
+            "twice",
+            &item("Lblpair{}(A:SortInstr{}, A:SortInstr{})"),
+            "sf{}(K:SortK{}, F:SortInstr{})",
+            40,
+        ),
+        // Drops the item and keeps the cell.
+        cell_rule(
+            "sfdrop",
+            "X:SortKItem{}",
+            "sf{}(K:SortK{}, F:SortInstr{})",
+            50,
+        ),
+        // One rule per disjunct of its left-hand side.
+        rule(
+            "either",
+            &format!(
+                r"\or{{SortKItem{{}}}}({}, {})",
+                item("Lblleft{}()"),
+                item("Lblright{}()")
+            ),
+            "st{}(K:SortK{})",
+            "",
+            40,
+        ),
+        // One successor per alternative of its right-hand side.
+        rule(
+            "split",
+            &item("Lblsplit{}()"),
+            &format!(
+                r"\or{{SortS{{}}}}(st{{}}(kseq{{}}({}, K:SortK{{}})), st{{}}(kseq{{}}({}, K:SortK{{}})))",
+                item("Lblleft{}()"),
+                item("Lblhalt{}()")
+            ),
+            "",
+            40,
+        ),
+        r#"
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortInstr{}, R}(X0:SortInstr{}, I:SortInstr{}), \top{R}())),
+                \equals{SortInstr{}, R}(wrap{}(X0:SortInstr{}), \and{SortInstr{}}(I:SortInstr{}, \top{SortInstr{}}()))
+            ) [label{}("wrapAny")]"#
+            .to_owned(),
         r#"
             axiom{R} \implies{R}(
                 \and{R}(\top{R}(), \and{R}(\in{SortInstr{}, R}(X0:SortInstr{}, I:SortInstr{}), \top{R}())),
@@ -140,6 +232,15 @@ fn definition() -> BackendDefinition {
             symbol Lblnop{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
             symbol Lblgate{{}}(SortInt{{}}, SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol Lblsc{{}}(SortInt{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lblwr{{}}(SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lblmark{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
+            symbol Lblcopy{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
+            symbol Lblleft{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
+            symbol Lblright{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
+            symbol Lblsplit{{}}() : SortInstr{{}} [constructor{{}}(), functional{{}}()]
+            symbol Lblpair{{}}(SortInstr{{}}, SortInstr{{}}) : SortInstr{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol sf{{}}(SortK{{}}, SortInstr{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol wrap{{}}(SortInstr{{}}) : SortInstr{{}} [function{{}}(), total{{}}()]
             symbol st{{}}(SortK{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol out{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol done{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
@@ -232,8 +333,8 @@ fn set(symbols: &[&str]) -> BTreeSet<String> {
 }
 
 /// `gate` is entered at `gate(1, nop)` and its guard refuted: it is matched, records neither
-/// the head of its operand `I` nor a value of its binder `N`, while `drop`, which takes the
-/// step, records the instruction it took through its injection. Where its guard holds, at
+/// the head of its operand `I` nor a value of its binder `N`, and `drop`, which takes the step
+/// and discards the instruction, records nothing either. Where its guard holds, at
 /// `gate(200, nop)`, the same rule records both, so what the refuted entry did not record is
 /// what an instance that fired records.
 #[test]
@@ -251,7 +352,8 @@ fn a_matched_rule_whose_guard_was_refuted_records_no_binding() {
     assert!(!coverage.applied.contains("gate"), "{coverage:?}");
     assert!(heads(&bindings, "gate").is_empty(), "{bindings:?}");
     assert_eq!(binder(&bindings, "gate", "N"), None, "{bindings:?}");
-    assert_eq!(heads(&bindings, "drop"), set(&["Lblgate"]), "{bindings:?}");
+    assert!(coverage.applied.contains("drop"), "{coverage:?}");
+    assert!(heads(&bindings, "drop").is_empty(), "{bindings:?}");
     let (fired, coverage) = bindings_of(
         &definition,
         state(&definition, &[gate(200)]),
@@ -267,12 +369,15 @@ fn a_matched_rule_whose_guard_was_refuted_records_no_binding() {
     );
 }
 
-/// A committed step records the head of each operand: `drop`'s `X:KItem` bound to
-/// `inj{Instr, KItem}(inc(200))` records `inc`, `ev`'s `I:Instr` bound to `nop()` records `nop`,
-/// and so does the equation `weightAny`, whose instance in `ev`'s successor gave a result. With
+/// A committed step records the head of each operand it reads: `ev`'s `I:Instr` bound to
+/// `nop()`, which its result passes to `weight`, records `nop`; `wr`'s `I`, passed to `wrap`,
+/// records `ghost`, and so does the equation `wrapAny`, whose instance in `wr`'s successor gave
+/// it back. A value bound to a variable no other part of the axiom reads was carried past or
+/// dropped, not taken: `drop` discards the item it binds (`ghost`, and later the item `wrap`
+/// gave back), and `weightAny` gives `7` whatever its argument, so neither records a head. With
 /// no `collect_committed`, they are recorded all the same.
 #[test]
-fn a_committed_step_records_its_operands_heads_through_injections() {
+fn a_committed_step_records_the_heads_of_the_operands_it_reads() {
     let definition = definition();
     let program = [
         item("Lblghost{}()"),
@@ -286,15 +391,27 @@ fn a_committed_step_records_its_operands_heads_through_injections() {
         |_| {},
     );
     assert_eq!(coverage.committed, None, "{coverage:?}");
-    assert_eq!(heads(&bindings, "drop"), set(&["Lblghost"]), "{bindings:?}");
+    assert!(coverage.applied.contains("drop"), "{coverage:?}");
+    assert!(heads(&bindings, "drop").is_empty(), "{bindings:?}");
     assert!(heads(&bindings, "guarded").is_empty(), "{bindings:?}");
     assert!(coverage.applied.contains("guarded"), "{coverage:?}");
     assert_eq!(heads(&bindings, "ev"), set(&["Lblnop"]), "{bindings:?}");
-    assert_eq!(
-        heads(&bindings, "weightAny"),
-        set(&["Lblnop"]),
-        "{bindings:?}"
+    assert!(coverage.applied.contains("weightAny"), "{coverage:?}");
+    assert!(heads(&bindings, "weightAny").is_empty(), "{bindings:?}");
+    let (wrapped, coverage) = bindings_of(
+        &definition,
+        state(&definition, &[item("Lblwr{}(Lblghost{}())")]),
+        authored(),
+        |_| {},
     );
+    assert!(coverage.applied.contains("drop"), "{coverage:?}");
+    assert_eq!(heads(&wrapped, "wr"), set(&["Lblghost"]), "{wrapped:?}");
+    assert_eq!(
+        heads(&wrapped, "wrapAny"),
+        set(&["Lblghost"]),
+        "{wrapped:?}"
+    );
+    assert!(heads(&wrapped, "drop").is_empty(), "{wrapped:?}");
     // A symbol the collection does not name is not recorded: here nothing is named, and nothing
     // is recorded.
     let (unnamed, _) = bindings_of(
@@ -329,32 +446,32 @@ fn a_continuation_variable_records_nothing() {
     assert_eq!(bindings, RunBindings::default());
 }
 
-/// A cut-point rule's proposed successor is not committed: `ev` records nothing, while the
+/// A cut-point rule's proposed successor is not committed: `wr` records nothing, while the
 /// equation its successor's normalization applied gave a result and records as `applied` does.
 #[test]
 fn a_proposed_step_records_nothing() {
     let definition = definition();
-    let program = [item("Lblev{}(Lblnop{}())")];
+    let program = [item("Lblwr{}(Lblnop{}())")];
     let (bindings, coverage) = bindings_of(
         &definition,
         state(&definition, &program),
         authored(),
         |options| {
-            options.cut_point_rules = BTreeSet::from(["ev".to_owned()]);
+            options.cut_point_rules = BTreeSet::from(["wr".to_owned()]);
             options.collect_committed = true;
         },
     );
-    assert!(coverage.applied.contains("ev"), "{coverage:?}");
+    assert!(coverage.applied.contains("wr"), "{coverage:?}");
     assert!(
         !coverage
             .committed
             .as_ref()
-            .is_some_and(|committed| committed.contains("ev")),
+            .is_some_and(|committed| committed.contains("wr")),
         "{coverage:?}"
     );
-    assert!(heads(&bindings, "ev").is_empty(), "{bindings:?}");
+    assert!(heads(&bindings, "wr").is_empty(), "{bindings:?}");
     assert_eq!(
-        heads(&bindings, "weightAny"),
+        heads(&bindings, "wrapAny"),
         set(&["Lblnop"]),
         "{bindings:?}"
     );
@@ -455,7 +572,7 @@ fn bindings_are_isolated_from_the_run() {
         .0
     });
     assert_eq!(runs[0], runs[1]);
-    assert_eq!(heads(&runs[0], "drop"), set(&["Lblinc"]), "{:?}", runs[0]);
+    assert_eq!(heads(&runs[0], "ev"), set(&["Lblnop"]), "{:?}", runs[0]);
     assert_eq!(
         binder(&runs[0], "op", "B").map(|values| values.values.clone()),
         Some(values(&[7])),
@@ -516,5 +633,126 @@ fn an_equation_binders_literals_are_recorded_once_under_its_unique_id() {
             .with_binder("op", "B", 2)
             .selected_twice(&definition),
         None
+    );
+}
+
+/// The state `sf(program, cell)`.
+fn cell_state(definition: &BackendDefinition, program: &[String], cell: &str) -> Pattern {
+    let source = format!("sf{{}}({}, {cell})", sequence(program));
+    Pattern {
+        term: definition
+            .internalize_term(&parse_pattern(&source).expect("term should parse"), &[])
+            .expect("term should internalize"),
+        constraints: Vec::new(),
+    }
+}
+
+/// `mark` overwrites the cell, `<f> _ => ghost </f>`: its `F` binds the cell's `nop` and no other
+/// part of the rule reads it, so the step carried `nop` to its end and dropped it, and records no
+/// head. `copy` puts the cell's value in its result: its `F` records `ghost`. `sfdrop` discards
+/// the item it binds and keeps the cell, so it records the cell's head and not the item's.
+/// `twice` names `A` twice in its left-hand side, so the match compares the two values: `A`
+/// records `nop`. Whether a variable is read is decided per axiom when it is loaded.
+#[test]
+fn a_value_the_step_never_reads_records_no_head() {
+    let definition = definition();
+    let unread = |label: &str| {
+        definition
+            .rewrite_theory()
+            .values()
+            .flat_map(|groups| groups.values().flatten())
+            .find(|rule| rule.rule.attributes.label.as_deref() == Some(label))
+            .map(|rule| {
+                rule.rule
+                    .computed_attributes
+                    .unread_variables
+                    .iter()
+                    .map(|variable| {
+                        crate::term::names::rule_variable_definition_name(&variable.name)
+                    })
+                    .collect::<BTreeSet<_>>()
+            })
+            .expect("the rule is in the definition")
+    };
+    assert_eq!(unread("mark"), set(&["F"]));
+    assert_eq!(unread("copy"), set(&[]));
+    assert_eq!(unread("twice"), set(&[]));
+    assert_eq!(unread("sfdrop"), set(&["X"]));
+    let (bindings, coverage) = bindings_of(
+        &definition,
+        cell_state(
+            &definition,
+            &[
+                item("Lblmark{}()"),
+                item("Lblcopy{}()"),
+                item("Lblpair{}(Lblnop{}(), Lblnop{}())"),
+            ],
+            "Lblnop{}()",
+        ),
+        authored(),
+        |_| {},
+    );
+    for label in ["mark", "copy", "sfdrop", "twice"] {
+        assert!(coverage.applied.contains(label), "{label}: {coverage:?}");
+    }
+    assert!(heads(&bindings, "mark").is_empty(), "{bindings:?}");
+    assert_eq!(heads(&bindings, "copy"), set(&["Lblghost"]), "{bindings:?}");
+    assert_eq!(
+        heads(&bindings, "sfdrop"),
+        set(&["Lblghost"]),
+        "{bindings:?}"
+    );
+    assert_eq!(
+        heads(&bindings, "twice"),
+        set(&["Lblnop", "Lblghost"]),
+        "{bindings:?}"
+    );
+}
+
+/// `either`'s left-hand side is a disjunction, loaded as one rule per disjunct under one id:
+/// `committed` names the axiom, and the bindings name the disjunct its fired instance took,
+/// `left` (0) and never `right` (1). `split` builds a successor per alternative of its
+/// right-hand side, and the run committed to both: each is named. An axiom with one alternative
+/// of each side is never listed.
+#[test]
+fn a_fired_instance_names_the_alternative_it_took() {
+    let definition = definition();
+    let alternative = |axiom: &str, lhs, rhs| FiredAlternative {
+        axiom: axiom.to_owned(),
+        lhs,
+        rhs,
+    };
+    let (bindings, coverage) = bindings_of(
+        &definition,
+        state(&definition, &[item("Lblleft{}()"), item("Lblhalt{}()")]),
+        BindingCollection::default(),
+        |options| options.collect_committed = true,
+    );
+    assert!(
+        coverage
+            .committed
+            .as_ref()
+            .is_some_and(|committed| committed.contains("either")),
+        "{coverage:?}"
+    );
+    assert_eq!(
+        bindings.alternatives,
+        vec![alternative("either", Some(0), None)],
+        "{bindings:?}"
+    );
+    let (bindings, _) = bindings_of(
+        &definition,
+        state(&definition, &[item("Lblsplit{}()")]),
+        BindingCollection::default(),
+        |_| {},
+    );
+    assert_eq!(
+        bindings.alternatives,
+        vec![
+            alternative("either", Some(0), None),
+            alternative("split", None, Some(0)),
+            alternative("split", None, Some(1)),
+        ],
+        "{bindings:?}"
     );
 }
