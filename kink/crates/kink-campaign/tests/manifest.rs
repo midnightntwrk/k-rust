@@ -460,31 +460,36 @@ fn keys(value: &Value, expected: &[&str]) {
 }
 fn check_manifest(manifest: &CampaignManifest) {
     let value = manifest.value();
-    keys(
-        value,
-        &[
-            "schema",
-            "version",
-            "k_rust",
-            "kink",
-            "profile",
-            "compile_options",
-            "backend_options",
-            "budget",
-            "budget_mutants",
-            "schedule",
-            "selection",
-            "module",
-            "classifier",
-            "operators",
-            "universe",
-            "admission",
-            "baseline",
-            "tests",
-            "observation_sha256",
-            "mutants",
-        ],
-    );
+    // Version 7: under the Z3 profile the manifest names the Z3 build its runs' units are counted
+    // by (`z3`, kink-native's `z3_build_value`); the no-Z3 manifest has no such member.
+    let z3 = kink_native::z3_build_value();
+    assert_eq!(value.get("z3"), z3.as_ref());
+    let mut top = vec![
+        "schema",
+        "version",
+        "k_rust",
+        "kink",
+        "profile",
+        "compile_options",
+        "backend_options",
+        "budget",
+        "budget_mutants",
+        "schedule",
+        "selection",
+        "module",
+        "classifier",
+        "operators",
+        "universe",
+        "admission",
+        "baseline",
+        "tests",
+        "observation_sha256",
+        "mutants",
+    ];
+    if z3.is_some() {
+        top.push("z3");
+    }
+    keys(value, &top);
     keys(
         &value["k_rust"],
         &["revision", "provenance_format", "provenance_version"],
@@ -592,7 +597,7 @@ fn check_manifest(manifest: &CampaignManifest) {
         keys(&mutant["validation"], &["outcome", "stage", "detail"]);
     }
     assert_eq!(value["schema"], "kink-campaign-manifest");
-    assert_eq!(value["version"], 6);
+    assert_eq!(value["version"], 7);
     assert_eq!(
         value["backend_options"]["smt_resource_limit"],
         kink_native::SMT_RESOURCE_LIMIT.get()

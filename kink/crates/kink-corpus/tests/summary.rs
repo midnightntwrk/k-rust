@@ -177,18 +177,24 @@ mod kink_tier {
                 expected.sort();
                 assert_eq!(actual, expected);
             }
-            keys(
-                generated.value(),
-                &[
-                    "schema",
-                    "version",
-                    "corpus_manifest_sha256",
-                    "profile",
-                    "definitions",
-                    "totals",
-                    "exposed",
-                ],
-            );
+            // Version 3: under the Z3 profile the summary names the Z3 build its tallies were
+            // decided on (`z3`); the no-Z3 summary has no such member.
+            let z3 = kink_native::z3_build_value();
+            assert_eq!(generated.value()["version"], 3);
+            assert_eq!(generated.value().get("z3"), z3.as_ref());
+            let mut top = vec![
+                "schema",
+                "version",
+                "corpus_manifest_sha256",
+                "profile",
+                "definitions",
+                "totals",
+                "exposed",
+            ];
+            if z3.is_some() {
+                top.push("z3");
+            }
+            keys(generated.value(), &top);
             let definition = &generated.value()["definitions"][0];
             keys(
                 definition,

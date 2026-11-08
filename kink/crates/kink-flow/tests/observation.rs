@@ -456,7 +456,7 @@ fn a_prefix_program_is_recorded_under_its_declaration() {
     // `check` names the declaration, and its exit status reads a prefix program as answered.
     let (check, status) = check(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 13);
+    assert_eq!(check["version"], 14);
     assert_eq!(check["observe"], manifest.observe_value().unwrap());
 }
 

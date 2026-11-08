@@ -601,7 +601,7 @@ fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
             cache: None,
         },
     );
-    assert_eq!(check["version"], 13);
+    assert_eq!(check["version"], 14);
     assert!(
         warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()),
         "{check:#}"
