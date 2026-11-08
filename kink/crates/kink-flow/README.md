@@ -700,6 +700,23 @@ The universe is a function of the definition: the nodes come from the definition
 A condition whose skeleton the definition cannot give (an atom the backend cannot encode as KORE) shows no node, whichever programs entered it, and its guard's `operands_reason` says why: its requirements are its root's alone.
 The measure is covered / obligations.
 
+**Unique-cause MC/DC (opt-in, per rule).** The outcome classes are the default level of the requirements; `[coverage] mcdc` adds a deeper one to the rules it names (`true` names every rule whose condition states requirements).
+A selected rule gains one requirement per authored atom of its condition, an item `{id, rule, level: "mcdc", node, text, file, line, status, covered, covered_by, pair, needed, truncated_by, entered_by}` with id `requirement:<name>:<operand>:mcdc`, listed after the rule's outcome-class items and counted with them.
+An atom is covered by a unique-cause pair: two valuation combinations the comparable programs' baseline runs recorded ("Guard outcomes", `guard.combinations`), one where the condition held and one where it was refuted, in which the atom has the two truths and every other atom has one decided truth, the tests a front end inserted and the conjuncts the compile added included; `pair` gives each side's `valuation` (each operand's `{node, text, truth}`), `outcome` and `programs`, and `covered_by` the programs of both.
+
+- Why every other atom is fixed: on a pair, the condition differs from the condition with the atom replaced by either constant, so a corpus with the pair tells the condition from both conditions in which the atom decides nothing.
+  A pair in which another atom changes too does not: for `A andThenBool B`, (true, true) held and (false, false) refuted cannot tell the condition from `B`, although A is reached `false`.
+  Letting a masked atom differ, as the short-circuit reading would, gives the pairs the outcome classes already count; fixing it states what they cannot.
+- A combination holds every atom's truth under the strict reading, also an atom the short-circuit reading did not reach, so the pairs are read from the records with no run; an `undecided` atom has no known truth and fixes nothing.
+- An atom without a pair is `open`, and its target names the valuation needed (`needed`, each `{valuation, outcome, against}`): a recorded combination with the atom's truth negated, where the condition, evaluated on the definition's skeleton of it, takes the other outcome, against the combination it pairs with (`a case that enters MCDC.both with A:Bool false and B:Bool true, where its condition is false: against one's A:Bool true and B:Bool true, where it holds, A:Bool alone decides it`, the mcdc fixture's).
+- An atom whose truth is a function of the others (`X >Int 0` beside `X >Int 10`, which implies it) has no possible pair; its target says so, and the obligation is argued ("Argued obligations"), as any other.
+- Where a comparable program's record of the condition left a combination out (`truncated_by`: the record keeps the least combinations up to a bound, "Guard outcomes"), an atom without a pair is `undecided`: the pair may be among those left out.
+  An undecided requirement is neither covered nor open (`counts.undecided`); it keeps its target, which says why, and counts in `summary.open`, since nothing has settled it.
+
+Under a selection the requirements family has `mcdc` (`{rules, obligations, covered}`, `rules` the selected rule ids) and `counts.undecided`, and a selected rule's guard keeps its `combinations`; every other guard drops them, so without a selection the document is what it was.
+A name that selects no rule whose condition states requirements (a misspelling, a rule the definition no longer has, an unconditional rule) is refused at stage `coverage`, reason `mcdc-stale`, before any mutant runs.
+Selecting rule by rule is the author's judgement: a unique-cause pair per atom multiplies the obligations, and operands that coupling makes inseparable are common, so the level belongs where each operand deserves to be shown deciding.
+
 **Syntax (depth 1).** Each production of an authored sort, an item `{kind: "production", id, module, index, file, start_line, sort, production, symbol, text, status, covered, reached_by, inspected_by, operand_of, built_by, uncounted, touched_only_by, inspecting, building, inspecting_rules, building_rules}`.
 The authored sorts are the front end's where it gives them (`FlowManifest::with_syntax`), else every sort the specification's own sentences declare and no library sentence declares: a library sort's meaning is the library's, so a production an author adds to it is not counted.
 A production is an obligation when it builds a term with a constructor of the compiled definition: a function's application is evaluated away, a token is a domain value, a bracket and a subsort are erased, a macro is expanded and a cell is the configuration's, so none of these is.
@@ -844,7 +861,8 @@ Version 4 adds `lock` (null without `--lock`; else `{path, status, reason, heade
 Version 5 adds `observe` for a corpus with `[observe]`, each program row's `observations` and the class `comparable-prefix` ("What a run observes").
 Version 6 reads `[[coverage.argued]]` ("Argued obligations"): `settings.argued`, an argued item's status `argued` with its `argument` and `unargued_status`, a needless argument's `argument` and `argument_needless`, each family's `argued` and `counts.argued`, and the summary's `covered` and `needless_arguments`.
 Version 7 names why each horizon's channel opened ("What a run observes"): a program row's `observations.horizon` is `{<channel>: {elements, opening}}` and each open channel's `open` has `opening`, each flip has `horizon` (an undistinguished flip's agreements up to a horizon, null otherwise), and a prefix program none of whose channels kept an element within its budget or closed by a cycle is `unknown`; a program row's channel can be `closed` by `cycle`.
-`settings` is `{tiers, depth, mcdc, max_obligations, argued, source}` (`argued` the entries as written, `{item, argument}`) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
+Version 8 reads `[coverage] mcdc` ("Unique-cause MC/DC"): `settings.mcdc` may be `true`, and under a selection the selected guards' `combinations`, the unique-cause requirements, the status `undecided`, the requirements family's `mcdc` and `counts.undecided`; without one, the document is version 7's.
+`settings` is `{tiers, depth, mcdc, max_obligations, argued, source}` (`mcdc` the names as written, or `true`; `argued` the entries as written, `{item, argument}`) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, argued, measure, counts, items}` where built.
 `summary` is `{programs, comparable, computed, mismatches, covered, argued, open, per_family, needless_arguments}`, `per_family` giving each built family's `{obligations, covered, argued, open}` (the flips' where they ran, their obligations less the refused and equivalent ones), `open` being obligations less covered less argued; `covered`, `argued` and `open` are the sums over the families computed, `open` the number of targets.
@@ -860,7 +878,7 @@ The families, the targets and the summary are derived from the rules' items as t
 ```toml
 [coverage]
 depth = 1                # the length of the sequences the deeper families count; default 1
-mcdc = []                # the rules whose requirements gain unique-cause obligations
+mcdc = []                # the rules whose requirements gain unique-cause obligations, by name, or true for every rule
 max_obligations = 100000 # the most obligations a universe of depth above 1 may hold
 
 [[coverage.argued]]      # any number; "Argued obligations"
@@ -868,7 +886,8 @@ item = "rule:LOOP.spin"
 argument = "a defence against a state the definition never builds"
 ```
 
-Every command decodes the section, and refuses a malformed one as it refuses any manifest key; `coverage` refuses what this build cannot honour, at stage `coverage` before anything runs: a depth above 1 (`depth-unsupported`, `depth` or `--depth`: rule windows and syntax paths are not built) and a nonempty `mcdc` (`mcdc-unsupported`: unique-cause obligations are not built).
+Every command decodes the section, and refuses a malformed one as it refuses any manifest key; `coverage` refuses what this build cannot honour, at stage `coverage` before anything runs: a depth above 1 (`depth-unsupported`, `depth` or `--depth`: rule windows and syntax paths are not built).
+`mcdc` names rules as the document's ids do (`rule:<name>`), each once; `false` is the empty list. A name that selects no rule whose condition states requirements is refused at stage `coverage` (`mcdc-stale`) once the rules are named, before any mutant runs ("Unique-cause MC/DC").
 The other commands do not read the section, so they run on such a manifest as written.
 
 ### Guard outcomes
@@ -884,7 +903,8 @@ A rewrite rule or function equation with a `requires` (not a simplification) who
 - The nodes are read from the definition: admission takes the skeleton of every guarded axiom's written `requires` from the loaded definition (kink-native `coverage::guard_skeletons`, k-rust `guard_skeletons`), the nodes a run that entered the axiom would report, so a guard no comparable program entered shows its nodes with no outcome, and what a guard can show does not depend on which programs entered it.
 - `uncounted`: the outcomes the programs that are not comparable saw (`held_by`, `refuted_by`, and per node path `true_by` and `false_by`), null when none entered the condition; no outcome above counts them, and an open requirement lists them as `touched_only_by`.
 
-The record also holds each guard's distinct valuations of its atoms with the guard outcome (bounded, the least ones in their order), which no command reports yet.
+The record also holds each guard's distinct valuations of its atoms with the guard outcome (`combinations`, bounded: the least ones in their order, with `combinations_truncated` where a run made more), each atom's truth under the strict reading, also where the short-circuit reading did not reach it.
+Under `[coverage] mcdc` a selected rule's guard shows them as `combinations` (`{atoms, rows, truncated_by}`): `atoms` the display path of each atom of the record's combinations in preorder (`null` for an atom of a conjunct the compile added), `rows` each distinct combination of the comparable programs (`{truths, outcome, programs, flipped}`, `flipped` the outcome the condition takes with one shown atom's truth negated, evaluated on the skeleton, `null` where another atom has no two-valued truth), and `truncated_by` the programs whose record left one out; the unique-cause requirements read them ("Unique-cause MC/DC").
 The requirements family reads these outcomes ("Families").
 A front end that groups a guard by its own constructs (krs's `guard.krs`: the author's operands by source text, its inserted tests and a pattern's templates apart) gives the reading the family uses: its authored operands and its reading of the author's condition; a rule's `krs.status` and `krs.matched_by`, which read a sentence's match at the front end's level, take the place of `status` and `matched_by`.
 The grouping's `held_by`, `refuted_by` and `never` read the author's condition alone, since a template that did not match or an inserted test that was `false` refutes nothing the author wrote: a guard with no authored conjunct has `held_by` and `refuted_by` `null` and no gap, and states no requirement (`guards::authored_condition`).
@@ -1517,7 +1537,7 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 13
+version = 15
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
@@ -1530,7 +1550,7 @@ outcome = "admitted"          # a refused specification adds its stage and reaso
 [settings]                    # coverage: the tiers computed and [coverage]'s values
 tiers = [1, 2]
 depth = 1
-mcdc = []
+mcdc = []                     # or the names, or true
 
 [rules]                       # coverage: each family's open and argued obligations, by id, in item order
 open = ["rule:calc.k:23"]
@@ -1539,6 +1559,7 @@ argued = []
 [requirements]
 open = []
 argued = ["requirement:CALC.div:refuted"]   # [[coverage.argued]] items; an argument's text is not rendered
+undecided = ["requirement:CALC.div:B:mcdc"] # only where a family has undecided items, which open leaves out
 
 [syntax]
 open = []
@@ -1585,6 +1606,7 @@ A refusal's or a stop's text is not part of the rendering, since it explains a r
 
 A coverage rendering lists ids, which name a rule by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line` ("The document" under `coverage`); it lists no program and no count, so it moves only when a gap opens or closes or a flip's status or killer moves, and a case that covers nothing new renders the same bytes.
 Where the flips ran, each is listed (`[[flip]]`) with its status, a refused flip's reason and a distinguished flip's killer, which follows the killer rule over the coverage lock ("The coverage lock").
+A family with undecided obligations lists them as `undecided`, which `open` leaves out ("Unique-cause MC/DC"): a pair the records cannot decide is another verdict than one no program shows, so a lock moves when one becomes the other.
 The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`); version 3 adds `stop.krs.when`, the stop condition as the corpus wrote it, and spells items as version 2 does; version 4 named a `results` document's guard nodes by KRS construct, and version 5 annotates the `coverage` document that replaced it, whose item ids spell items as version 2 does.
 Two renderings of the same verdicts under different annotation versions differ in that line and in the rule names only.
 A run rendering names no rule, so it has no `krs_annotation` line, which could only move a lock without any verdict moving.
