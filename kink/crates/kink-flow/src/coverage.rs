@@ -44,10 +44,14 @@
 //!   node being reached, in written order, only where the operands before it decide nothing yet
 //!   (a conjunction's earlier operands `true`, a disjunction's `false`); so the reached truths
 //!   per node encode the short-circuit outcome classes of every connective, and one unit serves
-//!   them all. Where the root's truth is reached exactly where a node is reached with a truth (a
-//!   root that is itself an atom, a conjunction's `held` and its last conjunct `true`, a
-//!   condition's only conjunct), the two are one obligation, listed once as the root's, with
-//!   the node (`node`, `node_truth`) and the programs of both. Undefined and undecided outcomes,
+//!   them all. A function equation's condition is reached at every application its left-hand
+//!   side matches whose deciding priority group is its own, whether or not the run tried it
+//!   there (k-rust's untried entries), so its requirements do not depend on the order in which
+//!   the backend tries the equations of a group; an untried entry the evaluation left open is
+//!   undecided (cause `untried`), never covered. Where the root's truth is reached exactly where
+//!   a node is reached with a truth (a root that is itself an atom, a conjunction's `held` and
+//!   its last conjunct `true`, a condition's only conjunct), the two are one obligation, listed
+//!   once as the root's, with the node (`node`, `node_truth`) and the programs of both. Undefined and undecided outcomes,
 //!   the tests a front end inserted and a pattern's templates are shown apart and never counted.
 //!   Where a front end grouped a guard by its own constructs (`guard.krs`), its authored operands
 //!   and its reading of the author's condition are read; a condition with no authored conjunct
@@ -190,7 +194,9 @@
 //! An open heating rule asks for a case whose run brings the production to the front of the
 //! computation with a term that is not a result at its position (for a context, reaches a
 //! state the context matches with such a term in its hole).
-//! `programs` are the comparable programs that entered the rule, the templates of a fuzz job;
+//! `programs` are the comparable programs that entered the rule, the templates of a fuzz job (for
+//! a requirement, those that entered its condition, also where the run did not try the equation:
+//! `entered_by`);
 //! `fuzz` spells the fuzz job that looks for a program: for a rewrite rule `--matched` or
 //! `--fired` with the rule, for a requirement, a production, a field value whose item names its
 //! binder, a heating rule and a function equation `--cover` with the obligation's id
@@ -362,8 +368,14 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// items, counts, measure, frontier targets and `summary.per_family.syntax_paths`), where
 /// version 13 had `null`, its universe is held to `max_obligations` as well, and the text
 /// rendering says a depth-dependent family is computed above depth 1 only where version 13 said
-/// it was not built.
-pub const COVERAGE_VERSION: u64 = 14;
+/// it was not built; 15 since a requirement of a function equation is covered at every
+/// application its left-hand side matches whose deciding priority group is its own, whether or
+/// not the run tried it there (result schema v25), where version 14 read the tried entries only,
+/// so that of two complementary equations the one tried second was never refuted, and a
+/// requirement's `entered_by`, and its target's `programs`, also list the programs with a guard
+/// outcome of an equation they did not match (an untried entry) where the rule has no template;
+/// an undecided requirement program can have the cause `untried`.
+pub const COVERAGE_VERSION: u64 = 15;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -2511,6 +2523,36 @@ fn node_labels(nodes: &[Node]) -> Vec<String> {
         .collect()
 }
 
+/// The comparable programs that entered the condition of the rule item `item`, in corpus order
+/// (`corpus`, the document's program ids): those that matched it (`entered`, its `matched_by`, or
+/// a front end's `krs.matched_by` where its templates moved the match into the condition) and,
+/// without templates, those with a guard outcome of it. A function application gives an entry of
+/// every equation of its deciding group whose left-hand side matches, tried or not, and only a
+/// tried one is matched, so a program that applied the function by another equation of the group
+/// entered this one's condition without matching it. A front end's template match is read from
+/// the guard's own nodes, so it already counts the untried entries, and a program whose entry did
+/// not match the templates did not enter the authored condition.
+fn entered_condition(
+    entered: &[String],
+    item: &Value,
+    templated: bool,
+    corpus: &[String],
+) -> Vec<String> {
+    if templated {
+        return entered.to_vec();
+    }
+    let guard = &item["guard"];
+    let mut programs = entered.to_vec();
+    for outcome in ["held_by", "refuted_by", "undecided_by", "stopped_by"] {
+        programs.extend(ids(&guard[outcome]));
+    }
+    corpus
+        .iter()
+        .filter(|program| programs.contains(program))
+        .cloned()
+        .collect()
+}
+
 /// The requirements of one guarded rule item, `name` its name (module documentation).
 fn requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]) -> Vec<Value> {
     let guard = &rule["guard"];
@@ -3009,6 +3051,10 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         return;
     }
     let programs = document["programs"].as_array().cloned().unwrap_or_default();
+    let corpus = programs
+        .iter()
+        .filter_map(|program| program["id"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
     let summary_programs = json!({
         "programs": programs.len(),
         "comparable": programs.iter().filter(|p| ResultClass::can_kill(&p["class"])).count(),
@@ -3108,6 +3154,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             .get("matched_by")
             .filter(|_| templated)
             .unwrap_or(&item["matched_by"]));
+        let entered_condition = entered_condition(&entered, item, templated, &corpus);
         let (file, line) = position(item);
         let rewrite = item["rewrite"] == true;
         let rule_spelling = item["label"].as_str().map(str::to_owned).or_else(|| {
@@ -3119,14 +3166,14 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         });
         let held_id = format!("requirement:{name}:held");
         let mut requirements = if obligation && item.get("guard").is_some() {
-            requirements(&name, &id, item, &entered)
+            requirements(&name, &id, item, &entered_condition)
         } else {
             Vec::new()
         };
         // The unique-cause level, for a rule `[coverage] mcdc` selects whose condition states
         // requirements; the combinations stay only in the rows it reads them from.
         if !requirements.is_empty() && selects(&name) {
-            requirements.extend(mcdc_requirements(&name, &id, item, &entered));
+            requirements.extend(mcdc_requirements(&name, &id, item, &entered_condition));
             mcdc_rules.push(id.clone());
         } else if let Some(guard) = item.get_mut("guard").and_then(Value::as_object_mut) {
             guard.remove("combinations");
@@ -3199,7 +3246,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
                     "text": mcdc_target(&name, requirement),
                     "file": file,
                     "line": line,
-                    "programs": entered,
+                    "programs": entered_condition,
                     "pattern": null,
                     "fuzz": null,
                 }));
@@ -3246,7 +3293,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
                 "text": format!("{text}{}", touched_note(&touched)),
                 "file": file,
                 "line": line,
-                "programs": entered,
+                "programs": entered_condition,
                 "pattern": null,
                 "fuzz": requirement["id"].as_str().map_or(Value::Null, cover),
             }));

@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 18
+//! version = 19
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -163,8 +163,12 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// document was refused before; 18 since such a rendering also lists the open and argued syntax
 /// paths (`[syntax_paths]`, every open path and joint field value, on the frontier or not), so a
 /// lock of depth above 1 shows a path opening or closing; a rendering of depth 1 is unchanged but
-/// for its `version` line.
-pub const VERDICTS_VERSION: u64 = 18;
+/// for its `version` line; 19 since a function equation's guard outcomes, and so the
+/// `[[guard]]` entries and the open requirements of a `coverage` rendering, cover every
+/// application its left-hand side matches whose deciding priority group is its own, whether or
+/// not the run tried it there, so that a lock whose guard and requirement lists move for that
+/// reason shows a new version, not a corpus change.
+pub const VERDICTS_VERSION: u64 = 19;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run

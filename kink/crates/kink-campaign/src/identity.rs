@@ -164,8 +164,12 @@ use std::{path::Path, sync::OnceLock};
 /// now the list of windows alone), and its `bindings` hold `paths`, the syntax paths of length
 /// up to that depth its fired instances touched, from which `coverage`'s syntax paths family
 /// reads what a comparable program covered; a v23 record of depth above 1 has none, so every
-/// path would read open.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v24";
+/// path would read open. v25: a record's `guards` hold, at each function application, the
+/// entries of every equation of the deciding priority group whose left-hand side matches, also
+/// those the run did not try (an undecided one with cause `untried`), so they do not depend on
+/// the order in which the backend tries a group's equations; a v24 record holds the tried
+/// entries only, so an equation tried after the one that applied would read never refuted.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v25";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

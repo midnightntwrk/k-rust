@@ -942,6 +942,93 @@ mod kink_tier {
         }
     }
 
+    /// An equation's requirements do not depend on the order in which the equations of its
+    /// group are declared. `low` and `high` are complementary equations of one priority: a
+    /// store of a low address applies `low`, a store of a high address applies `high`, and
+    /// whichever is tried first, the other one's condition is entered at that application too.
+    /// With the declarations in either order the two equations have the same covered and open
+    /// requirements, `high`'s `refuted` is covered by the low store, and a corpus that stores on
+    /// both sides leaves none of them open.
+    #[test]
+    #[ignore = "kink"]
+    fn complementary_equations_have_the_same_requirements_in_either_order() {
+        let requirements = |test: &str, swapped: bool, both_sides: bool| {
+            let dir = fixture("guards", test);
+            if swapped {
+                let path = dir.join("guards.k");
+                let text = fs::read_to_string(&path).unwrap();
+                let low = "  rule [low]:  store(A) => A requires A <Int 32768\n";
+                let high = "  rule [high]: store(A) => 0 requires A >=Int 32768\n";
+                let declared = format!("{low}{high}");
+                assert!(text.contains(&declared), "{text}");
+                fs::write(&path, text.replace(&declared, &format!("{high}{low}"))).unwrap();
+            }
+            if both_sides {
+                append(
+                    &dir.join("FLOW.toml"),
+                    "\n[[program]]\nid = \"write-high\"\ntext = \"write(40000)\"\n",
+                );
+            }
+            let (document, status) = run(&dir.join("FLOW.toml"), false);
+            assert_eq!(status, EXIT_YES, "{document:#}");
+            let mut items = document["families"]["requirements"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        item["rule"].as_str(),
+                        Some("rule:GUARDS.low" | "rule:GUARDS.high")
+                    )
+                })
+                .map(|item| {
+                    (
+                        item["id"].as_str().unwrap().to_owned(),
+                        item["status"].as_str().unwrap().to_owned(),
+                        item["covered_by"].to_string(),
+                        item["entered_by"].to_string(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            items.sort();
+            items
+        };
+        let item = |id: &str, status: &str, covered_by: &[&str], entered_by: &[&str]| {
+            (
+                format!("requirement:GUARDS.{id}"),
+                status.to_owned(),
+                json!(covered_by).to_string(),
+                json!(entered_by).to_string(),
+            )
+        };
+        // The fixture's corpus stores a low address only: `high` is never tried, and its
+        // `held` stays open, but its condition is entered at the store and seen false.
+        let declared = requirements("guards-order-declared", false, false);
+        assert_eq!(
+            declared,
+            [
+                item("high:held", "open", &[], &["write"]),
+                item("high:refuted", "covered", &["write"], &["write"]),
+                item("low:held", "covered", &["write"], &["write"]),
+                item("low:refuted", "open", &[], &["write"]),
+            ]
+        );
+        assert_eq!(requirements("guards-order-swapped", true, false), declared);
+        // A store on each side covers every requirement of both, in either order.
+        let both = requirements("guards-order-both-declared", false, true);
+        let stores = ["write", "write-high"];
+        assert_eq!(
+            both,
+            [
+                item("high:held", "covered", &["write-high"], &stores),
+                item("high:refuted", "covered", &["write"], &stores),
+                item("low:held", "covered", &["write"], &stores),
+                item("low:refuted", "covered", &["write-high"], &stores),
+            ]
+        );
+        assert_eq!(requirements("guards-order-both-swapped", true, true), both);
+    }
+
     /// A case that covers nothing new leaves the verdicts rendering byte-identical; a case that
     /// closes a gap moves it. `--tier 1`, the only tier this build computes, runs no mutant: the
     /// flips family says so.
