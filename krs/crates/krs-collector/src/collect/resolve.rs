@@ -781,7 +781,7 @@ pub(super) struct HeadRuleTarget {
     /// On the configuration's own target, the key of each Map collection's instance whose cells
     /// its sentences may name directly ([`Self::through_maps`]), as
     /// [`TargetSubject::nested_keys`] holds them; empty on a scoped target.
-    configuration_keys: Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)>,
+    configuration_keys: Vec<NestedKey>,
 }
 
 /// The cell group a [`HeadRuleTarget`] is scoped to.
@@ -802,8 +802,27 @@ struct TargetSubject {
     key: Vec<krs_ir::DescriptorCellIdentity>,
     /// The same of each Map collection inside the group whose instance's cells the sentence
     /// names directly ([`HeadRuleTarget::scoped`]), with the collection's name and its group's.
-    nested_keys: Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)>,
+    nested_keys: Vec<NestedKey>,
 }
+
+/// The key of a Map collection's instance whose cells a sentence names directly: the key cell and
+/// the cells inside it, the collection cell's name and identity, and the instance group's name.
+type NestedKey = (
+    Vec<krs_ir::DescriptorCellIdentity>,
+    String,
+    krs_ir::DescriptorCellIdentity,
+    String,
+);
+
+/// A Map collection instance's key as [`HeadRuleTarget::instance_key`] and
+/// [`HeadRuleTarget::nested_instance_keys`] give it: the key cells, the collection cell's name
+/// and identity, and the instance group's name.
+pub(super) type TargetKey<'t> = (
+    &'t [krs_ir::DescriptorCellIdentity],
+    &'t str,
+    &'t krs_ir::DescriptorCellIdentity,
+    &'t str,
+);
 
 /// Where a cell a sentence about a cell group names sits, outside the group.
 enum OutsideCell<'a> {
@@ -1223,11 +1242,7 @@ impl HeadRuleTarget {
 
     /// The key of each Map collection's instance below the cell at `anchor`, or in the whole
     /// configuration where there is none, as [`TargetSubject::nested_keys`] holds them.
-    fn nested_map_keys(
-        &self,
-        anchor: Option<usize>,
-        tree: &[krs_ir::TreeCell],
-    ) -> Vec<(Vec<krs_ir::DescriptorCellIdentity>, String, String)> {
+    fn nested_map_keys(&self, anchor: Option<usize>, tree: &[krs_ir::TreeCell]) -> Vec<NestedKey> {
         let below = |index: usize| {
             anchor.is_none_or(|anchor| {
                 std::iter::successors(self.cells[index].parent, |&parent| {
@@ -1254,6 +1269,7 @@ impl HeadRuleTarget {
                     (
                         cells,
                         self.cells[holder].names[0].clone(),
+                        self.cells[holder].identity.clone(),
                         group.name.clone(),
                     )
                 })
@@ -1265,25 +1281,26 @@ impl HeadRuleTarget {
     /// directly: inside the group a scoped target is about ([`Self::scoped`]), or in the whole
     /// configuration ([`Self::through_maps`]), each with the collection cell's name and the
     /// group's: a sentence writes each only as it matched it.
-    pub(super) fn nested_instance_keys(
-        &self,
-    ) -> impl Iterator<Item = (&[krs_ir::DescriptorCellIdentity], &str, &str)> {
+    pub(super) fn nested_instance_keys(&self) -> impl Iterator<Item = TargetKey<'_>> {
         self.subject
             .iter()
             .flat_map(|subject| subject.nested_keys.iter())
             .chain(&self.configuration_keys)
-            .map(|(cells, holder, group)| (cells.as_slice(), holder.as_str(), group.as_str()))
+            .map(|(cells, holder, identity, group)| {
+                (cells.as_slice(), holder.as_str(), identity, group.as_str())
+            })
     }
 
     /// Where the target is scoped to the instance type of a Map collection, the instance's key
     /// cell and the cells inside it, which a sentence about the instance never writes another
     /// of, with the collection cell's name and the group's.
-    pub(super) fn instance_key(&self) -> Option<(&[krs_ir::DescriptorCellIdentity], &str, &str)> {
+    pub(super) fn instance_key(&self) -> Option<TargetKey<'_>> {
         let subject = self.subject.as_ref()?;
         (!subject.key.is_empty()).then(|| {
             (
                 subject.key.as_slice(),
                 subject.holder.names[0].as_str(),
+                &subject.holder.identity,
                 subject.name.as_str(),
             )
         })
@@ -4653,7 +4670,7 @@ mod tests {
         let state = composite_key_state();
         let targets = std::slice::from_ref(&state);
         let hart = group_target(&cell_id("Hart"), targets).unwrap();
-        let (key, holder, group) = hart.instance_key().unwrap();
+        let (key, holder, _, group) = hart.instance_key().unwrap();
         assert_eq!(
             key.iter()
                 .map(|cell| cell.field.as_str())
@@ -4672,6 +4689,14 @@ mod tests {
             "{}",
             cpu.detail()
         );
+    }
+
+    /// Each key of `keys` without the holder's identity, for comparing.
+    fn unnamed<'t>(
+        keys: impl Iterator<Item = TargetKey<'t>>,
+    ) -> Vec<(&'t [krs_ir::DescriptorCellIdentity], &'t str, &'t str)> {
+        keys.map(|(key, holder, _, group)| (key, holder, group))
+            .collect()
     }
 
     /// A sentence about the instance type of a collection is a step of one instance, so its
@@ -4709,7 +4734,7 @@ mod tests {
             )
         );
         assert_eq!(
-            state.nested_instance_keys().collect::<Vec<_>>(),
+            unnamed(state.nested_instance_keys()),
             vec![(
                 &[krs_ir::DescriptorCellIdentity {
                     owner: cell_id("Hart"),
@@ -4737,7 +4762,8 @@ mod tests {
             )
         );
         assert_eq!(
-            hart.instance_key(),
+            hart.instance_key()
+                .map(|(key, holder, _, group)| (key, holder, group)),
             Some((
                 &[krs_ir::DescriptorCellIdentity {
                     owner: cell_id("Hart"),
@@ -4776,7 +4802,7 @@ mod tests {
         );
         assert!(harts.instance_key().is_none());
         assert_eq!(
-            harts.nested_instance_keys().collect::<Vec<_>>(),
+            unnamed(harts.nested_instance_keys()),
             vec![(
                 &[krs_ir::DescriptorCellIdentity {
                     owner: cell_id("Hart"),

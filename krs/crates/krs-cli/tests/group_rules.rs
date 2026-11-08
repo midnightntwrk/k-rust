@@ -5256,6 +5256,19 @@ pub fn go(
     )
 }
 
+/// [`SMT`] with a fixed group `Misc` beside the cores whose cell has the cores' collection's
+/// field name `core`, emitted (and named in a readable record) as `spare`.
+fn smt_with_spare_core() -> String {
+    let changed = SMT
+        .replace(
+            "#[k::configuration]\npub struct Smt {",
+            "#[k::cell]\npub struct Misc {\n    #[k::cell(name = \"spare\")]\n    pub core: Int,\n}\n\n#[k::configuration]\npub struct Smt {\n    #[k::cell(nested)]\n    pub misc: Misc,",
+        )
+        .replace("            ticks: 0,", "            misc: Misc { core: 0 },\n            ticks: 0,");
+    assert_eq!(changed.matches("Misc").count(), 3, "{changed}");
+    changed
+}
+
 /// [`SMT`] with its cores held in a collection of `order` instead of a Map.
 fn smt_cores_in(order: &str) -> String {
     let changed = SMT.replace(
@@ -5296,6 +5309,7 @@ fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
         "go: { k: [Go(), ..], tenv: { 0 -> v, .. } } => { k: [Done { n: crate::TvPlus(v) }, ..] };";
     // The cores in a List or a Set hold no instance a function context could read.
     let smt = format!("{SMT}{TV_PLUS}{CID_PLUS}");
+    let smt_spare = format!("{}{TV_PLUS}{CID_PLUS}", smt_with_spare_core());
     let smt_list = smt_cores_in("List");
     let smt_set = smt_cores_in("Set");
     let no_call = "go: { k: [Go(), ..] } => { k: [Done { n: 1 }, ..] };";
@@ -5352,6 +5366,25 @@ fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
                 "c: k::Term<k::builtin::Int>,",
                 "crate::Core::cid: k::configuration::Cell(c),",
                 "c",
+                "crate::Core::cid: k::configuration::Cell(3),",
+            ),
+        ),
+        // A cell of another group that shares the cores' collection's field name is not the
+        // holder: the core's key written flat beside it is still judged.
+        (
+            "configuration-key-written-beside-spare",
+            &smt_spare,
+            configuration_record(
+                "go: { k: [Go(), ..], cid: c, spare: s } => { k: [Done { n: s }, ..], cid: 3 };",
+            ),
+        ),
+        (
+            "configuration-key-written-beside-spare-cells",
+            &smt_spare,
+            configuration_cells(
+                "c: k::Term<k::builtin::Int>, s: k::Term<k::builtin::Int>,",
+                "crate::Core::cid: k::configuration::Cell(c), crate::Misc::core: k::configuration::Cell(s),",
+                "s",
                 "crate::Core::cid: k::configuration::Cell(3),",
             ),
         ),
@@ -5520,6 +5553,16 @@ fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
             ],
             [
                 "configuration-key-written-cells",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> smt/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "configuration-key-written-beside-spare",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> smt/src/lib.rs: `3 };`",
+            ],
+            [
+                "configuration-key-written-beside-spare-cells",
                 "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smt/src/lib.rs: `k::configuration`",
             ],

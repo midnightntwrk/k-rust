@@ -423,20 +423,12 @@ pub(super) fn judge_readable(
         return Err(overwritten_collection(entry));
     }
     if judged.is_ok() {
-        for (cells, holder, group) in target
+        for key in target
             .instance_key()
             .into_iter()
             .chain(target.nested_instance_keys())
         {
-            kept_key(
-                &InstanceKey {
-                    cells: cells.to_vec(),
-                    holder: holder.to_owned(),
-                    group: group.to_owned(),
-                },
-                &subject,
-                &result,
-            )?;
+            kept_key(&InstanceKey::of(key), &subject, &result)?;
         }
         instance_child_multiplicity(&subject, &result)?;
         // A cell whose two entries the parser could not pair (a presence over a term, ..) is
@@ -838,13 +830,25 @@ fn fixed_cells_only(cells: &DescriptorCells, subject: &[Entry<'_>]) -> Result<()
 struct InstanceKey {
     /// The key cell, then the cells inside it.
     cells: Vec<DescriptorCellIdentity>,
-    /// The collection cell's field name.
+    /// The collection cell's field name, as a message names it.
     holder: String,
+    /// The collection cell itself.
+    holder_cell: DescriptorCellIdentity,
     /// The group the sentence is about, the collection's instance type.
     group: String,
 }
 
 impl InstanceKey {
+    /// The key a readable target gives ([`super::resolve::TargetKey`]).
+    fn of((cells, holder, holder_cell, group): super::resolve::TargetKey<'_>) -> Self {
+        Self {
+            cells: cells.to_vec(),
+            holder: holder.to_owned(),
+            holder_cell: holder_cell.clone(),
+            group: group.to_owned(),
+        }
+    }
+
     fn holds(&self, cell: &DescriptorCellIdentity) -> bool {
         self.cells.contains(cell)
     }
@@ -908,12 +912,13 @@ fn kept_key(
     Ok(())
 }
 
-/// Whether one of `entries` names the collection that holds the instance `key` is the key of.
+/// Whether one of `entries` names the collection cell that holds the instance `key` is the key
+/// of, by the cell's identity (two groups may each have a cell of one field name).
 /// Such a sentence names the key twice, through the holder's instance list and directly, which
 /// the rule-level `group-and-descendant` refuses once every entry is admitted: until the two are
 /// one, what the subject matched for the key is not stated once, so the key is not judged.
 fn names_holder<'e>(key: &InstanceKey, mut entries: impl Iterator<Item = &'e Entry<'e>>) -> bool {
-    entries.any(|entry| unraw(&entry.cell.field) == unraw(&key.holder))
+    entries.any(|entry| *entry.cell == key.holder_cell)
 }
 
 /// Refuses an in-place rewrite (`k::rewrite!`) at or inside the key of the instance the sentence
@@ -1137,6 +1142,7 @@ impl<'i, 'a> Tree<'i, 'a> {
                 self.keys.push(InstanceKey {
                     cells: key,
                     holder: cells[holder].identity.field.clone(),
+                    holder_cell: cells[holder].identity.clone(),
                     group,
                 });
             }
@@ -1674,6 +1680,7 @@ mod tests {
         let key = InstanceKey {
             cells: vec![id.clone()],
             holder: "hart".to_owned(),
+            holder_cell: identity("hart"),
             group: "Hart".to_owned(),
         };
         let binder = |name: &str| EntrySpelling::Binder(name.to_owned());
@@ -1715,6 +1722,7 @@ mod tests {
         let composite = InstanceKey {
             cells: vec![identity("cpu"), pc.clone()],
             holder: "hart".to_owned(),
+            holder_cell: identity("hart"),
             group: "Hart".to_owned(),
         };
         let (matched, kept, moved) = (
