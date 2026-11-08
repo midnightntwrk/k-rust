@@ -9,6 +9,8 @@
 //!   state: it is matched, and the step's proposed successor is not.
 //! - Asking for matches changes nothing else of the run, and a condition that always holds
 //!   matches what the run without it matches.
+//! - The summary records whether the request asked for proof agreement; on a target that
+//!   evaluates nothing, agreement changes no verdict.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -74,7 +76,22 @@ fn run(
     condition: Option<&mut dyn StopCondition>,
     target: Option<&Pattern>,
 ) -> AdaptedExecution {
-    let target = target.map(|target| StateMatchRequest::new(target.clone()));
+    run_agreed(backend, stop, count, condition, target, false)
+}
+
+/// [`run`] whose match request asks for proof agreement when `proof_agreement`.
+fn run_agreed(
+    backend: &mut Backend,
+    stop: &StopRules,
+    count: u64,
+    condition: Option<&mut dyn StopCondition>,
+    target: Option<&Pattern>,
+    proof_agreement: bool,
+) -> AdaptedExecution {
+    let target = target.map(|target| StateMatchRequest {
+        pattern: target.clone(),
+        proof_agreement,
+    });
     ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute_result_probed(
             backend,
@@ -191,6 +208,33 @@ fn matching_changes_nothing_else_and_composes_with_a_condition() {
                 assert_eq!(conditioned.state_matches(), matched.state_matches());
                 assert_eq!(conditioned.undecided_answers(), matched.undecided_answers());
             }
+        }
+    });
+}
+
+/// A request with proof agreement is recorded as one, and on the clock's targets, which have no
+/// constraint and only free constructors and integers, its summary is the one without agreement
+/// in every other field.
+#[test]
+fn proof_agreement_is_recorded_and_changes_no_verdict_of_a_target_that_evaluates_nothing() {
+    on_a_big_stack(|| {
+        let mut backend = backend();
+        let after = stop(&[], &["CLOCK.frame"]);
+        for target in [clock(2, 2), clock(5, 1)] {
+            let plain = run(&mut backend, &after, 1, None, Some(&target));
+            let agreed = run_agreed(&mut backend, &after, 1, None, Some(&target), true);
+            let plain = plain.state_matches().expect("matched").clone();
+            let agreed = agreed.state_matches().expect("matched").clone();
+            assert!(!plain.proof_agreement);
+            assert!(agreed.proof_agreement);
+            assert_eq!(
+                kink_native::execution::StateMatches {
+                    proof_agreement: false,
+                    ..agreed
+                },
+                plain,
+                "{target:?}"
+            );
         }
     });
 }

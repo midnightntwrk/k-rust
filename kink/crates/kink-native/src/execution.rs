@@ -916,8 +916,10 @@ impl UndefinedStepRule {
 /// not reached, and a path takes no step past its stop, so under stop rules ([`StopRules`]) the
 /// states matched are the states of the truncated system the run explored. A state *reaches*
 /// when it is decided (no constraint, no variable), shown to exist (k-rust `ground_defined`) and
-/// matched with empty constraints; it is *refuted* when the matcher refutes it; otherwise its
-/// verdict is undecided, for one of k-rust's reasons. A reach is *clean* when the diagnostics of
+/// matched with empty constraints, in execution mode and, under proof agreement, in proof mode
+/// too; it is *refuted* when the matcher refutes it in every mode the request required
+/// ([`StateMatches::proof_agreement`]); otherwise its verdict is undecided, for one of k-rust's
+/// reasons. A reach is *clean* when the diagnostics of
 /// its path up to the state carry nothing the path's existence may rest on undecided
 /// ([`MatchedState::diagnostics`] holds them for a reach that is not). Matching stops after the
 /// first clean reach whose term holds no term-level `\and`; the run goes on.
@@ -943,6 +945,12 @@ pub struct StateMatches {
     /// The matcher's stops for lack of native stack (each leaves its match undecided), which
     /// [`AdaptedExecution::stack_stops`] leaves out.
     pub stack_stops: usize,
+    /// Whether the request required each verdict to hold in proof mode too (k-rust
+    /// `proof_agreement`), where a value the definition leaves to the implementation stays
+    /// unevaluated. Without it a state is refuted in execution mode alone, where the matcher may
+    /// read such a value without the run recording it, so a refutation holds of k-rust's choice
+    /// of the value, not of every model of the definition.
+    pub proof_agreement: bool,
 }
 
 /// One matched state of a [`StateMatches`]: its depth, the state, the diagnostics of the path
@@ -964,9 +972,10 @@ pub struct UndecidedMatches {
 }
 
 impl StateMatches {
-    /// The summary k-rust reported. Every field is destructured, so a field k-rust adds does not
-    /// compile until it is read here.
-    fn of(output: StateMatchesOutput<Pattern>) -> Self {
+    /// The summary k-rust reported for a request whose proof agreement is `proof_agreement`.
+    /// Every field is destructured, so a field k-rust adds does not compile until it is read
+    /// here.
+    fn of(output: StateMatchesOutput<Pattern>, proof_agreement: bool) -> Self {
         let StateMatchesOutput {
             first_clean_reach,
             first_dirty_reach,
@@ -999,6 +1008,7 @@ impl StateMatches {
             refuted,
             smt_unknowns,
             stack_stops,
+            proof_agreement,
         }
     }
 
@@ -2054,7 +2064,13 @@ impl ExecutionAdapter {
         let state_matches = if timed_out {
             None
         } else {
-            result.state_matches.take().map(StateMatches::of)
+            let proof_agreement = requested
+                .matching
+                .is_some_and(|matching| matching.proof_agreement);
+            result
+                .state_matches
+                .take()
+                .map(|output| StateMatches::of(output, proof_agreement))
         };
         if requested.matching.is_some() != state_matches.is_some() && !timed_out {
             return Err(ExecutionAdapterFailure::Backend(
@@ -2156,6 +2172,31 @@ impl ExecutionAdapter {
             timed_out,
             budget,
             Requested::unstopped(run),
+            feasibility,
+            &BTreeSet::new(),
+            recorded,
+        )
+    }
+
+    /// [`Self::adapt_result`] of a result whose request matched every reached state against
+    /// `matching` (k-rust `match_states`), so the result carries the summary exactly when it was
+    /// not timed out ([`AdaptedExecution::state_matches`]).
+    pub fn adapt_matching_result(
+        result: KoreExecutionResult,
+        timed_out: bool,
+        budget: &ExecutionBudget,
+        feasibility: Vec<LeafFeasibility>,
+        recorded: RecordedRun,
+        matching: &StateMatchRequest,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        Self::adapt(
+            result,
+            timed_out,
+            budget,
+            Requested {
+                matching: Some(matching),
+                ..Requested::unstopped(ResultRun::default())
+            },
             feasibility,
             &BTreeSet::new(),
             recorded,
