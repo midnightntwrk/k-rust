@@ -208,7 +208,11 @@ pub fn execution_budget(budget: Budget) -> ExecutionBudget {
 /// R0-tail review 1 minor), the execution digest `{kind, digest}` (`digest::execution_digest`),
 /// the program digest and the budget ([`budget_value`]), and the program's stop
 /// (`FlowManifest::program_stop`: the rules and the program's count) when the manifest declares
-/// one; without one the key has no `stop`, and is the key it was before stops existed. A record
+/// one; without one the key has no `stop`, and is the key it was before stops existed. Where a
+/// front end gives the syntax family's selection (`FlowManifest::syntax`: its authored sorts and
+/// template binders, which decide the bindings every baseline run records), the key names it
+/// (`syntax`); kink-flow's own selection is a function of the definition, which the execution
+/// digest names, so without a front end's the key has no `syntax`. A record
 /// written by another build, or by one before CACHE-ID-fix-1 (whose key has no `kink_build`),
 /// misses and is recomputed. `kink_build` is `None` when the executable cannot be read; such a
 /// key is never read or written ([`update_results`]).
@@ -218,6 +222,7 @@ pub fn result_key(
     budget: Budget,
     kink_build: Option<Sha256Digest>,
     stop: Option<Value>,
+    syntax: Option<Value>,
 ) -> Value {
     let mut key = json!({
         "schema_version": RESULT_SCHEMA_VERSION,
@@ -229,6 +234,9 @@ pub fn result_key(
     });
     if let Some(stop) = stop {
         key["stop"] = stop;
+    }
+    if let Some(syntax) = syntax {
+        key["syntax"] = syntax;
     }
     key
 }
@@ -584,7 +592,8 @@ impl<'a> BaselineRunner<'a> {
             session: RefCell::new(
                 BaselineSession::new(&spec.validator)
                     .assuming(manifest.spec.assume_joined.clone())
-                    .with_baseline_data(spec.data.clone()),
+                    .with_baseline_data(spec.data.clone())
+                    .with_bindings(crate::coverage::binding_collection(spec, manifest)),
             ),
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
@@ -1572,8 +1581,10 @@ fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 /// applied (`applied`: a step built a successor or found the step undefined, which orders a run's
 /// programs), and `fired_sentences` (result schema v6, KINK-R4) those it fired, which a rule's
 /// `fired_by` lists: a rewrite rule whose step some explored path takes (k-rust `committed`), an
-/// equation whose instance gave a result (`applied`); and `guards` (result schema v15) the guard
-/// outcomes of the guarded sentences it entered ([`crate::guards`]).
+/// equation whose instance gave a result (`applied`); `guards` (result schema v15) the guard
+/// outcomes of the guarded sentences it entered ([`crate::guards`]); and `bindings` (result
+/// schema v17) what its fired instances bound, by sentence ([`bindings_value`]), null when the
+/// run collected none (a diagnostic run).
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
@@ -1587,6 +1598,50 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
         "applied_sentences": sentences(&coverage.applied_sentences),
         "fired_sentences": sentences(&coverage.fired_sentences),
         "guards": crate::guards::record_value(coverage),
+        "bindings": coverage
+            .bindings
+            .as_ref()
+            .map_or(Value::Null, |bindings| bindings_value(spec, bindings)),
+    })
+}
+
+/// What a run's fired instances bound as a record stores it: `operands`, per sentence
+/// (`{module, index, label}`, [`stored_sentence`]) the authored symbols that were the head of an
+/// operand of a fired instance (`symbols`), and `binders`, per selected template binder bound at
+/// some fired instance, its axiom, the sentences behind it, its variable and its values
+/// (`{axiom, sentences, variable, values, truncated, nonliteral}`).
+fn bindings_value(
+    spec: &AdmittedSpec,
+    bindings: &kink_native::coverage::SentenceBindings,
+) -> Value {
+    json!({
+        "operands": bindings
+            .operands
+            .iter()
+            .map(|(at, symbols)| {
+                let mut value = stored_sentence(spec, at);
+                value["symbols"] = json!(symbols);
+                value
+            })
+            .collect::<Vec<_>>(),
+        "binders": bindings
+            .binders
+            .iter()
+            .map(|binder| {
+                json!({
+                    "axiom": binder.axiom,
+                    "sentences": binder
+                        .sentences
+                        .iter()
+                        .map(|at| stored_sentence(spec, at))
+                        .collect::<Vec<_>>(),
+                    "variable": binder.variable,
+                    "values": binder.values,
+                    "truncated": binder.truncated,
+                    "nonliteral": binder.nonliteral,
+                })
+            })
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -2053,6 +2108,10 @@ fn program_row(
         manifest.budget,
         context.build,
         manifest.program_stop(program),
+        manifest
+            .syntax
+            .as_ref()
+            .map(crate::manifest::SyntaxSelection::key_value),
     );
     let path = context.directory.join(format!("{digest}.json"));
     // Where the store is off (no build identity, an unnamed Z3 build or a solver the clock
@@ -2219,6 +2278,10 @@ pub fn current_record(
         manifest.budget,
         Some(build),
         manifest.program_stop(program),
+        manifest
+            .syntax
+            .as_ref()
+            .map(crate::manifest::SyntaxSelection::key_value),
     );
     let path = cache
         .join("results")

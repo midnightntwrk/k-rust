@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 9
+//! version = 10
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -26,6 +26,9 @@
 //! open = ["rule:crate::plus_succ"]
 //!
 //! [requirements]
+//! open = []
+//!
+//! [syntax]
 //! open = []
 //!
 //! [flips]
@@ -55,7 +58,7 @@
 //! line, which could only move a lock without any verdict moving.
 //!
 //! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
-//! family the ids of its open obligations, in item order (`[rules]`, `[requirements]`;
+//! family the ids of its open obligations, in item order (`[rules]`, `[requirements]`, `[syntax]`;
 //! [`crate::coverage::open_ids`]), and for the flips family whether it ran. It lists no programs
 //! and no counts, so that it moves only when a gap opens or closes: a case that covers nothing new
 //! renders the same bytes. A `run` document
@@ -108,8 +111,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// lock whose verdicts moved with the solver build says why, and one recorded on another build is
 /// a finding under `--locked` ([`crate::lock`]); 9 since the `coverage` document replaces the
 /// `results` document: its rendering (`document = "coverage"`) gives the settings and each
-/// family's open obligations by id, and no case.
-pub const VERDICTS_VERSION: u64 = 9;
+/// family's open obligations by id, and no case; 10 since a `coverage` rendering lists the open
+/// obligations of the syntax family (`[syntax]`), so that a lock that gains the section shows a
+/// new version, not a moved verdict.
+pub const VERDICTS_VERSION: u64 = 10;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run

@@ -194,6 +194,7 @@ fn options(schedule: ScheduleMode) -> CampaignOptions {
 fn complete_coverage() -> TestCoverage {
     TestCoverage {
         guards: BTreeMap::new(),
+        bindings: None,
         test_id: "uncovered".into(),
         complete: true,
         rule_ids: BTreeSet::new(),

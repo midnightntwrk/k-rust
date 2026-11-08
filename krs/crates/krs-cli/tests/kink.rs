@@ -1277,7 +1277,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
         serde_json::json!({"version": 5}),
         "every rule is named, by version 5 of the annotation"
     );
-    // The story's two equations fire and have no condition: nothing is open.
+    // The story's two equations fire and have no condition, and they inspect both constructors
+    // of `Nat` (`plus_succ` also builds `s`): nothing is open.
     assert_eq!(
         rule(&document, "crate::plus_zero")["id"],
         "rule:crate::plus_zero"
@@ -1285,7 +1286,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     assert_eq!(
         document["summary"]["per_family"],
         json!({"rules": {"obligations": 2, "covered": 2, "argued": 0, "open": 0},
-               "requirements": {"obligations": 0, "covered": 0, "argued": 0, "open": 0}})
+               "requirements": {"obligations": 0, "covered": 0, "argued": 0, "open": 0},
+               "syntax": {"obligations": 2, "covered": 2, "argued": 0, "open": 0}})
     );
     assert_eq!(document["targets"], json!([]));
 
@@ -1300,7 +1302,7 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     );
     assert!(
         verdicts.ends_with(
-            "\n[rules]\nopen = []\n\n[requirements]\nopen = []\n\n[flips]\nrun = false\n"
+            "\n[rules]\nopen = []\n\n[requirements]\nopen = []\n\n[syntax]\nopen = []\n\n[flips]\nrun = false\n"
         ),
         "{verdicts}"
     );
@@ -2992,7 +2994,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 1);
+    assert_eq!(document["version"], 2);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -5380,7 +5382,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 10\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

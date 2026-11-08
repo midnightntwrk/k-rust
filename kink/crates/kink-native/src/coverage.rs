@@ -38,6 +38,16 @@
 //!
 //! Both cover every state the run explored, the states a state-set result merges away included.
 //!
+//! [`TestCoverage::bindings`] are what the run's fired instances bound (k-rust
+//! `coverage.bindings`, which a baseline result run that records coverage asks for,
+//! [`crate::execution::ResultRun::bindings`]), by the baseline sentence behind each axiom: the
+//! requested symbols that were the head of an operand, and the values of the selected template
+//! binders. [`syntax_facts`] gives, from the definition alone, the symbols each sentence's
+//! axioms inspect (a non-variable position of a left-hand side) and build (one of a right-hand
+//! side), and the constructors of the definition. Together they say which productions a fired
+//! instance touched, which kink-flow's syntax family reads. Neither is part of the canonical
+//! value ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
+//!
 //! A run is complete ([`TestCoverage::complete`]) when it explored every state its system reaches
 //! from its initial state, so its coverage is a fact of the run and not of where it was cut
 //! short. A run with stop rules computes the truncated system of its rules, the system that ends
@@ -71,7 +81,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust::backend::{AxiomGuardOutput, BackendDiagnosticOutput};
+use k_rust::backend::{AxiomGuardOutput, BackendDiagnosticOutput, BindingsOutput};
 use k_rust::kore::{
     ast::{Pattern, Sentence},
     parser::parse_definition,
@@ -351,6 +361,75 @@ pub struct TestCoverage {
     /// result run, `ResultRun::guards`), by the baseline sentence behind each axiom; an axiom
     /// with no baseline sentence is left out. Not in [`Self::value`]: no schedule reads them.
     pub guards: BTreeMap<SentenceRef, Vec<AxiomGuardOutput<Pattern>>>,
+    /// What the run's fired instances bound (k-rust `coverage.bindings`, asked for by a baseline
+    /// result run, `ResultRun::bindings`), by the baseline sentence behind each axiom; `None`
+    /// when the run collected none. Not in [`Self::value`]: no schedule reads them.
+    pub bindings: Option<SentenceBindings>,
+}
+
+/// What a run's fired instances bound, by the baseline sentences behind their axioms
+/// ([`TestCoverage::bindings`]). An axiom with no baseline sentence is left out: no authored
+/// sentence stands for its instance.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SentenceBindings {
+    /// Per sentence, the requested symbols that were the head, through injections, of a value a
+    /// fired instance of an axiom behind it bound to a left-hand-side variable.
+    pub operands: BTreeMap<SentenceRef, BTreeSet<String>>,
+    /// Per selected binder bound at some fired instance, its values, with the sentences behind
+    /// its axiom; in k-rust's order (axiom `UNIQUE_ID`, then variable).
+    pub binders: Vec<SentenceBinder>,
+}
+
+/// The values one selected template binder took ([`SentenceBindings::binders`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SentenceBinder {
+    /// The axiom, by `UNIQUE_ID`.
+    pub axiom: String,
+    /// The baseline sentences behind the axiom.
+    pub sentences: BTreeSet<SentenceRef>,
+    /// The variable, as the definition writes it.
+    pub variable: String,
+    /// The `Int` literals bound, in decimal, the least ones k-rust kept, ascending.
+    pub values: Vec<String>,
+    /// Whether a further literal was bound that the cap left out.
+    pub truncated: bool,
+    /// Whether some fired instance bound a value that is no `Int` literal.
+    pub nonliteral: bool,
+}
+
+impl SentenceBindings {
+    /// k-rust's bindings `output`, by the baseline sentences `authors` names for each axiom.
+    fn of(output: &BindingsOutput, authors: &RuleAuthors) -> Self {
+        let sentences = |axiom: &str| match authors.get(axiom) {
+            Some(Authorship::Sentences(sentences)) => sentences.clone(),
+            _ => BTreeSet::new(),
+        };
+        let mut operands = BTreeMap::<SentenceRef, BTreeSet<String>>::new();
+        for axiom in &output.operands {
+            for sentence in sentences(&axiom.axiom) {
+                operands
+                    .entry(sentence)
+                    .or_default()
+                    .extend(axiom.symbols.iter().cloned());
+            }
+        }
+        let binders = output
+            .binders
+            .iter()
+            .filter_map(|binder| {
+                let sentences = sentences(&binder.axiom);
+                (!sentences.is_empty()).then(|| SentenceBinder {
+                    axiom: binder.axiom.clone(),
+                    sentences,
+                    variable: binder.variable.clone(),
+                    values: binder.values.clone(),
+                    truncated: binder.truncated,
+                    nonliteral: binder.nonliteral,
+                })
+            })
+            .collect();
+        Self { operands, binders }
+    }
 }
 
 /// Whether one leaf leaves its run complete, for observed and unobserved leaves alike.
@@ -485,6 +564,10 @@ impl TestCoverage {
             fired_sentences,
             unmapped,
             guards,
+            bindings: coverage
+                .bindings
+                .as_ref()
+                .map(|bindings| SentenceBindings::of(bindings, authors)),
         }
     }
 
@@ -502,6 +585,7 @@ impl TestCoverage {
             fired_sentences: BTreeSet::new(),
             unmapped: BTreeMap::new(),
             guards: BTreeMap::new(),
+            bindings: None,
         }
     }
 
@@ -608,6 +692,103 @@ pub fn coverage_text(coverage: &[TestCoverage]) -> String {
 #[must_use]
 pub fn coverage_digest(coverage: &[TestCoverage]) -> Sha256Digest {
     kink_patch::payload_digest(COVERAGE_DOMAIN, coverage_text(coverage).as_bytes())
+}
+
+/// The symbols the axioms behind one sentence inspect and build ([`syntax_facts`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SentenceSymbols {
+    /// The symbols at a non-variable position of a left-hand side (through injections and
+    /// inside collections), by KORE name.
+    pub inspected: BTreeSet<String>,
+    /// The symbols at a non-variable position of a right-hand side, by KORE name.
+    pub built: BTreeSet<String>,
+}
+
+/// What a definition says of its syntax, without a run ([`syntax_facts`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SyntaxFacts {
+    /// The constructors of the definition, by KORE name: the symbols k-rust reads as free
+    /// constructors, without a hook, that are neither injections nor a collection's symbols.
+    pub constructors: BTreeSet<String>,
+    /// Per baseline sentence behind a rewrite rule or a function equation of the definition (an
+    /// `anywhere` or overload equation included, a simplification not), the symbols its axioms
+    /// inspect and build.
+    pub by_sentence: BTreeMap<SentenceRef, SentenceSymbols>,
+}
+
+/// The syntax facts of `definition` ([`SyntaxFacts`]), each axiom by the baseline sentences
+/// `authors` names for it. The axioms are the internalized ones a run applies: a function
+/// equation's left-hand side has its argument binders' patterns in place, so the symbols an
+/// equation inspects are those its instances match. A sentence's sets are the union over its
+/// axioms. A simplification states a fact of the definition's functions that the definition
+/// means the same without, so it is no step of the definition's meaning and is not listed.
+#[must_use]
+pub fn syntax_facts(
+    definition: &k_rust_backend::definition::BackendDefinition,
+    authors: &RuleAuthors,
+) -> SyntaxFacts {
+    use k_rust_backend::rule::{RewriteRule, RuleRhs};
+    use k_rust_backend::term::{SymbolType, Term};
+    let constructors = definition
+        .symbols()
+        .values()
+        .filter(|symbol| {
+            matches!(symbol.attributes.symbol_type, SymbolType::Constructor)
+                && symbol.attributes.hook.is_none()
+                && symbol.attributes.collection.is_none()
+                && symbol.name.as_ref() != "inj"
+        })
+        .map(|symbol| symbol.name.to_string())
+        .collect();
+    let names = |term: &Term, into: &mut BTreeSet<String>| {
+        term.visit_symbols(&mut |symbol| {
+            if !into.contains(symbol.name.as_ref()) {
+                into.insert(symbol.name.to_string());
+            }
+        });
+    };
+    let mut by_sentence = BTreeMap::<SentenceRef, SentenceSymbols>::new();
+    let mut add = |rule: &RewriteRule| {
+        let Some(Authorship::Sentences(sentences)) = authors.get(&rule.attributes.unique_id) else {
+            return;
+        };
+        let mut symbols = SentenceSymbols::default();
+        names(&rule.lhs, &mut symbols.inspected);
+        match &rule.rhs {
+            RuleRhs::Term(term) => names(term, &mut symbols.built),
+            RuleRhs::Disjunction(alternatives) => {
+                for alternative in alternatives {
+                    names(&alternative.term, &mut symbols.built);
+                }
+            }
+            RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => {}
+        }
+        for sentence in sentences {
+            let entry = by_sentence.entry(sentence.clone()).or_default();
+            entry.inspected.extend(symbols.inspected.iter().cloned());
+            entry.built.extend(symbols.built.iter().cloned());
+        }
+    };
+    for rule in definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+    {
+        add(&rule.rule);
+    }
+    for rule in definition
+        .function_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+    {
+        add(rule);
+    }
+    SyntaxFacts {
+        constructors,
+        by_sentence,
+    }
 }
 
 #[cfg(test)]

@@ -3529,6 +3529,7 @@ fn a_refuted_remainder_below_a_merged_state_is_read_on_the_state_set() {
                         budget(),
                         ResultRun {
                             guards: false,
+                            bindings: false,
                             modality,
                             max_work: None,
                         },
@@ -3607,6 +3608,7 @@ fn a_state_set_with_converging_undefined_leaves_is_excluded_as_its_path_set() {
                         budget(),
                         ResultRun {
                             guards: false,
+                            bindings: false,
                             modality,
                             max_work: None,
                         },
@@ -3719,6 +3721,7 @@ fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
                     budget(),
                     ResultRun {
                         guards: false,
+                        bindings: false,
                         modality,
                         max_work: None,
                     },
@@ -3811,6 +3814,7 @@ fn known_gap_a_pd_claim_false_at_a_narrowed_symbolic_instance_is_not_excluded() 
                         budget(),
                         ResultRun {
                             guards: false,
+                            bindings: false,
                             modality,
                             max_work: None,
                         },

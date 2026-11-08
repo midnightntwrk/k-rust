@@ -1459,6 +1459,9 @@ pub struct BaselineSession<'v> {
     /// computed by the first call that has a mutant, on its baseline load, and reused by every
     /// later call.
     baseline_data: Option<(Sha256Digest, DataFacts)>,
+    /// The binding collection every baseline result run of the session's calls asks with
+    /// ([`Self::with_bindings`]); `None`: the runs collect no bindings.
+    bindings: Option<kink_native::execution::BindingCollection>,
 }
 
 impl<'v> BaselineSession<'v> {
@@ -1474,7 +1477,19 @@ impl<'v> BaselineSession<'v> {
             last_call: CallRecording::default(),
             assume_joined: Vec::new(),
             baseline_data: None,
+            bindings: None,
         }
+    }
+
+    /// The session, every baseline result run of its calls collecting the bindings of its fired
+    /// instances under `bindings` (kink-native `ResultRun::bindings`: the front end's authored
+    /// symbols and template binders), which the run's coverage carries
+    /// (`TestCoverage::bindings`). k-rust states that asking changes no other field of the
+    /// result, so a stored run is reused as before; a mutant's runs never ask.
+    #[must_use]
+    pub fn with_bindings(mut self, bindings: kink_native::execution::BindingCollection) -> Self {
+        self.bindings = Some(bindings);
+        self
     }
 
     /// The session, its calls reading the findings `names` names as assumed (fz26
@@ -1798,6 +1813,9 @@ fn run_campaign_session(
     )
     .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
+    if let Some(bindings) = &session.bindings {
+        runtime.tables = DefinitionTables::new().with_bindings(bindings.clone());
+    }
     runtime.modality = options.run.result_modality;
     runtime.baseline_max_work = options.run.baseline_max_work;
     runtime.stop = options.run.stop;
@@ -3829,6 +3847,7 @@ impl Runtime {
                             modality: ResultModality::PathSet,
                             max_work,
                             guards: self.coverage.is_some(),
+                            bindings: self.coverage.is_some(),
                         },
                         &NO_STOP,
                         std::num::NonZeroU64::MIN,
@@ -3838,12 +3857,14 @@ impl Runtime {
                 Err(failure) => Err(failure),
             }
         } else {
-            // The baseline's runs (the runtime that reads coverage) collect guard outcomes,
-            // which a program's result records; a mutant's runs never do.
+            // The baseline's runs (the runtime that reads coverage) collect guard outcomes and
+            // the bindings of their fired instances, which a program's result records; a mutant's
+            // runs never do.
             let run = ResultRun {
                 modality: self.modality,
                 max_work,
                 guards: self.coverage.is_some(),
+                bindings: self.coverage.is_some(),
             };
             let (execution, asked) = self.stop.execute_asking(
                 &self.adapter,

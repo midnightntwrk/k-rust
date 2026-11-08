@@ -174,6 +174,7 @@ fn confirm() {
                 long,
                 ResultRun {
                     guards: false,
+                    bindings: false,
                     modality,
                     max_work: None,
                 },

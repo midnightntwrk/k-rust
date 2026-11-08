@@ -312,6 +312,7 @@ mod kink_tier {
                     BUDGET,
                     Some(ResultRun {
                         guards: false,
+                        bindings: false,
                         modality: ResultModality::PathSet,
                         max_work: None
                     })
@@ -422,6 +423,7 @@ mod kink_tier {
                     budget,
                     Some(ResultRun {
                         guards: false,
+                        bindings: false,
                         modality: ResultModality::PathSet,
                         max_work: None
                     })
@@ -444,6 +446,7 @@ mod kink_tier {
                     BUDGET,
                     Some(ResultRun {
                         guards: false,
+                        bindings: false,
                         modality: ResultModality::PathSet,
                         max_work: None
                     })

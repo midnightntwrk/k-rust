@@ -207,6 +207,7 @@ fn direct_guards(
             BUDGET,
             ResultRun {
                 guards: true,
+                bindings: false,
                 ..ResultRun::default()
             },
         )

@@ -217,6 +217,7 @@ fn side(manifest: &Path, seed: Option<u64>) -> Side {
                         budget,
                         ResultRun {
                             guards: false,
+                            bindings: false,
                             modality: ResultModality::StateSet,
                             max_work: None,
                         },

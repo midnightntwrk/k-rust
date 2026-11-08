@@ -60,8 +60,9 @@ use k_rust::backend::{
     UnevaluatedHookOutput,
 };
 pub use k_rust::backend::{
-    CellHandle, Probe, ProbeArrival, ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival,
-    StopCondition, StopDecision, StopSide,
+    BinderSelection, BindingCollection, BindingsOutput, CellHandle, Probe, ProbeArrival,
+    ProbeDecision, ProbeLeaf, ProbeRules, ProbeState, StopArrival, StopCondition, StopDecision,
+    StopSide,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -319,20 +320,26 @@ impl ResultModality {
 }
 
 /// How a result run is requested besides its [`ExecutionBudget`]: its modality, its work
-/// budget (k-rust `max_work`: the most states the run may visit across all its paths), and
-/// whether its coverage collects guard outcomes (`guards`). The default is a state set without a
-/// work budget or guard outcomes.
+/// budget (k-rust `max_work`: the most states the run may visit across all its paths), whether
+/// its coverage collects guard outcomes (`guards`), and whether it collects the bindings of its
+/// fired instances (`bindings`). The default is a state set without a work budget, guard
+/// outcomes or bindings.
 ///
 /// With `guards`, the request names every rewrite rule and function equation of the definition
 /// whose `requires` is not empty (k-rust `collect_guards`), and the run's coverage carries their
-/// guard outcomes ([`RunCoverage::guards`]). k-rust states that asking changes no other field of
-/// the result (docs/compatibility.md, "Run coverage"), so no leaf, list, set, verdict or
-/// schedule differs from a run without it.
+/// guard outcomes ([`RunCoverage::guards`]). With `bindings`, the request sends the binding
+/// collection of the run's [`DefinitionTables`] ([`DefinitionTables::with_bindings`], the front
+/// end's authored symbols and template binders; k-rust `collect_bindings`), and the run's
+/// coverage carries what its fired instances bound ([`RunCoverage::bindings`]); tables without a
+/// collection send none. k-rust states that asking for either changes no other field of the
+/// result (docs/compatibility.md, "Run coverage"), so no leaf, list, set, verdict or schedule
+/// differs from a run without it.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ResultRun {
     pub modality: ResultModality,
     pub max_work: Option<u64>,
     pub guards: bool,
+    pub bindings: bool,
 }
 
 /// The stop rules of a result run (k-rust `cut_point_rules` and `terminal_rules`), each rule
@@ -396,6 +403,9 @@ struct Requested<'a> {
     probed: bool,
     /// The axioms whose guard outcomes the request collects, when `run.guards` asks for them.
     guards: Option<&'a BTreeSet<String>>,
+    /// The bindings the request collects, when `run.bindings` asks for them and the tables hold
+    /// a collection ([`DefinitionTables::with_bindings`]).
+    bindings: Option<&'a BindingCollection>,
 }
 
 impl Requested<'static> {
@@ -408,6 +418,7 @@ impl Requested<'static> {
             conditioned: false,
             probed: false,
             guards: None,
+            bindings: None,
         }
     }
 }
@@ -486,6 +497,10 @@ pub struct RunCoverage {
     /// The guard outcomes of the axioms the request named ([`ResultRun::guards`]), by id;
     /// empty when the run did not collect them.
     pub guards: Vec<AxiomGuardOutput<Pattern>>,
+    /// What the run's fired instances bound ([`ResultRun::bindings`]): per axiom by
+    /// `UNIQUE_ID`, the collection's symbols that were the head of an operand, and the values of
+    /// the selected binders; `None` when the run did not collect them.
+    pub bindings: Option<BindingsOutput>,
 }
 
 impl RunCoverage {
@@ -498,6 +513,7 @@ impl RunCoverage {
             applied_rewrites,
             committed: output.committed.into_iter().flatten().collect(),
             guards: output.guards.unwrap_or_default(),
+            bindings: output.bindings,
         }
     }
 }
@@ -1052,7 +1068,11 @@ pub enum ExecutionAdapterFailure {
 fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) -> ExecuteRequest {
     let stop_count = requested.stop_count();
     let Requested {
-        run, stop, guards, ..
+        run,
+        stop,
+        guards,
+        bindings,
+        ..
     } = requested;
     ExecuteRequest {
         state,
@@ -1074,7 +1094,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         collect_counts: false,
         collect_conditions: None,
         collect_guards: guards.map(|axioms| GuardCollection::new(axioms.iter().cloned())),
-        collect_bindings: None,
+        collect_bindings: bindings.cloned(),
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
@@ -1128,14 +1148,22 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// carries the probe's point and answer ([`AdaptedLeaf::probe`]) and must be the run's only leaf,
 /// at the point's depth; the bridge reads it as a path the probe cut, never as an end of the
 /// system (`bridge::probed_halt_stop`). A run without a probe sends and adapts the request of v4,
-/// field for field, and its leaves are bridged as under v4.
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v5";
+/// field for field, and its leaves are bridged as under v4. v6: a result run may ask for the
+/// bindings of its fired instances ([`ResultRun::bindings`]), sending the collection its tables
+/// hold (`collect_bindings`: the front end's authored symbols and template binders,
+/// [`DefinitionTables::with_bindings`]); a baseline's result run that records coverage asks,
+/// and a mutant's run and a stepped run never do. k-rust states that asking changes no other
+/// field of the result, and nothing that decides a verdict or a schedule reads the bindings; the
+/// one store that holds them, kink-flow's result records, moved its `RESULT_SCHEMA_VERSION`. A
+/// run that does not ask sends the request of v5, field for field.
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v6";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
 const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
     modality: ResultModality::PathSet,
     max_work: None,
     guards: false,
+    bindings: false,
 });
 
 /// The tables a result run reads from its backend's definition, built once per backend and
@@ -1149,9 +1177,15 @@ const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
 /// A value holds the tables of the first backend it is used with, and must be used with that
 /// backend only: the caller that owns a backend owns its tables beside it. A new value builds them
 /// on its first request; a failure to build them is not kept.
+///
+/// Beside them it may hold the binding collection a result run that asks for bindings sends
+/// ([`Self::with_bindings`], [`ResultRun::bindings`]): which symbols are authored and which
+/// variables are template binders is the front end's reading of the definition, not a table k-rust
+/// gives, so the caller that owns the backend sets it.
 #[derive(Clone, Debug, Default)]
 pub struct DefinitionTables {
     built: Option<BuiltTables>,
+    bindings: Option<BindingCollection>,
 }
 
 #[derive(Clone, Debug)]
@@ -1166,11 +1200,26 @@ impl DefinitionTables {
     /// No table built yet.
     #[must_use]
     pub const fn new() -> Self {
-        Self { built: None }
+        Self {
+            built: None,
+            bindings: None,
+        }
     }
 
-    /// The tables of `backend`'s definition, built on the first call.
-    fn of(&mut self, backend: &mut Backend) -> Result<&BuiltTables, ExecutionAdapterFailure> {
+    /// These tables with `bindings` as the collection a result run that asks for bindings sends
+    /// ([`ResultRun::bindings`]).
+    #[must_use]
+    pub fn with_bindings(mut self, bindings: BindingCollection) -> Self {
+        self.bindings = Some(bindings);
+        self
+    }
+
+    /// The tables of `backend`'s definition, built on the first call, with the binding
+    /// collection these tables hold.
+    fn of(
+        &mut self,
+        backend: &mut Backend,
+    ) -> Result<(&BuiltTables, Option<&BindingCollection>), ExecutionAdapterFailure> {
         if self.built.is_none() {
             let built = with_definition(backend, |definition| {
                 Ok(BuiltTables {
@@ -1181,7 +1230,10 @@ impl DefinitionTables {
             })?;
             self.built = Some(built);
         }
-        Ok(self.built.as_ref().expect("built above"))
+        Ok((
+            self.built.as_ref().expect("built above"),
+            self.bindings.as_ref(),
+        ))
     }
 }
 
@@ -1380,7 +1432,7 @@ impl ExecutionAdapter {
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let condition = condition.filter(|_| !stop.is_none());
-        let built = tables.of(backend)?;
+        let (built, bindings) = tables.of(backend)?;
         let requested = Requested {
             run,
             stop,
@@ -1388,6 +1440,7 @@ impl ExecutionAdapter {
             conditioned: condition.is_some(),
             probed: probe.as_ref().is_some_and(|probe| !probe.rules.is_empty()),
             guards: run.guards.then_some(&built.guarded),
+            bindings: bindings.filter(|_| run.bindings),
         };
         stops_listed(requested, backend.capabilities())?;
         with_definition(backend, |definition| {
@@ -2461,6 +2514,7 @@ mod tests {
             STEPPED.run,
             ResultRun {
                 guards: false,
+                bindings: false,
                 modality: ResultModality::StateSet,
                 max_work: Some(11),
             },
@@ -2508,6 +2562,7 @@ mod tests {
                         conditioned: false,
                         probed: false,
                         guards: None,
+                        bindings: None,
                     },
                 );
                 assert_eq!(request.stop_count, sent);
@@ -2568,6 +2623,7 @@ mod tests {
             conditioned: false,
             probed: false,
             guards: None,
+            bindings: None,
         };
         assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
         assert_eq!(stops_listed(requested(&stop, 1), listing), Ok(()));
@@ -2692,6 +2748,7 @@ mod tests {
                     conditioned: false,
                     probed: false,
                     guards: None,
+                    bindings: None,
                 },
                 vec![LeafFeasibility::Syntactic],
                 &BTreeSet::new(),
@@ -2990,6 +3047,7 @@ mod tests {
             conditioned: false,
             probed: false,
             guards: None,
+            bindings: None,
         };
         for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
             for request in [requested(&NO_STOP_RULES, 3), requested(&stop, 1)] {
@@ -3522,6 +3580,7 @@ mod tests {
             conditioned,
             probed,
             guards: None,
+            bindings: None,
         };
         for halt in [HaltClass::ProbeDifference, HaltClass::ProbeDone] {
             assert!(halt.is_probe());
@@ -3712,6 +3771,7 @@ mod tests {
                             conditioned,
                             probed,
                             guards: None,
+                            bindings: None,
                         };
                         assert_eq!(
                             format!("{:?}", request(constant("a"), budget, requested(true))),

@@ -457,7 +457,14 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
     assert_eq!(without_stop, context);
     assert_eq!(with["stop"], stop);
     let program = kink_patch::sha256(b"program");
-    let key = result_key(execution, program, Budget::default(), Some(build), None);
+    let key = result_key(
+        execution,
+        program,
+        Budget::default(),
+        Some(build),
+        None,
+        None,
+    );
     assert_eq!(
         keys(&key),
         [
@@ -475,6 +482,7 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
         Budget::default(),
         Some(build),
         Some(stop.clone()),
+        None,
     );
     let mut without_stop = stopped.clone();
     without_stop.as_object_mut().unwrap().remove("stop");
@@ -487,7 +495,8 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
             program,
             Budget::default(),
             Some(build),
-            Some(three.clone())
+            Some(three.clone()),
+            None
         ),
         stopped
     );
@@ -513,7 +522,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
     let (document, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{document:#}");
     assert_eq!(document["schema"], "kink-flow-coverage");
-    assert_eq!(document["version"], 1);
+    assert_eq!(document["version"], 2);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];

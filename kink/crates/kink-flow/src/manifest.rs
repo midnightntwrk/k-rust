@@ -105,6 +105,45 @@ pub struct FlowManifest {
     /// has none. `coverage` gives such a sentence that no comparable program matched the status
     /// `claim-helper`, outside the program-coverage denominator.
     pub claim_helpers: BTreeSet<(String, String)>,
+    /// The front end's reading of the syntax family ([`SyntaxSelection`]), which a front end
+    /// that knows which sorts its author declared and which variables are template binders sets
+    /// ([`Self::with_syntax`]). A decoded `FLOW.toml` has none: kink-flow reads the authored sorts
+    /// from the specification itself, and selects no binder.
+    pub syntax: Option<SyntaxSelection>,
+}
+
+/// A front end's reading of `coverage`'s syntax family ([`FlowManifest::syntax`]): the sorts
+/// whose productions are its obligations, and the template binders whose values every baseline
+/// run records.
+///
+/// kink-flow's own reading, for a specification without a front end, takes as authored every
+/// sort the specification's own sentences declare that no library sentence declares, and selects
+/// no binder: K has no notion of a template's field, so no variable of a K sentence is one
+/// (`crate::coverage`, "Syntax").
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SyntaxSelection {
+    /// The authored sorts, by K name: each constructor production of one is an obligation.
+    pub sorts: BTreeSet<String>,
+    /// The template binders, each `(axiom, variable, cap)`: the axiom by its `UNIQUE_ID` or its
+    /// label, the variable as the compiled definition writes it, and the most values a run keeps
+    /// of it (k-rust `collectBindings`).
+    pub binders: BTreeSet<(String, String, usize)>,
+}
+
+impl SyntaxSelection {
+    /// The selection as a result key names it: every baseline run records under it, so a record
+    /// written under another selection holds other bindings.
+    #[must_use]
+    pub fn key_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "sorts": self.sorts,
+            "binders": self
+                .binders
+                .iter()
+                .map(|(axiom, variable, cap)| serde_json::json!([axiom, variable, cap]))
+                .collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// A front end's stop condition ([`kink_campaign::StopWhen`]), or none. Two slots are equal when
@@ -557,6 +596,7 @@ impl ManifestFile {
             input_decoder: Decoder::default(),
             end_renderer: Renderer::default(),
             claim_helpers: BTreeSet::new(),
+            syntax: None,
         })
     }
 }
@@ -676,6 +716,15 @@ impl FlowManifest {
         helpers: impl IntoIterator<Item = (String, String)>,
     ) -> Self {
         self.claim_helpers = helpers.into_iter().collect();
+        self
+    }
+
+    /// This manifest with `syntax` as its reading of the syntax family ([`Self::syntax`]): the
+    /// front end that knows its authored sorts and its templates' binders (the krs front end)
+    /// sets it on the manifest it decoded.
+    #[must_use]
+    pub fn with_syntax(mut self, syntax: SyntaxSelection) -> Self {
+        self.syntax = Some(syntax);
         self
     }
 }

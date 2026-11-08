@@ -263,6 +263,12 @@ pub struct AdmittedSpec {
     /// `Err` holds why the backend's definition could not be selected to read them; a sentence
     /// whose skeleton cannot be read is listed with its reason (`unreadable`).
     pub guard_skeletons: Result<kink_native::coverage::GuardSkeletons, String>,
+    /// What the definition says of its syntax (kink-native `coverage::syntax_facts`): its
+    /// constructors, and the symbols each authored sentence's axioms inspect and build, read once
+    /// from the input backend's load, so that the syntax family's universe and the static part of
+    /// what a fired sentence touched are functions of the definition ([`crate::coverage`]).
+    /// `Err` holds why the backend's definition could not be selected to read them.
+    pub syntax: Result<kink_native::coverage::SyntaxFacts, String>,
     /// Which admission produced this specification; the [`ProgramInputs`] admitted beside it
     /// carry the same value, and only this specification opens a session on them.
     admission: AdmissionId,
@@ -1058,16 +1064,20 @@ fn admit_definition(
     )?;
     // The skeleton of every guarded sentence's condition, read from the definition the input
     // backend selected: what a guard can show, whether or not a program enters it.
-    let guard_skeletons = backend
-        .select_definition(None)
-        .map(|definition| {
-            kink_native::coverage::guard_skeletons(
-                &definition,
-                &kink_native::coverage::RuleAuthors::of(&compiled),
-            )
-        })
+    let authors = kink_native::coverage::RuleAuthors::of(&compiled);
+    let selected = backend.select_definition(None);
+    let guard_skeletons = selected
+        .as_ref()
+        .map(|definition| kink_native::coverage::guard_skeletons(definition, &authors))
         .map_err(|error| {
             format!("the backend's definition could not be selected to read the skeleton: {error}")
+        });
+    // The definition's syntax, read from the same load: what a sentence inspects and builds.
+    let syntax = selected
+        .as_ref()
+        .map(|definition| kink_native::coverage::syntax_facts(definition, &authors))
+        .map_err(|error| {
+            format!("the backend's definition could not be selected to read its syntax: {error}")
         });
     Ok((
         AdmittedSpec {
@@ -1079,6 +1089,7 @@ fn admit_definition(
             exclusions,
             result,
             guard_skeletons,
+            syntax,
             admission: AdmissionId::fresh(),
         },
         backend,

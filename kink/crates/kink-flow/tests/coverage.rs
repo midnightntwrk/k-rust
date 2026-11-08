@@ -1539,9 +1539,10 @@ text = 'h(opaque(1), 2)'
         assert_eq!(rules(&document)[1]["id"], "rule:LOOP.spin");
         assert_eq!(rules(&document)[1]["covered"], false);
         assert_eq!(rules(&document)[0]["id"], "rule:loop.k:19");
-        // The coverage document's first version replaces the results document's version 11.
+        // The coverage document's first version replaced the results document's version 11; its
+        // second builds the syntax family.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 1);
+        assert_eq!(document["version"], 2);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2068,7 +2069,7 @@ endmodule
         // kink's own undecided solver answers and records are written under Z3 too. v15, because
         // a run with a stop condition is keyed by the condition. v16, because a record's coverage
         // holds the guard outcomes.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v16");
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v17");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

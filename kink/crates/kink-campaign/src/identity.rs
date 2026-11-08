@@ -121,8 +121,12 @@ use std::{path::Path, sync::OnceLock};
 /// unchanged. v16: a record's coverage holds `guards`, the guard outcomes of the guarded sentences
 /// the baseline run entered (each node's outcomes where it was reached, the guard outcomes, the
 /// valuation combinations), which `results` reports; a v15 record has none, so its rows would
-/// report no guard outcome.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v16";
+/// report no guard outcome. v17: a record's coverage holds `bindings`, what the baseline run's
+/// fired instances bound (the requested authored symbols that were the head of an operand, by
+/// sentence, and the values of the selected template binders), which `coverage`'s syntax family
+/// reads, and the key names the binding collection the run asked with (`bindings`); a v16 record
+/// has none, so every production would read unreached.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v17";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -708,7 +708,7 @@ mod tests {
     fn a_lock_of_another_z3_build_names_the_build_lines() {
         let header = |build: &str| {
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\nprofile = \
+                "schema = \"kink-flow-verdicts\"\nversion = 10\ndocument = \"run\"\nprofile = \
                  \"z3\"\nz3_version = \"5.3.3.0\"\n{build}\n[spec]\noutcome = \"admitted\"\n\n\
                  [[mutation]]\nid = \"a\"\nstatus = \"survived\"\n"
             )
@@ -726,7 +726,7 @@ mod tests {
             [json!({"key": "z3_library_sha256", "recorded": null, "now": "bbbb"})]
         );
         // The portable rendering of the same verdicts: another profile and no build lines.
-        let portable = "schema = \"kink-flow-verdicts\"\nversion = 9\ndocument = \"run\"\nprofile = \
+        let portable = "schema = \"kink-flow-verdicts\"\nversion = 10\ndocument = \"run\"\nprofile = \
                         \"no-z3\"\n\n[spec]\noutcome = \"admitted\"\n\n[[mutation]]\nid = \"a\"\n\
                         status = \"survived\"\n";
         assert_eq!(
