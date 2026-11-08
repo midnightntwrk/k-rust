@@ -1935,8 +1935,9 @@ impl FuzzJob<'_> {
 
 /// Whether the corpus program `id`'s current result record (its baseline run, read from the cache
 /// without running anything) is `comparable` and matched a sentence of `rules`, a run row's
-/// edited rules (`{module, index, ...}`): its coverage's `sentences`, k-rust's `matched`, the
-/// predicate the `coverage` document's `matched_by` lists, which counts comparable records only.
+/// edited rules (`{module, index, ...}`): its coverage's `sentences`, k-rust's `matched`, or a
+/// sentence whose condition its run entered ([`crate::guards::entered_sentences`]), the predicate
+/// the `coverage` document's `matched_by` lists, which counts comparable records only.
 /// False without a record or rules, or for a record of another class.
 fn template_reaches(
     manifest: &FlowManifest,
@@ -1972,12 +1973,9 @@ fn template_reaches(
         .as_array()
         .into_iter()
         .flatten()
-        .any(|sentence| {
-            sentence["module"]
-                .as_str()
-                .zip(sentence["index"].as_u64())
-                .is_some_and(|at| edited.contains(&at))
-        })
+        .filter_map(|sentence| sentence["module"].as_str().zip(sentence["index"].as_u64()))
+        .chain(crate::guards::entered_sentences(&record))
+        .any(|at| edited.contains(&at))
 }
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations

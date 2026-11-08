@@ -62,6 +62,32 @@ pub(crate) fn record_value(coverage: &TestCoverage) -> Value {
     )
 }
 
+/// The baseline sentences (`module`, `index`) whose condition the record's run entered: those
+/// of its guard outcomes with an axiom that has a guard outcome. An entry is made only where the
+/// axiom's left-hand side matched (k-rust makes an untried entry of a function equation only
+/// for an instance whose match is decided), so each such sentence was matched by the run,
+/// whether or not the run tried it there: of the equations of one priority group whose
+/// left-hand sides match an application, k-rust's `matched` holds only those tried before the
+/// one that applied, in an order the definition does not state, and the entries hold them all.
+pub(crate) fn entered_sentences(record: &Value) -> impl Iterator<Item = (&str, u64)> {
+    record["coverage"]["guards"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|sentence| {
+            sentence["axioms"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|axiom| {
+                    axiom["outcomes"]
+                        .as_array()
+                        .is_some_and(|outcomes| !outcomes.is_empty())
+                })
+        })
+        .filter_map(|sentence| Some((sentence["module"].as_str()?, sentence["index"].as_u64()?)))
+}
+
 /// The token of a node outcome a record holds that a row reports under `true_by`.
 const TRUE: &str = "true";
 const FALSE: &str = "false";

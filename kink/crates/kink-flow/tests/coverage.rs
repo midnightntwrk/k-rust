@@ -942,13 +942,14 @@ mod kink_tier {
         }
     }
 
-    /// An equation's requirements do not depend on the order in which the equations of its
-    /// group are declared. `low` and `high` are complementary equations of one priority: a
-    /// store of a low address applies `low`, a store of a high address applies `high`, and
-    /// whichever is tried first, the other one's condition is entered at that application too.
-    /// With the declarations in either order the two equations have the same covered and open
-    /// requirements, `high`'s `refuted` is covered by the low store, and a corpus that stores on
-    /// both sides leaves none of them open.
+    /// An equation's status and requirements do not depend on the order in which the equations
+    /// of its group are declared. `low` and `high` are complementary equations of one priority:
+    /// a store of a low address applies `low`, a store of a high address applies `high`, and
+    /// whichever is tried first, the other one's left-hand side matched and its condition is
+    /// entered at that application too. With the declarations in either order the two equations
+    /// have the same statuses and the same covered and open requirements: `high` is matched by
+    /// the low store and its `refuted` covered there, and a corpus that stores on both sides
+    /// leaves none of them open.
     #[test]
     #[ignore = "kink"]
     fn complementary_equations_have_the_same_requirements_in_either_order() {
@@ -991,7 +992,32 @@ mod kink_tier {
                 })
                 .collect::<Vec<_>>();
             items.sort();
-            items
+            let rules = document["families"]["rules"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        item["id"].as_str(),
+                        Some("rule:GUARDS.low" | "rule:GUARDS.high")
+                    )
+                })
+                .map(|item| {
+                    (
+                        item["id"].as_str().unwrap().to_owned(),
+                        item["status"].as_str().unwrap().to_owned(),
+                        item["matched_by"].to_string(),
+                    )
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            (rules, items)
+        };
+        let rule = |id: &str, status: &str, matched_by: &[&str]| {
+            (
+                format!("rule:GUARDS.{id}"),
+                status.to_owned(),
+                json!(matched_by).to_string(),
+            )
         };
         let item = |id: &str, status: &str, covered_by: &[&str], entered_by: &[&str]| {
             (
@@ -1005,7 +1031,15 @@ mod kink_tier {
         // `held` stays open, but its condition is entered at the store and seen false.
         let declared = requirements("guards-order-declared", false, false);
         assert_eq!(
-            declared,
+            declared.0,
+            [
+                rule("high", "matched", &["write"]),
+                rule("low", "fired", &["write"])
+            ]
+            .into()
+        );
+        assert_eq!(
+            declared.1,
             [
                 item("high:held", "open", &[], &["write"]),
                 item("high:refuted", "covered", &["write"], &["write"]),
@@ -1018,7 +1052,15 @@ mod kink_tier {
         let both = requirements("guards-order-both-declared", false, true);
         let stores = ["write", "write-high"];
         assert_eq!(
-            both,
+            both.0,
+            [
+                rule("high", "fired", &stores),
+                rule("low", "fired", &stores)
+            ]
+            .into()
+        );
+        assert_eq!(
+            both.1,
             [
                 item("high:held", "covered", &["write-high"], &stores),
                 item("high:refuted", "covered", &["write"], &stores),
