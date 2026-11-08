@@ -1347,6 +1347,88 @@ impl ValueIndex {
         }
     }
 
+    /// Write `pattern`'s canonical encoding to `output`: equal terms of the definition, and only
+    /// those, are written alike ([`crate::observations`], "Digests").
+    ///
+    /// A `Map` or `Set` built from its unit, element and concatenation symbols is written as its
+    /// elements in the order of their own encodings, so two ways of building one collection (an
+    /// order of insertion, an association of its concatenations) are written alike; a `List` is
+    /// written as its elements in order, whatever association built it. Every other part is
+    /// written by its form: an application by its symbol, its sort arguments and its arguments, any
+    /// other pattern by its KORE text. Each part is preceded by its kind and length, so no two
+    /// distinct sequences of parts are written alike.
+    pub(crate) fn canonical_kore(&self, pattern: &Pattern, output: &mut Vec<u8>) {
+        fn bytes(output: &mut Vec<u8>, tag: u8, part: &[u8]) {
+            output.push(tag);
+            output.extend_from_slice(&(part.len() as u64).to_le_bytes());
+            output.extend_from_slice(part);
+        }
+        let (Pattern::Application { symbol, arguments }
+        | Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        }) = pattern
+        else {
+            bytes(output, b'p', pattern.to_string().as_bytes());
+            return;
+        };
+        if let Some(&(collection, _)) = self.collections.get(&symbol.name) {
+            let mut elements = Vec::new();
+            if self.collection_elements(pattern, collection, &mut elements) {
+                let mut encoded = elements
+                    .iter()
+                    .map(|element| {
+                        let mut part = Vec::new();
+                        for argument in element {
+                            self.canonical_kore(argument, &mut part);
+                        }
+                        part
+                    })
+                    .collect::<Vec<_>>();
+                let tag = match collection {
+                    Collection::List => b'l',
+                    Collection::Set => {
+                        encoded.sort();
+                        b's'
+                    }
+                    Collection::Map => {
+                        encoded.sort();
+                        b'm'
+                    }
+                };
+                output.push(tag);
+                output.extend_from_slice(&(encoded.len() as u64).to_le_bytes());
+                for element in &encoded {
+                    bytes(output, b'e', element);
+                }
+                return;
+            }
+        }
+        bytes(output, b'a', symbol.name.as_bytes());
+        output.extend_from_slice(&(symbol.sort_parameters.len() as u64).to_le_bytes());
+        for sort in &symbol.sort_parameters {
+            bytes(output, b'o', sort.to_string().as_bytes());
+        }
+        output.extend_from_slice(&(arguments.len() as u64).to_le_bytes());
+        for argument in arguments {
+            let mut part = Vec::new();
+            self.canonical_kore(argument, &mut part);
+            bytes(output, b'g', &part);
+        }
+    }
+
+    /// The items of the `List` `pattern` holds, below its injections, or `None` where it is no
+    /// list of known items.
+    pub(crate) fn list_items<'p>(&self, pattern: &'p Pattern) -> Option<Vec<&'p Pattern>> {
+        let items = self.collection_items(pattern, BuiltinSort::List)?;
+        items
+            .into_iter()
+            .map(|item| match item.as_slice() {
+                [item] => Some(*item),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The arguments of each element of a `sort` collection built from its unit, element, and
     /// concatenation symbols, below its injections: one argument per `List` or `Set` element, a
     /// key and a value per `Map` entry. `None` when `sort` is no collection or a part of the

@@ -42,15 +42,21 @@
 //! ended short of a value after the solver answered `Unknown`, leaves the arrival undecided: the
 //! run ends there, `stop-undecided` ([`crate::Halt::StopUndecided`]), which is inconclusive.
 //!
-//! # Evaluating an observation at an arrival
+//! # Evaluating an observation at a state
 //!
-//! [`ArrivalObservation`] evaluates a function of named cells at an arrival and returns its value
-//! whatever its sort; the stop condition is the use that reads a `Bool` from it.
+//! [`ResolvedCondition`] is a function of named cells resolved in an observer, of any result
+//! sort; [`ResolvedCondition::evaluate`] evaluates it at any state that hands out its cells
+//! ([`ObservedState`]: a stop's arrival, a probe's point, a state a run reached) and returns its
+//! value whatever its sort. The stop condition is the use that reads a `Bool` from it
+//! ([`ArrivalObservation`]); a run's observations ([`crate::observations`]) evaluate their
+//! filters and function components with it too, so a condition and an observation are evaluated
+//! alike.
 
 use std::fmt;
 use std::sync::Arc;
 
-use k_rust::backend::{StopArrival, StopCondition, StopDecision, StopSide};
+use k_rust::backend::{ProbeState, StopArrival, StopCondition, StopDecision, StopSide};
+use k_rust::kore::ast::Pattern;
 use krs_ir::{BuiltinSort, CellMultiplicity};
 
 use crate::inputs::InputType;
@@ -58,13 +64,94 @@ use crate::values::{Decl, SortRef, Value, ValueIndex};
 use crate::views::EvaluationError;
 use crate::{ExecError, Semantics, StopWhen};
 
+/// A state whose cells an observation reads: a stop's arrival ([`StopArrival`]), a probe's point
+/// ([`ProbeState`]), or a state a run reached, as KORE.
+pub trait ObservedState {
+    /// The cell at `path` of cell symbols from the configuration's top cell down, as KORE, or
+    /// `None` where the state holds no such cell.
+    fn cell(&self, path: &[&str]) -> Option<Pattern>;
+}
+
+impl ObservedState for StopArrival<'_> {
+    fn cell(&self, path: &[&str]) -> Option<Pattern> {
+        StopArrival::cell(self, path)
+    }
+}
+
+impl ObservedState for ProbeState<'_> {
+    fn cell(&self, path: &[&str]) -> Option<Pattern> {
+        ProbeState::cell(self, path)
+    }
+}
+
 /// One cell a condition reads: its path as written, and the cell symbols from the
 /// configuration's top down to it, which the backend follows to convert that cell alone.
 #[derive(Clone, Debug)]
-struct ReadCell {
-    path: String,
-    symbols: Vec<String>,
+pub(crate) struct ReadCell {
+    pub(crate) path: String,
+    pub(crate) symbols: Vec<String>,
     parameter: Arc<str>,
+}
+
+impl ReadCell {
+    /// The cell symbols as the backend's walk takes them.
+    pub(crate) fn symbol_path(&self) -> Vec<&str> {
+        self.symbols.iter().map(String::as_str).collect()
+    }
+}
+
+/// How a resolution's refusals name the use being resolved: `what` as the subject of a
+/// sentence ("a stop condition"), `noun` as the reader of a cell ("a condition").
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Use {
+    pub(crate) what: &'static str,
+    pub(crate) noun: &'static str,
+}
+
+impl Use {
+    /// A stop condition's spelling, which every stop-condition refusal keeps.
+    pub(crate) const STOP_CONDITION: Self = Self {
+        what: "a stop condition",
+        noun: "a condition",
+    };
+}
+
+/// The value of the leaf cell `cell` reads in `state`, decoded by `subject`, the definition the
+/// state is of; the refusal naming the cell where it has none to carry to an observer.
+pub(crate) fn leaf_value(
+    subject: &ValueIndex,
+    cell: &ReadCell,
+    state: &(impl ObservedState + ?Sized),
+) -> Result<Value, ObservationError> {
+    let refuse = |reason: String| ObservationError::Cell {
+        cell: cell.path.clone(),
+        reason,
+    };
+    let pattern = state
+        .cell(&cell.symbol_path())
+        .ok_or_else(|| refuse("is not held by the state".to_owned()))?;
+    let content = leaf_content(&pattern)
+        .ok_or_else(|| refuse("is not a leaf cell of the state".to_owned()))?;
+    let value = subject
+        .decode(content)
+        .map_err(|error| refuse(format!("holds no term of the definition: {error}")))?;
+    if let Some(part) = crate::views::opaque_part(subject, &value) {
+        return Err(refuse(format!(
+            "holds {part}, which has no KRS description to carry to an observer"
+        )));
+    }
+    Ok(value)
+}
+
+/// The content of a leaf cell's KORE: its one argument.
+pub(crate) fn leaf_content(pattern: &Pattern) -> Option<&Pattern> {
+    match pattern {
+        Pattern::Application { arguments, .. } => match arguments.as_slice() {
+            [content] => Some(content),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// A stop condition resolved in its observer for the definition a run executes
@@ -81,6 +168,8 @@ pub struct ResolvedCondition {
     subject: Arc<ValueIndex>,
     /// The observer's values, which the condition is evaluated with.
     observer: Arc<ValueIndex>,
+    /// The function's declared result type, `None` for a sort no KRS declaration names.
+    pub(crate) result: Option<InputType>,
 }
 
 impl ResolvedCondition {
@@ -101,6 +190,48 @@ impl ResolvedCondition {
     /// cell alone.
     pub fn cell_symbols(&self) -> impl Iterator<Item = &[String]> {
         self.cells.iter().map(|cell| cell.symbols.as_slice())
+    }
+
+    /// The cells the function reads, in parameter order.
+    pub(crate) fn cells(&self) -> &[ReadCell] {
+        &self.cells
+    }
+
+    /// The observer's values the function was resolved in.
+    pub(crate) const fn observer_values(&self) -> &Arc<ValueIndex> {
+        &self.observer
+    }
+
+    /// The function's value at the cells of `state`, evaluated in `observer`, the definition it
+    /// was resolved in (the caller checks that it is), within `budget` polls when there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservationError::Cell`] for a cell with no value to carry, and
+    /// [`ObservationError::Evaluation`] for an evaluation without a value.
+    pub(crate) fn evaluate(
+        &self,
+        observer: &mut Semantics,
+        state: &(impl ObservedState + ?Sized),
+        budget: Option<u64>,
+    ) -> Result<Value, ObservationError> {
+        let mut arguments = Vec::with_capacity(self.cells.len());
+        for cell in &self.cells {
+            arguments.push((
+                cell.parameter.clone(),
+                leaf_value(&self.subject, cell, state)?,
+            ));
+        }
+        observer
+            .evaluate_within(
+                self.decl.path(),
+                arguments
+                    .iter()
+                    .map(|(parameter, value)| (&**parameter, value.clone()))
+                    .collect(),
+                budget,
+            )
+            .map_err(ObservationError::Evaluation)
     }
 }
 
@@ -193,48 +324,11 @@ impl<'o> ArrivalObservation<'o> {
     ///
     /// Returns [`ObservationError::Cell`] for a cell with no value to carry, and
     /// [`ObservationError::Evaluation`] for an evaluation without a value.
-    pub fn observe(&mut self, arrival: &StopArrival<'_>) -> Result<Value, ObservationError> {
-        let mut arguments = Vec::with_capacity(self.condition.cells.len());
-        for cell in &self.condition.cells {
-            let refuse = |reason: String| ObservationError::Cell {
-                cell: cell.path.clone(),
-                reason,
-            };
-            let symbols = cell.symbols.iter().map(String::as_str).collect::<Vec<_>>();
-            let pattern = arrival
-                .cell(&symbols)
-                .ok_or_else(|| refuse("is not held by the state".to_owned()))?;
-            let content = match &pattern {
-                k_rust::kore::ast::Pattern::Application { arguments, .. } => {
-                    match arguments.as_slice() {
-                        [content] => content,
-                        _ => return Err(refuse("is not a leaf cell of the state".to_owned())),
-                    }
-                }
-                _ => return Err(refuse("is not a leaf cell of the state".to_owned())),
-            };
-            let value = self
-                .condition
-                .subject
-                .decode(content)
-                .map_err(|error| refuse(format!("holds no term of the definition: {error}")))?;
-            if let Some(part) = crate::views::opaque_part(&self.condition.subject, &value) {
-                return Err(refuse(format!(
-                    "holds {part}, which has no KRS description to carry to the condition"
-                )));
-            }
-            arguments.push((cell.parameter.clone(), value));
-        }
-        self.observer
-            .evaluate_within(
-                self.condition.decl.path(),
-                arguments
-                    .iter()
-                    .map(|(parameter, value)| (&**parameter, value.clone()))
-                    .collect(),
-                self.budget,
-            )
-            .map_err(ObservationError::Evaluation)
+    pub fn observe(
+        &mut self,
+        arrival: &(impl ObservedState + ?Sized),
+    ) -> Result<Value, ObservationError> {
+        self.condition.evaluate(self.observer, arrival, self.budget)
     }
 }
 
@@ -348,81 +442,123 @@ impl Semantics {
         observer: &Self,
         when: &StopWhen,
     ) -> Result<ResolvedCondition, ExecError> {
-        let refuse = |message: String| {
-            ExecError::StopWhen(format!("the stop condition `{}`: {message}", when.function))
-        };
-        let decl = observer
-            .values
-            .function_decl(&when.function)
-            .map_err(|error| refuse(error.to_string()))?;
-        let Some(info) = observer.values.info(&decl) else {
-            return Err(refuse(format!("`{decl}` has no production")));
-        };
-        if !observer.values.is_loaded(&decl) {
-            return Err(refuse(format!(
-                "`{decl}` is declared by a package whose module the observer's main module does not import, so the observer does not hold it"
-            )));
-        }
-        if let Some(reason) = observer.values.instance_function(&decl, "a stop condition") {
-            return Err(refuse(reason));
-        }
-        if info.parameters != 0 {
-            return Err(refuse(format!(
-                "`{decl}` is a parametric function; a stop condition is a function of the cells it reads"
-            )));
-        }
-        if info.fields.len() != when.cells.len() {
-            return Err(refuse(format!(
-                "`{decl}` takes {} parameter{}, but the condition reads {} cell{}: one parameter per cell, in order",
-                info.fields.len(),
-                if info.fields.len() == 1 { "" } else { "s" },
-                when.cells.len(),
-                if when.cells.len() == 1 { "" } else { "s" },
-            )));
-        }
-        match &info.result {
+        let resolved = self
+            .cell_function(observer, &when.function, &when.cells, Use::STOP_CONDITION)
+            .map_err(|message| {
+                ExecError::StopWhen(format!("the stop condition `{}`: {message}", when.function))
+            })?;
+        match &resolved.result {
             Some(InputType {
                 sort: SortRef::Builtin(BuiltinSort::Bool),
                 ..
-            }) => {}
-            _ => {
-                return Err(refuse(format!(
-                    "`{decl}` does not return Bool; a stop condition holds or does not at a state"
-                )));
-            }
+            }) => Ok(resolved),
+            _ => Err(ExecError::StopWhen(format!(
+                "the stop condition `{}`: `{}` does not return Bool; a stop condition holds or does not at a state",
+                when.function, resolved.decl
+            ))),
         }
-        let cells = info
+    }
+
+    /// Resolve `function`, a function of the leaf cells `cells` read in parameter order, in
+    /// `observer` for states of this definition, whatever its result sort; the refusal's text
+    /// otherwise, naming the use as `role` does: a function the observer does not hold,
+    /// evaluated in an instance, parametric, or whose parameters are not one per cell, each of a
+    /// sort that admits its cell's sort; a cell that is unknown, unobservable, a group cell, or
+    /// below a repeated or optional holder.
+    pub(crate) fn cell_function(
+        &self,
+        observer: &Self,
+        function: &str,
+        cells: &[String],
+        role: Use,
+    ) -> Result<ResolvedCondition, String> {
+        let decl = observer
+            .values
+            .function_decl(function)
+            .map_err(|error| error.to_string())?;
+        let Some(info) = observer.values.info(&decl) else {
+            return Err(format!("`{decl}` has no production"));
+        };
+        if !observer.values.is_loaded(&decl) {
+            return Err(format!(
+                "`{decl}` is declared by a package whose module the observer's main module does not import, so the observer does not hold it"
+            ));
+        }
+        if let Some(reason) = observer.values.instance_function(&decl, role.what) {
+            return Err(reason);
+        }
+        if info.parameters != 0 {
+            return Err(format!(
+                "`{decl}` is a parametric function; {} is a function of the cells it reads",
+                role.what
+            ));
+        }
+        if info.fields.len() != cells.len() {
+            return Err(format!(
+                "`{decl}` takes {} parameter{}, but the {} reads {} cell{}: one parameter per cell, in order",
+                info.fields.len(),
+                if info.fields.len() == 1 { "" } else { "s" },
+                role.noun.trim_start_matches("a ").trim_start_matches("an "),
+                cells.len(),
+                if cells.len() == 1 { "" } else { "s" },
+            ));
+        }
+        let read = info
             .fields
             .iter()
             .zip(&info.field_types)
-            .zip(&when.cells)
+            .zip(cells)
             .map(|((parameter, parameter_type), path)| {
-                self.condition_cell(observer, &decl, parameter, parameter_type.as_ref(), path)
-                    .map_err(refuse)
+                self.condition_cell(
+                    observer,
+                    &decl,
+                    parameter,
+                    parameter_type.as_ref(),
+                    path,
+                    role,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ResolvedCondition {
-            function: when.function.clone(),
+            function: function.to_owned(),
+            result: info.result.clone(),
             decl,
-            cells,
+            cells: read,
             subject: Arc::clone(&self.values),
             observer: Arc::clone(&observer.values),
         })
     }
-}
 
-impl Semantics {
-    /// The cell `path` a condition's parameter `parameter` (of type `parameter_type`) of
-    /// `decl` reads, resolved in this definition, its sort judged in `observer`; the refusal's
-    /// text otherwise ([`Self::stop_condition`]).
-    fn condition_cell(
+    /// The leaf cell `path` resolved for a read by `role` (no function): its symbols and its
+    /// declared type, or the refusal's text as [`Self::cell_function`] words it.
+    pub(crate) fn read_leaf_cell(
         &self,
-        observer: &Self,
-        decl: &Decl,
-        parameter: &Arc<str>,
-        parameter_type: Option<&InputType>,
         path: &str,
-    ) -> Result<ReadCell, String> {
+        role: Use,
+    ) -> Result<(ReadCell, InputType), String> {
+        let (symbols, node) = self.leaf_cell_node(path, role)?;
+        let Some((sort, arguments)) = &node.content else {
+            unreachable!("a leaf cell node has a content sort");
+        };
+        let declared = crate::inputs::input_type(&self.values, sort, arguments)
+            .unwrap_or_else(InputType::untyped);
+        Ok((
+            ReadCell {
+                path: path.to_owned(),
+                symbols,
+                parameter: Arc::from(""),
+            },
+            declared,
+        ))
+    }
+
+    /// The symbols down to the leaf cell `path` and its node, refused as
+    /// [`Self::cell_function`] refuses a cell.
+    fn leaf_cell_node(
+        &self,
+        path: &str,
+        role: Use,
+    ) -> Result<(Vec<String>, &crate::values::CellNode), String> {
         let cell = |message: String| format!("the cell `{path}` {message}");
         let positions = self.resolve_cell(path).map_err(|error| error.to_string())?;
         let mut nodes = self.values.cells();
@@ -436,8 +572,8 @@ impl Semantics {
                     CellMultiplicity::Optional => "optional",
                 };
                 return Err(cell(format!(
-                    "is or is below the {holder} cell `{}`: applied in each instance a condition would give several answers, not one",
-                    found.field
+                    "is or is below the {holder} cell `{}`: applied in each instance {} would give several answers, not one",
+                    found.field, role.noun
                 )));
             }
             symbols.push(found.symbol.clone());
@@ -447,10 +583,31 @@ impl Semantics {
         let Some(node) = node else {
             return Err(cell("names no cell".to_owned()));
         };
+        if node.content.is_none() {
+            return Err(cell(format!(
+                "is a group cell; {} reads leaf cells",
+                role.noun
+            )));
+        }
+        Ok((symbols, node))
+    }
+
+    /// The cell `path` a condition's parameter `parameter` (of type `parameter_type`) of
+    /// `decl` reads, resolved in this definition, its sort judged in `observer`; the refusal's
+    /// text otherwise ([`Self::cell_function`]).
+    fn condition_cell(
+        &self,
+        observer: &Self,
+        decl: &Decl,
+        parameter: &Arc<str>,
+        parameter_type: Option<&InputType>,
+        path: &str,
+        role: Use,
+    ) -> Result<ReadCell, String> {
+        let cell = |message: String| format!("the cell `{path}` {message}");
+        let (symbols, node) = self.leaf_cell_node(path, role)?;
         let Some((sort, _)) = &node.content else {
-            return Err(cell(
-                "is a group cell; a condition reads leaf cells".to_owned(),
-            ));
+            unreachable!("a leaf cell node has a content sort");
         };
         let Some(cell_sort) = self.values.sort_ref(sort) else {
             return Err(cell("has a sort with no KRS declaration".to_owned()));

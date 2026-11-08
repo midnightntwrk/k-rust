@@ -23,6 +23,7 @@ krs-unparse = { path = "../krs-unparse" }
 num-bigint.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10.9"
 toml.workspace = true
 
 [dev-dependencies]

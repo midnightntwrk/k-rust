@@ -2393,6 +2393,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         | ExecError::UnknownItem { .. }
         | ExecError::AmbiguousItem { .. } => codes::exec::RULE,
         ExecError::StopWhen(_) | ExecError::StopCondition { .. } => codes::exec::STOP_CONDITION,
+        ExecError::Observe(_) | ExecError::Observation { .. } => codes::exec::OBSERVATION,
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,

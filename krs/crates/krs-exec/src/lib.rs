@@ -12,10 +12,11 @@
 //! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
 //! - [`Semantics::values`] names constructors and sorts by their KRS declarations, so a configuration variable can be given as a [`Value`] ([`ConfigValue::Value`]), and [`Semantics::views`] reads a result's cells as values by their Rust field names.
 //! - [`Semantics::end_of`] and [`Semantics::ends_of`] read a run's or a search's ends, [`Semantics::read_end`] and [`Semantics::end_document`] read and write an end as a document of the typed encoding, and [`Semantics::compare_ends`] and [`Semantics::check_expectation`] compare ends on their observable cells by Rust field path; the documentation of [`ends`] is their normative statement.
+//! - [`Semantics::observations`] resolves a run's declared observations, which [`Semantics::run_with`] records along its path; the documentation of [`observations`] is their normative statement, and [`first_difference`] compares two records.
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/6` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/7` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 //!
 //! # Features
@@ -43,6 +44,7 @@ mod encode;
 pub mod ends;
 pub mod inputs;
 mod instance_text;
+pub mod observations;
 mod origin;
 mod overloads;
 mod read_back;
@@ -87,7 +89,9 @@ use krs_k_rust::{
 use krs_unparse::ListSpelling;
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
-pub use condition::{ArrivalObservation, ConditionOracle, ObservationError, ResolvedCondition};
+pub use condition::{
+    ArrivalObservation, ConditionOracle, ObservationError, ObservedState, ResolvedCondition,
+};
 pub use configuration::Configuration;
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use ends::{
@@ -102,10 +106,16 @@ pub use inputs::{
 pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT,
 };
-use k_rust::backend::{BackendErrorKind, InProcess, StopCondition, StopSide};
+use k_rust::backend::{BackendErrorKind, InProcess, Probe, ProbeDecision, StopCondition, StopSide};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
+pub use observations::{
+    Channel, ChannelEnd, ChannelKind, Closure, Component, Element, ElementDigest, Filter,
+    LogChannel, OBSERVATIONS_FORMAT, ObservationDifference, ObservationOracle, ObservationRefusal,
+    ObservationSpec, Observations, Observed, Open, PointClass, RecordOptions, ResolvedObservations,
+    Stutter, first_difference,
+};
 pub use origin::{Origins, item_spelling};
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
@@ -155,8 +165,26 @@ pub struct RunOptions {
     /// its first stop (`stop: rules.into()`).
     pub stop: StopCriterion,
     /// The budget of polls of each evaluation of the stop condition ([`StopWhen`]), as
-    /// [`CellViews::evaluate_within`] bounds a view's; `None` for no bound.
+    /// [`CellViews::evaluate_within`] bounds a view's; `None` for no bound. The observations'
+    /// evaluations ([`Self::observe`]) are bounded by it too.
     pub condition_budget: Option<u64>,
+    /// Record the declared observations along the run's path ([`observations`],
+    /// [`RunReport::observations`]); `None` for none. Their functions are evaluated in
+    /// [`Observers::observations`] ([`Semantics::run_with`]).
+    pub observe: Option<ObservationSpec>,
+}
+
+/// The definitions a run's observations are evaluated in ([`Semantics::run_with`]): each one
+/// the definition its declaration names, or another [`Semantics`] of the run's definition when
+/// it names none. A stop condition and the observations are evaluated apart, each in its own
+/// observer, even where both name the same definition.
+#[derive(Default)]
+pub struct Observers<'o> {
+    /// The stop condition's observer ([`StopWhen`]).
+    pub condition: Option<&'o mut Semantics>,
+    /// The observations' observer ([`ObservationSpec::observer`]), needed when a component,
+    /// filter or element function is declared.
+    pub observations: Option<&'o mut Semantics>,
 }
 
 /// Where a run ends besides its own end ([`RunOptions::stop`]).
@@ -792,6 +820,26 @@ pub enum ExecError {
         /// Why, naming the cell or the evaluation.
         reason: String,
     },
+    /// An observation declaration that cannot be recorded ([`Semantics::observations`]): a
+    /// rule, a cell or a function it names is not one it may observe, or no observer was given
+    /// to evaluate its functions in; the message names the channel and the cause.
+    Observe(String),
+    /// An element of a run's observations has no value: a read cell holds no data, the observer
+    /// gives a function no value there, or a log's cell did not only grow by appending
+    /// ([`observations`], "Undefined and undecided elements"), so the observation sequence does
+    /// not exist on this run.
+    Observation {
+        /// The channel.
+        channel: String,
+        /// The point's rule, as a report names it; `None` at the run's end.
+        rule: Option<String>,
+        /// The point's side; `None` at the run's end.
+        side: Option<StopAt>,
+        /// The run's steps to the observed state.
+        steps: u64,
+        /// Why, naming the cell or the evaluation.
+        reason: String,
+    },
 }
 
 impl fmt::Display for ExecError {
@@ -807,6 +855,7 @@ impl fmt::Display for ExecError {
             | Self::Result(message)
             | Self::Undecided(message)
             | Self::StopWhen(message)
+            | Self::Observe(message)
             | Self::Case(message) => {
                 formatter.write_str(message)
             }
@@ -819,6 +868,31 @@ impl fmt::Display for ExecError {
                 "the stop condition has no value at the arrival at `{rule}` after {steps} step{}: {reason}",
                 if *steps == 1 { "" } else { "s" }
             ),
+            Self::Observation {
+                channel,
+                rule,
+                side,
+                steps,
+                reason,
+            } => {
+                write!(formatter, "the observation `{channel}` has no value ")?;
+                match (rule, side) {
+                    (Some(rule), Some(side)) => write!(
+                        formatter,
+                        "at the {} point of `{rule}`",
+                        match side {
+                            StopAt::Before => "before",
+                            StopAt::After => "after",
+                        }
+                    )?,
+                    _ => formatter.write_str("at the run's end")?,
+                }
+                write!(
+                    formatter,
+                    " after {steps} step{}: {reason}",
+                    if *steps == 1 { "" } else { "s" }
+                )
+            }
             Self::StrayProgram { parameters } => {
                 formatter.write_str(NO_MAIN_PARAMETER)?;
                 formatter.write_str(", so FILE binds nothing; bind its parameters by name")?;
@@ -1498,18 +1572,36 @@ impl Semantics {
         &mut self,
         request: ExecuteRequest,
         mut oracle: Option<&mut ConditionOracle<'_>>,
+        mut probe: Option<&mut ObservationOracle<'_>>,
         offset: u64,
     ) -> Result<KoreExecutionResult, ExecError> {
         self.execute_requests = self.execute_requests.saturating_add(1);
         let reading = valueless::Successors(self.values.as_ref());
+        let probe_rules = probe
+            .as_deref()
+            .map(ObservationOracle::probe_rules)
+            .unwrap_or_default();
+        if let Some(probe) = probe.as_deref_mut() {
+            probe.set_offset(offset);
+        }
         let in_process = InProcess {
             condition: oracle
                 .as_deref_mut()
                 .map(|oracle| -> &mut dyn StopCondition { oracle }),
             reading: Some(&reading),
-            probe: None,
+            probe: probe
+                .as_deref_mut()
+                .map(|probe| -> &mut dyn Probe { probe }),
         };
-        let result = self.backend.execute_kore_in_process(request, in_process);
+        let result = self
+            .backend
+            .execute_kore_with_probe(request, probe_rules, in_process);
+        // An element with no value ended the request at its point: the run is refused.
+        if result.is_ok()
+            && let Some(refusal) = probe.and_then(|probe| probe.refusal())
+        {
+            return Err(self.observation_error(refusal));
+        }
         let Some(oracle) = oracle else {
             return Ok(result?);
         };
@@ -1529,6 +1621,20 @@ impl Semantics {
                 })
             }
             Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The run's error for an element of its observations with no value.
+    fn observation_error(&self, refusal: &ObservationRefusal) -> ExecError {
+        ExecError::Observation {
+            channel: refusal.channel.clone(),
+            rule: refusal
+                .rule
+                .as_ref()
+                .map(|rule| self.rules.stop_name(rule).unwrap_or_else(|| rule.clone())),
+            side: refusal.side,
+            steps: refusal.depth,
+            reason: refusal.reason.clone(),
         }
     }
 
@@ -2523,6 +2629,43 @@ impl Semantics {
         options: RunOptions,
         observer: Option<&mut Self>,
     ) -> Result<RunReport, ExecError> {
+        self.run_with(
+            state,
+            options,
+            Observers {
+                condition: observer,
+                observations: None,
+            },
+        )
+    }
+
+    /// [`Self::run_observed`] with observations ([`RunOptions::observe`], [`observations`]):
+    /// the backend's probe records each channel along the run's one path, its functions
+    /// evaluated in `observers.observations`, and the report carries the record
+    /// ([`RunReport::observations`]). The run is still one request, and a probe that only
+    /// records leaves its result as it is without one.
+    ///
+    /// The record's channels are those of the path the run reports: where the run follows the
+    /// path back to its last state with a value, the points past it are not points (the steps
+    /// into the states past it are undefined) and the channels are closed `undefined` there. A
+    /// run resumed after a stop before a rule ([`RunReport::resume`]) observes that rule's step,
+    /// its first, too.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::run_observed`] does, and with [`ExecError::Observe`] for a declaration
+    /// that cannot be resolved or has no observer, and [`ExecError::Observation`] for an element
+    /// with no value.
+    pub fn run_with(
+        &mut self,
+        state: &State,
+        options: RunOptions,
+        observers: Observers<'_>,
+    ) -> Result<RunReport, ExecError> {
+        let Observers {
+            condition: observer,
+            observations: observation_observer,
+        } = observers;
         let stops = self.stop_ids(&options.stop)?;
         let condition = self.condition_of(&options.stop, observer)?;
         let (resolved, observer) = match condition {
@@ -2535,8 +2678,35 @@ impl Semantics {
             )),
             _ => None,
         };
+        let declared = match options.observe.as_ref().filter(|spec| !spec.is_empty()) {
+            Some(spec) => {
+                Some(self.observations(observation_observer.as_deref().unwrap_or(self), spec)?)
+            }
+            None => None,
+        };
+        let mut probe = declared
+            .as_ref()
+            .map(|declared| {
+                ObservationOracle::record(
+                    declared,
+                    observation_observer,
+                    RecordOptions {
+                        values: true,
+                        refuse_no_value: true,
+                        budget: options.condition_budget,
+                    },
+                )
+            })
+            .transpose()?;
         let Some(taken) = &state.taken else {
-            return self.run_from(&state.pattern, &options, &stops, None, oracle.as_mut());
+            return self.run_from(
+                &state.pattern,
+                &options,
+                &stops,
+                None,
+                oracle.as_mut(),
+                probe.as_mut(),
+            );
         };
         // The bound left once the taken step is counted: `None` where the bound allows no step.
         let Some(depth) = options
@@ -2550,8 +2720,14 @@ impl Semantics {
                 trace: options.trace,
                 ..RunOptions::default()
             };
-            let mut report =
-                self.run_from(&taken.before, &untaken, &StopIds::default(), None, None)?;
+            let mut report = self.run_from(
+                &taken.before,
+                &untaken,
+                &StopIds::default(),
+                None,
+                None,
+                None,
+            )?;
             report.coverage = options.coverage.map(|asked| Coverage {
                 offered: asked.offered,
                 rules: Vec::new(),
@@ -2559,8 +2735,22 @@ impl Semantics {
             // The run has its stop rules, and reached none of them.
             report.stops_reported = (!stops.is_empty()).then_some(0);
             report.resume = Some(state.clone());
+            if let Some(probe) = &mut probe {
+                probe.end_at(0, &taken.before);
+                if let Some(refusal) = probe.refusal() {
+                    return Err(self.observation_error(refusal));
+                }
+                report.observations = Some(self.observed(probe, report.halt));
+            }
             return Ok(report);
         };
+        if let Some(probe) = &mut probe
+            && probe.taken_step(&taken.rule_id, &taken.before, &state.pattern)
+                != ProbeDecision::Continue
+            && let Some(refusal) = probe.refusal()
+        {
+            return Err(self.observation_error(refusal));
+        }
         let options = RunOptions { depth, ..options };
         self.run_from(
             &state.pattern,
@@ -2568,7 +2758,29 @@ impl Semantics {
             &stops,
             Some(taken),
             oracle.as_mut(),
+            probe.as_mut(),
         )
+    }
+
+    /// The record of a run's observations, ended as `halt` ends the path: closed by a run that
+    /// ends on its own or at a stop, closed `undefined` by an undefined one, and open at a bound
+    /// or an inconclusive halt; each rule named as a report names it.
+    fn observed(&self, probe: &mut ObservationOracle<'_>, halt: Halt) -> Observations {
+        let end = match halt {
+            Halt::Stuck | Halt::Stopped => ChannelEnd::End,
+            Halt::Undefined => ChannelEnd::Undefined,
+            other => ChannelEnd::Open(format!(
+                "the run ended `{}`, which is no end of its path",
+                other.as_str()
+            )),
+        };
+        let mut observations = probe.finish(&end);
+        observations.rename_rules(|rule| {
+            self.rules
+                .stop_name(rule)
+                .unwrap_or_else(|| rule.to_owned())
+        });
+        observations
     }
 
     /// Why the definition may end otherwise from `state` than at the end of `report`, the run
@@ -2672,7 +2884,7 @@ impl Semantics {
         );
         request.strategy = ExecutionStrategy::All;
         request.stop_at_branch = true;
-        let leaves = self.execute(request, oracle, taken)?.leaves;
+        let leaves = self.execute(request, oracle, None, taken)?.leaves;
         let Some(branch) = leaves
             .iter()
             .find(|leaf| leaf.reason == HaltReasonOutput::Branch)
@@ -2723,6 +2935,7 @@ impl Semantics {
         stops: &StopIds,
         taken: Option<&TakenStep>,
         mut oracle: Option<&mut ConditionOracle<'_>>,
+        mut probe: Option<&mut ObservationOracle<'_>>,
     ) -> Result<RunReport, ExecError> {
         let asked = oracle.is_some();
         let offset = u64::from(taken.is_some());
@@ -2736,6 +2949,7 @@ impl Semantics {
         } = self.execute(
             run_request(start, options, stops),
             oracle.as_deref_mut(),
+            probe.as_deref_mut(),
             offset,
         )?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
@@ -2760,6 +2974,14 @@ impl Semantics {
                 oracle.as_deref_mut(),
                 offset,
             )?;
+            // The run ends at the last state with a value: the steps past it are undefined, so
+            // they have no points, and the logs are read at the new end.
+            if let Some(probe) = probe.as_deref_mut() {
+                probe.cut_back(leaf.depth.saturating_add(offset), &leaf.state);
+                if let Some(refusal) = probe.refusal() {
+                    return Err(self.observation_error(refusal));
+                }
+            }
         }
         // The arrivals the path counted, the one it ends at included: under a condition, the
         // stop events, and every arrival beside them.
@@ -2836,6 +3058,7 @@ impl Semantics {
                 reason: undecided.reason,
                 budget_spent: undecided.budget_spent,
             });
+        let observations = probe.map(|probe| self.observed(probe, halt));
         let reached = term(leaf.state, &self.sort_hooks)?;
         let stdout = if self.console.stdout {
             console::stdout_buffer(reached.kore())
@@ -2865,6 +3088,7 @@ impl Semantics {
             arrivals: passed,
             undecided,
             passed_stops,
+            observations,
             resume,
         })
     }
@@ -3123,7 +3347,9 @@ impl Semantics {
                 },
                 stops,
             );
-            let leaves = self.execute(request, oracle.as_deref_mut(), offset)?.leaves;
+            let leaves = self
+                .execute(request, oracle.as_deref_mut(), None, offset)?
+                .leaves;
             let earlier = match one_path(leaves, self.heads(decides)) {
                 Ok(earlier) => earlier,
                 Err(error) => return Err(self.path_error(error)),

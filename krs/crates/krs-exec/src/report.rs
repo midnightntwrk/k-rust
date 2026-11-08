@@ -1,8 +1,9 @@
 //! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
 //!
-//! A run document is `krs-exec/6` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
+//! A run document is `krs-exec/7` ([`RUN_REPORT_SCHEMA`]), whose stop rule and coverage rows name
 //! their item with its package, which may end `stop-undecided` and count its arrivals beside its
-//! stop events, and which lists the stop rules it went on past; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
+//! stop events, which lists the stop rules it went on past, and which summarizes the run's
+//! declared observations; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
 //! document is `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and
 //! `timeout` and which names the solver its claims were proved with ([`SolverReport`]).
 //!
@@ -40,8 +41,14 @@ use serde::{Deserialize, Serialize, Serializer};
 /// run document omitted it at 0, and lists the stop rules it went on past at a state with another
 /// successor (`passed_stops`, [`RunReport::passed_stops`]); its `undecided` says whether a larger
 /// budget can decide it (`budget_spent`). A `krs-exec/5` reader would read a run with no `stops`
-/// and no `passed_stops` as one that passed none, so a run document is `krs-exec/6`.
-pub const RUN_REPORT_SCHEMA: &str = "krs-exec/6";
+/// and no `passed_stops` as one that passed none, so a run document was `krs-exec/6`.
+///
+/// A run with declared observations ([`crate::RunOptions::observe`]) reports a summary of them
+/// (`observations`, [`RunReport::observations`]): each channel's elements, how the path's end
+/// closed it, or where it stopped being known. Such a run's answer is its observations beside its
+/// end, and a `krs-exec/6` reader would take the end alone for the answer, so a run document is
+/// `krs-exec/7`.
+pub const RUN_REPORT_SCHEMA: &str = "krs-exec/7";
 
 /// The schema name a serialized search envelope carries (`krs search`; [report
 /// versions](crate#report-versions)).
@@ -625,6 +632,13 @@ pub struct RunReport {
     /// successors. Omitted when empty, and always without stop rules.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub passed_stops: Vec<PassedStop>,
+    /// The run's observations, when it declared some ([`crate::RunOptions::observe`]): every
+    /// channel's elements along the path, each rule named as a stop names it. The report
+    /// serializes a summary (each channel's name, kind, number of elements, `closed` and
+    /// `open`); [`crate::Observations::document`] writes the elements. Omitted without a
+    /// declaration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observations: Option<crate::Observations>,
     /// The state a later run goes on from, when it is not `state`'s own pattern
     /// ([`Self::resume`]).
     #[serde(skip)]
