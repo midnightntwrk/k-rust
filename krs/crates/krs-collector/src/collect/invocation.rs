@@ -801,8 +801,8 @@ fn collect_fn_invocations(
         let parsed = krs_syntax::ClaimAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let claim = StateClaimItem::from_item(item_fn.clone()).map_err(source_syntax)?;
-        // No admission judges a claim's entries, so its remainders' refusal comes now.
-        super::cell_entries::reuse_refused(claim.rule())?;
+        // No admission judges a claim's entries, so what its parser left until then comes now.
+        super::cell_entries::refused_without_admission(claim.rule())?;
         let anchors = claim
             .descriptor_provenance(&parsed)
             .map_err(source_syntax)?;
@@ -970,9 +970,9 @@ fn collect_fn_rules(
                 ParsedInvocationPayload::Declaration,
             )?;
             invocation.cells = super::cell_entries::ParsedCells::of_rule(&rule);
-            // A rule whose entries the table does not read meets its remainders' refusal now.
+            // A rule whose entries the table does not read meets its parser's later refusals now.
             if invocation.cells.is_none() {
-                super::cell_entries::reuse_refused(&rule)?;
+                super::cell_entries::refused_without_admission(&rule)?;
             }
             output.push(invocation);
             continue;
@@ -1021,9 +1021,9 @@ fn collect_fn_contexts(
                 ParsedInvocationPayload::Declaration,
             )?;
             invocation.cells = super::cell_entries::ParsedCells::of_rule(&rule);
-            // A rule whose entries the table does not read meets its remainders' refusal now.
+            // A rule whose entries the table does not read meets its parser's later refusals now.
             if invocation.cells.is_none() {
-                super::cell_entries::reuse_refused(&rule)?;
+                super::cell_entries::refused_without_admission(&rule)?;
             }
             output.push(invocation);
             continue;

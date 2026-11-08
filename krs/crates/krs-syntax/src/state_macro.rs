@@ -158,6 +158,9 @@ pub struct KSequence {
     tail_key: Option<ProvenanceKey>,
     /// The anchors of the sequence's standalone keying.
     anchors: Vec<ProvenanceAnchor>,
+    /// The refusal of an item written after the tail of a `KCell(..)` entry's sequence, whose
+    /// items are kept in order before the tail ([`Self::misplaced_tail`]).
+    misplaced_tail: Option<SyntaxError>,
 }
 
 impl KSequence {
@@ -192,6 +195,7 @@ impl KSequence {
             payload_key: None,
             tail_key: None,
             anchors: Vec::new(),
+            misplaced_tail: None,
         }
     }
 
@@ -199,6 +203,12 @@ impl KSequence {
     /// sequence is anchored.
     const fn invoked_at(mut self, invocation: Option<TokenRange>) -> Self {
         self.invocation = invocation;
+        self
+    }
+
+    /// Records the refusal of the items written after the tail ([`Self::misplaced_tail`]).
+    fn misplacing(mut self, refusal: SyntaxError) -> Self {
+        self.misplaced_tail = Some(refusal);
         self
     }
 
@@ -223,6 +233,21 @@ impl KSequence {
     #[must_use]
     pub const fn notation(&self) -> KSequenceNotation {
         self.notation
+    }
+
+    /// The refusal of an item written after the tail of a `KCell(..)` entry's sequence,
+    /// `KCell(.., x)` or `KCell(x, .., y)`, `None` where every item precedes the tail.
+    ///
+    /// The computation is read from its front, where the next step is, so its rest ends it
+    /// (E1). That is the computation cell's own rule: on a cell of another kind the wrapper
+    /// `KCell(..)` is the mistake, whatever its payload's order, and the cell's kind is the
+    /// declaration's, which this parser does not know. So the parser keeps such an entry, its
+    /// items in order before the tail, for the caller that judges the entry against its cell
+    /// first, which asks this once the entries are admitted, or at once where it judges none
+    /// ([`crate::StateRuleItem::misplaced_tail`]).
+    #[must_use]
+    pub const fn misplaced_tail(&self) -> Option<&SyntaxError> {
+        self.misplaced_tail.as_ref()
     }
 
     /// Whether the sequence denotes exact `.K` (explicitly or as `k![]`).
@@ -1229,6 +1254,28 @@ pub struct CellsExpression {
 }
 
 impl CellsExpression {
+    /// The refusal of the first entry, in source order, whose `KCell(..)` sequence writes an item
+    /// after its tail ([`KSequence::misplaced_tail`]), `None` where no entry does.
+    #[must_use]
+    pub fn misplaced_tail(&self) -> Option<&SyntaxError> {
+        fn within(state: &StateTerm) -> Option<&SyntaxError> {
+            match state {
+                StateTerm::KSequence(sequence) => sequence.misplaced_tail(),
+                other => other.nested_states().into_iter().find_map(within),
+            }
+        }
+        self.entries.iter().find_map(|entry| within(&entry.value))
+    }
+
+    /// The payload, refused where an entry writes an item after its sequence's tail: for a
+    /// caller that judges no entry's kind first.
+    fn in_order(self) -> Result<Self, SyntaxError> {
+        match self.misplaced_tail() {
+            Some(refusal) => Err(refusal.clone()),
+            None => Ok(self),
+        }
+    }
+
     /// The payload's tokens, as written.
     #[must_use]
     pub const fn tokens(&self) -> &TokenStream {
@@ -1421,6 +1468,19 @@ pub fn parse_map_expression_source_with_trivia(
 ///
 /// Rejects duplicate cells, malformed wrappers, and expression-only frames.
 pub fn parse_cells_pattern(tokens: TokenStream) -> Result<CellsExpression, SyntaxError> {
+    parse_cells(tokens, StateMacroContext::Pattern, true).and_then(CellsExpression::in_order)
+}
+
+/// Parses a `cells!` pattern payload, keeping a `KCell(..)` entry that writes an item after its
+/// sequence's tail for the caller that judges the entries' kinds first
+/// ([`KSequence::misplaced_tail`]).
+///
+/// # Errors
+///
+/// As [`parse_cells_pattern`], but for such an item.
+pub(crate) fn parse_cells_pattern_judged_later(
+    tokens: TokenStream,
+) -> Result<CellsExpression, SyntaxError> {
     parse_cells(tokens, StateMacroContext::Pattern, true)
 }
 
@@ -1434,7 +1494,7 @@ pub fn parse_cells_pattern(tokens: TokenStream) -> Result<CellsExpression, Synta
 pub(crate) fn parse_cells_claim_pattern(
     tokens: TokenStream,
 ) -> Result<CellsExpression, SyntaxError> {
-    parse_cells(tokens, StateMacroContext::Pattern, false)
+    parse_cells(tokens, StateMacroContext::Pattern, false).and_then(CellsExpression::in_order)
 }
 
 /// Parses a `cells!` expression payload.
@@ -1443,6 +1503,18 @@ pub(crate) fn parse_cells_claim_pattern(
 ///
 /// Rejects duplicate cells, malformed wrappers, and pattern-only frames.
 pub fn parse_cells_expression(tokens: TokenStream) -> Result<CellsExpression, SyntaxError> {
+    parse_cells(tokens, StateMacroContext::Expression, false).and_then(CellsExpression::in_order)
+}
+
+/// Parses a `cells!` expression payload, keeping a `KCell(..)` entry that writes an item after
+/// its sequence's tail, as [`parse_cells_pattern_judged_later`] does.
+///
+/// # Errors
+///
+/// As [`parse_cells_expression`], but for such an item.
+pub(crate) fn parse_cells_expression_judged_later(
+    tokens: TokenStream,
+) -> Result<CellsExpression, SyntaxError> {
     parse_cells(tokens, StateMacroContext::Expression, false)
 }
 
@@ -1481,7 +1553,7 @@ pub(crate) fn parse_k_sequence(
     context: StateMacroContext,
     invocation: Option<TokenRange>,
 ) -> Result<KSequence, SyntaxError> {
-    parse_keyed_k_sequence(tokens, context, invocation, false)
+    parse_keyed_k_sequence(tokens, context, invocation, SequenceRoot::Term)
 }
 
 /// Parses a `KCell(..)` entry's K sequence, the whole content of its cell: a content root, where
@@ -1492,16 +1564,25 @@ fn parse_cell_k_sequence(
     context: StateMacroContext,
     invocation: Option<TokenRange>,
 ) -> Result<KSequence, SyntaxError> {
-    parse_keyed_k_sequence(tokens, context, invocation, true)
+    parse_keyed_k_sequence(tokens, context, invocation, SequenceRoot::Cell)
+}
+
+/// Where a remainder stands, which decides what an expression's remainder means.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SequenceRoot {
+    /// Inside a term (a `k::k![..]` island), or a `map!`'s or a `cells!` payload's own remainder.
+    Term,
+    /// A `KCell(..)` entry's sequence, the whole content of its cell ([`parse_cell_k_sequence`]).
+    Cell,
 }
 
 fn parse_keyed_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
     invocation: Option<TokenRange>,
-    content_root: bool,
+    root: SequenceRoot,
 ) -> Result<KSequence, SyntaxError> {
-    parse_unkeyed_k_sequence(tokens, context, content_root)
+    parse_unkeyed_k_sequence(tokens, context, root)
         .map(|sequence| sequence.invoked_at(invocation))
         .and_then(KSequence::keyed_standalone)
 }
@@ -1513,7 +1594,7 @@ fn parse_keyed_k_sequence(
 fn parse_unkeyed_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
-    content_root: bool,
+    root: SequenceRoot,
 ) -> Result<KSequence, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
@@ -1530,13 +1611,20 @@ fn parse_unkeyed_k_sequence(
                 ));
             }
             if starts_remainder(input) {
-                let tail = parse_remainder_kept(input, context, "k", content_root)?;
+                let tail = parse_remainder_kept(input, context, "k", root)?;
                 if !input.is_empty() {
-                    return Err(state_error(
-                        "k",
-                        "the sequence tail must be last",
-                        input.span(),
-                    ));
+                    let misplaced = state_error("k", MISPLACED_TAIL, input.span());
+                    let Some((items, notation)) = parse_back_items(input, context, root, None)
+                    else {
+                        return Err(misplaced);
+                    };
+                    return Ok(KSequence::new(
+                        original.clone(),
+                        items,
+                        tail,
+                        notation.unwrap_or(KSequenceNotation::Comma),
+                    )
+                    .misplacing(misplaced));
                 }
                 return Ok(KSequence::new(
                     original.clone(),
@@ -1568,7 +1656,7 @@ fn parse_unkeyed_k_sequence(
             let mut notation = None;
             loop {
                 if starts_remainder(input) {
-                    tail = parse_remainder_kept(input, context, "k", content_root)?;
+                    tail = parse_remainder_kept(input, context, "k", root)?;
                     break;
                 }
                 items.push(parse_state_item(input, context)?);
@@ -1619,11 +1707,19 @@ fn parse_unkeyed_k_sequence(
                 }
             }
             if !input.is_empty() {
-                return Err(state_error(
-                    "k",
-                    "the sequence tail must be last",
-                    input.span(),
-                ));
+                let misplaced = state_error("k", MISPLACED_TAIL, input.span());
+                let Some((back, notation)) = parse_back_items(input, context, root, notation)
+                else {
+                    return Err(misplaced);
+                };
+                items.extend(back);
+                return Ok(KSequence::new(
+                    original.clone(),
+                    items,
+                    tail,
+                    notation.unwrap_or(KSequenceNotation::Comma),
+                )
+                .misplacing(misplaced));
             }
             Ok(KSequence::new(
                 original.clone(),
@@ -1634,6 +1730,53 @@ fn parse_unkeyed_k_sequence(
         },
         |error| state_error("k", "malformed compiler-owned state syntax", error.span()),
     )
+}
+
+/// The refusal of an item after a sequence's tail.
+const MISPLACED_TAIL: &str = "the sequence tail must be last";
+
+/// The items a `KCell(..)` entry's sequence writes after its tail, `KCell(.., x)` or
+/// `KCell(x, .., y)`, with the separator the sequence is written with: `None` where the sequence
+/// is no `KCell(..)` entry's, or where what follows the tail is not one more item after each
+/// separator (another rest, `.K`, mixed separators), which is refused as written. An item after
+/// the computation's rest is the computation cell's mistake, and `KCell(..)` on a cell of another
+/// kind is the wrapper's mistake first, so the entry is kept for the judgement that knows the
+/// cell's kind ([`KSequence::misplaced_tail`]).
+fn parse_back_items(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+    root: SequenceRoot,
+    notation: Option<KSequenceNotation>,
+) -> Option<(Vec<TermExpression>, Option<KSequenceNotation>)> {
+    use syn::parse::discouraged::Speculative;
+    if root != SequenceRoot::Cell {
+        return None;
+    }
+    let ahead = input.fork();
+    let mut items = Vec::new();
+    let mut notation = notation;
+    while !ahead.is_empty() {
+        let separator = if ahead.peek(Token![,]) {
+            ahead.parse::<Token![,]>().ok()?;
+            KSequenceNotation::Comma
+        } else if ahead.peek(Token![~]) {
+            ahead.parse::<Token![~]>().ok()?;
+            ahead.parse::<Token![>]>().ok()?;
+            KSequenceNotation::Operator
+        } else {
+            return None;
+        };
+        if notation.is_some_and(|previous| previous != separator) {
+            return None;
+        }
+        notation = Some(separator);
+        if ahead.is_empty() || ahead.peek(Token![.]) || starts_remainder(&ahead) {
+            return None;
+        }
+        items.push(parse_state_item(&ahead, context).ok()?);
+    }
+    input.advance_to(&ahead);
+    Some((items, notation))
 }
 
 /// Whether an initializer cell's own `map![..]` payload is read as a collection literal: one with
@@ -2659,18 +2802,18 @@ fn parse_remainder(
     context: StateMacroContext,
     macro_name: &'static str,
 ) -> Result<StateMacroRemainder, SyntaxError> {
-    parse_remainder_kept(input, context, macro_name, false)
+    parse_remainder_kept(input, context, macro_name, SequenceRoot::Term)
 }
 
-/// A remainder, where `content_root` tells whether an expression's anonymous `..` keeps the
-/// subject's rest ([`parse_cell_k_sequence`]).
+/// A remainder, where `root` tells what an expression's anonymous `..` means: the subject's rest,
+/// kept, at a `KCell(..)` entry's root ([`parse_cell_k_sequence`]), and nothing elsewhere.
 fn parse_remainder_kept(
     input: ParseStream<'_>,
     context: StateMacroContext,
     macro_name: &'static str,
-    content_root: bool,
+    root: SequenceRoot,
 ) -> Result<StateMacroRemainder, SyntaxError> {
-    let remainder = parse_remainder_tokens(input, context, macro_name, content_root)?;
+    let remainder = parse_remainder_tokens(input, context, macro_name, root)?;
     if input.peek(Token![|]) {
         // K's #Or combines terms; a remainder is a frame (KF-030).
         return Err(SyntaxError::new(
@@ -2687,7 +2830,7 @@ fn parse_remainder_tokens(
     input: ParseStream<'_>,
     context: StateMacroContext,
     macro_name: &'static str,
-    content_root: bool,
+    root: SequenceRoot,
 ) -> Result<StateMacroRemainder, SyntaxError> {
     if input.peek(Token![..]) {
         let dots: Token![..] = input.parse().map_err(SyntaxError::from)?;
@@ -2705,7 +2848,7 @@ fn parse_remainder_tokens(
                 binding,
             });
         }
-        if context == StateMacroContext::Expression && !content_root {
+        if context == StateMacroContext::Expression && root == SequenceRoot::Term {
             if macro_name == "map" {
                 return Err(crate::collection_literal::anonymous_map_rest(dots.spans[0]));
             }

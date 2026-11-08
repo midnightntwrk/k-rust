@@ -44,8 +44,9 @@ pub(super) struct ParsedField<R> {
 }
 
 /// A `cells!` sentence's authored fields: its subject's, its result's (none for a single-body
-/// rule), the names its parameters bind, and the refusal of a result remainder that reuses no
-/// subject frame of its kind, which is asked once the entries are admitted.
+/// rule), the names its parameters bind, and the refusals the parser leaves until the entries
+/// are admitted: an item after a computation's rest, then a result remainder that reuses no
+/// subject frame of its kind.
 #[derive(Clone, Debug)]
 pub(super) struct ParsedCells<R> {
     /// The form the entries are written in: `cells!`, or a readable record or claim.
@@ -53,20 +54,23 @@ pub(super) struct ParsedCells<R> {
     subject: Vec<ParsedField<R>>,
     result: Option<Vec<ParsedField<R>>>,
     parameters: Vec<String>,
-    reuse: Option<Reuse<R>>,
+    after: Vec<After<R>>,
 }
 
-/// A result remainder's refusal ([`krs_syntax::StateRuleItem::reuse_refusal`]): the parser's
-/// message and where the remainder is.
+/// A refusal the parser leaves until the entries are admitted: a `KCell(..)` entry's item after
+/// its sequence's tail ([`krs_syntax::StateRuleItem::misplaced_tail`]), or a result remainder's
+/// ([`krs_syntax::StateRuleItem::reuse_refusal`]); the parser's message, and where it is.
 #[derive(Clone, Debug)]
-struct Reuse<R> {
+struct After<R> {
+    kind: CollectionErrorKind,
     detail: String,
     range: Option<R>,
 }
 
-impl Reuse<Coordinates> {
-    fn of(error: &krs_syntax::SyntaxError) -> Self {
+impl After<Coordinates> {
+    fn of(kind: CollectionErrorKind, error: &krs_syntax::SyntaxError) -> Self {
         Self {
+            kind,
             detail: error.to_string(),
             range: super::provenance::token_coordinates(krs_syntax::TokenRange::new(
                 error.span(),
@@ -77,9 +81,9 @@ impl Reuse<Coordinates> {
     }
 }
 
-impl Reuse<SourceRange> {
+impl After<SourceRange> {
     fn refused(&self) -> CollectionError {
-        let error = CollectionError::new(CollectionErrorKind::ResultRemainderReuse, &self.detail);
+        let error = CollectionError::new(self.kind, &self.detail);
         match &self.range {
             Some(range) => error.with_source_range(range.clone()),
             None => error,
@@ -87,15 +91,30 @@ impl Reuse<SourceRange> {
     }
 }
 
-/// The refusal of `rule`'s result remainder that reuses no subject frame of its kind, at once:
-/// for a sentence whose entries no admission judges first.
-pub(super) fn reuse_refused(rule: &krs_syntax::StateRuleItem) -> Result<(), CollectionError> {
-    match rule.reuse_refusal() {
-        Some(error) => {
-            let error =
-                CollectionError::new(CollectionErrorKind::ResultRemainderReuse, error.to_string())
-                    .with_span(error.span());
-            Err(error)
+/// The refusals `rule`'s parser leaves until its entries are admitted, in the order they are
+/// asked: an item after a computation's rest, which the entry's kind answers first, then a result
+/// remainder that reuses no subject frame of its kind, which pairs the result with the subject.
+fn after_admission(
+    rule: &krs_syntax::StateRuleItem,
+) -> Vec<(CollectionErrorKind, krs_syntax::SyntaxError)> {
+    rule.misplaced_tail()
+        .map(|error| (CollectionErrorKind::SourceSyntax, error))
+        .into_iter()
+        .chain(
+            rule.reuse_refusal()
+                .map(|error| (CollectionErrorKind::ResultRemainderReuse, error)),
+        )
+        .collect()
+}
+
+/// The first refusal `rule`'s parser leaves until its entries are admitted, at once: for a
+/// sentence whose entries no admission judges first.
+pub(super) fn refused_without_admission(
+    rule: &krs_syntax::StateRuleItem,
+) -> Result<(), CollectionError> {
+    match after_admission(rule).into_iter().next() {
+        Some((kind, error)) => {
+            Err(CollectionError::new(kind, error.to_string()).with_span(error.span()))
         }
         None => Ok(()),
     }
@@ -153,7 +172,7 @@ impl ParsedCells<Coordinates> {
             subject: fields(pattern)?,
             result: None,
             parameters: parameters.into_iter().collect(),
-            reuse: None,
+            after: Vec::new(),
         })
     }
 
@@ -172,7 +191,10 @@ impl ParsedCells<Coordinates> {
                 .iter()
                 .map(|binding| binding.name().to_string())
                 .collect(),
-            reuse: rule.reuse_refusal().as_ref().map(Reuse::of),
+            after: after_admission(rule)
+                .iter()
+                .map(|(kind, error)| After::of(*kind, error))
+                .collect(),
         })
     }
 
@@ -186,7 +208,7 @@ impl ParsedCells<Coordinates> {
             subject: read_fields(subject, form)?,
             result: Some(read_fields(result, form)?),
             parameters: Vec::new(),
-            reuse: None,
+            after: Vec::new(),
         })
     }
 
@@ -198,7 +220,7 @@ impl ParsedCells<Coordinates> {
             subject: located_fields(initializer.entry_fields()?)?,
             result: None,
             parameters: initializer.variable_names(),
-            reuse: None,
+            after: Vec::new(),
         })
     }
 
@@ -235,13 +257,18 @@ impl ParsedCells<Coordinates> {
             subject: locate(&self.subject),
             result: self.result.as_deref().map(locate),
             parameters: self.parameters.clone(),
-            reuse: self.reuse.as_ref().map(|reuse| Reuse {
-                detail: reuse.detail.clone(),
-                range: reuse
-                    .range
-                    .as_ref()
-                    .and_then(|coordinates| coordinates.range_in(document)),
-            }),
+            after: self
+                .after
+                .iter()
+                .map(|after| After {
+                    kind: after.kind,
+                    detail: after.detail.clone(),
+                    range: after
+                        .range
+                        .as_ref()
+                        .and_then(|coordinates| coordinates.range_in(document)),
+                })
+                .collect(),
         }
     }
 }
@@ -250,8 +277,9 @@ impl ParsedCells<Coordinates> {
 /// holds: a `cells!` rule's or claim's, pairing a result's with its subject's, or a single-body
 /// rule's in place; and the one-sided pattern of a context, a context alias or an equation's
 /// function context, which the sentence keeps as it matched it ([`Rewrite::Kept`]). Then, once
-/// a rule's entries are admitted, its result remainders, each against the subject frame it
-/// reuses: that pairs the result with the subject, after each entry's form and kind.
+/// a rule's entries are admitted, what its parser left until then: an item after a
+/// computation's rest, which the entry's kind answers first, then its result remainders, each
+/// against the subject frame it reuses, which pairs the result with the subject.
 ///
 /// Returns the warnings of the admitted entries' lints, in the sentences' order and each
 /// sentence's source order: one per entry that owes one, at its value ([`linted`]).
@@ -259,7 +287,7 @@ impl ParsedCells<Coordinates> {
 /// # Errors
 ///
 /// The first refused entry, with its class's code, at its value; else the first sentence's
-/// result remainder that reuses no subject frame of its kind, at the remainder.
+/// refusal its parser left until its entries were admitted, where it is.
 pub(super) fn judge(
     bundle: &DescriptorBundle,
     cells: &BTreeMap<StableItemId, LocatedCells>,
@@ -272,8 +300,8 @@ pub(super) fn judge(
             continue;
         }
         warnings.extend(judge_entries(&index, id, authored)?);
-        if let Some(reuse) = &authored.reuse {
-            return Err(reuse.refused());
+        if let Some(after) = authored.after.first() {
+            return Err(after.refused());
         }
     }
     Ok(warnings)

@@ -709,10 +709,13 @@ impl StateRuleItem {
         };
         let subject_macro = subject_macro.clone();
         validate_cells_path(&subject_macro.mac.path, subject_macro.span())?;
+        // A rule's and a context's entries are judged against their cells' kinds before an
+        // item after a computation's rest is asked ([`Self::misplaced_tail`]); no such judgement
+        // reads a claim's.
         let subject = if form == StateRuleForm::Claim {
             crate::state_macro::parse_cells_claim_pattern(subject_macro.mac.tokens.clone())?
         } else {
-            parse_cells_pattern(subject_macro.mac.tokens.clone())?
+            crate::state_macro::parse_cells_pattern_judged_later(subject_macro.mac.tokens.clone())?
         };
         let subject_type = parse_configuration_type(&argument.ty)?;
         if form == StateRuleForm::Context {
@@ -733,7 +736,13 @@ impl StateRuleItem {
                 let result_type = parse_configuration_type(result_type)?;
                 let result_macro = parse_result_macro(&item)?;
                 validate_cells_path(&result_macro.path, result_macro.span())?;
-                let result = parse_cells_expression(result_macro.tokens.clone())?;
+                let result = if form == StateRuleForm::Claim {
+                    parse_cells_expression(result_macro.tokens.clone())?
+                } else {
+                    crate::state_macro::parse_cells_expression_judged_later(
+                        result_macro.tokens.clone(),
+                    )?
+                };
                 Some(StateRuleResult {
                     result_macro,
                     result_type,
@@ -894,6 +903,24 @@ impl StateRuleItem {
     pub fn reuse_refusal(&self) -> Option<SyntaxError> {
         let result = self.result.as_ref()?;
         validate_result_reuses(&result.result, &self.bindings, ResultCheck::Remainders).err()
+    }
+
+    /// The refusal of a `KCell(..)` entry that writes an item after its sequence's tail,
+    /// `KCell(.., x)` or `KCell(x, .., y)`, the subject's first, `None` where no entry does
+    /// ([`crate::KSequence::misplaced_tail`]).
+    ///
+    /// The computation is read from its front, so its rest ends it (E1): an item after it is the
+    /// computation cell's mistake. On a cell of another kind, `KCell(..)` is the mistake first,
+    /// whatever its payload's order, and the cell's kind is the declaration's. So the entry's
+    /// kind is judged first (form, kind, pairing, sorts), and parsing leaves this to the caller
+    /// that judges the kinds, which asks it once they are admitted, or at once where it judges
+    /// none, before the result's remainders.
+    #[must_use]
+    pub fn misplaced_tail(&self) -> Option<SyntaxError> {
+        self.subject
+            .misplaced_tail()
+            .or_else(|| self.result.as_ref()?.result.misplaced_tail())
+            .cloned()
     }
 
     /// Returns the optional object-language Boolean applicability condition.

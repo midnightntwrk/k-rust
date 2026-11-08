@@ -275,7 +275,7 @@ match = 'readable-run/result/job/[x\, ..]'
 finding = "S0-16"
 kind = "diagnostic"
 
-# S0-9, diagnostic: 1625 reds
+# S0-9, diagnostic: 1347 reds
 
 # init: 1
 [[family]]
@@ -703,9 +703,9 @@ match = 'sweep/*/{subject,written}/stack/Some([..])'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 112
+# sweep: 2
 [[family]]
-match = 'sweep/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
+match = 'sweep/cells/written/olist/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -922,12 +922,6 @@ kind = "diagnostic"
 # sweep-paths: 4
 [[family]]
 match = 'sweep-paths/*/result/{lenv,qenv}/[..\, x]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 168
-[[family]]
-match = 'sweep-paths/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -1261,17 +1255,17 @@ match = 'sweep/{claim,readable}/result/env/{None,x}'
 finding = "S5-H1"
 kind = "diagnostic+rust-syntax"
 
-# S5-K1, diagnostic: 10 reds
+# S5-K1, diagnostic: 14 reds
 
-# sweep: 4
+# sweep: 6
 [[family]]
-match = 'sweep/cells/written/seq/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell([..\, x]),k::configuration::KCell(x\, ..),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
+match = 'sweep/cells/written/seq/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell([..\, x]),k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..),k::configuration::KCell(x\, ..\, y),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
 finding = "S5-K1"
 kind = "diagnostic"
 
-# sweep: 4
+# sweep: 6
 [[family]]
-match = 'sweep/cells/written/stack/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::KCell(x\, ..),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
+match = 'sweep/cells/written/stack/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..),k::configuration::KCell(x\, ..\, y),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
 finding = "S5-K1"
 kind = "diagnostic"
 

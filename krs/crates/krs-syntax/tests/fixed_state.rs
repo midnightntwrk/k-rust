@@ -1545,3 +1545,92 @@ fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
             .unwrap_err();
     assert_eq!(error.kind(), &group_entry, "{source}");
 }
+
+/// An item after a `KCell(..)` entry's tail is the computation cell's mistake, and `KCell(..)`
+/// on a cell of another kind is the wrapper's mistake first: a rule's parser keeps the entry,
+/// its items in order before the tail, and carries the refusal for the judgement that knows the
+/// cell's kind. A parse no such judgement follows refuses it at once.
+#[test]
+fn an_item_after_a_kcell_tail_waits_for_the_cells_kind() {
+    let misplaced = SyntaxErrorKind::InvalidStateMacro {
+        macro_name: "k",
+        reason: "the sequence tail must be last",
+    };
+    // Each rule, the side whose entry writes an item after its tail, and its items.
+    for (parameters, subject, result, in_subject, items) in [
+        (
+            "x: Term<Id>",
+            "acct: KCell(.., x)",
+            "acct: KCell(x, ..)",
+            true,
+            1,
+        ),
+        (
+            "x: Term<Id>, y: Term<Id>",
+            "acct: KCell(x, .., y)",
+            "acct: KCell(x, ..)",
+            true,
+            2,
+        ),
+        (
+            "x: Term<Id>, y: Term<Id>",
+            "acct: KCell(x ~> .. ~> y)",
+            "acct: KCell(x, ..)",
+            true,
+            2,
+        ),
+        (
+            "x: Term<Id>",
+            "acct: KCell(x, ..)",
+            "acct: KCell(x, .., x)",
+            false,
+            2,
+        ),
+    ] {
+        let source = format!(
+            "fn step({parameters}, cells! {{ {subject} }}: Machine) -> Machine {{ cells! {{ {result} }} }}"
+        );
+        let rule = krs_syntax::StateRuleItem::parse_source(&source).unwrap();
+        let refusal = rule
+            .misplaced_tail()
+            .expect("the item after the tail is carried");
+        assert_eq!(refusal.kind(), &misplaced, "{source}");
+        let carried = if in_subject {
+            rule.subject()
+        } else {
+            rule.result().unwrap()
+        };
+        let StateTerm::KSequence(sequence) = carried.entries()[0].value() else {
+            panic!("{source}: `KCell(..)` holds a K sequence");
+        };
+        assert_eq!(sequence.items().len(), items, "{source}");
+        assert!(sequence.misplaced_tail().is_some(), "{source}");
+        // Read alone, where no kind is judged, the payload is refused as written.
+        let tokens = |text: &str| krs_syntax::parse::tokens_from_source(text).unwrap();
+        let alone = if in_subject {
+            krs_syntax::parse_cells_pattern(tokens(subject)).unwrap_err()
+        } else {
+            krs_syntax::parse_cells_expression(tokens(result)).unwrap_err()
+        };
+        assert_eq!(alone.kind(), &misplaced, "{source}");
+    }
+    // In order, nothing is carried; what follows the tail that is no item is refused as written.
+    let rule = krs_syntax::StateRuleItem::parse_source(
+        "fn step(x: Term<Id>, cells! { acct: KCell(x, ..) }: Machine) -> Machine { cells! { acct: KCell(x, ..) } }",
+    )
+    .unwrap();
+    assert!(rule.misplaced_tail().is_none());
+    for subject in [
+        "acct: KCell(.., r @ ..)",
+        "acct: KCell(.., x, ..)",
+        "acct: KCell(x, .., y ~> z)",
+    ] {
+        let source = format!(
+            "fn step(x: Term<Id>, cells! {{ {subject} }}: Machine) -> Machine {{ cells! {{ acct: KCell(x, ..) }} }}"
+        );
+        assert!(
+            krs_syntax::StateRuleItem::parse_source(&source).is_err(),
+            "{source}"
+        );
+    }
+}
