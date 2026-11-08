@@ -339,7 +339,7 @@ pub(crate) fn translates_exactly(query: &[Predicate]) -> bool {
 ///
 /// A leaf's term is as deep as the run made it, so the walk keeps the subterms still to check on
 /// a work list instead of the native stack.
-fn constructor_term(term: &Term, inhabitation: &Inhabitation) -> bool {
+pub(crate) fn constructor_term(term: &Term, inhabitation: &Inhabitation) -> bool {
     let mut pending = vec![term];
     // Invariant: every subterm checked so far passed, and `pending` holds the subterms still to
     // check; each subterm is pushed once, so the loop ends.

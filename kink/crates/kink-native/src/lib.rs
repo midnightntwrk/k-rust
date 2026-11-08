@@ -18,6 +18,8 @@
 //!   the compiled definitions, with kink-patch's source reading as a fail-closed cross-check.
 //! - [`feasibility`] decides solver-free leaf feasibility and payload relations with the
 //!   backend's definition and unifier ([`feasibility::BackendRelations`]).
+//! - [`invariant`] decides whether an invariant over configuration cells excludes an obligation
+//!   of a rewrite rule at the rule's left-hand side, trusting only the solver's `Unsat`.
 //!
 pub mod bridge;
 pub mod census;
@@ -28,6 +30,7 @@ mod equivalence;
 pub mod exclusion;
 pub mod execution;
 pub mod feasibility;
+pub mod invariant;
 pub mod observation;
 pub mod report;
 pub mod representation;
