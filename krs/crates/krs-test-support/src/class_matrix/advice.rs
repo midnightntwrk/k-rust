@@ -686,11 +686,11 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "instance-list-shape",
         forms: &[
-            r"`[{Lgl,Qgl} \{ .. \}\, ..]`",
+            r"`[{Ajob,Lgl,Qgl} \{ .. \}\, ..]`",
             r"`\{ {Aacct,Lgm,Lgs,Qgm,Qgs} \{ .. \}\, .. \}`",
         ],
         shards: &["readable", "sweep-paths"],
-        reason: "the advice writes the instance mark of a collection's own kind at a collection of a group no accepted case writes instances of: the readable base's nested collections (`aacct`) and the path sweep's collections below a marked ancestor, whose own kind is judged before their path (P3, S1 (b)); the class's advised cases write the instances of `job`, `bag`, `account` and the sweep's collections",
+        reason: "the advice writes the instance mark of a collection's own kind at a collection of a group no accepted case writes instances of: the readable base's nested collections (`aacct`, `ajob`) and the path sweep's collections below a marked ancestor, whose own kind is judged before their path (P3, S1 (b)); the class's advised cases write the instances of `job`, `bag`, `account` and the sweep's collections",
     },
     Unchecked {
         class: "island-at-subject-root",

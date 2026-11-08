@@ -996,29 +996,86 @@ fn a_result_presence_over_an_unmatched_cell_is_a_presence() {
     }
 }
 
+/// A result value is read by its spelling, whatever the subject's entry of the cell spelled: the
+/// shorthand `counter` is the binder term `counter: counter`, braces that are no term are
+/// instances, and `Some(..)` is a presence. Where the two entries of a cell are of readings no
+/// lowering pairs, the clause parses and carries that refusal, which the collector raises only
+/// once the cell's kind admits both entries: a term or instances on a cell of another kind is
+/// that kind's class first.
 #[test]
-fn shorthand_follows_the_entry_it_stands_for() {
+fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
     for (source, expected) in [
-        // A state cell's result restates its `Some`/`None` or instances.
         (
             "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter };",
-            "an optional cell's result is `Some(..)` or `None`",
+            "an optional or collection cell's result restates its `Some`/`None` or instance list",
         ),
         (
             "for Machine; x: { k: [Go(), ..], thread: { Thread { id: t, .. }, .. } } => { k: [..], thread };",
-            "a collection cell's result is an instance list",
+            "an optional or collection cell's result restates its `Some`/`None` or instance list",
         ),
         (
-            "for Machine; x: { k: [Go(), ..], gas, gas } => { k: [..] };",
-            "duplicate machine-rule cell `gas`",
+            "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: 0 };",
+            "an optional or collection cell's result restates its `Some`/`None` or instance list",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: { x, .. } };",
+            "an optional or collection cell's result restates its `Some`/`None` or instance list",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], thread: { Thread { id: t, .. }, .. } } => { k: [..], thread: None };",
+            "an optional or collection cell's result restates its `Some`/`None` or instance list",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: [.., n] };",
+            "`..` ends a k result",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: { G { a: n, .. }, .. } };",
+            "an ordinary fixed cell's result is one term",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], pc: { x, .. } };",
+            "an ordinary fixed cell's result is one term",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: { y -> n, .. } };",
+            "reads a map (`{ k -> v, .. }`) in a result",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], env: { y -> 1, .. } };",
+            "reads a map (`{ k -> v, .. }`) in a result",
         ),
     ] {
-        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+        let block = krs_syntax::RuleBlock::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let refusal = block.clauses()[0]
+            .pairing_refusal()
+            .unwrap_or_else(|| panic!("{source}: no pairing refusal carried"));
         assert!(
-            error.to_string().contains(expected),
-            "expected {expected:?} in {error}"
+            refusal.to_string().contains(expected),
+            "expected {expected:?} in {refusal}"
         );
     }
+    // Entries a lowering pairs carry no refusal.
+    for source in [
+        "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: None };",
+        "for Machine; x: { k: [Go(), ..], thread: { Thread { id: t, .. }, .. } } => { k: [..], thread: { Thread { id: 0, .. }, .. } };",
+        "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: { let m = n; m } };",
+    ] {
+        let block = krs_syntax::RuleBlock::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        assert!(block.clauses()[0].pairing_refusal().is_none(), "{source}");
+    }
+    let error = krs_syntax::RuleBlock::parse_source(
+        "for Machine; x: { k: [Go(), ..], gas, gas } => { k: [..] };",
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate machine-rule cell `gas`"),
+        "{error}"
+    );
 }
 
 /// A binder is an identifier, never a keyword: `true` is the Bool literal, so a narrowing, a

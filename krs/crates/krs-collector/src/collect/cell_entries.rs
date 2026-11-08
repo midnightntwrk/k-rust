@@ -46,7 +46,7 @@ pub(super) struct ParsedField<R> {
 /// A `cells!` sentence's authored fields: its subject's, its result's (none for a single-body
 /// rule), the names its parameters bind, and the refusals the parser leaves until the entries
 /// are admitted: an item after a computation's rest, then a result remainder that reuses no
-/// subject frame of its kind.
+/// subject frame of its kind, or a readable cell whose two entries no lowering pairs.
 #[derive(Clone, Debug)]
 pub(super) struct ParsedCells<R> {
     /// The form the entries are written in: `cells!`, or a readable record or claim.
@@ -58,8 +58,9 @@ pub(super) struct ParsedCells<R> {
 }
 
 /// A refusal the parser leaves until the entries are admitted: a `KCell(..)` entry's item after
-/// its sequence's tail ([`krs_syntax::StateRuleItem::misplaced_tail`]), or a result remainder's
-/// ([`krs_syntax::StateRuleItem::reuse_refusal`]); the parser's message, and where it is.
+/// its sequence's tail ([`krs_syntax::StateRuleItem::misplaced_tail`]), a result remainder's
+/// ([`krs_syntax::StateRuleItem::reuse_refusal`]), or a readable clause's pairing
+/// ([`krs_syntax::RuleClause::pairing_refusal`]); its kind, the parser's message, and where it is.
 #[derive(Clone, Debug)]
 struct After<R> {
     kind: CollectionErrorKind,
@@ -208,7 +209,11 @@ impl ParsedCells<Coordinates> {
             subject: read_fields(subject, form)?,
             result: Some(read_fields(result, form)?),
             parameters: Vec::new(),
-            after: Vec::new(),
+            after: clause
+                .pairing_refusal()
+                .map(|error| After::of(CollectionErrorKind::SourceSyntax, error))
+                .into_iter()
+                .collect(),
         })
     }
 
@@ -319,7 +324,9 @@ pub(super) fn judge(
 ///
 /// # Errors
 ///
-/// The first refused entry, with its class's code, at what it refuses.
+/// The first refused entry, with its class's code, at what it refuses; else the refusal of the
+/// first cell whose two entries the parser could not pair
+/// ([`krs_syntax::RuleClause::pairing_refusal`]).
 pub(super) fn judge_readable(
     id: &StableItemId,
     target: &super::resolve::HeadRuleTarget,
@@ -383,6 +390,11 @@ pub(super) fn judge_readable(
             )?;
         }
         instance_child_multiplicity(&subject, &result)?;
+        // A cell whose two entries the parser could not pair (a presence over a term, ..) is
+        // refused only now: the table admitted both entries against the cell's kind, first.
+        if let Some(pairing) = authored.after.first() {
+            return Err(pairing.refused());
+        }
     }
     match judged {
         Ok(lints) => Ok(lints

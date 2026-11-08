@@ -371,6 +371,10 @@ pub struct RuleClause {
     /// A cell-record clause's authored subject and result records, the tokens inside their
     /// braces, which the entry-admission table reads ([`crate::cell_entry::entry_fields`]).
     pub(super) records: Option<(TokenStream, TokenStream)>,
+    /// A cell-record clause's refusal of a cell whose subject and result entries no lowering
+    /// pairs, which the collector raises once the entries are admitted by the cells' kinds
+    /// ([`Self::pairing_refusal`]).
+    pub(super) pairing_refusal: Option<Box<crate::SyntaxError>>,
 }
 
 /// The computation cell a cell-record clause names: its field in the
@@ -989,6 +993,21 @@ impl RuleClause {
         self.bracket_alternative.as_deref()
     }
 
+    /// The refusal of a cell-record clause's first cell whose subject entry and result entry no
+    /// lowering pairs (a presence over a term, a term over an instance list, ..), `None` where
+    /// every cell's entries pair.
+    ///
+    /// The result's value is read by its spelling, so its reading can differ from the subject's
+    /// entry of the same cell. Whether each entry fits the cell is the declared cell's kind's
+    /// question, asked first, by the caller that knows the kinds (the collector's entry
+    /// admission): a cell of another kind is the author's mistake before the pairing. The
+    /// clause then lowers that cell as only read, so the caller raises this refusal where the
+    /// entries are admitted, before the clause is lowered further.
+    #[must_use]
+    pub fn pairing_refusal(&self) -> Option<&crate::SyntaxError> {
+        self.pairing_refusal.as_deref()
+    }
+
     /// Returns the complete authored clause range, including attributes and
     /// the terminating semicolon.
     #[must_use]
@@ -1571,6 +1590,7 @@ impl RuleBlock {
                 keys: ClauseKeys::default(),
                 anchors: Vec::new(),
                 records: None,
+                pairing_refusal: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);
