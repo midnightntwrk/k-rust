@@ -17,6 +17,12 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
       "covered": 2,
       "obligations": 2,
       "open": 0
+    },
+    "syntax": {
+      "argued": 0,
+      "covered": 2,
+      "obligations": 2,
+      "open": 0
     }
   },
   "programs": 4

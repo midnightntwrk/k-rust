@@ -1,6 +1,6 @@
 $ krs kink --package story-plus --definition main coverage --output verdicts --locked
 schema = "kink-flow-verdicts"
-version = 9
+version = 10
 document = "coverage"
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -19,6 +19,9 @@ mcdc = []
 open = []
 
 [requirements]
+open = []
+
+[syntax]
 open = []
 
 [flips]
