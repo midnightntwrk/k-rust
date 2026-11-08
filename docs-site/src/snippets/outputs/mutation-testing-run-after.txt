@@ -1,6 +1,6 @@
 $ krs kink --package story-plus --definition main run --corpus guide --full --output verdicts --locked
 schema = "kink-flow-verdicts"
-version = 19
+version = 20
 document = "run"
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -13,13 +13,19 @@ outcome = "admitted"
 id = "correlated/off-by-one"
 status = "killed"
 killer = "t1"
-killed_by = ["t1", "t2", "t4"]
+killed_by = [
+  "t1",
+  "t2",
+  "t4",
+]
 
 [[mutation]]
 id = "survivors/one"
 status = "killed"
 killer = "t5"
-killed_by = ["t5"]
+killed_by = [
+  "t5",
+]
 
 [[mutation]]
 id = "survivors/swap"

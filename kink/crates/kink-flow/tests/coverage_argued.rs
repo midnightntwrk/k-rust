@@ -539,13 +539,13 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{plain:#}");
         let recorded = fs::read_to_string(&lock).unwrap();
         assert_eq!(recorded, verdicts(&plain).unwrap());
-        assert!(recorded.contains("\nversion = 19\n"), "{recorded}");
+        assert!(recorded.contains("\nversion = 20\n"), "{recorded}");
         assert!(
-            recorded.contains(&format!("\n[rules]\nopen = [\"{WAKE}\", ")),
+            recorded.contains(&format!("\n[rules]\nopen = [\n  \"{WAKE}\",\n")),
             "{recorded}"
         );
         assert!(
-            !recorded.contains(&format!("argued = [\"{WAKE}\"]")),
+            !recorded.contains(&format!("argued = [\n  \"{WAKE}\",\n")),
             "{recorded}"
         );
 
@@ -577,8 +577,8 @@ mod kink_tier {
         let rewritten = fs::read_to_string(&lock).unwrap();
         assert!(
             rewritten.contains(&format!(
-                "\n[rules]\nopen = [\"rule:GUARDS.halted\", \"rule:GUARDS.high\"]\nargued = \
-                 [\"{WAKE}\"]\n"
+                "\n[rules]\nopen = [\n  \"rule:GUARDS.halted\",\n  \"rule:GUARDS.high\",\n]\n\
+                 argued = [\n  \"{WAKE}\",\n]\n"
             )),
             "{rewritten}"
         );

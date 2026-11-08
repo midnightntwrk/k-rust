@@ -279,12 +279,12 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
-            "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"run\"\n".to_owned(),
+            "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"run\"\n".to_owned(),
             "its document is not \"coverage\"",
         ),
         (
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"coverage\"\n\n\
                  {flip}\n{flip}"
             ),
             "the flip \"f\" is listed twice",
@@ -887,7 +887,7 @@ mod kink_tier {
         // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
         // keep but rewrite (its header and open obligations are a hand's).
         let text = format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"coverage\"\n\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"coverage\"\n\n\
              [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
         );
         fs::write(&lock, &text).unwrap();
@@ -970,8 +970,8 @@ mod kink_tier {
         let edited = with_row_key(&recorded, H, "killer", "gone");
         let edited = with_row_key(&edited, I, "status", "distinguished");
         let edited = edited.replacen(
-            "\n[rules]\nopen = [",
-            "\n[rules]\nopen = [\"rule:gone\", ",
+            "\n[rules]\nopen = [\n",
+            "\n[rules]\nopen = [\n  \"rule:gone\",\n",
             1,
         );
         assert!(edited.contains("\"rule:gone\""), "{edited}");

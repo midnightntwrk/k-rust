@@ -697,9 +697,9 @@ fn an_argued_syntax_item_is_named_by_its_krs_id() {
     let verdicts = stdout(&package.coverage(&["--tier", "1", "--output", "verdicts"]));
     assert!(
         verdicts.contains(
-            "\nargued = [\"syntax:crate::decode_ld:r=2\", \"syntax:crate::Instr::Jump\"]\n"
+            "\nargued = [\n  \"syntax:crate::decode_ld:r=2\",\n  \"syntax:crate::Instr::Jump\",\n]\n"
         ) || verdicts.contains(
-            "\nargued = [\"syntax:crate::Instr::Jump\", \"syntax:crate::decode_ld:r=2\"]\n"
+            "\nargued = [\n  \"syntax:crate::Instr::Jump\",\n  \"syntax:crate::decode_ld:r=2\",\n]\n"
         ),
         "{verdicts}"
     );

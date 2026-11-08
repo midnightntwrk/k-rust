@@ -405,16 +405,24 @@ mod kink_tier {
             .split("[rule_windows]")
             .nth(1)
             .unwrap_or_else(|| panic!("{verdicts}"));
-        let argued_line = section
-            .lines()
-            .find(|line| line.starts_with("argued = "))
-            .unwrap();
-        assert!(argued_line.contains(&j_c1), "{argued_line}");
-        let open_line = section
-            .lines()
-            .find(|line| line.starts_with("open = "))
-            .unwrap();
-        assert!(!open_line.contains(&format!("\"{j_c1}\"")), "{open_line}");
+        let items = |key: &str| {
+            let opening = format!("{key} = [");
+            section
+                .lines()
+                .skip_while(|line| *line != opening)
+                .skip(1)
+                .take_while(|line| *line != "]")
+                .collect::<Vec<_>>()
+        };
+        let quoted = format!("\"{j_c1}\"");
+        assert!(
+            items("argued").iter().any(|line| line.contains(&quoted)),
+            "{verdicts}"
+        );
+        assert!(
+            !items("open").iter().any(|line| line.contains(&quoted)),
+            "{verdicts}"
+        );
     }
 
     /// The rule windows read the scope every family shares: with `c2` marked a claim helper, no

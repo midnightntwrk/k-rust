@@ -1,5 +1,5 @@
 schema = "kink-flow-verdicts"
-version = 19
+version = 20
 document = "coverage"
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -12,19 +12,26 @@ outcome = "admitted"
 [settings]
 tiers = [1]
 depth = 1
-mcdc = []
+mcdc = [
+]
 
 [rules]
-open = []
-argued = []
+open = [
+]
+argued = [
+]
 
 [requirements]
-open = []
-argued = []
+open = [
+]
+argued = [
+]
 
 [syntax]
-open = []
-argued = []
+open = [
+]
+argued = [
+]
 
 [flips]
 run = false

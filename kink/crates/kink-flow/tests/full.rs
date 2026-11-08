@@ -557,7 +557,7 @@ fn a_refused_run_document_names_its_schedule() {
             let printed = String::from_utf8(output.stdout).unwrap();
             assert!(
                 printed.starts_with(&format!(
-                    "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"run\"\n\
+                    "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"run\"\n\
                      {solver}\n[{section}]\noutcome = \"refused\"\n"
                 )),
                 "{printed}"
@@ -1368,14 +1368,14 @@ mod kink_tier {
         let solver = flow_support::solver_lines();
         assert!(
             full_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"run\"\n{solver}"
+                "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"run\"\n{solver}"
             )),
             "{full_cold}"
         );
         assert!(
             full_cold.contains(
                 "\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \
-                 \"add\"\nkilled_by = [\"add\", \"nested\", \"inline\"]\n"
+                 \"add\"\nkilled_by = [\n  \"add\",\n  \"nested\",\n  \"inline\",\n]\n"
             ),
             "{full_cold}"
         );
@@ -1387,15 +1387,24 @@ mod kink_tier {
         );
         assert!(
             first_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"run\"\n{solver}"
+                "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"run\"\n{solver}"
             )),
             "{first_cold}"
         );
         assert!(!first_cold.contains("killed_by"), "{first_cold}");
-        // Both schedules name the same killers: the renderings differ in `killed_by` lines only.
+        // Both schedules name the same killers: the renderings differ in `killed_by` lines only,
+        // each array from its key's line to its closing `]`.
         let without_killed_by = |text: &str| {
+            let mut inside = false;
             text.lines()
-                .filter(|line| !line.starts_with("killed_by = "))
+                .filter(|line| {
+                    if line.starts_with("killed_by = ") {
+                        inside = true;
+                    }
+                    let keep = !inside;
+                    inside = inside && *line != "]";
+                    keep
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         };

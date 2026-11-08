@@ -848,7 +848,8 @@ mod kink_tier {
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
         assert!(
             verdicts.contains(
-                "\n[rules]\nopen = [\"rule:GUARDS.wake\", \"rule:GUARDS.halted\", \"rule:GUARDS.high\"]\n"
+                "\n[rules]\nopen = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n  \
+                 \"rule:GUARDS.high\",\n]\n"
             ),
             "{verdicts}"
         );

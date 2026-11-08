@@ -558,12 +558,12 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
 
     // The verdicts rendering says which survivor rests on a horizon.
     let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
-    assert!(verdicts.contains("version = 19"), "{verdicts}");
+    assert!(verdicts.contains("version = 20"), "{verdicts}");
     assert!(
         verdicts.contains(
-            "horizon = [{ program = \"run\", channel = \"clock\", elements = 16, \
-             opening = \"bound\" }, { program = \"run\", channel = \"out\", elements = 2, \
-             opening = \"undecided-element\" }]"
+            "\nhorizon = [\n  { program = \"run\", channel = \"clock\", elements = 16, \
+             opening = \"bound\" },\n  { program = \"run\", channel = \"out\", elements = 2, \
+             opening = \"undecided-element\" },\n]\n"
         ),
         "{verdicts}"
     );

@@ -650,8 +650,8 @@ mod tests {
         let text = crate::verdicts::verdicts(&document).unwrap();
         assert!(
             text.contains(
-                "horizon = [{ program = \"run\", channel = \"clock\", elements = 16, \
-                 opening = \"bound\" }]"
+                "\nhorizon = [\n  { program = \"run\", channel = \"clock\", elements = 16, \
+                 opening = \"bound\" },\n]\n"
             ),
             "{text}"
         );

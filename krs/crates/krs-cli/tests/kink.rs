@@ -1414,8 +1414,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     );
     assert!(
         verdicts.ends_with(
-            "\n[rules]\nopen = []\nargued = []\n\n[requirements]\nopen = []\nargued = []\n\n[syntax]\nopen = \
-             []\nargued = []\n\n[flips]\nrun = false\n"
+            "\n[rules]\nopen = [\n]\nargued = [\n]\n\n[requirements]\nopen = [\n]\nargued = [\n]\n\n\
+             [syntax]\nopen = [\n]\nargued = [\n]\n\n[flips]\nrun = false\n"
         ),
         "{verdicts}"
     );
@@ -1570,7 +1570,8 @@ fn coverage_names_heating_rules_by_the_strict_variant_and_field() {
     let verdicts = stdout(&output);
     assert!(
         verdicts.contains(
-            "[rules]\nopen = [\"rule:crate::Arith::Add:heat:rhs\", \"rule:crate::Arith::Sub:heat:lhs\", \"rule:crate::Arith::Sub:heat:rhs\"]\n"
+            "[rules]\nopen = [\n  \"rule:crate::Arith::Add:heat:rhs\",\n  \
+             \"rule:crate::Arith::Sub:heat:lhs\",\n  \"rule:crate::Arith::Sub:heat:rhs\",\n]\n"
         ),
         "{verdicts}"
     );
@@ -1629,7 +1630,7 @@ fn coverage_names_rule_windows_by_their_rust_items() {
     assert_status(&output, 0);
     let verdicts = stdout(&output);
     assert!(
-        verdicts.contains("\n[rule_windows]\nopen = []\nargued = []\n"),
+        verdicts.contains("\n[rule_windows]\nopen = [\n]\nargued = [\n]\n"),
         "{verdicts}"
     );
 }
@@ -1792,7 +1793,8 @@ fn run_kills_the_story_edits() {
     );
     assert_status(&rendered, 0);
     assert!(
-        stdout(&rendered).contains("killer = \"t2\"\nkilled_by = [\"t2\", \"t3\", \"t4\"]\n"),
+        stdout(&rendered)
+            .contains("killer = \"t2\"\nkilled_by = [\n  \"t2\",\n  \"t3\",\n  \"t4\",\n]\n"),
         "{}",
         stdout(&rendered)
     );
@@ -6349,7 +6351,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 19\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

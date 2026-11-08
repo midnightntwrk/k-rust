@@ -260,7 +260,7 @@ mod kink_tier {
         );
         let rendering = verdicts(&document).unwrap();
         assert!(
-            rendering.contains("\nmcdc = [\"MCDC.both\"]\n"),
+            rendering.contains("\nmcdc = [\n  \"MCDC.both\",\n]\n"),
             "{rendering}"
         );
         assert!(
@@ -312,15 +312,22 @@ mod kink_tier {
         );
         let rendering = verdicts(&document).unwrap();
         assert!(
-            rendering.contains(&format!("undecided = [\"{BOTH_A}\", \"{BOTH_B}\"]")),
+            rendering.contains(&format!(
+                "undecided = [\n  \"{BOTH_A}\",\n  \"{BOTH_B}\",\n]\n"
+            )),
             "{rendering}"
         );
         let open = rendering
             .lines()
             .skip_while(|line| *line != "[requirements]")
-            .nth(1)
-            .unwrap();
-        assert!(!open.contains("mcdc"), "{rendering}");
+            .skip(1)
+            .take_while(|line| *line != "]")
+            .collect::<Vec<_>>();
+        assert_eq!(open.first(), Some(&"open = ["), "{rendering}");
+        assert!(
+            !open.iter().any(|line| line.contains("mcdc")),
+            "{rendering}"
+        );
     }
 
     /// `X >Int 10` implies `X >Int 0`, so no two valuations differ in `X >Int 0` alone while the
@@ -372,7 +379,7 @@ mod kink_tier {
         assert!(
             verdicts(&after)
                 .unwrap()
-                .contains(&format!("argued = [\"{BIG_LOW}\"]")),
+                .contains(&format!("argued = [\n  \"{BIG_LOW}\",\n]\n")),
             "{}",
             verdicts(&after).unwrap()
         );
