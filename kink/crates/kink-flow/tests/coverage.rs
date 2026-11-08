@@ -825,11 +825,11 @@ mod kink_tier {
             json!(targets.len()),
             "{document:#}"
         );
-        // The flips family runs nothing in this build, and says why.
+        // kink-flow's own front end derives no flips, so the family does not run, and says why.
         assert_eq!(document["families"]["flips"]["run"], false);
         assert_eq!(
             document["families"]["flips"]["reason"],
-            kink_flow::coverage::FLIPS_NOT_BUILT
+            kink_flow::flips::DERIVES_NONE
         );
         assert_eq!(document["settings"]["tiers"], json!([1]));
         // The verdicts rendering lists each family's open ids, without program lists.
@@ -967,7 +967,7 @@ mod kink_tier {
         assert_eq!(
             tier_one["families"]["flips"],
             json!({"tier": 2, "run": false, "obligations": null, "items": [],
-                   "reason": kink_flow::coverage::FLIPS_NOT_BUILT})
+                   "reason": kink_flow::flips::DERIVES_NONE})
         );
     }
 
@@ -1540,9 +1540,10 @@ text = 'h(opaque(1), 2)'
         assert_eq!(rules(&document)[1]["covered"], false);
         assert_eq!(rules(&document)[0]["id"], "rule:loop.k:19");
         // The coverage document's first version replaced the results document's version 11; its
-        // second builds the syntax family.
+        // second builds the syntax family; its third runs the flips family where a front end
+        // derives the flips.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 2);
+        assert_eq!(document["version"], 3);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2243,6 +2244,30 @@ endmodule
         );
         assert!(text.contains("\nrules: 3 of 3 fired (100.0%)"), "{text}");
 
+        // `--tier 2` asks for the flips too: kink-flow's own front end derives none, so the
+        // family does not run, says why, and the document computed tier 1 alone. (A cache of its
+        // own leaves the default cache as the commands below expect it.)
+        let tier_two_cache = dir.join("tier-two-cache");
+        let output = Command::new(binary)
+            .args([
+                "coverage",
+                manifest.to_str().unwrap(),
+                "--tier",
+                "2",
+                "--cache",
+                tier_two_cache.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["settings"]["tiers"], json!([1]));
+        assert_eq!(document["families"]["flips"]["run"], false);
+        assert_eq!(
+            document["families"]["flips"]["reason"],
+            kink_flow::flips::DERIVES_NONE
+        );
+
         // `results` is no verb: the usage error names the verb that replaced it.
         let output = Command::new(binary)
             .args(["results", manifest.to_str().unwrap()])
@@ -2309,7 +2334,6 @@ endmodule
             vec!["coverage", manifest.to_str().unwrap(), "--cache"],
             vec!["coverage", manifest.to_str().unwrap(), "--other"],
             vec!["coverage", manifest.to_str().unwrap(), "--tier", "3"],
-            vec!["coverage", manifest.to_str().unwrap(), "--tier", "2"],
             vec!["coverage", manifest.to_str().unwrap(), "--output", "kore"],
             vec![
                 "coverage",

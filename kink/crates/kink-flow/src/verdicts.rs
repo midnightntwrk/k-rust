@@ -18,7 +18,7 @@
 //! outcome = "admitted"
 //!
 //! [settings]
-//! tiers = [1]
+//! tiers = [1, 2]
 //! depth = 1
 //! mcdc = []
 //!
@@ -32,7 +32,16 @@
 //! open = []
 //!
 //! [flips]
-//! run = false
+//! run = true
+//!
+//! [[flip]]
+//! id = "flip--dispatch+wake--H"
+//! status = "distinguished"
+//! killer = "irq"
+//!
+//! [[flip]]
+//! id = "flip--halted+wake--I"
+//! status = "unreached"
 //! ```
 //!
 //! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
@@ -59,9 +68,12 @@
 //!
 //! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
 //! family the ids of its open obligations, in item order (`[rules]`, `[requirements]`, `[syntax]`;
-//! [`crate::coverage::open_ids`]), and for the flips family whether it ran. It lists no programs
-//! and no counts, so that it moves only when a gap opens or closes: a case that covers nothing new
-//! renders the same bytes. A `run` document
+//! [`crate::coverage::open_ids`]), and for the flips family whether it ran and, when it ran, each
+//! flip (`[[flip]]`, in item order) with its status, a refused flip's reason, and a distinguished
+//! flip's `killer`. It lists no programs and no counts, so that it moves only when a gap opens or
+//! closes or a killer changes: a case that covers nothing new renders the same bytes. A flip's
+//! killer is the first killing program in the search's order, a function of the inputs, as a
+//! run's is. A `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), and, when a corpus error stopped it, the mutation and the reason under
@@ -113,7 +125,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `results` document: its rendering (`document = "coverage"`) gives the settings and each
 /// family's open obligations by id, and no case; 10 since a `coverage` rendering lists the open
 /// obligations of the syntax family (`[syntax]`), so that a lock that gains the section shows a
-/// new version, not a moved verdict.
+/// new version, not a moved verdict. A `coverage` rendering whose flips ran lists each flip
+/// (`[[flip]]`) within version 10: no document that renders under it without that section renders
+/// differently, since a flips family that ran is new input, so no moved line of an existing
+/// rendering can be read as a moved verdict.
 pub const VERDICTS_VERSION: u64 = 10;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
@@ -314,6 +329,22 @@ fn coverage(text: &mut String, document: &Value) {
             "run",
             &flips["run"].as_bool().unwrap_or(false).to_string(),
         );
+    }
+    for item in flips["items"].as_array().into_iter().flatten() {
+        text.push_str("\n[[flip]]\n");
+        line(text, "id", &string(item["id"].as_str().unwrap_or_default()));
+        let status = item["status"].as_str().unwrap_or_default();
+        line(text, "status", &string(status));
+        if status == crate::flips::REFUSED
+            && let Some(reason) = item["reason"].as_str()
+        {
+            line(text, "reason", &string(reason));
+        }
+        if status == crate::flips::DISTINGUISHED
+            && let Some(killer) = item["killer"].as_str()
+        {
+            line(text, "killer", &string(killer));
+        }
     }
 }
 

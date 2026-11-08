@@ -2698,46 +2698,12 @@ pub fn run_front(
     let mut ok = update.ok();
     // The front end's evidence identity is asked for only where tier 1 could be on: it may cost
     // a pass over the front end's definition.
-    let tier1 = match tier1_refusal(SolverProfile::BUILD, manifest.budget.backend_options()) {
-        Some(reason) => Err(reason.to_owned()),
-        None => kink_campaign::kink_build()
-            .map_err(|e| {
-                format!(
-                    "tier 1 is disabled: kink's build identity is unknown ({e}); every mutation \
-                     runs live"
-                )
-            })
-            .and_then(|build| {
-                let evidence = manifest.end_renderer.evidence().map_err(|e| {
-                    format!(
-                        "tier 1 is disabled: the front end cannot name what its kill evidence \
-                         depends on ({e}); every mutation runs live"
-                    )
-                })?;
-                Ok(OutcomeStore::new(
-                    &cache,
-                    outcome_context(
-                        build,
-                        update.execution,
-                        manifest.budget,
-                        &spec.result,
-                        manifest.stop_value().as_ref(),
-                        evidence.as_ref(),
-                    ),
-                ))
-            }),
-    };
+    let tier1 = tier1_store(manifest, &spec, &cache, update.execution);
     let (tier1, tier1_reason) = match tier1 {
         Ok(store) => (Some(store), None),
         Err(reason) => (None, Some(reason)),
     };
-    let candidates = manifest
-        .programs
-        .iter()
-        .zip(&update.rows)
-        .enumerate()
-        .filter_map(|(index, (program, row))| candidate(index, &program.id, row))
-        .collect::<Vec<_>>();
+    let candidates = candidates(manifest, &update.rows);
     let program_rows = crate::results::data_marked(
         update.rows.iter().map(|row| row.row.clone()).collect(),
         &spec.data,
@@ -3044,6 +3010,179 @@ pub fn run_front(
         ok = false;
     }
     (document, ok)
+}
+
+/// What [`search_derived`] decided: one row per mutation it searched, in the order given, each
+/// the row `run` gives the mutation (without the killer record's fields, which a caller with a
+/// record adds); the `outcome_cache` object of a run document; `--verify`'s mismatches; the id
+/// of the mutation a corpus error stopped the search at (the mutations after it have no row);
+/// and whether the search found no corpus error and no failure.
+#[derive(Debug)]
+pub(crate) struct DerivedSearch {
+    pub rows: Vec<Value>,
+    pub outcome_cache: Value,
+    pub mismatches: Vec<Value>,
+    pub stopped: Option<String>,
+    pub ok: bool,
+}
+
+/// What a derived list's search runs on: the admitted specification, the command's input
+/// session, baseline runner and results update, the cache directory, the mode, the killer
+/// record (each mutation's recorded killer by mutation id, tried first while it kills; empty
+/// when there is none) and the front end's spelling.
+pub(crate) struct DerivedContext<'a, 's> {
+    pub spec: &'a AdmittedSpec,
+    pub manifest: &'a FlowManifest,
+    pub inputs: &'a mut InputSession<'s>,
+    pub runner: &'a BaselineRunner<'a>,
+    pub update: &'a crate::results::ResultsUpdate,
+    pub cache: &'a Path,
+    pub mode: RunMode,
+    pub recorded: BTreeMap<String, String>,
+    pub spelling: &'a dyn CommandSpelling,
+}
+
+/// The kill search of a list a front end derived ([`crate::cli::FrontEnd::derived`]), each
+/// mutation with its resolution, by the search `run` makes of an authored list (module
+/// documentation, steps 1-7, first-kill schedule): the same programs O, the same tier-1 store
+/// under the same outcome context, the same order C, the same fold and the same records. An
+/// outcome record is keyed by the mutation's identity, its patch digest, and never by its id or
+/// by which list holds it, so a derived mutation equal to an authored one reads and writes the
+/// authored one's records: what either learns of a program, the other decides from the cache.
+///
+/// No memo is consulted and no mutant is compiled ahead: both only save time, and neither moves
+/// a row ([`RunOptions::memo`], [`RunOptions::compile_workers`]). Nothing is written but the
+/// outcome records: no run report and no lock, which are `run`'s.
+pub(crate) fn search_derived(
+    context: DerivedContext<'_, '_>,
+    mutations: &[(&Mutation, &Result<ResolvedMutation, InvalidMutation>)],
+) -> DerivedSearch {
+    let DerivedContext {
+        spec,
+        manifest,
+        inputs,
+        runner,
+        update,
+        cache,
+        mode,
+        recorded,
+        spelling,
+    } = context;
+    let verify = mode == RunMode::Verify;
+    let (tier1, tier1_reason) = match tier1_store(manifest, spec, cache, update.execution) {
+        Ok(store) => (Some(store), None),
+        Err(reason) => (None, Some(reason)),
+    };
+    let candidates = candidates(manifest, &update.rows);
+    let mut search = Search {
+        spec,
+        manifest,
+        inputs,
+        runner,
+        rows: &update.rows,
+        tests: vec![None; candidates.len()],
+        candidates,
+        mode,
+        tier1,
+        recorded,
+        store: Store::new(cache),
+        stats: Stats::default(),
+        mismatches: Vec::new(),
+        schedule: ScheduleMode::FirstKill,
+        support: ClaimSupport::new(spec.validator.baseline()),
+        spelling,
+    };
+    let mut rows = Vec::new();
+    let mut stopped = None;
+    let mut ok = true;
+    for (mutation, resolution) in mutations {
+        let (row, corpus_error) = search.search_one(mutation, resolution);
+        if row.get("cache_error").is_some()
+            || (row["status"] == "error" && row["reason"] == "no-comparable-program")
+        {
+            ok = false;
+        }
+        rows.push(row);
+        if corpus_error {
+            stopped = Some(mutation.id.clone());
+            ok = false;
+            break;
+        }
+    }
+    if !search.mismatches.is_empty() {
+        ok = false;
+    }
+    let outcome_cache = json!({
+        "context_sha256": search.tier1.as_ref().map(OutcomeStore::context_sha256),
+        "enabled": search.tier1.is_some() && !verify,
+        "verify": verify,
+        "reason": if verify {
+            Some("--verify decides nothing from the outcome cache: it re-proves every valid \
+                  record and writes none".to_owned())
+        } else {
+            tier1_reason
+        },
+        "mutations_from_cache": search.stats.mutations_from_cache,
+        "programs_from_cache": search.stats.programs_from_cache,
+        "records_written": search.stats.records_written,
+    });
+    DerivedSearch {
+        rows,
+        outcome_cache,
+        mismatches: search.mismatches,
+        stopped,
+        ok,
+    }
+}
+
+/// The tier-1 store of a command on `spec`, whose results update gave the execution digest
+/// `execution`, under the cache directory `cache`: the outcome context names every input of an
+/// outcome ([`crate::outcomes`]). The error is why tier 1 is off: a solver the clock bounds
+/// ([`tier1_refusal`]), kink's unknown build, or a front end that cannot name what its kill
+/// evidence depends on; every mutation then runs live.
+fn tier1_store(
+    manifest: &FlowManifest,
+    spec: &AdmittedSpec,
+    cache: &Path,
+    execution: crate::digest::ExecutionDigest,
+) -> Result<OutcomeStore, String> {
+    if let Some(reason) = tier1_refusal(SolverProfile::BUILD, manifest.budget.backend_options()) {
+        return Err(reason.to_owned());
+    }
+    let build = kink_campaign::kink_build().map_err(|e| {
+        format!(
+            "tier 1 is disabled: kink's build identity is unknown ({e}); every mutation runs live"
+        )
+    })?;
+    let evidence = manifest.end_renderer.evidence().map_err(|e| {
+        format!(
+            "tier 1 is disabled: the front end cannot name what its kill evidence depends on \
+             ({e}); every mutation runs live"
+        )
+    })?;
+    Ok(OutcomeStore::new(
+        cache,
+        outcome_context(
+            build,
+            execution,
+            manifest.budget,
+            &spec.result,
+            manifest.stop_value().as_ref(),
+            evidence.as_ref(),
+        ),
+    ))
+}
+
+/// The comparable programs of `rows` (the results update's rows, in `FLOW.toml`'s order), the
+/// possible killers O.
+fn candidates<'r>(manifest: &'r FlowManifest, rows: &'r [ProgramRow]) -> Vec<Candidate<'r>> {
+    manifest
+        .programs
+        .iter()
+        .zip(rows)
+        .enumerate()
+        .filter_map(|(index, (program, row))| candidate(index, &program.id, row))
+        .collect()
 }
 
 /// `count` and `noun`, plural when `count` is not 1 (`1 mutation`, `3 programs`).

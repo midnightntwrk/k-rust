@@ -66,9 +66,17 @@
 //!   and the family lists (`binders`), and adds an item of kind [`FIELD_VALUE`] per field value
 //!   of its universe, with its status and its target's text, before [`derive`].
 //! - `rule_windows` and `syntax_paths` (depth above 1) are not built; each is `null`.
-//! - `flips` (tier 2, condition flips) needs a front end that gives coverage the flips it
-//!   generates and judges, which no front end of this build does: the family has `run: false`
-//!   and the reason.
+//! - `flips` (tier 2, condition flips; [`crate::flips`]): each flip a front end derives from the
+//!   definition's source ([`crate::cli::FrontEnd::derived`]) is an obligation, `distinguished`
+//!   where the kill search kills its mutant (with its `killer`), `undistinguished` where it runs
+//!   on every comparable program without a kill, `unreached` where no comparable program reached
+//!   an occurrence of the flipped atom (deduced from the guard rows and the front end's match,
+//!   with no mutant run), `unknown` without a verdict, `refused` by a judge, and `equivalent`
+//!   where kink proves no program distinguishes it. The measure is distinguished over the
+//!   obligations less the refused and equivalent ones, which no program can meet. The family runs
+//!   under tier 2 (the default) where the front end derives the flips; otherwise, and under
+//!   `--tier 1`, it has `run: false`, the reason, and under `--tier 1` its number of obligations,
+//!   with no status.
 //!
 //! The measure is per family. No weighted total is given, since nothing weighs a rule against an
 //! operand's truth; `summary.open`, the count of open obligations, is the one scalar, and zero
@@ -91,7 +99,12 @@
 //! builds it, naming the rules that inspect or build it, each a concrete thing to make fire.
 //! `programs` are the comparable programs that entered the rule, the templates of a fuzz job;
 //! `fuzz` spells the fuzz job that looks for a program for a rewrite rule (`--matched`,
-//! `--fired`), `null` where none applies. `pattern` is, for an `unmatched` rewrite rule, its
+//! `--fired`), `null` where none applies. A flip's target follows in tier 2: an
+//! `undistinguished` flip asks for a case whose result changes when the atom is negated (a bit
+//! toggled) in its sentences, naming the values of the atom the corpus reached, the programs that
+//! reached it, and `fuzz --kill`; an `unreached` one asks for a case that reaches it and names
+//! the open tier-1 obligations that explain it (`waits_on`); an `unknown` one asks for a
+//! comparable run of its mutant. `pattern` is, for an `unmatched` rewrite rule, its
 //! left-hand side as a `PATTERNS.toml` pattern ([`rule_pattern`]), which `query` and
 //! `fuzz --pattern` take; `null` for every other target, and where the rule's text cannot be
 //! read or a front end matched the sentence through templates.
@@ -103,9 +116,10 @@
 
 use crate::{
     admit::admit_spec,
-    cli::{CommandSpelling, Verb},
+    cli::{CommandSpelling, FrontEnd, Verb},
     digest::ExecutionDigest,
     evidence::EndReader,
+    flips::{Derived, DerivedList, FLIPS_TIER_ONE, Judged},
     manifest::FlowManifest,
     mutation::qualified_label,
     results::{
@@ -132,8 +146,10 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// The version of the coverage document: 1, the first, which replaces the results document (its
 /// last version 11), whose program rows, rule rows and guard outcomes it holds; 2 since the
 /// syntax family is built (`families.syntax`, its items, binders, counts and targets, and its
-/// line of the summary), where version 1 had `null`.
-pub const COVERAGE_VERSION: u64 = 2;
+/// line of the summary), where version 1 had `null`; 3 since the flips family runs where a front
+/// end derives the flips (`settings.tiers` `[1, 2]`, the family's items, counts, measure and
+/// search, its targets and `summary.per_family.flips`).
+pub const COVERAGE_VERSION: u64 = 3;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -159,27 +175,16 @@ pub const FAMILIES: [&str; 6] = [
     "flips",
 ];
 
-/// Why the flips family runs nothing in this build.
-pub const FLIPS_NOT_BUILT: &str = "condition flips need a front end that gives coverage the \
-     flips it generates, each judged as a mutation of the specification, which no front end of \
-     this build does";
-
-/// The tiers a `coverage` command computes. Tier 2's one family, condition flips, needs a front
-/// end that gives coverage the flips it generates, each judged as a mutation, which no front end
-/// of this build does, so tier 1 is the only one: a document states only tiers it computed.
+/// The tiers a `coverage` command asks for. A document states only the tiers it computed
+/// (`settings.tiers`): tier 2's one family, condition flips, is computed only where the front end
+/// derives the flips ([`crate::flips`]).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Tier {
-    /// `--tier 1` (the default): the families read from the baseline runs alone.
-    #[default]
+    /// `--tier 1`: the families read from the baseline runs alone; no mutant runs.
     One,
-}
-
-impl Tier {
-    fn tiers(self) -> Value {
-        match self {
-            Self::One => json!([1]),
-        }
-    }
+    /// `--tier 2` (the default): tier 1, and the condition flips run by the kill search.
+    #[default]
+    Two,
 }
 
 /// Options of the `coverage` command.
@@ -230,7 +235,21 @@ fn unsupported(manifest: &FlowManifest) -> Option<AdmissionRefusal> {
 /// infrastructure error; the exit status joins it with the status the document gives
 /// (`crate::cli::coverage_status`). The derived part ([`derive`]) is left for the caller to add
 /// once a front end has annotated the rules, `spelling` saying how its fuzz jobs are spelled.
+/// kink-flow's own front end derives no flips, so the flips family does not run
+/// ([`coverage_front`]).
 pub fn coverage(manifest: &FlowManifest, options: &CoverageOptions) -> (Value, bool) {
+    coverage_front(manifest, options, &FrontEnd::default())
+}
+
+/// [`coverage`] for a front end: under tier 2, the flips it derives
+/// ([`FrontEnd::derived`]) are deduced unreached or run by the kill search
+/// ([`crate::flips`]), reading the rules' items as the front end annotates them; the document is
+/// returned annotated.
+pub fn coverage_front(
+    manifest: &FlowManifest,
+    options: &CoverageOptions,
+    front: &FrontEnd<'_>,
+) -> (Value, bool) {
     // Every document names the stop, a refused specification's too, as `check` and `run` do.
     let stopped = |mut document: Value| {
         if let Some(stop) = manifest.stop_value() {
@@ -238,7 +257,13 @@ pub fn coverage(manifest: &FlowManifest, options: &CoverageOptions) -> (Value, b
         }
         document
     };
-    let settings = settings(manifest, options);
+    // Tier 2 is computed only where it runs: the front end derives the flips and tier 1 alone
+    // was not asked for.
+    let flips = match front.derived {
+        Derived::Flips(list) if options.tier == Tier::Two => Some(list),
+        _ => None,
+    };
+    let settings = settings(manifest, flips.is_some());
     let refused = |record: &AdmissionRecord| {
         stopped(document(
             record,
@@ -277,12 +302,12 @@ pub fn coverage(manifest: &FlowManifest, options: &CoverageOptions) -> (Value, b
         options.verify,
         None,
     );
-    let ok = update.ok();
+    let mut ok = update.ok();
     let items = rule_items(&spec, manifest, &update.rows);
     let syntax = syntax_family(&spec, manifest, &update.rows, &items);
     let execution: ExecutionDigest = update.execution;
     let programs = data_marked(
-        update.rows.into_iter().map(|row| row.row).collect(),
+        update.rows.iter().map(|row| row.row.clone()).collect(),
         &spec.data,
     );
     let mut document = stopped(document(
@@ -291,7 +316,7 @@ pub fn coverage(manifest: &FlowManifest, options: &CoverageOptions) -> (Value, b
         settings,
         programs,
         Some((items, syntax)),
-        update.mismatches,
+        update.mismatches.clone(),
         runner.baseline_runs(),
     ));
     document["spec"]["execution_digest"] = execution.value();
@@ -300,15 +325,191 @@ pub fn coverage(manifest: &FlowManifest, options: &CoverageOptions) -> (Value, b
     document["result"] = spec.result.value();
     document["spec"]["exclusion"] = runner.definition_exclusion();
     document["spec"]["short_circuit"] = runner.short_circuit();
+    let mut document = front.annotated(document);
+    document["families"]["flips"] = match (flips, front.derived) {
+        (Some(list), _) => {
+            let (family, searched) = run_flips(
+                &mut document,
+                list,
+                crate::search::DerivedContext {
+                    spec: &spec,
+                    manifest,
+                    inputs: &mut inputs,
+                    runner: &runner,
+                    update: &update,
+                    cache: &cache,
+                    mode: if options.verify {
+                        crate::search::RunMode::Verify
+                    } else {
+                        crate::search::RunMode::Search
+                    },
+                    recorded: BTreeMap::new(),
+                    spelling: front.spelling,
+                },
+            );
+            ok &= searched;
+            family
+        }
+        (None, Derived::Flips(list)) => flips_not_run(Some(list.entries.len()), FLIPS_TIER_ONE),
+        (None, Derived::None(reason)) => flips_not_run(None, reason),
+    };
     (document, ok)
 }
 
-/// The document's `settings`: the tiers computed, `[coverage]`'s values, and whether the
-/// manifest declared them (`source`).
-fn settings(manifest: &FlowManifest, options: &CoverageOptions) -> Value {
+/// The flips family of a document whose flips do not run: how many obligations it has, where
+/// the front end derived them, and why it does not run. No status is shown: a rendering must not
+/// depend on what the cache holds.
+fn flips_not_run(obligations: Option<usize>, reason: &str) -> Value {
+    json!({
+        "tier": 2,
+        "run": false,
+        "obligations": obligations,
+        "reason": reason,
+        "items": [],
+    })
+}
+
+/// The flips family of `list` ([`crate::flips`]), its items before [`derive`] names their
+/// sentences and counts them, and whether the search found no corpus error and no failure.
+/// Each admitted flip is resolved against the specification first (resolution only loads): one
+/// that does not resolve is `refused` by kink-flow; one whose occurrences no comparable program
+/// reached is `unreached` with no run; every other one runs, in the list's order, through the
+/// kill search ([`crate::search::search_derived`]). `--verify`'s mismatches join the document's.
+fn run_flips(
+    document: &mut Value,
+    list: &DerivedList,
+    context: crate::search::DerivedContext<'_, '_>,
+) -> (Value, bool) {
+    // The rules' items as the front end annotated them, by sentence.
+    let rules = document["families"]["rules"]["items"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter_map(|item| {
+            Some((
+                (item["module"].as_str()?.to_owned(), item["index"].as_u64()?),
+                item,
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    // A comparable program whose recorded coverage is not complete covers only what its run
+    // explored before it stopped, so it may have reached every occurrence.
+    let incomplete = context
+        .manifest
+        .programs
+        .iter()
+        .zip(&context.update.rows)
+        .filter(|(_, row)| row.class() == Some(ResultClass::Comparable.as_str()))
+        .filter(|(_, row)| {
+            row.record
+                .as_ref()
+                .is_none_or(|record| record["coverage"]["complete"] != true)
+        })
+        .map(|(program, _)| program.id.clone())
+        .collect::<Vec<_>>();
+    let mut items = Vec::new();
+    let mut runs = Vec::new();
+    for entry in &list.entries {
+        let occurrences = entry
+            .occurrences
+            .iter()
+            .map(|occurrence| {
+                let key = (
+                    occurrence.sentence.module.clone(),
+                    u64::from(occurrence.sentence.index),
+                );
+                crate::flips::occurrence_value(occurrence, rules.get(&key).copied(), &incomplete)
+            })
+            .collect::<Vec<_>>();
+        let unreached = crate::flips::unreached(&occurrences);
+        let mut item = crate::flips::item_value(entry, occurrences);
+        match &entry.judged {
+            Judged::Refused {
+                reason,
+                next,
+                detail,
+            } => {
+                item["status"] = json!(crate::flips::REFUSED);
+                item["judge"] = json!("front-end");
+                item["reason"] = json!(reason);
+                item["next"] = json!(next);
+                item["detail"] = json!(detail);
+            }
+            Judged::Admitted { .. } => {
+                let mutation = entry.mutation().expect("an admitted flip has its edits");
+                let resolution =
+                    crate::mutation::resolve(context.manifest, &context.spec.loaded, &mutation);
+                match &resolution {
+                    Err(invalid) => {
+                        item["status"] = json!(crate::flips::REFUSED);
+                        item["kink_status"] = json!(invalid.reason.status());
+                        item["judge"] = json!("kink-flow");
+                        item["reason"] = json!(invalid.reason.as_str());
+                        item["detail"] = json!(invalid.detail);
+                    }
+                    Ok(resolved) => {
+                        item["digest"] = json!(resolved.digest.to_string());
+                        if unreached {
+                            item["status"] = json!(crate::flips::UNREACHED);
+                        } else {
+                            runs.push((items.len(), mutation, resolution));
+                        }
+                    }
+                }
+            }
+        }
+        items.push(item);
+    }
+    let selected = runs
+        .iter()
+        .map(|(_, mutation, resolution)| (mutation, resolution))
+        .collect::<Vec<_>>();
+    let searched = crate::search::search_derived(context, &selected);
+    let mut rows = searched.rows.iter();
+    for (index, mutation, _) in &runs {
+        let item = &mut items[*index];
+        match rows.next() {
+            Some(row) => crate::flips::fill_from_row(item, row),
+            None => {
+                item["status"] = json!(crate::flips::UNKNOWN);
+                item["reason"] = json!("not-run");
+                item["detail"] = json!(format!(
+                    "the search stopped at a corpus error before `{}` ran",
+                    mutation.id
+                ));
+            }
+        }
+    }
+    if let Some(mismatches) = document["mismatches"].as_array_mut() {
+        mismatches.extend(searched.mismatches.iter().cloned());
+    }
+    let live_runs = items
+        .iter()
+        .filter_map(|item| item["live_runs"].as_u64())
+        .sum::<u64>();
+    let family = json!({
+        "tier": 2,
+        "run": true,
+        "obligations": list.entries.len(),
+        "reason": null,
+        "none": list.none,
+        "items": items,
+        "not_generated": list.not_generated,
+        "search": {
+            "outcome_cache": searched.outcome_cache,
+            "live_runs": live_runs,
+            "stopped": searched.stopped,
+        },
+    });
+    (family, searched.ok)
+}
+
+/// The document's `settings`: the tiers computed (tier 2 where the flips run), `[coverage]`'s
+/// values, and whether the manifest declared them (`source`).
+fn settings(manifest: &FlowManifest, flips: bool) -> Value {
     let section = &manifest.coverage;
     json!({
-        "tiers": options.tier.tiers(),
+        "tiers": if flips { json!([1, 2]) } else { json!([1]) },
         "depth": section.depth.get(),
         "mcdc": section.mcdc,
         "max_obligations": section.max_obligations.get(),
@@ -1915,15 +2116,45 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
     let (syntax_counts, syntax_targets) = derive_syntax(&mut families["syntax"], &rule_ids);
     families["rule_windows"] = Value::Null;
     families["syntax_paths"] = Value::Null;
-    families["flips"] = json!({
-        "tier": 2,
-        "run": false,
-        "obligations": null,
-        "reason": FLIPS_NOT_BUILT,
-        "items": [],
-    });
     targets.extend(requirement_targets);
     targets.extend(syntax_targets);
+    let rule_names = document["families"]["rules"]["items"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter_map(|item| {
+            Some((
+                (item["module"].as_str()?.to_owned(), item["index"].as_u64()?),
+                item.clone(),
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let requirement_ids = requirement_items
+        .iter()
+        .filter(|item| item["covered"] == false)
+        .filter_map(|item| {
+            Some((
+                (
+                    item["rule"].as_str()?.to_owned(),
+                    item["node"].as_str()?.to_owned(),
+                ),
+                item["id"].as_str()?.to_owned(),
+            ))
+        })
+        .fold(
+            BTreeMap::<(String, String), Vec<String>>::new(),
+            |mut ids, (key, id)| {
+                ids.entry(key).or_default().push(id);
+                ids
+            },
+        );
+    let flips = derive_flips(
+        &mut document["families"]["flips"],
+        &rule_names,
+        &requirement_ids,
+        &fuzz,
+    );
+    targets.extend(flips.iter().map(|(_, target)| target.clone()));
     let per_family = |covered: usize, obligations: usize| {
         json!({
             "obligations": obligations,
@@ -1940,6 +2171,13 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "requirements": per_family(requirement_covered, requirement_obligations),
         "syntax": per_family(syntax_counts.0, syntax_counts.1),
     });
+    let family = &document["families"]["flips"];
+    if family["run"] == true {
+        summary["per_family"]["flips"] = per_family(
+            family["covered"].as_u64().unwrap_or(0) as usize,
+            family["counted"].as_u64().unwrap_or(0) as usize,
+        );
+    }
     document["targets"] = Value::Array(targets);
     document["summary"] = summary;
 }
@@ -2080,6 +2318,177 @@ fn derive_syntax(
     ((covered, obligations), targets)
 }
 
+/// Fill the derived part of a flips family that ran ([`crate::flips`]): each item's
+/// `sentences` (the rules it flips, by rule id, name and position) and each occurrence's
+/// `rule`; an `unreached` item's `waits_on`, the open tier-1 obligations that explain it (the
+/// open requirements of an operand node, else the rule); the counts, `covered` (distinguished),
+/// `counted` (the obligations less the refused and equivalent ones, which no program can meet)
+/// and the measure. Returns each open item's id and target, in item order: an undistinguished
+/// flip asks for a case whose result the flip changes, naming the values of the atom the corpus
+/// reached and the programs that reached it (the templates of a fuzz job, `fuzz --kill`); an
+/// unreached one for a case that reaches it, naming its tier-1 obligations; an unknown one for a
+/// comparable run of its mutant. A family that did not run is left as it is.
+fn derive_flips(
+    family: &mut Value,
+    rules: &BTreeMap<(String, u64), Value>,
+    requirements: &BTreeMap<(String, String), Vec<String>>,
+    fuzz: &str,
+) -> Vec<(String, Value)> {
+    use crate::flips::{DISTINGUISHED, EQUIVALENT, REFUSED, UNDISTINGUISHED, UNKNOWN, UNREACHED};
+    if family["run"] != true {
+        return Vec::new();
+    }
+    let mut targets = Vec::new();
+    let empty = Vec::new();
+    let items = family["items"].as_array().cloned().unwrap_or_default();
+    let mut derived = Vec::new();
+    for mut item in items {
+        let mut sentences = Vec::<Value>::new();
+        let mut waits_on = Vec::<String>::new();
+        // The values the corpus reached, per occurrence: `<truth> in <rule> (<programs>)`.
+        let mut values = Vec::new();
+        let mut reached_by = Vec::new();
+        if let Some(occurrences) = item.get_mut("occurrences").and_then(Value::as_array_mut) {
+            for occurrence in occurrences {
+                let key = (
+                    occurrence["module"].as_str().unwrap_or_default().to_owned(),
+                    occurrence["index"].as_u64().unwrap_or(0),
+                );
+                let rule = rules.get(&key);
+                let id = rule.and_then(|rule| rule["id"].as_str()).map(str::to_owned);
+                occurrence["rule"] = json!(id);
+                if let (Some(rule), Some(id)) = (rule, &id)
+                    && !sentences
+                        .iter()
+                        .any(|sentence| sentence["rule"] == id.as_str())
+                {
+                    let (file, line) = position(rule);
+                    sentences.push(json!({
+                        "rule": id, "name": rule_name(rule), "label": rule["label"],
+                        "file": file, "line": line,
+                    }));
+                }
+                let mut waits = id
+                    .as_ref()
+                    .zip(occurrence["path"].as_str())
+                    .and_then(|(id, path)| requirements.get(&(id.clone(), path.to_owned())))
+                    .unwrap_or(&empty)
+                    .clone();
+                if waits.is_empty()
+                    && let Some(id) = &id
+                {
+                    waits.push(id.clone());
+                }
+                for wait in waits {
+                    if !waits_on.contains(&wait) {
+                        waits_on.push(wait);
+                    }
+                }
+                let name = rule.map_or_else(|| "?".to_owned(), rule_name);
+                for truth in ["true", "false"] {
+                    let programs = ids(&occurrence[format!("{truth}_by")]);
+                    if !programs.is_empty() {
+                        values.push(format!("{truth} in {name} ({})", listed(&programs)));
+                    }
+                }
+                reached_by.extend(ids(&occurrence["reached_by"]));
+            }
+        }
+        let names = sentences
+            .iter()
+            .filter_map(|sentence| sentence["name"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        item["sentences"] = json!(sentences);
+        let status = item["status"].as_str().unwrap_or_default().to_owned();
+        item["waits_on"] = json!(if status == UNREACHED {
+            waits_on.clone()
+        } else {
+            Vec::new()
+        });
+        let id = item["id"].as_str().unwrap_or_default().to_owned();
+        let text = item["text"].as_str().unwrap_or_default().to_owned();
+        let (changed, changes) = if item["operator"] == "bitflip" {
+            ("toggled", "toggles")
+        } else {
+            ("negated", "negates")
+        };
+        let (file, line) = sentences.first().map_or((Value::Null, Value::Null), |s| {
+            (s["file"].clone(), s["line"].clone())
+        });
+        let target = |text: String, programs: Vec<String>, fuzz: Value| {
+            json!({
+                "family": "flips", "item": id, "text": text, "file": file, "line": line,
+                "programs": programs, "pattern": null, "fuzz": fuzz,
+            })
+        };
+        let in_names = if names.is_empty() {
+            String::new()
+        } else {
+            format!(" in {}", listed(&names))
+        };
+        match status.as_str() {
+            UNDISTINGUISHED => {
+                let values = if values.is_empty() {
+                    String::new()
+                } else {
+                    format!("; the corpus reached it {}", listed(&values))
+                };
+                targets.push((
+                    id.clone(),
+                    target(
+                        format!(
+                            "a case whose result changes when {text} is {changed}{in_names}{values}"
+                        ),
+                        without(reached_by, &[]),
+                        json!(format!("{fuzz} --template ID --kill {id}")),
+                    ),
+                ));
+            }
+            UNREACHED => targets.push((
+                id.clone(),
+                target(
+                    format!(
+                        "a case that reaches {text}{in_names}: no comparable program does, so \
+                         no program can tell the flip apart ({} open)",
+                        listed(&waits_on)
+                    ),
+                    Vec::new(),
+                    Value::Null,
+                ),
+            )),
+            UNKNOWN => targets.push((
+                id.clone(),
+                target(
+                    format!(
+                        "a comparable run of the mutant that {changes} {text}{in_names}: kink \
+                         gave no verdict ({})",
+                        item["reason"].as_str().unwrap_or("no reason")
+                    ),
+                    Vec::new(),
+                    Value::Null,
+                ),
+            )),
+            _ => {}
+        }
+        derived.push(item);
+    }
+    let count = |status: &str| {
+        derived
+            .iter()
+            .filter(|item| item["status"] == status)
+            .count()
+    };
+    let distinguished = count(DISTINGUISHED);
+    let counted = derived.len() - count(REFUSED) - count(EQUIVALENT);
+    let not_generated = family["not_generated"].as_array().map_or(0, Vec::len);
+    family["counts"] = crate::flips::counts(&derived, not_generated);
+    family["covered"] = json!(distinguished);
+    family["counted"] = json!(counted);
+    family["measure"] = measure(distinguished, counted);
+    family["items"] = Value::Array(derived);
+    targets
+}
+
 /// A measure as text: a percentage with one decimal, `-` without obligations.
 fn percent(measure: &Value) -> String {
     measure
@@ -2167,11 +2576,42 @@ pub fn text(document: &Value) -> Result<String, String> {
             out.push_str(&format!("{family}: not built\n"));
         }
     }
-    if families["flips"]["run"] == false {
+    let flips = &families["flips"];
+    if flips["run"] == false {
         out.push_str(&format!(
             "flips: not run: {}\n",
-            families["flips"]["reason"].as_str().unwrap_or_default()
+            flips["reason"].as_str().unwrap_or_default()
         ));
+    } else if flips["run"] == true {
+        let counts = &flips["counts"];
+        out.push_str(&format!(
+            "flips: {} of {} distinguished ({}); {} undistinguished, {} unreached, {} unknown; \
+             not counted: {} refused, {} equivalent; {} not generated\n",
+            flips["covered"],
+            flips["counted"],
+            percent(&flips["measure"]),
+            counts["undistinguished"],
+            counts["unreached"],
+            counts["unknown"],
+            counts["refused"],
+            counts["equivalent"],
+            counts["not_generated"],
+        ));
+        for item in flips["items"].as_array().into_iter().flatten() {
+            if item["status"] == crate::flips::REFUSED {
+                out.push_str(&format!(
+                    "flip {}: refused by the {}: {}: {}\n",
+                    item["id"].as_str().unwrap_or("?"),
+                    if item["judge"] == "kink-flow" {
+                        "kink-flow admission"
+                    } else {
+                        "front end's judge"
+                    },
+                    item["reason"].as_str().unwrap_or("?"),
+                    item["detail"].as_str().unwrap_or("no detail"),
+                ));
+            }
+        }
     }
     for program in document["programs"].as_array().into_iter().flatten() {
         if program["class"] != "comparable" {

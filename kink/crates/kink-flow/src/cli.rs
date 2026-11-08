@@ -22,13 +22,15 @@
 //! ([`CommandFiles`]: kink-flow's operands, or the front end's layout); [`dispatch`] runs the
 //! command on the large stack kink's definitions need. A [`FrontEnd`] adds how next steps spell
 //! the front end's commands ([`CommandSpelling`]), the mutations it refused before the engine
-//! ([`FrontEnd::refused`]), and an annotation of the document ([`FrontEnd::annotate`]). kink-flow
-//! itself runs every command with [`FrontEnd::default`].
+//! ([`FrontEnd::refused`]), an annotation of the document ([`FrontEnd::annotate`]), and the
+//! mutations it derives from the definition's source for `coverage` ([`FrontEnd::derived`]).
+//! kink-flow itself runs every command with [`FrontEnd::default`].
 
 use crate::{
     admit::{FlowAdmission, admit_spec},
     check::{CorpusCoverage, Finding, MutationCheck, check_mutations, corpus_coverage},
     coverage::{CoverageOptions, Tier},
+    flips::Derived,
     fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
@@ -66,7 +68,7 @@ macro_rules! usage_line {
     () => {
         "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
          MUTATIONS] [--cache DIR] | kink-flow \
-         coverage FLOW.toml [--tier 1] [--verify] [--cache DIR] \
+         coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR] \
          [--output json|text|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
          [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
@@ -368,9 +370,9 @@ const CHECK_OPTIONS: &[VerbOption] = &[
 
 const COVERAGE_OPTIONS: &[VerbOption] = &[
     option(
-        "--tier 1",
-        "the families read from the baseline runs, the only tier this build computes (the \
-         default; tier 2's condition flips need a front end that judges them)",
+        "--tier 1|2",
+        "1: the families read from the baseline runs, no mutant run; 2 (the default): also the \
+         condition flips, where the front end derives them",
     ),
     VERIFY,
     CACHE,
@@ -602,7 +604,7 @@ impl Verb {
         match self {
             Self::Check => "check FLOW.toml [--mutations MUTATIONS] [--cache DIR]",
             Self::Coverage => {
-                "coverage FLOW.toml [--tier 1] [--verify] [--cache DIR] [--output \
+                "coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR] [--output \
                  json|text|verdicts]"
             }
             Self::Run => {
@@ -1091,6 +1093,11 @@ pub struct FrontEnd<'a> {
     /// The lines are functions of the corpus and the cache, never of time, and nothing else
     /// reads them; the document is the same with or without them. `None` reports nothing.
     pub progress: Option<&'a (dyn Fn(&str) + Sync)>,
+    /// The condition flips the front end derives from the definition's source, which `coverage`
+    /// runs as its flips family under tier 2 ([`crate::flips`]), or why it derives none.
+    /// kink-flow's own front end reads K alone, so it derives none
+    /// ([`crate::flips::DERIVES_NONE`]).
+    pub derived: Derived<'a>,
 }
 
 impl Default for FrontEnd<'_> {
@@ -1101,6 +1108,7 @@ impl Default for FrontEnd<'_> {
             refused: BTreeMap::new(),
             annotate: None,
             progress: None,
+            derived: Derived::default(),
         }
     }
 }
@@ -1112,12 +1120,13 @@ impl std::fmt::Debug for FrontEnd<'_> {
             .field("refused", &self.refused)
             .field("annotate", &self.annotate.map(|_| ".."))
             .field("progress", &self.progress.map(|_| ".."))
+            .field("derived", &self.derived)
             .finish()
     }
 }
 
 impl FrontEnd<'_> {
-    fn annotated(&self, mut document: Value) -> Value {
+    pub(crate) fn annotated(&self, mut document: Value) -> Value {
         if let Some(annotate) = self.annotate {
             annotate(&mut document);
         }
@@ -1183,7 +1192,7 @@ pub fn run_command(
         FlowCommand::Coverage { options, .. } => {
             // The derived part reads the rules as the front end named them, so it follows the
             // annotation; `derive` and the annotation are idempotent.
-            let (document, ok) = crate::coverage::coverage(manifest, options);
+            let (document, ok) = crate::coverage::coverage_front(manifest, options, front);
             let mut document = front.annotated(document);
             crate::coverage::derive(&mut document, front.spelling);
             let status = completed(coverage_status(&document), ok);
@@ -1344,9 +1353,12 @@ fn baseline_status(row: &Value) -> u8 {
 /// The exit status of a `coverage` document: the corpus ran, every program is comparable and
 /// every expectation is met. The join of each program's class ([`program_status`]: a timeout or
 /// unknown program covers nothing, so the answer is incomplete) and expectation
-/// ([`expectation_status`]), [`EXIT_NO`] for a `--verify` mismatch, and [`EXIT_UNASKED`] for a
-/// refused specification. An open obligation is no finding: coverage states the gap, and the
-/// corpus's author decides what to write.
+/// ([`expectation_status`]), [`EXIT_NO`] for a `--verify` mismatch, [`EXIT_UNANSWERED`] for a
+/// flip the kill search gave no verdict (`unknown`), [`EXIT_UNASKED`] for one whose search ended
+/// in an error (`kink_status` `error`: a corpus error, a failed run or an unwritten record), and
+/// [`EXIT_UNASKED`] for a refused specification. An open obligation is no finding: coverage
+/// states the gap, and the corpus's author decides what to write; nor is a refused flip, which
+/// is a disagreement between the flips' generator and an admission, not a fault of the corpus.
 #[must_use]
 pub fn coverage_status(document: &Value) -> u8 {
     if spec_refused(document) {
@@ -1358,7 +1370,21 @@ pub fn coverage_status(document: &Value) -> u8 {
         .flatten()
         .map(|row| exit_join(program_status(row), expectation_status(row)))
         .fold(EXIT_YES, exit_join);
-    exit_join(programs, mismatch_status(document))
+    let flips = document["families"]["flips"]["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|item| {
+            if item["kink_status"] == "error" {
+                EXIT_UNASKED
+            } else if item["status"] == crate::flips::UNKNOWN {
+                EXIT_UNANSWERED
+            } else {
+                EXIT_YES
+            }
+        })
+        .fold(EXIT_YES, exit_join);
+    exit_join(exit_join(programs, flips), mismatch_status(document))
 }
 
 /// [`EXIT_NO`] when a document's `mismatches` lists a stored record that differs from the live
@@ -1685,16 +1711,11 @@ fn coverage_options(args: &[String]) -> Result<(CoverageOptions, OutputFormat), 
                 });
             }
             "--tier" if tier.is_none() => {
-                let value = args.next().ok_or("--tier needs 1")?;
+                let value = args.next().ok_or("--tier needs 1 or 2")?;
                 tier = Some(match value.as_str() {
                     "1" => Tier::One,
-                    "2" => {
-                        return Err("--tier 2: tier 2's condition flips need a front end that \
-                             gives coverage the flips it generates, each judged as a mutation, \
-                             which no front end of this build does; coverage computes tier 1"
-                            .into());
-                    }
-                    _ => return Err(format!("--tier {value:?}: expected 1")),
+                    "2" => Tier::Two,
+                    _ => return Err(format!("--tier {value:?}: expected 1 or 2")),
                 });
             }
             "--verify" if !options.verify => options.verify = true,
@@ -2124,7 +2145,7 @@ pub fn invalid_mutations(document: &Value) -> u64 {
         .sum()
 }
 
-/// `kink-flow coverage FLOW.toml [--tier 1] [--verify] [--cache DIR]`: the coverage document
+/// `kink-flow coverage FLOW.toml [--tier 1|2] [--verify] [--cache DIR]`: the coverage document
 /// ([`crate::coverage`]) and the exit status ([`coverage_status`]): [`EXIT_YES`] when every
 /// program is comparable and meets its expectation, if it has one; [`EXIT_NO`] when an
 /// expectation is unmet or `--verify` found a mismatch; [`EXIT_UNANSWERED`] for a program that

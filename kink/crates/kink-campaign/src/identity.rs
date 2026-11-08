@@ -540,7 +540,9 @@ pub const OUTSIDE_IDENTITY: [Outside; 38] = [
         reason: "the coverage document's format (coverage.rs): its readers (its derived part, its \
                  text and verdicts renderings) select it by its `schema` and read no version \
                  back, and it is built from result records read only under keys that hold \
-                 `kink_build` and RESULT_SCHEMA_VERSION, after every status is decided",
+                 `kink_build` and RESULT_SCHEMA_VERSION and, for the flips family, from outcome \
+                 records (outcomes.rs) read only under a context that holds `kink_build` and \
+                 OUTCOMES_VERSION, after every status is decided",
     },
     Outside {
         krate: "kink-corpus",

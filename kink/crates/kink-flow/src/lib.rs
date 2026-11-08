@@ -51,6 +51,7 @@ pub mod digest;
 pub mod evidence;
 pub mod exclusion;
 pub mod expect;
+pub mod flips;
 pub mod fuzz;
 pub mod fuzz_filter;
 pub mod guards;

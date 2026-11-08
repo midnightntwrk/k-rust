@@ -90,6 +90,11 @@ pub const MANIFEST_FILE: &str = "FLOW.toml";
 pub const DEFINITION_FILE: &str = "definition.k";
 /// The killer record's name inside the corpus directory (kink-flow `run --lock`).
 pub const LOCK_FILE: &str = kink_flow::lock::LOCK_FILE;
+/// The flips family's reason under krs's front end: krs derives a definition's condition flips
+/// and judges each ([`condition_flips`]), but its front end gives coverage none of them, so the
+/// family has `run: false` and this reason.
+pub const FLIPS_NOT_GIVEN: &str = "krs derives the definition's condition flips and judges each, \
+     but its front end gives coverage none of them";
 
 /// The exit statuses of kink-flow's command line, which `krs kink` keeps: the four actions of
 /// krs's executing commands (`crate::exit_status`). The command answered its question.
@@ -669,6 +674,7 @@ fn run_flow(
         refused: refused_mutations,
         annotate: Some(&annotate as &(dyn Fn(&mut Value) + Sync)),
         progress: command.shows_progress().then_some(&print_progress),
+        derived: kink_flow::flips::Derived::None(FLIPS_NOT_GIVEN),
     };
     let span = format!("kink.{}", verb.as_str());
     let dispatched = measurement

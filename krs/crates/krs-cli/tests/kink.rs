@@ -327,6 +327,16 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     assert_status(&output, 0);
     let document = json(&output);
     assert_eq!(document["krs"]["version"], 5, "{:#}", document["krs"]);
+    // krs's front end gives coverage no flips: the family says so, with krs's reason
+    // (`krs_cli::kink::FLIPS_NOT_GIVEN`), not kink-flow's for a front end that reads K alone.
+    let flips = &document["families"]["flips"];
+    assert_eq!(flips["run"], false, "{flips:#}");
+    assert!(
+        flips["reason"].as_str().is_some_and(
+            |reason| reason.starts_with("krs derives the definition's condition flips")
+        ),
+        "{flips:#}"
+    );
     assert!(
         document["krs"].get("unmatched_guards").is_none(),
         "{:#}",
@@ -2129,13 +2139,13 @@ fn a_stale_definition_is_written_or_refused() {
         lines[2].starts_with("`krs kink check --help` lists its options"),
         "{lines:#?}"
     );
-    // Tier 1 is the only tier this build computes: `--tier 2` is a usage error that says why.
-    let tier_two = project.kink("coverage", &["--tier", "2"]);
-    assert_status(&tier_two, 2);
+    // A tier coverage does not have is a usage error that names the tiers it has.
+    let tier_three = project.kink("coverage", &["--tier", "3"]);
+    assert_status(&tier_three, 2);
     assert!(
-        stderr(&tier_two).starts_with("krs kink: --tier 2: tier 2's condition flips need"),
+        stderr(&tier_three).starts_with("krs kink: --tier \"3\": expected 1 or 2"),
         "{}",
-        stderr(&tier_two)
+        stderr(&tier_three)
     );
 
     let emit = project.kink("emit", &[]);
@@ -2994,7 +3004,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 2);
+    assert_eq!(document["version"], 3);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
