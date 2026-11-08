@@ -4383,7 +4383,10 @@ fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     assert_eq!(check["connection"]["status"], "holds", "{check:#}");
     #[cfg(not(feature = "z3-inference"))]
     assert_eq!(
-        (&check["connection"]["status"], &check["connection"]["reason"]),
+        (
+            &check["connection"]["status"],
+            &check["connection"]["reason"]
+        ),
         (
             &json!("undecided"),
             &json!("no solver decides the simplified predicate")
