@@ -34,7 +34,7 @@ mod overload;
 mod package;
 mod raw_k;
 mod record_updates;
-pub(crate) use record_updates::{head_rule_long_form, structured_rule_long_form};
+pub(crate) use record_updates::structured_rule_long_form;
 mod elaborate;
 mod references;
 mod restriction;
@@ -202,6 +202,9 @@ pub struct RetainedLowering {
     /// The descriptors lowering reads, in identity order, each constant inlined at its uses,
     /// from which the admission checks' declaration index is built.
     descriptors: Vec<Descriptor>,
+    /// Each readable rule's `cells!` rule as `krs expand` prints it ([`printed_rules`]), or why
+    /// the printed rules do not mean the lowered ones.
+    printed_rules: Result<BTreeMap<StableItemId, Descriptor>, DescriptorLoweringError>,
     /// The subsort parents of every sort, as the admission checks read them.
     sort_parents:
         BTreeMap<krs_ir_levels::SemanticSortRef, BTreeSet<krs_ir_levels::SemanticSortRef>>,
@@ -226,6 +229,19 @@ impl RetainedLowering {
     #[must_use]
     pub fn descriptors(&self) -> &[Descriptor] {
         &self.descriptors
+    }
+
+    /// Each readable rule's `cells!` rule, by the rule's id, as `krs expand` prints it: the
+    /// elaboration of the collected descriptor, whose constants are named as written.
+    ///
+    /// # Errors
+    ///
+    /// Returns the internal error of a printed rule that does not elaborate, or whose constants
+    /// inlined do not give the lowered elaboration ([`printed_rules`]).
+    pub fn printed_rules(
+        &self,
+    ) -> Result<&BTreeMap<StableItemId, Descriptor>, &DescriptorLoweringError> {
+        self.printed_rules.as_ref()
     }
 
     /// The subsort parents the admission checks read.
@@ -338,6 +354,11 @@ fn lower_bundle(
         &semantic_sort_parents,
         &production_catalog,
     );
+    let printed_rules = if retain {
+        printed_rules(bundle, &readable, &declarations, &production_catalog)
+    } else {
+        Ok(BTreeMap::new())
+    };
     let descriptors = descriptors
         .iter()
         .map(|descriptor| readable.descriptor(descriptor))
@@ -502,6 +523,7 @@ fn lower_bundle(
         pre_derivation,
         admitted,
         descriptors: retained_descriptors,
+        printed_rules,
         sort_parents: if retain {
             semantic_sort_parents
         } else {
@@ -509,6 +531,159 @@ fn lower_bundle(
         },
         theory,
     })
+}
+
+/// Each readable rule of `bundle` as `krs expand` prints it: the collected descriptor, its
+/// constants named as the author wrote them, elaborated with its binders at the sorts of its
+/// lowered elaboration in `readable` ([`elaborate::printed_readable_rules`]).
+///
+/// A constant is a name for its value, so the printed rule means the lowered one exactly when
+/// inlining its constants gives the lowered elaboration, node keys included: the printer reads
+/// lowering's choices (an operator's operation, a list level's constructor) by those keys. That
+/// is checked here for every printed rule, up to what the two orders of inlining and elaborating
+/// spell apart and the printer does not read ([`comparable`]).
+///
+/// # Errors
+///
+/// Returns an internal error naming the first rule whose inlined print is not its lowered
+/// elaboration, or the error of a rule that does not elaborate again or inline.
+fn printed_rules(
+    bundle: &DescriptorBundle,
+    readable: &elaborate::ReadableRules,
+    declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, catalog::ProductionSignature>,
+) -> Result<BTreeMap<StableItemId, Descriptor>, DescriptorLoweringError> {
+    let mut collected = bundle.descriptors().iter().collect::<Vec<_>>();
+    collected.sort_by(|left, right| left.id().cmp(right.id()));
+    let printed = elaborate::printed_readable_rules(&collected, readable, declarations, catalog)?;
+    let replaced = collected
+        .iter()
+        .map(|descriptor| printed.get(descriptor.id()).unwrap_or(descriptor))
+        .collect::<Vec<_>>();
+    let inlined = constants::inline_constants(&replaced)?;
+    for descriptor in &inlined.descriptors {
+        if !printed.contains_key(descriptor.id()) {
+            continue;
+        }
+        let agrees = match readable.elaborated(descriptor.id()) {
+            Some(lowered) => {
+                lowered == descriptor.as_ref() || comparable(lowered)? == comparable(descriptor)?
+            }
+            None => false,
+        };
+        if !agrees {
+            return Err(DescriptorLoweringError::unsupported_shape(
+                "printed readable rule",
+                format!(
+                    "the printed rule {} with its constants inlined is not the rule lowered",
+                    descriptor.id()
+                ),
+            ));
+        }
+    }
+    Ok(printed)
+}
+
+/// An elaborated rule `descriptor` as [`printed_rules`] compares it, as JSON: what the two orders
+/// of inlining and elaborating may spell apart, and the printer does not read, is made one.
+///
+/// - Each key of a node a constant's inlining gives ([`krs_ir::ProvenanceRole::InlinedConstant`])
+///   is numbered by its first occurrence in the payload, and the node origins are in key order.
+///   Inlining numbers those nodes in the order it visits the payload, which differs between a
+///   readable rule and its elaboration; the numbering names no node the author wrote, and the
+///   printed rule, whose constants are not inlined, holds none of those keys.
+/// - A K-sequence item's own key is its term's key. The elaboration keys an item by its term,
+///   which inlining replaces after the elaboration in one order and before it in the other; the
+///   printer reads the term, never the item's key.
+fn comparable(descriptor: &Descriptor) -> Result<serde_json::Value, DescriptorLoweringError> {
+    fn renumber(
+        value: &mut serde_json::Value,
+        role: &serde_json::Value,
+        numbering: &mut BTreeMap<u64, u64>,
+    ) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.len() == 2 && object.get("role") == Some(role) {
+                    if let Some(ordinal) = object.get("ordinal").and_then(serde_json::Value::as_u64)
+                    {
+                        let next = u64::try_from(numbering.len()).unwrap_or(u64::MAX);
+                        let renumbered = *numbering.entry(ordinal).or_insert(next);
+                        object.insert("ordinal".to_owned(), renumbered.into());
+                    }
+                    return;
+                }
+                for value in object.values_mut() {
+                    renumber(value, role, numbering);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    renumber(value, role, numbering);
+                }
+            }
+            _ => {}
+        }
+    }
+    let unserializable = |error: serde_json::Error| {
+        DescriptorLoweringError::unsupported_shape("printed readable rule", error.to_string())
+    };
+    let role =
+        serde_json::to_value(krs_ir::ProvenanceRole::InlinedConstant).map_err(unserializable)?;
+    let mut payload = descriptor.payload().clone();
+    if let DescriptorPayload::ConfigurationRule(rule) = &mut payload {
+        items_keyed_by_their_terms(rule);
+    }
+    let mut value = serde_json::json!({
+        "id": serde_json::to_value(descriptor.id()).map_err(unserializable)?,
+        "payload": serde_json::to_value(payload).map_err(unserializable)?,
+        "provenance": serde_json::to_value(descriptor.provenance()).map_err(unserializable)?,
+    });
+    let mut numbering = BTreeMap::new();
+    for part in ["payload", "provenance"] {
+        if let Some(part) = value.get_mut(part) {
+            renumber(part, &role, &mut numbering);
+        }
+    }
+    if let Some(serde_json::Value::Array(origins)) = value
+        .get_mut("provenance")
+        .and_then(|provenance| provenance.get_mut("origins"))
+    {
+        origins.sort_by_cached_key(|origin| origin.get("key").map(ToString::to_string));
+    }
+    Ok(value)
+}
+
+/// `rule` with each K-sequence item keyed by its term ([`comparable`]).
+fn items_keyed_by_their_terms(rule: &mut krs_ir::DescriptorConfigurationRule) {
+    fn state(value: &mut krs_ir::ProtocolRuleStateTerm<krs_ir::DescriptorTerm>) {
+        match value {
+            krs_ir::ProtocolRuleStateTerm::KSequence(sequence) => {
+                for item in &mut sequence.items {
+                    item.key = collection_types::term_key(&item.value).clone();
+                }
+            }
+            krs_ir::ProtocolRuleStateTerm::Present { value } => state(value),
+            krs_ir::ProtocolRuleStateTerm::Instances(instances) => {
+                for instance in instances.front.iter_mut().chain(&mut instances.back) {
+                    for field in &mut instance.fields {
+                        state(&mut field.value);
+                    }
+                }
+            }
+            krs_ir::ProtocolRuleStateTerm::Term(_)
+            | krs_ir::ProtocolRuleStateTerm::Group(_)
+            | krs_ir::ProtocolRuleStateTerm::Map(_)
+            | krs_ir::ProtocolRuleStateTerm::Absent => {}
+        }
+    }
+    let cells = rule
+        .subject
+        .cells
+        .iter_mut()
+        .chain(rule.result.iter_mut().flat_map(|result| &mut result.cells));
+    for cell in cells {
+        state(&mut cell.value);
+    }
 }
 
 /// The rule-level admission checks and the static rewriting that [`lower_descriptor_bundle`]
@@ -835,6 +1010,11 @@ fn branch_ranges(
     let first_branch = exact_role_range(first, ProvenanceRole::RuleDeclaration)?;
     let second_branch = exact_role_range(second, ProvenanceRole::RuleDeclaration)?;
     (first_branch != head && second_branch != head).then_some((first_branch, second_branch))
+}
+
+/// The semantic sort a descriptor sort names.
+pub(crate) fn semantic_sort(sort: &krs_ir::DescriptorSortRef) -> krs_ir_levels::SemanticSortRef {
+    catalog::semantic_sort_ref(sort)
 }
 
 /// The source-map key semantic lowering gives the application whose head has

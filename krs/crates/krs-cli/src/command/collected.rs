@@ -269,7 +269,14 @@ impl CollectedDefinition {
     ) -> Result<super::PreparedDefinition, CommandError> {
         let warnings = self.warnings_of(&bundle);
         let root = self.plan.root_package();
-        prepare_bundle(bundle, warnings, root.as_ref(), self.profile, measurement)
+        prepare_bundle(
+            bundle,
+            warnings,
+            root.as_ref(),
+            self.profile,
+            false,
+            measurement,
+        )
     }
 
     /// Lower `bundle` and emit its K, as `krs emit-k` does without rendering or writing the
@@ -404,7 +411,16 @@ impl CollectedDefinition {
     /// file other than the crate root, which the crate root alone does not print.
     pub fn expand(&self, bundle: DescriptorBundle) -> Result<String, CommandError> {
         let mut measurement = Measurement::disabled();
-        let prepared = self.prepare(bundle, &mut measurement)?;
+        let warnings = self.warnings_of(&bundle);
+        let root = self.plan.root_package();
+        let prepared = prepare_bundle(
+            bundle,
+            warnings,
+            root.as_ref(),
+            self.profile,
+            true,
+            &mut measurement,
+        )?;
         let warnings = definition_warnings(&prepared);
         let expanded = expansion(&prepared, &self.plan).map_err(|error| error.warned(warnings))?;
         match expanded.changed.as_slice() {

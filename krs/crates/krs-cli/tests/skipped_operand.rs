@@ -761,6 +761,39 @@ fn a_key_silences_the_sentences_of_its_item_and_a_stale_key_warns() {
         = note: `||` is `bool::or_else`, one strict function: where the operand has no value, the application has none on every KRS route, while a backend that returns the selected operand alone gives `true`, so the K KRS emits means different things on different backends, and kink does not judge a run that reads it
         = help: write a branching body, whose branches are separate equations, each with its own definedness: `if left { true } else { right }`, with `left` and `right` its operands; where this is not the whole body, move it into a helper function whose body branches
         = help: or state that the strict meaning is intended: `#[k::equation(.., skipped_operand = "..")]` on this equation, or `#[k::function(.., skipped_operand = "..")]` on its function, for every equation of the function"#]].assert_eq(at_line(&warnings, &source, "fifth_other: (n, d) => d == 0 || n / d > 1;"));
+
+    // A keyed clause prints as the `cells!` rule its key marks, so the print states what its
+    // source states and is silenced and warned exactly where its source is. (A warning names the
+    // operator as the print spells it, `bool::or_else` for `||`, so the warnings are compared by
+    // their kind.)
+    let (expanded, printed, stderr) = krs(
+        target.path(),
+        &temporary.path().join("Cargo.toml"),
+        "expand",
+        &[],
+    );
+    assert!(expanded, "{stderr}");
+    let attribute = printed.split_whitespace().collect::<Vec<_>>().join(" ");
+    for keyed in [
+        r#"#[k::rule(skipped_operand = "a clause's condition is strict too", label = "lifted")]"#,
+        r#"#[k::rule(skipped_operand = "nothing is skipped in this clause", label = "or-small")]"#,
+    ] {
+        assert!(attribute.contains(keyed), "{keyed}\n{printed}");
+    }
+    let reprinted = temp_dir();
+    let manifest = package(reprinted.path(), "");
+    fs::write(reprinted.path().join("src/lib.rs"), &printed).unwrap();
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let headlines = |warnings: &[String]| {
+        let mut headlines = warnings
+            .iter()
+            .map(|warning| warning.split("]:").next().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        headlines.sort();
+        headlines
+    };
+    assert_eq!(headlines(&skipped(&stderr)), headlines(&warnings));
 }
 
 /// Every origin a sentence depends on, at its own place, however the author writes the

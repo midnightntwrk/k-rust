@@ -55,6 +55,14 @@ impl ReadableRules {
         }
     }
 
+    /// The elaborated descriptor of the readable rule `id`, when it elaborates.
+    pub(super) fn elaborated(&self, id: &StableItemId) -> Option<&Descriptor> {
+        match self.rules.get(id) {
+            Some(Ok((elaborated, _))) => Some(elaborated),
+            _ => None,
+        }
+    }
+
     /// The notes of the rule `id` when it is an elaborated readable rule.
     pub(super) fn notes(&self, id: &StableItemId) -> Option<&ReadableNotes> {
         match self.rules.get(id) {
@@ -116,6 +124,53 @@ pub(super) fn elaborate_readable_rules(
         })
         .collect();
     ReadableRules { rules }
+}
+
+/// Each readable rule of `collected`, the descriptors as collected (constants not inlined),
+/// [`elaborate`]d with its binders at the sorts its lowered elaboration in `readable` declares
+/// them: the `cells!` rule `krs expand` prints, which names a constant where its author did.
+/// Nothing is inferred again; a rule `readable` holds no elaboration of is left out.
+pub(super) fn printed_readable_rules(
+    collected: &[&Descriptor],
+    readable: &ReadableRules,
+    declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<BTreeMap<StableItemId, Descriptor>, DescriptorLoweringError> {
+    let mut printed = BTreeMap::new();
+    for descriptor in collected {
+        let DescriptorPayload::HeadRule(rule) = descriptor.payload() else {
+            continue;
+        };
+        let Some(lowered) = readable.elaborated(descriptor.id()) else {
+            continue;
+        };
+        let DescriptorPayload::ConfigurationRule(lowered) = lowered.payload() else {
+            continue;
+        };
+        let sorts = lowered
+            .bindings
+            .iter()
+            .filter_map(|binding| match &binding.kind {
+                ProtocolRuleBindingKind::Term { sort } => Some((
+                    binding.name.clone(),
+                    super::catalog::semantic_sort_ref(&sort.sort),
+                )),
+                _ => None,
+            })
+            .collect();
+        match elaborate(descriptor, rule, &sorts, declarations, catalog)? {
+            Ok(elaboration) => {
+                printed.insert(descriptor.id().clone(), elaboration.descriptor);
+            }
+            Err(Unelaborated(form)) => {
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "printed readable rule",
+                    format!("{form} has no `cells!` rule"),
+                ));
+            }
+        }
+    }
+    Ok(printed)
 }
 
 /// A readable form [`elaborate`] has no `cells!` rule for yet.

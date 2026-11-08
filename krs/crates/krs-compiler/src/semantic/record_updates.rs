@@ -1318,28 +1318,11 @@ fn written_keys<'a>(
         .collect()
 }
 
-/// The long form of a readable rule or claim, as `krs expand` writes it
-/// (F5): its terms name every field, except an open group record that is no
-/// base's, no update and unlabelled, which keeps the children written and its
-/// `..`; an alias used only as an update base is no binding, and the hidden
-/// binders of its updates are bindings.
-///
-/// # Errors
-///
-/// Returns the scan's diagnostics and lookup errors of the bundle.
-pub(crate) fn head_rule_long_form(
-    descriptor: &Descriptor,
-    rule: &krs_ir::DescriptorHeadRule,
-    bundle: &krs_ir::DescriptorBundle,
-) -> Result<krs_ir::DescriptorHeadRule, DescriptorLoweringError> {
-    let descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
-    let catalog = super::catalog::build_production_catalog(&descriptors)?;
-    let declarations = DescriptorIndex::new(bundle);
-    head_rule_long_form_in(descriptor, rule, &catalog, &declarations).map(|(rule, _)| rule)
-}
-
-/// [`head_rule_long_form`] over a package's production catalog and
-/// declarations, as the lowering holds them, with the declared sort of each
+/// The long form of a readable rule or claim, as its elaboration writes it (F5): its terms name
+/// every field, except an open group record that is no base's, no update and unlabelled, which
+/// keeps the children written and its `..`; an alias used only as an update base is no binding,
+/// and the hidden binders of its updates are bindings. It is taken over a package's production
+/// catalog and declarations, as the lowering holds them, with the declared sort of each
 /// hidden binder it names ([`RecordUpdates::hidden_binder_sorts`]).
 pub(super) fn head_rule_long_form_in(
     descriptor: &Descriptor,
@@ -1440,7 +1423,7 @@ pub(super) type HeadRuleLongForm = (
     BTreeMap<SemanticId, Result<SemanticSortRef, (ProductionFieldId, ProvenanceKey)>>,
 );
 
-/// The long form of a structured rule's terms, as [`head_rule_long_form`].
+/// The long form of a structured rule's terms, as [`head_rule_long_form_in`].
 ///
 /// # Errors
 ///

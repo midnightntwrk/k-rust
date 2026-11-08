@@ -1183,4 +1183,31 @@ fn a_head_wildcard_matches_only_its_clauses_sort() {
     assert!(success, "{stdout}\n{stderr}");
     expect_test::expect!["<k> marked ~> .K </k>"]
         .assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+
+    // The print names the head `_` by a binder of the clause's sort used once, so the printed
+    // rule matches a `Stmt` and nothing else, as the clause does: its run keeps the `Tag` too.
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let printed = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        printed.contains("_stmt: crate::Stmt")
+            && printed.contains("k::configuration::KCell(_stmt, ..)"),
+        "{expanded}"
+    );
+    let reference = library_package(temporary.path(), "sorted-wildcard-expanded", &expanded);
+    expect_test::expect![[r"
+        rule [drop]:
+            <k> _Stmt:Stmt => .K ... </k>"]]
+    .assert_eq(rule(&emitted_k(target.path(), &reference), "drop"));
+    let program = reference.with_file_name("program.txt");
+    fs::write(&program, "go").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &reference,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<k> marked ~> .K </k>"]
+        .assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }

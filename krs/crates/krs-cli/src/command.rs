@@ -422,6 +422,9 @@ struct PreparedDefinition {
     lowered: krs_compiler::LoweredDefinition,
     /// k-rust's compiles of `lowered`, kept only for the agreement test.
     compiles: agreement::CompileMemo,
+    /// The lowering `semantic` comes from, kept for `krs expand`, which prints each readable
+    /// rule's elaborated rule ([`krs_compiler::RetainedLowering::printed_rules`]).
+    retained: Option<krs_compiler::RetainedLowering>,
 }
 
 type OutputArtifact = (String, Vec<u8>);
@@ -519,11 +522,18 @@ fn execute_with_sources(
     }
     let collected = run_collector(&collector_directory, &executable, measurement)?;
     let read_set = collected.read_set;
+    // `krs expand` prints each readable rule's elaborated rule, which lowering keeps when asked.
+    let retain = match &request.command {
+        Command::Expand { .. } => true,
+        Command::Check { .. } => check_expands(),
+        _ => false,
+    };
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
         &plan,
         request.profile,
+        retain,
         measurement,
     )?;
     let warnings = definition_warnings(&prepared);
@@ -1232,6 +1242,7 @@ fn prepare_observer_with(
         collected.warnings,
         &plan,
         observer.profile,
+        false,
         measurement,
     )
     .map_err(refuse)?;
@@ -1258,6 +1269,7 @@ fn prepare(
     collection_warnings: Vec<crate::DiagnosticEnvelope>,
     plan: &CollectorPlan,
     profile: Option<krs_ir::RawKProfile>,
+    retain: bool,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
     let bundle: DescriptorBundle = measurement
@@ -1278,20 +1290,40 @@ fn prepare(
         collection_warnings,
         plan.root_package().as_ref(),
         profile,
+        retain,
         measurement,
     )
 }
 
 /// Lower a decoded bundle as every command does: the raw-K policy, the semantic theory, the
 /// Definition IR, and the warnings of each, after `collection_warnings`, the collector's for
-/// the bundle's sentences.
+/// the bundle's sentences. With `retain`, the lowering is kept beside the theory
+/// ([`PreparedDefinition::retained`]).
 fn prepare_bundle(
     bundle: DescriptorBundle,
     collection_warnings: Vec<crate::DiagnosticEnvelope>,
     root: Option<&PackageId>,
     profile: Option<krs_ir::RawKProfile>,
+    retain: bool,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
+    if retain {
+        return prepare_bundle_with(
+            bundle,
+            collection_warnings,
+            profile,
+            measurement,
+            |bundle| {
+                krs_compiler::lower_descriptor_bundle_retained(bundle, root)
+                    .map(|retained| (retained.theory().clone(), retained))
+                    .map_err(CommandError::DescriptorLowering)
+            },
+        )
+        .map(|(prepared, retained)| PreparedDefinition {
+            retained: Some(retained),
+            ..prepared
+        });
+    }
     prepare_bundle_with(
         bundle,
         collection_warnings,
@@ -1361,6 +1393,7 @@ fn prepare_bundle_with<Kept>(
             semantic,
             lowered,
             compiles: agreement::CompileMemo::new(),
+            retained: None,
         },
         kept,
     ))
@@ -1851,9 +1884,21 @@ fn expansion(
         crates.insert(id, name.clone());
     }
     let facade = FacadeAliases::from_manifest(&root.manifest_path).map_err(CommandError::Facade)?;
+    // A lowering not kept when the definition was prepared is computed again.
+    let lowered;
+    let lowering = if let Some(retained) = &prepared.retained {
+        retained
+    } else {
+        lowered = krs_compiler::lower_descriptor_bundle_retained(
+            &prepared.bundle,
+            plan.root_package().as_ref(),
+        )
+        .map_err(CommandError::DescriptorLowering)?;
+        &lowered
+    };
     Ok(expand_package_reference_source(
         &prepared.bundle,
-        &prepared.semantic,
+        lowering,
         &package,
         &crates,
         &root.manifest_path,

@@ -250,7 +250,7 @@ use k::{HostDescriptor, HostDescriptorPayload, ItemKind};
 use krs_collector::{FacadeAliases, PackageContext, collect_host_descriptors_with_builtins};
 use krs_compiler::{
     DescriptorLoweringError, emit_k, expand_reference_source, lower_descriptor_bundle,
-    lower_semantic_theory,
+    lower_descriptor_bundle_retained, lower_semantic_theory,
 };
 use krs_ir::{
     DescriptorBundle, DescriptorDeclaration, DescriptorPayload, RustVisibility, StableItemId,
@@ -1340,7 +1340,7 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
     }
 
     let bundle = collect_route(false);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    let lowering = lower_descriptor_bundle_retained(&bundle, None).unwrap();
     let package = bundle
         .descriptors()
         .iter()
@@ -1358,7 +1358,7 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
         &package,
         &["imp".into()],
         &bundle,
-        &semantic,
+        &lowering,
     )
     .expect("readable IMP projects to reference Rust");
     let repeated = expand_reference_source(
@@ -1367,7 +1367,7 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
         &package,
         &["imp".into()],
         &bundle,
-        &semantic,
+        &lowering,
     )
     .expect("repeated readable IMP projection succeeds");
     assert_eq!(

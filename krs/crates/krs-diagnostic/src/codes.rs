@@ -145,7 +145,7 @@ register_codes! {
         CONSTRUCTOR_FIELD_COVERAGE: "krs::reference::constructor-field-coverage" [Internal] => "Projected fields do not cover the collected constructor.",
         MISSING_CONSTRUCTOR_FIELD: "krs::reference::missing-constructor-field" [Internal] => "A projected field is absent from the collected constructor.",
         MISSING_SEMANTIC_RULE: "krs::reference::missing-semantic-rule" [Internal] => "Semantic lowering omitted a collected rule.",
-        MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" [Internal] => "Inference produced no sort for a readable binder.",
+        MISSING_PRINTED_RULE: "krs::reference::missing-printed-rule" [Internal] => "Lowering kept no elaborated rule for a collected readable rule.",
         EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "No path the printed clause writes reaches an item of a package the source does not depend on directly.",
         DEPENDENCY_PATH: "krs::reference::dependency-path" => "No path the printed clause writes reaches a dependency's item, and its declaring path is not known to compile.",
         PRIVATE_MODULE: "krs::reference::private-module" => "No path the printed clause writes reaches an item that, or whose module, is private where the long form stands.",

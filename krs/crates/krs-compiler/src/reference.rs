@@ -13,12 +13,10 @@ use krs_ir::{
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle, DescriptorHeadRule,
     DescriptorIndex, DescriptorPayload, DescriptorStage, DescriptorTerm,
     ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, ListNotation, OriginFrame, PackageId,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap,
-    SourceFileId, SourceMapKey, StableItemId, Stage, TermMapOperation,
+    ProtocolHeadRuleExtra, ProvenanceRole, RangedOriginKind, RefMap, SourceFileId, SourceMapKey,
+    StableItemId, Stage, TermMapOperation,
 };
-use krs_ir_levels::{
-    IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm, SemanticTheory,
-};
+use krs_ir_levels::{IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm};
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
@@ -71,7 +69,7 @@ pub struct PackageExpansion {
 /// [`expand_reference_source`]'s does.
 pub fn expand_package_reference_source(
     bundle: &DescriptorBundle,
-    semantic: &SemanticTheory,
+    lowering: &crate::RetainedLowering,
     package: &PackageId,
     crates: &BTreeMap<PackageId, String>,
     manifest_path: &Path,
@@ -113,7 +111,7 @@ pub fn expand_package_reference_source(
             tree: Some(&tree),
         },
         bundle,
-        semantic,
+        lowering,
     );
     // Each file by its package-relative path: its printed text and whether it changed.
     let mut printed = BTreeMap::<&str, (String, bool)>::new();
@@ -243,7 +241,7 @@ pub fn expand_reference_source(
     package: &PackageId,
     module_path: &[String],
     bundle: &DescriptorBundle,
-    semantic: &SemanticTheory,
+    lowering: &crate::RetainedLowering,
 ) -> Result<String, ReferenceExpansionError> {
     expand_reference_source_naming(
         source,
@@ -252,7 +250,7 @@ pub fn expand_reference_source(
         &BTreeMap::new(),
         module_path,
         bundle,
-        semantic,
+        lowering,
     )
 }
 
@@ -275,7 +273,7 @@ pub fn expand_reference_source_naming(
     crates: &BTreeMap<PackageId, String>,
     module_path: &[String],
     bundle: &DescriptorBundle,
-    semantic: &SemanticTheory,
+    lowering: &crate::RetainedLowering,
 ) -> Result<String, ReferenceExpansionError> {
     let file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
     let authored = authored_paths(std::iter::once(&file), crates, facade);
@@ -292,7 +290,7 @@ pub fn expand_reference_source_naming(
             tree: None,
         },
         bundle,
-        semantic,
+        lowering,
     );
     Ok(expansion.file(source, file, None, module_path)?.0)
 }
@@ -304,6 +302,10 @@ struct Expansion<'a> {
     bundle: &'a DescriptorBundle,
     descriptor_index: DescriptorIndex<'a>,
     semantic_rules: BTreeMap<&'a StableItemId, &'a SemanticRule>,
+    /// Each readable rule's elaborated `cells!` rule, which its clause prints
+    /// ([`crate::RetainedLowering::printed_rules`]).
+    printed_rules:
+        Result<&'a BTreeMap<StableItemId, Descriptor>, &'a crate::DescriptorLoweringError>,
     /// The module paths of the package's descriptors.
     descriptor_modules: BTreeSet<&'a [String]>,
     /// The module paths of the package's author spec modules (KF-041): inline `mod`s whose
@@ -337,8 +339,9 @@ impl<'a> Expansion<'a> {
         facade: &'a FacadeScope,
         package: PathScope<'a>,
         bundle: &'a DescriptorBundle,
-        semantic: &'a SemanticTheory,
+        lowering: &'a crate::RetainedLowering,
     ) -> Self {
+        let semantic = lowering.theory();
         let in_package = || {
             bundle
                 .descriptors()
@@ -356,6 +359,7 @@ impl<'a> Expansion<'a> {
                 .flat_map(krs_ir_levels::SemanticModule::rules)
                 .map(|rule| (rule.id(), rule))
                 .collect(),
+            printed_rules: lowering.printed_rules(),
             descriptor_modules: in_package()
                 .map(|descriptor| descriptor.id().module_path())
                 .collect(),
@@ -783,18 +787,28 @@ impl<'a> Expansion<'a> {
                     Some(&Bindings::of_uses(block.imports())),
                     &module_uses,
                 );
-                // A record update is written in full, as its fields (F5).
-                let rule = crate::semantic::head_rule_long_form(descriptor, rule, bundle)
-                    .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
-                    .try_map_refs(&mut OperatorCalls::new(
-                        descriptor,
-                        semantic_rule,
-                        semantic_rules,
-                    ))?;
+                // The clause prints as the `cells!` rule it elaborates to, its record updates
+                // written in full (F5), with lowering's choice at each operator and list level.
+                let printed_rules = self
+                    .printed_rules
+                    .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error.clone())))?;
+                let printed = printed_rules.get(descriptor.id()).ok_or_else(|| {
+                    ReferenceExpansionError::MissingPrintedRule(Box::new(descriptor.id().clone()))
+                })?;
+                let DescriptorPayload::ConfigurationRule(elaborated) = printed.payload() else {
+                    return Err(ReferenceExpansionError::MissingPrintedRule(Box::new(
+                        descriptor.id().clone(),
+                    )));
+                };
+                let brackets = ListBrackets::of(rule);
+                let mut calls = OperatorCalls::new(printed, semantic_rule, semantic_rules);
+                calls.brackets = brackets.levels(elaborated);
+                let elaborated = (**elaborated).clone().try_map_refs(&mut calls)?;
                 items.push(with_attributes(
                     syn::Item::Fn(render_rule(
                         clause,
-                        &rule,
+                        rule,
+                        &elaborated,
                         semantic_rule,
                         package.writing(&written),
                         bundle,
@@ -1598,41 +1612,6 @@ fn render_reference_token_term_type(
     Ok(quote!(k::Term<#token>))
 }
 
-/// The collected declaration of `cell`, as its owner's declaration holds it.
-fn declared_cell<'a>(
-    cell: &krs_ir::DescriptorCellIdentity,
-    index: &DescriptorIndex<'a>,
-) -> Option<&'a krs_ir::DescriptorCellField> {
-    index
-        .cell_owner(&cell.owner)
-        .ok()?
-        .fields
-        .iter()
-        .find(|field| field.rust_field == cell.field)
-}
-
-/// Whether `cell` is a fixed nested (group) cell, whose `cells!` entry is
-/// written without a wrapper because it mirrors the expanded struct (KF-016):
-/// its declared kind's content is a group.
-fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, index: &DescriptorIndex<'_>) -> bool {
-    declared_cell(cell, index).is_some_and(|field| {
-        krs_ir::cell_kind::DescriptorCell::new(field, index)
-            .kind()
-            .group()
-            .is_some()
-    })
-}
-
-/// Whether `cell` is a fixed optional (`?`) cell, whose `cells!` entry is `Some(..)` or `None`:
-/// its declared kind's multiplicity is presence.
-fn is_optional_cell(cell: &krs_ir::DescriptorCellIdentity, index: &DescriptorIndex<'_>) -> bool {
-    declared_cell(cell, index).is_some_and(|field| {
-        krs_ir::cell_kind::CellView::multiplicity(&krs_ir::cell_kind::DescriptorCell::new(
-            field, index,
-        )) == krs_ir::cell_kind::Multiplicity::Optional
-    })
-}
-
 /// The constructors of the cons list a list cell holds (F6).
 struct CellConsList {
     sort: StableItemId,
@@ -2378,6 +2357,17 @@ fn is_initializer_lint_allow(attribute: &syn::Attribute) -> bool {
             .contains("clippy :: must_use_candidate")
 }
 
+/// The `#[k::rule]` (or `#[k::claim]`) fn over `k::cells!` that a readable clause means:
+/// `printed`, the clause's elaborated rule ([`crate::RetainedLowering::printed_rules`]), each
+/// operator, method and list level in it resolved as lowering resolved it ([`OperatorCalls`])
+/// except the levels a list cell's brackets write ([`list_brackets`]).
+///
+/// Every binder is one the elaborated rule declares, typed at the sort it declares it, and every
+/// frame it names (the configuration's `state`, a collection's other instances, an instance
+/// child's tail) is printed by that name, so the print names what the lowered rule names. A
+/// sorted `_` (the wildcard a `for Sort` head `_` elaborates to) prints as a binder of its sort
+/// used once ([`wildcard_names`]). The clause gives what the rule is about
+/// ([`rule_subject_type`]), the fn's name, its outer attributes and its `#[k::exists]` helpers.
 #[expect(
     clippy::too_many_lines,
     reason = "One rule projection keeps its two sides visibly paired."
@@ -2385,329 +2375,84 @@ fn is_initializer_lint_allow(attribute: &syn::Attribute) -> bool {
 fn render_rule(
     clause: &krs_syntax::RuleClause,
     rule: &DescriptorHeadRule,
+    printed: &krs_ir::DescriptorConfigurationRule,
     semantic: &SemanticRule,
     package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
-    let variable_sorts = semantic
-        .variables()
-        .iter()
-        .map(|variable| (variable.id().as_str(), variable.sort()))
-        .collect::<BTreeMap<_, _>>();
-    let mut reserved = rule
+    let mut reserved = printed
         .bindings
         .iter()
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
-    let state = fresh_ident("state", &mut reserved)?;
     // A map entry's `x -> _` value is recorded as a binding named `_`, used
     // once and at the sort a narrowing `_: S` gives it, so it denotes what
     // a fresh binder of that sort used once does; it prints as one, since
     // `_` is no Rust binder a typed parameter can name.
-    let wildcard = rule
+    let value = printed
         .bindings
         .iter()
         .any(|binding| binding.name == "_")
         .then(|| fresh_ident("value", &mut reserved))
         .transpose()?;
-    let binder = |name: &str| match &wildcard {
+    let binder = |name: &str| match &value {
         Some(fresh) if name == "_" => Ok(fresh.clone()),
         _ => rust_ident(name),
     };
     let mut parameters = Vec::new();
-    for binding in &rule.bindings {
+    for binding in &printed.bindings {
+        let krs_ir::ProtocolRuleBindingKind::Term { sort } = &binding.kind else {
+            continue;
+        };
         let name = binder(&binding.name)?;
-        let sort = variable_sorts.get(binding.name.as_str()).ok_or_else(|| {
-            ReferenceExpansionError::MissingBindingSort {
-                rule: clause.rule().item().sig.ident.unraw().to_string(),
-                binding: binding.name.clone(),
-            }
-        })?;
-        let ty = render_sort_type(sort, package)?;
+        let ty = render_binding_type(&sort.sort, package)?;
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
     }
 
     // The `cells!` rule is typed by what the clause is about, and names each cell relative to it.
     let root = rule_subject_type(rule, descriptor_index);
+    let brackets = ListBrackets::of(rule);
+    let mut rendering = CellRendering {
+        package,
+        bundle,
+        descriptor_index,
+        root: &root,
+        brackets: &brackets,
+        value: value.as_ref(),
+        reserved: &mut reserved,
+        parameters: &mut parameters,
+    };
+    let results = printed
+        .result
+        .as_ref()
+        .map_or(&[][..], |result| result.cells.as_slice());
     let mut left_cells = Vec::new();
     let mut right_cells = Vec::new();
-    // A clause without the computation cell leaves it out of both sides (E7).
-    if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
-        let computation = render_rule_cell_field(&computation.cell, &root, package)?;
-        let subject = head
-            .items
+    for before in &printed.subject.cells {
+        let after = results
             .iter()
-            .map(|item| render_term(item, true, package, bundle))
-            .collect::<Result<Vec<_>, _>>()?;
-        // An open head keeps the rest of the cell: the subject's `..` matches it and the
-        // result's `..` keeps it, as the author wrote.
-        let rest = || {
-            if head.exact {
-                entries::Rest::Exact
-            } else {
-                entries::Rest::Anonymous
-            }
-        };
-        left_cells.push(entries::print_entry(
-            &computation,
-            &entries::Entry {
-                contents: entries::Contents::KSequence(subject),
-                rest: rest(),
-            },
-            entries::Side::Subject,
-        )?);
-        if let Some(result) = &head.result {
-            let result_items = match result {
-                ProtocolHeadRuleResult::Replace(term) => {
-                    vec![render_term(term, false, package, bundle)?]
-                }
-                ProtocolHeadRuleResult::Splice(splice) => splice
-                    .terms()
-                    .map(|term| render_term(term, false, package, bundle))
-                    .collect::<Result<Vec<_>, _>>()?,
-                ProtocolHeadRuleResult::Erase => Vec::new(),
-            };
-            right_cells.push(entries::print_entry(
-                &computation,
-                &entries::Entry {
-                    contents: entries::Contents::KSequence(result_items),
-                    rest: rest(),
-                },
-                entries::Side::Result,
-            )?);
-        }
+            .find(|after| after.field.cell == before.field.cell);
+        let (left, right) = render_rule_cell(before, after, &mut rendering)?;
+        left_cells.push(left);
+        right_cells.extend(right);
     }
+    let state = match (
+        &printed.subject.remainder,
+        printed.result.as_ref().map(|result| &result.remainder),
+    ) {
+        (
+            krs_ir::ProtocolRuleFrame::Bind { binding, .. },
+            Some(krs_ir::ProtocolRuleFrame::Reuse { binding: kept, .. }),
+        ) if binding == kept => rust_ident(binding)?,
+        _ => return Err(ReferenceExpansionError::UnsupportedState),
+    };
 
-    let mut instance_tails = 0_usize;
-    for (ordinal, extra) in rule.extras.iter().enumerate() {
-        match extra {
-            ProtocolHeadRuleExtra::RewriteState {
-                cell,
-                before,
-                after,
-                ..
-            } => {
-                let (left, right) = render_readable_state(
-                    cell,
-                    before,
-                    after.as_ref(),
-                    &root,
-                    &mut StateRendering {
-                        package,
-                        bundle,
-                        descriptor_index,
-                        reserved: &mut reserved,
-                        tails: &mut instance_tails,
-                        parameters: &mut parameters,
-                        rests: ordinal,
-                    },
-                )?;
-                left_cells.push(left);
-                right_cells.extend(right);
-            }
-            ProtocolHeadRuleExtra::HaveMap {
-                cell,
-                entries: read,
-                ..
-            } => {
-                let cell = render_rule_cell_field(&cell.cell, &root, package)?;
-                let pairs = read
-                    .iter()
-                    .map(|entry| {
-                        let key = render_term(&entry.key, true, package, bundle)?;
-                        let value = binder(&entry.value_binding)?;
-                        Ok((key, quote!(#value)))
-                    })
-                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
-                // A read leaves the other entries as they are: the subject's `..` matches
-                // them, and the cell, absent from the result, keeps them.
-                left_cells.push(entries::print_entry(
-                    &cell,
-                    &entries::Entry {
-                        contents: entries::Contents::Map(pairs),
-                        rest: entries::Rest::Anonymous,
-                    },
-                    entries::Side::Subject,
-                )?);
-            }
-            ProtocolHeadRuleExtra::UpdateMap {
-                cell,
-                base_binding,
-                update,
-            } => {
-                let cell = render_rule_cell_field(&cell.cell, &root, package)?;
-                let base = rust_ident(base_binding)?;
-                let update = render_term(update, false, package, bundle)?;
-                left_cells.push(quote!(#cell: k::configuration::Cell(#base)));
-                right_cells.push(quote! {
-                    #cell: k::configuration::Cell(#update)
-                });
-            }
-            ProtocolHeadRuleExtra::RewriteList {
-                cell,
-                before,
-                after,
-                ..
-            } => {
-                let constructors = cell_cons_list(&cell.cell, bundle);
-                let bare = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
-                    matches!(list.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
-                        && list.items.is_empty()
-                        && list.back.is_empty()
-                };
-                // The brackets are written as the author wrote them: each side's items, its
-                // rest (`..` on both sides when anonymous; bound `r @ ..` in the subject and
-                // written `..t` in the result when named) and, on a `List`, its back. They
-                // denote the constructor or `List` term the readable rule's do, front first:
-                // `cells!` names a list cell's anonymous rest as the readable rule does, one
-                // variable of the cell the subject binds and the result keeps.
-                if !bare(before) && !after.as_ref().is_some_and(bare) {
-                    let kind = if constructors.is_some() {
-                        entries::ListKind::Cons
-                    } else {
-                        entries::ListKind::Builtin
-                    };
-                    let field = render_rule_cell_field(&cell.cell, &root, package)?;
-                    let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
-                                 pattern: bool|
-                     -> Result<entries::Entry, ReferenceExpansionError> {
-                        let render = |terms: &[DescriptorTerm]| {
-                            terms
-                                .iter()
-                                .map(|term| render_term(term, pattern, package, bundle))
-                                .collect::<Result<Vec<_>, _>>()
-                        };
-                        let rest = match &list.rest {
-                            krs_ir::ProtocolHeadRuleListRest::Exact => entries::Rest::Exact,
-                            krs_ir::ProtocolHeadRuleListRest::Shared(_) => entries::Rest::Anonymous,
-                            krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
-                                entries::Rest::Named(render_term(rest, pattern, package, bundle)?)
-                            }
-                        };
-                        Ok(entries::Entry {
-                            contents: entries::Contents::List {
-                                kind,
-                                items: render(&list.items)?,
-                                back: render(&list.back)?,
-                            },
-                            rest,
-                        })
-                    };
-                    left_cells.push(entries::print_entry(
-                        &field,
-                        &entry(before, true)?,
-                        entries::Side::Subject,
-                    )?);
-                    if let Some(after) = after {
-                        right_cells.push(entries::print_entry(
-                            &field,
-                            &entry(after, false)?,
-                            entries::Side::Result,
-                        )?);
-                    }
-                    continue;
-                }
-                // Brackets holding only the anonymous rest (`[..]`, the whole list) name no
-                // element, which `k::cells!` refuses: such a cell prints its constructor or
-                // `List` term over a rest parameter both sides name.
-                //
-                // A cell of the builtin `List` is the `list::item` and
-                // `list::concat` term its brackets denote.
-                let Some(list) = constructors else {
-                    let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
-                        .then(|| {
-                            let rest = fresh_ident("rest", &mut reserved)?;
-                            let ty = render_sort_type(
-                                &SemanticSortRef::Builtin(krs_ir::BuiltinSort::List),
-                                package,
-                            )?;
-                            parameters.push((rest.to_string(), quote!(#rest: #ty)));
-                            Ok::<_, ReferenceExpansionError>(rest)
-                        })
-                        .transpose()?;
-                    let field = render_rule_cell_field(&cell.cell, &root, package)?;
-                    let before =
-                        render_builtin_list(before, shared.as_ref(), true, package, bundle)?;
-                    left_cells.push(quote! {
-                        #field: k::configuration::Cell(#before)
-                    });
-                    if let Some(after) = after {
-                        let after =
-                            render_builtin_list(after, shared.as_ref(), false, package, bundle)?;
-                        right_cells.push(quote! {
-                            #field: k::configuration::Cell(#after)
-                        });
-                    }
-                    continue;
-                };
-                // A cons-list cell is the constructor term it denotes (F6).
-                let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
-                    .then(|| {
-                        let rest = fresh_ident("rest", &mut reserved)?;
-                        let ty = render_sort_type(
-                            &SemanticSortRef::Declared(list.sort.clone()),
-                            package,
-                        )?;
-                        parameters.push((rest.to_string(), quote!(#rest: #ty)));
-                        Ok::<_, ReferenceExpansionError>(rest)
-                    })
-                    .transpose()?;
-                let field = render_rule_cell_field(&cell.cell, &root, package)?;
-                let before = render_list(before, &list, shared.as_ref(), true, package, bundle)?;
-                left_cells.push(quote! {
-                    #field: k::configuration::Cell(#before)
-                });
-                if let Some(after) = after {
-                    let after = render_list(after, &list, shared.as_ref(), false, package, bundle)?;
-                    right_cells.push(quote! {
-                        #field: k::configuration::Cell(#after)
-                    });
-                }
-            }
-            ProtocolHeadRuleExtra::RewriteCell {
-                cell,
-                before,
-                after,
-                ..
-            } => {
-                let group = is_group_cell(&cell.cell, descriptor_index);
-                let optional = is_optional_cell(&cell.cell, descriptor_index);
-                let cell = render_rule_cell_field(&cell.cell, &root, package)?;
-                let before = render_term(before, true, package, bundle)?;
-                let after = after
-                    .as_ref()
-                    .map(|after| render_term(after, false, package, bundle))
-                    .transpose()?;
-                // A nested field's entry has no wrapper (KF-016); a leaf's is `Cell(..)`. A
-                // value written on an optional cell matches or writes the cell present, which
-                // `cells!` spells `Some(..)` (KF-023).
-                let entry = |term: TokenStream| {
-                    let entry = if group {
-                        term
-                    } else {
-                        quote!(k::configuration::Cell(#term))
-                    };
-                    if optional {
-                        quote!(Some(#entry))
-                    } else {
-                        entry
-                    }
-                };
-                // A read-only cell is a subject entry without a result entry.
-                let before = entry(before);
-                left_cells.push(quote!(#cell: #before));
-                right_cells.extend(after.map(|after| {
-                    let after = entry(after);
-                    quote!(#cell: #after)
-                }));
-            }
-        }
-    }
     let root_type = render_declared_path(&root, package)?;
     let name = &clause.rule().item().sig.ident;
     let label = syn::LitStr::new(
-        rule.label
+        printed
+            .label
             .as_ref()
             .map_or_else(
                 || name.unraw().to_string().replace('_', "-"),
@@ -2720,10 +2465,16 @@ fn render_rule(
     // The clause's `#[k::exists]` helpers are retained verbatim and placed
     // before `#[k::rule(..)]` (KF-040). Its `#[k::ensures]` is a term, read
     // in the clause's scope (a `k::claims!` block's `use`s included), so the
-    // reference form restates it from the descriptor, as it does `requires`.
-    let ensures = rule
+    // reference form restates it from the rule, as it does `requires`.
+    let ensures = printed
         .ensures
         .as_ref()
+        .or_else(|| {
+            printed
+                .claim
+                .as_ref()
+                .and_then(|claim| claim.ensures.as_ref())
+        })
         .map(|condition| {
             render_term(&condition.term, false, package, bundle)
                 .map(|term| quote!(#[k::ensures(#term)]))
@@ -2745,8 +2496,8 @@ fn render_rule(
         .chain(ensures)
         .collect::<Vec<_>>();
     // The clause's `#[k::requires]` helper is consumed by the readable parser;
-    // the reference form restates it from the descriptor, after `#[k::rule]`.
-    let requires = rule
+    // the reference form restates it from the rule, after `#[k::rule]`.
+    let requires = printed
         .requires
         .as_ref()
         .map(|condition| {
@@ -2772,12 +2523,52 @@ fn render_rule(
     let rule_attribute = match &rule.claim {
         Some(claim) => reference_claim_attribute(claim, &label),
         None => reference_rule_attribute(
-            rule.priority.as_ref(),
+            printed.priority.as_ref(),
             &evaluation,
-            rule.nondet.as_ref(),
+            printed.nondet.as_ref(),
+            printed.skipped_operand.as_ref(),
             &label,
         )?,
     };
+    // A sorted wildcard is named last, fresh against every identifier the rule prints.
+    let wildcards = wildcard_names(
+        printed
+            .bindings
+            .iter()
+            .filter_map(|binding| match &binding.kind {
+                krs_ir::ProtocolRuleBindingKind::Term { sort }
+                    if krs_ir::SemanticId::new(binding.name.clone())
+                        .is_ok_and(|id| matches!(id.kind(), krs_ir::SemanticIdKind::Wildcard)) =>
+                {
+                    Some((binding.name.as_str(), &sort.sort))
+                }
+                _ => None,
+            }),
+        [
+            &quote!(#(#left_cells,)* #(#right_cells,)* #requires #(#existential_helpers)*),
+            &quote!(#(#attrs)* #rule_attribute #root_type),
+            &parameters
+                .iter()
+                .map(|(_, parameter)| parameter.clone())
+                .collect(),
+        ],
+    )?;
+    let left_cells = left_cells
+        .into_iter()
+        .map(|cell| rename_identifiers(cell, &wildcards))
+        .collect::<Vec<_>>();
+    let right_cells = right_cells
+        .into_iter()
+        .map(|cell| rename_identifiers(cell, &wildcards))
+        .collect::<Vec<_>>();
+    let parameters = parameters
+        .into_iter()
+        .map(|(name, parameter)| {
+            let parameter = rename_identifiers(parameter, &wildcards);
+            let name = wildcards.get(&name).map_or(name, ToString::to_string);
+            (name, parameter)
+        })
+        .collect::<Vec<_>>();
     // A `cells!` rule declares its typed binders in their first-occurrence
     // order in the subject, which lists the cells in another order than
     // the readable record (map reads first), so the order is read back from
@@ -2803,6 +2594,7 @@ fn render_rule(
             .position(|binder| binder.unraw() == name)
             .unwrap_or(usize::MAX)
     };
+    let mut parameters = parameters;
     parameters.sort_by_key(|(name, _)| position(name));
     let parameters = parameters.into_iter().map(|(_, parameter)| parameter);
     // A `#[k::claim]` fn takes its helpers after the claim attribute, which
@@ -2829,6 +2621,468 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// The parameter type of a binder an elaborated rule declares at `sort`.
+fn render_binding_type(
+    sort: &krs_ir::DescriptorSortRef,
+    package: PathScope<'_>,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    render_sort_type(&crate::semantic::semantic_sort(sort), package)
+}
+
+/// The names the sorted wildcards `wildcards` (each by its reserved id, with its sort) print by,
+/// each the name of the binder that stands for it.
+///
+/// A sorted wildcard (the elaboration's `_` of a `for Sort` head) matches any one item of its
+/// sort and is used nowhere else. A binder declared at that sort and written only there matches
+/// what the wildcard matches and constrains nothing else, so it means the wildcard; it is named
+/// `_<sort>`, the sort's name in snake case (`_stmt` for `Stmt`, `_int` for `k::builtin::Int`), so
+/// that it reads as unused. Each name is fresh against every identifier of `printed_parts` (the
+/// rule's print: its binders, frames and the items it names) and against the names chosen before
+/// it: `_stmt`, then `_stmt_2`. K spells it apart from every other variable of the sentence,
+/// which the emitter's naming of variables decides.
+fn wildcard_names<'w, 't>(
+    wildcards: impl IntoIterator<Item = (&'w str, &'w krs_ir::DescriptorSortRef)>,
+    printed_parts: impl IntoIterator<Item = &'t TokenStream>,
+) -> Result<BTreeMap<String, Ident>, ReferenceExpansionError> {
+    let mut spelled = BTreeSet::new();
+    for part in printed_parts {
+        spelled_identifiers(part.clone(), &mut spelled);
+    }
+    let mut names = BTreeMap::new();
+    for (wildcard, sort) in wildcards {
+        let base = format!("_{}", sort_snake_name(sort));
+        // One of `spelled.len() + 1` candidates is free.
+        let name = (1..=spelled.len() + 1)
+            .map(|ordinal| {
+                if ordinal == 1 {
+                    base.clone()
+                } else {
+                    format!("{base}_{ordinal}")
+                }
+            })
+            .find(|name| !spelled.contains(name))
+            .expect("one of more names than the spelled ones is free");
+        spelled.insert(name.clone());
+        names.insert(wildcard.to_owned(), rust_ident(&name)?);
+    }
+    Ok(names)
+}
+
+/// A sort's name in snake case, as a wildcard of the sort is named after it: `Stmt` is `stmt`,
+/// `IntList` is `int_list`, `k::builtin::Int` is `int`, a parameter `T` is `t`.
+fn sort_snake_name(sort: &krs_ir::DescriptorSortRef) -> String {
+    let name = match sort {
+        krs_ir::DescriptorSortRef::Declared(id) | krs_ir::DescriptorSortRef::Cell(id) => {
+            id.item_name()
+        }
+        krs_ir::DescriptorSortRef::Builtin(sort) => sort.marker_name(),
+        krs_ir::DescriptorSortRef::Parameter(name) => name.as_str(),
+    };
+    let mut snake = String::new();
+    for (index, character) in name.chars().enumerate() {
+        if character.is_ascii_uppercase() {
+            if index > 0 && !snake.ends_with('_') {
+                snake.push('_');
+            }
+            snake.push(character.to_ascii_lowercase());
+        } else {
+            snake.push(character);
+        }
+    }
+    snake
+}
+
+/// The cells of a readable rule whose brackets its elaboration writes as list notation: a list
+/// cell written with brackets (`stack: [x, ..]`), and an instance's list child written with them,
+/// by the child's key. The elaboration builds each such entry as the list-notation levels its
+/// brackets denote ([`list_brackets`] reads them back); any other list term is a term the
+/// author wrote, printed as lowering resolved it.
+struct ListBrackets<'r> {
+    cells: BTreeSet<&'r krs_ir::DescriptorCellIdentity>,
+    instance_children: BTreeSet<&'r krs_ir::ProvenanceKey>,
+}
+
+impl<'r> ListBrackets<'r> {
+    fn of(rule: &'r DescriptorHeadRule) -> Self {
+        let mut cells = BTreeSet::new();
+        let mut instance_children = BTreeSet::new();
+        for extra in &rule.extras {
+            match extra {
+                ProtocolHeadRuleExtra::RewriteList { cell, .. } => {
+                    cells.insert(&cell.cell);
+                }
+                ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                    for state in std::iter::once(before).chain(after) {
+                        let krs_ir::ProtocolRuleStateTerm::Instances(instances) = state else {
+                            continue;
+                        };
+                        for instance in instances.front.iter().chain(&instances.back) {
+                            for field in &instance.fields {
+                                if matches!(
+                                    field.value,
+                                    krs_ir::ProtocolRuleStateTerm::KSequence(_)
+                                ) {
+                                    instance_children.insert(&field.key);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Self {
+            cells,
+            instance_children,
+        }
+    }
+
+    /// The keys of the list-notation levels the elaboration writes for brackets in `rule`, the
+    /// elaborated rule, which [`OperatorCalls`] leaves notation so that they print as brackets.
+    fn levels(
+        &self,
+        rule: &krs_ir::DescriptorConfigurationRule,
+    ) -> BTreeSet<krs_ir::ProvenanceKey> {
+        let mut levels = BTreeSet::new();
+        let cells = rule
+            .subject
+            .cells
+            .iter()
+            .chain(rule.result.iter().flat_map(|result| &result.cells));
+        for cell in cells {
+            match &cell.value {
+                krs_ir::ProtocolRuleStateTerm::Term(term)
+                    if self.cells.contains(&cell.field.cell) =>
+                {
+                    list_brackets(term, &mut levels);
+                }
+                krs_ir::ProtocolRuleStateTerm::Instances(instances) => {
+                    for instance in instances.front.iter().chain(&instances.back) {
+                        for field in &instance.fields {
+                            if let krs_ir::ProtocolRuleStateTerm::Term(term) = &field.value
+                                && self.instance_children.contains(&field.key)
+                            {
+                                list_brackets(term, &mut levels);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        levels
+    }
+}
+
+/// The brackets the list-notation levels at the root of `term` write, each level's key added to
+/// `levels`: `Cons(a, Cons(b, Snoc(r, z)))` is `[a, b, ..r, z]`. The levels end in the empty
+/// list (exact brackets), the list's unnamed rest (`..`) or the rest term.
+fn list_brackets(
+    term: &DescriptorTerm,
+    levels: &mut BTreeSet<krs_ir::ProvenanceKey>,
+) -> krs_ir::ProtocolHeadRuleList<DescriptorTerm> {
+    type Level<'t> = (
+        ListNotation,
+        &'t krs_ir::ProvenanceKey,
+        &'t [Box<DescriptorTerm>],
+    );
+    fn level(term: &DescriptorTerm) -> Option<Level<'_>> {
+        match term {
+            DescriptorTerm::Application {
+                reference,
+                arguments: krs_ir::Arguments::Positional(arguments),
+                ..
+            } => match reference.application {
+                DescriptorApplicationRef::ListNotation(notation) => {
+                    Some((notation, &reference.key, arguments.as_slice()))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    let mut items = Vec::new();
+    let mut back = Vec::new();
+    let mut at = term;
+    while let Some((ListNotation::Cons, key, [item, tail])) = level(at) {
+        levels.insert(key.clone());
+        items.push((**item).clone());
+        at = tail;
+    }
+    while let Some((ListNotation::Snoc, key, [init, item])) = level(at) {
+        levels.insert(key.clone());
+        back.push((**item).clone());
+        at = init;
+    }
+    back.reverse();
+    let rest = match (at, level(at)) {
+        (_, Some((ListNotation::Empty, key, []))) => {
+            levels.insert(key.clone());
+            krs_ir::ProtocolHeadRuleListRest::Exact
+        }
+        (DescriptorTerm::KeptRest { key }, _) => {
+            krs_ir::ProtocolHeadRuleListRest::Shared(Some(key.clone()))
+        }
+        (rest, _) => krs_ir::ProtocolHeadRuleListRest::Term(rest.clone()),
+    };
+    krs_ir::ProtocolHeadRuleList { items, rest, back }
+}
+
+/// What printing one cell of an elaborated rule reads beside the cell.
+struct CellRendering<'a> {
+    package: PathScope<'a>,
+    bundle: &'a krs_ir::DescriptorBundle,
+    descriptor_index: &'a DescriptorIndex<'a>,
+    /// What the rule is about, relative to which each cell is named.
+    root: &'a StableItemId,
+    brackets: &'a ListBrackets<'a>,
+    /// The fresh name a map read's `_` value prints by.
+    value: Option<&'a Ident>,
+    /// Every name the rule's print writes so far.
+    reserved: &'a mut BTreeSet<String>,
+    /// The rule's typed parameters, which a bare list's rest joins.
+    parameters: &'a mut Vec<(String, TokenStream)>,
+}
+
+/// One cell of an elaborated rule's subject (`before`) and of its result (`after`, absent where
+/// the rule only reads the cell), as `cells!` entries.
+fn render_rule_cell(
+    before: &krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, DescriptorTerm>,
+    after: Option<&krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, DescriptorTerm>>,
+    rendering: &mut CellRendering<'_>,
+) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let (package, bundle) = (rendering.package, rendering.bundle);
+    let cell = &before.field.cell;
+    let field = render_rule_cell_field(cell, rendering.root, package)?;
+    // A list cell written with brackets prints its brackets.
+    if rendering.brackets.cells.contains(cell) {
+        let list = |state: &State<DescriptorTerm>| match state {
+            State::Term(term) => Ok(list_brackets(term, &mut BTreeSet::new())),
+            _ => Err(ReferenceExpansionError::UnsupportedState),
+        };
+        let before = list(&before.value)?;
+        let after = after.map(|after| list(&after.value)).transpose()?;
+        return render_list_cell(cell, &field, &before, after.as_ref(), rendering);
+    }
+    let rest = |frame: &krs_ir::ProtocolRuleFrame| -> Result<_, ReferenceExpansionError> {
+        Ok(match frame {
+            krs_ir::ProtocolRuleFrame::Exact => entries::Rest::Exact,
+            krs_ir::ProtocolRuleFrame::Anonymous { .. } => entries::Rest::Anonymous,
+            krs_ir::ProtocolRuleFrame::Bind { binding, .. }
+            | krs_ir::ProtocolRuleFrame::Reuse { binding, .. } => {
+                let binding = rust_ident(binding)?;
+                entries::Rest::Named(quote!(#binding))
+            }
+        })
+    };
+    let value = rendering.value;
+    let side = |state: &State<DescriptorTerm>,
+                pattern: bool,
+                rendering: &mut CellRendering<'_>|
+     -> Result<TokenStream, ReferenceExpansionError> {
+        let entry_side = if pattern {
+            entries::Side::Subject
+        } else {
+            entries::Side::Result
+        };
+        Ok(match state {
+            State::KSequence(sequence) => entries::print_entry(
+                &field,
+                &entries::Entry {
+                    contents: entries::Contents::KSequence(
+                        sequence
+                            .items
+                            .iter()
+                            .map(|item| render_term(&item.value, pattern, package, bundle))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                    rest: rest(&sequence.tail)?,
+                },
+                entry_side,
+            )?,
+            // A read leaves the other entries as they are: the subject's `..` matches them,
+            // and the cell, absent from the result, keeps them.
+            State::Map(krs_ir::ProtocolRuleMap {
+                body: krs_ir::ProtocolRuleMapBody::Items { items, remainder },
+                ..
+            }) => {
+                let pairs = items
+                    .iter()
+                    .map(|item| {
+                        let key = render_term(&item.key, pattern, package, bundle)?;
+                        let value = match (&item.value, value) {
+                            (DescriptorTerm::Variable { name, .. }, Some(value)) if name == "_" => {
+                                quote!(#value)
+                            }
+                            (term, _) => render_term(term, pattern, package, bundle)?,
+                        };
+                        Ok((key, value))
+                    })
+                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+                entries::print_entry(
+                    &field,
+                    &entries::Entry {
+                        contents: entries::Contents::Map(pairs),
+                        rest: rest(remainder)?,
+                    },
+                    entry_side,
+                )?
+            }
+            State::Instances(instances) => {
+                let rendered = render_instances(instances, pattern, cell, rendering)?;
+                quote!(#field: #rendered)
+            }
+            state => {
+                let value = render_leaf_state(state, pattern, package, bundle)?;
+                quote!(#field: #value)
+            }
+        })
+    };
+    let left = side(&before.value, true, rendering)?;
+    let right = after
+        .map(|after| side(&after.value, false, rendering))
+        .transpose()?;
+    Ok((left, right))
+}
+
+/// A cell's term, group, `Some(..)` or `None`: a leaf's term is wrapped in its cell
+/// (`Cell(..)`); a nested group's entry has no wrapper (KF-016); a value written on an optional
+/// cell matches or writes the cell present, which `cells!` spells `Some(..)` (KF-023).
+fn render_leaf_state(
+    state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
+    pattern: bool,
+    package: PathScope<'_>,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    Ok(match state {
+        State::Term(term) => {
+            let term = render_term(term, pattern, package, bundle)?;
+            quote!(k::configuration::Cell(#term))
+        }
+        State::Group(term) => render_term(term, pattern, package, bundle)?,
+        State::Present { value } => {
+            let value = render_leaf_state(value, pattern, package, bundle)?;
+            quote!(Some(#value))
+        }
+        State::Absent => quote!(None),
+        State::KSequence(_) | State::Map(_) | State::Instances(_) => {
+            return Err(ReferenceExpansionError::UnsupportedState);
+        }
+    })
+}
+
+/// A list cell's brackets on each side, `before` the subject's and `after` the result's.
+fn render_list_cell(
+    cell: &krs_ir::DescriptorCellIdentity,
+    field: &TokenStream,
+    before: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    after: Option<&krs_ir::ProtocolHeadRuleList<DescriptorTerm>>,
+    rendering: &mut CellRendering<'_>,
+) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
+    let (package, bundle) = (rendering.package, rendering.bundle);
+    let constructors = cell_cons_list(cell, bundle);
+    let bare = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
+        matches!(list.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
+            && list.items.is_empty()
+            && list.back.is_empty()
+    };
+    // The brackets are written as the author wrote them: each side's items, its rest (`..` on
+    // both sides when anonymous; bound `r @ ..` in the subject and written `..t` in the result
+    // when named) and, on a `List`, its back. They denote the constructor or `List` term the
+    // elaborated rule's levels do, front first: `cells!` names a list cell's anonymous rest as
+    // the elaboration does, one rest of the cell the subject matches and the result keeps.
+    if !bare(before) && !after.is_some_and(bare) {
+        let kind = if constructors.is_some() {
+            entries::ListKind::Cons
+        } else {
+            entries::ListKind::Builtin
+        };
+        let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+                     pattern: bool|
+         -> Result<entries::Entry, ReferenceExpansionError> {
+            let render = |terms: &[DescriptorTerm]| {
+                terms
+                    .iter()
+                    .map(|term| render_term(term, pattern, package, bundle))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+            let rest = match &list.rest {
+                krs_ir::ProtocolHeadRuleListRest::Exact => entries::Rest::Exact,
+                krs_ir::ProtocolHeadRuleListRest::Shared(_) => entries::Rest::Anonymous,
+                krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+                    entries::Rest::Named(render_term(rest, pattern, package, bundle)?)
+                }
+            };
+            Ok(entries::Entry {
+                contents: entries::Contents::List {
+                    kind,
+                    items: render(&list.items)?,
+                    back: render(&list.back)?,
+                },
+                rest,
+            })
+        };
+        let left = entries::print_entry(field, &entry(before, true)?, entries::Side::Subject)?;
+        let right = match after {
+            Some(after) => Some(entries::print_entry(
+                field,
+                &entry(after, false)?,
+                entries::Side::Result,
+            )?),
+            None => None,
+        };
+        return Ok((left, right));
+    }
+    // Brackets holding only the anonymous rest (`[..]`, the whole list) name no element, which
+    // `k::cells!` refuses: such a cell prints its constructor or `List` term over a rest
+    // parameter both sides name. A cell of the builtin `List` is the `list::item` and
+    // `list::concat` term its brackets denote; a cons-list cell is the constructor term it
+    // denotes (F6).
+    let shared = |sort: SemanticSortRef, rendering: &mut CellRendering<'_>| {
+        matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
+            .then(|| {
+                let rest = fresh_ident("rest", rendering.reserved)?;
+                let ty = render_sort_type(&sort, package)?;
+                rendering
+                    .parameters
+                    .push((rest.to_string(), quote!(#rest: #ty)));
+                Ok::<_, ReferenceExpansionError>(rest)
+            })
+            .transpose()
+    };
+    let (before, after) = match constructors {
+        None => {
+            let shared = shared(
+                SemanticSortRef::Builtin(krs_ir::BuiltinSort::List),
+                rendering,
+            )?;
+            (
+                render_builtin_list(before, shared.as_ref(), true, package, bundle)?,
+                after
+                    .map(|after| {
+                        render_builtin_list(after, shared.as_ref(), false, package, bundle)
+                    })
+                    .transpose()?,
+            )
+        }
+        Some(list) => {
+            let shared = shared(SemanticSortRef::Declared(list.sort.clone()), rendering)?;
+            (
+                render_list(before, &list, shared.as_ref(), true, package, bundle)?,
+                after
+                    .map(|after| render_list(after, &list, shared.as_ref(), false, package, bundle))
+                    .transpose()?,
+            )
+        }
+    };
+    Ok((
+        quote!(#field: k::configuration::Cell(#before)),
+        after.map(|after| quote!(#field: k::configuration::Cell(#after))),
+    ))
 }
 
 /// The type of a rule's `cells!` subject and result: what the rule is about.
@@ -3053,96 +3307,6 @@ fn render_equation_row(
     .map_err(ReferenceExpansionError::GeneratedRust)
 }
 
-/// Fresh names and lookups for rendering readable optional and collection
-/// states in the reference spelling (KF-023).
-struct StateRendering<'a> {
-    package: PathScope<'a>,
-    bundle: &'a krs_ir::DescriptorBundle,
-    /// The bundle's index, built once per expansion.
-    descriptor_index: &'a DescriptorIndex<'a>,
-    reserved: &'a mut BTreeSet<String>,
-    /// Instance tails named so far (`tail0`, `tail1`, ..), of a `k` child or a list child.
-    tails: &'a mut usize,
-    /// The rule's typed parameters, which a list child's tail joins.
-    parameters: &'a mut Vec<(String, TokenStream)>,
-    /// The extra's ordinal, which numbers its collection rest.
-    rests: usize,
-}
-
-/// Renders one readable optional or collection entry as its `cells!`
-/// subject and result entries.
-fn render_readable_state(
-    cell: &krs_ir::DescriptorCellReference,
-    before: &krs_ir::ProtocolRuleStateTerm<krs_ir::DescriptorTerm>,
-    after: Option<&krs_ir::ProtocolRuleStateTerm<krs_ir::DescriptorTerm>>,
-    configuration: &StableItemId,
-    rendering: &mut StateRendering<'_>,
-) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
-    use krs_ir::ProtocolRuleStateTerm as State;
-    let field = render_rule_cell_field(&cell.cell, configuration, rendering.package)?;
-    let group = is_group_cell(&cell.cell, rendering.descriptor_index);
-    let optional = |state: &State<krs_ir::DescriptorTerm>,
-                    pattern: bool|
-     -> Result<TokenStream, ReferenceExpansionError> {
-        Ok(match state {
-            State::Absent => quote!(None),
-            State::Present { value } => {
-                let term = match &**value {
-                    State::Term(term) | State::Group(term) => {
-                        render_term(term, pattern, rendering.package, rendering.bundle)?
-                    }
-                    _ => return Err(ReferenceExpansionError::UnsupportedState),
-                };
-                if group {
-                    quote!(Some(#term))
-                } else {
-                    quote!(Some(k::configuration::Cell(#term)))
-                }
-            }
-            _ => return Err(ReferenceExpansionError::UnsupportedState),
-        })
-    };
-    match (before, after) {
-        (State::Instances(before), after) => {
-            let rest = fresh_ident(&format!("instances{}", rendering.rests), rendering.reserved)?;
-            let declaration = collection_declaration(&cell.cell, rendering.descriptor_index)
-                .ok_or(ReferenceExpansionError::UnsupportedState)?;
-            let owner = Owner {
-                path: render_declared_path(&declaration, rendering.package)?,
-                children: &rendering
-                    .descriptor_index
-                    .cell(&declaration)
-                    .map_err(|_| ReferenceExpansionError::UnsupportedState)?
-                    .fields,
-            };
-            // Each matched instance's tails, by label and child, reused by
-            // the instance that updates it.
-            let mut tails = BTreeMap::new();
-            let left = render_instances(before, true, &rest, &owner, &mut tails, rendering)?;
-            let right = after
-                .map(|after| {
-                    let State::Instances(after) = after else {
-                        return Err(ReferenceExpansionError::UnsupportedState);
-                    };
-                    render_instances(after, false, &rest, &owner, &mut tails, rendering)
-                })
-                .transpose()?;
-            Ok((
-                quote!(#field: #left),
-                right.map(|right| quote!(#field: #right)),
-            ))
-        }
-        (before, after) => {
-            let left = optional(before, true)?;
-            let right = after.map(|after| optional(after, false)).transpose()?;
-            Ok((
-                quote!(#field: #left),
-                right.map(|right| quote!(#field: #right)),
-            ))
-        }
-    }
-}
-
 /// The instance declaration of a collection cell.
 fn collection_declaration(
     cell: &krs_ir::DescriptorCellIdentity,
@@ -3161,60 +3325,32 @@ fn collection_declaration(
     }
 }
 
-/// An instance's declaration: its path and its children.
-struct Owner<'a> {
+/// An instance's declaration, by its path.
+struct Owner {
     path: TokenStream,
-    children: &'a [krs_ir::DescriptorCellField],
 }
 
-impl Owner<'_> {
-    /// The sort of the child `field` when it is a list leaf, whose brackets hold its elements.
-    fn list_sort(&self, field: &str) -> Option<&krs_ir::DescriptorSortRef> {
-        self.children.iter().find_map(|child| match &child.content {
-            krs_ir::ProtocolCellContent::Leaf {
-                wrapper: krs_ir::CellWrapper::Cell,
-                sort,
-                ..
-            } if child.rust_field == field => Some(&sort.sort),
-            _ => None,
-        })
-    }
-}
-
-/// The parameter type of a binder of a leaf's declared sort.
-fn render_leaf_sort_type(
-    sort: &krs_ir::DescriptorSortRef,
-    package: PathScope<'_>,
-) -> Result<TokenStream, ReferenceExpansionError> {
-    match sort {
-        krs_ir::DescriptorSortRef::Builtin(sort) => {
-            render_sort_type(&SemanticSortRef::Builtin(*sort), package)
-        }
-        sort => render_descriptor_sort(sort, package),
-    }
-}
-
+/// One side of a collection cell's instances, `cells!` spelling: each instance written, and the
+/// other instances, the frame the elaborated rule names, bound in the subject
+/// (`instances0 @ ..`) and kept in the result (`..instances0`).
 fn render_instances(
-    instances: &krs_ir::ProtocolRuleInstances<krs_ir::DescriptorTerm>,
+    instances: &krs_ir::ProtocolRuleInstances<DescriptorTerm>,
     pattern: bool,
-    rest: &Ident,
-    owner: &Owner<'_>,
-    tails: &mut BTreeMap<(String, String), Ident>,
-    rendering: &mut StateRendering<'_>,
+    cell: &krs_ir::DescriptorCellIdentity,
+    rendering: &CellRendering<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
+    let declaration = collection_declaration(cell, rendering.descriptor_index)
+        .ok_or(ReferenceExpansionError::UnsupportedState)?;
+    let owner = Owner {
+        path: render_declared_path(&declaration, rendering.package)?,
+    };
     let mut items = Vec::new();
     for instance in &instances.front {
-        items.push(render_instance(instance, pattern, owner, tails, rendering)?);
+        items.push(render_instance(instance, pattern, &owner, rendering)?);
     }
-    if !matches!(instances.rest, krs_ir::ProtocolRuleFrame::Exact) {
-        items.push(if pattern {
-            quote!(#rest @ ..)
-        } else {
-            quote!(..#rest)
-        });
-    }
+    items.extend(render_frame(&instances.rest)?);
     for instance in &instances.back {
-        items.push(render_instance(instance, pattern, owner, tails, rendering)?);
+        items.push(render_instance(instance, pattern, &owner, rendering)?);
     }
     Ok(match instances.delimiter {
         krs_ir::InstanceDelimiter::Brace => quote!({ #(#items),* }),
@@ -3222,69 +3358,68 @@ fn render_instances(
     })
 }
 
+/// A frame as `cells!` writes it among the parts it closes: none, `..`, `name @ ..` binding it,
+/// or `..name` keeping it.
+fn render_frame(
+    frame: &krs_ir::ProtocolRuleFrame,
+) -> Result<Option<TokenStream>, ReferenceExpansionError> {
+    Ok(match frame {
+        krs_ir::ProtocolRuleFrame::Exact => None,
+        krs_ir::ProtocolRuleFrame::Anonymous { .. } => Some(quote!(..)),
+        krs_ir::ProtocolRuleFrame::Bind { binding, .. } => {
+            let binding = rust_ident(binding)?;
+            Some(quote!(#binding @ ..))
+        }
+        krs_ir::ProtocolRuleFrame::Reuse { binding, .. } => {
+            let binding = rust_ident(binding)?;
+            Some(quote!(..#binding))
+        }
+    })
+}
+
 fn render_instance(
-    instance: &krs_ir::ProtocolRuleInstance<krs_ir::DescriptorTerm>,
+    instance: &krs_ir::ProtocolRuleInstance<DescriptorTerm>,
     pattern: bool,
-    owner: &Owner<'_>,
-    tails: &mut BTreeMap<(String, String), Ident>,
-    rendering: &mut StateRendering<'_>,
+    owner: &Owner,
+    rendering: &CellRendering<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     use krs_ir::ProtocolRuleStateTerm as State;
-    let mut fields = Vec::new();
-    // The instance whose tails this one's update reuses.
-    let updated = match &instance.rest {
-        krs_ir::ProtocolInstanceRest::Update { label } => Some(label),
-        _ => None,
+    let (package, bundle) = (rendering.package, rendering.bundle);
+    let render = |terms: &mut dyn Iterator<Item = &DescriptorTerm>| {
+        terms
+            .map(|term| render_term(term, pattern, package, bundle))
+            .collect::<Result<Vec<_>, _>>()
     };
+    let mut fields = Vec::new();
     for field in &instance.fields {
         let name = rust_ident(&field.field)?;
         let value = match &field.value {
-            State::Term(term) | State::Group(term) => {
-                render_term(term, pattern, rendering.package, rendering.bundle)?
-            }
-            State::KSequence(sequence) => {
-                let items = sequence
-                    .items
-                    .iter()
-                    .map(|item| {
-                        render_term(&item.value, pattern, rendering.package, rendering.bundle)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                // Brackets on a list leaf child hold its elements, the list `cells!` writes in
-                // brackets, whose rest is a term of the leaf's sort; on the computation cell they
-                // are its items, whose rest is a frame.
-                let list = owner.list_sort(&field.field);
-                let tail = match (&sequence.tail, pattern) {
-                    (krs_ir::ProtocolRuleFrame::Exact, _) => None,
-                    (_, true) => {
-                        let tail =
-                            fresh_ident(&format!("tail{}", *rendering.tails), rendering.reserved)?;
-                        *rendering.tails += 1;
-                        if let Some(label) = &instance.label {
-                            tails.insert((label.clone(), field.field.clone()), tail.clone());
-                        }
-                        if let Some(sort) = list {
-                            let ty = render_leaf_sort_type(sort, rendering.package)?;
-                            rendering
-                                .parameters
-                                .push((tail.to_string(), quote!(#tail: #ty)));
-                        }
-                        Some(quote!(#tail @ ..))
+            // Brackets on a list leaf child hold its elements, the list `cells!` writes in
+            // brackets, whose rest is the tail the elaborated rule names.
+            State::Term(term) if rendering.brackets.instance_children.contains(&field.key) => {
+                let list = list_brackets(term, &mut BTreeSet::new());
+                let rest = match &list.rest {
+                    krs_ir::ProtocolHeadRuleListRest::Exact => None,
+                    krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+                        let rest = render_term(rest, pattern, package, bundle)?;
+                        Some(if pattern {
+                            quote!(#rest @ ..)
+                        } else {
+                            quote!(..#rest)
+                        })
                     }
-                    (_, false) => {
-                        let tail = updated
-                            .and_then(|label| tails.get(&(label.clone(), field.field.clone())))
-                            .cloned()
-                            .ok_or(ReferenceExpansionError::UnsupportedState)?;
-                        Some(quote!(..#tail))
-                    }
+                    krs_ir::ProtocolHeadRuleListRest::Shared(_) => Some(quote!(..)),
                 };
-                let items = items.into_iter().chain(tail);
-                if list.is_some() {
-                    quote!([#(#items),*])
-                } else {
-                    quote!(k::k![#(#items),*])
-                }
+                let items = render(&mut list.items.iter())?.into_iter().chain(rest);
+                quote!([#(#items),*])
+            }
+            State::Term(term) | State::Group(term) => render_term(term, pattern, package, bundle)?,
+            // An instance's `k` child: its items, and the tail the elaborated rule names.
+            State::KSequence(sequence) => {
+                let items = render(&mut sequence.items.iter().map(|item| &item.value))?
+                    .into_iter()
+                    .chain(render_frame(&sequence.tail)?);
+                quote!(k::k![#(#items),*])
             }
             // A map cell's entries, its other entries open where the record leaves them so.
             State::Map(krs_ir::ProtocolRuleMap {
@@ -3294,10 +3429,8 @@ fn render_instance(
                 let entries = items
                     .iter()
                     .map(|item| {
-                        let key =
-                            render_term(&item.key, pattern, rendering.package, rendering.bundle)?;
-                        let value =
-                            render_term(&item.value, pattern, rendering.package, rendering.bundle)?;
+                        let key = render_term(&item.key, pattern, package, bundle)?;
+                        let value = render_term(&item.value, pattern, package, bundle)?;
                         Ok(quote!(#key -> #value))
                     })
                     .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
@@ -3334,11 +3467,12 @@ fn render_instance(
 
 /// Renders `#[k::rule(..)]` with its keys in the canonical order
 /// (`owise | priority = N`, then `heat | cool, hole = x, result = S`, then
-/// `nondet = g`, then `label`).
+/// `nondet = g`, then `skipped_operand = "reason"`, then `label`).
 fn reference_rule_attribute(
     priority: Option<&krs_ir::DescriptorRulePriority>,
     evaluation: &[TokenStream],
     nondet: Option<&krs_ir::DescriptorNondetGroup>,
+    skipped_operand: Option<&krs_ir::DescriptorSkippedOperand>,
     label: &syn::LitStr,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let mut keys = Vec::new();
@@ -3354,6 +3488,12 @@ fn reference_rule_attribute(
     if let Some(nondet) = nondet {
         let group = rust_ident(&nondet.name)?;
         keys.push(quote!(nondet = #group));
+    }
+    // The author's statement that the rule may depend on an operand a short-circuit skips is
+    // the rule's own, so its print states it too.
+    if let Some(skipped) = skipped_operand {
+        let reason = syn::LitStr::new(&skipped.reason, Span::call_site());
+        keys.push(quote!(skipped_operand = #reason));
     }
     keys.push(quote!(label = #label));
     Ok(quote!(#[k::rule(#(#keys),*)]))
@@ -4580,6 +4720,9 @@ struct OperatorCalls<'a> {
     /// The keys of every builtin `List` term, among them the `list::item`
     /// of each bracket level at a builtin `List` position.
     list_terms: BTreeSet<SourceMapKey>,
+    /// The levels a list cell's brackets write ([`ListBrackets::levels`]), which stay notation
+    /// so that they print as the brackets.
+    brackets: BTreeSet<krs_ir::ProvenanceKey>,
 }
 
 impl<'a> OperatorCalls<'a> {
@@ -4650,6 +4793,7 @@ impl<'a> OperatorCalls<'a> {
             constructors,
             list_units,
             list_terms,
+            brackets: BTreeSet::new(),
         }
     }
 }
@@ -4717,6 +4861,9 @@ impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
         reference: DescriptorApplicationReference,
     ) -> Result<DescriptorApplicationReference, Self::Error> {
         if let DescriptorApplicationRef::ListNotation(notation) = reference.application {
+            if self.brackets.contains(&reference.key) {
+                return Ok(reference);
+            }
             let constructor =
                 crate::semantic::application_source_key(self.descriptor, &reference.key)
                     .and_then(|key| self.constructors.get(&key).cloned());
@@ -4979,40 +5126,8 @@ type Renamed = (TokenStream, BTreeMap<String, Ident>);
 /// `tokens` with each hidden template binder renamed as
 /// [`rename_hidden_binders`] does, and the renaming.
 fn rename_hidden_tokens(tokens: TokenStream) -> Result<Renamed, ReferenceExpansionError> {
-    fn identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
-        for token in tokens {
-            match token {
-                // `r#bits` and `bits` are one identifier, so a fresh name
-                // skips the identifier, not its spelling.
-                proc_macro2::TokenTree::Ident(ident) => {
-                    names.insert(ident.unraw().to_string());
-                }
-                proc_macro2::TokenTree::Group(group) => identifiers(group.stream(), names),
-                _ => {}
-            }
-        }
-    }
-    fn rename(tokens: TokenStream, names: &BTreeMap<String, Ident>) -> TokenStream {
-        tokens
-            .into_iter()
-            .map(|token| match token {
-                proc_macro2::TokenTree::Ident(ident) => names
-                    .get(&ident.to_string())
-                    .map_or(proc_macro2::TokenTree::Ident(ident), |name| {
-                        proc_macro2::TokenTree::Ident(name.clone())
-                    }),
-                proc_macro2::TokenTree::Group(group) => {
-                    let mut renamed =
-                        proc_macro2::Group::new(group.delimiter(), rename(group.stream(), names));
-                    renamed.set_span(group.span());
-                    proc_macro2::TokenTree::Group(renamed)
-                }
-                other => other,
-            })
-            .collect()
-    }
     let mut spelled = BTreeSet::new();
-    identifiers(tokens.clone(), &mut spelled);
+    spelled_identifiers(tokens.clone(), &mut spelled);
     // The compiler's own choice of these names (`generated_binder_names`):
     // fresh against the K spelling of every identifier the item spells, a
     // superset of its binders, so no binder of the print collides with or
@@ -5042,7 +5157,48 @@ fn rename_hidden_tokens(tokens: TokenStream) -> Result<Renamed, ReferenceExpansi
         .into_iter()
         .map(|(hidden, name)| Ok((hidden.to_owned(), rust_ident(&name)?)))
         .collect::<Result<BTreeMap<_, _>, ReferenceExpansionError>>()?;
-    Ok((rename(tokens, &names), names))
+    Ok((rename_identifiers(tokens, &names), names))
+}
+
+/// Adds each identifier `tokens` spell to `names`, unraw.
+fn spelled_identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
+    for token in tokens {
+        match token {
+            // `r#bits` and `bits` are one identifier, so a fresh name
+            // skips the identifier, not its spelling.
+            proc_macro2::TokenTree::Ident(ident) => {
+                names.insert(ident.unraw().to_string());
+            }
+            proc_macro2::TokenTree::Group(group) => spelled_identifiers(group.stream(), names),
+            _ => {}
+        }
+    }
+}
+
+/// `tokens` with each identifier `names` holds replaced by the identifier it maps to.
+fn rename_identifiers(tokens: TokenStream, names: &BTreeMap<String, Ident>) -> TokenStream {
+    if names.is_empty() {
+        return tokens;
+    }
+    tokens
+        .into_iter()
+        .map(|token| match token {
+            proc_macro2::TokenTree::Ident(ident) => names
+                .get(&ident.to_string())
+                .map_or(proc_macro2::TokenTree::Ident(ident), |name| {
+                    proc_macro2::TokenTree::Ident(name.clone())
+                }),
+            proc_macro2::TokenTree::Group(group) => {
+                let mut renamed = proc_macro2::Group::new(
+                    group.delimiter(),
+                    rename_identifiers(group.stream(), names),
+                );
+                renamed.set_span(group.span());
+                proc_macro2::TokenTree::Group(renamed)
+            }
+            other => other,
+        })
+        .collect()
 }
 
 fn fresh_ident(
@@ -5340,13 +5496,8 @@ pub enum ReferenceExpansionError {
     },
     /// Semantic lowering omitted a collected rule.
     MissingSemanticRule(Box<StableItemId>),
-    /// Inference did not produce a type for a readable binder.
-    MissingBindingSort {
-        /// Readable clause name.
-        rule: String,
-        /// Binder whose inferred sort was absent.
-        binding: String,
-    },
+    /// Lowering kept no elaborated `cells!` rule for a collected readable rule.
+    MissingPrintedRule(Box<StableItemId>),
     /// An item of a package the printed package does not depend on directly, to which the
     /// printed clause writes no path the long form can print (`WrittenPaths`).
     ExternalDeclaration(Box<StableItemId>),
@@ -5432,7 +5583,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::ConstructorFieldCoverage { .. } => codes::reference::CONSTRUCTOR_FIELD_COVERAGE,
             Self::MissingConstructorField { .. } => codes::reference::MISSING_CONSTRUCTOR_FIELD,
             Self::MissingSemanticRule(_) => codes::reference::MISSING_SEMANTIC_RULE,
-            Self::MissingBindingSort { .. } => codes::reference::MISSING_BINDING_SORT,
+            Self::MissingPrintedRule(_) => codes::reference::MISSING_PRINTED_RULE,
             Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
             Self::DependencyPath { .. } => codes::reference::DEPENDENCY_PATH,
             Self::PrivateModule { .. } => codes::reference::PRIVATE_MODULE,
@@ -5496,10 +5647,10 @@ impl fmt::Display for ReferenceExpansionError {
             Self::MissingSemanticRule(id) => {
                 write!(formatter, "collected rule {id} is absent from semantic IR")
             }
-            Self::MissingBindingSort { rule, binding } => {
+            Self::MissingPrintedRule(id) => {
                 write!(
                     formatter,
-                    "rule `{rule}` binding `{binding}` has no inferred sort"
+                    "readable rule {id} has no elaborated `cells!` rule to print"
                 )
             }
             Self::ExternalDeclaration(item) => write!(
@@ -5571,7 +5722,7 @@ impl Error for ReferenceExpansionError {
             | Self::ConstructorFieldCoverage { .. }
             | Self::MissingConstructorField { .. }
             | Self::MissingSemanticRule(_)
-            | Self::MissingBindingSort { .. }
+            | Self::MissingPrintedRule(_)
             | Self::ExternalDeclaration(_)
             | Self::DependencyPath { .. }
             | Self::PrivateModule { .. }
@@ -5599,7 +5750,7 @@ mod tests {
         Bindings, PathScope, ReferenceExpansionError, WrittenPaths, authored_paths, configured_out,
         contains_use_tree, fresh_ident, rename_hidden_tokens, render_declared_path,
         render_reference_token_term_type, render_sort_marker, render_term, rust_ident,
-        written_path,
+        sort_snake_name, wildcard_names, written_path,
     };
     use krs_diagnostic::{ToDiagnostic, codes};
     use krs_ir::{
@@ -5808,6 +5959,47 @@ mod tests {
 
     /// The clash test is K's: `savedPc` is K's `SavedPc`, so the update's
     /// field `pc` of `saved` cannot print as `saved_pc`.
+    /// A sorted wildcard prints as a binder named after its sort in snake case, fresh against
+    /// every identifier the rule prints and the names chosen before it.
+    #[test]
+    fn a_sorted_wildcard_is_named_after_its_sort_and_fresh_against_the_print() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let sort = |name: &str| {
+            krs_ir::DescriptorSortRef::Declared(
+                StableItemId::new(package.clone(), ["syntax"], name, ItemKind::Sort, "").unwrap(),
+            )
+        };
+        let (stmt, list) = (sort("Stmt"), sort("IntList"));
+        let int = krs_ir::DescriptorSortRef::Builtin(BuiltinSort::Int);
+        let parameter = krs_ir::DescriptorSortRef::Parameter("T".to_owned());
+        assert_eq!(sort_snake_name(&stmt), "stmt");
+        assert_eq!(sort_snake_name(&list), "int_list");
+        assert_eq!(sort_snake_name(&int), "int");
+        assert_eq!(sort_snake_name(&parameter), "t");
+        let print = quote::quote!(k: KCell(__krs_wildcard_0, __krs_wildcard_1, ..), _int: Cell(x));
+        let names = wildcard_names(
+            [
+                ("__krs_wildcard_0", &stmt),
+                ("__krs_wildcard_1", &stmt),
+                ("__krs_wildcard_2", &int),
+            ],
+            [&print],
+        )
+        .unwrap();
+        let names = names
+            .iter()
+            .map(|(wildcard, name)| format!("{wildcard} {name}"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            [
+                "__krs_wildcard_0 _stmt",
+                "__krs_wildcard_1 _stmt_2",
+                "__krs_wildcard_2 _int_2"
+            ]
+        );
+    }
+
     #[test]
     fn a_hidden_binder_is_fresh_against_the_k_spelling_of_each_identifier() {
         let (tokens, renamed) = rename_hidden_tokens(quote::quote!(f(
