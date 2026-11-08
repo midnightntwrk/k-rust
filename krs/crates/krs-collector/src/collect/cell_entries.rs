@@ -66,6 +66,10 @@ struct After<R> {
     kind: CollectionErrorKind,
     detail: String,
     range: Option<R>,
+    /// Whether it is raised once the subject's entries are admitted, before the result's are
+    /// judged: a readable subject's map read of a cell the result writes
+    /// ([`krs_syntax::RuleClause::subject_refusal`]). Every other one waits for every entry.
+    subject: bool,
 }
 
 /// The kind of a refusal the parser left until the entries are admitted: its own registered
@@ -93,6 +97,7 @@ impl After<Coordinates> {
                 error.span(),
             ))
             .ok(),
+            subject: false,
         }
     }
 }
@@ -217,18 +222,38 @@ impl ParsedCells<Coordinates> {
     /// The fields of a readable cell-record clause, written in `form` (a readable record or a
     /// claim): its subject record's and its result record's; `None` for a clause of a term table,
     /// or where a record's part is no field.
+    ///
+    /// A clause whose parser left a refusal until its entries are admitted always has fields:
+    /// where its records read as none, it has no entries, so the refusal is raised at once
+    /// ([`judge_readable`]) rather than dropped.
     pub(super) fn of_readable(clause: &krs_syntax::RuleClause, form: EntryForm) -> Option<Self> {
-        let (subject, result) = clause.records()?;
+        let after = clause
+            .subject_refusal()
+            .map(|error| After {
+                subject: true,
+                ..After::of(deferred(error), error)
+            })
+            .into_iter()
+            .chain(
+                clause
+                    .pairing_refusal()
+                    .map(|error| After::of(deferred(error), error)),
+            )
+            .collect::<Vec<_>>();
+        let fields = clause.records().and_then(|(subject, result)| {
+            Some((read_fields(subject, form)?, read_fields(result, form)?))
+        });
+        let (subject, result) = match fields {
+            Some(fields) => fields,
+            None if !after.is_empty() => (Vec::new(), Vec::new()),
+            None => return None,
+        };
         Some(Self {
             form,
-            subject: read_fields(subject, form)?,
-            result: Some(read_fields(result, form)?),
+            subject,
+            result: Some(result),
             parameters: Vec::new(),
-            after: clause
-                .pairing_refusal()
-                .map(|error| After::of(deferred(error), error))
-                .into_iter()
-                .collect(),
+            after,
         })
     }
 
@@ -287,6 +312,7 @@ impl ParsedCells<Coordinates> {
                         .range
                         .as_ref()
                         .and_then(|coordinates| coordinates.range_in(document)),
+                    subject: after.subject,
                 })
                 .collect(),
         }
@@ -387,6 +413,7 @@ pub(super) fn judge_readable(
         groups: target.groups(),
     }
     .judge_located();
+    subject_limit(&judged, subject.len(), authored)?;
     if judged.is_ok()
         && let Some(entry) = result.iter().find(|entry| {
             matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_)))
@@ -414,7 +441,7 @@ pub(super) fn judge_readable(
         instance_child_multiplicity(&subject, &result)?;
         // A cell whose two entries the parser could not pair (a presence over a term, ..) is
         // refused only now: the table admitted both entries against the cell's kind, first.
-        if let Some(pairing) = authored.after.first() {
+        if let Some(pairing) = authored.after.iter().find(|after| !after.subject) {
             return Err(pairing.refused());
         }
     }
@@ -454,6 +481,23 @@ pub(super) fn judge_readable(
                 target.groups(),
             ))
         }
+    }
+}
+
+/// The refusal `authored`'s parser left until its subject's entries are admitted, a subject's map
+/// read of a cell the result writes (M3), where `judged` admits the first `subjects` entries (the
+/// subject's): the limit of the subject's entry answers before any result entry's refusal.
+fn subject_limit<T, U>(
+    judged: &Result<T, (usize, U)>,
+    subjects: usize,
+    authored: &LocatedCells,
+) -> Result<(), CollectionError> {
+    let admitted = judged
+        .as_ref()
+        .map_or_else(|(at, _)| *at >= subjects, |_| true);
+    match authored.after.iter().find(|after| after.subject) {
+        Some(limit) if admitted => Err(limit.refused()),
+        _ => Ok(()),
     }
 }
 
@@ -1642,6 +1686,37 @@ mod tests {
                 .starts_with("the rule writes `pc`, a cell inside the key `cpu`,"),
             "{}",
             error.detail()
+        );
+    }
+
+    /// A readable clause's carried refusals are kept in the order they are asked: a subject's
+    /// map read of a cell the result writes (M3), raised once the subject's entries are admitted,
+    /// then the pairing's, raised once every entry is.
+    #[test]
+    fn a_readable_clauses_subject_limit_is_carried_before_its_pairing() {
+        use krs_syntax::KrsSyntax as _;
+        let block = krs_syntax::RuleBlock::parse_source(
+            "for Machine; x: { k: [Go(), ..], env: { y -> z, .. }, pc: [.., x] } => { k: [..], env: x, pc: 0 };",
+        )
+        .expect("the clause parses, its refusals carried");
+        let cells = super::ParsedCells::of_readable(
+            &block.clauses()[0],
+            krs_syntax::cell_entry::EntryForm::Readable,
+        )
+        .expect("the records read as fields");
+        let carried = cells
+            .after
+            .iter()
+            .map(|after| (after.subject, after.detail.as_str()))
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(
+                carried.as_slice(),
+                [(true, limit), (false, pairing)]
+                    if limit.contains("a preserved map-item cell is omitted")
+                        && pairing.contains("the pattern's `..` keeps the rest of the list")
+            ),
+            "{carried:?}"
         );
     }
 }

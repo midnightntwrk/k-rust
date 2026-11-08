@@ -42,6 +42,11 @@ enum MachinePatternCell {
     /// collection's instances (KF-023), or a list's elements (F6), read once
     /// the clause is assembled.
     Bracket(proc_macro2::Group),
+    /// A bracketed value whose list notation refuses it as a list's elements, the notation's
+    /// refusal: `[..]` names no element. Whether brackets fit the cell at all is the cell's
+    /// kind's question, answered first, so the cell is neither read nor written, the refusal
+    /// carried ([`read_with_pairing_deferred`]).
+    Refused(Box<crate::SyntaxError>),
 }
 
 #[derive(Clone)]
@@ -973,6 +978,11 @@ fn parse_machine_result_record(
                 }
                 Err(error) => return Err(error),
             }
+        } else if let Some(map) = braced_map_read(&content)? {
+            // A map read is spelled by its arrows, which no instance list holds at its top
+            // level, whatever the subject's entry of the cell spelled: on a collection it is
+            // map notation on a cell that is no Map, the cell's kind's class.
+            MachineResultCell::MapRead(map)
         } else if family == Some(StateFamily::Instances)
             && (content.peek(syn::token::Bracket) || content.peek(syn::token::Brace))
         {
@@ -984,8 +994,6 @@ fn parse_machine_result_record(
             MachineResultCell::Bracket(content.parse()?)
         } else if let Some(instances) = braced_instances(&content)? {
             MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
-        } else if let Some(map) = braced_map_read(&content)? {
-            MachineResultCell::MapRead(map)
         } else {
             MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
         };
@@ -1229,12 +1237,54 @@ fn read_with_pairing_deferred(
         ..*clause
     };
     match read_machine_clause(&deferred, subject_cells, result_cells) {
-        Ok(mut read) if read.pairing_refusal.is_some() => {
-            read.pairing_refusal = Some(Box::new(syntax_error(error)));
+        Ok(mut read) if read.pairing_refusal.is_some() || read.subject_refusal.is_some() => {
+            // The first reading's refusal is the pairing's, unless it is the subject's map read
+            // that the clause carries apart (M3): the reading's shape picked it, as it picks
+            // the error of a value that reads no way.
+            let error = syntax_error(error);
+            let subject = read
+                .subject_refusal
+                .as_deref()
+                .is_some_and(|subject| subject.to_string() == error.to_string());
+            if !subject {
+                read.pairing_refusal = Some(Box::new(error));
+            }
+            if !alternative_stands(&read) {
+                read.bracket_alternative = None;
+            }
             Ok(read)
         }
         _ => Err(error),
     }
+}
+
+/// Whether a deferred reading's List reading of a bracketed cell stands beside the reading the
+/// clause took of the same cell, as each alternative must (its records are that reading's): a
+/// cell the clause reads as only read, or neither reads nor writes, because no lowering pairs
+/// its entries, has no written reading for the alternative's result to stand beside. Such a
+/// clause is refused whatever the cell's kind (by the kind's class, or by the carried refusal),
+/// so it is lowered by no reading, and only the one it took is kept.
+fn alternative_stands(read: &RuleClause) -> bool {
+    let Some(alternative) = &read.bracket_alternative else {
+        return true;
+    };
+    let cell = alternative.cell.unraw();
+    let written = alternative.after.is_some();
+    let computation = read.computation_cell.as_ref().is_some_and(|computation| {
+        computation.cell.unraw() == cell && (!written || computation.result_cell.is_some())
+    });
+    computation
+        || read.extras.iter().any(|extra| match extra {
+            RuleExtra::RewriteList {
+                cell: list,
+                result_cell,
+                ..
+            } => list.unraw() == cell && (!written || result_cell.is_some()),
+            RuleExtra::RewriteCell {
+                cell: item_less, ..
+            } => item_less.unraw() == cell,
+            _ => false,
+        })
 }
 
 /// The subject cells with a `_` entry for every cell the result writes and the subject does not
@@ -1655,9 +1705,15 @@ fn read_brackets(
             MachinePatternCell::Bracket(group) if is_computation(cell) => {
                 MachinePatternCell::KItems(Box::new(bracket_prefix(group)?))
             }
-            MachinePatternCell::Bracket(group) if is_elements(cell) => {
-                MachinePatternCell::List(Box::new(list_pattern(group)?))
-            }
+            MachinePatternCell::Bracket(group) if is_elements(cell) => match list_pattern(group) {
+                Ok(pattern) => MachinePatternCell::List(Box::new(pattern)),
+                // `[..]`, which names no element, or brackets of another list mistake: a list's
+                // notation, which the cell's kind answers before ([`read_with_pairing_deferred`]).
+                Err(ParseError::Structured(error)) if defer_pairing && is_list_notation(&error) => {
+                    MachinePatternCell::Refused(Box::new(error))
+                }
+                Err(error) => return Err(error),
+            },
             MachinePatternCell::Bracket(group) => MachinePatternCell::State(Box::new(
                 StateTerm::Instances(parse_readable_instances(group, StateMacroContext::Pattern)?),
             )),
@@ -1668,9 +1724,14 @@ fn read_brackets(
     let mut result = Vec::with_capacity(result_cells.len());
     for (cell, value) in result_cells {
         let value = match value {
-            MachineResultCell::Bracket(group) if is_elements(cell) => {
-                MachineResultCell::List(Box::new(list_result(group)?))
-            }
+            MachineResultCell::Bracket(group) if is_elements(cell) => match list_result(group) {
+                Ok(list) => MachineResultCell::List(Box::new(list)),
+                // A second rest, ..: the list's notation, which the cell's kind answers before.
+                Err(ParseError::Structured(error)) if defer_pairing && is_list_notation(&error) => {
+                    MachineResultCell::Refused(Box::new(error))
+                }
+                Err(error) => return Err(error),
+            },
             MachineResultCell::Bracket(group) if is_list(cell) => {
                 MachineResultCell::State(Box::new(StateTerm::Instances(parse_readable_instances(
                     group,
@@ -1691,10 +1752,18 @@ fn read_brackets(
             MachineResultCell::Bracket(_) if defer_pairing && matched_by_state(cell) => {
                 value.clone()
             }
-            MachineResultCell::Bracket(group) => {
-                let (items, exact) = bracket_items(group)?;
-                MachineResultCell::KItems(items, exact)
-            }
+            MachineResultCell::Bracket(group) => match bracket_items(group) {
+                Ok((items, exact)) => MachineResultCell::KItems(items, exact),
+                // An item after the `..` (`[.., x]`) is the computation's notation, which the
+                // cell's kind answers before: brackets on a cell that is no list or computation
+                // are its kind's class ([`read_with_pairing_deferred`]).
+                Err(ParseError::Syn(error))
+                    if defer_pairing && error.to_string() == K_RESULT_TAIL =>
+                {
+                    MachineResultCell::Refused(Box::new(crate::SyntaxError::from(error)))
+                }
+                Err(error) => return Err(error),
+            },
             // A term over a List collection's instances is refused when the clause is paired
             // ([`read_with_pairing_deferred`]).
             MachineResultCell::Term(expression) if is_list(cell) && !defer_pairing => {
@@ -1762,6 +1831,9 @@ fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
     Ok(KPattern { items, tail })
 }
 
+/// The computation result's notation refusal of an item after its `..`.
+const K_RESULT_TAIL: &str = "`..` ends a k result";
+
 /// Reads a bracketed result value as the computation cell's
 /// `[r1, .., rm, ..]`, which keeps the rest the pattern's `..` matched, or
 /// `[r1, .., rm]`, the whole new content; the flag is whether it is whole.
@@ -1778,7 +1850,7 @@ fn bracket_items(group: &proc_macro2::Group) -> Result<(Vec<Expr>, bool), ParseE
                     sequence.parse::<Token![,]>()?;
                 }
                 if !sequence.is_empty() {
-                    return Err(sequence.error("`..` ends a k result"));
+                    return Err(sequence.error(K_RESULT_TAIL));
                 }
                 exact = false;
                 break;
@@ -1791,6 +1863,15 @@ fn bracket_items(group: &proc_macro2::Group) -> Result<(Vec<Expr>, bool), ParseE
         Ok((items, exact))
     };
     Ok(parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?)
+}
+
+/// Whether `error` is a list notation's refusal (`syntax::invalid-list-notation`): a rest's
+/// place, a rest the result keeps or names, a list naming no element.
+fn is_list_notation(error: &crate::SyntaxError) -> bool {
+    matches!(
+        error.kind(),
+        crate::SyntaxErrorKind::InvalidListNotation { .. }
+    )
 }
 
 /// A parse failure as the structured error it reports.
@@ -2193,6 +2274,10 @@ fn assemble_machine_clause(
         pairing_refusal.get_or_insert_with(|| Box::new(syntax_error(error)));
         Ok(())
     };
+    // A map read of a cell the result writes (M3), read as only read when the clause defers it:
+    // the collector raises it once the subject's entries are admitted, before the result's
+    // ([`RuleClause::subject_refusal`]).
+    let mut subject_refusal: Option<Box<crate::SyntaxError>> = None;
     // A result's map read pairs with no subject entry: the cell is only read.
     let mut readable_results = Vec::with_capacity(result_cells.len());
     for (cell, value) in result_cells {
@@ -2266,15 +2351,23 @@ fn assemble_machine_clause(
                     .iter()
                     .map(|(key, value)| (key, wildcards.binder(value)))
                     .collect::<Vec<_>>();
+                // The subject's map read is a frame the result may not replace (M3). That is a
+                // limit on a Map cell, whose map read the cell's kind admits; on a cell of
+                // another kind the map notation is the kind's class, answered first. The cell is
+                // then only read, the refusal carried ([`read_with_pairing_deferred`]).
                 if result_cells
                     .iter()
                     .any(|(result_cell, _)| result_cell.unraw() == cell.unraw())
                 {
-                    return Err(syn::Error::new(
+                    let error: ParseError = syn::Error::new(
                         cell.span(),
                         "a preserved map-item cell is omitted from the machine-rule result",
                     )
-                    .into());
+                    .into();
+                    if !defer_pairing {
+                        return Err(error);
+                    }
+                    subject_refusal.get_or_insert_with(|| Box::new(syntax_error(error)));
                 }
                 extras.push(RuleExtra::HaveMap {
                     cell: cell.clone(),
@@ -2347,10 +2440,20 @@ fn assemble_machine_clause(
                         ))?;
                         (None, None)
                     }
-                    Some((result_cell, after)) => (
-                        Some(result_cell.clone()),
-                        Some(Box::new(rule_list_result(result_cell, before, after)?)),
-                    ),
+                    Some((result_cell, after)) => {
+                        match rule_list_result(result_cell, before, after) {
+                            Ok(after) => (Some(result_cell.clone()), Some(Box::new(after))),
+                            // A rest the result does not keep as the pattern does (`[x, ..] => 0`)
+                            // is the list's notation, which the cell's kind answers before: brackets
+                            // on a cell that is no list, a computation cell read as a list, .. are
+                            // its kind's classes. The cell is then only read, the refusal carried.
+                            Err(ParseError::Structured(error)) if is_list_notation(&error) => {
+                                unpaired(error.into())?;
+                                (None, None)
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
                     None => (None, None),
                 };
                 let before = rule_list_pattern(before)?;
@@ -2368,6 +2471,9 @@ fn assemble_machine_clause(
                     "a bracketed cell value is read before the clause is assembled",
                 ));
             }
+            // A subject value its notation refuses names nothing: the cell is neither read nor
+            // written, and its result, which pairs with no reading, is left out with it.
+            MachinePatternCell::Refused(error) => unpaired((**error).clone().into())?,
             MachinePatternCell::Term {
                 pattern,
                 tree: before_tree,
@@ -2439,6 +2545,18 @@ fn assemble_machine_clause(
     };
     let (rule, head, head_result, computation_cell) =
         if let Some((computation_cell, pattern)) = subject_k {
+            // A result that is no bracketed sequence (`k: 0`, `k: None`), or whose `..` is not
+            // the pattern's, is the computation's notation, which the cell's kind answers
+            // before: a value that is no computation is the kind's class. The cell is then only
+            // read, the refusal carried ([`read_with_pairing_deferred`]).
+            let (result_cells, authored_cells): (&[_], &[_]) =
+                match computation_fit(&computation_cell, &pattern, result_cells) {
+                    Ok(()) => (result_cells, authored_cells),
+                    Err(error) => {
+                        unpaired(error)?;
+                        (&[], &[])
+                    }
+                };
             let (head_result, placeholder) =
                 computation_result(&computation_cell, &pattern, result_cells, name)?;
             let (result_cell, head_result) = head_result.unzip();
@@ -2594,6 +2712,7 @@ fn assemble_machine_clause(
         anchors: Vec::new(),
         records: Some((record_tokens(pattern_record), record_tokens(result_record))),
         pairing_refusal,
+        subject_refusal,
     };
     clause.check_existentials()?;
     Ok(clause)
@@ -2668,6 +2787,42 @@ fn framed_rule_item(
     )?)
 }
 
+/// Whether the result record's field of the computation cell, if any, fits the pattern `pattern`
+/// of it: a bracketed sequence, open exactly when the pattern is, since one `..` keeps the rest on
+/// both sides.
+fn computation_fit(
+    cell: &Ident,
+    pattern: &KPattern,
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<(), ParseError> {
+    let Some((result_cell, result)) = result_cells
+        .iter()
+        .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
+    else {
+        return Ok(());
+    };
+    let MachineResultCell::KItems(_, result_exact) = result else {
+        return Err(syn::Error::new(
+            result_cell.span(),
+            "the computation cell's result is a bracketed sequence `[..]`",
+        )
+        .into());
+    };
+    match (pattern.tail.is_none(), *result_exact) {
+        (false, true) => Err(syn::Error::new(
+            result_cell.span(),
+            "the pattern's `..` keeps the rest of the computation, so the result ends in `..` too; discarding the rest needs the `cells!` form",
+        )
+        .into()),
+        (true, false) => Err(syn::Error::new(
+            result_cell.span(),
+            "the pattern matches the whole computation cell, so there is no rest for the result's `..` to keep",
+        )
+        .into()),
+        _ => Ok(()),
+    }
+}
+
 /// What [`computation_result`] reads.
 type ComputationResult = (Option<(Ident, RuleHeadResult)>, Option<Expr>);
 
@@ -2681,36 +2836,13 @@ fn computation_result(
     result_cells: &[(Ident, MachineResultCell)],
     name: &Ident,
 ) -> Result<ComputationResult, ParseError> {
-    let Some((result_cell, result)) = result_cells
+    computation_fit(cell, pattern, result_cells)?;
+    let Some((result_cell, MachineResultCell::KItems(result_k, _))) = result_cells
         .iter()
         .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
     else {
         return Ok((None, None));
     };
-    let MachineResultCell::KItems(result_k, result_exact) = result else {
-        return Err(syn::Error::new(
-            result_cell.span(),
-            "the computation cell's result is a bracketed sequence `[..]`",
-        )
-        .into());
-    };
-    match (pattern.tail.is_none(), *result_exact) {
-        (false, true) => {
-            return Err(syn::Error::new(
-                result_cell.span(),
-                "the pattern's `..` keeps the rest of the computation, so the result ends in `..` too; discarding the rest needs the `cells!` form",
-            )
-            .into());
-        }
-        (true, false) => {
-            return Err(syn::Error::new(
-                result_cell.span(),
-                "the pattern matches the whole computation cell, so there is no rest for the result's `..` to keep",
-            )
-            .into());
-        }
-        _ => {}
-    }
     let head_result = match result_k.as_slice() {
         [] => RuleHeadResult::Erase(TokenRange::for_tokens(name)?),
         [term] => RuleHeadResult::Replace(Box::new(TermExpression::from_expression(term.clone())?)),

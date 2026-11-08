@@ -254,13 +254,7 @@ match = 'readable-run/result/job/[x\, ..]'
 finding = "S0-16"
 kind = "diagnostic"
 
-# S0-9, diagnostic: 290 reds
-
-# readable: 2
-[[family]]
-match = 'claim/result/kinds/code/{G \{ a: x\, .. \},x}'
-finding = "S0-9"
-kind = "diagnostic"
+# S0-9, diagnostic: 232 reds
 
 # readable: 1
 [[family]]
@@ -268,21 +262,9 @@ match = 'claim/result/kinds/job/[x\, ..]'
 finding = "S0-9"
 kind = "diagnostic"
 
-# readable: 2
-[[family]]
-match = 'readable/result/kinds/code/{G \{ a: x\, .. \},x}'
-finding = "S0-9"
-kind = "diagnostic"
-
 # readable: 1
 [[family]]
 match = 'readable/result/kinds/job/[x\, ..]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 10
-[[family]]
-match = 'sweep/{claim/written/counter/[..],claim/written/frame/[..],claim/written/frame/[x\, ..],claim/written/pc/[..],claim/written/pc/[x\, ..],readable/written/counter/[..],readable/written/frame/[..],readable/written/frame/[x\, ..],readable/written/pc/[..],readable/written/pc/[x\, ..]}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -298,81 +280,15 @@ match = 'sweep/{claim/result/job/[x\, ..],readable/result/job/[x\, ..]}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 8
+# sweep: 4
 [[family]]
-match = 'sweep/{claim/result/prog/0,claim/result/prog/G \{ a: x \},claim/result/prog/G \{ a: x\, .. \},claim/result/prog/G \{ a: x\, b: y\, .. \},readable/result/prog/0,readable/result/prog/G \{ a: x \},readable/result/prog/G \{ a: x\, .. \},readable/result/prog/G \{ a: x\, b: y\, .. \}}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 16
-[[family]]
-match = 'sweep/*/result/{acct,bag}/{[x\, ..],[x],\{ x\, .. \},\{ y -> x\, .. \}}'
+match = 'sweep/*/result/{acct,bag}/\{ x\, .. \}'
 finding = "S0-9"
 kind = "diagnostic"
 
 # sweep: 4
 [[family]]
 match = 'sweep/*/result/{f02-mcell,f03-mcell}/M \{ mm: \{ y -> x\, .. \}\, mn: 0 \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/{claim/result/seq/G \{ a: x\, .. \},claim/result/stack/G \{ a: x\, .. \},readable/result/seq/G \{ a: x\, .. \},readable/result/stack/G \{ a: x\, .. \}}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 6
-[[family]]
-match = 'sweep/{claim/written/env/[..\, x],claim/written/env/[..],claim/written/env/[x\, ..],readable/written/env/[..\, x],readable/written/env/[..],readable/written/env/[x\, ..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/written/ogroup/[..],readable/written/ogroup/[..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/written/olist/[..],readable/written/olist/[..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/written/omap/[..],readable/written/omap/[..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/{claim/written/set/[..\, x],claim/written/set/[..],readable/written/set/[..\, x],readable/written/set/[..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/{claim/written/frame/[..\, x],claim/written/pc/[..\, x],readable/written/frame/[..\, x],readable/written/pc/[..\, x]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/written/acct/[..],readable/written/acct/[..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/written/bag/[..],readable/written/bag/[..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/written/set/[x\, ..],readable/written/set/[x\, ..]}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -480,93 +396,13 @@ kind = "diagnostic"
 
 # sweep: 2
 [[family]]
-match = 'sweep/{claim/result/prog/x,readable/result/prog/x}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# S0-9, diagnostic+rust-syntax: 55 reds
-# readable: 7
-[[family]]
-match = 'claim/result/k/{0,Frame \{ ret: x \},None,Some(x),[],x,\{ .. \}}'
-finding = "S0-9"
-kind = "diagnostic+rust-syntax"
-
-# readable: 7
-[[family]]
-match = 'readable/result/k/{0,Frame \{ ret: x \},None,Some(x),[],x,\{ .. \}}'
-finding = "S0-9"
-kind = "diagnostic+rust-syntax"
-
-# runs: 7
-[[family]]
-match = 'readable-run/result/k/{0,Frame \{ ret: x \},None,Some(x),[],x,\{ .. \}}'
-finding = "S0-9"
-kind = "diagnostic+rust-syntax"
-
-# sweep: 8
-[[family]]
-match = 'sweep/*/result/env/{[..\, x],\{ G \{ a: x\, .. \}\, .. \},\{ G \{ b: x\, .. \}\, .. \},\{ x\, .. \}}'
-finding = "S0-9"
-kind = "diagnostic+rust-syntax"
-
-# sweep: 2
-[[family]]
 match = 'sweep/*/result/f04-mcell/M \{ mm: \{ y -> x \}\, mn: 0 \}'
 finding = "S0-9"
 kind = "diagnostic+rust-syntax"
 
-# sweep: 24
-[[family]]
-match = 'sweep/{claim/written/acct/\{ y -> x\, .. \},claim/written/bag/\{ y -> x\, .. \},claim/written/counter/\{ y -> x\, .. \},claim/written/frame/\{ y -> x\, .. \},claim/written/job/\{ y -> x\, .. \},claim/written/ogroup/\{ y -> x\, .. \},claim/written/omap/\{ y -> x\, .. \},claim/written/pc/\{ y -> x\, .. \},claim/written/prog/\{ y -> x\, .. \},claim/written/seq/\{ y -> x\, .. \},claim/written/set/\{ y -> x\, .. \},claim/written/stack/\{ y -> x\, .. \},readable/written/acct/\{ y -> x\, .. \},readable/written/bag/\{ y -> x\, .. \},readable/written/counter/\{ y -> x\, .. \},readable/written/frame/\{ y -> x\, .. \},readable/written/job/\{ y -> x\, .. \},readable/written/ogroup/\{ y -> x\, .. \},readable/written/omap/\{ y -> x\, .. \},readable/written/pc/\{ y -> x\, .. \},readable/written/prog/\{ y -> x\, .. \},readable/written/seq/\{ y -> x\, .. \},readable/written/set/\{ y -> x\, .. \},readable/written/stack/\{ y -> x\, .. \}}'
-finding = "S0-9"
-kind = "diagnostic+rust-syntax"
-
-# S0-9, k8: 180 reds
-# readable: 2
-[[family]]
-match = 'k8/claim/result/kinds/code/{G \{ a: x\, .. \},x}'
-finding = "S0-9"
-kind = "k8"
-
-# readable: 2
-[[family]]
-match = 'k8/readable/result/kinds/code/{G \{ a: x\, .. \},x}'
-finding = "S0-9"
-kind = "k8"
-
-# sweep: 8
-[[family]]
-match = 'k8/sweep/{claim/result/prog/0,claim/result/prog/G \{ a: x \},claim/result/prog/G \{ a: x\, .. \},claim/result/prog/G \{ a: x\, b: y\, .. \},readable/result/prog/0,readable/result/prog/G \{ a: x \},readable/result/prog/G \{ a: x\, .. \},readable/result/prog/G \{ a: x\, b: y\, .. \}}'
-finding = "S0-9"
-kind = "k8"
-
-# sweep: 4
-[[family]]
-match = 'k8/sweep/*/result/{job,prog}/[x]'
-finding = "S0-9"
-kind = "k8"
-
-# sweep: 20
-[[family]]
-match = 'k8/sweep/{claim/result/seq/0,claim/result/seq/G \{ a: x \},claim/result/seq/G \{ a: x\, .. \},claim/result/seq/G \{ a: x\, b: y\, .. \},claim/result/seq/[x],claim/result/stack/0,claim/result/stack/G \{ a: x \},claim/result/stack/G \{ a: x\, .. \},claim/result/stack/G \{ a: x\, b: y\, .. \},claim/result/stack/[x],readable/result/seq/0,readable/result/seq/G \{ a: x \},readable/result/seq/G \{ a: x\, .. \},readable/result/seq/G \{ a: x\, b: y\, .. \},readable/result/seq/[x],readable/result/stack/0,readable/result/stack/G \{ a: x \},readable/result/stack/G \{ a: x\, .. \},readable/result/stack/G \{ a: x\, b: y\, .. \},readable/result/stack/[x]}'
-finding = "S0-9"
-kind = "k8"
-
-# sweep: 30
-[[family]]
-match = 'k8/sweep/{claim/written/counter/[..],claim/written/env/[..\, x],claim/written/env/[..],claim/written/env/[x\, ..],claim/written/frame/[..\, x],claim/written/frame/[..],claim/written/frame/[x\, ..],claim/written/ogroup/[..],claim/written/omap/[..],claim/written/pc/[..\, x],claim/written/pc/[..],claim/written/pc/[x\, ..],claim/written/set/[..\, x],claim/written/set/[..],claim/written/set/[x\, ..],readable/written/counter/[..],readable/written/env/[..\, x],readable/written/env/[..],readable/written/env/[x\, ..],readable/written/frame/[..\, x],readable/written/frame/[..],readable/written/frame/[x\, ..],readable/written/ogroup/[..],readable/written/omap/[..],readable/written/pc/[..\, x],readable/written/pc/[..],readable/written/pc/[x\, ..],readable/written/set/[..\, x],readable/written/set/[..],readable/written/set/[x\, ..]}'
-finding = "S0-9"
-kind = "k8"
-
 # sweep: 56
 [[family]]
 match = 'k8/sweep/*/{subject,written}/*/Some([..])'
-finding = "S0-9"
-kind = "k8"
-
-# sweep: 6
-[[family]]
-match = 'k8/sweep/{claim/result/prog/x,claim/result/seq/x,claim/result/stack/x,readable/result/prog/x,readable/result/seq/x,readable/result/stack/x}'
 finding = "S0-9"
 kind = "k8"
 
@@ -606,11 +442,11 @@ match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: 
 finding = "S5-F2"
 kind = "diagnostic"
 
-# S5-H1, diagnostic+rust-syntax: 26 reds
+# S5-H1, diagnostic+rust-syntax: 32 reds
 
-# sweep: 22
+# sweep: 28
 [[family]]
-match = 'sweep/{claim/result/env/0,claim/result/env/G \{ a: x \},claim/result/env/G \{ a: x\, .. \},claim/result/env/G \{ a: x\, b: y\, .. \},claim/result/env/Some(G \{ .. \}),claim/result/env/Some(x),claim/result/env/[..],claim/result/env/[G \{ a: x\, .. \}\, ..],claim/result/env/[x\, ..],claim/result/env/[x],claim/result/env/\{ G \{ a: x\, b: y \} \},readable/result/env/0,readable/result/env/G \{ a: x \},readable/result/env/G \{ a: x\, .. \},readable/result/env/G \{ a: x\, b: y\, .. \},readable/result/env/Some(G \{ .. \}),readable/result/env/Some(x),readable/result/env/[..],readable/result/env/[G \{ a: x\, .. \}\, ..],readable/result/env/[x\, ..],readable/result/env/[x],readable/result/env/\{ G \{ a: x\, b: y \} \}}'
+match = 'sweep/{claim/result/env/0,claim/result/env/G \{ a: x \},claim/result/env/G \{ a: x\, .. \},claim/result/env/G \{ a: x\, b: y\, .. \},claim/result/env/Some(G \{ .. \}),claim/result/env/Some(x),claim/result/env/[..],claim/result/env/[G \{ a: x\, .. \}\, ..],claim/result/env/[x\, ..],claim/result/env/[x],claim/result/env/\{ G \{ a: x\, b: y \} \},readable/result/env/0,readable/result/env/G \{ a: x \},readable/result/env/G \{ a: x\, .. \},readable/result/env/G \{ a: x\, b: y\, .. \},readable/result/env/Some(G \{ .. \}),readable/result/env/Some(x),readable/result/env/[..],readable/result/env/[G \{ a: x\, .. \}\, ..],readable/result/env/[x\, ..],readable/result/env/[x],readable/result/env/\{ G \{ a: x\, b: y \} \},claim/result/env/\{ G \{ a: x\, .. \}\, .. \},claim/result/env/\{ G \{ b: x\, .. \}\, .. \},claim/result/env/\{ x\, .. \},readable/result/env/\{ G \{ a: x\, .. \}\, .. \},readable/result/env/\{ G \{ b: x\, .. \}\, .. \},readable/result/env/\{ x\, .. \}}'
 finding = "S5-H1"
 kind = "diagnostic+rust-syntax"
 

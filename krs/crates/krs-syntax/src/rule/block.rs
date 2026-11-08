@@ -375,6 +375,10 @@ pub struct RuleClause {
     /// pairs, which the collector raises once the entries are admitted by the cells' kinds
     /// ([`Self::pairing_refusal`]).
     pub(super) pairing_refusal: Option<Box<crate::SyntaxError>>,
+    /// A cell-record clause's refusal of a subject entry's map read of a cell the result writes
+    /// (M3), which the collector raises once the subject's entries are admitted by the cells'
+    /// kinds, before the result's ([`Self::subject_refusal`]).
+    pub(super) subject_refusal: Option<Box<crate::SyntaxError>>,
 }
 
 /// The computation cell a cell-record clause names: its field in the
@@ -1008,6 +1012,18 @@ impl RuleClause {
         self.pairing_refusal.as_deref()
     }
 
+    /// The refusal of a cell-record clause's first subject map read `{ k -> v, .. }` of a cell
+    /// the result writes too, `None` where there is none: the map read is a frame the result may
+    /// not replace (M3), a limit of a Map cell. Whether a map read fits the cell is the declared
+    /// cell's kind's question, asked first, by the caller that knows the kinds: on a cell that
+    /// is no Map the notation is the author's mistake. The clause lowers the cell as only read,
+    /// so the caller raises this refusal once the subject's entries are admitted, ahead of the
+    /// result's entries, whose answers the limit stands before.
+    #[must_use]
+    pub fn subject_refusal(&self) -> Option<&crate::SyntaxError> {
+        self.subject_refusal.as_deref()
+    }
+
     /// Returns the complete authored clause range, including attributes and
     /// the terminating semicolon.
     #[must_use]
@@ -1591,6 +1607,7 @@ impl RuleBlock {
                 anchors: Vec::new(),
                 records: None,
                 pairing_refusal: None,
+                subject_refusal: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);

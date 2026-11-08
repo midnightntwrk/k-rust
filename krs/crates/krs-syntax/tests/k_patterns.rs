@@ -7,11 +7,17 @@ fn block(clauses: &str) -> RuleBlock {
     RuleBlock::parse_source(&format!("for Machine; use Op::*; {clauses}")).unwrap()
 }
 
+/// The refusal of `clause`: its parse error, or the one it carries for the collector, which
+/// raises it once the cells' kinds admit the entries (a result whose fit to the computation cell
+/// only the cell's kind decides, [`krs_syntax::RuleClause::pairing_refusal`]).
 fn error(clause: &str) -> String {
-    RuleBlock::parse_source(&format!("for Machine; use Op::*; {clause}"))
-        .err()
-        .unwrap_or_else(|| panic!("{clause} parsed"))
-        .to_string()
+    match RuleBlock::parse_source(&format!("for Machine; use Op::*; {clause}")) {
+        Err(error) => error.to_string(),
+        Ok(block) => block.clauses()[0]
+            .pairing_refusal()
+            .unwrap_or_else(|| panic!("{clause} parsed with no refusal"))
+            .to_string(),
+    }
 }
 
 #[test]

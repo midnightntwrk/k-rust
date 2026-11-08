@@ -1105,6 +1105,130 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
     );
 }
 
+/// A notation fault of a value whose fit to the cell only the cell's kind decides is carried,
+/// not raised: a computation result that is no bracketed sequence or keeps no rest as its
+/// pattern does, a list result whose rest is not the pattern's, `[..]` naming no element, a
+/// computation result's item after its `..`, and a map read in a collection's result. The
+/// clause reads the cell as only read, and the collector raises the refusal once the table
+/// admits the entries ([`krs_syntax::RuleClause::pairing_refusal`]).
+#[test]
+fn a_notation_fault_waits_for_the_cells_kind() {
+    for (source, expected) in [
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: 0 };",
+            "the computation cell's result is a bracketed sequence `[..]`",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: None };",
+            "the computation cell's result is a bracketed sequence `[..]`",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: { .. } };",
+            "the computation cell's result is a bracketed sequence `[..]`",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [] };",
+            "the pattern's `..` keeps the rest of the computation",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], prog: [x, ..] } => { k: [..], prog: 0 };",
+            "the pattern's `..` keeps the rest of the list",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], pc: [.., x] } => { k: [..], pc: 0 };",
+            "the pattern's `..` keeps the rest of the list",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], pc: [..] } => { k: [..], pc: 0 };",
+            "`[..]` and `[rest @ ..]` name no element",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], env: { y -> n, .. } } => { k: [..], env: [.., n] };",
+            "`..` ends a k result",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], acct: { Gm { ma: x, .. }, .. } } => { k: [..], acct: { y -> x, .. } };",
+            "reads a map (`{ k -> v, .. }`) in a result",
+        ),
+    ] {
+        let block = krs_syntax::RuleBlock::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let clause = &block.clauses()[0];
+        let refusal = clause
+            .pairing_refusal()
+            .unwrap_or_else(|| panic!("{source}: no refusal carried"));
+        assert!(
+            refusal.to_string().contains(expected),
+            "expected {expected:?} in {refusal}"
+        );
+        assert!(clause.subject_refusal().is_none(), "{source}");
+    }
+}
+
+/// A clause whose bracketed cell is left only read, its entries unpaired, carries no List
+/// reading of that cell: the List reading's result would stand beside no written reading, and
+/// the clause is refused whichever reading the cell's kind picks.
+#[test]
+fn an_unpaired_bracketed_cell_carries_no_list_reading() {
+    let source = "for Machine; x: { k: [Go(), ..], job: [x, ..] } => { k: [..], job: [x] };";
+    let block = krs_syntax::RuleBlock::parse_source(source)
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+    let clause = &block.clauses()[0];
+    assert!(
+        clause
+            .pairing_refusal()
+            .is_some_and(|refusal| refusal.to_string().contains("keeps the rest of the list")),
+        "{source}"
+    );
+    assert!(clause.bracket_alternative().is_none(), "{source}");
+}
+
+/// A subject's map read of a cell the result writes is the limit M3 on a Map cell, and map
+/// notation on a cell of another kind: the clause carries it apart from the pairing's
+/// refusals, for the collector to raise once the subject's entries are admitted, ahead of the
+/// result's ([`krs_syntax::RuleClause::subject_refusal`]).
+#[test]
+fn a_written_map_read_waits_for_the_subjects_kind() {
+    for (source, pairing) in [
+        (
+            "for Machine; x: { k: [Go(), ..], env: { y -> x, .. } } => { k: [..], env: x };",
+            None,
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], acct: { y -> x, .. } } => { k: [..], acct: { Gm { ma: 0, .. }, .. } };",
+            None,
+        ),
+        // The pairing's own refusal of another cell stays the pairing's.
+        (
+            "for Machine; x: { k: [Go(), ..], env: { y -> z, .. }, pc: [.., x] } => { k: [..], env: x, pc: 0 };",
+            Some("the pattern's `..` keeps the rest of the list"),
+        ),
+    ] {
+        let block = krs_syntax::RuleBlock::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let clause = &block.clauses()[0];
+        let limit = clause
+            .subject_refusal()
+            .unwrap_or_else(|| panic!("{source}: no subject refusal carried"));
+        assert!(
+            limit
+                .to_string()
+                .contains("a preserved map-item cell is omitted from the machine-rule result"),
+            "{source}: {limit}"
+        );
+        match pairing {
+            None => assert!(clause.pairing_refusal().is_none(), "{source}"),
+            Some(expected) => assert!(
+                clause
+                    .pairing_refusal()
+                    .is_some_and(|refusal| refusal.to_string().contains(expected)),
+                "{source}: {:?}",
+                clause.pairing_refusal().map(ToString::to_string)
+            ),
+        }
+    }
+}
+
 /// A binder is an identifier, never a keyword: `true` is the Bool literal, so a narrowing, a
 /// map read's value, a `have` read's value, an update's cell and a rest's name refuse it rather
 /// than bind a name spelled like a literal, which would match every term. `_` is no keyword

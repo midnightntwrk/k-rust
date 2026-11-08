@@ -348,9 +348,13 @@ fn a_list_cells_rest_is_one_rest_on_both_sides() {
             "a list holds at most one rest `..`",
         ),
     ] {
-        let error = RuleBlock::parse_source(&format!("for Machine; use Op::*; {source}"))
-            .err()
-            .unwrap_or_else(|| panic!("{source} parsed"))
+        // The list's notation is answered once the cell's kind admits the brackets, which only
+        // the collector knows: the clause reads the cell as only read and carries the refusal.
+        let block = RuleBlock::parse_source(&format!("for Machine; use Op::*; {source}"))
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let error = block.clauses()[0]
+            .pairing_refusal()
+            .unwrap_or_else(|| panic!("{source}: no refusal carried"))
             .to_string();
         assert!(error.contains(reason), "{source}: {error}");
     }
