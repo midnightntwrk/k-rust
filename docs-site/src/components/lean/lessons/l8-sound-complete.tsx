@@ -8,6 +8,7 @@ import { lineOf, source, span } from '../data'
 import { type Lesson, note } from '../lesson'
 import { diffNumbers, f1Numbers, numbers } from '../numbers'
 import { Board, Pill, Rows } from '../viz'
+import { subs } from '../sub'
 
 const conclusion = source('conclusion')
 const stepStmts = source('stepStatements')
@@ -38,7 +39,7 @@ const statusTable = (at: number) => (
       key: r.what,
       state: focus[at] === null ? undefined : focus[at] === r.status ? 'cur' : 'faded',
       cells: [
-        <span key="w" style={{ fontFamily: 'var(--f-sans)' }}>{r.what}</span>,
+        <span key="w" style={{ fontFamily: 'var(--f-sans)' }}>{subs(r.what)}</span>,
         r.status === 'proved' ? <Pill key="p" tone="ok">kernel-checked</Pill> : r.status === 'stated' ? <Pill key="p" tone="gold">stated, sorry</Pill> : <Pill key="p" tone="alt">evidence, not proof</Pill>,
       ],
     }))}
@@ -63,8 +64,8 @@ const nextFragment = (at: number) => (
       {
         title: 'What changes in the statement',
         items: [
-          { key: 'theory', text: <>Γ_D gains the theory of the builtin operations</> },
-          { key: 'audit', text: <>the fixed text depends on what a definition imports, and its axioms enter Γ_D</> },
+          { key: 'theory', text: <>Γ<sub>D</sub> gains the theory of the builtin operations</> },
+          { key: 'audit', text: <>the fixed text depends on what a definition imports, and its axioms enter Γ<sub>D</sub></> },
           { key: 'models', text: <><code>ModelsStandard</code> compares values rather than term shapes</> },
         ],
       },

@@ -20,6 +20,7 @@ type Page =
   | { path: '/k-rust'; render: 'static' }
   | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
   | { path: '/lean/beyond-peano'; render: 'static' }
+  | { path: '/lean/imp-fragment'; render: 'static' }
   | { path: '/lean'; render: 'static' }
   | { path: '/lean/making-proofs-cheap'; render: 'static' }
   | { path: '/lean/matching-logic'; render: 'static' }

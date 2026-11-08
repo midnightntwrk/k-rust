@@ -10,9 +10,10 @@ import { lesson6 } from './l6-review'
 import { lesson7 } from './l7-cheap'
 import { lesson8 } from './l8-sound-complete'
 import { lesson9 } from './l9-f1'
+import { lesson10 } from './l10-imp'
 import { overview } from './overview'
 
-export const course: readonly Lesson[] = [overview, lesson1, lesson2, lesson3, lesson4, lesson5, lesson6, lesson7, lesson8, lesson9]
+export const course: readonly Lesson[] = [overview, lesson1, lesson2, lesson3, lesson4, lesson5, lesson6, lesson7, lesson8, lesson9, lesson10]
 
 // A note names a line and perhaps a token by value. Only a lesson's first frame is rendered when the
 // site is built, so they are checked here: a stale annotation fails the build, not one frame of a page.

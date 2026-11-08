@@ -14,12 +14,13 @@ import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import '@fontsource/ibm-plex-mono/600.css'
 
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'vocs'
 
 import type { Source } from './data'
 import { lean, shortCommit } from './data'
 import { course } from './lessons'
+import { spoken, subs } from './sub'
 import { type Ask, type Frame, type Lang, type Lesson, type Note, type Pane, type Scene, sourceAt } from './lesson'
 import styles from './Course.module.css'
 
@@ -32,18 +33,18 @@ export function Md({ text }: { text: string }): ReactNode {
   let at = 0
   for (const match of text.matchAll(token)) {
     const t = match[0]
-    if (match.index > at) out.push(text.slice(at, match.index))
+    if (match.index > at) out.push(<Fragment key={`p${at}`}>{subs(text.slice(at, match.index))}</Fragment>)
     const key = match.index
     if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
-    else if (t.startsWith('**')) out.push(<strong key={key}>{t.slice(2, -2)}</strong>)
+    else if (t.startsWith('**')) out.push(<strong key={key}>{subs(t.slice(2, -2))}</strong>)
     else if (t.startsWith('==')) out.push(<span key={key} className={styles.k}><Md text={t.slice(2, -2)} /></span>)
     else {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!
-      out.push(<Link key={key} to={href}>{label}</Link>)
+      out.push(/^https?:/.test(href) ? <a key={key} href={href} target="_blank" rel="noreferrer">{label}</a> : <Link key={key} to={href}>{label}</Link>)
     }
     at = match.index + t.length
   }
-  if (at < text.length) out.push(text.slice(at))
+  if (at < text.length) out.push(<Fragment key={`p${at}`}>{subs(text.slice(at))}</Fragment>)
   return out
 }
 
@@ -163,17 +164,43 @@ function markedLine(row: string, lang: Lang, inBlock: boolean, marks: readonly s
   return out
 }
 
-function NoteRow({ note, row, below }: { note: Note; row: string; below: boolean }) {
+function NoteRow({ note, row, below, leaving }: { note: Note; row: string; below: boolean; leaving: boolean }) {
   // Under its token, or level with the code it captions; a long line wraps, so the offset is capped.
   const col = note.token ? row.indexOf(note.token) : row.length - row.trimStart().length
+  // The row opens (and closes) its height, so the code around it slides instead of jumping.
   return (
-    <div className={styles.noteRow} role="note">
-      <span />
-      <div style={{ marginLeft: `min(${col}ch, 55%)` }}>
-        <div className={`${styles.note} ${below ? styles.noteBelow : styles.noteAbove}`}><Md text={note.text} /></div>
+    <div className={`${styles.noteOpen} ${leaving ? styles.noteClose : ''}`} role={leaving ? undefined : 'note'} aria-hidden={leaving || undefined}>
+      <div className={styles.noteClip}>
+        <div className={styles.noteRow}>
+          <span />
+          <div style={{ marginLeft: `min(${col}ch, 55%)` }}>
+            <div className={`${styles.note} ${below ? styles.noteBelow : styles.noteAbove}`}><Md text={note.text} /></div>
+          </div>
+        </div>
       </div>
     </div>
   )
+}
+
+const noteKey = (n: Note) => `${n.line}|${n.token ?? ''}|${n.text}`
+const closeMs = 260
+
+/** The notes a pane just dropped, kept for as long as they take to close. */
+function useLeaving(notes: readonly Note[]): readonly Note[] {
+  const [leaving, setLeaving] = useState<readonly Note[]>([])
+  const before = useRef(notes)
+  const sig = notes.map(noteKey).join('\n')
+  useLayoutEffect(() => {
+    const now = new Set(notes.map(noteKey))
+    const gone = before.current.filter((n) => !now.has(noteKey(n)))
+    before.current = notes
+    setLeaving(reduced() ? [] : gone)
+    if (!gone.length) return
+    const timer = window.setTimeout(() => setLeaving([]), closeMs)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig])
+  return leaving
 }
 
 function PaneView({ pane, source, lines, notes }: { pane: Pane; source: Source; lines: readonly number[]; notes: readonly Note[] }) {
@@ -201,33 +228,36 @@ function PaneView({ pane, source, lines, notes }: { pane: Pane; source: Source; 
     while (set.has(at) && set.has(at - 1)) at -= 1
     return at
   }
-  const captions = new Map<number, Note[]>()
-  const pointers = new Map<number, Note[]>()
-  for (const n of notes) {
+  const leaving = useLeaving(notes)
+  type Shown = { n: Note; leaving: boolean }
+  const captions = new Map<number, Shown[]>()
+  const pointers = new Map<number, Shown[]>()
+  for (const shown of [...notes.map((n) => ({ n, leaving: false })), ...leaving.map((n) => ({ n, leaving: true }))]) {
+    const n = shown.n
     const into = n.token ? pointers : captions
     const key = n.token ? n.line : blockStart(n.line)
-    into.set(key, [...(into.get(key) ?? []), n])
+    into.set(key, [...(into.get(key) ?? []), shown])
   }
   return (
     <figure className={`${styles.pane} ${set.size ? styles.dimming : ''}`}>
       <figcaption className={styles.ph}>
-        <span>{pane.label}</span>
+        <span>{subs(pane.label)}</span>
         <span>{source.file}{source.start > 1 ? ` ${source.start}–${source.start + rows.length - 1}` : ''}</span>
       </figcaption>
       <div className={styles.body} ref={box}>
         {rows.map((row, i) => {
           const line = source.start + i
-          const marks = (pointers.get(line) ?? []).map((n) => n.token!)
+          const marks = (pointers.get(line) ?? []).filter((x) => !x.leaving).map((x) => x.n.token!)
           // A wrapped line continues further in than the code's own indentation.
           const hang = row.length - row.trimStart().length + 4
           return (
             <Fragment key={line}>
-              {captions.get(line)?.map((n) => <NoteRow key={n.text} note={n} row={row} below={false} />)}
+              {captions.get(line)?.map((x) => <NoteRow key={noteKey(x.n) + (x.leaving ? '~' : '')} note={x.n} row={row} below={false} leaving={x.leaving} />)}
               <div data-line={line} className={`${styles.ln} ${set.has(line) ? styles.hl : ''}`}>
                 <span className={styles.no} aria-hidden="true">{line}</span>
                 <span style={{ paddingLeft: `${hang}ch`, textIndent: `-${hang}ch` }}>{markedLine(row, pane.lang ?? 'lean', states[i], marks)}</span>
               </div>
-              {pointers.get(line)?.map((n) => <NoteRow key={n.text} note={n} row={row} below />)}
+              {pointers.get(line)?.map((x) => <NoteRow key={noteKey(x.n) + (x.leaving ? '~' : '')} note={x.n} row={row} below leaving={x.leaving} />)}
             </Fragment>
           )
         })}
@@ -236,22 +266,39 @@ function PaneView({ pane, source, lines, notes }: { pane: Pane; source: Source; 
   )
 }
 
+// One element tree for every scene, so a pane that the next scene shows unchanged (same id and
+// file) stays mounted instead of being drawn again; only what is new fades in.
+const paneKey = (pane: Pane) => `${pane.id}|${pane.source.file}|${pane.source.start}`
+
+/** The visual's column; just after it appears beside code, it opens instead of popping in. */
+function VizColumn({ className, children }: { className: string; children: ReactNode }) {
+  const [fresh, setFresh] = useState(true)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setFresh(false), 400)
+    return () => window.clearTimeout(timer)
+  }, [])
+  return <div className={`${className} ${fresh ? styles.vizOpening : ''}`}>{children}</div>
+}
+
 function SceneView({ scene, at }: { scene: Scene; at: number }) {
   const frame = scene.frames[at]
-  const panes = scene.panes?.length ? (
-    <div className={styles.panes}>
-      {scene.panes.map((pane) => (
-        <PaneView key={pane.id} pane={pane} source={sourceAt(scene, pane, at)} lines={frame.hl?.[pane.id] ?? []} notes={(frame.notes ?? []).filter((n) => n.pane === pane.id)} />
-      ))}
-    </div>
-  ) : null
-  if (!scene.visual) return panes
-  if (!panes) return <div className={styles.vizFull}>{scene.visual(at)}</div>
+  const hasPanes = !!scene.panes?.length
   const top = scene.arrange === 'top'
+  const vizClass = !hasPanes ? styles.vizFull : top ? styles.vizTop : scene.arrange === 'wide' ? `${styles.vizSide} ${styles.vizWide}` : styles.vizSide
   return (
     <div className={`${styles.sceneBody} ${top ? styles.bodyTop : styles.bodySide}`}>
-      <div className={top ? styles.vizTop : scene.arrange === 'wide' ? `${styles.vizSide} ${styles.vizWide}` : styles.vizSide}>{scene.visual(at)}</div>
-      {panes}
+      {scene.visual && (
+        <VizColumn key="viz" className={vizClass}>
+          <div key={scene.id} className={styles.vizInner}>{scene.visual(at)}</div>
+        </VizColumn>
+      )}
+      {hasPanes && (
+        <div className={styles.panes}>
+          {scene.panes!.map((pane) => (
+            <PaneView key={paneKey(pane)} pane={pane} source={sourceAt(scene, pane, at)} lines={frame.hl?.[pane.id] ?? []} notes={(frame.notes ?? []).filter((n) => n.pane === pane.id)} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -331,7 +378,7 @@ function Rail({ current, done }: { current: Lesson; done: Readonly<Record<string
               <Link to={l.number === undefined ? '/lean' : `/lean/${l.id}`} className={`${styles.row} ${done[l.id] ? styles.done : ''}`} aria-current={l === current ? 'page' : undefined}>
                 <span className={styles.n}>{done[l.id] ? '✓' : n}</span>
                 <span className={styles.t}>{l.title}</span>
-                <span className={styles.m}>{l.scenes.length} scene{l.scenes.length === 1 ? '' : 's'} · {frameCount(l)} steps</span>
+                <span className={styles.m}>{l.scenes.length} scene{l.scenes.length === 1 ? '' : 's'} · {frameCount(l)} step{frameCount(l) === 1 ? '' : 's'}</span>
               </Link>
             </li>
           )
@@ -469,17 +516,21 @@ function Player({ lesson, onFinish }: { lesson: Lesson; onFinish: () => void }) 
       <header className={styles.head}>
         <span className={styles.eyebrow}>{lesson.number === undefined ? 'Overview' : `Lesson ${lesson.number} of ${course.length - 1}`}</span>
         <h1 className={styles.title}>{lesson.title}</h1>
-        <span className={styles.sceneName}>Scene {pos.s + 1} of {lesson.scenes.length}: <b>{scene.title}</b></span>
+        <span className={styles.sceneName}>Scene {pos.s + 1} of {lesson.scenes.length}: <b>{subs(scene.title)}</b></span>
       </header>
-      <section className={styles.stage} aria-label={scene.title}>
-        <div key={scene.id} className={styles.sceneRoot}>
+      <section className={styles.stage} aria-label={spoken(scene.title)}>
+        <div className={styles.sceneRoot}>
           <SceneView scene={scene} at={pos.f} />
           {/* The connecting thought is an annotation with no target, inside the stage, so the eye stays on what is shown. */}
-          <div className={styles.freeSlot} aria-live="polite">
-            {frame.say && <div key={pos.f} className={styles.free} role="note"><Md text={frame.say} /></div>}
-            {/* Screen readers hear the annotations too; on screen they are in the panes. */}
-            <span className={styles.srOnly}>{(frame.notes ?? []).map((n) => n.text.replace(/`/g, '')).join(' ')}</span>
-          </div>
+          {/* Every note of the scene is laid out in one cell and only the current one is shown, so the
+              room it takes is the same on every frame of the scene and nothing resizes as it comes and goes. */}
+          {scene.frames.some((f) => f.say) && (
+            <div className={styles.freeSlot} aria-hidden="true">
+              {scene.frames.map((f, i) => f.say && <div key={i} className={`${styles.free} ${i === pos.f ? styles.freeOn : ''}`} role="note"><Md text={f.say} /></div>)}
+            </div>
+          )}
+          {/* Screen readers hear the narration and the annotations; on screen the annotations are in the panes. */}
+          <span className={styles.srOnly} aria-live="polite">{spoken([frame.say ?? '', ...(frame.notes ?? []).map((n) => n.text)].join(' ').replace(/`|==|\*\*/g, ''))}</span>
         </div>
       </section>
       <div className={styles.controls}>
@@ -492,8 +543,8 @@ function Player({ lesson, onFinish }: { lesson: Lesson; onFinish: () => void }) 
               key={s.id}
               type="button"
               className={styles.seg}
-              title={s.title}
-              aria-label={`Scene ${i + 1}: ${s.title}`}
+              title={spoken(s.title)}
+              aria-label={spoken(`Scene ${i + 1}: ${s.title}`)}
               aria-current={i === pos.s ? 'step' : undefined}
               onClick={() => { setPlaying(false); setPos({ s: i, f: 0 }) }}
             >

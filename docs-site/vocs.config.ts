@@ -91,6 +91,7 @@ export default defineConfig({
         { text: '7. Making proofs cheap', link: '/lean/making-proofs-cheap' },
         { text: '8. Step is sound and complete', link: '/lean/sound-and-complete' },
         { text: '9. Beyond peano: F1', link: '/lean/beyond-peano' },
+        { text: '10. The IMP fragment', link: '/lean/imp-fragment' },
       ],
     },
     {

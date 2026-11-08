@@ -255,7 +255,7 @@ export const lesson2: Lesson = {
         { id: 'd', label: 'Γ_D, the encoding', source: def },
       ],
       frames: [
-        { say: "The KORE file of lesson 1 is a list of declarations and axioms. The package translates it, mechanically, into a set of matching-logic patterns, Γ_D. Lesson 1's question now has a precise form: ==which steps does Γ_D entail?==" },
+        { say: "The KORE file of lesson 1 is a list of declarations and axioms. The package translates it, mechanically, into a set of matching-logic patterns, Γ_D: Γ is the usual letter for a theory, a set of axioms, and D is the definition it is the theory of. Lesson 1's question now has a precise form: ==which steps does Γ_D entail?==" },
         { hl: { y: span(gamma, 'def ΓD', 'fun φ => itemsPremises') }, say: "Γ_D has " + fmt(g.signature) + " axioms that encode KORE's sorts and symbols in matching logic, and " + fmt(g.axioms) + " more, one for each axiom of the KORE text. Printed out, they are " + fmt(g.nodes) + " pattern nodes." },
         { hl: { d: [g.definedness.line + 1] }, notes: [note('d', g.definedness.line + 1, "The definedness axiom you just saw.")] },
       ],

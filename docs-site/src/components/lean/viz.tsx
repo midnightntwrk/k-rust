@@ -7,6 +7,7 @@ import { createContext, type ReactNode, useContext, useId } from 'react'
 
 import { type Ground, type Pattern, symbol } from './data'
 import styles from './Course.module.css'
+import { spoken, svgSubs } from './sub'
 
 // Arrow takes its arrowhead from the enclosing Svg, so scenes never name one.
 const Marker = createContext('')
@@ -15,7 +16,7 @@ export function Svg({ viewBox, label, children }: { viewBox: string; label: stri
   const id = useId().replace(/[^A-Za-z0-9]/g, '')
   return (
     <div className={styles.svgwrap}>
-      <svg viewBox={viewBox} role="img" aria-label={label}>
+      <svg viewBox={viewBox} role="img" aria-label={spoken(label)}>
         <defs>
           <marker id={`arr${id}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0 1L10 5L0 9z" fill="context-stroke" />
@@ -46,15 +47,20 @@ const toneStroke: Record<Tone, string> = {
 }
 
 /** A labelled box centred on (x, y). */
-export function Box({ x, y, text, sub, w, h, tone = 'plain', size = 13, sans = false, dash = false }: {
-  x: number; y: number; text: string; sub?: string; w?: number; h?: number; tone?: Tone; size?: number; sans?: boolean; dash?: boolean
+export function Box({ x, y, text, aside, sub, w, h, tone = 'plain', size = 13, sans = false, dash = false }: {
+  /** `aside`: a gloss after the name, in parentheses and smaller, e.g. "(Lean value)". */
+  x: number; y: number; text: string; aside?: string; sub?: string; w?: number; h?: number; tone?: Tone; size?: number; sans?: boolean; dash?: boolean
 }) {
-  const width = w ?? Math.max(labelWidth(text, size), sub ? labelWidth(sub, 11) : 0)
+  const asideSize = size - 1.5
+  const width = w ?? Math.max(labelWidth(text, size) + (aside ? (aside.length + 3) * asideSize * 0.52 : 0), sub ? labelWidth(sub, 11) : 0)
   const height = h ?? (sub ? 46 : 30)
   return (
     <g className={styles.anim}>
       <rect className={styles.anim} x={x - width / 2} y={y - height / 2} width={width} height={height} rx={7} fill={toneFill[tone]} stroke={toneStroke[tone]} strokeWidth={tone === 'plain' ? 1 : 1.6} strokeDasharray={dash ? '4 3' : undefined} />
-      <text className={sans ? undefined : styles.mono} x={x} y={sub ? y - 4 : y + size * 0.35} textAnchor="middle" fontSize={size} fontWeight={tone === 'plain' ? 400 : 500}>{text}</text>
+      <text className={sans ? undefined : styles.mono} x={x} y={sub ? y - 4 : y + size * 0.35} textAnchor="middle" fontSize={size} fontWeight={tone === 'plain' ? 400 : 500}>
+        {svgSubs(text, size)}
+        {aside && <tspan className={styles.sansText} fontSize={asideSize} fontWeight={400} style={{ fill: 'var(--muted)' }}>{` (${aside})`}</tspan>}
+      </text>
       {sub && <text x={x} y={y + 13} textAnchor="middle" fontSize={11} style={{ fill: 'var(--muted)' }}>{sub}</text>}
     </g>
   )
@@ -78,7 +84,7 @@ export function Arrow({ x1, y1, x2, y2, label, on = false, dash = false, tone, c
 }
 
 export function Label({ x, y, text, size = 12, anchor = 'start', tone, weight, isMono = false }: { x: number; y: number; text: string; size?: number; anchor?: 'start' | 'middle' | 'end'; tone?: string; weight?: number; isMono?: boolean }) {
-  return <text className={isMono ? styles.mono : undefined} x={x} y={y} fontSize={size} textAnchor={anchor} fontWeight={weight} style={tone ? { fill: tone } : undefined}>{text}</text>
+  return <text className={isMono ? styles.mono : undefined} x={x} y={y} fontSize={size} textAnchor={anchor} fontWeight={weight} style={tone ? { fill: tone } : undefined}>{svgSubs(text, size)}</text>
 }
 
 // ---- a term as a tree ------------------------------------------------------------------------

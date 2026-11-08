@@ -99,7 +99,7 @@ a.row:hover { background: var(--bg); }
 .sceneName b { color: var(--ink); font-weight: 600; }
 
 .stage { background: var(--raised); border: 1px solid var(--line); border-radius: 10px; height: min(74vh, 760px); min-height: 500px; overflow: hidden; position: relative; }
-.sceneRoot { animation: fadein .35s ease; display: flex; flex-direction: column; inset: 0; position: absolute; }
+.sceneRoot { display: flex; flex-direction: column; inset: 0; position: absolute; }
 @keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .controls { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 0; }
@@ -116,11 +116,11 @@ a.row:hover { background: var(--bg); }
 
 .narr { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
 /* A note with no target: the frame's connecting thought, docked at the foot of the stage. */
-.freeSlot { display: flex; flex: none; padding: 0 12px; }
-.freeSlot:has(.free) { padding-bottom: 12px; }
-.free { animation: noteIn .22s ease; background: var(--ink); border-radius: 8px; color: var(--surface); font: 15px/1.5 var(--f-sans); max-width: 78ch; padding: 9px 14px; }
+.freeSlot { display: grid; flex: none; padding: 0 12px 12px; }
+.free { background: var(--ink); border-radius: 8px; color: var(--surface); font: 15px/1.5 var(--f-sans); grid-area: 1 / 1; justify-self: start; max-width: 78ch; padding: 9px 14px; visibility: hidden; }
+.freeOn { animation: noteIn .22s ease; visibility: visible; }
 .free code { background: color-mix(in srgb, var(--surface) 16%, transparent); border-radius: 3px; font-size: 13.5px; padding: 0 4px; }
-.free a { color: inherit; text-decoration: underline; }
+.free a, .note a { color: inherit; text-decoration: underline; }
 .free .k, .note .k { box-shadow: inset 0 -2px 0 var(--gold); color: inherit; }
 .why code, .why code, .q code, .opt code, .end li code, .tryit code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; }
 .k { color: var(--gold); font-weight: 600; }
@@ -162,7 +162,12 @@ a.row:hover { background: var(--bg); }
 .tkTurn { color: var(--gold); font-weight: 600; }
 .tokenMark { background: var(--gold-tint); border-radius: 3px; box-shadow: inset 0 -2px 0 var(--gold); color: inherit; }
 /* An annotation sits in the code's own flow, under the gutter's column, so nothing is covered. */
-.noteRow { animation: noteIn .22s ease; display: grid; font: 12.5px/1.6 var(--f-mono); grid-template-columns: 44px minmax(0, 1fr); padding-block: 5px; }
+.noteRow { display: grid; font: 12.5px/1.6 var(--f-mono); grid-template-columns: 44px minmax(0, 1fr); padding-block: 5px; }
+.noteOpen { animation: noteOpen .26s ease; display: grid; grid-template-rows: 1fr; }
+.noteClose { animation: noteClose .26s ease forwards; }
+.noteClip { min-height: 0; overflow: hidden; }
+@keyframes noteOpen { from { grid-template-rows: 0fr; opacity: 0; } to { grid-template-rows: 1fr; opacity: 1; } }
+@keyframes noteClose { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
 @keyframes noteIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 .note { background: var(--ink); border-radius: 6px; color: var(--surface); display: inline-block; font: 13px/1.45 var(--f-sans); max-width: min(100%, 62ch); padding: 6px 10px; position: relative; text-align: left; }
 .note::after { border-inline: 5px solid transparent; content: ''; left: 10px; position: absolute; }
@@ -174,18 +179,26 @@ a.row:hover { background: var(--bg); }
 /* ---- scene arrangements: a visual above or beside the panes ---- */
 .sceneBody { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .bodyTop { flex-direction: column; }
-.bodySide { flex-direction: row; }
+/* The code stays on the left in every scene; a visual beside it goes on the right. */
+.bodySide { flex-direction: row-reverse; }
 .vizTop { flex: none; max-height: 52%; min-height: 0; overflow: auto; padding: 12px 12px 0; }
-.vizSide { display: flex; flex: 1.25 1 0; flex-direction: column; min-width: 0; overflow: auto; padding: 12px 0 12px 12px; }
+.vizSide { display: flex; flex: 1.25 1 0; flex-direction: column; min-width: 0; overflow: auto; padding: 12px 12px 12px 0; }
 .vizWide { flex-grow: 1.9; }
 .vizTop .svgwrap { flex: none; height: 170px; }
 .vizFull { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; padding: 12px; }
+/* What a scene adds fades in; a visual arriving beside code that was already shown opens its column,
+   so the code narrows instead of being drawn again. */
+.vizInner { animation: fadein .35s ease; display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.vizSide.vizOpening { animation: vizOpen .35s ease; }
+@keyframes vizOpen { from { flex-grow: 0; } }
+.pane { animation: fadein .35s ease; }
 
 /* ---- SVG scenes ---- */
 .svgwrap { flex: 1; min-height: 0; position: relative; }
 .svgwrap svg { height: 100%; inset: 0; position: absolute; width: 100%; }
 .svgwrap text { fill: var(--ink); font-family: var(--f-sans); }
 .svgwrap .mono { font-family: var(--f-mono); }
+.svgwrap .sansText { font-family: var(--f-sans); }
 .anim { transition: transform .55s cubic-bezier(.3, .7, .2, 1), opacity .4s, fill .3s, stroke .3s, stroke-width .3s; }
 
 /* ---- tables, bars, columns, chips ---- */
@@ -241,7 +254,7 @@ a.row:hover { background: var(--bg); }
 .varV2 { color: var(--v2); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
-  .anim, .ln, .sceneRoot, .bar, .seg i, .noteRow, .free { animation: none !important; transition: none !important; }
+  .anim, .ln, .sceneRoot, .bar, .seg i, .noteOpen, .noteClose, .freeOn, .vizInner, .vizOpening, .pane { animation: none !important; transition: none !important; }
 }
 
 @media (max-width: 900px) {
