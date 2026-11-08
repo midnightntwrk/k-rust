@@ -114,6 +114,13 @@ impl Use {
         what: "a stop condition",
         noun: "a condition",
     };
+
+    /// An invariant's spelling: a function of cells claimed of every state a definition
+    /// reaches ([`Semantics::invariant`]).
+    pub(crate) const INVARIANT: Self = Self {
+        what: "an invariant",
+        noun: "an invariant",
+    };
 }
 
 /// The value of the leaf cell `cell` reads in `state`, decoded by `subject`, the definition the
@@ -162,6 +169,8 @@ pub struct ResolvedCondition {
     function: String,
     /// The observer's function.
     decl: Decl,
+    /// The function's KORE symbol in the observer.
+    symbol: String,
     /// The cells, in parameter order.
     cells: Vec<ReadCell>,
     /// The run's definition's values, which read the cells.
@@ -183,6 +192,30 @@ impl ResolvedCondition {
     #[must_use]
     pub fn function_path(&self) -> &str {
         self.decl.path()
+    }
+
+    /// The KORE symbol of the observer's function the name resolved to.
+    #[must_use]
+    pub fn function_symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    /// Whether the function's declared result is `Bool`.
+    #[must_use]
+    pub fn returns_bool(&self) -> bool {
+        matches!(
+            self.result,
+            Some(InputType {
+                sort: SortRef::Builtin(BuiltinSort::Bool),
+                ..
+            })
+        )
+    }
+
+    /// The observer's function the name resolved to, as KRS writes it.
+    #[must_use]
+    pub fn function_decl(&self) -> String {
+        self.decl.to_string()
     }
 
     /// Each cell the condition reads, in parameter order, as the cell symbols from the
@@ -459,6 +492,19 @@ impl Semantics {
         }
     }
 
+    /// Resolve the invariant `function` of the leaf cells `cells` (Rust field paths, in parameter
+    /// order) in this definition, for states of this definition, whatever its result sort (the
+    /// caller reads [`ResolvedCondition::returns_bool`]): an invariant is a claim about the
+    /// definition's own states, so the definition is its own observer.
+    ///
+    /// # Errors
+    ///
+    /// The refusal's text, as [`Self::stop_condition`] words a function or a cell it cannot
+    /// resolve, for an invariant.
+    pub fn invariant(&self, function: &str, cells: &[String]) -> Result<ResolvedCondition, String> {
+        self.cell_function(self, function, cells, Use::INVARIANT)
+    }
+
     /// Resolve `function`, a function of the leaf cells `cells` read in parameter order, in
     /// `observer` for states of this definition, whatever its result sort; the refusal's text
     /// otherwise, naming the use as `role` does: a function the observer does not hold,
@@ -522,6 +568,7 @@ impl Semantics {
         Ok(ResolvedCondition {
             function: function.to_owned(),
             result: info.result.clone(),
+            symbol: info.symbol().to_owned(),
             decl,
             cells: read,
             subject: Arc::clone(&self.values),

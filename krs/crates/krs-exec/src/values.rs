@@ -582,6 +582,13 @@ pub(crate) struct CtorInfo {
     pub(crate) parameters: usize,
 }
 
+impl CtorInfo {
+    /// The production's KORE symbol name.
+    pub(crate) fn symbol(&self) -> &str {
+        &self.symbol
+    }
+}
+
 /// The declared type of a production's field or result: the sort `sort_ref` names and the element
 /// types the declaration states. An element type whose sort KRS names none of (a sort parameter,
 /// a cell sort) is the untyped position, which takes any term, so the type never claims more than
