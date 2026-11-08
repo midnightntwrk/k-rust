@@ -884,7 +884,8 @@ pub fn evaluate(
 }
 
 /// The value of `invariant`'s function at the configuration `configuration` (KORE), which is first
-/// evaluated in `definition` to the term its cells are read from, then as [`evaluate`] does.
+/// evaluated in `definition` to the term its cells are read from, then as [`evaluate`] does; with
+/// the cells read, in the invariant's order, as KORE.
 ///
 /// # Errors
 ///
@@ -894,13 +895,19 @@ pub fn evaluate_configuration(
     definition: &BackendDefinition,
     configuration: &KorePattern,
     invariant: Invariant<'_>,
-) -> Result<bool, String> {
+) -> Result<(bool, Vec<KorePattern>), String> {
     on_stack(definition, &[configuration], |associated| {
         let term = internalized(definition, associated[0])?;
         let state = with_evaluation(EvaluationMode::Proof, || simplified(definition, &term))?;
         let application = applied_to(definition, invariant, |path| cell_term(&state, path))
             .map_err(|refusal| refusal.to_string())?;
-        value(definition, &application)
+        let cells = invariant
+            .cells
+            .iter()
+            .filter_map(|path| cell_term(&state, path))
+            .map(k_rust_backend::externalize::term)
+            .collect();
+        Ok((value(definition, &application)?, cells))
     })
 }
 

@@ -954,7 +954,10 @@ mod kink_tier {
                     &json!("evidence"),
                     &json!(
                         "the invariant `reversed` is false in the run of the program `idle`, at \
-                         its initial state, so it is no invariant of the definition"
+                         its initial state, where the cells hold \
+                         Lbl'-LT-'b'-GT-'{}(\\dv{SortInt{}}(\"1\")) and \
+                         Lbl'-LT-'a'-GT-'{}(\\dv{SortInt{}}(\"0\")), so it is no invariant of \
+                         the definition"
                     )
                 ),
                 "{held:#}"
@@ -1067,17 +1070,20 @@ mod kink_tier {
         assert_eq!(bump["status"], "unmatched", "{bump:#}");
         let failed = &bump["argument_failed"];
         assert_eq!(failed["check"], "evidence", "{bump:#}");
+        let zero = "Lbl'-LT-'a'-GT-'{}(\\dv{SortInt{}}(\"0\"))";
         assert_eq!(
             failed["detail"],
-            "the invariant `never` is false in the run of the program `idle`, at its initial \
-             state, so it is no invariant of the definition"
+            format!(
+                "the invariant `never` is false in the run of the program `idle`, at its initial \
+                 state, where the cells hold {zero}, so it is no invariant of the definition"
+            )
         );
         let check = &never[kink_flow::coverage::ARGUMENT_CHECKS][BUMP];
         assert_eq!(check["connection"]["status"], "holds", "{check:#}");
         assert_eq!(
             check["evidence"]["failure"],
             json!({"program": "idle", "at": "initial", "rule": null, "index": null,
-                   "cells": null})
+                   "cells": [zero], "cells_missing": null})
         );
     }
 
@@ -1241,6 +1247,220 @@ mod kink_tier {
             item(&broken, "rules", BUMP)["argument_check"]["standing"],
             bumped
         );
+    }
+
+    /// `dir`'s copy of the fixture's definition with `find` replaced by `replace`, once.
+    fn edit_k(dir: &Path, find: &str, replace: &str) {
+        let source = dir.join("invariant.k");
+        let k = fs::read_to_string(&source).unwrap();
+        assert!(k.contains(find), "{k}");
+        fs::write(&source, k.replacen(find, replace, 1)).unwrap();
+    }
+
+    /// `dir`'s manifest with `section` (TOML tables) before its programs.
+    fn with_section(dir: &Path, section: &str) {
+        let path = dir.join("FLOW.toml");
+        let text = fs::read_to_string(&path).unwrap();
+        let programs = "\n[[program]]\n";
+        assert!(text.contains(programs), "{text}");
+        fs::write(
+            &path,
+            text.replacen(programs, &format!("\n{section}{programs}"), 1),
+        )
+        .unwrap();
+    }
+
+    /// The evidence of `id` in `document`, and its status.
+    fn evidence_of<'d>(document: &'d Value, id: &str) -> &'d Value {
+        &document[kink_flow::coverage::ARGUMENT_CHECKS][id]["evidence"]
+    }
+
+    /// An evidence is `incomplete` wherever a state of the item's set is not read, and its
+    /// `reason` says which:
+    /// - a rule that can step where `readzRom` matches and has no label, whose steps no run can
+    ///   observe (the fixture gains one beside `readz`);
+    /// - a program that is not comparable (`spin`, which a depth bound cuts): without it the
+    ///   evidence of `rule:bump` is vacuous, so it would read as `connected` while one program's
+    ///   states were never read;
+    /// - a path that ends at an undefined step (`crash` divides by zero), whose last state is no
+    ///   end and no point;
+    /// - a run of several paths of which one is cut by a bound (`pick` either ends or spins, with
+    ///   `[observe]` making it a prefix program): the record keeps only the nearest point at which
+    ///   a path stops being explored, so what the other paths hold past theirs is not known, and
+    ///   the state the bound cut is not read.
+    #[test]
+    #[ignore = "kink"]
+    fn an_invariants_evidence_is_incomplete_where_a_state_is_not_read() {
+        let dir = invariant("incomplete");
+        edit_k(
+            &dir,
+            "endmodule\n\nmodule INVARIANT\n",
+            "  syntax Pgm ::= \"spin\" [symbol(spin)] | \"crash\" [symbol(crash)]\n                 \
+             | \"pick\" [symbol(pick)]\nendmodule\n\nmodule INVARIANT\n",
+        );
+        edit_k(
+            &dir,
+            "  rule [idle]: <k> idle => .K ... </k>\n",
+            "  rule [idle]: <k> idle => .K ... </k>\n  rule [spin]: <k> spin => spin ... </k>\n  \
+             rule [crash]: <k> crash => .K ... </k> <a> A => A /Int 0 </a>\n  rule [pick]: <k> \
+             pick => .K ... </k>\n  rule [pickSpin]: <k> pick => spin ... </k>\n",
+        );
+        let entries = [
+            (BUMP, "no state has a above b", Some(ORDERED.0)),
+            (
+                READZ_ROM_HELD,
+                "memory holds no ROM address",
+                Some(OUTSIDE_ROM.0),
+            ),
+        ];
+        argue_on(&dir, &[ORDERED, OUTSIDE_ROM], &entries);
+        with_section(&dir, "[budget]\nmax_depth = 20\n");
+        let fresh = |programs: &[(&str, &str)], section: Option<&str>| {
+            let copy = invariant(&format!("incomplete-{}", programs[0].0));
+            fs::remove_dir_all(&copy).unwrap();
+            copy_dir(&dir, &copy);
+            with_programs(&copy, programs);
+            if let Some(section) = section {
+                with_section(&copy, section);
+            }
+            coverage(&copy, &["--tier", "1"], Derived::default()).0
+        };
+        let incomplete = |document: &Value, id: &str, reason: &str| {
+            let evidence = evidence_of(document, id);
+            assert_eq!(evidence["status"], "incomplete", "{evidence:#}");
+            assert!(
+                evidence["reason"]
+                    .as_str()
+                    .is_some_and(|written| written.contains(reason)),
+                "{evidence:#}"
+            );
+            assert_eq!(
+                item(
+                    document,
+                    if id == BUMP { "rules" } else { "requirements" },
+                    id
+                )["argument_check"]["standing"],
+                "unchecked"
+            );
+        };
+
+        // The idle corpus reads the order everywhere it must, with no step of `bump`; a rule with
+        // no label can step where `readzRom` matches.
+        let (idle, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(evidence_of(&idle, BUMP)["status"], "vacuous", "{idle:#}");
+        edit_k(
+            &dir,
+            "  rule [idle]:",
+            "  rule <k> read(A) => .K ... </k> <memory> M </memory> requires notBool A in_keys(M)\n  \
+             rule [idle]:",
+        );
+        let (unlabeled, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        incomplete(
+            &unlabeled,
+            READZ_ROM_HELD,
+            "has no label a run observes it by",
+        );
+        let rules = evidence_of(&unlabeled, READZ_ROM_HELD)["rules"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert!(
+            rules.iter().any(|rule| rule == "INVARIANT.readz")
+                && rules
+                    .iter()
+                    .any(|rule| !rule.as_str().unwrap().starts_with("INVARIANT.")),
+            "{rules:?}"
+        );
+        assert_eq!(evidence_of(&unlabeled, BUMP)["status"], "vacuous");
+
+        let spin = fresh(&[("spin", "spin")], None);
+        assert_eq!(
+            spin["programs"][1]["class"], "unknown",
+            "{:#}",
+            spin["programs"]
+        );
+        incomplete(&spin, BUMP, "the program `spin` is unknown");
+
+        let crash = fresh(&[("crash", "crash")], None);
+        assert_eq!(
+            crash["programs"][1]["class"], "comparable",
+            "{:#}",
+            crash["programs"]
+        );
+        incomplete(
+            &crash,
+            BUMP,
+            "in the program `crash`, a path ends at an undefined step, whose state the evidence \
+             does not read",
+        );
+
+        let pick = fresh(
+            &[("pick", "pick")],
+            Some(
+                "[[observe.point]]\nname = \"spins\"\nbefore = [\"INVARIANT.spin\"]\ncells = \
+                 [\"a\"]\nstutter = \"count\"\n",
+            ),
+        );
+        assert_eq!(
+            pick["programs"][1]["class"], "comparable-prefix",
+            "{:#}",
+            pick["programs"]
+        );
+        incomplete(
+            &pick,
+            BUMP,
+            "in the program `pick`, a bound cut the run at a state the evidence does not read",
+        );
+        incomplete(
+            &pick,
+            BUMP,
+            "in the program `pick`, before the steps of `INVARIANT.bump`: the run has several \
+             paths, and one stops being explored",
+        );
+    }
+
+    /// One program's evidence of an invariant is read from the memo only under the same
+    /// invariant and the same rules: the same invariant observed at more rules (another entry
+    /// names it), and another invariant (another function of the same cell), each run again. The
+    /// invariants are functions of `<k>`, which every rule's left-hand side holds, false of every
+    /// state, so each connection holds by the simplification alone, in both profiles.
+    #[test]
+    #[ignore = "kink"]
+    fn the_evidence_memo_misses_on_another_invariant_or_other_rules() {
+        let dir = invariant("evidence-memo");
+        edit_k(
+            &dir,
+            "  rule [idle]:",
+            "  syntax Bool ::= noK(K) [function, total, symbol(noK)]\n                  | noKToo(K) \
+             [function, total, symbol(noKToo)]\n  rule noK(_) => false\n  rule noKToo(_) => \
+             false\n  rule [idle]:",
+        );
+        let no_k: (&str, &str, &[&str]) = ("no-k", "noK", &["k"]);
+        let no_k_too: (&str, &str, &[&str]) = ("no-k-too", "noKToo", &["k"]);
+        let runs = |document: &Value| document["summary"]["invariant_runs"].clone();
+        let bump = (BUMP, "no state is ever reached", Some(no_k.0));
+        argue_on(&dir, &[no_k], &[bump]);
+        let (first, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(runs(&first), json!({"run": 1, "cached": 0}), "{first:#}");
+        let (again, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(runs(&again), json!({"run": 0, "cached": 1}), "{again:#}");
+        assert_eq!(evidence_of(&again, BUMP)["cached"], true);
+
+        // Another entry on the invariant: its rules join the ones observed.
+        let read = (READZ_ROM_HELD, "no state is ever reached", Some(no_k.0));
+        argue_on(&dir, &[no_k], &[bump, read]);
+        let (more, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(runs(&more), json!({"run": 1, "cached": 0}), "{more:#}");
+        assert_eq!(evidence_of(&more, BUMP)["cached"], false);
+
+        // Another invariant, at the same rules.
+        let too = |(item, argument, _): (&'static str, &'static str, Option<&'static str>)| {
+            (item, argument, Some(no_k_too.0))
+        };
+        argue_on(&dir, &[no_k_too], &[too(bump), too(read)]);
+        let (other, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(runs(&other), json!({"run": 1, "cached": 0}), "{other:#}");
+        assert_eq!(evidence_of(&other, BUMP)["status"], "fails", "{other:#}");
     }
 
     /// Every argued item says what its argument rests on (`argument_check`): its text alone where

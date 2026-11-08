@@ -7,18 +7,22 @@
 //! The connection shows, at each axiom of the item's rule, that a state the left-hand side `L`
 //! matches and the invariant `F` holds of does not have the item's valuation. Its premise is that
 //! `F` holds at every reachable state `L` matches, and the evidence tests that premise on the
-//! corpus's runs. At a state `L` matches, either some rule takes a step, and that rule's
-//! left-hand side matches the state too, so it unifies with `L` (kink-native
-//! `invariant::stepping_rules`), or no rule does, and the state is an end. So the states before a
-//! step of a rule of `S_R`, the rules whose left-hand side unifies with one of the item's axioms',
-//! together with the ends, hold every state where `L` matched; `S_R` holds the item's own rules,
-//! and the other states it adds are reachable states too. The initial state is read as well: it is
-//! the base case of the inductive argument the invariant stands for.
+//! corpus's runs. A state of a path where `L` matches is one of:
+//! - a state before a step whose successor is defined: the rule that takes it matches the state
+//!   too, so its left-hand side unifies with `L` (kink-native `invariant::stepping_rules`), and the
+//!   state is before a step of a rule of `S_R`, the rules whose left-hand side unifies with one of
+//!   the item's axioms';
+//! - an end: no rule steps there, or a stop ends the path there;
+//! - the state before a step whose result is undefined, the last of its path, which is no end and
+//!   no point;
+//! - the state at which a bound cut the path.
 //!
-//! A state the evidence does not read is no state of the premise only where it is no state `L`
-//! matched; a path that ends at an undefined step has such a state (its last, before a step of a
-//! rule whose result is undefined), which is no end and no point, so a run with one leaves the
-//! evidence incomplete. So does a rule of `S_R` with no label, whose steps a run cannot observe.
+//! The evidence reads the first two kinds: before every step of `S_R`, and at every end. `S_R`
+//! holds the item's own rules, and the other states it adds are reachable states too. It reads no
+//! state of the last two, so a run with an undefined step, or a prefix program's run (a bound
+//! cut it), leaves the evidence incomplete, and so does a rule of `S_R` with no label, whose
+//! steps a run cannot observe. The initial state is read as well: it is the base case of the
+//! inductive argument the invariant stands for.
 //!
 //! # The runs
 //!
@@ -36,15 +40,26 @@
 //! at a real state of a path with no diagnostic (kink-campaign `observation`, "The slot"); a record
 //! of several paths counts only where it is real. A comparable program's run is complete with no
 //! diagnostic and ends at values, so its initial state and ends are states of its paths; a
-//! prefix program's run kept an element of the corpus's channels, which only a settled path does,
-//! and its evidence covers the prefix it ran, as its coverage does.
+//! prefix program's run kept an element of the corpus's channels, which only a settled path does.
+//! A record of several paths keeps each channel's prefix sets and only the nearest index at which
+//! some path stops being explored (cut, undecided, or at an undecided element): where it has one,
+//! what the other paths hold past their own such point is not known, and the channel is
+//! undecided.
+//!
+//! The failure is the first state that gives `false` in path order: the initial state, then the
+//! steps, then the ends. In a run of one path the run's functions log every evaluation in path
+//! order with the cells read there, and where that log is the record's elements, the first
+//! `false` it holds is the path's first, with the event's cells; otherwise, and in a run of
+//! several paths, whose record orders no state across rules, it is the first `false` of the first
+//! rule in label order that has one, and the failure says why its cells are not given
+//! (`cells_missing`).
 //!
 //! # Answers
 //!
 //! For an argued item, over every program:
 //! - `fails`: some state read gives `false`; the failure names the program, where (`initial`,
 //!   before the step of a rule, or an `end`), the rule's arrival index or the end's index, and the
-//!   cells read there as KORE, where they are known;
+//!   cells read there as KORE, or why they are not known;
 //! - `incomplete`: otherwise, where some state of the item's set is undecided, a program is not
 //!   comparable (or its evidence run gave no sides), or a rule of the item's `S_R` cannot be
 //!   observed;
@@ -69,7 +84,7 @@ use k_rust::kore::ast::Pattern;
 use k_rust::kore::printer::Printer;
 use kink_campaign::{
     BaselineRecord, ChannelEnd, Evaluated, Observation, ObservationEvaluator, ObservationFunctions,
-    ObserveFunctions, Opening, PrefixChain, Stutter, TestEvidence,
+    ObserveFunctions, Opening, PathRecord, PrefixChain, Stutter, TestEvidence,
 };
 use kink_native::invariant::{Invariant, evaluate, evaluate_configuration, stepping_rules};
 use kink_patch::payload_digest;
@@ -112,13 +127,19 @@ fn short(value: bool) -> [u8; 8] {
 /// evaluations one of them logs (`Observe` interns a declaration by its identity).
 static RUNS: AtomicU64 = AtomicU64::new(0);
 
-/// An evaluation that did not give `true`, in the order the run's requests asked them.
+/// One evaluation of an evidence run's functions, in the order the run's requests asked them: its
+/// point class and its value.
 struct Logged {
     class: usize,
-    /// Its index among its class's points in the request.
-    index: usize,
-    /// `false`, with the cells read as KORE text; or why it is not known.
-    value: Result<Vec<String>, String>,
+    value: Value3,
+}
+
+/// The value of one evaluation: `true`, `false` with the cells read there as KORE text, or not
+/// known.
+enum Value3 {
+    True,
+    False(Vec<String>),
+    Undecided,
 }
 
 #[derive(Default)]
@@ -133,7 +154,6 @@ struct Functions {
     definition: Arc<BackendDefinition>,
     symbol: String,
     cells: Vec<Vec<String>>,
-    classes: usize,
     log: Arc<Mutex<Log>>,
 }
 
@@ -154,10 +174,7 @@ impl ObservationFunctions for Functions {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .requests += 1;
-        body(&mut Evaluator {
-            functions: self,
-            calls: vec![0; self.classes],
-        });
+        body(&mut Evaluator { functions: self });
         Ok(())
     }
 }
@@ -165,21 +182,16 @@ impl ObservationFunctions for Functions {
 /// The evaluation of one request of an evidence run.
 struct Evaluator<'f> {
     functions: &'f Functions,
-    calls: Vec<usize>,
 }
 
 impl Evaluator<'_> {
-    fn log(&self, class: usize, index: usize, value: Result<Vec<String>, String>) {
+    fn log(&self, class: usize, value: Value3) {
         self.functions
             .log
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entries
-            .push(Logged {
-                class,
-                index,
-                value,
-            });
+            .push(Logged { class, value });
     }
 }
 
@@ -194,10 +206,6 @@ impl ObservationEvaluator for Evaluator<'_> {
         state: &ProbeState<'_>,
         value: bool,
     ) -> Result<Evaluated, String> {
-        let index = self.calls.get(class).copied().unwrap_or(0);
-        if let Some(calls) = self.calls.get_mut(class) {
-            *calls += 1;
-        }
         let functions = self.functions;
         let cells = functions
             .cells
@@ -220,21 +228,28 @@ impl ObservationEvaluator for Evaluator<'_> {
         };
         match answer {
             Ok(holds) => {
-                if !holds {
-                    let text = cells
-                        .iter()
-                        .flatten()
-                        .map(|cell| Printer::compact().print_pattern(cell))
-                        .collect();
-                    self.log(class, index, Ok(text));
-                }
+                // The cells of the event itself, where it gives `false`.
+                self.log(
+                    class,
+                    if holds {
+                        Value3::True
+                    } else {
+                        Value3::False(
+                            cells
+                                .iter()
+                                .flatten()
+                                .map(|cell| Printer::compact().print_pattern(cell))
+                                .collect(),
+                        )
+                    },
+                );
                 Ok(Evaluated {
                     digest: element_digest(holds),
                     value: value.then(|| json!(holds)),
                 })
             }
             Err(reason) => {
-                self.log(class, index, Err(reason.clone()));
+                self.log(class, Value3::Undecided);
                 Err(reason)
             }
         }
@@ -395,7 +410,6 @@ fn program_evidence(
             definition: Arc::clone(definition),
             symbol: invariant.symbol.clone(),
             cells: invariant.cells.clone(),
-            classes: labels.len(),
             log: Arc::clone(&log),
         };
         let functions = ObserveFunctions::new(
@@ -539,18 +553,18 @@ fn program_evidence(
 }
 
 /// What one program's evidence run read (module documentation, "The runs"): `{channels: [{rule,
-/// steps, undecided}], undecided, failure}`, a channel per label of `labels` with the number of
-/// states read before its rule's steps and why one was not decided, why a state of the run itself
-/// was not decided (its initial state, an end, an undefined step, its paths not real), and the
-/// first state that gives `false` (`{at, rule, index, cells}`), in path order: the initial state,
-/// then a step, then an end. `initial` is the value at the initial state; `evidence` the run's
-/// (`None`: no rule was observed, so no run was made, and no end is read); `prefix` whether the
-/// program is a prefix program; `logged` the evaluations the run's functions logged.
+/// steps, undecided}], ends, undecided, failure}`, a channel per label of `labels` with the number
+/// of states read before its rule's steps and why one was not decided, the number of ends read,
+/// why a state of the run itself was not decided (its initial state, an end, an undefined step, a
+/// bound's cut, its paths), and the first state that gives `false` ([`failure`]). `initial` is
+/// the value at the initial state with its cells; `evidence` the run's (`None`: no rule was
+/// observed, so no run was made, and no end is read); `prefix` whether the program is a prefix
+/// program; `logged` the evaluations the run's functions logged.
 fn record(
     definition: &BackendDefinition,
     invariant: Invariant<'_>,
     labels: &[String],
-    initial: Result<bool, String>,
+    initial: Result<(bool, Vec<Pattern>), String>,
     evidence: Option<&TestEvidence>,
     prefix: bool,
     logged: &Log,
@@ -558,10 +572,8 @@ fn record(
     let mut undecided = None;
     let mut failure = Value::Null;
     match initial {
-        Ok(true) => {}
-        Ok(false) => {
-            failure = json!({"at": "initial", "rule": null, "index": null, "cells": null});
-        }
+        Ok((true, _)) => {}
+        Ok((false, cells)) => failure = failure_value("initial", None, None, Ok(texts(&cells))),
         Err(reason) => undecided = Some(format!("at the initial state: {reason}")),
     }
     let mut channels = labels
@@ -572,62 +584,39 @@ fn record(
         return json!({"channels": channels, "ends": 0, "undecided": undecided,
                       "failure": failure});
     };
-    let observed = match &evidence.notes.observation {
-        Some(Observation::Recorded(record)) => Some(record),
-        _ => None,
-    };
-    match observed {
-        None => {
-            undecided.get_or_insert_with(|| "the run recorded no observation".to_owned());
-        }
-        Some(record) => {
-            let steps = read_channels(record, prefix, &mut channels, &mut undecided);
-            // In a run of one path its functions logged every value in path order, so the first
-            // logged `false` the record keeps is the path's first, with its cells; in a run of
-            // several paths the first index at which some path's element is `false`.
-            let first = (record.paths.is_none() && logged.requests == 1)
-                .then(|| {
-                    logged.entries.iter().find_map(|entry| match &entry.value {
-                        Ok(cells) if steps.contains(&(entry.class, entry.index)) => {
-                            Some((entry.class, entry.index, json!(cells)))
-                        }
-                        _ => None,
-                    })
-                })
-                .flatten()
-                .or_else(|| {
-                    steps
-                        .iter()
-                        .min_by_key(|&&(_, index)| index)
-                        .map(|&(class, index)| (class, index, Value::Null))
-                });
-            if failure.is_null()
-                && let Some((class, index, cells)) = first
-            {
-                failure = json!({"at": "step", "rule": labels[class], "index": index,
-                                 "cells": cells});
-            }
-        }
+    if prefix {
+        // The state a bound cut the path at is reached, and the item's rule may match it; the
+        // record keeps no state of it.
+        undecided.get_or_insert_with(|| {
+            "a bound cut the run at a state the evidence does not read".to_owned()
+        });
     }
     if evidence.undefined_steps {
         undecided.get_or_insert_with(|| {
             "a path ends at an undefined step, whose state the evidence does not read".to_owned()
         });
     }
+    match &evidence.notes.observation {
+        Some(Observation::Recorded(record)) => {
+            let step = match &record.paths {
+                None => one_path(record, prefix, labels, &mut channels, logged),
+                Some(paths) => several_paths(paths, labels, &mut channels, &mut undecided),
+            };
+            if failure.is_null() {
+                failure = step;
+            }
+        }
+        _ => {
+            undecided.get_or_insert_with(|| "the run recorded no observation".to_owned());
+        }
+    }
     for (index, end) in evidence.ends.iter().enumerate() {
         match evaluate_configuration(definition, end, invariant) {
-            Ok(true) => {}
-            Ok(false) if failure.is_null() => {
-                let cells = invariant
-                    .cells
-                    .iter()
-                    .map(|path| {
-                        cell_of(end, path).map(|cell| Printer::compact().print_pattern(cell))
-                    })
-                    .collect::<Option<Vec<_>>>();
-                failure = json!({"at": "end", "rule": null, "index": index, "cells": cells});
+            Ok((true, _)) => {}
+            Ok((false, cells)) if failure.is_null() => {
+                failure = failure_value("end", None, Some(index), Ok(texts(&cells)));
             }
-            Ok(false) => {}
+            Ok((false, _)) => {}
             Err(reason) => {
                 undecided.get_or_insert_with(|| format!("at the end {index}: {reason}"));
             }
@@ -637,92 +626,166 @@ fn record(
            "failure": failure})
 }
 
-/// Reads `record`'s channels into `channels` (each label's states read, and why one was not
-/// decided), and `undecided` where the record is not real; gives, for each channel with an element
-/// `false`, the channel and the first such index. A channel is read to its end where it is closed,
-/// and up to its horizon where a bound cut a prefix program's path.
-fn read_channels(
-    record: &BaselineRecord,
-    prefix: bool,
-    channels: &mut [Value],
-    undecided: &mut Option<String>,
-) -> Vec<(usize, usize)> {
-    let (yes, no) = (short(true), short(false));
-    let open = |opening: Opening| !(prefix && opening == Opening::Bound);
-    let mut failures = Vec::new();
-    if let Some(paths) = &record.paths {
-        if !paths.real {
-            undecided.get_or_insert_with(|| {
-                "the run's paths are not all shown real and clean".to_owned()
-            });
-            return Vec::new();
-        }
-        for (class, (sets, channel)) in paths.channels.iter().zip(channels.iter_mut()).enumerate() {
-            let mut chain = PrefixChain::empty();
-            let mut steps = 0_usize;
-            for index in 0..sets.prefixes.len() {
-                if sets.holds(index, chain.then(no).digest()) {
-                    failures.push((class, index));
-                    break;
-                }
-                let next = chain.then(yes);
-                if !sets.holds(index, next.digest()) {
-                    break;
-                }
-                chain = next;
-                steps += 1;
-            }
-            channel["steps"] = json!(steps);
-            if let Some(horizon) = sets.complete_to
-                && open(horizon.opening)
-            {
-                channel["undecided"] = json!(format!(
-                    "a path of the run is not explored past its element {} ({})",
-                    horizon.elements,
-                    horizon.opening.name()
-                ));
-            }
-        }
-    } else {
-        for (class, (recorded, channel)) in
-            record.channels.iter().zip(channels.iter_mut()).enumerate()
-        {
-            channel["steps"] = json!(recorded.elements.len());
-            if let Some(index) = recorded
-                .elements
-                .iter()
-                .position(|element| *element == Some(no))
-            {
-                failures.push((class, index));
-            }
-            if recorded.elements.iter().any(Option::is_none) {
-                channel["undecided"] = json!("the invariant's value is not known at a state");
-            } else if let ChannelEnd::Open(opened) = &recorded.end
-                && open(opened.opening)
-            {
-                channel["undecided"] = json!(opened.reason);
-            }
-        }
-    }
-    failures
+/// Each cell as KORE text.
+fn texts(cells: &[Pattern]) -> Vec<String> {
+    cells
+        .iter()
+        .map(|cell| Printer::compact().print_pattern(cell))
+        .collect()
 }
 
-/// The cell at `path` of the configuration `term` (KORE): `path[0]` is its own symbol, and each
-/// further symbol that of a cell the previous one holds as a direct argument.
-fn cell_of<'p>(term: &'p Pattern, path: &[String]) -> Option<&'p Pattern> {
-    let (first, below) = path.split_first()?;
-    let applies = |pattern: &Pattern, name: &str| matches!(pattern, Pattern::Application { symbol, .. } if symbol.name.as_str() == name);
-    if !applies(term, first) {
-        return None;
+/// A failure, `{at, rule, index, cells, cells_missing}`: where (`initial`, `step` or `end`), the
+/// rule's label and its arrival index, or the end's index, and the cells read there as KORE, or
+/// why the record cannot give them.
+fn failure_value(
+    at: &str,
+    rule: Option<&str>,
+    index: Option<usize>,
+    cells: Result<Vec<String>, &str>,
+) -> Value {
+    let (cells, missing) = match cells {
+        Ok(cells) => (json!(cells), Value::Null),
+        Err(why) => (Value::Null, json!(why)),
+    };
+    json!({"at": at, "rule": rule, "index": index, "cells": cells, "cells_missing": missing})
+}
+
+/// Reads a record of a run of one path into `channels` (each label's states read, and why one was
+/// not decided); gives the first state of the path that gives `false`, as a failure. A channel is
+/// read to its end where it is closed, and up to its horizon where a bound cut a prefix
+/// program's path.
+///
+/// The run's functions logged each evaluation in path order (a run of one path asks each point
+/// once, in path order), so where the log of the one request is the record's elements, class by
+/// class, the first `false` the log holds is the path's first, with the cells of that event. Where
+/// it is not (the record holds no element of a path not settled, for one), the first `false` of
+/// the first channel in label order that holds one is given, without cells, and the failure says
+/// why.
+fn one_path(
+    record: &BaselineRecord,
+    prefix: bool,
+    labels: &[String],
+    channels: &mut [Value],
+    logged: &Log,
+) -> Value {
+    let no = short(false);
+    for (recorded, channel) in record.channels.iter().zip(channels.iter_mut()) {
+        channel["steps"] = json!(recorded.elements.len());
+        if recorded.elements.iter().any(Option::is_none) {
+            channel["undecided"] = json!("the invariant's value is not known at a state");
+        } else if let ChannelEnd::Open(opened) = &recorded.end
+            && !(prefix && opened.opening == Opening::Bound)
+        {
+            channel["undecided"] = json!(opened.reason);
+        }
     }
-    let mut current = term;
-    for name in below {
-        let Pattern::Application { arguments, .. } = current else {
-            return None;
-        };
-        current = arguments.iter().find(|argument| applies(argument, name))?;
+    let matches = logged.requests == 1
+        && record.channels.iter().enumerate().all(|(class, recorded)| {
+            let log = logged
+                .entries
+                .iter()
+                .filter(|entry| entry.class == class)
+                .map(|entry| match entry.value {
+                    Value3::True => Some(short(true)),
+                    Value3::False(_) => Some(no),
+                    Value3::Undecided => None,
+                });
+            log.eq(recorded.elements.iter().copied())
+        });
+    if matches {
+        let mut arrivals = vec![0_usize; labels.len()];
+        for entry in &logged.entries {
+            if let Value3::False(cells) = &entry.value {
+                return failure_value(
+                    "step",
+                    Some(&labels[entry.class]),
+                    Some(arrivals[entry.class]),
+                    Ok(cells.clone()),
+                );
+            }
+            arrivals[entry.class] += 1;
+        }
+        return Value::Null;
     }
-    Some(current)
+    record
+        .channels
+        .iter()
+        .enumerate()
+        .find_map(|(class, recorded)| {
+            let index = recorded.elements.iter().position(|e| *e == Some(no))?;
+            Some(failure_value(
+                "step",
+                Some(&labels[class]),
+                Some(index),
+                Err(
+                    "the evaluations the run logged are not the record's, so neither the cells \
+                     nor the order of the rules' states is known: this is the first rule in \
+                     label order with a state that gives false",
+                ),
+            ))
+        })
+        .unwrap_or(Value::Null)
+}
+
+/// Reads a record of a run of several paths into `channels` and `undecided`; gives a state that
+/// gives `false`, as a failure. Only a real record is read. Its prefix sets keep, per channel, the
+/// nearest index at which some path stops being explored, so where a path is cut, or ends
+/// undecided, or holds an undecided element, what the other paths hold past their own such point
+/// is not known: the run is then undecided. Every element of every path is read through the sets:
+/// a path's prefix at an index is the all-`true` prefix of that length or holds a `false`, which
+/// first shows at the index of its first `false`. The record orders no state across rules or
+/// paths, so the failure is the first `false` index of the first channel in label order that has
+/// one, without cells.
+fn several_paths(
+    paths: &PathRecord,
+    labels: &[String],
+    channels: &mut [Value],
+    undecided: &mut Option<String>,
+) -> Value {
+    if !paths.real {
+        undecided
+            .get_or_insert_with(|| "the run's paths are not all shown real and clean".to_owned());
+        return Value::Null;
+    }
+    let (yes, no) = (short(true), short(false));
+    let mut failure = Value::Null;
+    for (class, (sets, channel)) in paths.channels.iter().zip(channels.iter_mut()).enumerate() {
+        let mut chain = PrefixChain::empty();
+        let mut steps = 0_usize;
+        for index in 0..sets.prefixes.len() {
+            if sets.holds(index, chain.then(no).digest()) {
+                if failure.is_null() {
+                    failure = failure_value(
+                        "step",
+                        Some(&labels[class]),
+                        Some(index),
+                        Err(
+                            "the run has several paths, whose record keeps no state's cells and \
+                             orders no state across rules or paths: this is the first rule in \
+                             label order with a state that gives false",
+                        ),
+                    );
+                }
+                break;
+            }
+            let next = chain.then(yes);
+            if !sets.holds(index, next.digest()) {
+                break;
+            }
+            chain = next;
+            steps += 1;
+        }
+        channel["steps"] = json!(steps);
+        if let Some(horizon) = sets.complete_to {
+            channel["undecided"] = json!(format!(
+                "the run has several paths, and one stops being explored at its element {} ({}): \
+                 what the others hold past their own such point is not known",
+                horizon.elements,
+                horizon.opening.name()
+            ));
+        }
+    }
+    failure
 }
 
 /// An item's evidence from its rules `steps` and what each program's run read of its invariant
@@ -809,10 +872,10 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
         "steps": stepped,
         "programs": programs,
         "failure": failure,
-        "reason": if status == EVIDENCE_FAILS {
+        "reason": if status == EVIDENCE_FAILS || reasons.is_empty() {
             Value::Null
         } else {
-            reasons.first().map_or(Value::Null, |reason| json!(reason))
+            json!(reasons.join("; "))
         },
         "cached": cached,
     })
