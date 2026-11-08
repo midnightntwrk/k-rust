@@ -69,6 +69,12 @@ pub enum UnjudgedReason {
     StackMappingRefused,
     /// The run stopped for lack of stack ([`StopCause::StackExhausted`]).
     StackExhausted,
+    /// The run went on past a stop of the campaign ([`crate::CaseStop`],
+    /// [`CaseResult::passed_stops`]): a step of a stop rule had another successor beside it, so
+    /// it was no stop event, and the run's leaves need not be the final configurations of the
+    /// system that ends at every step of a stop rule. It precedes the bounds and the clock: no
+    /// bound, limit or budget changes it.
+    PassedStop,
     /// A clock stopped the run or a path: the per-case safety limit or a step deadline
     /// (`baseline-incomplete` only; such a case is otherwise `timeout`).
     Clock,
@@ -369,6 +375,21 @@ const MUTANT_REFUSED_STATE_REMEDY: &str = concat!(
     "admits too can be judged",
 );
 
+/// The remedy of [`UnjudgedReason::NaturalEndUndecided`].
+const NATURAL_END_UNDECIDED_REMEDY: &str = concat!(
+    "whether the program finished could not be decided from the <k> cells; state the ",
+    "finished configuration with a normal-end pattern (campaign key `normal-end-pattern`, ",
+    "command line `--normal-end`, library `CaseOptions::normal_end_pattern`)",
+);
+
+/// The remedy of [`UnjudgedReason::PassedStop`].
+const PASSED_STOP_REMEDY: &str = concat!(
+    "a step of a stop rule had another successor beside it, so the run went on past the stop ",
+    "and its ends are not those of the system the stop truncates; no bound or budget changes ",
+    "that, but a program or hole range whose every step of a stop rule is its state's one ",
+    "successor can be judged, and so can a stop whose rules take no such step",
+);
+
 /// The remedy of [`UnjudgedReason::ClientRefused`].
 const CLIENT_REFUSED_REMEDY: &str = concat!(
     "the client's witness filter refused the hit (the report's client-refusals give each ",
@@ -398,7 +419,7 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 46] = [
+    pub const ALL: [Self; 47] = [
         Self::Panic,
         Self::InternalError,
         Self::InternalHalt,
@@ -406,6 +427,7 @@ impl UnjudgedReason {
         Self::TooDeep,
         Self::StackMappingRefused,
         Self::StackExhausted,
+        Self::PassedStop,
         Self::Clock,
         Self::Cancelled,
         Self::WorkBound,
@@ -467,12 +489,7 @@ impl UnjudgedReason {
     #[must_use]
     pub fn remedy(self) -> Option<&'static str> {
         Some(match self {
-            Self::NaturalEndUndecided => {
-                "whether the program finished could not be decided from the <k> cells; state the \
-                 finished configuration with a normal-end pattern (campaign key \
-                 `normal-end-pattern`, command line `--normal-end`, library \
-                 `CaseOptions::normal_end_pattern`)"
-            }
+            Self::NaturalEndUndecided => NATURAL_END_UNDECIDED_REMEDY,
             Self::NotCeilFree => {
                 "a leaf holds an application of a partial function that no equation evaluates and \
                  whose definedness k-rust does not show (as one an `anywhere` rule of its head \
@@ -544,6 +561,7 @@ impl UnjudgedReason {
             Self::ClientRefused => CLIENT_REFUSED_REMEDY,
             Self::MutantRefusedState => MUTANT_REFUSED_STATE_REMEDY,
             Self::TooDeep => TOO_DEEP_REMEDY,
+            Self::PassedStop => PASSED_STOP_REMEDY,
             Self::Panic
             | Self::InternalError
             | Self::InternalHalt
@@ -618,9 +636,13 @@ impl UnjudgedReason {
     }
 
     /// The reason a leaf's halt stands for: its structured cause's ([`LeafReport::halt_cause`])
-    /// when it has one, the halt's otherwise ([`Self::of_halt`]).
+    /// when it has one, the halt's otherwise ([`Self::of_halt`]); `None` for a leaf at the
+    /// campaign's stop ([`LeafReport::stop_end`]), which is an end.
     #[must_use]
     pub fn of_leaf_halt(leaf: &LeafReport) -> Option<Self> {
+        if leaf.stop_end {
+            return None;
+        }
         match &leaf.halt_cause {
             Some(HaltCause::Unjudged(reason)) => Some(*reason),
             Some(HaltCause::Internal(_)) => Some(Self::InternalHalt),
@@ -738,8 +760,8 @@ fn of_diagnostic(kind: LeafDiagnostic) -> UnjudgedReason {
     }
 }
 
-/// The run-level facts of [`incomplete`]: an `Err`, a clock, a fact off the leaves, a
-/// determinism break, a stack stop, a solver `unknown` or an allowance refusal.
+/// The run-level facts of [`incomplete`]: an `Err`, a clock, a fact off the leaves, a passed
+/// stop, a determinism break, a stack stop, a solver `unknown` or an allowance refusal.
 fn run_incomplete(result: &CaseResult) -> Vec<UnjudgedReason> {
     let mut reasons = Vec::new();
     if let Some(failure) = &result.failure {
@@ -750,6 +772,9 @@ fn run_incomplete(result: &CaseResult) -> Vec<UnjudgedReason> {
     }
     if result.run_facts_off_leaves {
         reasons.push(UnjudgedReason::RunFactOffLeaves);
+    }
+    if !result.passed_stops.is_empty() {
+        reasons.push(UnjudgedReason::PassedStop);
     }
     // A clock break is named above (the safety limit) or by the leaves' and the failure's own
     // halts and causes, which tell a deadline from a cancellation.
@@ -1087,6 +1112,7 @@ mod tests {
             term_conjunction: false,
             undefined_rule: None,
             hooks: crate::exec::LeafHooks::default(),
+            stop_end: false,
         };
         let result = |halt, safety_limit_hit| CaseResult {
             leaves: vec![leaf(halt)],
@@ -1101,6 +1127,7 @@ mod tests {
             run_facts_off_leaves: false,
             hooks: crate::exec::RunHooks::default(),
             definition_data: Some(true),
+            passed_stops: Vec::new(),
         };
         assert_eq!(
             incomplete(&result(HaltReasonOutput::Cancelled, false)),
@@ -1157,6 +1184,7 @@ mod tests {
             term_conjunction: false,
             undefined_rule: None,
             hooks: crate::exec::LeafHooks::default(),
+            stop_end: false,
         };
         assert_eq!(beyond_halt(&leaf), Some(UnjudgedReason::NotCeilFree));
     }

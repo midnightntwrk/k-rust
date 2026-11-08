@@ -300,6 +300,7 @@ mod tests {
             term_conjunction: false,
             undefined_rule: None,
             hooks,
+            stop_end: false,
         }
     }
 
@@ -324,6 +325,7 @@ mod tests {
             run_facts_off_leaves: false,
             hooks,
             definition_data: Some(true),
+            passed_stops: Vec::new(),
         }
     }
 

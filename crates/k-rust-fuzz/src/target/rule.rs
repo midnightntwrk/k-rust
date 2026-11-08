@@ -500,7 +500,10 @@ pub(super) fn locations(
 /// step with a single successor, so a firing at a branching step does not stop its path, and the
 /// trace finds it. Under all paths the stop rule moves sibling candidates' facts onto the
 /// successor, which is conservative. The coverage modes read coverage, which every request
-/// collects.
+/// collects. Under the campaign's stop ([`crate::CaseStop`]) the request carries the stop's
+/// rules instead of this terminal rule (`crate::exec::CaseRequestShape::new`): one count counts
+/// the arrivals at every stop rule together, so `fired` then reads the firing from the trace of
+/// the truncated run to its end, as under run-to-completion.
 pub(crate) fn rule_needs(id: &str, mode: RuleMode, run_to_completion: bool) -> TargetNeeds {
     match mode {
         RuleMode::Fired => TargetNeeds {

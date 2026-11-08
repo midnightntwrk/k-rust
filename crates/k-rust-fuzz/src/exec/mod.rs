@@ -85,7 +85,12 @@ pub const LOAD_ALLOWANCE_REFUSAL: &str = "allowance-refusal";
 ///   `cancelled` give `timeout`; `indeterminate`, `unsupported-hook`, `simplification-error` and
 ///   `vacuous` give `unsupported`; `branch` and `cut-point`, which the request never asks for,
 ///   and a `terminal` leaf that does not reach the target, which only the target's rule can
-///   cause, are engine defects.
+///   cause, are engine defects, except for a leaf at the campaign's stop
+///   ([`LeafReport::stop_end`]), which is a natural end: `miss` when it does not reach the
+///   target.
+///
+/// A run that went on past a stop of the campaign ([`CaseResult::passed_stops`]) is
+/// `unsupported` whatever its leaves reach (reason `passed-stop`).
 ///
 /// # The class of a case
 ///
@@ -208,7 +213,8 @@ impl OutcomeClass {
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UncleanReason {
-    /// Its halt is neither `stuck` nor `terminal` for the target's own stop rule.
+    /// Its halt is neither `stuck`, nor `terminal` for the target's own stop rule, nor
+    /// `cut-point` or `terminal` at the campaign's stop.
     Halt,
     /// It has constraints or variables, or its path carries `undefined-initial-instances`: the
     /// initial configuration is defined only where obligations hold that the backend keeps apart
@@ -328,6 +334,10 @@ pub struct InternalHalt {
 /// One leaf of a case's result with its clean-leaf and natural-end judgements
 /// (ARCHITECTURE 5.2).
 #[derive(Clone, Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent judgement of the leaf"
+)]
 pub struct LeafReport {
     /// The leaf's halt, as the backend reports it.
     pub halt: HaltReasonOutput,
@@ -393,9 +403,21 @@ pub struct LeafReport {
     pub undefined_rule: Option<String>,
     /// The hooks the leaf's own facts name (UNNAMED-HOOK, [`LeafHooks`]).
     pub hooks: LeafHooks,
+    /// The leaf ends its path at the campaign's stop ([`crate::CaseStop`]): a `cut-point` or
+    /// `terminal` leaf of a request that carries the stop and no stop rule of the target's own.
+    /// It is a final configuration of the truncated system, so it is an end as a `stuck` leaf
+    /// is ([`Self::is_end`]), and, when clean, a natural end. `false` on every other leaf.
+    pub stop_end: bool,
 }
 
 impl LeafReport {
+    /// Whether the leaf is an end of the system the case runs: a `stuck` leaf, or a leaf at the
+    /// campaign's stop ([`Self::stop_end`]). Clean or not; an undefined step is no end.
+    #[must_use]
+    pub fn is_end(&self) -> bool {
+        self.halt == HaltReasonOutput::Stuck || self.stop_end
+    }
+
     /// Whether the leaf is clean (ARCHITECTURE 5.2).
     #[must_use]
     pub fn is_clean(&self) -> bool {
@@ -563,6 +585,12 @@ pub struct CaseResult {
     /// complete run (`target::differential`) or a comparable one
     /// ([`comparable::end_conditions`]) only when this is `Some(true)`.
     pub definition_data: Option<bool>,
+    /// The rules of the campaign's stop ([`crate::CaseStop`]) the run went on past at a step
+    /// where the rule was not its state's one successor (`ExecutionResult::passed_stops`), in
+    /// k-rust's order; empty without a stop. Where one is listed, the leaves need not be the
+    /// final configurations of the truncated system, so the case is not judged
+    /// ([`UnjudgedReason::PassedStop`]).
+    pub passed_stops: Vec<String>,
 }
 
 impl CaseResult {
@@ -724,11 +752,16 @@ pub(crate) struct StateMatchNeed {
 /// when the target asks for it, [`TargetNeeds::state_set`]: an all-paths rule or pattern target,
 /// and both differential sides), the bounds, `collect_coverage: true`, `trace`, `terminal_rules`,
 /// `collect_committed` and `match_states` only as the target needs, no step timeouts,
-/// `cancelledResult: partial`.
+/// `cancelledResult: partial`. With the campaign's stop ([`CaseOptions::stop`]) its rules are
+/// the request's stop rules and its count the request's `stop_count`, and the target's own
+/// terminal rules are not set: one count counts the arrivals at every stop rule together, so a
+/// target's early stop would move where the truncated system's paths end.
 #[derive(Clone, Debug)]
 pub(crate) struct CaseRequestShape {
     request: ExecuteRequest,
     data_end: bool,
+    /// The request carries the campaign's stop ([`CaseOptions::stop`]) as its stop rules.
+    stopped: bool,
 }
 
 impl CaseRequestShape {
@@ -740,6 +773,10 @@ impl CaseRequestShape {
             PathMode::OnePath => ExecutionStrategy::Any,
             PathMode::AllPaths => ExecutionStrategy::All,
         };
+        let (cut_point_rules, terminal_rules, stop_count) = match &options.stop {
+            Some(stop) => (stop.before.clone(), stop.after.clone(), Some(stop.count)),
+            None => (Vec::new(), needs.terminal_rules.clone(), None),
+        };
         let request = ExecuteRequest {
             max_depth: options.max_depth,
             max_work: options.effective_max_work(),
@@ -747,8 +784,9 @@ impl CaseRequestShape {
             max_simplification_iterations: options.max_simplification_iterations,
             strategy,
             stop_at_branch: false,
-            cut_point_rules: Vec::new(),
-            terminal_rules: needs.terminal_rules.clone(),
+            cut_point_rules,
+            terminal_rules,
+            stop_count,
             step_timeout_ms: None,
             moving_average_timeout: false,
             assume_state_defined: false,
@@ -773,6 +811,7 @@ impl CaseRequestShape {
         Self {
             request,
             data_end: needs.data_end,
+            stopped: options.stop.is_some(),
         }
     }
 
@@ -815,16 +854,24 @@ impl CaseRequestShape {
         self.request.match_states.is_some()
     }
 
-    /// Whether the request names terminal rules, so that a `terminal` halt is the target's
-    /// own stop.
+    /// Whether the request names terminal rules of the target's own, so that a `terminal` halt
+    /// is the target's stop. Under the campaign's stop it names none of the target's.
     pub(crate) fn has_terminal_rules(&self) -> bool {
-        !self.request.terminal_rules.is_empty()
+        !self.stopped && !self.request.terminal_rules.is_empty()
+    }
+
+    /// Whether the request carries the campaign's stop, so that a `cut-point` or `terminal`
+    /// halt is an end of the truncated system ([`LeafReport::stop_end`]).
+    pub(crate) fn stopped(&self) -> bool {
+        self.stopped
     }
 
     /// This shape for the program's own run of every path (`crate::target::Target::comparable`):
     /// strategy `all`, a state set (FZ-STATESET: comparability reads the run's set of ends,
     /// which merging preserves, and its completeness, which merging reaches in less work; no
-    /// terminal rule is set, so no stop rule meets a merge), the same bounds and options, the
+    /// terminal rule of the target's is set, so no stop rule of its meets a merge), the same
+    /// bounds and options, the campaign's stop with its count (the program's run is the
+    /// truncated system's; k-rust merges only states whose paths passed as many arrivals), the
     /// data judgement (P3), and
     /// nothing the target asked for (no terminal rule, no trace, no condition entries, no
     /// counts, no state matches, no committed transitions). A campaign that bounds only the depth sets no work bound on its cases; this run
@@ -839,7 +886,9 @@ impl CaseRequestShape {
             .request
             .max_work
             .or(Some(crate::spec::DEFAULT_MAX_WORK));
-        shape.request.terminal_rules = Vec::new();
+        if !shape.stopped {
+            shape.request.terminal_rules = Vec::new();
+        }
         shape.request.trace = false;
         shape.request.collect_conditions = None;
         shape.request.collect_counts = false;
@@ -977,6 +1026,12 @@ pub(crate) fn classify_ends_explained(
             Some(UnjudgedReason::InternalHalt),
         ));
     }
+    // The run went on past a stop where the stop rule's step had another successor, so its
+    // leaves need not be the truncated system's final configurations: none of them, reaching or
+    // not, is evidence about that system.
+    if !result.passed_stops.is_empty() {
+        return Ok((OutcomeClass::Unsupported, Some(UnjudgedReason::PassedStop)));
+    }
     let breaks = result.determinism_breaks();
     let mut best = None::<OutcomeClass>;
     let mut consider = |class: OutcomeClass| {
@@ -1087,14 +1142,15 @@ fn leaf_class(
     run_to_completion: bool,
 ) -> Result<OutcomeClass, &'static str> {
     use HaltReasonOutput as H;
-    if matches!(leaf.halt, H::Branch | H::CutPoint) {
+    if leaf.halt == H::Branch || (leaf.halt == H::CutPoint && !leaf.stop_end) {
         return Err("a branch or cut-point halt, which the request never asks for");
     }
     if leaf.unclean_beyond_halt() {
         return Ok(OutcomeClass::Unsupported);
     }
     if leaf.is_clean() {
-        // A `stuck` leaf, or a `terminal` one on the target's own stop rule.
+        // A `stuck` leaf, a `terminal` one on the target's own stop rule, or a leaf at the
+        // campaign's stop, which is a natural end.
         let undecided = leaf.natural_end_undecided();
         return if reached {
             Ok(if !run_to_completion {
@@ -1106,7 +1162,7 @@ fn leaf_class(
             } else {
                 OutcomeClass::ReachedUnfinished
             })
-        } else if leaf.halt == H::Terminal {
+        } else if leaf.halt == H::Terminal && !leaf.stop_end {
             Err("a terminal leaf that does not reach the target, whose rule is the only stop rule")
         } else if undecided {
             Ok(OutcomeClass::Unsupported)

@@ -1365,11 +1365,19 @@ pub const HALTCAUSE_PROGRAMS: &[Program] = &[
 ];
 fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
 
+/// A machine that never halts, for the campaign's stop (`CaseOptions::stop`): `tick(N)` steps
+/// forever by `tick` (N < 5) and `late` (N >= 5), each step its state's one successor, and
+/// `fork(N)` steps by `left` or `right`, two successors of one state; the mutant's `tick` sets
+/// `<n>` one higher.
+pub const STOP_PROGRAMS: &[Program] = &[program!("stop/tick.pgm"), program!("stop/fork.pgm")];
+fixture!(STOP, "stop/stop.k", "STOP", STOP_PROGRAMS);
+fixture!(STOP_KILL, "stop/stop-kill.k", "STOP", STOP_PROGRAMS);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 122] = [
+pub static ALL: [&Fixture; 124] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1492,4 +1500,6 @@ pub static ALL: [&Fixture; 122] = [
     &FRESH_LIT_M,
     &FRESH_SWAP,
     &FRESH_RB0,
+    &STOP,
+    &STOP_KILL,
 ];

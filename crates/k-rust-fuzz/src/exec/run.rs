@@ -888,6 +888,7 @@ impl Executor {
                 None
             },
             terminal_allowed: shape.has_terminal_rules(),
+            stopped: shape.stopped(),
             load_stack_stops: self.load_stack_stops,
             forward: None,
             panicked: std::cell::Cell::new(false),
@@ -957,6 +958,7 @@ impl Executor {
             term_conjunction: false,
             undefined_rule: None,
             hooks: LeafHooks::default(),
+            stop_end: false,
         };
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -966,6 +968,7 @@ impl Executor {
             options: SimplificationOptions::default(),
             data_heads: None,
             terminal_allowed: false,
+            stopped: false,
             load_stack_stops: 0,
             forward: None,
             panicked: std::cell::Cell::new(false),
@@ -1054,6 +1057,9 @@ struct Judge<'a> {
     /// hold.
     data_heads: Option<&'a DataHeads>,
     terminal_allowed: bool,
+    /// The request carries the campaign's stop: a `cut-point` or `terminal` leaf is an end of
+    /// the truncated system ([`LeafReport::stop_end`]).
+    stopped: bool,
     load_stack_stops: usize,
     /// Under the safety limit, the caller's token and the case's own: the caller's cancellation
     /// is forwarded synchronously when the run ends, before the leaves are judged (review S2).
@@ -1212,6 +1218,11 @@ impl Judge<'_> {
             let state = leaf.state.clone();
             let mut unclean = run_reasons.clone();
             unclean.extend(self.leaf_reasons(leaf));
+            let stop_end = self.stopped
+                && matches!(
+                    leaf.reason,
+                    HaltReasonOutput::CutPoint | HaltReasonOutput::Terminal
+                );
             leaves.push(LeafReport {
                 halt: leaf.reason,
                 halt_cause: reasons::halt_cause(
@@ -1233,6 +1244,7 @@ impl Judge<'_> {
                     .then(|| leaf.rule_id.clone())
                     .flatten(),
                 hooks: LeafHooks::of_leaf(leaf),
+                stop_end,
             });
         }
         let mut internal = match self.judge_internally(backend, &leaves) {
@@ -1266,7 +1278,8 @@ impl Judge<'_> {
             leaf.unclean.extend(internal.reasons);
             leaf.unclean.sort();
             leaf.unclean.dedup();
-            leaf.natural_end = leaf.is_clean() && internal.normal_end;
+            // A leaf at the campaign's stop ends where the stop says the program ends.
+            leaf.natural_end = leaf.is_clean() && (internal.normal_end || leaf.stop_end);
             leaf.matches = internal.matches;
             leaf.data_end = internal.data_end;
             leaf.term_conjunction = internal.term_conjunction;
@@ -1287,6 +1300,15 @@ impl Judge<'_> {
             run_facts_off_leaves,
             hooks: RunHooks::of_result(result),
             definition_data: self.data_heads.map(DataHeads::confluent),
+            passed_stops: if self.stopped {
+                result
+                    .passed_stops
+                    .iter()
+                    .map(|passed| passed.rule.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -1296,12 +1318,12 @@ impl Judge<'_> {
         let mut reasons = Vec::new();
         let end = match leaf.reason {
             HaltReasonOutput::Stuck => true,
-            HaltReasonOutput::Terminal => self.terminal_allowed,
+            HaltReasonOutput::Terminal => self.terminal_allowed || self.stopped,
+            HaltReasonOutput::CutPoint => self.stopped,
             HaltReasonOutput::Cancelled
             | HaltReasonOutput::Trivial
             | HaltReasonOutput::Vacuous
             | HaltReasonOutput::Branch
-            | HaltReasonOutput::CutPoint
             | HaltReasonOutput::StopUndecided
             | HaltReasonOutput::ProbeDifference
             | HaltReasonOutput::ProbeDone
@@ -1384,11 +1406,12 @@ impl Judge<'_> {
             ..Internal::default()
         };
         // The ends of a path: a hit, a comparison, a set of ends or a `pattern at: final` match
-        // may rest on these (D16).
-        let end_like = matches!(
-            leaf.halt,
-            HaltReasonOutput::Stuck | HaltReasonOutput::Terminal | HaltReasonOutput::Trivial
-        );
+        // may rest on these (D16). A leaf at the campaign's stop is one.
+        let end_like = leaf.stop_end
+            || matches!(
+                leaf.halt,
+                HaltReasonOutput::Stuck | HaltReasonOutput::Terminal | HaltReasonOutput::Trivial
+            );
         // A depth or breadth cut leaves a state in the simplifier's normal form, which may carry
         // a reach under `run-to-completion`; it must be clean apart from its halt to be
         // `reached-unfinished` (review S1). A `work-bound`, `timeout` or `cancelled` leaf holds
@@ -1882,6 +1905,7 @@ fn failed_result(failure: CaseFailure, load_stack_stops: usize) -> CaseResult {
         run_facts_off_leaves: false,
         hooks: RunHooks::default(),
         definition_data: None,
+        passed_stops: Vec::new(),
     }
 }
 

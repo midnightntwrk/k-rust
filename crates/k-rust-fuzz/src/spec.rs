@@ -1,7 +1,7 @@
 //! The campaign specification: everything a campaign's report is a function of, apart from the
 //! budget (ARCHITECTURE 5.4, 9.2).
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, num::NonZeroU64, sync::Arc};
 
 use k_rust::{
     backend::{BackendOptions, ExecutionDigest},
@@ -383,6 +383,117 @@ pub struct CaseOptions {
     /// the same reason as [`Self::shrink`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assume_joined: Vec<String>,
+    /// The stop every request of the campaign carries ([`CaseStop`]): the system the campaign
+    /// fuzzes is the definition's, truncated at the stop. `None` (and absent from the JSON) by
+    /// default: a path ends where the definition's run ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<CaseStop>,
+}
+
+/// The stop of a campaign ([`CaseOptions::stop`]): rewrite rules at whose steps every path
+/// ends, so that a definition that does not halt is fuzzed as the system that ends there.
+///
+/// A *stop event* is a step by a named rule that is its state's one successor, with a defined
+/// successor (k-rust's arrival, `docs/compatibility.md`, "Passed stops"). A path ends at its
+/// [`Self::count`]th event, or where the definition's run ends, whichever comes first: before
+/// the step of a rule of [`Self::before`], as a `cut-point` leaf at the state the step leaves,
+/// and after the step of a rule of [`Self::after`], as a `terminal` leaf at its successor. Each
+/// such leaf is a final configuration of the truncated system, so every judgement reads it as
+/// an end, as it reads a `stuck` leaf, and as a natural end: the program ended where the stop
+/// says it ends ([`crate::exec::LeafReport::stop_end`]).
+///
+/// Every request of the campaign carries the stop: each case's (both sides of a differential
+/// one, and the mutant's re-run on all paths), the program's own run of every path that judges
+/// comparability, a witness's confirmation, its replays and its shrinking. A rule target's own
+/// early stop is then not used, since one count counts the events of every stop rule together:
+/// `fired` reads the firing from the traces of the truncated run to its end, as it does under
+/// `run-to-completion`.
+///
+/// A step of a named rule that has another successor is no event, and the run goes on through
+/// every successor (k-rust lists the rule among its passed stops). The run's leaves are then not
+/// the final configurations of the system that ends at every step of a named rule, so the case
+/// is not judged: it is `unsupported` with the reason `passed-stop`, a differential baseline
+/// `baseline-incomplete`, and a comparable run fails `passed-stop`.
+///
+/// Each name selects the rewrite rules whose label or `UNIQUE_ID` it is, as k-rust selects stop
+/// rules; [`crate::Campaign::new`] refuses a stop that names no rule, and a name that selects no
+/// rewrite rule of a definition the campaign runs, which would leave that definition's runs
+/// untruncated without a sign. A stop condition (a question asked at each event) is not
+/// supported: the cases run on the wire route, which carries no callback.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CaseStop {
+    /// The rules a path stops before (`ExecuteRequest::cut_point_rules`), each by its label or
+    /// `UNIQUE_ID`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub before: Vec<String>,
+    /// The rules a path stops after (`ExecuteRequest::terminal_rules`), each by its label or
+    /// `UNIQUE_ID`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<String>,
+    /// The event at which a path ends (`ExecuteRequest::stop_count`): 1 ends it at its first.
+    pub count: NonZeroU64,
+}
+
+impl CaseStop {
+    /// Every name of the stop, `before` then `after`.
+    pub(crate) fn names(&self) -> impl Iterator<Item = &String> {
+        self.before.iter().chain(&self.after)
+    }
+
+    /// Check the stop against the rule catalog of the definition `side` (`"baseline"` or
+    /// `"mutant"`): it names some rule, and each name selects a rewrite rule there by its label
+    /// or `UNIQUE_ID`, as k-rust selects a stop rule. A name that selects none would stop
+    /// nothing, and the campaign would fuzz that definition untruncated.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::InvalidOptions`] naming the first name that selects no rewrite rule.
+    pub(crate) fn check(
+        &self,
+        catalog: &[k_rust::backend::CompiledRuleOutput],
+        side: &str,
+    ) -> Result<(), CampaignError> {
+        if self.before.is_empty() && self.after.is_empty() {
+            return Err(CampaignError::InvalidOptions {
+                message: "the stop names no rule; name a rule in `before` or `after`, or set no \
+                          stop"
+                    .to_owned(),
+            });
+        }
+        for name in self.names() {
+            let selects = catalog.iter().any(|entry| {
+                entry.kind == k_rust::backend::CompiledRuleKind::Rewrite
+                    && (entry.id == *name || entry.label.as_deref() == Some(name.as_str()))
+            });
+            if !selects {
+                // A K label is qualified by its module (`MODULE.name`), and k-rust selects a stop
+                // rule by its whole label: name the labels the given name ends.
+                let qualified: Vec<&str> = catalog
+                    .iter()
+                    .filter(|entry| entry.kind == k_rust::backend::CompiledRuleKind::Rewrite)
+                    .filter_map(|entry| entry.label.as_deref())
+                    .filter(|label| {
+                        label
+                            .strip_suffix(name.as_str())
+                            .is_some_and(|module| module.ends_with('.'))
+                    })
+                    .collect();
+                let hint = if qualified.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (a whole label is `{}`)", qualified.join("`, `"))
+                };
+                return Err(CampaignError::InvalidOptions {
+                    message: format!(
+                        "the stop rule `{name}` selects no rewrite rule of the {side} by its \
+                         label or UNIQUE_ID{hint}, so the {side}'s runs would not stop there"
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The solver options of every backend a campaign builds: a serializable copy of
@@ -431,6 +542,7 @@ impl Default for CaseOptions {
             backend: BackendSettings::default(),
             shrink: true,
             assume_joined: Vec::new(),
+            stop: None,
         }
     }
 }

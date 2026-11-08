@@ -891,6 +891,7 @@ fn leaf(halt: HaltReasonOutput, unclean: &[UncleanReason], natural_end: bool) ->
         term_conjunction: false,
         undefined_rule: None,
         hooks: crate::exec::LeafHooks::default(),
+        stop_end: false,
     }
 }
 
@@ -920,6 +921,7 @@ fn result(leaves: Vec<LeafReport>) -> CaseResult {
         run_facts_off_leaves: false,
         hooks: crate::exec::RunHooks::default(),
         definition_data: Some(true),
+        passed_stops: Vec::new(),
     }
 }
 

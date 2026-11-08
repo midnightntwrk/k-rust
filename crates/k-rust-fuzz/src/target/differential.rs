@@ -32,6 +32,14 @@
 //! removes an undefined path and keeps every end is not killed); it never invents one, since an
 //! end outside the other side's set of configurations is outside its set of outcomes too.
 //!
+//! Under the campaign's stop ([`crate::CaseStop`]) both sides run the truncated system, and a
+//! `cut-point` or `terminal` leaf at the stop is a final configuration of it
+//! ([`LeafReport::stop_end`]): an end, as a clean, decided `stuck` leaf is, and every judgement
+//! below that reads a `stuck` leaf reads it alike ([`LeafReport::is_end`]). A side that went on
+//! past a stop ([`CaseResult::passed_stops`]) did not run the truncated system on every path,
+//! so its leaves are no set of ends: an incomplete baseline, or an `unsupported` mutant, both
+//! with the reason `passed-stop`.
+//!
 //! # Why the hit rule is sound
 //!
 //! An *added end* claims that the mutant reaches, on this input, a final configuration that the
@@ -469,6 +477,14 @@ pub(crate) fn judge_pair_explained(
             Some(UnjudgedReason::InternalHalt),
         ));
     }
+    // A mutant that went on past a stop shows neither an added nor a removed end of the
+    // truncated system; a baseline that did is incomplete above.
+    if !mutant.passed_stops.is_empty() {
+        return Ok((
+            DifferentialJudgement::class(OutcomeClass::Unsupported),
+            Some(UnjudgedReason::PassedStop),
+        ));
+    }
     let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant", run_to_completion)?;
     // A mutant whose initial state has no instance has no path at all, so its one-path result
     // already shows its whole set of ends, the empty set.
@@ -616,13 +632,13 @@ pub(crate) fn needs_all_paths(
     // Under `run_to_completion` only a natural end can be an added end (`Verdicts::outside`), so
     // an abnormal stop outside the baseline's set does not stand in for the re-run.
     let adds_none = one_path.leaves.iter().all(|leaf| {
-        leaf.halt != HaltReasonOutput::Stuck
+        !leaf.is_end()
             || (run_to_completion && !leaf.natural_end)
             || baseline_set.contains(&*counter_erased(&leaf.state))
     });
     adds_none
         && baseline.leaves.iter().any(|leaf| {
-            leaf.halt == HaltReasonOutput::Stuck
+            leaf.is_end()
                 && leaf.data_end == Some(true)
                 && (!run_to_completion || leaf.natural_end)
                 && !reached.contains(&*counter_erased(&leaf.state))
@@ -665,6 +681,7 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<Cow<'_, KorePattern>>> 
         && result.smt_unknowns == 0
         && result.run_allowance_refusals == 0
         && result.determinism_breaks().is_empty()
+        && result.passed_stops.is_empty()
         && !result.leaves.is_empty();
     // An initial state shown to have no instance ([`no_instance`]) is a complete run with no end
     // when that is decided ([`decided_absence`]).
@@ -683,7 +700,7 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<Cow<'_, KorePattern>>> 
         result
             .leaves
             .iter()
-            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
+            .filter(|leaf| leaf.is_end())
             .map(|leaf| counter_erased(&leaf.state))
             .collect(),
     )
@@ -704,10 +721,13 @@ fn decided_absence(leaf: &LeafReport) -> bool {
             .all(|reason| *reason == UncleanReason::Halt)
 }
 
-/// Whether a leaf may be part of a complete run (condition 1): a clean `stuck` leaf (an end) or
-/// a clean undefined step (no end) of a definition with data (`has_data`,
+/// Whether a leaf may be part of a complete run (condition 1): a clean end (`stuck`, or at the
+/// campaign's stop) or a clean undefined step (no end) of a definition with data (`has_data`,
 /// [`CaseResult::definition_data`]; the module documentation, "What an end is").
 fn complete_leaf(leaf: &LeafReport, has_data: bool) -> bool {
+    if leaf.stop_end {
+        return leaf.is_clean();
+    }
     match leaf.halt {
         HaltReasonOutput::Stuck => leaf.is_clean(),
         HaltReasonOutput::Trivial => {
@@ -766,11 +786,10 @@ impl Verdicts {
     ) -> Result<Self, EngineDefect> {
         let mut verdicts = Self::none(side);
         for (index, leaf) in side.leaves.iter().enumerate() {
-            // Only a stuck leaf is an end that may be a kill; an undefined step's outcome is no end,
-            // and a bound or a stop is classed by `exec::classify`.
-            if leaf.halt != HaltReasonOutput::Stuck
-                || others_set.contains(&*counter_erased(&leaf.state))
-            {
+            // Only an end (a stuck leaf, or one at the campaign's stop) may be a kill; an
+            // undefined step's outcome is no end, and a bound or another stop is classed by
+            // `exec::classify`.
+            if !leaf.is_end() || others_set.contains(&*counter_erased(&leaf.state)) {
                 continue;
             }
             if !leaf.is_clean() {
@@ -814,7 +833,7 @@ impl Verdicts {
         let not_data_other = others
             .leaves
             .iter()
-            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck && leaf.data_end != Some(true))
+            .filter(|leaf| leaf.is_end() && leaf.data_end != Some(true))
             .map(|leaf| not_data(other_role, leaf))
             .min();
         if let Some(reason) = not_data_other
@@ -878,6 +897,7 @@ mod tests {
             term_conjunction: false,
             undefined_rule: None,
             hooks: crate::exec::LeafHooks::default(),
+            stop_end: false,
         }
     }
 
@@ -898,6 +918,7 @@ mod tests {
             term_conjunction: false,
             undefined_rule: None,
             hooks: crate::exec::LeafHooks::default(),
+            stop_end: false,
         }
     }
 
@@ -915,6 +936,7 @@ mod tests {
             safety_limit_hit: false,
             failure: None,
             definition_data: Some(true),
+            passed_stops: Vec::new(),
         }
     }
 

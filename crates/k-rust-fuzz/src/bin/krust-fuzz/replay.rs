@@ -31,7 +31,8 @@ use crate::campaign::{LoadedCampaign, ResolvedCampaign};
 pub const WITNESS_SCHEMA: &str = "krust-fuzz-witness";
 
 /// The witness file's `version` field. Version 2 (FZ-CRASH) holds a report of
-/// [`REPORT_VERSION`] (8 when it came in, 9 since FZ-STATESET, 10 since FZ-REPLAY-WHOLE; the
+/// [`REPORT_VERSION`] (8 when it came in, 9 since FZ-STATESET, 10 since FZ-REPLAY-WHOLE, 11
+/// since the campaign's stop; the
 /// report's own version refuses an older one), and is also written for a campaign that found no
 /// witness but whose cases crashed.
 pub const WITNESS_VERSION: u32 = 2;

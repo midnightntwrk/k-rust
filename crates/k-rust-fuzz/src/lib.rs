@@ -57,7 +57,7 @@ pub use holes::{HoleDecl, HoleLocation, SpanAddress};
 pub use k_rust::backend::CancellationToken;
 pub use report::FuzzReport;
 pub use spec::{
-    BackendRoute, Budget, CallerIdentity, CampaignSpec, CaseOptions, CompiledDefinition,
+    BackendRoute, Budget, CallerIdentity, CampaignSpec, CaseOptions, CaseStop, CompiledDefinition,
     Definitions, PathMode, ProgramInput, ProgramSource, ProposerConfig,
 };
 pub use target::{Target, TargetKind};

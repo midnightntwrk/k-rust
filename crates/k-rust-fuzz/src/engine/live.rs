@@ -107,6 +107,30 @@ fn assembly_of(
     }
 }
 
+/// Check the campaign's stop, when it has one, against the rule catalog of the side `role`
+/// that `executor` runs ([`crate::CaseStop::check`]).
+fn check_stop(
+    spec: &CampaignSpec,
+    executor: &mut Executor,
+    role: DefinitionRole,
+) -> Result<(), CampaignError> {
+    let Some(stop) = &spec.options.stop else {
+        return Ok(());
+    };
+    let catalog =
+        executor
+            .backend_mut()
+            .rule_catalog(None)
+            .map_err(|error| CampaignError::Definition {
+                message: format!("the rule catalog is not available: {error}"),
+            })?;
+    let side = match role {
+        DefinitionRole::Baseline => "baseline",
+        DefinitionRole::Mutant => "mutant",
+    };
+    stop.check(&catalog, side)
+}
+
 impl Side {
     fn build(
         spec: &CampaignSpec,
@@ -167,6 +191,7 @@ impl Side {
                 internalized,
             });
         }
+        check_stop(spec, &mut executor, role)?;
         let mut holes = executor
             .backend_mut()
             .with_solver(None, |backend, _| {

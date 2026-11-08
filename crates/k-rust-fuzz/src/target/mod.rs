@@ -16,6 +16,8 @@ mod fixture_tests;
 mod observer;
 mod rule;
 #[cfg(test)]
+mod stop_tests;
+#[cfg(test)]
 mod tests;
 
 use std::{collections::BTreeMap, fmt};
@@ -442,7 +444,8 @@ enum Resolved {
 /// For each leaf of `result`, whether it is an end leaf that matches the target's only matcher
 /// (ARCHITECTURE 4.1, `at: final`; 5.3, D16).
 ///
-/// Only a leaf whose halt is an end (`stuck`, `trivial` or `terminal`) holds a final state; a
+/// Only a leaf whose halt is an end (`stuck`, `trivial` or `terminal`, or a leaf at the
+/// campaign's stop, [`crate::exec::LeafReport::stop_end`]) holds a final state; a
 /// leaf cut by a bound, a timeout or a cancellation does not, so its match says nothing about
 /// the end the run never reached, and the leaf classes by its halt. On end leaves,
 /// [`crate::exec::LeafReport::matches`] is judged whenever the state can be decided, clean or
@@ -461,12 +464,13 @@ fn pattern_reached(result: &CaseResult) -> Result<Vec<bool>, EngineDefect> {
         .enumerate()
         .map(|(index, leaf)| match leaf.matches.first() {
             Some(matched) => Ok(*matched
-                && matches!(
-                    leaf.halt,
-                    HaltReasonOutput::Stuck
-                        | HaltReasonOutput::Trivial
-                        | HaltReasonOutput::Terminal
-                )),
+                && (leaf.stop_end
+                    || matches!(
+                        leaf.halt,
+                        HaltReasonOutput::Stuck
+                            | HaltReasonOutput::Trivial
+                            | HaltReasonOutput::Terminal
+                    ))),
             None => Err(EngineDefect {
                 case: None,
                 description: format!(
@@ -635,7 +639,13 @@ fn fired_off_retained_traces(
 /// ([`exec::demoted_hit`], with the first of its reasons): the one demotion every hit goes
 /// through, whether the leaves' classification or the run's committed transitions or state
 /// matches decided it.
+///
+/// A run that went on past a stop of the campaign ([`CaseResult::passed_stops`]) shows nothing
+/// about the truncated system, so its hit is `unsupported` with [`UnjudgedReason::PassedStop`].
 pub(super) fn hit_unless_demoted(result: &CaseResult) -> (OutcomeClass, Option<UnjudgedReason>) {
+    if !result.passed_stops.is_empty() {
+        return (OutcomeClass::Unsupported, Some(UnjudgedReason::PassedStop));
+    }
     match exec::demoted_hit(&result.determinism_breaks()) {
         Some((class, reasons)) => (class, reasons.into_iter().min()),
         None => (OutcomeClass::Hit, None),
@@ -1008,6 +1018,7 @@ impl ResolvedTarget {
         } = &self.resolved
             && state_set
             && class != OutcomeClass::Hit
+            && reason != Some(UnjudgedReason::PassedStop)
             && let Some((judged, why)) =
                 fired_off_retained_traces(id, result, class, run_to_completion, data_end)
         {
@@ -1150,13 +1161,15 @@ fn coverage_reached(
 /// halt, `trivial` (an undefined step) included, carries [`UncleanReason::Halt`]. The halt test
 /// is kept so that the filter does not rest on that.
 fn body_judged(leaf: &crate::exec::LeafReport) -> bool {
-    matches!(
-        leaf.halt,
-        HaltReasonOutput::Stuck | HaltReasonOutput::Trivial | HaltReasonOutput::Terminal
-    ) && leaf.unclean.iter().all(|reason| {
-        matches!(
-            reason,
-            UncleanReason::NaturalEndUndecided | UncleanReason::UndecidedMatch
-        )
-    })
+    (leaf.stop_end
+        || matches!(
+            leaf.halt,
+            HaltReasonOutput::Stuck | HaltReasonOutput::Trivial | HaltReasonOutput::Terminal
+        ))
+        && leaf.unclean.iter().all(|reason| {
+            matches!(
+                reason,
+                UncleanReason::NaturalEndUndecided | UncleanReason::UndecidedMatch
+            )
+        })
 }

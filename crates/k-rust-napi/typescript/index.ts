@@ -1593,6 +1593,14 @@ export interface FuzzCaseOptions {
    * holds only under them. Absent: none.
    */
   'assume-joined'?: string[]
+  /**
+   * The stop every request carries: each path ends before a step of a rule of `before`, or after
+   * one of `after` (by label or `UNIQUE_ID`), that is its state's one successor, at the `count`th
+   * such step; a leaf there is a natural end. A run that steps by such a rule beside another
+   * successor passes the stop, and its case is unjudged (`passed-stop`). Absent: none (report
+   * version 11).
+   */
+  stop?: { before?: string[]; after?: string[]; count: number }
 }
 
 export type FuzzProposerKind = 'blind' | 'dictionary' | 'climb' | 'corpus' | 'solve'
@@ -2024,6 +2032,7 @@ export type FuzzUnjudgedReason =
   | 'too-deep'
   | 'stack-mapping-refused'
   | 'stack-exhausted'
+  | 'passed-stop'
   | 'clock'
   | 'cancelled'
   | 'work-bound'
@@ -2074,6 +2083,7 @@ export type FuzzComparableCondition =
   | 'work-bound'
   | 'depth-bound'
   | 'halt'
+  | 'passed-stop'
   | 'undecided-state'
   | 'not-ceil-free'
   | 'internalization-failed'
@@ -2219,7 +2229,7 @@ export interface FuzzIncidentalCase {
   'baseline-run'?: boolean
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 10 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 11 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number

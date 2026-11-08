@@ -255,9 +255,7 @@ fn comparability(
 /// data ([`CaseResult::definition_data`]) when the run did not judge it and some leaf is an
 /// undefined step, so that P3 is read on every end and undefined step.
 fn conditions_here(executor: &mut Executor, result: &CaseResult) -> Vec<ComparableCondition> {
-    let unjudged = |leaf: &crate::exec::LeafReport| {
-        leaf.data_end.is_none() && matches!(leaf.halt, HaltReasonOutput::Stuck)
-    };
+    let unjudged = |leaf: &crate::exec::LeafReport| leaf.data_end.is_none() && leaf.is_end();
     let definition_unjudged = result.definition_data.is_none()
         && result
             .leaves

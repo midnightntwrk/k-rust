@@ -147,10 +147,13 @@ pub enum ComparableCondition {
     WorkBound,
     /// P1: a path stopped at `max-depth` or the breadth bound.
     DepthBound,
-    /// P1: a leaf halted neither `stuck` nor at an undefined step (`trivial`): `indeterminate`,
-    /// `unsupported-hook`, `simplification-error`, `vacuous`, `terminal`, ...; or the run has no
-    /// leaf.
+    /// P1: a leaf halted neither `stuck`, nor at an undefined step (`trivial`), nor at the
+    /// campaign's stop ([`super::LeafReport::stop_end`]): `indeterminate`, `unsupported-hook`,
+    /// `simplification-error`, `vacuous`, `terminal`, ...; or the run has no leaf.
     Halt,
+    /// P1: the run went on past a stop of the campaign ([`super::CaseResult::passed_stops`]),
+    /// so its leaves need not be the truncated system's final configurations.
+    PassedStop,
     /// P2: a leaf has constraints or variables, so it is not ground and decided.
     UndecidedState,
     /// P2: a leaf's term is not shown to exist (k-rust's `ground_defined`): it may denote no
@@ -206,13 +209,14 @@ pub enum ComparableCondition {
 
 impl ComparableCondition {
     /// Every condition, in declaration order.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::RunFailed,
         Self::Crash,
         Self::Clock,
         Self::WorkBound,
         Self::DepthBound,
         Self::Halt,
+        Self::PassedStop,
         Self::UndecidedState,
         Self::NotCeilFree,
         Self::InternalizationFailed,
@@ -292,7 +296,7 @@ pub fn end_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
         conditions.push(C::Clock);
     }
     for leaf in &result.leaves {
-        conditions.extend(halt_condition(leaf.halt));
+        conditions.extend(halt_condition(leaf));
         conditions.extend(leaf.unclean.iter().filter_map(unclean_condition));
         conditions.extend(leaf.diagnostics.iter().map(|kind| kind.condition()));
         if not_data(leaf) || step_without_data(result, leaf) {
@@ -357,11 +361,11 @@ pub fn query_conditions(result: &CaseResult, term_conjunction: bool) -> Vec<Comp
     conditions
 }
 
-/// P3 on `leaf`: it is an end (`stuck`) whose state was decided ([`decided`]) and whose term is
-/// not shown to be data. An undefined step (`trivial`) is no end and its term is never compared
-/// ([`step_without_data`]).
+/// P3 on `leaf`: it is an end (`stuck`, or at the campaign's stop) whose state was decided
+/// ([`decided`]) and whose term is not shown to be data. An undefined step (`trivial`) is no end
+/// and its term is never compared ([`step_without_data`]).
 fn not_data(leaf: &super::LeafReport) -> bool {
-    matches!(leaf.halt, HaltReasonOutput::Stuck) && decided(leaf) && leaf.data_end != Some(true)
+    leaf.is_end() && decided(leaf) && leaf.data_end != Some(true)
 }
 
 /// P3 on `leaf`, an undefined step of `result`: it is decided ([`decided`]), and its definition
@@ -386,12 +390,15 @@ fn decided(leaf: &super::LeafReport) -> bool {
     })
 }
 
-/// The conditions a leaf's halt fails: none for an end (`stuck`) or an undefined step
-/// (`trivial`).
-fn halt_condition(halt: HaltReasonOutput) -> Option<ComparableCondition> {
+/// The conditions a leaf's halt fails: none for an end (`stuck`, or at the campaign's stop) or
+/// an undefined step (`trivial`).
+fn halt_condition(leaf: &super::LeafReport) -> Option<ComparableCondition> {
     use ComparableCondition as C;
     use HaltReasonOutput as H;
-    Some(match halt {
+    if leaf.stop_end {
+        return None;
+    }
+    Some(match leaf.halt {
         H::Stuck | H::Trivial => return None,
         H::WorkBound => C::WorkBound,
         H::DepthBound | H::BreadthBound => C::DepthBound,
@@ -443,6 +450,9 @@ fn run_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
     if result.run_facts_off_leaves {
         conditions.push(C::RunFactOffLeaves);
     }
+    if !result.passed_stops.is_empty() {
+        conditions.push(C::PassedStop);
+    }
     if result.stack_stops > 0 {
         conditions.push(C::StackStops);
     }
@@ -481,6 +491,7 @@ mod tests {
             term_conjunction: false,
             undefined_rule: None,
             hooks: crate::exec::LeafHooks::default(),
+            stop_end: false,
         }
     }
 
@@ -502,6 +513,7 @@ mod tests {
             run_facts_off_leaves: false,
             hooks: crate::exec::RunHooks::default(),
             definition_data: Some(true),
+            passed_stops: Vec::new(),
         }
     }
 

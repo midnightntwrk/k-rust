@@ -122,7 +122,13 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// ([`crate::target::CoverageTarget`], `facts`), whose climb parameters name `condition-rules`
 /// `fact-rules-and-keyed-predecessors`; the report of every other target is unchanged. A reader
 /// of the earlier version-10 reports refuses the new kind.
-pub const REPORT_VERSION: u32 = 10;
+///
+/// Version 11 adds the campaign's stop, `identity.options.stop` (`before`, `after`, `count`;
+/// [`crate::CaseStop`], absent without one), the unjudged reason `passed-stop` and the
+/// comparable condition `passed-stop`. Under a stop a `cut-point` or `terminal` leaf at it is
+/// an end, so a report's classes are of the truncated system. A report without a stop holds
+/// what version 10 held; a version-10 reader refuses the stop as an unknown field.
+pub const REPORT_VERSION: u32 = 11;
 
 /// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
 pub const LISTED_HOOKS: usize = 8;
@@ -2558,6 +2564,21 @@ mod tests {
                 case: Some(7),
                 description: "confirmation disagreed".into(),
             }],
+        }
+    }
+
+    /// Both bindings declare what version 11 adds: the campaign's stop in the options.
+    #[test]
+    fn typescript_declarations_name_the_version_11_fields() {
+        for declarations in [
+            include_str!("../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            assert!(
+                declarations
+                    .contains("stop?: { before?: string[]; after?: string[]; count: number }"),
+                "the stop is not declared"
+            );
         }
     }
 

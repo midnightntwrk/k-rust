@@ -2279,6 +2279,7 @@ fn a_state_the_backend_refuses_is_recognized_on_either_side() {
         run_facts_off_leaves: false,
         definition_data: None,
         hooks: crate::exec::RunHooks::default(),
+        passed_stops: Vec::new(),
     };
     assert!(super::live::refused(&result(FailureCause::StateRefused)));
     assert!(!super::live::refused(&result(FailureCause::Other)));
