@@ -10,7 +10,7 @@
 //! depends on a clock.
 
 use kink_flow::{
-    cli::{EXIT_UNASKED, EXIT_YES, coverage},
+    cli::{EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, coverage},
     coverage::CoverageOptions,
     query::QueryOptions,
 };
@@ -422,6 +422,56 @@ mod kink_tier {
         assert!(
             !items("open").iter().any(|line| line.contains(&quoted)),
             "{verdicts}"
+        );
+    }
+
+    /// A window argued by a rule whose argument rests on an invariant has the rule's
+    /// `argument_check`, unchecked, so the command has no answer (exit 3); an invariant named on
+    /// a window itself is refused, the window named as `rule_windows`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_window_argued_by_a_rule_has_its_check_and_a_window_takes_no_invariant() {
+        let j_c1 = window_id(&["j", "c1"]);
+        let invariant =
+            "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = [\"k\"]\n\n";
+        let lone = "[[coverage.argued]]\nitem = \"rule:WIN.lone\"\nargument = \"no program \
+                    holds lone\"\ninvariant = \"i\"\n";
+        let manifest = corpus(
+            "argued-invariant",
+            &format!("[coverage]\ndepth = 3\n\n{invariant}{lone}"),
+            &[("diamond", "start()"), ("chain", "c1()")],
+        );
+        let (document, status) = run(&manifest, &CoverageOptions::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let rule = document["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "rule:WIN.lone")
+            .unwrap();
+        assert_eq!(rule["argument_check"]["standing"], "unchecked", "{rule:#}");
+        let by = window(&document, &window_id(&["j", "lone"]));
+        assert_eq!(
+            (&by["argued_by"], &by["argument_check"]),
+            (&json!("rule:WIN.lone"), &rule["argument_check"]),
+            "{by:#}"
+        );
+
+        let manifest = corpus(
+            "window-invariant",
+            &format!(
+                "[coverage]\ndepth = 3\n\n{invariant}[[coverage.argued]]\nitem = \"{j_c1}\"\n\
+                 argument = \"no program ends a diamond before a chain\"\ninvariant = \"i\"\n"
+            ),
+            &[("diamond", "start()"), ("chain", "c1()")],
+        );
+        let (refused, status) = run(&manifest, &CoverageOptions::default());
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        assert_eq!(refused["spec"]["reason"], "argued-invariant-unsupported");
+        let detail = refused["spec"]["detail"].as_str().unwrap();
+        assert!(
+            detail.contains(&format!("`{j_c1}` (rule_windows)")),
+            "{detail}"
         );
     }
 

@@ -326,6 +326,27 @@ mod kink_tier {
         );
     }
 
+    /// An invariant named on a syntax path is refused, the path named as `syntax_paths`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_syntax_path_takes_no_invariant() {
+        let manifest = corpus(
+            "path-invariant",
+            "[coverage]\ndepth = 3\n\n[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\n\
+             cells = [\"k\"]\n\n[[coverage.argued]]\nitem = \"path:exec/0/neg\"\nargument = \
+             \"no program executes a negation\"\ninvariant = \"i\"\n",
+            &[("mov", "exec(mov(a(), b()))")],
+        );
+        let (refused, status) = run(&manifest, &CoverageOptions::default());
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        assert_eq!(refused["spec"]["reason"], "argued-invariant-unsupported");
+        let detail = refused["spec"]["detail"].as_str().unwrap();
+        assert!(
+            detail.contains("`path:exec/0/neg` (syntax_paths)"),
+            "{detail}"
+        );
+    }
+
     /// The syntax paths read the scope every family shares: with `exec` marked a claim helper,
     /// its fired instance reaches no path, so `exec` holding `mov`, which only that step
     /// touched, is unreached and off the frontier (`exec` itself is unreached), while `mov`

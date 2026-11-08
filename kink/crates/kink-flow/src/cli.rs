@@ -1392,7 +1392,10 @@ fn baseline_status(row: &Value) -> u8 {
 /// in an error (`kink_status` `error`: a corpus error, a failed run or an unwritten record),
 /// [`EXIT_NO`] for a needless argument (`summary.needless_arguments`: a `[[coverage.argued]]`
 /// entry whose item a program covers or that is no obligation, which would turn the item's next
-/// regression into `argued` instead of `open`), and [`EXIT_UNASKED`] for a refused
+/// regression into `argued` instead of `open`), [`EXIT_UNANSWERED`] for an argued item whose
+/// argument rests on an invariant no check decided (`summary.argued_by_standing.unchecked`: the
+/// corpus is done only by a claim nothing confirmed, so the answer is inconclusive, as an
+/// `unknown` program's is), and [`EXIT_UNASKED`] for a refused
 /// specification. An open obligation is no finding: coverage states the gap, and the corpus's
 /// author decides what to write; nor is a refused flip, which is a disagreement between the
 /// flips' generator and an admission, not a fault of the corpus.
@@ -1429,13 +1432,22 @@ pub fn coverage_status(document: &Value) -> u8 {
     } else {
         EXIT_YES
     };
-    exit_join(
-        exit_join(
-            exit_join(exit_join(programs, flips), mismatch_status(document)),
-            lock_status(document),
-        ),
+    let unchecked = if document["summary"]["argued_by_standing"]["unchecked"]
+        .as_u64()
+        .is_some_and(|unchecked| unchecked > 0)
+    {
+        EXIT_UNANSWERED
+    } else {
+        EXIT_YES
+    };
+    [
+        mismatch_status(document),
+        lock_status(document),
         needless,
-    )
+        unchecked,
+    ]
+    .into_iter()
+    .fold(exit_join(programs, flips), exit_join)
 }
 
 /// The status of a document's lock: [`EXIT_NO`] when `--locked` found the command would change

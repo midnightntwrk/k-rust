@@ -1338,8 +1338,9 @@ fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
     })
 }
 
-/// `[[coverage.invariant]]`: tables of exactly `name`, a nonempty name no other table has,
-/// `function`, a nonempty name, and `cells`, a nonempty array of nonempty names without repeats.
+/// `[[coverage.invariant]]`: tables of exactly `name`, a name that is not blank and that no other
+/// table has, `function`, a name that is not blank, and `cells`, a nonempty array of names that
+/// are not blank, without repeats.
 /// An entry names an invariant by its name, so two tables of one name would leave the entry's
 /// argument resting on either; a function reads its cells one per parameter, so a function of no
 /// cell is no property of a state, and a cell named twice is one parameter written twice.
@@ -1355,7 +1356,15 @@ fn invariants(value: &Value) -> Result<Vec<Invariant>, ManifestError> {
         let prefix = format!("coverage.invariant[{index}]");
         let entry = table(entry, &prefix)?;
         known_keys(entry, &prefix, &["name", "function", "cells"])?;
-        let name = required_string(entry, &prefix, "name")?;
+        // A name or a function of blanks names nothing, as a blank cell does ([`names`]).
+        let nonblank = |key: &str| {
+            let value = required_string(entry, &prefix, key)?;
+            if value.trim().is_empty() {
+                return Err(ManifestError::new(join(&prefix, key), "is blank"));
+            }
+            Ok(value)
+        };
+        let name = nonblank("name")?;
         if let Some(first) = invariants.iter().position(|i| i.name == name) {
             return Err(ManifestError::new(
                 join(&prefix, "name"),
@@ -1364,7 +1373,7 @@ fn invariants(value: &Value) -> Result<Vec<Invariant>, ManifestError> {
                 ),
             ));
         }
-        let function = required_string(entry, &prefix, "function")?;
+        let function = nonblank("function")?;
         let key = join(&prefix, "cells");
         if !entry.contains_key("cells") {
             return Err(missing(&key));

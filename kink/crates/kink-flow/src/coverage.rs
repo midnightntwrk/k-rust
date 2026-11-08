@@ -244,11 +244,12 @@
 //! Every argued item states what its argument rests on (`argument_check`) and its standing:
 //! [`STANDING_TEXT`] without an invariant, else the outcome of the invariant's checks. A rewrite
 //! rule's left-hand side is a whole configuration, so an invariant reads its cells there and
-//! argues a `rule:` or `requirement:` item of a rewrite rule; on any other item it is refused
-//! before any mutant runs, and so is an invariant no entry names ([`invariant_refusal`]). No check
-//! runs yet: an item under an invariant is [`STANDING_UNCHECKED`], its checks [`CHECK_NOT_RUN`],
-//! and it stays argued. The verdicts rendering gives each argued item's standing, so a standing
-//! that moves moves the coverage lock.
+//! argues a `rule:` item of a rewrite rule or a held, refuted or node requirement of one; on any
+//! other item it is refused before any mutant runs ([`unsupported_kind`]), and so is an invariant
+//! no entry names ([`invariant_refusal`]). No check runs yet: an item under an invariant is
+//! [`STANDING_UNCHECKED`], its checks [`CHECK_NOT_RUN`], and it stays argued; the command then
+//! exits 3, since nothing confirmed the claim it is done by. The verdicts rendering gives each
+//! argued item's standing, so a standing that moves moves the coverage lock.
 //!
 //! # Unique-cause MC/DC
 //!
@@ -754,8 +755,18 @@ pub fn coverage_front(
             Err(reason) => windows::unread(window_depth, reason),
         };
     }
-    if let Some(refusal) = stale_argued(&document, manifest, derived, front.spelling)
-        .or_else(|| invariant_refusal(&document, manifest, front.spelling))
+    // The ids the argued entries name are the derived document's: derived once for both checks.
+    let section = &manifest.coverage;
+    let probe = (!section.argued.is_empty() || !section.invariants.is_empty()).then(|| {
+        let mut probe = document.clone();
+        derive(&mut probe, front.spelling);
+        probe
+    });
+    if let Some(refusal) = probe
+        .as_ref()
+        .and_then(|probe| {
+            stale_argued(probe, manifest, derived).or_else(|| invariant_refusal(probe, manifest))
+        })
         .or_else(|| stale_mcdc(&document, manifest, front.spelling))
     {
         record.refusal = Some(refusal);
@@ -1022,25 +1033,22 @@ fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
     })
 }
 
-/// The refusal of `[[coverage.argued]]` entries that name no item, or `None`. `document` is the
-/// coverage document as the front end annotated it, before the flips run; the ids are those
-/// [`derive`] gives it, and a flip's are the front end's derived list's (`derived`), whatever the
+/// The refusal of `[[coverage.argued]]` entries that name no item, or `None`. `probe` is the
+/// coverage document as the front end annotated it, before the flips run, as [`derive`] derives
+/// it, so that the ids are those [`derive`] gives it, and a flip's are the front end's derived list's (`derived`), whatever the
 /// tier, so that a manifest valid under tier 2 is valid under tier 1. An entry no family lists
 /// argues nothing: it is a misspelling, or an item the definition no longer has, and either way
 /// the argument it carries is about no obligation the document counts. It is refused before any
 /// mutant runs (stage `coverage`, reason `argued-stale`), naming every such entry.
 fn stale_argued(
-    document: &Value,
+    probe: &Value,
     manifest: &FlowManifest,
     derived: Derived<'_>,
-    spelling: &dyn CommandSpelling,
 ) -> Option<AdmissionRefusal> {
     let argued = &manifest.coverage.argued;
     if argued.is_empty() {
         return None;
     }
-    let mut probe = document.clone();
-    derive(&mut probe, spelling);
     let mut listed = BTreeSet::new();
     for family in [
         "rules",
@@ -1093,126 +1101,143 @@ fn stale_argued(
 }
 
 /// The refusal of `[[coverage.invariant]]` tables and of the entries that name them, or `None`,
-/// once every entry names an item ([`stale_argued`]); `document` is as [`stale_argued`] reads it.
-/// Each is refused before any mutant runs, at stage `coverage`, naming every such entry or table:
+/// once every entry names an item ([`stale_argued`]); `probe` is the derived document
+/// [`stale_argued`] reads. It is refused before any mutant runs, at stage `coverage`:
 ///
-/// - An entry that names an invariant on an item the connection cannot be stated for (reason
-///   `argued-invariant-unsupported`). An invariant is a property of states, and an item's
-///   argument rests on it through a rewrite rule's left-hand side, a whole configuration whose
-///   cells the invariant reads: so it argues the `rule:` and `requirement:` items of rewrite
-///   rules. A function equation's left-hand side binds the function's arguments, not cells
-///   (`equation`); a syntax item, a rule window, a syntax path or a flip is no single left-hand
-///   side with a valuation (its family), and a flip changes the definition, of whose runs an
-///   invariant of the baseline says nothing.
-/// - A table no entry names (reason `invariant-unused`): it is claimed of the definition and
-///   would be resolved and checked on no item's behalf, so it is a misspelt name or a leftover.
-fn invariant_refusal(
-    document: &Value,
-    manifest: &FlowManifest,
-    spelling: &dyn CommandSpelling,
-) -> Option<AdmissionRefusal> {
+/// - Where an entry names an invariant on an item the connection cannot be stated for (reason
+///   `argued-invariant-unsupported`, naming each such entry with what its item is,
+///   [`unsupported_kind`]).
+/// - Where a table no entry names, apart from those entries, would be checked on no item's
+///   behalf (reason `invariant-unused`, naming each such table): it is a misspelt name or a
+///   leftover. Under the first reason these tables are named too, since the first refusal's
+///   remedy, removing each such entry's `invariant`, leaves them unused: one run names both.
+fn invariant_refusal(probe: &Value, manifest: &FlowManifest) -> Option<AdmissionRefusal> {
     let section = &manifest.coverage;
     if section.invariants.is_empty() {
         return None;
     }
-    let refusal = |reason: &str, detail: String| AdmissionRefusal {
-        stage: "coverage".into(),
-        reason: reason.into(),
-        detail,
-    };
-    let named = section
+    let unsupported = section
         .argued
         .iter()
         .filter(|argued| argued.invariant.is_some())
+        .filter_map(|argued| {
+            unsupported_kind(probe, &argued.item)
+                .map(|kind| (argued, format!("`{}` ({kind})", argued.item)))
+        })
         .collect::<Vec<_>>();
-    if !named.is_empty() {
-        let mut probe = document.clone();
-        derive(&mut probe, spelling);
-        let items = |family: &str| {
-            probe["families"][family]["items"]
-                .as_array()
-                .map_or(&[][..], Vec::as_slice)
-        };
-        let rewrite = |rule: &str| {
-            items("rules")
-                .iter()
-                .any(|item| item["id"] == rule && item["rewrite"] == true)
-        };
-        let unsupported = named
-            .iter()
-            .filter_map(|argued| {
-                let id = argued.item.as_str();
-                let family = [
-                    "rules",
-                    "requirements",
-                    "syntax",
-                    "rule_windows",
-                    "syntax_paths",
-                ]
-                .into_iter()
-                .find_map(|family| {
-                    items(family)
-                        .iter()
-                        .find(|item| item["id"] == id)
-                        .map(|item| (family, item))
-                });
-                let what = match family {
-                    Some(("rules", item)) if item["rewrite"] == true => return None,
-                    Some(("requirements", item)) if item["rule"].as_str().is_some_and(rewrite) => {
-                        return None;
-                    }
-                    Some(("rules" | "requirements", _)) => "equation",
-                    Some((family, _)) => family,
-                    // A listed id no tier-1 family has is a flip's ([`stale_argued`]).
-                    None => "flips",
-                };
-                Some(format!("`{id}` ({what})"))
-            })
-            .collect::<Vec<_>>();
-        if !unsupported.is_empty() {
-            return Some(refusal(
-                "argued-invariant-unsupported",
-                format!(
-                    "[[coverage.argued]] names an invariant for {}: {}; an invariant is read at a \
-                     rewrite rule's left-hand side and argues only the `rule:` and \
-                     `requirement:` items of rewrite rules: remove the entry's `invariant`",
-                    if unsupported.len() == 1 {
-                        "an item it cannot argue"
-                    } else {
-                        "items it cannot argue"
-                    },
-                    unsupported.join("; ")
-                ),
-            ));
-        }
-    }
     let unused = section
         .invariants
         .iter()
         .filter(|invariant| {
-            !section
-                .argued
-                .iter()
-                .any(|argued| argued.invariant.as_ref() == Some(&invariant.name))
+            !section.argued.iter().any(|argued| {
+                argued.invariant.as_ref() == Some(&invariant.name)
+                    && !unsupported
+                        .iter()
+                        .any(|(entry, _)| std::ptr::eq(*entry, argued))
+            })
         })
         .map(|invariant| format!("`{}`", invariant.name))
         .collect::<Vec<_>>();
-    if unused.is_empty() {
-        return None;
-    }
-    Some(refusal(
-        "invariant-unused",
+    let unused_text = |what: &str| {
         format!(
-            "[[coverage.invariant]] declares {} no [[coverage.argued]] entry names: {}; name it \
-             in the `invariant` of the entries whose argument rests on it, or remove the table",
+            "[[coverage.invariant]] declares {} no{what} [[coverage.argued]] entry names: {}; \
+             name it in the `invariant` of the entries whose argument rests on it, or remove the \
+             table",
             if unused.len() == 1 {
                 "an invariant"
             } else {
                 "invariants"
             },
             unused.join(", ")
-        ),
-    ))
+        )
+    };
+    let (reason, detail) = if !unsupported.is_empty() {
+        let mut detail = format!(
+            "[[coverage.argued]] names an invariant for {}: {}; an invariant is read at a \
+             rewrite rule's left-hand side, so it argues only the `rule:` items and the \
+             held, refuted and node requirements of rewrite rules: remove the entry's \
+             `invariant`",
+            if unsupported.len() == 1 {
+                "an item it cannot argue"
+            } else {
+                "items it cannot argue"
+            },
+            unsupported
+                .iter()
+                .map(|(_, named)| named.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        if !unused.is_empty() {
+            detail.push_str("; then ");
+            detail.push_str(&unused_text(" other"));
+        }
+        ("argued-invariant-unsupported", detail)
+    } else if !unused.is_empty() {
+        ("invariant-unused", unused_text(""))
+    } else {
+        return None;
+    };
+    Some(AdmissionRefusal {
+        stage: "coverage".into(),
+        reason: reason.into(),
+        detail,
+    })
+}
+
+/// What the item `id` of the derived document `probe` is, where an invariant cannot argue it, or
+/// `None` where it can (module documentation, "Argued obligations"). An invariant is a property
+/// of states, and an item's argument rests on it through a rewrite rule's left-hand side, a whole
+/// configuration whose cells the invariant reads, with the valuation that defines the item: the
+/// rule's whole condition, its negation, a node's truth with the truths that reach it, or the
+/// left-hand side alone. So it argues a `rule:` item of a rewrite rule and a requirement of one
+/// that is held, refuted or a node's truth. It cannot argue:
+///
+/// - a function equation's items (`equation`), whose left-hand side binds the function's
+///   arguments, not cells;
+/// - a rule that is no obligation of the family (its status: `out-of-scope`, `claim-helper`,
+///   `no-coverage-signal`), and a requirement of one;
+/// - a unique-cause requirement (`mcdc`), whose obligation is a pair of runs showing one operand's
+///   independent effect, not a valuation at one left-hand side;
+/// - a syntax item, a rule window or a syntax path (its family: `syntax`, `rule_windows`,
+///   `syntax_paths`), none of which is one left-hand side with a valuation;
+/// - a flip (`flip`), which changes the definition, of whose runs an invariant of the baseline
+///   says nothing. A listed id no tier-1 family has is a flip's ([`stale_argued`]).
+fn unsupported_kind(probe: &Value, id: &str) -> Option<&'static str> {
+    let items = |family: &str| {
+        probe["families"][family]["items"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice)
+    };
+    let find = |family: &str, id: &str| items(family).iter().find(|item| item["id"] == id);
+    let rule_kind = |rule: &Value| match rule["status"].as_str() {
+        Some(OUT_OF_SCOPE) => Some(OUT_OF_SCOPE),
+        Some(CLAIM_HELPER) => Some(CLAIM_HELPER),
+        Some(NO_COVERAGE_SIGNAL) => Some(NO_COVERAGE_SIGNAL),
+        _ if rule["rewrite"] == true => None,
+        _ => Some("equation"),
+    };
+    if let Some(rule) = find("rules", id) {
+        return rule_kind(rule);
+    }
+    if let Some(requirement) = find("requirements", id) {
+        if requirement["level"] == MCDC {
+            return Some(MCDC);
+        }
+        return match requirement["rule"]
+            .as_str()
+            .and_then(|rule| find("rules", rule))
+        {
+            Some(rule) => rule_kind(rule),
+            None => Some("requirements"),
+        };
+    }
+    for family in ["syntax", "rule_windows", "syntax_paths"] {
+        if find(family, id).is_some() {
+            return Some(family);
+        }
+    }
+    Some("flip")
 }
 
 /// The refusal of `[coverage] mcdc` names that select no rule, or `None`. A name selects a rule
@@ -4705,6 +4730,84 @@ pub fn rule_item<'d>(document: &'d Value, at: &SentenceRef) -> Option<&'d Map<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What an invariant cannot argue is named by what it is, read from the derived document:
+    /// an item of a rewrite rule, or a held, refuted or node requirement of one, is arguable; an
+    /// equation's items, a rule that is no obligation, a unique-cause requirement, the deeper
+    /// families and a flip are not.
+    #[test]
+    fn an_unsupported_item_is_named_by_its_kind() {
+        let probe = json!({"families": {
+            "rules": {"items": [
+                {"id": "rule:r", "status": "matched", "rewrite": true},
+                {"id": "rule:e", "status": "unmatched", "rewrite": false},
+                {"id": "rule:s", "status": "out-of-scope", "rewrite": false},
+                {"id": "rule:h", "status": "claim-helper", "rewrite": false},
+            ]},
+            "requirements": {"items": [
+                {"id": "requirement:r:held", "rule": "rule:r", "level": "condition"},
+                {"id": "requirement:r:A:mcdc", "rule": "rule:r", "level": "mcdc"},
+                {"id": "requirement:e:refuted", "rule": "rule:e", "level": "condition"},
+                {"id": "requirement:h:held", "rule": "rule:h", "level": "condition"},
+            ]},
+            "syntax": {"items": [{"id": "syntax:p"}]},
+            "rule_windows": {"items": [{"id": "window:r,e"}]},
+            "syntax_paths": {"items": [{"id": "path:p/0/q"}]},
+        }});
+        let kinds = [
+            "rule:r",
+            "requirement:r:held",
+            "rule:e",
+            "requirement:e:refuted",
+            "rule:s",
+            "requirement:h:held",
+            "requirement:r:A:mcdc",
+            "syntax:p",
+            "window:r,e",
+            "path:p/0/q",
+            "flip--x",
+        ]
+        .map(|id| unsupported_kind(&probe, id));
+        assert_eq!(
+            kinds,
+            [
+                None,
+                None,
+                Some("equation"),
+                Some("equation"),
+                Some("out-of-scope"),
+                Some("claim-helper"),
+                Some("mcdc"),
+                Some("syntax"),
+                Some("rule_windows"),
+                Some("syntax_paths"),
+                Some("flip"),
+            ]
+        );
+
+        // An entry both unsupported and the only one naming its table: one refusal names both.
+        let manifest = FlowManifest::decode(
+            "[spec]\nentry = \"m.k\"\nmain_module = \"M\"\n[[program]]\nid = \"a\"\ntext = \"a\"\n\
+             [[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = [\"k\"]\n\
+             [[coverage.invariant]]\nname = \"j\"\nfunction = \"g\"\ncells = [\"k\"]\n\
+             [[coverage.argued]]\nitem = \"rule:r\"\nargument = \"x\"\ninvariant = \"i\"\n\
+             [[coverage.argued]]\nitem = \"syntax:p\"\nargument = \"x\"\ninvariant = \"j\"\n",
+            Path::new("corpus"),
+        )
+        .unwrap();
+        let refusal = invariant_refusal(&probe, &manifest).unwrap();
+        assert_eq!(refusal.reason, "argued-invariant-unsupported");
+        assert!(
+            refusal.detail.contains(": `syntax:p` (syntax); ")
+                && refusal.detail.ends_with(
+                    "; then [[coverage.invariant]] declares an invariant no other \
+                     [[coverage.argued]] entry names: `j`; name it in the `invariant` of the \
+                     entries whose argument rests on it, or remove the table"
+                ),
+            "{}",
+            refusal.detail
+        );
+    }
 
     /// A family whose syntax facts could not be read counts nothing: its counts and measure are
     /// null, not zero obligations with nothing open, and it gives no target.

@@ -11,7 +11,7 @@ mod flow_support;
 use flow_support::{copy_dir, flow};
 use kink_flow::{
     CommandFiles, EditAction, EditSpec, FlowCommand, FlowManifest, FrontEnd, ManifestFile,
-    cli::{EXIT_NO, EXIT_UNASKED, EXIT_YES, dispatch},
+    cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, dispatch},
     coverage::text,
     flips::{Derived, DerivedEntry, DerivedList, Judged, Occurrence, Reach},
     lock::stale_lines,
@@ -282,8 +282,8 @@ fn argued_entries_decode_and_their_mistakes_are_refused() {
 }
 
 /// `[[coverage.invariant]]` decodes to its tables in the order written, and an argued entry's
-/// `invariant` to the name it gives; a table has exactly `name`, `function` and `cells`, a name
-/// no other table has and a nonempty list of cells without repeats, and an entry names a table
+/// `invariant` to the name it gives; a table has exactly `name`, `function` and `cells`, none
+/// blank, a name no other table has and a nonempty list of cells without repeats, and an entry names a table
 /// the manifest declares.
 #[test]
 fn invariants_decode_and_their_mistakes_are_refused() {
@@ -329,6 +329,15 @@ fn invariants_decode_and_their_mistakes_are_refused() {
         (
             "[[coverage.invariant]]\nfunction = \"f\"\ncells = [\"k\"]\n".to_owned(),
             "coverage.invariant[0].name: missing required key",
+        ),
+        (
+            "[[coverage.invariant]]\nname = \" \"\nfunction = \"f\"\ncells = [\"k\"]\n".to_owned(),
+            "coverage.invariant[0].name: is blank",
+        ),
+        (
+            "[[coverage.invariant]]\nname = \"i\"\nfunction = \"\\t\"\ncells = [\"k\"]\n"
+                .to_owned(),
+            "coverage.invariant[0].function: is blank",
         ),
         (
             "[[coverage.invariant]]\nname = \"i\"\nfunction = \"f\"\ncells = []\n".to_owned(),
@@ -738,7 +747,8 @@ mod kink_tier {
 
     /// Every argued item says what its argument rests on (`argument_check`): its text alone where
     /// its entry names no invariant (`text`), else the invariant, whose checks this build does not
-    /// run (`unchecked`, the connection and the evidence `not-run`). The settings list the
+    /// run (`unchecked`, the connection and the evidence `not-run`), so the command has no answer
+    /// (exit 3). The settings list the
     /// invariants, the summary counts the argued items by standing and lists no failed argument,
     /// the text states each standing, and the coverage lock gives each argued item's standing
     /// under `[arguments]`: a standing that moves makes `--locked` stale, naming the item, while
@@ -768,7 +778,7 @@ mod kink_tier {
             ],
         );
         let (document, status) = run(false);
-        assert_eq!(status, EXIT_YES, "{document:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         assert_eq!(
             item(&document, "rules", WAKE)["argument_check"],
             json!({"standing": "text"})
@@ -935,7 +945,7 @@ mod kink_tier {
         assert!(
             detail.contains(&format!(
                 "`rule:GUARDS.high` (equation); `{high_held}` (equation); `syntax:nop` (syntax); \
-                 `{I}` (flips)"
+                 `{I}` (flip)"
             )),
             "{detail}"
         );
@@ -951,11 +961,60 @@ mod kink_tier {
             ],
         );
         let (accepted, status) = coverage(&dir, &["--tier", "1"], Derived::Flips(&list));
-        assert_eq!(status, EXIT_YES, "{accepted:#}");
+        assert_eq!(status, EXIT_UNANSWERED, "{accepted:#}");
         assert_eq!(
             accepted["summary"]["argued_by_standing"]["unchecked"], 2,
             "{:#}",
             accepted["summary"]
+        );
+    }
+
+    /// With every rule's unique-cause requirements, an invariant on a unique-cause requirement is
+    /// refused, named as `mcdc`: its obligation is a pair of runs, not a valuation at one
+    /// left-hand side. A table only that entry names is named in the same refusal as unused, so
+    /// that removing the entry's `invariant` does not just produce the next refusal.
+    #[test]
+    #[ignore = "kink"]
+    fn a_unique_cause_requirement_takes_no_invariant_and_one_refusal_names_the_unused_table() {
+        let dir = guards("mcdc-invariant");
+        let manifest = dir.join("FLOW.toml");
+        let text = fs::read_to_string(&manifest).unwrap();
+        fs::write(&manifest, format!("[coverage]\nmcdc = true\n\n{text}")).unwrap();
+        let (baseline, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_YES, "{baseline:#}");
+        let mcdc = baseline["families"]["requirements"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["level"] == "mcdc")
+            .and_then(|item| item["id"].as_str())
+            .unwrap_or_else(|| panic!("{:#}", baseline["families"]["requirements"]))
+            .to_owned();
+        argue_on(
+            &dir,
+            &[NEVER_HALTED, ("spare", "spare", &["k"])],
+            &[
+                (
+                    WAKE,
+                    "the corpus never halts the machine",
+                    Some(NEVER_HALTED.0),
+                ),
+                (&mcdc, "no pair shows it", Some("spare")),
+            ],
+        );
+        let (refused, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        let spec = &refused["spec"];
+        assert_eq!(spec["reason"], "argued-invariant-unsupported", "{spec:#}");
+        let detail = spec["detail"].as_str().unwrap();
+        assert!(detail.contains(&format!(": `{mcdc}` (mcdc); ")), "{detail}");
+        assert!(
+            detail.ends_with(
+                "; then [[coverage.invariant]] declares an invariant no other [[coverage.argued]] \
+                 entry names: `spare`; name it in the `invariant` of the entries whose argument \
+                 rests on it, or remove the table"
+            ),
+            "{detail}"
         );
     }
 }

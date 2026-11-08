@@ -1315,4 +1315,67 @@ mod tests {
             ["coverage.lock: arguments: rule:b: none -> text"]
         );
     }
+
+    /// A coverage lock recorded at verdicts version 20 has no `[arguments]`: a run that argues
+    /// items finds it stale, the header's `version` and each argued item's standing named, and
+    /// the obligations unchanged.
+    #[test]
+    fn a_version_20_lock_without_arguments_is_stale_and_names_each_standing() {
+        let document = json!({
+            "schema": crate::coverage::COVERAGE_SCHEMA,
+            "spec": {"outcome": "admitted"},
+            "settings": {"tiers": [1], "depth": 1, "mcdc": []},
+            "families": {
+                "rules": {"items": [
+                    {"id": "rule:a", "status": "argued", "argument_check": {"standing": "text"}},
+                    {"id": "rule:b", "status": "argued",
+                     "argument_check": {"standing": "unchecked", "invariant": "i"}},
+                ]},
+                "requirements": {"items": []},
+                "syntax": {"items": []},
+                "flips": {"run": false},
+            },
+        });
+        let now = lock_text(&document).unwrap();
+        let section = "\n[arguments]\n\"rule:a\" = \"text\"\n\"rule:b\" = \"unchecked\"\n";
+        assert!(now.contains(section), "{now}");
+        let recorded = now.replace(section, "").replace(
+            &format!("\nversion = {}\n", crate::verdicts::VERDICTS_VERSION),
+            "\nversion = 20\n",
+        );
+        assert!(recorded.contains("\nversion = 20\n") && !recorded.contains("[arguments]"));
+        let kind = LockKind::Coverage;
+        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), recorded, kind).unwrap();
+        assert!(lock.arguments.is_empty());
+        let locked = Settle {
+            locked: true,
+            verify: false,
+            only: &[],
+            stopped: false,
+        };
+        let (stale, _) = lock.settle(&Store::new("/nonexistent"), &document, locked);
+        assert_eq!(stale["status"], "stale", "{stale:#}");
+        assert_eq!(stale["open_changes"], json!([]));
+        assert_eq!(
+            stale["argument_changes"],
+            json!([
+                {"obligation": "rule:a", "recorded": null, "now": "text"},
+                {"obligation": "rule:b", "recorded": null, "now": "unchecked"},
+            ])
+        );
+        let mut with_lock = document.clone();
+        with_lock["lock"] = stale;
+        assert_eq!(
+            stale_lines(&with_lock),
+            [
+                format!(
+                    "coverage.lock: the header's version differs: recorded 20, now {} (another \
+                     version of the rendering)",
+                    crate::verdicts::VERDICTS_VERSION
+                ),
+                "coverage.lock: arguments: rule:a: none -> text".to_owned(),
+                "coverage.lock: arguments: rule:b: none -> unchecked".to_owned(),
+            ]
+        );
+    }
 }
