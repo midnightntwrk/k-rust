@@ -1256,7 +1256,14 @@ pub fn run_command(
             fuzz_command(manifest, templates, request, front)
         }
     };
-    (front.annotated(document), status)
+    let mut document = front.annotated(document);
+    if matches!(command, FlowCommand::Coverage { .. }) {
+        // A front end's annotation may rebuild the items it adds, each with the status its
+        // records give (krs's field values); deriving again restores what the derived part
+        // decides of them, such as an argued item's status. Both steps are idempotent.
+        crate::coverage::derive(&mut document, front.spelling);
+    }
+    (document, status)
 }
 
 /// The status of two parts whose statuses are `left` and `right`: the one that comes first of
@@ -1370,10 +1377,13 @@ fn baseline_status(row: &Value) -> u8 {
 /// unknown program covers nothing, so the answer is incomplete) and expectation
 /// ([`expectation_status`]), [`EXIT_NO`] for a `--verify` mismatch, [`EXIT_UNANSWERED`] for a
 /// flip the kill search gave no verdict (`unknown`), [`EXIT_UNASKED`] for one whose search ended
-/// in an error (`kink_status` `error`: a corpus error, a failed run or an unwritten record), and
-/// [`EXIT_UNASKED`] for a refused specification. An open obligation is no finding: coverage
-/// states the gap, and the corpus's author decides what to write; nor is a refused flip, which
-/// is a disagreement between the flips' generator and an admission, not a fault of the corpus.
+/// in an error (`kink_status` `error`: a corpus error, a failed run or an unwritten record),
+/// [`EXIT_NO`] for a needless argument (`summary.needless_arguments`: a `[[coverage.argued]]`
+/// entry whose item a program covers or that is no obligation, which would turn the item's next
+/// regression into `argued` instead of `open`), and [`EXIT_UNASKED`] for a refused
+/// specification. An open obligation is no finding: coverage states the gap, and the corpus's
+/// author decides what to write; nor is a refused flip, which is a disagreement between the
+/// flips' generator and an admission, not a fault of the corpus.
 #[must_use]
 pub fn coverage_status(document: &Value) -> u8 {
     if spec_refused(document) || document["lock"]["outcome"] == "refused" {
@@ -1399,9 +1409,20 @@ pub fn coverage_status(document: &Value) -> u8 {
             }
         })
         .fold(EXIT_YES, exit_join);
+    let needless = if document["summary"]["needless_arguments"]
+        .as_array()
+        .is_some_and(|needless| !needless.is_empty())
+    {
+        EXIT_NO
+    } else {
+        EXIT_YES
+    };
     exit_join(
-        exit_join(exit_join(programs, flips), mismatch_status(document)),
-        lock_status(document),
+        exit_join(
+            exit_join(exit_join(programs, flips), mismatch_status(document)),
+            lock_status(document),
+        ),
+        needless,
     )
 }
 

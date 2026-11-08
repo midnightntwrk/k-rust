@@ -113,6 +113,19 @@
 //! `fuzz --pattern` take; `null` for every other target, and where the rule's text cannot be
 //! read or a front end matched the sentence through templates.
 //!
+//! # Argued obligations
+//!
+//! `[[coverage.argued]]` names obligations by id, each with an argument that stands in for the
+//! program no one can write (`FlowManifest::coverage`). An argued open obligation has status
+//! [`ARGUED`]: it stays in its family's obligations, so the measure (covered / obligations) does
+//! not move, since an argument is no program and the measure states what the programs cover; it
+//! is neither covered nor open, so it has no target, and `summary.open` counts only what is left
+//! to cover or argue. The verdicts rendering lists the argued ids, so adding or removing an
+//! argument moves the coverage lock. An entry no family lists is refused before any mutant runs
+//! ([`stale_argued`]). An entry whose item a program covers, or that is no obligation, is a
+//! needless argument, a finding ([`argue`]): kept, it would turn the item's next regression into
+//! `argued` instead of `open`, hiding the gap the family exists to show.
+//!
 //! The derived part of the document (every family but the rules' items, the targets and the
 //! summary) is a function of the rules' items as the front end annotated them ([`derive`]), so a
 //! front end that names rules and groups guards at its own level has its names in every id,
@@ -160,8 +173,11 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `[observe]`: a corpus with observation channels names the declaration (`observe`, absent
 /// without one), a program row carries the channels its baseline recorded and their horizons
 /// (`observations`), and a program whose baseline its deterministic bounds cut is
-/// `comparable-prefix`, a program that can kill by its channels.
-pub const COVERAGE_VERSION: u64 = 5;
+/// `comparable-prefix`, a program that can kill by its channels; 6 since
+/// `[[coverage.argued]]` is read: `settings.argued`, an argued item's status `argued` with its
+/// `argument` and `unargued_status`, a needless argument's `argument_needless`, each family's
+/// `argued` and `counts.argued`, and the summary's `covered` and `needless_arguments`.
+pub const COVERAGE_VERSION: u64 = 6;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -176,6 +192,13 @@ pub const CLAIM_HELPER: &str = "claim-helper";
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: no
 /// obligation.
 pub const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
+/// The status of an obligation of any family that no program covers and `[[coverage.argued]]`
+/// argues: counted in its family's obligations, neither covered nor open, and no target.
+pub const ARGUED: &str = "argued";
+/// Why an argued item's argument is needless (`argument_needless`): a program covers it.
+pub const NEEDLESS_COVERED: &str = "covered";
+/// Why an argued item's argument is needless: the item is listed but is no obligation.
+pub const NEEDLESS_NOT_OBLIGATION: &str = "not-an-obligation";
 
 /// The families of the document, in target order.
 pub const FAMILIES: [&str; 6] = [
@@ -440,7 +463,7 @@ pub fn coverage_front(
     let mut document = stopped(document(
         &record,
         Some(update.spec_digest),
-        settings,
+        settings.clone(),
         programs,
         Some((items, syntax)),
         update.mismatches.clone(),
@@ -453,6 +476,10 @@ pub fn coverage_front(
     document["spec"]["exclusion"] = runner.definition_exclusion();
     document["spec"]["short_circuit"] = runner.short_circuit();
     let mut document = front.annotated(document);
+    if let Some(refusal) = stale_argued(&document, manifest, front.derived, front.spelling) {
+        record.refusal = Some(refusal);
+        return (refused(&record), false);
+    }
     document["families"]["flips"] = match (flips, front.derived) {
         (Some(list), _) => {
             let (family, searched) = run_flips(
@@ -652,7 +679,76 @@ fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
         "depth": depth.get(),
         "mcdc": section.mcdc,
         "max_obligations": section.max_obligations.get(),
+        "argued": section
+            .argued
+            .iter()
+            .map(|argued| json!({"item": argued.item, "argument": argued.argument}))
+            .collect::<Vec<_>>(),
         "source": if section.declared { "manifest" } else { "default" },
+    })
+}
+
+/// The refusal of `[[coverage.argued]]` entries that name no item, or `None`. `document` is the
+/// coverage document as the front end annotated it, before the flips run; the ids are those
+/// [`derive`] gives it, and a flip's are the front end's derived list's (`derived`), whatever the
+/// tier, so that a manifest valid under tier 2 is valid under tier 1. An entry no family lists
+/// argues nothing: it is a misspelling, or an item the definition no longer has, and either way
+/// the argument it carries is about no obligation the document counts. It is refused before any
+/// mutant runs (stage `coverage`, reason `argued-stale`), naming every such entry.
+fn stale_argued(
+    document: &Value,
+    manifest: &FlowManifest,
+    derived: Derived<'_>,
+    spelling: &dyn CommandSpelling,
+) -> Option<AdmissionRefusal> {
+    let argued = &manifest.coverage.argued;
+    if argued.is_empty() {
+        return None;
+    }
+    let mut probe = document.clone();
+    derive(&mut probe, spelling);
+    let mut listed = BTreeSet::new();
+    for family in ["rules", "requirements", "syntax"] {
+        for item in probe["families"][family]["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = item["id"].as_str() {
+                listed.insert(id.to_owned());
+            }
+        }
+    }
+    let no_flips = match derived {
+        Derived::Flips(list) => {
+            listed.extend(list.entries.iter().map(|entry| entry.id.clone()));
+            None
+        }
+        Derived::None(reason) => Some(reason),
+    };
+    let stale = argued
+        .iter()
+        .filter(|argued| !listed.contains(&argued.item))
+        .map(|argued| {
+            let mut detail = format!("`{}`: no family lists it", argued.item);
+            if let Some(reason) = no_flips.filter(|_| argued.item.starts_with("flip")) {
+                detail.push_str(&format!(" ({reason})"));
+            }
+            detail
+        })
+        .collect::<Vec<_>>();
+    if stale.is_empty() {
+        return None;
+    }
+    Some(AdmissionRefusal {
+        stage: "coverage".into(),
+        reason: "argued-stale".into(),
+        detail: format!(
+            "[[coverage.argued]] names {} that no family lists: {}; an argued item is named by \
+             its `id` in the coverage document, so correct the id or remove the entry",
+            if stale.len() == 1 { "an item" } else { "items" },
+            stale.join("; ")
+        ),
     })
 }
 
@@ -2079,6 +2175,8 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "computed": programs.iter().filter(|p| p["cached"] == false).count(),
         "mismatches": document["mismatches"].as_array().map_or(0, Vec::len),
     });
+    unargue(document);
+    let argued_entries = argued_entries(document);
     let Some(items) = document
         .get_mut("families")
         .and_then(|families| families.get_mut("rules"))
@@ -2165,9 +2263,10 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         };
         if obligation && !covered {
             let (text, job) = if status == MATCHED {
-                let requirement = requirements
-                    .iter()
-                    .any(|r| r["id"] == held_id.as_str() && r["covered"] == false);
+                let requirement = !argued_entries.contains_key(&held_id)
+                    && requirements
+                        .iter()
+                        .any(|r| r["id"] == held_id.as_str() && r["covered"] == false);
                 (
                     format!(
                         "a case where {name} is entered and its condition holds, so that its \
@@ -2332,36 +2431,224 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         &rule_names,
         &requirement_ids,
         &fuzz,
+        &argued_entries,
     );
     targets.extend(flips.iter().map(|(_, target)| target.clone()));
-    let per_family = |covered: usize, obligations: usize| {
+    let applied = argue(document, &argued_entries);
+    targets.retain(|target| {
+        target["item"]
+            .as_str()
+            .is_none_or(|id| !applied.argued.contains(id))
+    });
+    let argued_in = |family: &str| applied.counts.get(family).copied().unwrap_or(0);
+    let per_family = |family: &str, covered: usize, obligations: usize| {
+        let argued = argued_in(family);
         json!({
             "obligations": obligations,
             "covered": covered,
-            "argued": 0,
-            "open": obligations - covered,
+            "argued": argued,
+            "open": obligations - covered - argued,
         })
     };
-    let mut summary = summary_programs;
-    summary["open"] = json!(targets.len());
-    summary["argued"] = json!(0);
-    summary["per_family"] = json!({
-        "rules": per_family(fired, obligations),
-        "requirements": per_family(requirement_covered, requirement_obligations),
-        "syntax": syntax_counts.map_or_else(
+    let mut per = Map::new();
+    per.insert("rules".into(), per_family("rules", fired, obligations));
+    per.insert(
+        "requirements".into(),
+        per_family("requirements", requirement_covered, requirement_obligations),
+    );
+    per.insert(
+        "syntax".into(),
+        syntax_counts.map_or_else(
             || json!({"obligations": null, "covered": null, "argued": 0, "open": null}),
-            |(covered, obligations)| per_family(covered, obligations),
+            |(covered, obligations)| per_family("syntax", covered, obligations),
         ),
-    });
+    );
     let family = &document["families"]["flips"];
     if family["run"] == true {
-        summary["per_family"]["flips"] = per_family(
-            family["covered"].as_u64().unwrap_or(0) as usize,
-            family["counted"].as_u64().unwrap_or(0) as usize,
+        per.insert(
+            "flips".into(),
+            per_family(
+                "flips",
+                family["covered"].as_u64().unwrap_or(0) as usize,
+                family["counted"].as_u64().unwrap_or(0) as usize,
+            ),
         );
     }
+    let covered = per
+        .values()
+        .filter_map(|counts| counts["covered"].as_u64())
+        .sum::<u64>();
+    let mut summary = summary_programs;
+    summary["covered"] = json!(covered);
+    summary["argued"] = json!(applied.argued.len());
+    summary["open"] = json!(targets.len());
+    summary["per_family"] = Value::Object(per);
+    summary["needless_arguments"] = json!(applied.needless);
     document["targets"] = Value::Array(targets);
     document["summary"] = summary;
+}
+
+/// The families whose items an argued entry can name, in target order.
+const ARGUABLE: [&str; 4] = ["rules", "requirements", "syntax", "flips"];
+
+/// The `[[coverage.argued]]` entries a document's settings state, argument by item id.
+fn argued_entries(document: &Value) -> BTreeMap<String, String> {
+    document["settings"]["argued"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            Some((
+                entry["item"].as_str()?.to_owned(),
+                entry["argument"].as_str()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// Undo [`argue`] on the items [`derive`] keeps from one application to the next (the rules',
+/// the syntax family's and the flips'; the requirements are rebuilt), so that deriving twice
+/// gives what deriving once does.
+fn unargue(document: &mut Value) {
+    for family in ARGUABLE {
+        let Some(items) = document
+            .get_mut("families")
+            .and_then(|families| families.get_mut(family))
+            .and_then(|family| family.get_mut("items"))
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+        for item in items.iter_mut().filter_map(Value::as_object_mut) {
+            if let Some(status) = item.remove("unargued_status") {
+                item.insert("status".into(), status);
+            }
+            item.remove("argument");
+            item.remove("argument_needless");
+        }
+    }
+}
+
+/// What [`argue`] applied: the ids now `argued`, their number per family, and the needless
+/// arguments (`{family, item, reason}`), in family then item order.
+struct Applied {
+    argued: BTreeSet<String>,
+    counts: BTreeMap<&'static str, usize>,
+    needless: Vec<Value>,
+}
+
+/// Apply the argued entries `entries` to the derived items of `document` (module documentation,
+/// "Argued obligations"). An open obligation an entry names takes status [`ARGUED`], keeps the
+/// status it had as `unargued_status`, and carries its `argument`; it stays in its family's
+/// obligations, is not covered, and gives no target. An entry naming an item that is covered, or
+/// that is no obligation, is needless (`argument_needless`, [`NEEDLESS_COVERED`] or
+/// [`NEEDLESS_NOT_OBLIGATION`]): the item keeps its status and carries the argument, and the
+/// summary lists it, since an argument kept on a covered item would turn the item's next
+/// regression into `argued` instead of `open`. Each family's counts gain `argued`, taken from the
+/// status the item had.
+fn argue(document: &mut Value, entries: &BTreeMap<String, String>) -> Applied {
+    use crate::flips::{
+        DISTINGUISHED, UNDISTINGUISHED, UNKNOWN as FLIP_UNKNOWN, UNREACHED as FLIP_UNREACHED,
+    };
+    let mut applied = Applied {
+        argued: BTreeSet::new(),
+        counts: BTreeMap::new(),
+        needless: Vec::new(),
+    };
+    for family in ARGUABLE {
+        let value = &mut document["families"][family];
+        if family == "flips" && value["run"] != true {
+            continue;
+        }
+        let Some(items) = value.get_mut("items").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let mut argued_from = Vec::<(String, Value)>::new();
+        for item in items.iter_mut() {
+            let Some(id) = item["id"].as_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(argument) = entries.get(&id) else {
+                continue;
+            };
+            let status = item["status"].clone();
+            let (open, covered) = if family == "flips" {
+                let status = status.as_str().unwrap_or_default();
+                (
+                    matches!(status, UNDISTINGUISHED | FLIP_UNREACHED | FLIP_UNKNOWN),
+                    status == DISTINGUISHED,
+                )
+            } else {
+                (
+                    item["obligation"] != false && item["covered"] == false,
+                    item["covered"] == true,
+                )
+            };
+            item["argument"] = json!(argument);
+            if open {
+                item["unargued_status"] = status.clone();
+                item["status"] = json!(ARGUED);
+                applied.argued.insert(id.clone());
+                *applied.counts.entry(family).or_default() += 1;
+                argued_from.push((id, status));
+            } else {
+                let reason = if covered {
+                    NEEDLESS_COVERED
+                } else {
+                    NEEDLESS_NOT_OBLIGATION
+                };
+                item["argument_needless"] = json!(reason);
+                applied
+                    .needless
+                    .push(json!({"family": family, "item": id, "reason": reason}));
+            }
+        }
+        // The kind of each argued syntax item, for the counts by kind.
+        let kinds = items
+            .iter()
+            .filter(|item| item["status"] == ARGUED)
+            .map(|item| item["kind"].as_str() == Some(FIELD_VALUE))
+            .collect::<Vec<_>>();
+        let argued = applied.counts.get(family).copied().unwrap_or(0);
+        value["argued"] = json!(argued);
+        let counts = &mut value["counts"];
+        if !counts.is_object() {
+            continue;
+        }
+        counts["argued"] = json!(argued);
+        // The status each argued item had leaves its count.
+        let less = |counts: &mut Value, key: &str| {
+            if let Some(n) = counts[key].as_u64() {
+                counts[key] = json!(n.saturating_sub(1));
+            }
+        };
+        for (_, status) in &argued_from {
+            match family {
+                "rules" | "flips" => {
+                    if let Some(status) = status.as_str() {
+                        less(counts, &status.replace('-', "_"));
+                    }
+                }
+                "requirements" => less(counts, "open"),
+                _ => less(counts, "unreached"),
+            }
+        }
+        if family == "syntax" {
+            for kind_key in ["productions", "field_values"] {
+                counts[kind_key]["argued"] = json!(0);
+            }
+            for field_value in kinds {
+                let key = if field_value {
+                    "field_values"
+                } else {
+                    "productions"
+                };
+                let n = counts[key]["argued"].as_u64().unwrap_or(0);
+                counts[key]["argued"] = json!(n + 1);
+            }
+        }
+    }
+    applied
 }
 
 /// Fill the derived part of the syntax family `family` ([`syntax_family`]), `rule_ids` naming
@@ -2551,6 +2838,7 @@ fn derive_flips(
     rules: &BTreeMap<(String, u64), Value>,
     requirements: &BTreeMap<(String, String), Vec<String>>,
     fuzz: &str,
+    argued: &BTreeMap<String, String>,
 ) -> Vec<(String, Value)> {
     use crate::flips::{DISTINGUISHED, EQUIVALENT, REFUSED, UNDISTINGUISHED, UNKNOWN, UNREACHED};
     if family["run"] != true {
@@ -2667,8 +2955,8 @@ fn derive_flips(
                 target(
                     format!(
                         "a case that reaches {text}{in_names}: no comparable program does, so \
-                         no program can tell the flip apart ({} open)",
-                        listed(&waits_on)
+                         no program can tell the flip apart ({})",
+                        waiting(&waits_on, argued)
                     ),
                     Vec::new(),
                     Value::Null,
@@ -2705,6 +2993,32 @@ fn derive_flips(
     family["measure"] = measure(distinguished, counted);
     family["items"] = Value::Array(derived);
     targets
+}
+
+/// The tier-1 obligations an unreached flip waits on, as its target states them: the open ones,
+/// then those `[[coverage.argued]]` argues (`X open; Y argued`).
+fn waiting(waits_on: &[String], argued: &BTreeMap<String, String>) -> String {
+    let (argued, open): (Vec<String>, Vec<String>) = waits_on
+        .iter()
+        .cloned()
+        .partition(|id| argued.contains_key(id));
+    let mut parts = Vec::new();
+    if !open.is_empty() {
+        parts.push(format!("{} open", listed(&open)));
+    }
+    if !argued.is_empty() {
+        parts.push(format!("{} argued", listed(&argued)));
+    }
+    parts.join("; ")
+}
+
+/// What a family's line of the text rendering adds for its argued items: `, N argued`, or
+/// nothing when none is argued.
+fn argued_note(family: &Value) -> String {
+    match family["argued"].as_u64() {
+        Some(n) if n > 0 => format!(", {n} argued"),
+        _ => String::new(),
+    }
 }
 
 /// A measure as text: a percentage with one decimal, `-` without obligations.
@@ -2747,8 +3061,12 @@ pub fn text(document: &Value) -> Result<String, String> {
     }
     let summary = &document["summary"];
     out.push_str(&format!(
-        "coverage: {} open, {} argued; {} programs, {} comparable\n",
-        summary["open"], summary["argued"], summary["programs"], summary["comparable"]
+        "coverage: {} covered, {} argued, {} open; {} programs, {} comparable\n",
+        summary["covered"],
+        summary["argued"],
+        summary["open"],
+        summary["programs"],
+        summary["comparable"]
     ));
     let families = &document["families"];
     for family in ["rules", "requirements"] {
@@ -2759,10 +3077,11 @@ pub fn text(document: &Value) -> Result<String, String> {
             "covered"
         };
         out.push_str(&format!(
-            "{family}: {} of {} {what} ({})",
+            "{family}: {} of {} {what} ({}){}",
             value["covered"],
             value["obligations"],
-            percent(&value["measure"])
+            percent(&value["measure"]),
+            argued_note(value)
         ));
         if family == "rules" {
             let counts = &value["counts"];
@@ -2784,10 +3103,11 @@ pub fn text(document: &Value) -> Result<String, String> {
     } else if syntax.is_object() {
         let counts = &syntax["counts"];
         out.push_str(&format!(
-            "syntax: {} of {} reached ({}); productions {} of {}, field values {} of {}",
+            "syntax: {} of {} reached ({}){}; productions {} of {}, field values {} of {}",
             syntax["covered"],
             syntax["obligations"],
             percent(&syntax["measure"]),
+            argued_note(syntax),
             counts["productions"]["covered"],
             counts["productions"]["obligations"],
             counts["field_values"]["covered"],
@@ -2809,11 +3129,12 @@ pub fn text(document: &Value) -> Result<String, String> {
     } else if flips["run"] == true {
         let counts = &flips["counts"];
         out.push_str(&format!(
-            "flips: {} of {} distinguished ({}); {} undistinguished, {} unreached, {} unknown; \
+            "flips: {} of {} distinguished ({}){}; {} undistinguished, {} unreached, {} unknown; \
              not counted: {} refused, {} equivalent; {} not generated\n",
             flips["covered"],
             flips["counted"],
             percent(&flips["measure"]),
+            argued_note(flips),
             counts["undistinguished"],
             counts["unreached"],
             counts["unknown"],
@@ -2847,6 +3168,36 @@ pub fn text(document: &Value) -> Result<String, String> {
             ));
         }
     }
+    let mut argued = Vec::new();
+    let mut needless = Vec::new();
+    for family in ARGUABLE {
+        for item in families[family]["items"].as_array().into_iter().flatten() {
+            let Some(argument) = item["argument"].as_str() else {
+                continue;
+            };
+            let id = item["id"].as_str().unwrap_or("?");
+            if item["status"] == ARGUED {
+                argued.push(format!("  {id}: {argument}\n"));
+            } else {
+                let why = if item["argument_needless"] == NEEDLESS_COVERED {
+                    "a program covers it"
+                } else {
+                    "it is no obligation"
+                };
+                needless.push(format!(
+                    "  {id}: {why}; remove its [[coverage.argued]] entry\n"
+                ));
+            }
+        }
+    }
+    if !argued.is_empty() {
+        out.push_str("argued:\n");
+        out.push_str(&argued.concat());
+    }
+    if !needless.is_empty() {
+        out.push_str("needless arguments:\n");
+        out.push_str(&needless.concat());
+    }
     let targets = document["targets"]
         .as_array()
         .map_or(&[][..], Vec::as_slice);
@@ -2874,20 +3225,38 @@ pub fn text(document: &Value) -> Result<String, String> {
 }
 
 /// The open ids of each family of a coverage document, in item order: what its verdicts
-/// rendering lists ([`crate::verdicts`]).
+/// rendering lists ([`crate::verdicts`]). An argued item is not open.
 #[must_use]
 pub fn open_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
+    tier_one_ids(document, |item| {
+        item["covered"] == false && item["status"] != ARGUED
+    })
+}
+
+/// The argued ids of each tier-1 family of a coverage document, in item order: what its verdicts
+/// rendering lists beside the open ones ([`crate::verdicts`]). A flip's argued status is its
+/// row's.
+#[must_use]
+pub fn argued_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
+    tier_one_ids(document, |item| item["status"] == ARGUED)
+}
+
+/// The ids of each tier-1 family's items that `keep` selects, in item order.
+fn tier_one_ids(
+    document: &Value,
+    keep: impl Fn(&Value) -> bool,
+) -> Vec<(&'static str, Vec<String>)> {
     ["rules", "requirements", "syntax"]
         .into_iter()
         .map(|family| {
-            let open = document["families"][family]["items"]
+            let ids = document["families"][family]["items"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter(|item| item["covered"] == false)
+                .filter(|item| keep(item))
                 .filter_map(|item| item["id"].as_str().map(str::to_owned))
                 .collect();
-            (family, open)
+            (family, ids)
         })
         .collect()
 }

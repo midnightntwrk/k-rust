@@ -255,12 +255,12 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
-            "schema = \"kink-flow-verdicts\"\nversion = 12\ndocument = \"run\"\n".to_owned(),
+            "schema = \"kink-flow-verdicts\"\nversion = 13\ndocument = \"run\"\n".to_owned(),
             "its document is not \"coverage\"",
         ),
         (
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 12\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 13\ndocument = \"coverage\"\n\n\
                  {flip}\n{flip}"
             ),
             "the flip \"f\" is listed twice",
@@ -451,7 +451,7 @@ mod kink_tier {
         assert_eq!(
             family["counts"],
             json!({"distinguished": 1, "undistinguished": 2, "unreached": 1, "unknown": 0,
-                   "refused": 1, "equivalent": 0, "not_generated": 1})
+                   "refused": 1, "equivalent": 0, "not_generated": 1, "argued": 0})
         );
         assert_eq!(family["obligations"], 5);
         assert_eq!(family["measure"], json!(0.25));
@@ -701,7 +701,7 @@ mod kink_tier {
         // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
         // keep but rewrite (its header and open obligations are a hand's).
         let text = format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 12\ndocument = \"coverage\"\n\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 13\ndocument = \"coverage\"\n\n\
              [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
         );
         fs::write(&lock, &text).unwrap();

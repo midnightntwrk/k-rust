@@ -188,11 +188,11 @@ mod kink_tier {
         assert_eq!(syntax["covered"], 5);
         assert_eq!(
             syntax["counts"]["productions"],
-            json!({"obligations": 8, "covered": 5})
+            json!({"obligations": 8, "covered": 5, "argued": 0})
         );
         assert_eq!(
             syntax["counts"]["field_values"],
-            json!({"obligations": 0, "covered": 0})
+            json!({"obligations": 0, "covered": 0, "argued": 0})
         );
         // An unreached production is a target, in item order, naming the rules that inspect it.
         let targets = document["targets"]

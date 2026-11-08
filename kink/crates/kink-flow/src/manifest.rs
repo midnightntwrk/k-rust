@@ -239,8 +239,23 @@ pub struct CoverageSection {
     /// `max_obligations`: the most obligations a universe of depth above 1 may hold before
     /// `coverage` refuses with the counts rather than guess a depth; 100 000 by default.
     pub max_obligations: NonZeroU64,
+    /// `[[coverage.argued]]`: the obligations the corpus's author argues instead of covering, in
+    /// the order written, each item at most once; empty by default. Whether each names an item a
+    /// family lists is the `coverage` command's to say, since the ids are the document's.
+    pub argued: Vec<ArguedItem>,
     /// Whether the manifest has a `[coverage]` section (the document's `settings.source`).
     pub declared: bool,
+}
+
+/// One `[[coverage.argued]]` entry: an obligation that no program is written for, with the
+/// argument that stands in for the program (`crate::coverage`, "Argued obligations").
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArguedItem {
+    /// `item`: the obligation's id as the coverage document names it (`rule:..`,
+    /// `requirement:..`, `syntax:..`, a flip's id).
+    pub item: String,
+    /// `argument`: why no program covers it, for the reader of the document; never parsed.
+    pub argument: String,
 }
 
 /// The default of `[coverage] max_obligations`.
@@ -253,6 +268,7 @@ impl Default for CoverageSection {
             mcdc: Vec::new(),
             max_obligations: NonZeroU64::new(DEFAULT_MAX_OBLIGATIONS)
                 .expect("the default is positive"),
+            argued: Vec::new(),
             declared: false,
         }
     }
@@ -1121,10 +1137,14 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
 }
 
 /// `[coverage]`: `depth` and `max_obligations` positive integers, `mcdc` an array of nonempty
-/// names without repeats.
+/// names without repeats, `argued` an array of tables ([`argued`]).
 fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
     let section = table(value, "coverage")?;
-    known_keys(section, "coverage", &["depth", "mcdc", "max_obligations"])?;
+    known_keys(
+        section,
+        "coverage",
+        &["depth", "mcdc", "max_obligations", "argued"],
+    )?;
     let positive = |name: &str, default: NonZeroU64| match section.get(name) {
         None => Ok(default),
         Some(value) => value
@@ -1161,12 +1181,54 @@ fn coverage(value: &Value) -> Result<CoverageSection, ManifestError> {
         }
         Some(_) => return Err(ManifestError::new(key, "expected an array of rule names")),
     }
+    let argued = section.get("argued").map(argued).transpose()?;
     Ok(CoverageSection {
         depth,
         mcdc,
         max_obligations,
+        argued: argued.unwrap_or_default(),
         declared: true,
     })
+}
+
+/// `[[coverage.argued]]`: tables of exactly `item`, a nonempty id, and `argument`, a text that is
+/// not blank, no item named twice. An argument stands in for a program, so one that says nothing
+/// is no argument; one item argued twice would leave its document to choose between two texts.
+fn argued(value: &Value) -> Result<Vec<ArguedItem>, ManifestError> {
+    let Value::Array(entries) = value else {
+        return Err(ManifestError::new(
+            "coverage.argued",
+            "expected [[coverage.argued]] tables",
+        ));
+    };
+    let mut argued = Vec::<ArguedItem>::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let prefix = format!("coverage.argued[{index}]");
+        let entry = table(entry, &prefix)?;
+        known_keys(entry, &prefix, &["item", "argument"])?;
+        let item = string(
+            entry
+                .get("item")
+                .ok_or_else(|| missing(&join(&prefix, "item")))?,
+            &join(&prefix, "item"),
+        )?;
+        let key = join(&prefix, "argument");
+        let argument = string(entry.get("argument").ok_or_else(|| missing(&key))?, &key)?;
+        if argument.trim().is_empty() {
+            return Err(ManifestError::new(
+                key,
+                "is blank: say why no program covers the item",
+            ));
+        }
+        if let Some(first) = argued.iter().position(|a| a.item == item) {
+            return Err(ManifestError::new(
+                join(&prefix, "item"),
+                format!("`{item}` is argued twice (coverage.argued[{first}] argues it first)"),
+            ));
+        }
+        argued.push(ArguedItem { item, argument });
+    }
+    Ok(argued)
 }
 
 fn result(value: &Value) -> Result<ResultSection, ManifestError> {

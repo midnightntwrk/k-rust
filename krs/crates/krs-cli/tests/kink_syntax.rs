@@ -580,3 +580,88 @@ fn an_aliased_templates_flips_are_placed_in_its_guard() {
         "no flip of crate::decode_ld is reached at its match: {flips:#}"
     );
 }
+
+/// An argued syntax item is named by its KRS id: an unreached variant by its Rust path and a
+/// field value by its template's rule and field. Each has status `argued` with its argument, stays
+/// among the family's obligations, and gives no target; the verdicts rendering lists both. The
+/// K-level name of the variant names no item, so it refuses the command.
+#[test]
+fn an_argued_syntax_item_is_named_by_its_krs_id() {
+    let package = Package::new();
+    let manifest = package.directory.path().join("kink/FLOW.toml");
+    let flow = fs::read_to_string(&manifest).unwrap();
+    let argue = |entries: &[(&str, &str)]| {
+        let mut text = flow.clone();
+        for (item, argument) in entries {
+            write!(
+                text,
+                "\n[[coverage.argued]]\nitem = \"{item}\"\nargument = \"{argument}\"\n"
+            )
+            .unwrap();
+        }
+        fs::write(&manifest, text).unwrap();
+    };
+    argue(&[
+        ("syntax:crate::Instr::Jump", "no opcode decodes to a jump"),
+        (
+            "syntax:crate::decode_ld:r=2",
+            "no program loads into register 2",
+        ),
+    ]);
+    let output = package.coverage(&["--tier", "1"]);
+    let document = json(&output);
+    assert_eq!(output.status.code(), Some(0), "{document:#}");
+    for (id, argument, kind) in [
+        (
+            "syntax:crate::Instr::Jump",
+            "no opcode decodes to a jump",
+            "production",
+        ),
+        (
+            "syntax:crate::decode_ld:r=2",
+            "no program loads into register 2",
+            "field-value",
+        ),
+    ] {
+        let argued = item(&document, id);
+        assert_eq!(argued["kind"], kind, "{argued:#}");
+        assert_eq!(argued["status"], "argued", "{argued:#}");
+        assert_eq!(argued["unargued_status"], "unreached", "{argued:#}");
+        assert_eq!(argued["argument"], argument, "{argued:#}");
+        assert!(
+            document["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|target| target["item"] != id),
+            "{id}: {:#}",
+            document["targets"]
+        );
+    }
+    let counts = &document["families"]["syntax"]["counts"];
+    assert_eq!(counts["productions"]["argued"], 1, "{counts}");
+    assert_eq!(counts["field_values"]["argued"], 1, "{counts}");
+    assert_eq!(document["summary"]["per_family"]["syntax"]["argued"], 2);
+    let verdicts = stdout(&package.coverage(&["--tier", "1", "--output", "verdicts"]));
+    assert!(
+        verdicts.contains(
+            "\nargued = [\"syntax:crate::decode_ld:r=2\", \"syntax:crate::Instr::Jump\"]\n"
+        ) || verdicts.contains(
+            "\nargued = [\"syntax:crate::Instr::Jump\", \"syntax:crate::decode_ld:r=2\"]\n"
+        ),
+        "{verdicts}"
+    );
+
+    argue(&[("syntax:Jump", "no opcode decodes to a jump")]);
+    let output = package.coverage(&["--tier", "1"]);
+    let refused = json(&output);
+    assert_eq!(output.status.code(), Some(2), "{refused:#}");
+    assert_eq!(refused["spec"]["reason"], "argued-stale", "{refused:#}");
+    assert!(
+        refused["spec"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("`syntax:Jump`: no family lists it"),
+        "{refused:#}"
+    );
+}

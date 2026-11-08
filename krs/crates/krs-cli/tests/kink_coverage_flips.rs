@@ -300,7 +300,7 @@ fn a_refused_flip_is_listed_with_its_reason() {
     assert_eq!(
         family["counts"],
         json!({"distinguished": 8, "undistinguished": 2, "unreached": 2, "unknown": 0,
-               "refused": 1, "equivalent": 0, "not_generated": 0}),
+               "refused": 1, "equivalent": 0, "not_generated": 0, "argued": 0}),
         "{family:#}"
     );
     assert_eq!(family["obligations"], 13, "{family:#}");

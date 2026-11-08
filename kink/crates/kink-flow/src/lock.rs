@@ -30,8 +30,9 @@
 //! `killer`. A flip's killer is a mutation's killer under another name: the flip's mutant is run
 //! by the kill search `run` makes ([`crate::search`]), keyed by the flip's id, so the recorded
 //! killer is tried first and kept while it still kills, else the first killing program in the
-//! search's order. The rendering also lists each family's open obligations (`[rules] open`,
-//! `[requirements] open`), which are read only to report what changed, as a row's status is.
+//! search's order. The rendering also lists each family's open and argued obligations (`[rules]
+//! open`, `[rules] argued`, ...), which are read only to report what changed, as a row's status
+//! is.
 //! Its header is what comes before the first family: the schema, version, profile and build lines,
 //! the specification and the settings.
 
@@ -142,6 +143,10 @@ pub struct Lock {
     /// A coverage lock's open obligations by family (`[rules] open`, ...), read only to report
     /// what changed; empty for a run's.
     pub open: BTreeMap<String, Vec<String>>,
+    /// A coverage lock's argued obligations by family (`[rules] argued`, ...), read only to
+    /// report what changed; empty for a run's and for a lock written before arguments were
+    /// rendered.
+    pub argued: BTreeMap<String, Vec<String>>,
 }
 
 /// One `[[mutation]]` of a lock.
@@ -244,15 +249,15 @@ impl Lock {
                 reason: string("reason"),
             });
         }
-        // A coverage lock's open obligations: each family section's `open`, when it is an array
-        // of strings; read only to report what changed.
-        let open = match kind {
+        // A coverage lock's open and argued obligations: each family section's `open` and
+        // `argued`, when it is an array of strings; read only to report what changed.
+        let listed = |key: &str| match kind {
             LockKind::Run => BTreeMap::new(),
             LockKind::Coverage => table
                 .iter()
                 .filter(|(family, _)| crate::coverage::FAMILIES.contains(&family.as_str()))
                 .filter_map(|(family, section)| {
-                    let ids = section.get("open")?.as_array()?;
+                    let ids = section.get(key)?.as_array()?;
                     let ids = ids
                         .iter()
                         .map(|id| id.as_str().map(str::to_owned))
@@ -267,7 +272,8 @@ impl Lock {
             text: Some(text),
             rows,
             header: header_values(&table, kind),
-            open,
+            open: listed("open"),
+            argued: listed("argued"),
         })
     }
 
@@ -518,31 +524,55 @@ impl Lock {
         changes
     }
 
-    /// Each obligation of a coverage lock whose openness differs between the lock and `document`:
-    /// `{family, obligation, recorded, now}`, each side `"open"` where that side lists it open and
-    /// null where it does not (it is covered, or no longer an obligation), in family order, then
-    /// the document's order, then the lock's order.
+    /// Each obligation of a coverage lock whose state differs between the lock and `document`:
+    /// `{family, obligation, recorded, now}`, each side `"open"` or `"argued"` where that side
+    /// lists it so and null where it lists it neither way (it is covered, or no longer an
+    /// obligation), in family order, then the document's order, then the lock's order.
     fn open_changes(&self, document: &Value) -> Vec<Value> {
-        let now = crate::coverage::open_ids(document)
-            .into_iter()
-            .map(|(family, open)| (family.to_owned(), open))
-            .collect::<BTreeMap<_, _>>();
+        // Each family's ids by state, on one side.
+        let states = |open: Vec<(String, Vec<String>)>, argued: Vec<(String, Vec<String>)>| {
+            let mut states = BTreeMap::<String, Vec<(String, &'static str)>>::new();
+            for (family, ids) in open {
+                let entry = states.entry(family).or_default();
+                entry.extend(ids.into_iter().map(|id| (id, "open")));
+            }
+            for (family, ids) in argued {
+                let entry = states.entry(family).or_default();
+                entry.extend(ids.into_iter().map(|id| (id, "argued")));
+            }
+            states
+        };
+        let owned = |ids: Vec<(&'static str, Vec<String>)>| {
+            ids.into_iter()
+                .map(|(family, ids)| (family.to_owned(), ids))
+                .collect::<Vec<_>>()
+        };
+        let now = states(
+            owned(crate::coverage::open_ids(document)),
+            owned(crate::coverage::argued_ids(document)),
+        );
+        let recorded = states(
+            self.open.clone().into_iter().collect(),
+            self.argued.clone().into_iter().collect(),
+        );
         let mut changes = Vec::new();
         for family in crate::coverage::FAMILIES {
-            let (recorded, current) = (self.open.get(family), now.get(family));
-            let listed = |ids: Option<&Vec<String>>, id: &str| {
-                ids.is_some_and(|ids| ids.iter().any(|open| open == id))
+            let (recorded, current) = (recorded.get(family), now.get(family));
+            let state = |ids: Option<&Vec<(String, &'static str)>>, id: &str| {
+                ids.and_then(|ids| ids.iter().find(|(listed, _)| listed == id))
+                    .map(|(_, state)| *state)
             };
-            for id in current.into_iter().flatten() {
-                if !listed(recorded, id) {
+            for (id, state_now) in current.into_iter().flatten() {
+                let before = state(recorded, id);
+                if before != Some(*state_now) {
                     changes.push(json!({"family": family, "obligation": id,
-                                        "recorded": null, "now": "open"}));
+                                        "recorded": before, "now": state_now}));
                 }
             }
-            for id in recorded.into_iter().flatten() {
-                if !listed(current, id) {
+            for (id, state_before) in recorded.into_iter().flatten() {
+                if state(current, id).is_none() {
                     changes.push(json!({"family": family, "obligation": id,
-                                        "recorded": "open", "now": null}));
+                                        "recorded": state_before, "now": null}));
                 }
             }
         }
@@ -675,7 +705,8 @@ pub fn refused_value(path: &Path, detail: &str) -> Value {
 /// `verdicts.lock: plus/a: killer t4 -> t2 (t4: not-in-corpus)`, `verdicts.lock: plus/c:
 /// killed -> survived`, and for a coverage lock one per obligation whose openness differs
 /// (`lock.open_changes`: `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements:
-/// requirement:x:held is no longer open`) before them; when neither the header nor any
+/// requirement:x:held is no longer open`, `coverage.lock: rules: rule:x is argued (was open)`)
+/// before them; when neither the header nor any
 /// obligation nor any row's verdict differs, one line naming the first difference
 /// (`lock.difference`: the rows' order, or a line of text); empty otherwise.
 #[must_use]
@@ -765,10 +796,11 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             change["family"].as_str().unwrap_or("?"),
             change["obligation"].as_str().unwrap_or("?"),
         );
-        let what = if change["now"].is_null() {
-            "is no longer open"
-        } else {
-            "is open"
+        let what = match (change["recorded"].as_str(), change["now"].as_str()) {
+            (Some(before), None) => format!("is no longer {before}"),
+            (None, Some(now)) => format!("is {now}"),
+            (Some(before), Some(now)) => format!("is {now} (was {before})"),
+            (None, None) => "is unchanged".to_owned(),
         };
         lines.push(format!("{path}: {family}: {id} {what}"));
     }
@@ -831,6 +863,7 @@ mod tests {
             rows,
             header: header_values(&text.parse().unwrap(), LockKind::Run),
             open: BTreeMap::new(),
+            argued: BTreeMap::new(),
         }
     }
 

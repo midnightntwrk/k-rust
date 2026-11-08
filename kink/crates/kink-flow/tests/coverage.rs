@@ -1038,7 +1038,7 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{document:#}");
         assert_eq!(
             document["settings"],
-            json!({"tiers": [1], "depth": 1, "mcdc": [], "max_obligations": 10,
+            json!({"tiers": [1], "depth": 1, "mcdc": [], "max_obligations": 10, "argued": [],
                    "source": "manifest"})
         );
         write(&manifest, &format!("[coverage]\nwidth = 1\n\n{text}"));
@@ -1288,7 +1288,7 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             family["counts"],
             json!({"fired": 4, "matched": 0, "unmatched": 2, "out_of_scope": 0,
-                   "claim_helper": 0, "no_coverage_signal": 1})
+                   "claim_helper": 0, "no_coverage_signal": 1, "argued": 0})
         );
     }
 
@@ -1541,9 +1541,10 @@ text = 'h(opaque(1), 2)'
         assert_eq!(rules(&document)[0]["id"], "rule:loop.k:19");
         // The coverage document's first version replaced the results document's version 11; its
         // second builds the syntax family; its third runs the flips family where a front end
-        // derives the flips; its fourth has the coverage lock and each flip's recorded killer.
+        // derives the flips; its fourth has the coverage lock and each flip's recorded killer; its
+        // fifth names the observation channels; its sixth reads the argued obligations.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 5);
+        assert_eq!(document["version"], 6);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -2241,7 +2242,10 @@ endmodule
         assert_eq!(output.status.code(), Some(i32::from(EXIT_YES)));
         let text = String::from_utf8(output.stdout).unwrap();
         assert!(
-            text.starts_with("coverage: 0 open, 0 argued; 4 programs, 4 comparable\n"),
+            text.lines()
+                .next()
+                .is_some_and(|line| line.starts_with("coverage: ")
+                    && line.ends_with(" covered, 0 argued, 0 open; 4 programs, 4 comparable")),
             "{text}"
         );
         assert!(text.contains("\nrules: 3 of 3 fired (100.0%)"), "{text}");

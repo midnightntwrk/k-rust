@@ -7,12 +7,12 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 12
+//! version = 13
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-//! krs_annotation = 5
+//! krs_annotation = 6
 //!
 //! [spec]
 //! outcome = "admitted"
@@ -24,12 +24,15 @@
 //!
 //! [rules]
 //! open = ["rule:crate::plus_succ"]
+//! argued = []
 //!
 //! [requirements]
 //! open = []
+//! argued = ["requirement:crate::wake:held"]
 //!
 //! [syntax]
 //! open = []
+//! argued = []
 //!
 //! [flips]
 //! run = true
@@ -41,7 +44,7 @@
 //!
 //! [[flip]]
 //! id = "flip--halted+wake--I"
-//! status = "unreached"
+//! status = "argued"
 //! ```
 //!
 //! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
@@ -67,11 +70,16 @@
 //! line, which could only move a lock without any verdict moving.
 //!
 //! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
-//! family the ids of its open obligations, in item order (`[rules]`, `[requirements]`, `[syntax]`;
-//! [`crate::coverage::open_ids`]), and for the flips family whether it ran and, when it ran, each
-//! flip (`[[flip]]`, in item order) with its status, a refused flip's reason, and a distinguished
+//! family the ids of its open obligations and of its argued ones, in item order (`[rules]`,
+//! `[requirements]`, `[syntax]`; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
+//! and for the flips family whether it ran and, when it ran, each flip (`[[flip]]`, in item order)
+//! with its status (`argued` for an argued one), a refused flip's reason, and a distinguished
 //! flip's `killer`. It lists no programs and no counts, so that it moves only when a gap opens or
-//! closes or a killer changes: a case that covers nothing new renders the same bytes. A flip's
+//! closes, an argument is added or removed, or a killer changes: a case that covers nothing new
+//! renders the same bytes. An argument's text is not rendered, since it explains a verdict rather
+//! than records one; its id is, since an argued obligation leaves the open ones without any
+//! program covering it, and a lock that did not say so would show a gap closing that no program
+//! closed. A flip's
 //! killer is the recorded one (the coverage lock's) while it kills, else the first killing
 //! program in the search's order, a function of the inputs and the record, as a run's is. A
 //! `run` document
@@ -133,8 +141,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// the recorded one while it kills, so that a `coverage.lock` records the flips' verdicts; 12 since
 /// a survivor some program of which agreed only up to its baseline's observation horizon (`[observe]`)
 /// has `horizon`, each such program's channels and the number of elements they agreed on, so that
-/// a lock shows when a survivor rests on a budgeted prefix.
-pub const VERDICTS_VERSION: u64 = 12;
+/// a lock shows when a survivor rests on a budgeted prefix; 13 since
+/// a `coverage` rendering lists each family's argued obligations (`argued`, beside `open`) and an
+/// argued flip has status `argued`, so that a lock records which obligations are argued rather
+/// than covered.
+pub const VERDICTS_VERSION: u64 = 13;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -325,9 +336,12 @@ fn coverage(text: &mut String, document: &Value) {
     if !document["families"].is_object() {
         return;
     }
-    for (family, open) in crate::coverage::open_ids(document) {
+    let argued = crate::coverage::argued_ids(document);
+    for ((family, open), (_, argued)) in crate::coverage::open_ids(document).into_iter().zip(argued)
+    {
         let _ = write!(text, "\n[{family}]\n");
         line(text, "open", &strings(&open));
+        line(text, "argued", &strings(&argued));
     }
     let flips = &document["families"]["flips"];
     if flips.is_object() {
