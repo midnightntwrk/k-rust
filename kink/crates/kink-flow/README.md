@@ -579,7 +579,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<execution digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v22`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
+(result schema version `kink-flow/result/v23`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
 the writer's specification digest `spec_digest` (outside the key: it only tells a reader that a record was written under other bytes),
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), whose whole-term (or `cells`) side holds the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), each end once: since v12 a comparable record does not repeat them in `final_configuration`, which holds the final state of each leaf of an `unknown` program's diagnostic run (`results::record_final_configuration` reads either), the rule
@@ -589,6 +589,8 @@ the run digest; it orders the kill search, see `run`), and, since v5 (re-pin ado
 `smt_unknowns`, its count of undecided solver answers (both outside the key and the run digest),
 and, since v9 (CF-16), for a comparable program, `ends`: each final configuration's `{head, class}`, in the order of the final configurations (outside the key and the run digest),
 and, since v11 (CF-03), `short_circuit_readings`: for a run excluded as `short-circuit-reading`, each entry of its list of short-circuit readings that counts against it, `{operator, outcome, head, operand, rule, observed_in}` (the operator whose operand after the deciding one the run read, `undefined` or `undecided`, the operand's head symbol and one instance of it as KORE text, the rewrite rule whose work read it `{id, label, source, location}` or null for work of no rule, and `run` or `load`), the step that excluded the run, which the row's `cause` also names; empty for every other run (outside the key and the run digest).
+Since v23 the record's coverage holds `windows`, the rule windows the baseline run took: `{depth, sequences}`, the longest length the run asked for and every window up to it, each a list of `{module, index}` in step order, null for a run that asked for none, whose windows of length 1 are its fired rules.
+A record collected at depth `D` answers a command of any depth up to `D`; a command of a greater depth runs the program again and replaces its record with one at its own depth ("Rule windows").
 An end's `head` is its computation head, the first item of its computation cell (or the cell's content when that is no sequence of items), printed as one line of K text (`{text, rendering, truncated}`, below under "Kill evidence"); null when the end has no computation cell.
 The computation cell is the first cell, from the top, whose production has the `maincell` attribute: k-rust gives it to a cell named `k`, and a configuration may declare it on a cell of another name (`<code maincell="">`).
 Its `class` is the class the exit-stop slot projects it to, `normal` for every end under the flow's classifier.
@@ -794,10 +796,30 @@ Under `--tier 1`, or where the front end derives none, the family is `{tier: 2, 
 kink-flow's own front end derives none: it reads K alone, which gives neither the guard families nor a judge, and the family's `reason` says so.
 krs's front end derives and judges a definition's condition flips and gives coverage every one, refused ones too, each with the guard nodes or the arms it changes; a definition with no flip has `run: false` and krs's reason.
 
-**Not built.** `rule_windows` and `syntax_paths` (depth above 1) are `null`.
+**Rule windows (depth above 1).** At depth `d` above 1 (`[coverage] depth`, or `--depth`), each window of length `2..=d` of the may-follow graph is an item `{kind: "window", id, length, rules, rule_ids, status, covered, covered_by, uncounted, touched_only_by, frontier, pattern}`, `rules` the window's sentences `{module, index}` in step order and `rule_ids` their rule ids; at depth 1 the family is `null`.
+A window is a sequence of rewrite rules some path took as consecutive committed steps (k-rust `coverage.windows`; under a state set, a path merged into a state explored earlier takes the windows that go on into that state's successors, so the windows are those of the path set).
+Its windows of length 1 are the rules family's fired rules, so the family starts at length 2; equations take no step, so none is in a window, and neither is a heating or cooling rule, whose sentence is a production or a `context`, not a rule: a window with such a step between two authored rules is no window of theirs.
+The universe is the walks of the may-follow graph over the rules family's authored rewrite rules: rule `B` may follow rule `A` when `A`'s right-hand side unifies with `B`'s left-hand side, every function application, builtin-domain value, collection and conjunction read as a fresh variable, each occurrence of a variable its own, through injections, a variable unifying with a constructor its sort may hold, and conditions ignored (kink-native `coverage::may_follow`).
+The successor of a step of `A` is the normal form of an instance of `A`'s right-hand side, and normalization leaves every free constructor in place, so wherever the right-hand side has a free constructor below free constructors, the successor has it, and a rule whose left-hand side matches the successor unifies with the right-hand side: the universe over-approximates what can follow, and never omits a window a run can take.
+A `K` sequence whose first element is a `K`-sorted variable or computed term is read as a fresh variable too: that element may be the empty sequence or several items, which shifts every later element.
+A window of authored rules that a comparable record holds and the graph lacks would be a failure of that argument: it is listed in `outside_universe` and not counted.
+A window is `covered` when some comparable program's record holds it, else `open`.
+The measure is covered / obligations over every length, and `counts` gives `covered`, `open`, `argued`, `frontier` and `by_length` (`{"2": {obligations, covered}, ...}`); `nodes` and `edges` give the graph's size.
+
+The universe's size is computed from the graph before any program runs, as a count of walks.
+A universe above `[coverage] max_obligations` refuses the command at stage `coverage`, reason `max-obligations`, before any program runs, its detail giving the count of each length and the graph's size: the count grows with the graph's branching to the power `d - 1`, and a budget is the author's statement of how many obligations a corpus is meant to answer, so the command does not guess a smaller depth.
+
+A target is listed only for a window on the frontier (`frontier`): an open window whose first `length - 1` rules are covered, as a window, or, for a window of two rules, as a fired rule; the measure still counts every window.
+A window off the frontier extends an open rule or an open window, whose own target comes first, so an agent extends what the corpus already does.
+The target asks for a case whose run takes a step of the window's last rule right after its other rules, names the programs that took those as its templates (`programs`), and carries as `pattern` the unifier of the right-hand side of the last rule but one with the left-hand side of the last rule, every abstracted subterm and every variable a fresh variable (`W0`, `W1`, ...), printed as K: a `PATTERNS.toml` pattern of the configurations a step of the one leaves that the other can match, which `query` and `fuzz --pattern` take; null where the printer cannot print it.
+Its `fuzz` is `null`: no fuzz job's facts name a window.
+A window no run can take is argued (`[[coverage.argued]]`, by its id); a window containing a part (a rule, or a shorter window) that an entry argues while no program covers it is `argued` too, with `argued_by` naming the part and its argument: a path that takes the window takes each of its parts as consecutive steps.
+Each window id is `window:<rule>,<rule>,...`, each rule by the name its rule id gives it, so a front end's names are in it (`window:crate::step,crate::stop`).
+
+**Not built.** `syntax_paths` (depth above 1) is `null`.
 
 The measure is per family: no weighted total is given, since nothing weighs a rule against an operand's truth.
-`summary.open`, the count of open obligations, is the one scalar, and zero means done: every obligation is covered or argued ("Argued obligations").
+`summary.open`, the count of open targets, is the one scalar, and zero means done: every obligation is covered or argued ("Argued obligations"); an open rule window off the frontier has no target, but it extends an open rule or window, which has one, or an argued part, which argues it.
 
 Every item has a stable `id`: `rule:<name>`, `requirement:<name>:<detail>` and `syntax:<production>`.
 A rule's name is its KRS item where a front end named it (`krs.item`), else its label, else its `file:line`, with `:<label>` added where two rules share a name; a requirement's detail is `held`, `refuted`, or the node's text (the front end's source text where it gives one, else the K text, with `@<path>` added where two nodes of one condition share a text) and its truth; a production is named by its front end (`krs.item`) where it names it, else by its K label, with `@<sort>` added where two share a name, `@<symbol>` where two share a name and a sort, and `#<n>` for the `n`th of items that share all three; two declarations of one label build terms of one symbol and are one production, listed at its first declaration.
@@ -877,7 +899,7 @@ A corpus commits `coverage.lock` beside `verdicts.lock`, and a CI runs `coverage
 
 ### The document
 
-`{schema: "kink-flow-coverage", version: 11, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
+`{schema: "kink-flow-coverage", version: 12, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
 Version 2 builds the syntax family, where version 1 had `null`.
 Version 3 runs the flips family where a front end derives the flips: `settings.tiers` `[1, 2]`, the family's items, counts, measure and search, its targets, and `summary.per_family.flips`.
@@ -889,6 +911,7 @@ Version 8 reads `[coverage] mcdc` ("Unique-cause MC/DC"): `settings.mcdc` may be
 Version 9 lists the heating rules in the rules family ("Families"): each rules item's `kind`, the heating items with `heating`, and the family's `counts.heating`.
 Version 10 gives a program row's `observations` of a run with several paths its prefix sets' facts, as the run document's version 36 does.
 Version 11 (CS-8) spells the `fuzz --cover <item>` job in the `fuzz` of every open requirement but a unique-cause one, every unreached production, every unreached field value whose item names its `binder` (a front end's `{axiom, variable, encodings}`), every open heating rule and every open function equation, where version 10 had `null` ("Covering a rule and hitting a pattern").
+Version 12 (CS-4) computes a depth above 1 instead of refusing it (`depth-unsupported`): `families.rule_windows`, its targets and `summary.per_family.rule_windows`, and the refusal `max-obligations` ("Rule windows").
 `settings` is `{tiers, depth, mcdc, max_obligations, argued, source}` (`mcdc` the names as written, or `true`; `argued` the entries as written, `{item, argument}`) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, argued, measure, counts, items}` where built.
@@ -913,9 +936,9 @@ item = "rule:LOOP.spin"
 argument = "a defence against a state the definition never builds"
 ```
 
-Every command decodes the section, and refuses a malformed one as it refuses any manifest key; `coverage` refuses what this build cannot honour, at stage `coverage` before anything runs: a depth above 1 (`depth-unsupported`, `depth` or `--depth`: rule windows and syntax paths are not built).
+Every command decodes the section, and refuses a malformed one as it refuses any manifest key; `coverage` refuses a depth whose rule windows outnumber `max_obligations`, at stage `coverage` before any program runs (`max-obligations`, "Rule windows").
 `mcdc` names rules as the document's ids do (`rule:<name>`), each once; `false` is the empty list. A name that selects no rule whose condition states requirements is refused at stage `coverage` (`mcdc-stale`) once the rules are named, before any mutant runs ("Unique-cause MC/DC").
-The other commands do not read the section, so they run on such a manifest as written.
+The other commands read `depth` only to collect the rule windows of every baseline run they make up to it, so that their records answer `coverage` at that depth; they read nothing else of the section.
 
 ### Guard outcomes
 
@@ -1594,6 +1617,10 @@ undecided = ["requirement:CALC.div:B:mcdc"] # only where a family has undecided 
 open = []
 argued = []
 
+[rule_windows]                # coverage at a depth above 1 only: every open window, on the frontier or not
+open = ["window:CALC.seq,CALC.div"]
+argued = []
+
 [flips]                       # coverage: whether the flips family ran
 run = true
 
@@ -1662,6 +1689,8 @@ Version 11 lists each flip of a coverage rendering whose flips ran (`[[flip]]`),
 Version 12 gives a survivor that rests on a horizon its `horizon` (`[observe]`, "What a run observes"): each program whose channels agreed only up to its baseline's horizon, each channel and the number of elements agreed on, a function of the budget and not of the host.
 Version 13 lists each family's argued obligations beside its open ones (`argued`) and gives an argued flip the status `argued`, so that a `coverage.lock` records which obligations are argued rather than covered; a run rendering is unchanged but for its `version` line, and a coverage lock recorded at version 12 with nothing argued differs from a version 13 rendering of the same coverage in that line and the empty `argued` lines only.
 Version 14 gives each horizon its `opening` (`bound`, `undecided-element`, `branch`, `undecided-path` or `cycle`), so that a lock shows whether a larger budget could observe more, and gives an undistinguished flip that rests on a horizon its `horizon`; a rendering with no horizon is unchanged but for its `version` line.
+Version 17 lists a coverage rendering's rule windows (`[rule_windows]`) where the document has the family, at a depth above 1, which earlier versions refused; a rendering of depth 1 is unchanged but for its `version` line.
+The section lists every open window, not only the frontier's: a lock moves when any window opens or closes.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 

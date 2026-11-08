@@ -1118,7 +1118,14 @@ Each item names its id (`flip--boundary_halted+boundary_wake--Requested`, `bitfl
 A definition with no flip has `run: false` and says why (the story's equations have no condition).
 `--tier 1` asks for the families read from the baseline runs alone, and the flips family then gives only its number of obligations; `--output text` prints one line per family and per target.
 An `unmatched` rewrite rule's target carries `pattern`, the rule's left-hand side as a `PATTERNS.toml` pattern, with the sorts its parse inferred, for `query` and `fuzz --pattern`.
-`[coverage]` in `FLOW.toml` is decoded (`depth`, `mcdc`, `max_obligations`, `[[coverage.argued]]`), and a `depth` above 1 is refused with its reason, since the families of sequences are not built yet.
+`[coverage]` in `FLOW.toml` is decoded (`depth`, `mcdc`, `max_obligations`, `[[coverage.argued]]`).
+A `depth` above 1 (or `--depth N`, to explore one without editing the manifest) adds the rule windows family: each sequence of 2 up to `depth` rewrite rules that a run can take as consecutive steps, named by your items (`window:crate::step,crate::stop`), covered where a comparable case's run took those steps one after another.
+Equations take no step, so none is in a window, and neither is a heating or cooling step: a window is a sequence of the rules you wrote.
+Which rule can follow which is read from the definition alone, before any case runs: rule B can follow rule A where the configuration A builds can have the shape B matches, every function call, builtin value and map, list or set in either read as anything, conditions ignored, so the family never misses a sequence a run can take, and lists some no run can, which you argue as above (an argued window, and an argued rule no case fires, argue every window that contains them: `argued_by` names the part).
+The number of windows is counted first, and a `depth` whose windows outnumber `max_obligations` (100 000 by default) is refused at stage `coverage`, reason `max-obligations`, with the count of each length, before any case runs.
+Only the frontier has targets: an open window whose first rules a case already took one after another (for two rules, whose first rule fired), so each target extends what your corpus does; its `pattern` is the configuration the last rule but one can leave that the last rule matches, a `PATTERNS.toml` pattern for `query` and `fuzz --pattern`, and it has no fuzz job.
+The measure counts every window, and the verdicts rendering lists every open one under `[rule_windows]`.
+A case's record keeps the windows up to the depth it ran at, so it answers every smaller depth, and a larger depth runs the case again.
 `krs kink results` is refused, naming `coverage`.
 A claim helper (an equation of a function only claims apply) that no case matched has its own status, `claim-helper`, not `unmatched`: it serves the claims, which `krs prove` checks, and not the runs a case makes; a claim helper some case matched or fired (a typed input can apply any function) has that status.
 A function nothing applies is reached by no program text either, but no claim accounts for it, so it stays `unmatched`.
