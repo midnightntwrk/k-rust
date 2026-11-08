@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 19
+//! version = 20
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -20,19 +20,28 @@
 //! [settings]
 //! tiers = [1, 2]
 //! depth = 1
-//! mcdc = []
+//! mcdc = [
+//! ]
 //!
 //! [rules]
-//! open = ["rule:crate::plus_succ"]
-//! argued = []
+//! open = [
+//!   "rule:crate::plus_succ",
+//! ]
+//! argued = [
+//! ]
 //!
 //! [requirements]
-//! open = []
-//! argued = ["requirement:crate::wake:held"]
+//! open = [
+//! ]
+//! argued = [
+//!   "requirement:crate::wake:held",
+//! ]
 //!
 //! [syntax]
-//! open = []
-//! argued = []
+//! open = [
+//! ]
+//! argued = [
+//! ]
 //!
 //! [flips]
 //! run = true
@@ -117,6 +126,12 @@
 //! killer record"): so a first-kill and a full rendering state the same facts apart from the
 //! `killed_by` lines, and a full rendering of a run with no kill is the first-kill rendering. A
 //! `timeout` class or status depends on the host by its nature.
+//!
+//! Every array of strings or inline tables the rendering writes (`open`, `argued`, `undecided`,
+//! `[settings] mcdc`, `horizon`, `killed_by`) has one value per line, with a trailing comma, from
+//! the key's line to a `]` on its own, an empty array included: so a lock's diff of a set that
+//! changed is exactly the lines of the values that joined or left it, in the set's order, and
+//! no other line moves. `tiers`, at most two numbers, is inline.
 
 use serde_json::{Value, json};
 use std::fmt::Write as _;
@@ -167,8 +182,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `[[guard]]` entries and the open requirements of a `coverage` rendering, cover every
 /// application its left-hand side matches whose deciding priority group is its own, whether or
 /// not the run tried it there, so that a lock whose guard and requirement lists move for that
-/// reason shows a new version, not a corpus change.
-pub const VERDICTS_VERSION: u64 = 19;
+/// reason shows a new version, not a corpus change; 20 since every array of strings or inline
+/// tables the rendering writes has one value per line, an empty one included (module
+/// documentation), so that a lock whose layout moves shows a new version; its values are
+/// unchanged.
+pub const VERDICTS_VERSION: u64 = 20;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -345,6 +363,7 @@ fn coverage(text: &mut String, document: &Value) {
                 .collect::<Vec<_>>();
             format!("[{}]", items.join(", "))
         };
+        // At most two numbers, a setting rather than a list a corpus grows: inline.
         line(text, "tiers", &numbers(&settings["tiers"]));
         line(text, "depth", &settings["depth"].to_string());
         let mcdc = if settings["mcdc"] == true {
@@ -431,7 +450,7 @@ pub fn rendered_flip(item: &Value) -> Value {
 
 /// A survivor's agreements up to a horizon (a run row's `horizon`, `[{program, horizon:
 /// {<channel>: {elements, opening}}}]`) as a rendering writes them: one inline table per program
-/// and channel, `{ program, channel, elements, opening }`.
+/// and channel, `{ program, channel, elements, opening }`, one per line ([`list`]).
 fn rendered_horizons(horizons: &[Value]) -> String {
     let items = horizons
         .iter()
@@ -452,7 +471,7 @@ fn rendered_horizons(horizons: &[Value]) -> String {
                 })
         })
         .collect::<Vec<_>>();
-    format!("[{}]", items.join(", "))
+    list(&items)
 }
 
 /// Whether a run document's row is of a mutation its author must fix before it is judged:
@@ -521,8 +540,21 @@ fn string(value: &str) -> String {
     toml::Value::String(value.to_owned()).to_string()
 }
 
-/// A TOML array of basic strings, on one line.
+/// A TOML array of basic strings, one per line ([`list`]).
 fn strings(values: &[String]) -> String {
     let items = values.iter().map(|value| string(value)).collect::<Vec<_>>();
-    format!("[{}]", items.join(", "))
+    list(&items)
+}
+
+/// A TOML array of rendered values, opening on its key's line, each value on a line of its own
+/// with a trailing comma, and `]` on its own line, an empty array included (`key = [` then `]`):
+/// adding or removing a value adds or removes its line and moves no other, and the transitions to
+/// and from an empty array do too, so a lock's diff is the lines of the values that changed.
+pub(crate) fn list(items: &[String]) -> String {
+    let mut text = "[\n".to_owned();
+    for item in items {
+        let _ = writeln!(text, "  {item},");
+    }
+    text.push(']');
+    text
 }

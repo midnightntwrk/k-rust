@@ -637,12 +637,16 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
 
 /// The header keys of a rendering's text, in the order of its lines, as [`header_values`]
 /// names them: a key before any table, or `section.key` in a `[section]`; none in a
-/// `[[mutation]]` row.
+/// `[[mutation]]` row, and none from the continuation lines of a multi-line array (a value, a
+/// string or an inline table, or its closing `]`), which belong to the key that opened it.
 fn header_key_order(text: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut section: Option<&str> = Some("");
     for line in text.split('\n') {
         let trimmed = line.trim();
+        if trimmed.starts_with(['"', '{', ']']) {
+            continue;
+        }
         if trimmed.starts_with("[[") {
             section = None;
         } else if let Some(name) = trimmed.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
@@ -856,8 +860,12 @@ mod tests {
                       [[mutation]]\nid = \"b\"\nstatus = \"survived\"\n";
 
     fn lock(text: &str) -> Lock {
-        let path = PathBuf::from("verdicts.lock");
-        let rows = Lock::read_text(text, LockKind::Run)
+        lock_of(text, LockKind::Run)
+    }
+
+    fn lock_of(text: &str, kind: LockKind) -> Lock {
+        let path = PathBuf::from(kind.file());
+        let rows = Lock::read_text(text, kind)
             .into_iter()
             .map(|id| LockRow {
                 id,
@@ -865,11 +873,11 @@ mod tests {
             })
             .collect();
         Lock {
-            kind: LockKind::Run,
+            kind,
             path,
             text: Some(text.to_owned()),
             rows,
-            header: header_values(&text.parse().unwrap(), LockKind::Run),
+            header: header_values(&text.parse().unwrap(), kind),
             open: BTreeMap::new(),
             argued: BTreeMap::new(),
         }
@@ -908,6 +916,83 @@ mod tests {
         );
         assert_eq!(lock(AB).difference(AB), Value::Null);
         assert_eq!(Lock::default().difference(AB), Value::Null);
+    }
+
+    /// A coverage lock whose arrays have one value per line, as the rendering writes them
+    /// ([`crate::verdicts`]), reads as the same lock with each array on one line: the same head,
+    /// header values and header key order (a value holding `=` names no key), the same rows and
+    /// row `id` lines (at their own line numbers), and a reordering of its rows is named as one,
+    /// at the first reordered row's `id` line.
+    #[test]
+    fn a_multi_line_lock_reads_as_its_one_line_form() {
+        let one_line = |items: &[&str]| format!("[{}]", items.join(", "));
+        let multi_line = |items: &[&str]| {
+            crate::verdicts::list(
+                &items
+                    .iter()
+                    .map(|&item| item.to_owned())
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let render = |array: &dyn Fn(&[&str]) -> String, first: &str, second: &str| {
+            format!(
+                "schema = \"kink-flow-verdicts\"\nversion = 20\ndocument = \"coverage\"\n\n\
+                 [settings]\ntiers = [1, 2]\ndepth = 1\nmcdc = {}\n\n[rules]\nopen = {}\n\
+                 argued = {}\n\n[syntax]\nopen = {}\nargued = {}\n\n[flips]\nrun = true\n\n\
+                 [[flip]]\nid = \"{first}\"\nstatus = \"undistinguished\"\nhorizon = {}\n\n\
+                 [[flip]]\nid = \"{second}\"\nstatus = \"argued\"\n",
+                array(&["\"GUARDS.wake\""]),
+                array(&["\"rule:GUARDS.wake\"", "\"rule:GUARDS.high\""]),
+                array(&[]),
+                array(&["\"syntax:crate::decode_ld:r=2\""]),
+                array(&[]),
+                array(&[
+                    "{ program = \"run\", channel = \"clock\", elements = 16, opening = \"bound\" }"
+                ]),
+            )
+        };
+        let (one, multi) = (render(&one_line, "a", "b"), render(&multi_line, "a", "b"));
+        assert!(
+            multi.contains("\n[rules]\nopen = [\n  \"rule:GUARDS.wake\",\n"),
+            "{multi}"
+        );
+        assert!(multi.contains("\nargued = [\n]\n"), "{multi}");
+        let kind = LockKind::Coverage;
+        let table = |text: &str| text.parse::<toml::Table>().unwrap();
+        assert_eq!(table(&multi), table(&one));
+        assert_eq!(table(head(kind, &multi)), table(head(kind, &one)));
+        assert!(head(kind, &multi).ends_with("mcdc = [\n  \"GUARDS.wake\",\n]\n"));
+        assert_eq!(
+            header_values(&table(&multi), kind),
+            header_values(&table(&one), kind)
+        );
+        assert_eq!(header_key_order(&multi), header_key_order(&one));
+        let lines = |text: &str| {
+            id_lines(text, kind.row())
+                .into_iter()
+                .map(|(_, line)| line.to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lines(&multi), lines(&one));
+        for (number, line) in id_lines(&multi, kind.row()) {
+            assert_eq!(
+                multi.split('\n').nth(usize::try_from(number).unwrap() - 1),
+                Some(line)
+            );
+        }
+        assert_eq!(Lock::read_text(&multi, kind), Lock::read_text(&one, kind));
+        assert_eq!(lock_of(&multi, kind).difference(&multi), Value::Null);
+        for (array, now) in [
+            (&one_line as &dyn Fn(&[&str]) -> String, &one),
+            (&multi_line, &multi),
+        ] {
+            let reordered = render(array, "b", "a");
+            let (line, _) = id_lines(&reordered, kind.row())[0];
+            assert_eq!(
+                lock_of(&reordered, kind).difference(now),
+                json!({"kind": "order", "line": line, "recorded": "id = \"b\"", "now": "id = \"a\""})
+            );
+        }
     }
 
     /// `stale_lines` names the first difference only when neither the header nor a row's verdict

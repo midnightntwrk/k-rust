@@ -925,6 +925,7 @@ No status is read from the lock: a hand-edited or stale lock can change which pr
 
 The file is the coverage verdicts rendering ("Verdicts"), the bytes `coverage --output verdicts` prints: its header (the schema, the version, the solver profile and, under Z3, the Z3 build, `krs_annotation`, the specification and the settings), each family's open and argued obligations, and each flip with its status, a refused flip's reason and a distinguished flip's killer.
 It moves only when an obligation opens or closes, an argument is added or removed, a flip's status moves or its killer stops killing; a case that covers nothing new leaves it as it is.
+Each family's `open`, `argued` and `undecided` list one id per line ("Verdicts"), so a case that closes obligations removes exactly their lines from the lock's diff, and an argument added moves one line from `open` to `argued`.
 The argued ids belong in it: an argued obligation leaves the open ones with no program covering it, and a lock that listed only the open ones would record that change as a gap a program closed.
 Reading tolerates any version: `schema` must be `kink-flow-verdicts` and `document` must be `coverage`; each `[[flip]]` must have a string `id` and may have a string `killer`, and nothing else decides anything (a row's `status` and `reason` and a family's `open` and `argued` are read only to report what changed).
 
@@ -1666,12 +1667,12 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 16
+version = 20
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
-krs_annotation = 8            # coverage: a document the KRS front end annotated, its krs.version
+krs_annotation = 9            # coverage: a document the KRS front end annotated, its krs.version
 
 [spec]
 outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below
@@ -1679,24 +1680,44 @@ outcome = "admitted"          # a refused specification adds its stage and reaso
 [settings]                    # coverage: the tiers computed and [coverage]'s values
 tiers = [1, 2]
 depth = 1
-mcdc = []                     # or the names, or true
+mcdc = [                      # or the names, one per line, or true
+]
 
 [rules]                       # coverage: each family's open and argued obligations, by id, in item order
-open = ["rule:calc.k:23"]
-argued = []
+open = [
+  "rule:calc.k:23",
+]
+argued = [                    # an empty array too opens and closes on lines of its own
+]
 
 [requirements]
-open = []
-argued = ["requirement:CALC.div:refuted"]   # [[coverage.argued]] items; an argument's text is not rendered
-undecided = ["requirement:CALC.div:B:mcdc"] # only where a family has undecided items, which open leaves out
+open = [
+]
+argued = [                    # [[coverage.argued]] items; an argument's text is not rendered
+  "requirement:CALC.div:refuted",
+]
+undecided = [                 # only where a family has undecided items, which open leaves out
+  "requirement:CALC.div:B:mcdc",
+]
 
 [syntax]
-open = []
-argued = []
+open = [
+]
+argued = [
+]
 
 [rule_windows]                # coverage at a depth above 1 only: every open window, on the frontier or not
-open = ["window:CALC.seq,CALC.div"]
-argued = []
+open = [
+  "window:CALC.seq,CALC.div",
+]
+argued = [
+]
+
+[syntax_paths]                # coverage at a depth above 1 only: every open path and joint field value
+open = [
+]
+argued = [
+]
 
 [flips]                       # coverage: whether the flips family ran
 run = true
@@ -1719,7 +1740,11 @@ status = "argued"             # an argued flip
 id = "add-becomes-sub"
 status = "killed"
 killer = "add"                # the recorded killer while it kills, else the first in the search's order
-killed_by = ["add", "nested", "inline"]   # run --full only: every killer, in FLOW.toml's order
+killed_by = [                 # run --full only: every killer, in FLOW.toml's order
+  "add",
+  "nested",
+  "inline",
+]
 
 [[mutation]]
 id = "renamed-anchor"
@@ -1729,8 +1754,15 @@ reason = "unknown-label"      # its reason, a function of the specification and 
 [[mutation]]
 id = "stall-longer"
 status = "survived"
-horizon = [{ program = "run", channel = "clock", elements = 16, opening = "bound" }]   # [observe]: agreed only up to it
+horizon = [                   # [observe]: agreed only up to it, one program and channel per line
+  { program = "run", channel = "clock", elements = 16, opening = "bound" },
+]
 ```
+
+Every array of strings or inline tables the rendering writes (`open`, `argued`, `undecided`, `mcdc`, `horizon`, `killed_by`) has one value per line, with a trailing comma, from its key's line to a `]` on its own line, an empty array included.
+A lock is reviewed as a diff, and in this layout the diff of a set that changed is exactly the lines of the values that joined or left it: closing one open obligation of many removes its line, closing the last one too, and no other line moves.
+The values keep their order (item order, list order, `FLOW.toml`'s order), so a case that closes a gap removes lines and moves none.
+`tiers`, at most two numbers and never a list a corpus grows, stays inline.
 
 A run document of a mutation list that does not decode has no `[spec]` but `[mutation_list]` with `outcome = "refused"`, and one of a lock that does not decode has `[lock]` with `outcome = "refused"`;
 a run that a corpus error stopped ends with `[stopped]`, the mutation and the reason (the mutations after it have no status).
@@ -1770,6 +1802,7 @@ Version 17 lists a coverage rendering's rule windows (`[rule_windows]`) where th
 The section lists every open window, not only the frontier's: a lock moves when any window opens or closes.
 Version 18 also lists the open and argued syntax paths (`[syntax_paths]`, every open path and joint field value, on the frontier or not) where the document has the family, at a depth above 1; a rendering of depth 1 is unchanged but for its `version` line.
 Version 19 (FB-38) renders the statuses, guard outcomes and requirements of a function equation that cover every application its left-hand side matches whose deciding priority group is its own, tried or not ("Guard outcomes"): a coverage lock's open rules, `[[guard]]` entries and open requirements of equations can move for that reason alone, which the `version` line then says, rather than reading as a change of the corpus; a run rendering is unchanged but for its `version` line.
+Version 20 writes every array of strings or inline tables with one value per line, an empty one included (above), where version 19 wrote each on one line; the values are unchanged, so a lock recorded at version 19 differs from a version 20 rendering of the same verdicts in its layout and its `version` line only.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 
