@@ -1319,6 +1319,14 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
         semantic_terms_equivalent(left, right)
     }
+
+    fn bound_sort(&self, name: &str, sort: &SemanticSortRef) -> Option<(SemanticSortRef, bool)> {
+        let bound = self.result_sorts.get(name)?;
+        Some((
+            bound.clone(),
+            super::catalog::semantic_is_subsort(sort, bound, self.terms.sort_parents),
+        ))
+    }
 }
 
 /// The post-state of a cell a rule reads without restating it: rewritten in

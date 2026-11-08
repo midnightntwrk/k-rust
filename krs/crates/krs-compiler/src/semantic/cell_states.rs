@@ -64,6 +64,10 @@ pub(super) trait StateLowering {
 
     /// Whether two lowered terms are the same term, ignoring origins.
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool;
+
+    /// The sort the rule binds `name` at, where it binds it, and whether every term of `sort`
+    /// is a term of it.
+    fn bound_sort(&self, name: &str, sort: &SemanticSortRef) -> Option<(SemanticSortRef, bool)>;
 }
 
 /// The diagnostic for an optional or collection entry K cannot express.
@@ -587,8 +591,35 @@ pub(super) fn lower_instances_clause(
                     continue;
                 };
                 // An update whose label no subject instance has has no base (the table's
-                // `record-update-base`), whatever form wrote it.
+                // `record-update-base`), whatever form wrote it. A label the rule binds at a
+                // sort no instance of the collection has is a binder of the wrong sort before
+                // that: a binder's sort is the term's kind, and the base an update needs is the
+                // notation's own rule over a term of the instance's kind.
                 let Some(&index) = labels.get(label) else {
+                    let group = SemanticSortRef::Cell(declaration.declaration.clone());
+                    if let Some((bound, false)) = lowering.bound_sort(label, &group) {
+                        let bound = super::overload::sort_name(&bound);
+                        let group = &instance_declaration.name;
+                        return Err(DescriptorLoweringError::IncompatibleBinder {
+                            item: Box::new(descriptor.id().clone()),
+                            reason: format!(
+                                "binder `{label}` is bound at `{bound}`, but the instance update `..{label}` of the collection `{name}` needs an instance of `{group}`"
+                            ),
+                            range: semantic_origin(
+                                &descriptor,
+                                instance.key.clone(),
+                                "cell-collection-entry",
+                            )
+                            .ok()
+                            .and_then(|origin| {
+                                origin.origin().exact_authored_range().map(Box::new)
+                            }),
+                            occurrence: None,
+                            help: Some(format!(
+                                "no term is both a `{bound}` and a `{group}` instance"
+                            )),
+                        });
+                    }
                     return Err(collection_error(
                         &descriptor,
                         codes::analysis::INVALID_RECORD_UPDATE,

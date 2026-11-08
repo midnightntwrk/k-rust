@@ -135,7 +135,6 @@ children, init	init	group O	O { o: 0, n: 0 }	red: S0-9 (sweep/init/init/i08-ocel
 children, init	init	group P	P { js: 0 }	red: B2 (sweep/init/init/i05-pcell/P { pjs: 0 })
 children, init	init	group P	P { js: Some(J { p: 0 }) }	red: S0-9 (sweep/init/init/i04-pcell/P { pjs: Some(Jp { pp: 0 }) })
 claim	result, matched	* List of G	[.., x]	excepted: C-lim: a List collection rule that changes instances at both ends is not lowered (cell_states.rs lower_instances_clause); split it into two rules. Here the subject matches the front instance and the result's value `x` creates one at the back (P2, P6; Q2 makes the instance a value); the product creates or removes instances at the back, and reads and updates them at the front (sweep/claim/result/job/[.., x])
-claim	result, matched	* List of G	[x, ..]	red: S0-9 (sweep/claim/result/job/[x, ..])
 claim	result, matched	? leaf Map	0	red: S5-B1 (sweep/claim/result/omap/0)
 claim	result, matched	? leaf Map	G { a: x }	red: S5-B1 (sweep/claim/result/omap/G { a: x })
 claim	result, matched	? leaf Map	G { a: x, .. }	red: S5-B1 (sweep/claim/result/omap/G { a: x, .. })
@@ -162,8 +161,6 @@ claim	subject, written	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/claim/written/j
 claim	subject, written	computation	[x, ..]	limited: computation-brackets-per-rule (sweep/claim/written/prog/[x, ..])
 claim	subject, written	computation	[x]	limited: computation-brackets-per-rule (sweep/claim/written/prog/[x])
 claim	subject, written	leaf Map	{ y -> x, .. }	unbuilt: no result entry of the form writes this cell beside the subject's entry and is admitted (`outcome` admits none of the written candidates over it): the case would refuse its result, not its subject
-claim more	result, matched	* Map of G	{ x, .. }	red: S0-9 (sweep/claim/result/acct/{ x, .. })
-claim more	result, matched	* Set of G	{ x, .. }	red: S0-9 (sweep/claim/result/bag/{ x, .. })
 claim more	result, matched	? leaf List	Some([..])	limited: nested-anonymous-rest (sweep/claim/result/olist/Some([..]))
 claim more	result, matched	? leaf Map	Some(G { .. })	red: S5-B1 (sweep/claim/result/omap/Some(G { .. }))
 claim more	result, matched	? leaf Map	Some([..])	red: S5-B1 (sweep/claim/result/omap/Some([..]))
@@ -336,7 +333,6 @@ init more	init	leaf Map	k::k![Cmd::Go(), ..pgm]	excepted: E3: a stated exception
 init more	init	leaf Set	G { a: 0, ..base }	red: S5-U1 (sweep/init/init/set/G { a: 0, ..base })
 init more	init	leaf Set	k::k![Cmd::Go(), ..pgm]	excepted: E3: a stated exception, a spelling rule applied before P3: an initializer's `k![..]` takes no `..pgm` on any cell, so the product answers `initializer-remainder` at the form, where `outcome`, which leaves E3 out by design, judges the value by the stack (P3b: the computation's mark off the computation) (sweep/init/init/set/k::k![Cmd::Go(), ..pgm])
 readable	result, matched	* List of G	[.., x]	excepted: C-lim: a List collection rule that changes instances at both ends is not lowered (cell_states.rs lower_instances_clause); split it into two rules. Here the subject matches the front instance and the result's value `x` creates one at the back (P2, P6; Q2 makes the instance a value); the product creates or removes instances at the back, and reads and updates them at the front (sweep/readable/result/job/[.., x])
-readable	result, matched	* List of G	[x, ..]	red: S0-9 (sweep/readable/result/job/[x, ..])
 readable	result, matched	? leaf Map	0	red: S5-B1 (sweep/readable/result/omap/0)
 readable	result, matched	? leaf Map	G { a: x }	red: S5-B1 (sweep/readable/result/omap/G { a: x })
 readable	result, matched	? leaf Map	G { a: x, .. }	red: S5-B1 (sweep/readable/result/omap/G { a: x, .. })
@@ -363,8 +359,6 @@ readable	subject, written	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/readable/wri
 readable	subject, written	computation	[x, ..]	limited: computation-brackets-per-rule (sweep/readable/written/prog/[x, ..])
 readable	subject, written	computation	[x]	limited: computation-brackets-per-rule (sweep/readable/written/prog/[x])
 readable	subject, written	leaf Map	{ y -> x, .. }	unbuilt: no result entry of the form writes this cell beside the subject's entry and is admitted (`outcome` admits none of the written candidates over it): the case would refuse its result, not its subject
-readable more	result, matched	* Map of G	{ x, .. }	red: S0-9 (sweep/readable/result/acct/{ x, .. })
-readable more	result, matched	* Set of G	{ x, .. }	red: S0-9 (sweep/readable/result/bag/{ x, .. })
 readable more	result, matched	? leaf List	Some([..])	limited: nested-anonymous-rest (sweep/readable/result/olist/Some([..]))
 readable more	result, matched	? leaf Map	Some(G { .. })	red: S5-B1 (sweep/readable/result/omap/Some(G { .. }))
 readable more	result, matched	? leaf Map	Some([..])	red: S5-B1 (sweep/readable/result/omap/Some([..]))

@@ -234,55 +234,11 @@ match = 'k8/terms/readable/map-key/or-branch/{!(x < 1),Cmd::Go,Cmd::Go(),Cmd::Ho
 finding = "S0-14"
 kind = "k8"
 
-# S0-16, diagnostic: 3 reds
-
-# readable: 1
-[[family]]
-match = 'claim/result/job/[x\, ..]'
-finding = "S0-16"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'readable/result/job/[x\, ..]'
-finding = "S0-16"
-kind = "diagnostic"
-
-# runs: 1
-[[family]]
-match = 'readable-run/result/job/[x\, ..]'
-finding = "S0-16"
-kind = "diagnostic"
-
-# S0-9, diagnostic: 232 reds
-
-# readable: 1
-[[family]]
-match = 'claim/result/kinds/job/[x\, ..]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# readable: 1
-[[family]]
-match = 'readable/result/kinds/job/[x\, ..]'
-finding = "S0-9"
-kind = "diagnostic"
+# S0-9, diagnostic: 224 reds
 
 # sweep: 6
 [[family]]
 match = 'sweep/*/overwrite/{c26-ocell,c27-ocell}/*'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/{claim/result/job/[x\, ..],readable/result/job/[x\, ..]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/*/result/{acct,bag}/\{ x\, .. \}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -533,9 +489,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 # `_`, `@` or alternatives below its root, and reads `x | 1` as the operator.
 
 # NT-6: the collection literals and the calls they denote, at the same openers as NT-5's notation.
-
-# S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
-# The two left: S5 reads `job: [x, ..]` results by declared kind
 
 # NT-6: the collection literals and the calls they denote, printed in a `for Stmt` result's `let` or
 # `k::matches!`.

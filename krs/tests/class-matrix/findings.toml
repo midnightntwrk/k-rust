@@ -48,15 +48,10 @@ kind = "diagnostic"
 what = "a readable map read's key at depth 2, below `@` or `|` (`map-key/as-body`, `map-key/or-branch`, `beside-fresh`), is answered by a true reason met before the table's (a function in a pattern before notation in a pattern), and its advice by that reason's; `@` and `|` in a map key are accepted as documented (TRI, 2026-11-07)"
 by_test = { k8 = "S5" }
 
-["S0-16"]
-owner = "S5"
-kind = "diagnostic"
-what = "an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)"
-
 ["S0-9"]
 owner = "S5"
 kind = "diagnostic"
-what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`). The computation result's fit, a list rest's place, `[..]` naming no element, an item after a k result's `..`, a map read in a collection's result and a subject map read of a written non-Map cell wait for the kind too; on a Map leaf that map read is the M3 limit, which answers only once every entry, the result's too, is admitted (a limit never hides a principle). Left: a `Some(..)`/`None` on a `?` child inside a group record term (`unmatched-optional-result`), a map read in a group record's Map child (`M { mm: { y -> x, .. }, .. }`, beside S5-B1), binder-sort, the `cells!` fragment-child and `KCell` messages, the initializer route, and K8 advice that follows a subject's `Some([..])`"
+what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`). The computation result's fit, a list rest's place, `[..]` naming no element, an item after a k result's `..`, a map read in a collection's result and a subject map read of a written non-Map cell wait for the kind too; on a Map leaf that map read is the M3 limit, which answers only once every entry, the result's too, is admitted (a limit never hides a principle). Left: a `Some(..)`/`None` on a `?` child inside a group record term (`unmatched-optional-result`), a map read in a group record's Map child (`M { mm: { y -> x, .. }, .. }`, beside S5-B1), the `cells!` fragment-child and `KCell` messages, the initializer route, and K8 advice that follows a subject's `Some([..])`"
 by_test = { k8 = "S5" }
 
 ["S5-B1"]
