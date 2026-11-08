@@ -88,3 +88,24 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
   Accepted cost: a run without a lock after a specification edit recomputes the canonical prefix up to each killer, where a cache-held hint ran one program.
   Rejected: the full rendering as the lock, which costs every cell of every mutation (Foldiboy measured 81 against 11 calls when a case is added); a cache-held hint, because its killer depends on the cache; a cost order, because its killer depends on the clock; partial writes under `--only`, because they give a lock nobody checked; program digests in the lock, which are unreadable and hide renames.
   Reopen on a use where killer stability across corpus edits is not wanted.
+
+## O. Observations
+
+- **O1 — A corpus compares runs by declared observation channels; each class states its stuttering, and a survivor that rests on a horizon stays `survived` with its horizon.**
+  `[observe]` declares point classes (rewrite rules on their before or after side, cells, and a stuttering mode, `collapse` or `count`, with no default) and logs (a `List` cell read at named classes' events and where the path ends), and every run is compared by them besides its end (kink-flow README, "What a run observes"; kink's `trust.md`, "What a kill trusts").
+  A baseline run that a deterministic bound cuts before it ends is `comparable-prefix`, compared by its channels up to their horizons.
+  A mutant that agrees up to every horizon is `survived`, and its row and its verdicts rendering carry `horizon`; one whose every horizon is 0 is `unknown`.
+  Only one path per side is compared: a channel opens at its side's first state with several successors.
+  [Sebastien, 2026-11-07: the stuttering mode declared per class, the survivor with its horizon, and the single-path meaning first, the prefix-set meaning for several paths a later unit]
+  1. *An observation is a function of a finite prefix.*
+     Every element is read in a reached state of a path the run explored, as a value under the baseline's definition, at an index that is a fact of the path; so a decided difference is a difference of the two definitions' observations in every model, and a bound only ends what is known: budget exhaustion never kills.
+  2. *Which stuttering is meant is a property of the specification.*
+     Weak trace equivalence over declared labels counts events (two equal consecutive events are two), while a position is a place to sample, not content, which collapses them; each loses kills the other finds (a redundant write under `count`; an idle cycle that is a promised event under `collapse`), and both are sound, so the author states which the specification promises.
+  3. *A horizon qualifies a survivor as the declared observation does.*
+     Every survivor is relative to what is compared; a horizon is part of the observation of a program that never ends, a function of the budget and not of the host, so it is reported with the survivor rather than as another status.
+  4. *The K front end compares cells as they hold them.*
+     kink-flow reads terms of a K definition and has no observer to evaluate a function in, so it refuses `observer`, `views`, `components`, `when` and `element`; identity contents and logs are sound at the K level by the end projection's argument.
+
+  Accepted cost: a nondeterministic baseline is compared only up to its first branching; `query` and `fuzz` refuse a corpus with `[observe]` until their searches compare channels.
+  Rejected: a default stuttering mode (reason 2); a separate status for a survivor on a prefix (reason 3); cutting a channel at a mutant's budget as a difference (reason 1).
+  Reopen on a specification whose promised observation needs several paths before the prefix-set meaning lands.

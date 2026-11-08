@@ -262,6 +262,69 @@ The documents' `stop` gains `when`, the condition's identity as the front end re
 The tool supplies everything else: the k-rust revision is the build's (every output's `k_rust_revision` is k-rust's build identity, `k_rust::build_identity`: the version of the in-repo k-rust kink is built with and a digest of its sources; the semantics identity and the cache keys name the version, `kink_native::K_RUST_REVISION`, beside the executable's digest),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads (stage `refused-case`).
 
+### What a run observes
+
+A program that never ends has no end to compare, but its run still shows what it does on the way.
+`[observe]` declares observation channels, and every run is compared by them besides its end, so such a program is a case, compared over the prefix its budget explores (kink-campaign `Observe`; kink's `trust.md`, "What a kill trusts").
+
+```toml
+[[observe.point]]
+name = "clock"
+before = ["CONSOLE.tick"]
+stutter = "collapse"
+cells = ["n"]
+
+[[observe.log]]
+name = "out"
+cell = "out"
+at = ["clock"]
+```
+
+A point class (`[[observe.point]]`) samples the state at the steps of named rules.
+Its point event is a step of a path by a rule of `before` or `after` whose successor is defined; the event observes the state before the step for a rule of `before`, and the normalized successor for a rule of `after`.
+The class's channel is the sequence of its events' contents in path order, each content the named cells' contents as the cells hold them.
+A log (`[[observe.log]]`) reads a `List` cell at the events of the named classes and where the path ends; its channel is the concatenation of the items the cell appends, each item an element.
+
+| Key | Meaning |
+| --- | --- |
+| `name` | The channel's name, unique among the declaration's channels. |
+| `before`, `after` (point) | The rewrite rules whose steps are the class's events, each by its exact K label; at least one name in all, none twice and none in both. |
+| `stutter` (point) | `collapse`: an element equal to the previous one is dropped, so only changes are observed; `count`: every event is an element, so how many events there were is observed. Required: which is meant is a property of the specification. |
+| `cells` (point) | The cells whose contents, in this order, are each event's element, by K cell name: each a leaf cell of multiplicity 1 below cells of multiplicity 1, not `unobservable`. |
+| `cell` (log) | The `List` cell, by K cell name. |
+| `at` (log) | The point classes at whose events the log is read; it is also read where the path ends. |
+| `observer`, `views`, `components`, `when`, `element` | Functions of an observer, evaluated on the cells' values: only a front end that reads values states them (`krs kink`); kink-flow's own front end refuses them at stage `observe`, reason `unsupported-front-end`. |
+
+Positions are where elements are read, not what they are: which rule of a class fired, and the relative order of two classes' events, are not observed.
+To tell two rules apart, put them in separate classes, or observe a cell one of them writes; to observe an order, put both rules in one class.
+
+The specification is refused at stage `observe` when a class names a rule no rewrite rule is labelled with (`point-unresolved`; an equation's label names no step), when a cell states no observation (`cell-refused`: a cell the configuration does not have, an `unobservable` one, one inside a `?` or `*` cell, a log cell that holds no `List`), and when the backend cannot list the rules (`backend-error`).
+A mutant on which a class's rule labels no rewrite rule is `not-admitted`, reason `point-unresolved`, so no kill rests on an edit of a label; `check --mutations` warns of a mutation that deletes such a rule (`point-rule-deleted`).
+A mutation can state that a rule never fires as `requires false`, which keeps the label and is judged.
+A mutant whose declarations could make an observed cell's content denote another value (a sort or symbol the observed cells reach declared otherwise, or a constructor of one heading an axiom) is `not-admitted`, reason `observation-incompatible`.
+
+A path that ends at a determined end closes every channel with END, a path whose last step is undefined closes them with UNDEF, and a channel stays open where its path was cut by a bound, where the path first has several successors (only one path is compared), and at an undecided element (under `count`, an undecided element is one unknown position, and the elements after it are still compared).
+A baseline run that `budget.max_depth` or `budget.baseline_max_work` cuts, every other path of it complete, has no end: its program is `comparable-prefix`.
+Its end slots compare nothing, and each channel is compared up to its horizon, the number of elements the baseline recorded before the channel's open point; a horizon is a function of the result key, so the class is cached.
+A program whose baseline the clock stopped stays `timeout`, since its horizon would depend on the host.
+`coverage` exits 0 for a `comparable-prefix` program: it answers what the baseline computes for the declared observation, up to its horizons.
+An end expectation on it is `inconclusive`, since it has no end.
+
+A mutant is killed on the channels at the first channel and index at which both sides' elements are decided and differ, END and UNDEF being elements; no element past either side's open point is read, so a budget never kills.
+The mutant's run stops at that difference, or, on a prefix program, once every channel has reached the baseline's horizon or opened.
+A mutant that agrees with a prefix program up to every horizon survives, with each horizon: the row has `horizon`, `[{program, horizon: {<channel>: n}}]`, its action says that the mutant may differ past it, and `--output verdicts` renders it, so a survivor that rests on a budgeted prefix says so.
+An agreement up to horizons that are all 0 observed nothing, and is `unknown`.
+
+Each executed entry's `slots` has `observations` after the end slots: `position: {channel, index, at_end}` where it distinguished (`at_end` when the difference was read where the mutant's path ended), `horizon` where it agreed up to the baseline's horizons, and `cause` where it was unknown.
+The baseline's record keeps 8 bytes of each element's digest, not its value, so the evidence of a kill only the channels decided is re-derived: a capture run runs the baseline's request again, with a probe that ends the path at the reported element, and the element read there must have the recorded digest, or the mutation is an `error` with reason `observation-capture:<program id>`; the mutant's element is its probe's.
+That evidence is kink's own (`kink-k/1`): `{format, position, baseline: {element}, mutant: {element}}`, each element `{cells: {<cell>: value}}` for a class, `{item: value}` for a log, each value printed as K text, or `end`, `undefined` or `undecided`.
+A `killed` outcome record keeps it, as it keeps an end difference, so the capture runs once per kill; a test whose ends also distinguished keeps its end evidence.
+
+The `check`, `coverage` and `run` documents (and so `report`) carry `observe`, the declaration as every run compares by it (`{points: [{name, before, after, cells, stutter}], logs: [{name, cell, at}]}`); it is absent without `[observe]`.
+Each program row of a corpus with `[observe]` has `observations`, `{channels: [{name, elements, closed, open}], horizon}`: the number of elements its baseline recorded per channel, `closed` (`end` or `undefined`) or `open` (`{index, reason}`), and each open channel's horizon.
+The declaration keys what it changes: each program's result key and the tier-1 context hold `observe`, absent without `[observe]`, so a corpus without one keeps its keys.
+`query` and `fuzz` refuse a corpus with `[observe]` (stage `observe`, reason `unsupported-verb`): their searches compare no channel, so their answers would not be about the observation the corpus states.
+
 ## Exit status
 
 Every command exits with what its caller does next, one of four statuses, as krs's executing commands do:
@@ -284,7 +347,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | Command | It asks | 1 (a finding) | 3 (no answer) |
 | --- | --- | --- | --- |
 | `check` | whether every verdict the corpus promises is possible before any mutant runs | a program every baseline run of which is `excluded`, or a baseline without data (`spec.baseline_findings`) | none |
-| `coverage` | what the corpus covers, whether each program's baseline run can count, and whether it meets its expectation | an `unmet` expectation; under `--locked`, a coverage lock the command would change (an open obligation is no finding) | a program that is `timeout` or `unknown`; an `inconclusive` expectation |
+| `coverage` | what the corpus covers, whether each program's baseline run can count, and whether it meets its expectation | an `unmet` expectation; under `--locked`, a coverage lock the command would change (an open obligation is no finding) | a program that is `timeout` or `unknown` (a `comparable-prefix` program is an answer); an `inconclusive` expectation |
 | `run` | each selected mutation's verdict | under `--locked`, a lock the run would change (a stored record that differs from the live value, as a `--verify` mismatch is); otherwise none: `killed`, `survived`, `equivalent` and `unkillable` are answers, since a mutation states no verdict it expects | a mutation that is `timeout` or `unknown` |
 | `report` | what the last `run` answered | as that run | as that run |
 | `query` | whether each program reaches a state matching each pattern | a refuted claim (`no` for a program the pattern claims) | an `unknown` answer |
@@ -387,6 +450,7 @@ Version 9 adds `stop` for a corpus with `[stop]` (absent without one), the stage
 Version 10 (CF-24g) adds the named cases of a case document, each a program whose id is the document's path, `#` and its name, and each case's `expectation`, checked against the program's current result record without running it (it decides no exit status), and refuses a program whose expectation no front end reads at stage `inputs` (`typed-expectation`, `expectation-value`) ("Expectations").
 Version 11 lets `result` name cells inside `?` and `*` cells, each compared or left out in every instance, and a narrowing's `compared` name the key of each Map that encloses a named cell; the reasons `unobservable-cell-position` and `result-cell-position` are gone, and a Map's key left out is refused (`map-key-left-out`) ("Which cells are compared").
 Version 12 adds `stop.when` under a stop condition, the reason `unsupported-front-end` at stage `stop`, and, under a condition, reads `stop-hides-edit` from the comparable programs' coverage ("Where a run ends").
+Version 13 adds `observe` for a corpus with `[observe]` (absent without one), the declaration as every run compares by it, the stage `observe` (reasons `point-unresolved`, `cell-refused`, `backend-error` and `unsupported-front-end`) and the warning `point-rule-deleted` ("What a run observes").
 
 Exit status ("Exit status"): 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
 1 when a program is `excluded` or the baseline has no data (`spec.baseline_findings`), and nothing is refused;
@@ -481,6 +545,7 @@ A program's class is
 | Class | Meaning | What to do |
 | --- | --- | --- |
 | `comparable` | The run ended and its final configuration is a value kink compares. | Nothing: this program can kill mutants. |
+| `comparable-prefix` | Under `[observe]`, `budget.max_depth` or `budget.baseline_max_work` cut the run before it ended, and every other path of it is complete: it has no end, and its observation channels are compared up to their horizons ("What a run observes"). | Nothing: this program can kill mutants by its channels; raise the bound to observe more of it. |
 | `timeout` | The run did not end within `budget.time_ms`; `cause` gives what k-rust returned when the bound fired (see below). A timeout depends on the host's load, so it is never cached: every command runs the program again. | Make the program terminate, raise `time_ms`, or set `budget.baseline_max_work` to bound the run by work, which gives a cached `unknown` instead. |
 | `unknown` | The run ended without a comparable value (for example a collection holding a `Float`, `budget.max_depth` or `budget.baseline_max_work` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program; for a `short-circuit-reading` exclusion write a program whose run does not read the operand the row's `short_circuit_readings` names (or make that operand defined in the specification). |
 | `refused` | The program was not read, parsed or assembled; `cause` is the refusal. | Fix the program. |
@@ -730,13 +795,14 @@ A corpus commits `coverage.lock` beside `verdicts.lock`, and a CI runs `coverage
 
 ### The document
 
-`{schema: "kink-flow-coverage", version: 4, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?}`.
+`{schema: "kink-flow-coverage", version: 5, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
 Version 2 builds the syntax family, where version 1 had `null`.
 Version 3 runs the flips family where a front end derives the flips: `settings.tiers` `[1, 2]`, the family's items, counts, measure and search, its targets, and `summary.per_family.flips`.
 Version 4 adds `lock` (null without `--lock`; else `{path, status, reason, header, header_changes, changes, open_changes, difference}`, or `{path, outcome: "refused", detail}`; "The coverage lock"), each flip's `recorded_killer` and `killer_change`, and `settings.depth` as the depth computed (`--depth`, else `[coverage] depth`).
+Version 5 adds `observe` for a corpus with `[observe]`, each program row's `observations` and the class `comparable-prefix` ("What a run observes").
 `settings` is `{tiers, depth, mcdc, max_obligations, source}` (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
-`programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, not_cached?, cache_error?, unable_to_kill?}` (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
+`programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, measure, counts, items}` where built.
 `summary` is `{programs, comparable, computed, mismatches, open, argued, per_family}`, `per_family` giving each built family's `{obligations, covered, argued, open}` (the flips' where they ran, their obligations less the refused and equivalent ones); nothing is argued in this build (`argued` 0).
 The exit status is `coverage`'s (above), joined with 3 for an `unknown` flip and 2 for a flip whose search ended in an error; a refused flip is no finding about the corpus.
@@ -1293,18 +1359,20 @@ The document is the same whatever the status: the exit status is how a script or
 `{schema: "kink-flow-run", version: 31, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, result, stopped, outcome_cache, mismatches, baseline_runs, schedule, matrix, untargeted_rules, data, lock}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `coverage` and `query` documents; null in the run and `coverage` documents when the specification is refused, absent from a refused `query` document) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
 Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`, version 13 (CF-02) adds `spec.exclusion`, version 14 adds `result` and the slot name `cells`, version 15 (CF-03) takes the short-circuit reading out of `spec.exclusion` (each run of a definition whose analysis flags a rule is judged by its own list of readings) and adds `short_circuit_readings`, the readings that excluded a run, to program rows and executed entries, version 16 (CF-23) adds `schedule`, `matrix` and each row's `killed_by`, version 17 reads each row's `reaching` from the compiled mutant (step 3), or from the outcome file's copy of it on a row tier 1 decided, `[]` on a `no-comparable-program` row and otherwise `null` on a row with neither, and lists each call's `programs` in the order the call ran them, version 18 (CF-40c2) names each row's `reaching` `witnesses` and the status `invalid` `not-admitted`, so that each coverage predicate and each status has one name in every kink-flow document ("Coverage predicates"), and version 19 witnesses a rewrite rule edit that is not confined to its right-hand side or `ensures` (its left-hand side, an attribute, a deletion) by `matched` instead of `applied` (step 3), so a row's `witnesses` and each call's program order can name more programs for the same mutation, version 20 adds `stop` (absent without `[stop]`), each end's `halt` under a stop, each survivor's `stop_hides_edit`, and the reason `stop-unresolved` ("Where a run ends"), version 21 names each `difference`'s format and makes it a front end's evidence where a front end renders one ("Kill evidence"), and version 22 adds the programs of named cases (`<path>#<name>`) and a case's `expectation` in its program row, with the refusals `typed-expectation` and `expectation-value` ("Expectations"), version 23 (CF-33c) adds `decider_smt_unknowns`, the undecided solver answers of kink's own questions about the run beside k-rust's `smt_unknowns`, to every program row and to an executed entry where it is not zero, with the outcome cache on under the Z3 profile where the solver is resource-bounded, version 24 (CF-33d) lets an executed entry from the outcome cache (`cached: true`) be an `unknown` with its `cause` and the cached run's undecided-answer counts, and names each side's `cause`, `smt_unknowns` and `decider_smt_unknowns` in a program's `mismatches` entry, version 25 lets `result` name cells inside `?` and `*` cells, each compared or left out in every instance, and a narrowing's `compared` name the key of each Map that encloses a named cell ("Which cells are compared"), version 26 reads an alias of an edited axiom's left-hand side as the pattern it names (step 3), so a row's `witnesses` can name fewer programs for the same mutation, and adds each row's `witnesses_global`, and version 27 names in a cause the open application of an edited function that a stuck leaf, an undefined step or a stop's end holds, as it did an indeterminate leaf's, with its arguments, gives a row the reason `open-application`, names each side's `open_application` in a program's `mismatches` entry, and gives a `run --verify` row the reason `run` gives its cold call, and adds the reason `open-application` (below), version 28 adds the `weakening` kind `valid-condition` and the `equivalent` row with reason `valid-condition` of a mutation whose every edited equation keeps its axiom, version 29 adds the killer record ("The killer record"): `lock`, each row's `recorded_killer` and `killer_change`, the `killer_source` `record` in place of `hint`, a killer that follows the record under both schedules, and no `order` (the search order is fixed) nor `stale_killer`, version 30 adds `[stop] when` ("Where a run ends"): `stop.when`, the condition's identity, the cause `stop-condition` of an `unknown` program whose run's condition was undecided or had no value at an arrival, the reason `stop-condition-incompatible` of a `not-admitted` mutant, and a survivor's `stop_hides_edit` read under a condition from the comparable programs' coverage. Version 31 names in `lock.difference` the first line in which a compared lock differs from the rendering, and gives a run refused before its lock is read (a manifest or a mutation list that does not decode) the `lock` it left unwritten, and gives an `equivalent` row an empty `removed_claims`.
 Version 32 adds `z3` under the Z3 profile, the Z3 build the verdicts were decided on, and `lock.header_changes`, each header key whose value differs from the compared lock's.
+Version 33 adds `[observe]` ("What a run observes"): `observe`, each program row's `observations` and the class `comparable-prefix`, the slot `observations` of an executed entry with its `position`, `horizon` or `cause`, kink's observation evidence of a kill only the channels decided, a survivor's `horizon`, and the reasons `point-unresolved` and `observation-incompatible` of a `not-admitted` mutant and `observation-capture:<program id>` of an `error`.
 `report` prints the stored statuses without re-deriving them, so it refuses (`unreadable`) a document of another version, one written by another build (or naming none), and one whose `kink` is not this build's.
 
 | Field | Meaning |
 | --- | --- |
 | `spec` | `{outcome, stage, reason, detail, digest, execution_digest, files, exclusion}`: the specification's admission and its digest, the execution digest that keyed the result cache and tier 1 (`{kind, digest}`, null when the specification is refused; added to version 14 without a new version, since it is additive), and its definition exclusion with its causes (`exclusion`, since version 13; as in the check document, null when there is none). |
 | `programs` | The `coverage` rows `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, ends, short_circuit_readings}` (`ends`, each end's computation head and class, since version 12; `short_circuit_readings`, the readings that excluded the baseline run, since version 15), plus `not_cached` for a result that depends on the host and was not written (no `rerun` any more: no stored record is a timeout). `specification_diagnostics` (the baseline run's contradicted-claim records, above) and `smt_unknowns` (its undecided solver answers, reported only) come from the result record (absent on a `refused` row, which has none). |
-| `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
+| `unusable_programs` | Every program whose class is neither `comparable` nor `comparable-prefix`, once: `{id, class, cause}`. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
 | `counts` | The number of mutations per status (all nine statuses). |
 | `survivors` | The ids of the mutations whose status is `survived`, `timeout` or `unknown`: no program killed them, and a new program could. Each survives relative to the cells compared (`result`). |
 | `result` | `{slots, compared, not_compared, unobservable}`: the slots and the cells the programs' second slot compares (above, "Which cells are compared"); null when the specification is refused. |
 | `stop` | `{before, after, count, counts}` of `[stop]` ("Where a run ends"); absent without it. Each survivor survives relative to the stop. |
+| `observe` | `{points, logs}` of `[observe]` ("What a run observes"); absent without it. Each survivor survives relative to the declared observation, and one that rests on a horizon has `horizon`. Since version 33. |
 | `stopped` | `null`, or `{mutation, reason}` of the corpus error that stopped the run. |
 | `outcome_cache` | `{context_sha256, enabled, verify, reason, mutations_from_cache, programs_from_cache, records_written}`: tier 1's context (null when disabled), whether it decided statuses, whether this is `run --verify`, why not, the mutations decided with no call, the cached program outcomes used, and the records written (one per program, also when the recorded killer ran in two calls). |
 | `z3` | Under the Z3 profile, `{version, library_sha256}`: the Z3 build the document's verdicts were decided on (k-rust's `z3_build`; `library_sha256` null when the build cannot name its library); absent under the no-Z3 profile. The verdicts rendering names it ("Verdicts"). Since version 32. |
@@ -1401,7 +1469,7 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 11
+version = 12
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
@@ -1448,6 +1516,11 @@ killed_by = ["add", "nested", "inline"]   # run --full only: every killer, in FL
 id = "renamed-anchor"
 status = "invalid-mutation"   # or "not-admitted": a mutation its author must fix
 reason = "unknown-label"      # its reason, a function of the specification and the mutation
+
+[[mutation]]
+id = "stall-longer"
+status = "survived"
+horizon = [{ program = "run", channel = "clock", elements = 16 }]   # [observe]: agreed only up to it
 ```
 
 A run document of a mutation list that does not decode has no `[spec]` but `[mutation_list]` with `outcome = "refused"`, and one of a lock that does not decode has `[lock]` with `outcome = "refused"`;
@@ -1480,6 +1553,7 @@ Version 8 adds the header's `z3_version` and `z3_library_sha256` under the Z3 pr
 Version 9 renders the `coverage` document, which replaced the `results` document: its settings, then each family's open obligations by id, and whether the flips ran, with no case and no program list; a run rendering is unchanged but for its `version` line, so a lock recorded at version 8 differs from a version 9 rendering of the same run in that line only.
 Version 10 lists the syntax family's open obligations in a coverage rendering (`[syntax]`).
 Version 11 lists each flip of a coverage rendering whose flips ran (`[[flip]]`), with its status, a refused flip's reason and a distinguished flip's killer, so that a `coverage.lock` records the flips' verdicts; every other rendering is unchanged but for its `version` line.
+Version 12 gives a survivor that rests on a horizon its `horizon` (`[observe]`, "What a run observes"): each program whose channels agreed only up to its baseline's horizon, each channel and the number of elements agreed on, a function of the budget and not of the host.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 
