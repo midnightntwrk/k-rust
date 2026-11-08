@@ -239,6 +239,17 @@
 //! needless argument, a finding ([`argue`]): kept, it would turn the item's next regression into
 //! `argued` instead of `open`, hiding the gap the family exists to show.
 //!
+//! An entry's argument can rest on an invariant (`[[coverage.invariant]]`, named by the entry's
+//! `invariant`): a Bool function of cells claimed of every state the baseline definition reaches.
+//! Every argued item states what its argument rests on (`argument_check`) and its standing:
+//! [`STANDING_TEXT`] without an invariant, else the outcome of the invariant's checks. A rewrite
+//! rule's left-hand side is a whole configuration, so an invariant reads its cells there and
+//! argues a `rule:` or `requirement:` item of a rewrite rule; on any other item it is refused
+//! before any mutant runs, and so is an invariant no entry names ([`invariant_refusal`]). No check
+//! runs yet: an item under an invariant is [`STANDING_UNCHECKED`], its checks [`CHECK_NOT_RUN`],
+//! and it stays argued. The verdicts rendering gives each argued item's standing, so a standing
+//! that moves moves the coverage lock.
+//!
 //! # Unique-cause MC/DC
 //!
 //! `[coverage] mcdc` selects guarded rules by name (`true` selects every one), and each selected

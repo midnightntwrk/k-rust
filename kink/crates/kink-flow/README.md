@@ -881,7 +881,7 @@ argument = "no program halts the machine, and only a halted machine wakes"
 ```
 
 `item` is the obligation's `id` as the document names it, in any family: a rule, a requirement, a syntax production or field value, or a flip (a front end's ids where it names the items, such as krs's `syntax:crate::Instr::Jump`).
-`argument` is a nonempty text for the reader, which nothing parses; an entry has exactly these two keys, and an item is argued at most once.
+`argument` is a nonempty text for the reader, which nothing parses; an entry has exactly these two keys and, optionally, `invariant` (below), and an item is argued at most once.
 
 - An argued open obligation has status `argued`, keeps the status it would have as `unargued_status`, and carries its `argument`.
   It stays in its family's obligations, so the measure, covered / obligations, does not move: an argument is not a program, and the measure states what the programs cover.
@@ -893,7 +893,33 @@ argument = "no program halts the machine, and only a halted machine wakes"
   Remove the entry.
 - A flip's argument is judged where the flips run; under `--tier 1` the family shows its obligations alone.
 
-The verdicts rendering lists each family's argued ids beside its open ones, and an argued flip's status `argued`, so adding or removing an argument moves the coverage lock; rewording one does not ("Verdicts").
+An argument can rest on an invariant, a property claimed of every state the baseline definition reaches, which the entry names:
+
+```toml
+[[coverage.invariant]]
+name = "memory-outside-rom"
+function = "crate::machine::MemoryOutsideRom"   # krs: a KRS path; kink-flow's K front end: a K label
+cells = ["memory", "rom_end"]                   # krs: Rust field paths; K front end: K cell names
+
+[[coverage.argued]]
+item = "requirement:crate::micro::read_z:refuted"
+argument = "a write into the ROM region stores nothing, so memory never holds a ROM address"
+invariant = "memory-outside-rom"
+```
+
+- A `[[coverage.invariant]]` table has exactly `name`, unique among the tables, `function`, a Bool function of the cells compiled into the baseline definition, and `cells`, the cells it reads, one per parameter, nonempty and without repeats; an entry's `invariant` names a table the manifest declares.
+  Entries share an invariant by its name.
+- An invariant argues `rule:` and `requirement:` items of rewrite rules: it is a property of states, and an item's argument rests on it through the rule's left-hand side, a whole configuration whose cells the invariant reads.
+  An entry that names one on any other item is refused at stage `coverage`, reason `argued-invariant-unsupported`, naming each such item with what it is (`equation`, whose left-hand side binds a function's arguments, not cells; or its family: a syntax item, a rule window, a syntax path or a flip is no single left-hand side with a valuation, and a flip changes the definition, of whose runs an invariant of the baseline says nothing).
+- A table no entry names is refused at stage `coverage`, reason `invariant-unused`: it would be resolved and checked on no item's behalf.
+- Each argued item has `argument_check`, what its argument rests on, and its `standing`: `text` where its entry names no invariant (`{standing: "text"}`); under an invariant, `{invariant, standing, connection, evidence, proof}`.
+  The standings are `text`, `connected` (the connection holds and the evidence is vacuous), `checked-on-runs` (both hold), `proved` (also a proof) and `unchecked` (a check did not decide).
+  This build runs no check of an invariant: an item under one is `unchecked`, its `connection` and `evidence` `{status: "not-run"}` and its `proof` null, and it stays `argued`.
+  An item argued by a part (`argued_by`) has the part's `argument_check`.
+- `summary.argued_by_standing` counts the argued items by standing, `{text, connected, checked_on_runs, proved, unchecked}`, adding up to `summary.argued`; `summary.failed_arguments` lists the arguments a check refuted, none while no check runs.
+- The text rendering states each argued item's standing, and its invariant where it names one: `  requirement:x:held [unchecked, invariant never-halted]: <argument>`.
+
+The verdicts rendering lists each family's argued ids beside its open ones, an argued flip's status `argued`, and each argued item's standing (`[arguments]`), so adding or removing an argument, or a standing that moves, moves the coverage lock; rewording one does not ("Verdicts").
 
 ### Targets
 
@@ -923,11 +949,13 @@ It is the recorded killer while it names a comparable program that still kills t
 Each flip says which held (`recorded_killer` and `killer_change`, as a run's row does); a flip decided with no run, `unreached` or `refused`, keeps no killer, and a killer recorded for it is `not-run`.
 No status is read from the lock: a hand-edited or stale lock can change which program is tried first, and so the cost and the reported killer, never a status.
 
-The file is the coverage verdicts rendering ("Verdicts"), the bytes `coverage --output verdicts` prints: its header (the schema, the version, the solver profile and, under Z3, the Z3 build, `krs_annotation`, the specification and the settings), each family's open and argued obligations, and each flip with its status, a refused flip's reason and a distinguished flip's killer.
-It moves only when an obligation opens or closes, an argument is added or removed, a flip's status moves or its killer stops killing; a case that covers nothing new leaves it as it is.
+The file is the coverage verdicts rendering ("Verdicts"), the bytes `coverage --output verdicts` prints: its header (the schema, the version, the solver profile and, under Z3, the Z3 build, `krs_annotation`, the specification and the settings), each family's open and argued obligations, each argued item's standing (`[arguments]`, one `"<id>" = "<standing>"` line per item), and each flip with its status, a refused flip's reason and a distinguished flip's killer.
+It moves only when an obligation opens or closes, an argument is added or removed or its standing moves, a flip's status moves or its killer stops killing; a case that covers nothing new leaves it as it is.
 Each family's `open`, `argued` and `undecided` list one id per line ("Verdicts"), so a case that closes obligations removes exactly their lines from the lock's diff, and an argument added moves one line from `open` to `argued`.
 The argued ids belong in it: an argued obligation leaves the open ones with no program covering it, and a lock that listed only the open ones would record that change as a gap a program closed.
-Reading tolerates any version: `schema` must be `kink-flow-verdicts` and `document` must be `coverage`; each `[[flip]]` must have a string `id` and may have a string `killer`, and nothing else decides anything (a row's `status` and `reason` and a family's `open` and `argued` are read only to report what changed).
+The standings belong in it too: a lock that did not record them would show an argument resting on its text alone the same as one a check decided, and a lost check would move no line.
+`[arguments]` is no part of the header: its keys are item ids, each line a verdict, as a family's arrays are.
+Reading tolerates any version: `schema` must be `kink-flow-verdicts` and `document` must be `coverage`; each `[[flip]]` must have a string `id` and may have a string `killer`, and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings of `[arguments]` are read only to report what changed).
 
 **When it is written.** `coverage` writes it (atomically) after a run with the manifest's own settings that judged every flip: both tiers, the manifest's depth, an admitted specification, and no corpus error that stopped the search; the document's `lock.status` is `created`, `written` or `unchanged`.
 Otherwise the file is left as it was (`not-written`, with `reason` `tier-1`, `depth`, `verify`, `stopped`, `refused` or `write-failed`): a run of other settings computes another document, which the lock does not describe.
@@ -935,8 +963,8 @@ Those runs still read it, so the recorded killers are tried first.
 A front end that derives no flips (kink-flow's own) has a complete run without them: its lock lists the families' open obligations and `[flips] run = false`.
 
 **`--locked`.** With `--locked` the command writes nothing and compares the lock it would write with the file's bytes; an absent file counts as different.
-A difference is a finding, exit 1 (`lock.status` `stale`), and `kink-flow` prints one line per change on stderr: `coverage.lock: flip--a: killer t4 -> t2 (t4: not-in-corpus)`, `coverage.lock: flip--b: unreached -> distinguished`, `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements: requirement:x:held is no longer open`, `coverage.lock: rules: rule:y is argued (was open)`, and one line when the header differs.
-`lock.changes` lists each flip whose `(status, killer, reason)` differs, `{flip, recorded, now}`; `lock.open_changes` each obligation whose state differs, `{family, obligation, recorded, now}` (`"open"`, `"argued"`, or null where that side lists it neither way); `lock.header` whether the lines before the first family differ, `lock.header_changes` each header value that differs, and `lock.difference` the first line that differs, as under `run`.
+A difference is a finding, exit 1 (`lock.status` `stale`), and `kink-flow` prints one line per change on stderr: `coverage.lock: flip--a: killer t4 -> t2 (t4: not-in-corpus)`, `coverage.lock: flip--b: unreached -> distinguished`, `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements: requirement:x:held is no longer open`, `coverage.lock: rules: rule:y is argued (was open)`, `coverage.lock: arguments: rule:z: text -> unchecked` (a standing that moved, where no other line names its item), and one line when the header differs.
+`lock.changes` lists each flip whose `(status, killer, reason)` differs, `{flip, recorded, now}`; `lock.open_changes` each obligation whose state differs, `{family, obligation, recorded, now}` (`"open"`, `"argued"`, or null where that side lists it neither way); `lock.argument_changes` each argued item whose standing differs, `{obligation, recorded, now}` (null where that side has no line for it); `lock.header` whether the lines before the first family differ, `lock.header_changes` each header value that differs, and `lock.difference` the first line that differs, as under `run`.
 A lock recorded on another Z3 build is stale even when every flip and obligation agrees, for the reason a run's is ("The killer record"): its header names the build the verdicts were measured with, and `--locked` asks whether this build writes the committed lock.
 `--locked` asks whether a run with the manifest's own settings writes the committed lock, so it is a usage error beside `--tier 1` or `--depth`, which run other settings.
 A lock that does not decode refuses the command before admission, exit 2, `lock: {path, outcome: "refused", detail}`, and no program or family; the rendering has `[lock]` with `outcome = "refused"`.
@@ -945,7 +973,7 @@ A corpus commits `coverage.lock` beside `verdicts.lock`, and a CI runs `coverage
 
 ### The document
 
-`{schema: "kink-flow-coverage", version: 15, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
+`{schema: "kink-flow-coverage", version: 16, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
 Version 2 builds the syntax family, where version 1 had `null`.
 Version 3 runs the flips family where a front end derives the flips: `settings.tiers` `[1, 2]`, the family's items, counts, measure and search, its targets, and `summary.per_family.flips`.
@@ -961,10 +989,11 @@ Version 12 (CS-4) computes a depth above 1 instead of refusing it (`depth-unsupp
 Version 13 (FB-37, FB-42) gives every family one static scope ("Families"): a claim helper is `claim-helper` whatever the programs did, where version 12 counted one some program matched or fired, and a front end's flip that changes only sentences outside the scope is listed under the flips family's `not_generated` (`{reason, id, atom, sentences, pair, detail}`), so the rules, requirements, syntax and flips families' denominators can differ from version 12's on the same definition; an `unknown` flip has `causes` (`[{program, cause}]`), which its target states, and a requirement's `reaching` restates each step through negations.
 Version 14 (CS-4) builds the syntax paths family at a depth above 1, which version 13 left `null`: `families.syntax_paths`, its targets and `summary.per_family.syntax_paths`, held to `max_obligations` too ("Syntax paths"); the text rendering says a depth-dependent family is computed above depth 1 only, where version 13 said it was not built.
 Version 15 (FB-38) matches a function equation, and covers its requirements, at every application its left-hand side matches whose deciding priority group is its own, tried or not ("Guard outcomes"), where version 14 read the tried equations only, so that of two complementary equations the one tried second was never refuted and, where the other applied, not matched: a rule's `matched_by` and status, a requirement's `entered_by` and a flip's reached occurrences follow, and an undecided program can have the cause `untried`.
-`settings` is `{tiers, depth, mcdc, max_obligations, argued, source}` (`mcdc` the names as written, or `true`; `argued` the entries as written, `{item, argument}`) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
+Version 16 (FB-39) reads `[[coverage.invariant]]` and an entry's `invariant` ("Argued obligations"): `settings.invariants`, each `settings.argued` entry's `invariant`, every argued item's `argument_check`, the summary's `argued_by_standing` and `failed_arguments`, the refusals `invariant-unused` and `argued-invariant-unsupported`, `lock.argument_changes`, and each argued item's standing in the text rendering.
+`settings` is `{tiers, depth, mcdc, max_obligations, invariants, argued, source}` (`mcdc` the names as written, or `true`; `invariants` the tables as written, `{name, function, cells, identity}`, `identity` what the checks are about once a front end resolves the invariant, null while none does; `argued` the entries as written, `{item, argument, invariant}`, `invariant` null where the entry names none) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, argued, measure, counts, items}` where built.
-`summary` is `{programs, comparable, computed, mismatches, covered, argued, open, per_family, needless_arguments}`, `per_family` giving each built family's `{obligations, covered, argued, open}` (the flips' where they ran, their obligations less the refused and equivalent ones), `open` being obligations less covered less argued; `covered`, `argued` and `open` are the sums over the families computed, `open` the number of targets.
+`summary` is `{programs, comparable, computed, mismatches, covered, argued, open, per_family, needless_arguments, argued_by_standing, failed_arguments}`, `per_family` giving each built family's `{obligations, covered, argued, open}` (the flips' where they ran, their obligations less the refused and equivalent ones), `open` being obligations less covered less argued; `covered`, `argued` and `open` are the sums over the families computed, `open` the number of targets.
 The exit status is `coverage`'s (above), joined with 3 for an `unknown` flip and 2 for a flip whose search ended in an error; a refused flip is no finding about the corpus.
 `baseline_runs` counts the command's baseline runs (`coverage --verify` runs every program live: `live` is the number of programs, `reused` 0).
 `spec.execution_digest` (`{kind, digest}`, the result cache's key, beside `spec.digest`), `spec.exclusion`, `spec.short_circuit` and `result_cache: {enabled, reason}` are as in the run document.
@@ -980,9 +1009,15 @@ depth = 1                # the length of the sequences the deeper families count
 mcdc = []                # the rules whose requirements gain unique-cause obligations, by name, or true for every rule
 max_obligations = 100000 # the most obligations a universe of depth above 1 may hold
 
+[[coverage.invariant]]   # any number, each named by an entry; "Argued obligations"
+name = "spin-bounded"
+function = "spinBounded"
+cells = ["k", "counter"]
+
 [[coverage.argued]]      # any number; "Argued obligations"
 item = "rule:LOOP.spin"
 argument = "a defence against a state the definition never builds"
+invariant = "spin-bounded" # optional: the invariant the argument rests on
 ```
 
 Every command decodes the section, and refuses a malformed one as it refuses any manifest key; `coverage` refuses a depth whose rule windows or syntax paths outnumber `max_obligations`, at stage `coverage` before any program runs (`max-obligations`, "Rule windows", "Syntax paths").
@@ -1667,7 +1702,7 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 20
+version = 21
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
@@ -1718,6 +1753,10 @@ open = [
 ]
 argued = [
 ]
+
+[arguments]                   # coverage: each argued item's standing, one line per item, the section empty where none is argued
+"requirement:CALC.div:refuted" = "text"
+"flip--halted+wake--I" = "text"
 
 [flips]                       # coverage: whether the flips family ran
 run = true
@@ -1803,6 +1842,7 @@ The section lists every open window, not only the frontier's: a lock moves when 
 Version 18 also lists the open and argued syntax paths (`[syntax_paths]`, every open path and joint field value, on the frontier or not) where the document has the family, at a depth above 1; a rendering of depth 1 is unchanged but for its `version` line.
 Version 19 (FB-38) renders the statuses, guard outcomes and requirements of a function equation that cover every application its left-hand side matches whose deciding priority group is its own, tried or not ("Guard outcomes"): a coverage lock's open rules, `[[guard]]` entries and open requirements of equations can move for that reason alone, which the `version` line then says, rather than reading as a change of the corpus; a run rendering is unchanged but for its `version` line.
 Version 20 writes every array of strings or inline tables with one value per line, an empty one included (above), where version 19 wrote each on one line; the values are unchanged, so a lock recorded at version 19 differs from a version 20 rendering of the same verdicts in its layout and its `version` line only.
+Version 21 (FB-39) gives a coverage rendering `[arguments]`, each argued item's standing ("Argued obligations"), so that a lock records what each argument rests on and a standing that moves makes it stale; a coverage lock recorded at version 20 differs from a version 21 rendering of the same coverage in its `version` line and the new section only, and a run rendering in its `version` line only.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 
