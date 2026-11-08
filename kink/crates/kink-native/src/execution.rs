@@ -1833,7 +1833,12 @@ impl ExecutionAdapter {
 /// the run's only leaf is that answer's, of its halt, at its point's depth. Anything else is a
 /// result outside k-rust's contract: a probe leaf beside another leaf, a probe leaf with no
 /// answer or of another halt or depth than the answer's, an answer with no probe leaf in a run
-/// that did not time out (a timed-out run reads no leaf), or more than one answer.
+/// that has leaves, or more than one answer.
+///
+/// A run the watchdog cancelled before k-rust returned has no leaf ([`settle`]), so an answer
+/// the probe gave before that has no leaf to be recorded on, and nothing is paired. A run whose
+/// watchdog fired after k-rust returned keeps its leaves, a probe's leaf among them, and is
+/// paired as any other run, so that a probe's leaf always carries its point.
 fn attach_probe_ends(
     adapted: &mut AdaptedExecution,
     answers: Vec<ProbeAnswer>,
@@ -1848,7 +1853,7 @@ fn attach_probe_ends(
     if let Some(extra) = second {
         return Err(ExecutionAdapterFailure::ContractViolation(extra.halt));
     }
-    if adapted.timed_out {
+    if adapted.timed_out && adapted.leaves.is_empty() {
         return Ok(());
     }
     match (adapted.leaves.as_mut_slice(), first) {
@@ -3730,13 +3735,29 @@ mod tests {
                 );
             }
         }
-        // A timed-out run reads no leaf, whatever the probe answered before the watchdog fired.
+        // A run the watchdog cancelled before k-rust returned has no leaf, whatever the probe
+        // answered before the watchdog fired.
         let mut timed_out = adapted(&[]);
         timed_out.timed_out = true;
         assert_eq!(
             attach_probe_ends(&mut timed_out, vec![answer(d, 2)]),
             Ok(())
         );
+        // A run whose watchdog fired after k-rust returned keeps its leaves: a probe's leaf is
+        // paired with its answer as in any other run, and a probe's leaf without one is refused.
+        let mut late = adapted(&[(d, 2)]);
+        late.timed_out = true;
+        assert_eq!(attach_probe_ends(&mut late, vec![answer(d, 2)]), Ok(()));
+        assert_eq!(late.leaves()[0].probe, Some(answer(d, 2).end));
+        let mut unanswered = adapted(&[(n, 2)]);
+        unanswered.timed_out = true;
+        assert_eq!(
+            attach_probe_ends(&mut unanswered, Vec::new()),
+            Err(ExecutionAdapterFailure::ContractViolation(n))
+        );
+        let mut continued = adapted(&[(s, 2)]);
+        continued.timed_out = true;
+        assert_eq!(attach_probe_ends(&mut continued, Vec::new()), Ok(()));
     }
 
     /// KINK-observation-traces T3a pin: the request a probe's run sends is the request without
