@@ -259,7 +259,9 @@ fn a_name_bound_outside_alternatives_is_a_use_in_each() {
 
 /// What stays refused: a name the alternatives bind fresh on one side only,
 /// beside a use (`x | y`) or with no binding outside them (two or-patterns
-/// that each bind `x` on one side, an equation's argument); a name the
+/// that each bind `x` on one side, an equation's argument, a computed key
+/// that only reads `x`, in a readable rule, a `cells!` rule and a function
+/// context); a name the
 /// sentence binds, inside a `k::matches!` pattern, where it binds a new
 /// variable; alternatives below a function in a map key, which is built;
 /// and alternatives in a simplification, which rewrites one term.
@@ -281,6 +283,23 @@ fn alternatives_that_bind_a_fresh_name_unequally_stay_refused() {
         (
             "equation",
             "#[k::equation]\nfn probe_one(k::term![Probe(x | 1, 0)]: Term<Int>) -> Term<Int> {\n    0\n}\n",
+            "error[krs::syntax::invalid-pattern-or]: variable `x` is not bound in all alternatives",
+        ),
+        // A name a computed key reads binds nothing: the key is evaluated from it, so on a
+        // match through the other alternative nothing gives it a value.
+        (
+            "computed-key",
+            "k::rules! {\n    for Machine;\n    use Cmd::*;\n    wkey: { k: [Check(x | 0), ..], env: { Wk(x) -> v, .. } } => { k: [Yes(), ..] };\n}\n",
+            "error[krs::syntax::invalid-pattern-or]: variable `x` is not bound in all alternatives",
+        ),
+        (
+            "computed-cells-key",
+            "#[k::rule(label = \"wkey\")]\npub fn wkey(\n    x: Int,\n    v: k::KItem,\n    k::cells! { k: k::configuration::KCell(Cmd::Check(x | 0), tail @ ..), env: k::configuration::Cell(k::map![Wk(x) -> v, ..]), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(Cmd::Yes(), ..tail), ..state }\n}\n",
+            "error[krs::syntax::invalid-pattern-or]: variable `x` is not bound in all alternatives",
+        ),
+        (
+            "computed-context-key",
+            "#[k::equation]\nfn probe_env(\n    x: Term<Int>,\n    v: Term<k::KItem>,\n    k::term![Probe(x | 0, 1)]: Term<Int>,\n    k::cells! { env: k::configuration::Cell(k::map![Wk(x) -> v, ..]), .. }: Machine,\n) -> Term<Int> {\n    1\n}\n",
             "error[krs::syntax::invalid-pattern-or]: variable `x` is not bound in all alternatives",
         ),
         (

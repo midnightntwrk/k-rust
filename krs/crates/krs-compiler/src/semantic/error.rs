@@ -448,6 +448,18 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the or-pattern.
         range: Option<Box<SourceRange>>,
     },
+    /// Alternatives one of which binds a name another does not and no other
+    /// position of the pattern binds: the expansion's mistake
+    /// (``variable `x` is not bound in all alternatives``), told once what binds
+    /// is known from the heads, since a name a computed key reads binds nothing.
+    AlternativesBindUnequally {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the or-pattern.
+        range: Option<Box<SourceRange>>,
+    },
     /// An operator's operands choose no single builtin domain, or the domain
     /// they choose does not define the operator.
     InvalidOperator {
@@ -1139,6 +1151,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::AlternativesBindUnequally {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidOperator {
                 range: $named_range,
                 item: $named_item,
@@ -1734,6 +1751,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidRecordUpdate { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
+            | Self::AlternativesBindUnequally { reason, .. }
             | Self::InvalidOperator { reason, .. }
             | Self::InvalidMatches { reason, .. }
             | Self::FunctionInPattern { reason, .. }
@@ -1839,6 +1857,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidRecordUpdate { .. } => codes::analysis::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
+            Self::AlternativesBindUnequally { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::InvalidOperator { problem, .. } => match problem {
                 OperatorProblem::Ambiguous => codes::analysis::AMBIGUOUS_OPERATOR,
                 OperatorProblem::Undefined => codes::syntax::INVALID_EXPRESSION_NOTATION,

@@ -76,6 +76,7 @@ pub(super) fn check(
         outside: BTreeSet::new(),
         entries: Vec::new(),
         remainders: Vec::new(),
+        alternatives: Vec::new(),
     };
     pattern.sentence(payload);
     judge(descriptor, &pattern, catalog)
@@ -113,6 +114,7 @@ pub(in crate::semantic) fn check_readable(
         outside: BTreeSet::new(),
         entries: Vec::new(),
         remainders: Vec::new(),
+        alternatives: Vec::new(),
     };
     pattern.readable_rule(rule);
     let mut aliases = BTreeSet::new();
@@ -216,6 +218,7 @@ fn judge(
                 computes: None,
                 built: None,
                 read: Vec::new(),
+                alternatives: Vec::new(),
             };
             key.entry(&entry.key);
             key
@@ -239,6 +242,20 @@ fn judge(
                 why = construct.why(),
             ),
             range: key_range(descriptor, at).map(Box::new),
+        });
+    }
+    // Alternatives that bind a name another alternative does not, which no other position of
+    // the pattern binds: a name a computed key reads is bound by nothing there.
+    if let Some((alternatives, name)) = pattern
+        .alternatives
+        .iter()
+        .chain(keys.iter().flat_map(|key| &key.alternatives))
+        .find_map(|alternatives| Some((alternatives, alternatives.unbound(&order.anywhere)?)))
+    {
+        return Err(DescriptorLoweringError::AlternativesBindUnequally {
+            item: item(),
+            reason: format!("variable `{name}` is not bound in all alternatives"),
+            range: key_range(descriptor, alternatives.at).map(Box::new),
         });
     }
     if let Some((key, read)) = order.unbound(&keys) {
@@ -551,6 +568,39 @@ struct Pattern<'t, 'd> {
     entries: Vec<Entry<'t>>,
     /// Each collection's remainder binding, by collection.
     remainders: Vec<Option<&'t str>>,
+    /// The or-patterns outside every key, with what each alternative binds.
+    alternatives: Vec<Alternatives<'t>>,
+}
+
+/// An `A | B` of the pattern and the names each alternative binds where it stands. Every match
+/// binds only the names all the alternatives bind; a name some alternative binds and another
+/// does not is bound by the match only where another position binds it, a use in each
+/// alternative then (nonlinear matching).
+struct Alternatives<'t> {
+    at: &'t ProvenanceKey,
+    held: Vec<BTreeSet<&'t str>>,
+}
+
+impl<'t> Alternatives<'t> {
+    /// The names every alternative binds.
+    fn every(&self) -> BTreeSet<&'t str> {
+        let mut held = self.held.iter();
+        let first = held.next().cloned().unwrap_or_default();
+        held.fold(first, |every, names| {
+            every.intersection(names).copied().collect()
+        })
+    }
+
+    /// The first name, in alternative order, that some alternative binds, another does not,
+    /// and no position of the pattern outside the alternatives binds (`bound`).
+    fn unbound(&self, bound: &BTreeSet<String>) -> Option<&'t str> {
+        let every = self.every();
+        self.held
+            .iter()
+            .flatten()
+            .copied()
+            .find(|name| !every.contains(name) && !bound.contains(*name))
+    }
 }
 
 /// One key or set element and its entry.
@@ -770,10 +820,15 @@ impl<'t> Pattern<'t, '_> {
                     self.term(value);
                 }
             }
-            DescriptorTerm::Or { alternatives, .. } => {
-                for alternative in alternatives {
-                    self.term(alternative);
-                }
+            // Every match binds only what all the alternatives bind.
+            DescriptorTerm::Or { key, alternatives } => {
+                let held = alternatives
+                    .iter()
+                    .map(|alternative| self.names_of(alternative).into_iter().collect())
+                    .collect();
+                let alternatives = Alternatives { at: key, held };
+                self.outside.extend(alternatives.every());
+                self.alternatives.push(alternatives);
             }
             DescriptorTerm::Rewrite { from, .. } => self.term(from),
             DescriptorTerm::Cell { fields, .. } => {
@@ -863,6 +918,8 @@ struct Key<'a, 't> {
     built: Option<(KeyPattern, &'t ProvenanceKey, String)>,
     /// The names it reads below a construct that computes.
     read: Vec<Read<'t>>,
+    /// The or-patterns of its matched part, with what each alternative binds.
+    alternatives: Vec<Alternatives<'t>>,
 }
 
 /// A construct that computes, where it stands, described.
@@ -1057,12 +1114,7 @@ impl<'t> Key<'_, 't> {
                 self.term(pattern, computing);
             }
             DescriptorTerm::Or { key, alternatives } => {
-                self.pattern_only(KeyPattern::Alternatives, key, computing, || {
-                    "alternatives `A | B`".to_owned()
-                });
-                for alternative in alternatives {
-                    self.term(alternative, computing);
-                }
+                self.alternatives(key, alternatives, computing);
             }
             DescriptorTerm::Application {
                 reference,
@@ -1114,6 +1166,42 @@ impl<'t> Key<'_, 't> {
             | DescriptorTerm::OrBool { .. }
             | DescriptorTerm::Lexeme { .. }
             | DescriptorTerm::Closure { .. } => {}
+        }
+    }
+
+    /// `A | B` at `key`, below `computing`: a selection where the key matches, which binds
+    /// only what all the alternatives bind.
+    fn alternatives(
+        &mut self,
+        key: &'t ProvenanceKey,
+        alternatives: &'t krs_ir::AtLeastTwo<DescriptorTerm>,
+        computing: Option<&str>,
+    ) {
+        self.pattern_only(KeyPattern::Alternatives, key, computing, || {
+            "alternatives `A | B`".to_owned()
+        });
+        let start = self.matched.len();
+        let mut held = Vec::new();
+        for alternative in alternatives {
+            let before = self.matched.len();
+            self.term(alternative, computing);
+            held.push(
+                self.matched[before..]
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect(),
+            );
+        }
+        if computing.is_none() {
+            let alternatives = Alternatives { at: key, held };
+            let every = alternatives.every();
+            let mut position = 0;
+            self.matched.retain(|(name, _)| {
+                let kept = position < start || every.contains(name);
+                position += 1;
+                kept
+            });
+            self.alternatives.push(alternatives);
         }
     }
 
