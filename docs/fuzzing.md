@@ -34,7 +34,7 @@ Put the executables on your `PATH`.
 The examples use two small flows over the IMP language of the K tutorial, kept in the repository:
 
 - `kink/testdata/flow/fuzz/imp`: two programs (`sum`, `primes`), seven mutations of `imp.k` that no program kills, four templates, and a pattern.
-- `kink/testdata/flow/fuzz/impu`: three programs that leave three rules of `imp.k` unmatched, and three templates.
+- `kink/testdata/flow/fuzz/impu`: three programs that leave three rules of `imp.k` and the strictness of its `!` unmatched, and three templates.
 
 Commands run from the repository root. `kink-flow run` and `kink-flow coverage` write a cache next to `FLOW.toml`, so copy a flow out of the repository before working in it.
 Each example shows the command, then the part of its output that matters. Every command prints one JSON document; save it to a file and read it with any JSON viewer.
@@ -254,8 +254,12 @@ kink-flow coverage FLOW.toml > coverage.json
 
 ```json
 {
-  "families": { "rules": { "counts": { "matched": 0, "unmatched": 3 } } },
+  "families": {
+    "rules": { "counts": { "matched": 0, "unmatched": 4, "heating": { "obligations": 10, "fired": 9 } } }
+  },
   "targets": [
+    { "item": "rule:!__IMP-SYNTAX_BExp_BExp:heat:1", "file": "imp.k", "line": 17,
+      "pattern": null, "fuzz": null },
     { "item": "rule:imp.k:47", "file": "imp.k", "line": 47,
       "pattern": "<k> - I1:Int ...</k>", "fuzz": "…--matched imp.k:47" },
     { "item": "rule:imp.k:50", "file": "imp.k", "line": 50,
@@ -266,7 +270,11 @@ kink-flow coverage FLOW.toml > coverage.json
 }
 ```
 
-Each target's `pattern` is the rule's left-hand side as a `PATTERNS.toml` pattern, with the sorts the rule's parse inferred for its variables and in the `<k>` cell where the rule runs, so `query` can check whether a program reaches it and `fuzz --pattern` can look for one.
+The rules family also has one heating item per argument position that a `strict` or `seqstrict` attribute names: the compile turns each position into a heating rule, which moves a subterm that is not yet a result to the front of the computation, and the item is covered where some run did so.
+`imp.k` has ten such positions (`counts.heating`), and the corpus's runs heat all of them but the operand of `!`, which no program uses, so the fourth unmatched item is that heating rule, `rule:!__IMP-SYNTAX_BExp_BExp:heat:1` on line 17.
+Its target has no `pattern` and no `fuzz` job: the fuzz's rule jobs target authored rules, and a program that reaches rule 50 with an operand to evaluate covers it too (below).
+
+Each authored rule's target has a `pattern`, the rule's left-hand side as a `PATTERNS.toml` pattern, with the sorts the rule's parse inferred for its variables and in the `<k>` cell where the rule runs, so `query` can check whether a program reaches it and `fuzz --pattern` can look for one.
 Name the rule by `FILE:LINE`, as a `coverage` target spells it (a label works too, but these rules have none):
 
 ```sh
@@ -306,7 +314,7 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template clamp-holes --matched imp.k:5
 }
 ```
 
-The statement suggests more cases or more holes, but the template is what fails here. A three-line program with a `!` matches the rule on its first case:
+The statement suggests more cases or more holes, but the template is what fails here. A three-line program with a `!` matches the rule on its first case, and since its `!` applies to `x <= 3`, which is no result yet, the program's run also heats `!`'s operand and covers that heating item:
 
 ```text [kink/testdata/flow/fuzz/impu/templates/bang.imp]
 // Flag x when it is not small.
