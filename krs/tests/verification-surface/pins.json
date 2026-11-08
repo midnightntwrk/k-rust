@@ -485,7 +485,7 @@
         "set-get": "proven",
         "set-get-false": "disproved",
         "sym-one": "proven",
-        "sym-one-false": "failed",
+        "sym-one-false": "disproved",
         "sym-two": "proven",
         "sym-two-false": "failed",
         "unmatched-keys": "proven",
