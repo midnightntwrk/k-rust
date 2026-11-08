@@ -232,28 +232,31 @@ kink-flow check FLOW.toml
 kink-flow coverage FLOW.toml
 ```
 
-`coverage` lists one target per open obligation.
-Here the unlabelled subtraction rule on line 23 is unmatched, so the first target asks for a case that reaches it:
+`coverage` lists one target per open obligation, in tier, family, then sentence order.
+Each `strict` argument position of a production is an obligation of its own, its heating rule, at the production that states it.
+No program here has an operand that is itself an expression, so no run heats one, and the first target asks for a case that heats the first operand of `*`, on line 9:
 
 <!-- example: output /targets/0 -->
 ```json
-{"family": "rules", "item": "rule:calc.k:23", "file": "calc.k", "line": 23,
- "text": "a case whose run reaches a state that calc.k:23 matches"}
+{"family": "rules", "item": "rule:mul:heat:1", "file": "calc.k", "line": 9,
+ "programs": ["square"],
+ "text": "a case whose run brings mul to the front of the computation with a term that is not a result as its argument 1, so that heating evaluates it (the comparable runs that reached it did not)"}
 ```
 
-Cover it with a program, `programs/sub.calc`:
+The second operand of `*` and both operands of `+` and of `-` follow, then the unlabelled subtraction rule on line 23, which no run reaches.
+Cover them all with one program, `programs/operands.calc`, each of whose operators has expressions as both operands:
 
-<!-- example: file programs/sub.calc -->
+<!-- example: write programs/operands.calc -->
 ```text
-10 - 4 - 3
+(1 + 1) * (3 - 1) - (1 - 0 + (2 - 1))
 ```
 
 <!-- example: append FLOW.toml -->
 ```toml
 
 [[program]]
-id = "sub"
-file = "programs/sub.calc"
+id = "operands"
+file = "programs/operands.calc"
 ```
 
 <!-- example: run -->
@@ -261,7 +264,7 @@ file = "programs/sub.calc"
 kink-flow coverage FLOW.toml
 ```
 
-Only the new program runs (`computed`); the others come from the cache, every rule fires, and nothing is open:
+Only the new program runs (`computed`); the others come from the cache, every rule fires, every operand is heated, and nothing is open:
 
 <!-- example: output /summary -->
 ```json
@@ -331,7 +334,7 @@ Run the kill search:
 kink-flow run FLOW.toml MUTATIONS.toml
 ```
 
-Three mutations are killed; `2 * 2` equals `2 + 2`, so `mul-becomes-add` survives:
+Three mutations are killed; `2 * 2` equals `2 + 2`, and the one product `operands` computes is `2 * 2` too, so `mul-becomes-add` survives:
 
 <!-- example: output /survivors -->
 ```json
@@ -356,12 +359,12 @@ The survivor's row says what was changed, which programs witness the changed rul
      "before": "rule [mul]: I1:Int * I2:Int => I1 *Int I2",
      "after": "rule [mul]: I1:Int * I2:Int => I1 +Int I2"}
   ],
-  "witnesses": ["square"]
+  "witnesses": ["square", "operands"]
 }
 ```
 
 `executed` lists every program the mutant ran on, in the order the search ran them:
-first the programs whose coverage witnesses the edit (here `square`, which fired the edited rule), then the others, each group in `FLOW.toml`'s order.
+first the programs whose coverage witnesses the edit (here `square` and `operands`, which fired the edited rule), then the others, each group in `FLOW.toml`'s order.
 Every program agreed with the baseline on both oracle slots, the exit stop and the whole final configuration:
 
 <!-- example: output /mutations/1/executed/0 -->
@@ -378,7 +381,7 @@ kink-flow report FLOW.toml
 ```
 
 To kill the survivor, write a program that matches the edited rule and whose final configuration the edit changes.
-`square` matches the rule but agrees, because `2 * 2` and `2 + 2` are both `4`; `2 * 3` is `6`, and `2 + 3` is `5`:
+`square` and `operands` match the rule but agree, because each multiplies `2` by `2`, and `2 * 2` and `2 + 2` are both `4`; `2 * 3` is `6`, and `2 + 3` is `5`:
 
 <!-- example: append FLOW.toml -->
 ```toml
