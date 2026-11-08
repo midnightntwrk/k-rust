@@ -2133,9 +2133,15 @@ impl<'a> Execution<'a> {
     ) {
         let forked = self.forked.take();
         let leaves = self.leaves.len() - leaves_from;
-        debug_assert!(
+        // The probe was asked points on the forked path: a leaf must end it, or the probe would
+        // keep those points as a path the run explored with no leaf whose facts stand for them.
+        // A terminal rule's arrival ends the expansion with its leaf (`Self::terminal_end`), the
+        // last one pushed, so this is the run's contract with the probe, checked in every build.
+        assert!(
             forked.is_none() || (leaves > 0 && successors.is_empty()),
-            "a path forked within an expansion is the path of the leaf it ends with"
+            "a path forked within an expansion is the path of the leaf it ends with: \
+             {leaves} leaves and {} successors left the state at depth {depth}",
+            successors.len()
         );
         match (forked, leaves, successors.len()) {
             (None, 0, 1) => {

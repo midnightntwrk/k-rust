@@ -80,7 +80,10 @@
 //! An answer of a path is that path's: `Done` ends that path only, and the run goes on with the
 //! others; `Differs` ends the request. A path the run stops exploring without a leaf of its own
 //! (the work budget reached on another path, a stop that ends the run, a difference) is told
-//! nothing more: what the probe holds of it is where the run left it.
+//! nothing more: what the probe holds of it is where the run left it. Such a path's state is
+//! pending, never normalized, and was forked where its parent split, since the run expands a
+//! state's one successor next: nothing was asked of the path after its fork, so what the probe
+//! holds of it is what it held of the path it was forked from when that path split.
 //!
 //! ## Merging
 //!
