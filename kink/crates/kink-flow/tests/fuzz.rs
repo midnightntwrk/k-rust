@@ -50,6 +50,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod flow_support;
+
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -649,6 +651,29 @@ fn a_template_with_typed_inputs_is_refused() {
             .starts_with("program \"typed\" has typed inputs (`inputs`)"),
         "{document:#}"
     );
+}
+
+/// Under the Z3 profile the fuzz document names the Z3 build its confirmations are decided on
+/// (`z3`), whatever the outcome: a job refused before any case and the document of an input that
+/// does not decode; under the portable profile neither names a Z3 build.
+#[test]
+fn the_fuzz_document_names_the_z3_build_under_the_z3_profile() {
+    let z3 = flow_support::z3_member();
+    let manifest = "[spec]\nentry = \"steps.k\"\nmain_module = \"STEPS\"\nsyntax_module = \
+                    \"STEPS-SYNTAX\"\n\n[[program]]\nid = \"typed\"\ntext = \"run(1)\"\n\
+                    inputs = { n = 1 }\n";
+    let dir = scratch_flow("z3-build", "steps.k", STEPS_K, manifest, "");
+    let (document, ok) = run_job(
+        &dir,
+        "[[template]]\nid = \"t\"\nprogram = \"typed\"\n",
+        "t",
+        Job::Rule("big".into(), true),
+        FuzzOptions::default(),
+    );
+    assert!(!ok, "{document:#}");
+    assert_eq!(document.get("z3"), z3.as_ref(), "{document:#}");
+    let refused = kink_flow::fuzz::input_refused("TEMPLATES.toml", &"invalid TOML");
+    assert_eq!(refused.get("z3"), z3.as_ref(), "{refused:#}");
 }
 
 /// A template's own `file` or `text` is read as admission reads a program's, through the front

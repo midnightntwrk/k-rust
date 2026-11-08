@@ -724,14 +724,12 @@ impl Verb {
             Self::Report => crate::report::MISSING_SCHEMA,
             Self::Query => crate::query::QUERY_SCHEMA,
         };
+        // Under the Z3 profile the document names the build (`crate::with_z3_build`), as every
+        // document of every verb does; a refused `coverage` or `run` document is also rendered
+        // (`--output verdicts`), and its rendering names it.
         let mut document = manifest_refused(error);
         document["schema"] = json!(schema);
-        // A refused `coverage` or `run` document is rendered (`--output verdicts`), and every
-        // rendering under the Z3 profile names the build (`crate::with_z3_build`).
-        match self {
-            Self::Coverage | Self::Run => crate::with_z3_build(document),
-            _ => document,
-        }
+        document
     }
 
     /// What the thread that runs the verb is named in a panic's message.
@@ -2492,11 +2490,18 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// no rewrite rule or a cell states no observation is refused at stage `observe`
 /// (`point-unresolved`, `cell-refused`, `backend-error`), a key that names a function of an
 /// observer is refused there too (`unsupported-front-end`), and a mutation that deletes a rule a
-/// point class names is warned `point-rule-deleted`.
-pub const CHECK_VERSION: u64 = 13;
+/// point class names is warned `point-rule-deleted`; 14 since under the Z3 profile the document
+/// names the Z3 build (`z3`, [`crate::with_z3_build`]): each case's expectation and the coverage
+/// warnings are read from result records, whose classes and coverage baseline runs decided by
+/// asking the solver, and a record is read only under a key that names this build, so they are a
+/// function of the build as much as of `profile`.
+pub const CHECK_VERSION: u64 = 14;
 
+/// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
+/// document a verb gives for a manifest that does not decode is built from it
+/// ([`Verb::manifest_refused`]), so each names the build as the verb's own documents do.
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
-    json!({
+    crate::with_z3_build(json!({
         "schema": "kink-flow-check",
         "version": CHECK_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
@@ -2508,7 +2513,7 @@ fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Valu
         "mutation_list": null,
         "mutations": null,
         "coverage": null,
-    })
+    }))
 }
 
 /// The document of a manifest that does not decode: the spec is refused at stage

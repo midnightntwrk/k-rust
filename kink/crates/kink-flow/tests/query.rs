@@ -26,6 +26,8 @@ use std::{
     process::Command,
 };
 
+mod flow_support;
+
 fn flow(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../testdata/flow")
@@ -1110,6 +1112,22 @@ pattern = "<k> lookup(_) ~> _ </k>"
             names,
             BTreeSet::from(["patterns".to_owned(), "results".to_owned()])
         );
+    }
+
+    /// Under the Z3 profile the query document names the Z3 build its answers were decided on
+    /// (`z3`), and so does the document of a pattern list that does not decode; under the
+    /// portable profile neither names a Z3 build.
+    #[test]
+    #[ignore = "kink"]
+    fn the_query_document_names_the_z3_build_under_the_z3_profile() {
+        let z3 = flow_support::z3_member();
+        let dir = fixture("calc", "z3-build");
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, REFUTED_STATUS, "{document:#}");
+        assert_eq!(document.get("z3"), z3.as_ref(), "{document:#}");
+        let error = PatternList::decode("[[patterns]]\nid = \"a\"\n").unwrap_err();
+        let refused = kink_flow::query::pattern_list_refused(&error);
+        assert_eq!(refused.get("z3"), z3.as_ref(), "{refused:#}");
     }
 
     /// Flow F-18 deliverable 4, CF-33: the pattern cache is on in both profiles (as tier 1 is):

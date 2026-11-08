@@ -9,7 +9,7 @@
 
 use kink_campaign::identity::{
     KINK_IDENTITY, OUTSIDE_IDENTITY, build_identity_of, identity_difference, kink_build,
-    kink_identity, writer_difference,
+    kink_identity, writer_difference, z3_build, z3_difference,
 };
 use serde_json::json;
 use std::{
@@ -453,6 +453,41 @@ fn a_record_is_honoured_only_by_the_build_that_wrote_it() {
     let unknown = Err("cannot read the executable".to_owned());
     assert!(writer_difference(&json!(this.to_string()), &identity, &unknown).is_some());
     assert!(writer_difference(&json!(null), &identity, &unknown).is_some());
+}
+
+/// Under the Z3 profile a record is honoured only by a process on the Z3 build that decided it,
+/// since the build identity does not cover a dynamically linked Z3: a record that names another
+/// build, one that names none where the process has one, one that names one where the process
+/// has none, and every record while the process's build cannot be named, are refused, and the
+/// reason names both builds. This process's build is kink-native's `z3_build_value`, absent
+/// without Z3.
+#[test]
+fn a_record_is_honoured_only_on_the_z3_build_that_decided_it() {
+    assert_eq!(z3_build(), Ok(kink_native::z3_build_value()));
+    let this = json!({"version": "5.3.3.0", "library_sha256": "aa".repeat(32)});
+    let other = json!({"version": "5.3.3.0", "library_sha256": "bb".repeat(32)});
+    let on_this = Ok(Some(this.clone()));
+    assert_eq!(z3_difference(Some(&this), &on_this), None);
+    assert_eq!(z3_difference(None, &Ok(None)), None);
+    let reason = z3_difference(Some(&other), &on_this).unwrap();
+    assert!(
+        reason.contains(&"aa".repeat(32)) && reason.contains(&"bb".repeat(32)),
+        "{reason}"
+    );
+    assert!(z3_difference(None, &on_this).is_some());
+    assert!(z3_difference(Some(&this), &Ok(None)).is_some());
+    let unnamed = Err(kink_native::UNNAMED_Z3_BUILD);
+    assert_eq!(
+        z3_difference(Some(&this), &unnamed).as_deref(),
+        Some(kink_native::UNNAMED_Z3_BUILD)
+    );
+    assert!(z3_difference(None, &unnamed).is_some());
+    // The process's own build honours what it decided.
+    let build = z3_build();
+    assert_eq!(
+        z3_difference(kink_native::z3_build_value().as_ref(), &build),
+        None
+    );
 }
 
 #[test]

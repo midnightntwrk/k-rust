@@ -838,4 +838,93 @@ mod kink_tier {
             }
         });
     }
+
+    /// Under the Z3 profile a verdict is a function of the Z3 build, which a dynamically linked Z3
+    /// keeps outside the executable `kink_build` digests, so a store names the build its verdicts
+    /// were decided on: the campaign manifest (`z3`) and each admission record (`z3`, beside
+    /// `kink_build`), and nothing else differs between this build's store and one another Z3
+    /// build wrote. A report whose manifest names another Z3 build (simulated by writing one into
+    /// it and re-digesting it, as that build would have written it) is refused by resume and by
+    /// summary; an admission record of another Z3 build is refused by resume and read as missing
+    /// by summary. The same holds in the portable profile, where a record that names any Z3
+    /// build is another build's.
+    #[test]
+    #[ignore = "kink"]
+    fn a_store_of_another_z3_build_is_refused() {
+        with_stack(|| {
+            let other = json!({
+                "version": "5.3.3.0",
+                "library_sha256": sha256(b"another Z3 build").to_string(),
+            });
+            let z3 = kink_native::z3_build_value();
+            let manifest = decode(&clean());
+            let written_store = store("other-z3-template");
+            let outcome = run_definition(&workspace(), &manifest, "clean", &written_store).unwrap();
+            assert_eq!(outcome.admission.get("z3"), z3.as_ref());
+            let entry = outcome.campaign.unwrap();
+            let summary = summarize(&written_store, &manifest.digest().to_string(), profile());
+            assert_eq!(summary.unwrap().value().get("z3"), z3.as_ref());
+            // The report's manifest of another Z3 build.
+            let store = copy_store(&written_store, "other-z3-report");
+            let root = store.profile_path(manifest.digest(), profile());
+            let current = root.join("campaigns").join(format!(
+                "{}.json",
+                entry["manifest_sha256"].as_str().unwrap()
+            ));
+            let mut report: Value =
+                serde_json::from_str(&fs::read_to_string(&current).unwrap()).unwrap();
+            assert_eq!(report["manifest"].get("z3"), z3.as_ref());
+            report["manifest"]["z3"] = other.clone();
+            let digest = kink_patch::payload_digest(
+                kink_patch::CAMPAIGN_MANIFEST_DOMAIN,
+                canonical_json(&report["manifest"]).as_bytes(),
+            )
+            .to_string();
+            report["manifest_sha256"] = json!(digest);
+            let text = canonical_json(&report);
+            store
+                .write_text(&root.join(format!("campaigns/{digest}.json")), &text)
+                .unwrap();
+            let mut index = store.read_index(manifest.digest(), profile()).unwrap();
+            index["clean"]["manifest_sha256"] = json!(digest);
+            index["clean"]["report_sha256"] = json!(sha256(text.as_bytes()).to_string());
+            store.write_json(&root.join("index.json"), &index).unwrap();
+            let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
+                panic!("a report of another Z3 build was resumed")
+            };
+            assert!(
+                refused.to_string().contains("decided on the Z3 build"),
+                "{refused}"
+            );
+            let Err(summary) = summarize(&store, &manifest.digest().to_string(), profile()) else {
+                panic!("a report of another Z3 build was summarized")
+            };
+            assert!(
+                summary.to_string().contains("decided on the Z3 build"),
+                "{summary}"
+            );
+            // An admission record of another Z3 build: resume refuses it, and summary reads it as
+            // missing (an error/process row that scores nothing).
+            let store = copy_store(&written_store, "other-z3-admission");
+            let path = store
+                .admission_path(manifest.digest(), profile(), "clean")
+                .unwrap();
+            let mut admission = store.read_json(&path).unwrap();
+            admission["z3"] = other;
+            store.write_json(&path, &admission).unwrap();
+            let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
+                panic!("an admission record of another Z3 build was resumed")
+            };
+            assert!(
+                refused.to_string().contains("admission record")
+                    && refused.to_string().contains("decided on the Z3 build"),
+                "{refused}"
+            );
+            let summary = summarize(&store, &manifest.digest().to_string(), profile()).unwrap();
+            assert_eq!(
+                summary.value()["definitions"][0]["admission"],
+                json!({"outcome":"error","stage":"process","reason":"process"})
+            );
+        });
+    }
 }

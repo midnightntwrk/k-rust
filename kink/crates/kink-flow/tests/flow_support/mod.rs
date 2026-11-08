@@ -144,6 +144,16 @@ pub fn after_cold(name: &str, manifest: &str, mutations: &str, into: &Path) -> V
     cold
 }
 
+/// The `z3` member every kink-flow document of this build has: under the Z3 profile the Z3 build,
+/// `{version, library_sha256}`, read from k-rust's `z3_build` rather than from kink-flow; `None`
+/// under the portable profile, whose documents have no such member.
+pub fn z3_member() -> Option<Value> {
+    cfg!(feature = "z3").then(|| {
+        let build = k_rust::backend::z3_build().expect("a Z3 build links Z3");
+        serde_json::json!({"version": build.version, "library_sha256": build.library_sha256})
+    })
+}
+
 /// The lines a verdicts rendering of this build writes for its solver, after `document`:
 /// `profile`, and under the Z3 profile the Z3 build, `z3_version` and, when the build names its
 /// library, `z3_library_sha256`, read from k-rust's `z3_build` rather than from kink-flow.

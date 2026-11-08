@@ -1428,16 +1428,19 @@ pub fn stored_report(
     let path = corpus_cache_directory(directory, options.cache.as_deref()).join(REPORT_FILE);
     match read_report(&path, spelling) {
         Ok(document) => (document, true),
+        // Version 2 names, under the Z3 profile, the Z3 build of the process that looked
+        // (`z3`, `crate::with_z3_build`), as every kink-flow document does: a stored run document
+        // decided on another build is `unreadable`, and the two builds are then both named.
         Err((outcome, detail)) => (
-            json!({
+            crate::with_z3_build(json!({
                 "schema": MISSING_SCHEMA,
-                "version": 1,
+                "version": 2,
                 "k_rust_revision": crate::k_rust_revision(),
                 "profile": SolverProfile::BUILD.name(),
                 "outcome": outcome,
                 "path": path.display().to_string(),
                 "detail": detail,
-            }),
+            })),
             false,
         ),
     }
@@ -1496,6 +1499,19 @@ fn read_report(
                 "the report was written under another kink identity (`{key}` is missing or \
                  differs), so its statuses may rest on algorithms this build no longer runs: run \
                  `{again}` again"
+            ),
+        ));
+    }
+    // Under the Z3 profile the statuses are a function of the Z3 build the document names
+    // (`z3`), which a dynamically linked Z3 keeps outside the build identity above.
+    if let Some(reason) =
+        kink_campaign::z3_difference(document.get("z3"), &kink_campaign::z3_build())
+    {
+        return Err((
+            "unreadable",
+            format!(
+                "the report is not this Z3 build's ({reason}), so its statuses may rest on solver \
+                 answers this build does not give: run `{again}` again"
             ),
         ));
     }

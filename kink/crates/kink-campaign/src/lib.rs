@@ -8,8 +8,9 @@
 //! [`identity`] holds kink's build identity (the running executable's digest, which guards all of
 //! kink's verdict code) and kink's semantics identity (the versions of its versioned algorithms).
 //! Every store honoured without re-deriving its verdicts (kink-corpus stores, kink-flow's caches
-//! and run document) is bound to both; campaign manifests name the semantics identity only, so
-//! campaign reports stay build-independent.
+//! and run document) is bound to both, and under the Z3 profile to the Z3 build its verdicts were
+//! decided on ([`identity::z3_difference`]); campaign manifests name the semantics identity and
+//! the Z3 build but not kink's build, so campaign reports stay independent of kink's executable.
 
 mod campaign;
 mod cells;
@@ -23,7 +24,7 @@ pub mod identity;
 pub mod observation;
 pub use identity::{
     KINK_IDENTITY, RESULT_SCHEMA_VERSION, identity_difference, kink_build, kink_identity,
-    writer_difference,
+    writer_difference, z3_build, z3_difference,
 };
 pub use observation::{
     BaselineRecord, CYCLE_STATES, ChannelEnd, ChannelRecord, ChannelSets, Closure, Comparison,

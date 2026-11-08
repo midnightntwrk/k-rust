@@ -6,11 +6,14 @@
 //! It honours stored verdicts without re-deriving them, so it reads only what this build wrote
 //! (packet CACHE-ID-fix-1; kink-campaign `identity`): an index entry of another build, of other
 //! run options or under another semantics identity refuses the summary, and an admission record
-//! of another build reads as missing (an `error`/`process` row, which scores nothing).
+//! of another build reads as missing (an `error`/`process` row, which scores nothing). Under the
+//! Z3 profile the same holds of the Z3 build a report's manifest or an admission record names
+//! (kink-campaign `z3_difference`), and the summary names this build (`z3`), the one every
+//! tally it counts was decided on.
 
 use crate::{
     manifest::DefinitionSpec,
-    runner::{corpus_build, corpus_run_options, run_options_value},
+    runner::{admission_difference, corpus_build, corpus_run_options, run_options_value},
     store::{Store, StoreError},
 };
 use kink_campaign::{CAMPAIGN_REPORT_VERSION, Projection};
@@ -99,9 +102,10 @@ pub fn summarize(
         let record = match fs::read_to_string(&admission_path) {
             // An admission record of another build (or one that names none: a process record,
             // or a record written before packet CACHE-ID-fix-1) is read as missing: its
-            // refusal or census may rest on admission code this build no longer runs.
+            // refusal or census may rest on admission code this build no longer runs, or under
+            // the Z3 profile on answers another Z3 build decided.
             Ok(_) => Some(store.read_json(&admission_path)?)
-                .filter(|record| record["kink_build"] == build.to_string())
+                .filter(|record| admission_difference(record, build).is_none())
                 .unwrap_or_else(missing),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing(),
             Err(e) => return Err(e.into()),
@@ -199,17 +203,21 @@ pub fn summarize(
     } else {
         "no"
     };
-    Ok(CorpusSummary {
-        // Version 2: the tally key version 1 named `invalid` is `not-admitted` (TALLY_KEYS), as
-        // the campaign reports it counts name it since CAMPAIGN_REPORT_VERSION 5.
-        value: json!({"schema":"kink-corpus-summary","version":2,
+    // Version 2: the tally key version 1 named `invalid` is `not-admitted` (TALLY_KEYS), as the
+    // campaign reports it counts name it since CAMPAIGN_REPORT_VERSION 5. Version 3: under the Z3
+    // profile the summary names the Z3 build its tallies were decided on (`z3`); every report and
+    // admission record it counts names that build, since it honours no other.
+    let mut value = json!({"schema":"kink-corpus-summary","version":3,
         "corpus_manifest_sha256":corpus_manifest_sha256,"profile":profile,"definitions":definitions,
         "totals":{"definitions":{"listed":manifest.definitions().len(),"admitted":admitted,"exposed":0,
             "refused":refused,"error":errors},"tally":tally_value(&total_tally),"unknown_causes":total_causes,
             "score":if all_scored { score_value(&total_tally)? } else { Value::Null },
             "patterns":{"tests_with_match":pattern_counts[0],"tests_no_match":pattern_counts[1],
-                "tests_unknown":pattern_counts[2],"any_match":any_match}},"exposed":[]}),
-    })
+                "tests_unknown":pattern_counts[2],"any_match":any_match}},"exposed":[]});
+    if let Some(z3) = kink_native::z3_build_value() {
+        value["z3"] = z3;
+    }
+    Ok(CorpusSummary { value })
 }
 
 fn invalid(detail: impl Into<String>) -> StoreError {
@@ -265,6 +273,9 @@ fn read_report(
     }
     if let Some(reason) =
         kink_campaign::writer_difference(&entry["kink_build"], &campaign["kink"], &Ok(build))
+            .or_else(|| {
+                kink_campaign::z3_difference(campaign.get("z3"), &kink_campaign::z3_build())
+            })
     {
         return Err(invalid(format!(
             "the indexed campaign of `{id}` is not summarized: {reason}"

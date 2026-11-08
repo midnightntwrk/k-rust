@@ -434,16 +434,17 @@ pub fn settle_lock(
 
 /// The coverage document of a command whose lock at `path` does not decode: it names the refused
 /// lock (`lock: {path, outcome: "refused", detail}`), and has no specification, no program and
-/// no family, since the lock is read before admission.
+/// no family, since the lock is read before admission. Under the Z3 profile it names the Z3 build
+/// (`z3`, [`crate::with_z3_build`]), as every coverage document does.
 #[must_use]
 pub fn lock_refused(path: &Path, detail: &str) -> Value {
-    json!({
+    crate::with_z3_build(json!({
         "schema": COVERAGE_SCHEMA,
         "version": COVERAGE_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "lock": crate::lock::refused_value(path, detail),
-    })
+    }))
 }
 
 /// [`coverage`] for a front end: under tier 2, the flips it derives

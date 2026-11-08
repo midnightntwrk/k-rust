@@ -197,8 +197,11 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// such a flip; a flip the front end's judge refused is refused at stage `mutation` with
 /// `job.status` `refused` and the judge's reason; and a flip's next steps that would run `run`
 /// run `coverage`, whose flips family judges it.
+/// Version 12 names, under the Z3 profile, the Z3 build the confirmations were decided on (`z3`,
+/// [`crate::with_z3_build`]): a confirmation is a kink run of the program found, whose classes and
+/// kill are a function of the build that counts its solver queries' units.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 11;
+pub const FUZZ_VERSION: u32 = 12;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -631,9 +634,10 @@ impl Refusal {
     }
 }
 
-/// The document's header and the parts every outcome fills.
+/// The document's header and the parts every outcome fills; under the Z3 profile the header
+/// names the Z3 build (`z3`, [`crate::with_z3_build`]).
 fn document() -> Value {
-    json!({
+    crate::with_z3_build(json!({
         "schema": FUZZ_SCHEMA,
         "version": FUZZ_VERSION,
         // k-rust's build identity, the one the embedded fuzz report records (GUIDE-USABILITY 5):
@@ -655,7 +659,7 @@ fn document() -> Value {
         "stopped": null,
         "action": null,
         "warnings": [],
-    })
+    }))
 }
 
 /// The document of a `FLOW.toml`, `TEMPLATES.toml` or `MUTATIONS.toml` that does not decode.

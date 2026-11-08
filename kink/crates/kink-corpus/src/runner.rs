@@ -6,7 +6,13 @@
 //! the campaign report's bytes, and each index entry the [`RunOptions`] its campaign ran with
 //! (`run_options`). Resume refuses an entry of another build, of other run options or under
 //! another semantics identity; summary does the same, and reads an admission record of another
-//! build as missing. Campaign reports, artifacts and inputs stay build-independent.
+//! build as missing. Campaign reports, artifacts and inputs stay independent of kink's build.
+//!
+//! Under the Z3 profile a verdict is also a function of the Z3 build, which a dynamically linked
+//! Z3 keeps outside the executable `kink_build` digests: each campaign manifest names the build
+//! its runs were decided on (`z3`), and so does each admission record, beside `kink_build`.
+//! Resume refuses a report or an admission record of another Z3 build, and summary refuses the
+//! report and reads the admission record as missing (kink-campaign `z3_difference`).
 
 use crate::{
     admission::{AdmissionRecord, AdmissionRefusal, admit_definition},
@@ -50,11 +56,19 @@ pub fn run_options_value(options: &RunOptions) -> Value {
 }
 
 /// kink's build identity, without which kink-corpus neither resumes nor writes a store: a store
-/// is honoured only by the build that wrote it.
+/// is honoured only by the build that wrote it. Under the Z3 profile the Z3 build must be named
+/// too (kink-campaign `z3_build`): a record of an unnamed build could not say which build decided
+/// it.
 ///
 /// # Errors
-/// When the running executable cannot be read.
+/// When the running executable cannot be read, or under the Z3 profile when the Z3 build cannot
+/// be named.
 pub fn corpus_build() -> Result<Sha256Digest, StoreError> {
+    kink_campaign::z3_build().map_err(|e| {
+        StoreError::Invalid(format!(
+            "{e}; kink-corpus neither resumes nor writes a store while the Z3 build is unknown"
+        ))
+    })?;
     kink_campaign::kink_build().map_err(|e| {
         StoreError::Invalid(format!(
             "kink's build identity is unknown ({e}): kink-corpus neither resumes nor writes a \
@@ -63,12 +77,29 @@ pub fn corpus_build() -> Result<Sha256Digest, StoreError> {
     })
 }
 
-/// An admission record as the store holds it: the record and its writer's build (`kink_build`).
+/// An admission record as the store holds it: the record, its writer's build (`kink_build`) and,
+/// under the Z3 profile, the Z3 build it was decided on (`z3`, kink-native `z3_build_value`):
+/// the admission's checks and baseline run ask the solver, so its refusal and census are a
+/// function of the Z3 build too.
 #[must_use]
 pub fn stored_admission(record: &AdmissionRecord, build: Sha256Digest) -> Value {
     let mut value = record.value();
     value["kink_build"] = json!(build.to_string());
+    if let Some(z3) = kink_native::z3_build_value() {
+        value["z3"] = z3;
+    }
     value
+}
+
+/// Why a stored admission record may not be honoured by this process, or `None` when it may: it
+/// names another kink build, or under the Z3 profile another Z3 build (kink-campaign
+/// `z3_difference`).
+#[must_use]
+pub fn admission_difference(admission: &Value, build: Sha256Digest) -> Option<String> {
+    if admission["kink_build"] != build.to_string() {
+        return Some("it was written by another kink build".to_owned());
+    }
+    kink_campaign::z3_difference(admission.get("z3"), &kink_campaign::z3_build())
 }
 pub fn all_normal(_: &Pattern) -> ExecutionTerminalKind {
     ExecutionTerminalKind::Normal
@@ -293,16 +324,21 @@ fn resume(
         &entry["kink_build"],
         &report["manifest"]["kink"],
         &Ok(build),
-    ) {
+    )
+    .or_else(|| {
+        // Under the Z3 profile the report's statuses are a function of the Z3 build its manifest
+        // names, which a dynamically linked Z3 keeps outside the build identity above.
+        kink_campaign::z3_difference(report["manifest"].get("z3"), &kink_campaign::z3_build())
+    }) {
         return Err(StoreError::Invalid(format!(
             "the indexed report is not resumed: {reason}; delete the store to rerun it with this \
              build"
         )));
     }
-    if admission["kink_build"] != build.to_string() {
-        return Err(StoreError::Invalid(
-            "the indexed definition's admission record was written by another kink build".into(),
-        ));
+    if let Some(reason) = admission_difference(&admission, build) {
+        return Err(StoreError::Invalid(format!(
+            "the indexed definition's admission record is not resumed: {reason}"
+        )));
     }
     if entry["run_options"] != run_options_value(&corpus_run_options()) {
         return Err(StoreError::Invalid(format!(

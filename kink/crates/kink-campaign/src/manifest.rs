@@ -106,8 +106,14 @@ fn digest_value(domain: &str, value: &Value) -> String {
 /// are bounded as `backend_options` states, by resource units unless a caller selects the clock
 /// ([`crate::RunOptions::smt_resource_limit`], [`kink_native::BACKEND_OPTIONS`]), where version
 /// 5's were bounded by the clock: a version-5 manifest describes runs whose undecided answers
-/// depended on the host's load.
-pub const CAMPAIGN_MANIFEST_VERSION: u64 = 6;
+/// depended on the host's load. Version 7 adds `z3` under the Z3 profile, the Z3 build of every
+/// run's solver (kink-campaign `identity::z3_build`: `{version, library_sha256}`; absent under the
+/// no-Z3 profile): whether a query is decided within `backend_options.smt_resource_limit` units is
+/// a function of the query, the units and the build that counts them, so the report's statuses
+/// are a function of the build as much as of `profile`, and a version-6 manifest does not say on
+/// which build they were decided. The member keeps a report independent of kink's executable,
+/// which a dynamically linked Z3 is outside of.
+pub const CAMPAIGN_MANIFEST_VERSION: u64 = 7;
 
 pub fn campaign_manifest(input: &ManifestInput<'_>) -> Result<CampaignManifest, ManifestError> {
     let universe = input
@@ -343,7 +349,7 @@ pub fn campaign_manifest_multi_with_options(
         }
     }
     let backend: BackendOptions = run.backend_options();
-    let value = json!({
+    let mut value = json!({
         "schema":"kink-campaign-manifest","version":CAMPAIGN_MANIFEST_VERSION,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
         "kink":crate::identity::kink_identity(),
@@ -362,6 +368,11 @@ pub fn campaign_manifest_multi_with_options(
         "observation_sha256":digest_value(OBSERVATION_DOMAIN, &observation),
         "mutants":mutants,
     });
+    // Under the Z3 profile the Z3 build the runs' units are counted by; the no-Z3 manifest has no
+    // such member, as no answer of its runs depends on a solver.
+    if let Some(build) = kink_native::z3_build_value() {
+        value["z3"] = build;
+    }
     Ok(CampaignManifest {
         value,
         baseline_input,

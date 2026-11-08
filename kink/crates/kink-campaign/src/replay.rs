@@ -312,9 +312,20 @@ fn replay_checked(
 
 /// The environment a report needs: the k-rust revision and provenance encoding, kink's whole
 /// semantics identity (the manifest's `kink` member, [`crate::identity`]; a stale component is
-/// refused as `kink.<key>` before anything is regenerated, packet CACHE-ID) and the solver
-/// profile. The regenerated manifest would also differ (`Declaration`).
+/// refused as `kink.<key>` before anything is regenerated, packet CACHE-ID), the solver
+/// profile and, under the Z3 profile, the Z3 build (`z3`, [`crate::identity::z3_difference`]): a
+/// report decided on another Z3 build would be regenerated on another instrument, so a byte
+/// difference would not say that the campaign does not reproduce. The regenerated manifest would
+/// also differ (`Declaration`).
 fn check_environment(manifest: &Value) -> Result<(), ReplayRefusal> {
+    check_environment_on(manifest, &crate::identity::z3_build())
+}
+
+/// [`check_environment`] for a process on the Z3 build `z3`.
+fn check_environment_on(
+    manifest: &Value,
+    z3: &Result<Option<Value>, &'static str>,
+) -> Result<(), ReplayRefusal> {
     for (pointer, expected) in [
         ("/k_rust/revision", json!(K_RUST_REVISION)),
         ("/k_rust/provenance_format", json!(json::PROVENANCE_FORMAT)),
@@ -336,6 +347,9 @@ fn check_environment(manifest: &Value) -> Result<(), ReplayRefusal> {
     }
     if manifest.pointer("/profile") != Some(&json!(SolverProfile::BUILD.name())) {
         return Err(ReplayRefusal::Environment("profile".to_owned()));
+    }
+    if crate::identity::z3_difference(manifest.get("z3"), z3).is_some() {
+        return Err(ReplayRefusal::Environment("z3".to_owned()));
     }
     Ok(())
 }
@@ -539,6 +553,10 @@ mod tests {
             "kink": crate::identity::kink_identity(),
             "profile": SolverProfile::BUILD.name(),
         });
+        let mut manifest = manifest;
+        if let Some(build) = kink_native::z3_build_value() {
+            manifest["z3"] = build;
+        }
         assert_eq!(check_environment(&manifest), Ok(()));
         for component in crate::identity::KINK_IDENTITY {
             let expected = Err(ReplayRefusal::Environment(format!(
@@ -567,6 +585,37 @@ mod tests {
             check_environment(&none),
             Err(ReplayRefusal::Environment("kink".into()))
         );
+    }
+
+    /// A report decided on another Z3 build is refused in the environment check as `z3`, before
+    /// anything is regenerated, in either profile: a manifest that names another build than the
+    /// process's, one that names none where the process has one, and one that names one where the
+    /// process has none; and every report while the process's build cannot be named.
+    #[test]
+    fn a_manifest_of_another_z3_build_is_refused() {
+        let build = json!({"version": "5.3.3.0", "library_sha256": "aa".repeat(32)});
+        let mut manifest = json!({
+            "k_rust": {
+                "revision": K_RUST_REVISION,
+                "provenance_format": json::PROVENANCE_FORMAT,
+                "provenance_version": json::PROVENANCE_VERSION,
+            },
+            "kink": crate::identity::kink_identity(),
+            "profile": SolverProfile::BUILD.name(),
+            "z3": build.clone(),
+        });
+        let refused = Err(ReplayRefusal::Environment("z3".into()));
+        assert_eq!(
+            check_environment_on(&manifest, &Ok(Some(build.clone()))),
+            Ok(())
+        );
+        let other = json!({"version": "5.3.3.0", "library_sha256": "bb".repeat(32)});
+        assert_eq!(check_environment_on(&manifest, &Ok(Some(other))), refused);
+        assert_eq!(check_environment_on(&manifest, &Ok(None)), refused);
+        assert_eq!(check_environment_on(&manifest, &Err("unnamed")), refused);
+        manifest.as_object_mut().unwrap().remove("z3");
+        assert_eq!(check_environment_on(&manifest, &Ok(Some(build))), refused);
+        assert_eq!(check_environment_on(&manifest, &Ok(None)), Ok(()));
     }
 
     #[test]

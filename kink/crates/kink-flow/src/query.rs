@@ -71,9 +71,12 @@ use std::{
 /// reads a query document back: a program row of a case with an expectation carries
 /// `expectation` (`crate::expect`). Version 3 (KINK-query-no-z3) answers `no` under the Z3
 /// profile where the search received no undecided solver answer, with a `cause` naming that
-/// count, and names the count in the `cause` of an `unknown` it withholds a `no` for.
+/// count, and names the count in the `cause` of an `unknown` it withholds a `no` for. Version 4
+/// names, under the Z3 profile, the Z3 build the answers were decided on (`z3`,
+/// [`crate::with_z3_build`]): whether a search's solver queries are decided within their units is
+/// a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too.
 pub const QUERY_SCHEMA: &str = "kink-flow-query";
-pub const QUERY_VERSION: u64 = 3;
+pub const QUERY_VERSION: u64 = 4;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -623,7 +626,7 @@ fn document(
         .filter(|row| row["claim"] == "refuted")
         .map(|row| json!({"pattern": row["pattern"], "program": row["program"]}))
         .collect::<Vec<_>>();
-    json!({
+    crate::with_z3_build(json!({
         "schema": QUERY_SCHEMA,
         "version": QUERY_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
@@ -651,7 +654,7 @@ fn document(
         "mismatches": mismatches,
         "pattern_cache": pattern_cache,
         "baseline_runs": baseline_runs,
-    })
+    }))
 }
 
 fn refused_document(record: &AdmissionRecord) -> Value {
@@ -670,13 +673,13 @@ fn refused_document(record: &AdmissionRecord) -> Value {
 /// The query document of a pattern list that does not decode (or names a program the manifest
 /// does not have).
 pub fn pattern_list_refused(error: &ManifestError) -> Value {
-    json!({
+    crate::with_z3_build(json!({
         "schema": QUERY_SCHEMA,
         "version": QUERY_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "pattern_list": {"outcome": "refused", "detail": error.to_string()},
-    })
+    }))
 }
 
 #[cfg(test)]

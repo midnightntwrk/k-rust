@@ -10,6 +10,8 @@ use kink_flow::{
 };
 use kink_patch::sha256;
 use serde_json::Value;
+
+mod flow_support;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -173,6 +175,30 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     let text = document.to_string();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home".into());
     assert!(!text.contains(&home), "no absolute path in the document");
+}
+
+/// Under the Z3 profile the check document names the Z3 build (`z3`): its expectations and
+/// coverage warnings are read from result records the build decided. So does the document every
+/// verb gives for a manifest that does not decode, which is built from the check document's
+/// header. Under the portable profile none of them names a Z3 build.
+#[test]
+fn the_check_document_names_the_z3_build_under_the_z3_profile() {
+    let z3 = flow_support::z3_member();
+    let (document, status) = check(&flow("calc/FLOW.toml"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document.get("z3"), z3.as_ref(), "{document:#}");
+    let error = FlowManifest::read(&flow("calc/calc.k")).unwrap_err();
+    for verb in [
+        Verb::Check,
+        Verb::Coverage,
+        Verb::Run,
+        Verb::Report,
+        Verb::Query,
+        Verb::Fuzz,
+    ] {
+        let refused = verb.manifest_refused(&error);
+        assert_eq!(refused.get("z3"), z3.as_ref(), "{verb:?}: {refused:#}");
+    }
 }
 
 #[test]

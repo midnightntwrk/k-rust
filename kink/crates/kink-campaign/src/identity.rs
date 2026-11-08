@@ -45,6 +45,18 @@
 //! An unreadable executable gives no build identity: every honouring store then recomputes or
 //! refuses, never accepts.
 //!
+//! Under the Z3 profile a verdict is also a function of the Z3 build ([`z3_build`]): whether a
+//! resource-bounded query is decided depends on the machine code that counts its units. A
+//! statically linked Z3 is part of the executable [`kink_build`] digests, but a dynamically linked
+//! one is not, so a store honoured on [`kink_build`] alone would honour, after the shared library
+//! was replaced, verdicts another Z3 build decided. Every honouring store therefore also names the
+//! Z3 build its verdicts were decided on and honours a record only when it is this process's
+//! ([`z3_difference`]): kink-flow's keys hold it inside the solver's value (`budget.smt.z3`) and
+//! its run document as `z3`, which `kink-flow report` requires; a kink-campaign manifest names it
+//! as `z3`, so a campaign report and its digest do, and kink-corpus resume and summary and
+//! replay's environment check read it there; a kink-corpus admission record names it beside
+//! `kink_build`.
+//!
 //! The rule for adding to the semantics identity: a constant whose change can change a verdict is
 //! a component here (bump the constant whenever its algorithm changes what it decides; the stores
 //! then miss without further edits, and the refusal names it). Every other versioned constant (a
@@ -408,7 +420,8 @@ pub const OUTSIDE_IDENTITY: [Outside; 40] = [
         reason: "the campaign manifest's format: replay and kink-corpus's summary refuse a \
                  manifest of another version (replay.rs, summary.rs); the solver options a \
                  run's verdict depends on are not named by a version: the manifest records \
-                 those of its runs (backend_options), so its text and digest name them",
+                 those of its runs (backend_options) and, under the Z3 profile, the Z3 build that \
+                 counts their units (`z3`), so its text and digest name them",
     },
     Outside {
         krate: "kink-campaign",
@@ -650,6 +663,59 @@ pub fn writer_difference(
     Some(format!(
         "it was written by {writer}, not by this build {build}, {algorithms}"
     ))
+}
+
+/// The Z3 build of this process as a store names it (kink-native `z3_build_value`): `Ok(None)`
+/// under the no-Z3 profile, where no verdict depends on a solver; under the Z3 profile
+/// `Ok(Some({version, library_sha256}))`. `Err` under the Z3 profile when the build cannot name
+/// its library (kink-native `solver_named`): every unnamed build would share the record's value,
+/// so no store honours a record then, as none does when kink's own build is unknown.
+///
+/// # Errors
+/// kink-native's `UNNAMED_Z3_BUILD` under the Z3 profile when the build cannot be named.
+pub fn z3_build() -> Result<Option<Value>, &'static str> {
+    kink_native::solver_named()?;
+    Ok(kink_native::z3_build_value())
+}
+
+/// Why a stored record may not be honoured by a process on the Z3 build `build` ([`z3_build`]),
+/// or `None` when it may: `recorded` is the record's `z3` member, the Z3 build its verdicts were
+/// decided on (absent under the no-Z3 profile). A record is honoured only when it names exactly
+/// this build, or when neither names one; when this build cannot be named, never.
+///
+/// Under the Z3 profile with resource-bounded queries every verdict is a function of the query,
+/// its units and the Z3 build that counts them, so a record decided on another build may hold a
+/// class, a status or a killer this build would not decide. The build identity does not show
+/// it for a dynamically linked Z3, whose code is outside the executable.
+#[must_use]
+pub fn z3_difference(
+    recorded: Option<&Value>,
+    build: &Result<Option<Value>, &'static str>,
+) -> Option<String> {
+    let build = match build {
+        Err(e) => return Some((*e).to_owned()),
+        Ok(build) => build.as_ref(),
+    };
+    if recorded == build {
+        return None;
+    }
+    let named = |value: &Value| kink_patch::canonical_json(value);
+    Some(match (recorded, build) {
+        (Some(recorded), Some(build)) => format!(
+            "it was decided on the Z3 build {}, not on this process's {}",
+            named(recorded),
+            named(build)
+        ),
+        (None, Some(build)) => format!(
+            "it names no Z3 build, and this process decides on the Z3 build {}",
+            named(build)
+        ),
+        (Some(recorded), None) => format!(
+            "it was decided on the Z3 build {}, and this build has no Z3",
+            named(recorded)
+        ),
+        (None, None) => unreachable!("equal values return above"),
+    })
 }
 
 /// kink's semantics identity, `{key: value}` for every component of [`KINK_IDENTITY`].

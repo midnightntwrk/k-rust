@@ -18,6 +18,8 @@ use std::{
     process::{Command, Output},
 };
 
+mod flow_support;
+
 fn flow(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../testdata/flow")
@@ -192,6 +194,25 @@ fn the_inconsistent_mutant_action_states_the_rank_condition() {
              right-hand side or a rewrite rule instead; a narrowing ranked before another \
              equation of its function widens that one, and the mutant may have no model"
         )
+    );
+}
+
+/// Under the Z3 profile the document `report` gives when there is no run document to print names
+/// the Z3 build of the process that looked (`z3`), as every kink-flow document does; under the
+/// portable profile it names none.
+#[test]
+fn the_missing_report_names_the_z3_build_under_the_z3_profile() {
+    use kink_flow::report::{ReportOptions, report};
+    let dir = fixture("calc", "missing-z3");
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let (document, ok) = report(&manifest, &ReportOptions::default());
+    assert!(!ok, "{document:#}");
+    assert_eq!(document["schema"], MISSING_SCHEMA);
+    assert_eq!(document["outcome"], "missing");
+    assert_eq!(
+        document.get("z3"),
+        flow_support::z3_member().as_ref(),
+        "{document:#}"
     );
 }
 
@@ -755,12 +776,38 @@ mod kink_tier {
         none.as_object_mut().unwrap().remove("kink_build");
         let mut before = none.clone();
         before["version"] = json!(7);
-        for stale in [other, none, before] {
+        // Under the Z3 profile the statuses are also a function of the Z3 build, which a
+        // dynamically linked Z3 keeps outside the executable `kink_build` digests: a document of
+        // this build that names another Z3 build (or, under the portable profile, any) is refused,
+        // and so, under the Z3 profile, is one that names none.
+        assert_eq!(document.get("z3"), flow_support::z3_member().as_ref());
+        let mut other_z3 = document.clone();
+        other_z3["z3"] = json!({
+            "version": "5.3.3.0",
+            "library_sha256": kink_patch::sha256(b"another Z3 build").to_string(),
+        });
+        let mut stale = vec![other, none, before, other_z3];
+        if document.get("z3").is_some() {
+            let mut no_z3 = document.clone();
+            no_z3.as_object_mut().unwrap().remove("z3");
+            stale.push(no_z3);
+        }
+        for stale in stale {
             fs::write(&stored, stale.to_string()).unwrap();
             let (refused, ok) = report(&manifest, &ReportOptions::default());
             assert!(!ok, "{refused:#}");
             assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
         }
+        let mut other_z3 = document.clone();
+        other_z3["z3"] = json!({"version": "5.3.3.0", "library_sha256": "00".repeat(32)});
+        fs::write(&stored, other_z3.to_string()).unwrap();
+        let (refused, _) = report(&manifest, &ReportOptions::default());
+        let detail = refused["detail"].as_str().unwrap();
+        assert!(
+            detail.contains("not this Z3 build's") && detail.contains(&"00".repeat(32)),
+            "{detail}"
+        );
+        assert_eq!(refused.get("z3"), flow_support::z3_member().as_ref());
         // Two real builds.
         fs::write(&stored, &written).unwrap();
         let by_binary = binary(&["report", "FLOW.toml"], &dir);
