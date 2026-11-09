@@ -98,7 +98,7 @@ endmodule
 /// An undecided-condition warning gives its reason in words, not as a Rust `Debug` value, and
 /// explains every backend-marked variable it prints (`Eq-hVarY` here is `f`'s variable `Y`,
 /// which reached `h`'s subject while `f`'s `requires` was simplified). The cube sum is a query Z3
-/// does not settle within 20 ms.
+/// does not settle within 20,000 resource units.
 #[test]
 fn undecided_condition_warnings_explain_their_reason_and_variables() {
     const SOURCE: &str = r#"
@@ -118,7 +118,7 @@ endmodule
     let (output, root) = krun_go(
         "EQVAR",
         SOURCE,
-        &["--smt-timeout", "20", "--smt-retry-limit", "0"],
+        &["--smt-resource-limit", "20000", "--smt-retry-limit", "0"],
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");

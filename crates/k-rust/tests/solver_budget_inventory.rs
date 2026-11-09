@@ -98,7 +98,7 @@ const BUILDS: &[Build] = &[
     Build {
         file: "crates/k-rust/src/main.rs",
         function: "kore_match_disjunction_command",
-        options: "BackendOptions::default()",
+        options: "options.smt.options()",
     },
     // The bindings.
     Build {
@@ -211,7 +211,10 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "crates/k-rust/src/main.rs",
         item: "fn options",
-        default: Mode::Clock("unit 3, krust's --smt-timeout"),
+        default: Mode::Units(
+            "crates/k-rust/src/main.rs",
+            "smt_flags_give_units_unless_a_clock_is_asked_for",
+        ),
     },
     Producer {
         file: "crates/k-rust-fuzz/src/spec.rs",

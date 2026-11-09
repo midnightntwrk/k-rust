@@ -38,7 +38,7 @@ use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::backend::search::*;
 use k_rust::{
     backend::{
-        Backend, BackendError, BackendOptions, SmtBudget,
+        Backend, BackendError, BackendOptions, SmtBudget, SolverReport,
         execution::{BackendRunOptions, SearchRunOptions},
         proving::{ClaimFilter, SavedProofs, filter_claims},
         simplification::model_substitution,
@@ -697,18 +697,27 @@ impl ExecutionTimeoutArgs {
     }
 }
 
+/// How each Z3 query is bounded. By default its first attempt has 370,000 Z3 resource units,
+/// so whether a query is decided depends neither on the machine's speed nor on its load.
 #[derive(Clone, Copy, Debug, Args)]
 struct SmtArgs {
-    /// Limit each Z3 query to this many milliseconds before retrying, and to 100,000 Z3
-    /// resource units per millisecond (at most 2^32 - 1, reached at about 43 seconds).
+    /// Bound each Z3 query's first attempt by this many Z3 resource units instead of the
+    /// default 370,000, doubled on each retry, with no clock.
     #[arg(
-        long = "smt-timeout",
-        default_value = "125",
-        value_name = "MILLISECONDS"
+        long = "smt-resource-limit",
+        value_name = "UNITS",
+        conflicts_with = "timeout"
     )]
-    timeout: NonZeroU32,
+    resource_limit: Option<NonZeroU32>,
 
-    /// Retry an unknown Z3 result this many times, doubling the timeout each time.
+    /// Bound each Z3 query by the clock instead: this many milliseconds for the first attempt,
+    /// and 100,000 Z3 resource units per millisecond as a backstop (at most 2^32 - 1, reached at
+    /// about 43 seconds). Whether a query is decided then depends on the machine's speed and
+    /// load.
+    #[arg(long = "smt-timeout", value_name = "MILLISECONDS")]
+    timeout: Option<NonZeroU32>,
+
+    /// Retry an unknown Z3 result this many times, doubling the attempt's bound each time.
     #[arg(long = "smt-retry-limit", default_value_t = 3, value_name = "COUNT")]
     retry_limit: u32,
 }
@@ -716,11 +725,14 @@ struct SmtArgs {
 impl SmtArgs {
     #[expect(
         clippy::disallowed_methods,
-        reason = "krust's `--smt-timeout` is still a clock with a 125 ms default (CF-33 unit 3 makes units the default)"
+        reason = "krust's `--smt-timeout` asks for the clock"
     )]
     fn options(self) -> BackendOptions {
+        let smt_budget =
+            SmtBudget::requested(self.timeout.map(NonZeroU32::get), self.resource_limit)
+                .expect("clap refuses --smt-timeout with --smt-resource-limit");
         BackendOptions {
-            smt_budget: SmtBudget::clock(self.timeout.get()),
+            smt_budget,
             smt_retry_limit: self.retry_limit,
         }
     }
@@ -1033,6 +1045,9 @@ struct KoreMatchDisjunctionArgs {
     /// Write the resulting KORE predicate to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_KORE")]
     output: Option<PathBuf>,
+
+    #[command(flatten)]
+    smt: SmtArgs,
 }
 
 #[derive(Debug, Args)]
@@ -1384,6 +1399,8 @@ struct KproveOptions {
     trace_aggregate: Option<PathBuf>,
 }
 
+/// `kprove --timings` output: the phases, each claim's time and status, and the solver the
+/// statuses were decided with (`solver`, k-rust's solver record).
 #[derive(Serialize)]
 struct ProofTimings {
     version: u32,
@@ -1392,10 +1409,11 @@ struct ProofTimings {
     proof_setup_seconds: f64,
     proof_seconds: f64,
     claims: Vec<ClaimTiming>,
+    solver: SolverReport,
 }
 
-impl Default for ProofTimings {
-    fn default() -> Self {
+impl ProofTimings {
+    fn new(solver: BackendOptions) -> Self {
         Self {
             version: TIMINGS_SCHEMA_VERSION,
             input_seconds: 0.0,
@@ -1403,6 +1421,7 @@ impl Default for ProofTimings {
             proof_setup_seconds: 0.0,
             proof_seconds: 0.0,
             claims: Vec::new(),
+            solver: SolverReport::of(solver),
         }
     }
 }
@@ -3036,7 +3055,8 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
     let mut backend = Backend::from_definition(definition, &options.module, options.smt.options())?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
     let model = backend.model_for(None, &syntax, Admission::Verified)?;
-    let output = model_output(model.0, model.1.as_ref())?;
+    let solver = SolverReport::of(options.smt.options());
+    let output = model_output(model.0, model.1.as_ref(), &solver)?;
     if let Some(path) = options.output {
         fs::write(path, output)?;
     } else {
@@ -3045,9 +3065,12 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// `kore-get-model`'s document: the answer, the model when there is one, and the solver that
+/// decided it (`solver`, k-rust's solver record).
 fn model_output(
     result: ModelResult,
     result_sort: Option<&BackendSort>,
+    solver: &SolverReport,
 ) -> Result<String, Box<dyn Error>> {
     let (satisfiable, substitution) = match result {
         ModelResult::Sat(substitution) => {
@@ -3057,7 +3080,7 @@ fn model_output(
         ModelResult::Unsat => ("Unsat", None),
         ModelResult::Unknown(_) => ("Unknown", None),
     };
-    let mut output = serde_json::json!({ "satisfiable": satisfiable });
+    let mut output = serde_json::json!({ "satisfiable": satisfiable, "solver": solver });
     if let Some(substitution) = substitution {
         output["substitution"] = kore_json::to_value(&substitution)?;
     }
@@ -3136,8 +3159,7 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
             ),
         )
     })?;
-    let mut backend =
-        Backend::from_definition(definition, &options.module, BackendOptions::default())?;
+    let mut backend = Backend::from_definition(definition, &options.module, options.smt.options())?;
     let definition = backend.select_definition(None)?;
     let function_symbols = definition.function_symbol_names();
 
@@ -3639,7 +3661,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     };
     let mut timings = ProofTimings {
         input_seconds: started.elapsed().as_secs_f64(),
-        ..ProofTimings::default()
+        ..ProofTimings::new(options.smt)
     };
     let started = Instant::now();
     let definition = {
@@ -4883,15 +4905,7 @@ mod tests {
         assert!(options.search.is_none());
         assert_eq!(options.step_timeout, Some(Duration::from_millis(250)));
         assert!(options.moving_average_timeout);
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "krust's default is still the 125 ms clock (CF-33 unit 3 makes it units)"
-        )]
-        let default = BackendOptions {
-            smt_budget: SmtBudget::clock(125),
-            smt_retry_limit: 3,
-        };
-        assert_eq!(options.smt, default);
+        assert_eq!(options.smt, BackendOptions::DEFAULT);
     }
 
     fn parse_krun_pattern_options(extra: &[&str]) -> Result<KrunOptions, clap::Error> {
@@ -6010,6 +6024,124 @@ mod tests {
         assert_eq!(options.smt.options(), clocked);
     }
 
+    /// Every command that builds a backend reads its budget from `SmtArgs`: units by default,
+    /// `--smt-resource-limit` units, a clock only for `--smt-timeout`, and never both.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "`--smt-timeout 40` asks for the clock"
+    )]
+    fn smt_flags_give_units_unless_a_clock_is_asked_for() {
+        let commands: [&[&str]; 8] = [
+            &["krun", "--definition", "d", "--sort", "S", "p"],
+            &[
+                "kore-exec",
+                "d.kore",
+                "--module",
+                "M",
+                "--pattern",
+                "p.kore",
+            ],
+            &[
+                "kore-simplify",
+                "d.kore",
+                "--module",
+                "M",
+                "--pattern",
+                "p.kore",
+            ],
+            &[
+                "kore-get-model",
+                "d.kore",
+                "--module",
+                "M",
+                "--pattern",
+                "p.kore",
+            ],
+            &[
+                "kore-implies",
+                "d.kore",
+                "--module",
+                "M",
+                "--antecedent",
+                "a.kore",
+                "--consequent",
+                "c.kore",
+            ],
+            &["kore-rpc", "d.kore", "--module", "M", "--server-port", "0"],
+            &[
+                "kore-match-disjunction",
+                "d.kore",
+                "--module",
+                "M",
+                "--disjunction",
+                "d.kore",
+                "--match",
+                "p.kore",
+            ],
+            &[
+                "kprove",
+                "spec.k",
+                "--compiled-definition",
+                "c",
+                "--main-module",
+                "M",
+            ],
+        ];
+        let smt = |command: &[&str], flags: &[&str]| -> Result<BackendOptions, clap::Error> {
+            let arguments = ["krust"].iter().chain(command).chain(flags).copied();
+            Ok(match Cli::try_parse_from(arguments)?.command {
+                Command::Krun(options) => options.smt.options(),
+                Command::KoreExec(options) => options.smt.options(),
+                Command::KoreSimplify(options) => options.smt.options(),
+                Command::KoreGetModel(options) => options.smt.options(),
+                Command::KoreImplies(options) => options.smt.options(),
+                Command::KoreRpc(options) => options.smt.options(),
+                Command::KoreMatchDisjunction(options) => options.smt.options(),
+                Command::Kprove(options) => options.smt.options(),
+                other => panic!("not a solver command: {other:?}"),
+            })
+        };
+        let units = |units: u32| BackendOptions {
+            smt_budget: SmtBudget::Units(NonZeroU32::new(units).unwrap()),
+            smt_retry_limit: 3,
+        };
+        for command in commands {
+            assert_eq!(
+                smt(command, &[]).unwrap(),
+                BackendOptions::DEFAULT,
+                "{command:?}"
+            );
+            assert_eq!(
+                smt(command, &["--smt-resource-limit", "9"]).unwrap(),
+                units(9),
+                "{command:?}"
+            );
+            assert_eq!(
+                smt(command, &["--smt-timeout", "40"]).unwrap(),
+                BackendOptions {
+                    smt_budget: SmtBudget::clock(40),
+                    smt_retry_limit: 3,
+                },
+                "{command:?}"
+            );
+            let both = smt(
+                command,
+                &["--smt-timeout", "40", "--smt-resource-limit", "9"],
+            )
+            .unwrap_err();
+            assert_eq!(
+                both.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{command:?}"
+            );
+            assert!(
+                smt(command, &["--smt-resource-limit", "0"]).is_err(),
+                "{command:?}"
+            );
+        }
+    }
+
     #[test]
     fn model_output_distinguishes_sat_unsat_and_unknown() {
         let variable = Variable::new("X", BackendSort::simple("SortInt"));
@@ -6018,13 +6150,15 @@ mod tests {
             Term::raw_domain_value(BackendSort::simple("SortInt"), "42"),
         )]);
 
+        let solver = SolverReport::of(BackendOptions::DEFAULT);
         let sat = model_output(
             ModelResult::Sat(substitution),
             Some(&BackendSort::simple("SortBool")),
+            &solver,
         )
         .unwrap();
-        let unsat = model_output(ModelResult::Unsat, None).unwrap();
-        let unknown = model_output(ModelResult::Unknown("timeout".into()), None).unwrap();
+        let unsat = model_output(ModelResult::Unsat, None, &solver).unwrap();
+        let unknown = model_output(ModelResult::Unknown("timeout".into()), None, &solver).unwrap();
 
         let sat: serde_json::Value = serde_json::from_str(&sat).unwrap();
         assert_eq!(sat["satisfiable"], "Sat");
@@ -6033,11 +6167,15 @@ mod tests {
             &model_output(
                 ModelResult::Sat(Substitution::new()),
                 Some(&BackendSort::simple("SortBool")),
+                &solver,
             )
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(unconstrained, serde_json::json!({ "satisfiable": "Sat" }));
+        assert_eq!(
+            unconstrained,
+            serde_json::json!({ "satisfiable": "Sat", "solver": solver })
+        );
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&unsat).unwrap()["satisfiable"],
             "Unsat"
@@ -6237,15 +6375,7 @@ mod tests {
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
         assert_eq!(options.step_timeout, Some(Duration::from_secs(9)));
         assert!(options.moving_average_timeout);
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "krust's default is still the 125 ms clock (CF-33 unit 3 makes it units)"
-        )]
-        let default = BackendOptions {
-            smt_budget: SmtBudget::clock(125),
-            smt_retry_limit: 3,
-        };
-        assert_eq!(options.smt, default);
+        assert_eq!(options.smt, BackendOptions::DEFAULT);
     }
 
     #[test]

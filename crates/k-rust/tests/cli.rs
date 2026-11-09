@@ -11843,6 +11843,7 @@ endmodule []
     );
     let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(output["satisfiable"], "Sat");
+    assert_eq!(output["solver"]["mode"], "resource");
     assert_eq!(output["substitution"]["format"], "KORE");
     assert_eq!(output["substitution"]["term"]["tag"], "Equals");
     assert_eq!(output["substitution"]["term"]["first"]["name"], "X");
@@ -15638,6 +15639,8 @@ endmodule
         proof_timings["version"],
         k_rust::timings::TIMINGS_SCHEMA_VERSION
     );
+    assert_eq!(proof_timings["solver"]["mode"], "resource");
+    assert_eq!(proof_timings["solver"]["units"], 370_000);
     assert!(proof_timings["proof_setup_seconds"].as_f64().unwrap() > 0.0);
     assert!(proof_timings["proof_seconds"].as_f64().unwrap() > 0.0);
     assert_eq!(proof_timings["claims"][0]["label"], "reaches-b");

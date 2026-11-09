@@ -1977,6 +1977,9 @@ def do_krun(case, rec, search_file=False):
     for k, vs in opts.items():
         v = vs[-1]
         if k in ("--definition", "-d", "--smt", "--smt-prelude", "--warnings", "-w", "--md-selector"): continue
+        # The reference keeps its clock; krust's solver keeps its resource units (CF-33), so its
+        # side of the comparison is reproducible.
+        if k == "--smt-timeout": continue
         if k == "--depth": extra += ["--depth", v]
         elif k == "--bound": extra += ["--search-bound", v]
         elif k == "--io": extra += ["--io", v]
@@ -2304,6 +2307,8 @@ def krust_kprove_args(case, rec):
     for k, vs in opts.items():
         v = vs[-1]
         if k in ("--definition", "-d", "--smt", "--smt-prelude", "--warnings", "-w", "--type-inference-mode", "--profile-rule-parsing", "--log-level"): continue
+        # The reference keeps its clock; krust's solver keeps its resource units (CF-33).
+        if k == "--smt-timeout": continue
         if k == "--md-selector":
             for value in vs: extra += ["--md-selector", value]
         elif k == "--depth": extra += ["--depth", v]

@@ -11,8 +11,10 @@
 use serde::Serialize;
 use web_time::Instant;
 
-/// Schema version written on every `--timings` envelope.
-pub const TIMINGS_SCHEMA_VERSION: u32 = 1;
+/// Schema version written on every `--timings` envelope. Version 2 adds `solver` to
+/// `kprove --timings`, whose claims' statuses depend on solver answers: k-rust's solver record
+/// (`backend::SolverReport`), the budget mode, its bound, the retries and the Z3 build.
+pub const TIMINGS_SCHEMA_VERSION: u32 = 2;
 
 /// One named phase and its wall-clock duration in seconds.
 #[derive(Clone, Debug, Serialize)]
