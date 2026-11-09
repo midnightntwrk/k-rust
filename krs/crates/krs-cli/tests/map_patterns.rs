@@ -23,6 +23,8 @@ pub enum ExpSyntax {
     Check { e: Int },
     #[k::syntax("load({m})")]
     Load { m: Map },
+    #[k::syntax("fetch({a})")]
+    Fetch { a: Int },
 }
 
 /// Whether `address` lies below `rom_end`, in ROM.
@@ -90,6 +92,7 @@ k::rules! {
     check: { k: [Check(e), ..], mem: m } => { k: [..], out: MemoryOutsideRom(m, e) };
     // A constructor's field matched by its entries: the value at key 1, the others left open.
     load: { k: [Load(map![1 -> v, ..]), ..] } => { k: [..], seen: v };
+    fetch: { k: [Fetch(a), ..], mem: m } => { k: [..], seen: At(m, a) };
 }
 "#;
 
@@ -201,7 +204,9 @@ fn run_cell(target: &Path, manifest: &Path, program: &str, name: &str) -> String
 
 /// The equation walks the map one entry at a time: `(K |-> _) REST` matches an entry, any one,
 /// and its rest, the map without it, and `.Map` ends the walk. On `1 |-> 10 2 |-> 20`, no
-/// address lies below 0, and address 1 lies below 2.
+/// address lies below 0, and address 1 lies below 2. `At`'s key is the variable its other
+/// argument binds, `A:Int |-> V:Int _` beside `A:Int`: the map is looked up at the key the
+/// address gives, so `fetch(1)` reads 10 and `fetch(2)` reads 20.
 #[test]
 fn an_equation_walks_a_map_parameter_entry_by_entry() {
     let target = shared_fixture_target();
@@ -218,16 +223,24 @@ fn an_equation_walks_a_map_parameter_entry_by_entry() {
         ]
     "#]]
     .assert_debug_eq(&lines_with(&k, "|->"));
-    let outcomes = ["check(0)", "check(2)"].map(|program| {
+    let outcomes = [
+        ("check(0)", "out"),
+        ("check(2)", "out"),
+        ("fetch(1)", "seen"),
+        ("fetch(2)", "seen"),
+    ]
+    .map(|(program, cell)| {
         format!(
-            "{program} => out: {}",
-            run_cell(target.path(), &manifest, program, "out")
+            "{program} => {cell}: {}",
+            run_cell(target.path(), &manifest, program, cell)
         )
     });
     expect_test::expect![[r#"
         [
             "check(0) => out: true",
             "check(2) => out: false",
+            "fetch(1) => seen: 10",
+            "fetch(2) => seen: 20",
         ]
     "#]]
     .assert_debug_eq(&outcomes);
