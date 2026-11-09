@@ -308,6 +308,8 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
             seed: _,
             thread_stack_size: _,
             solver: _,
+            // The Z3 build that counts the solver's units.
+            z3: _,
             // A debug assertion's panic is a crash a release build does not raise.
             debug_assertions: _,
             // The engine version names the code that chose the cases; a replay runs a fixed

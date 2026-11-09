@@ -52,9 +52,12 @@ use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 /// finding's `name` is its kind, sentences and digest where it was its written positions, and
 /// `assume-joined` refuses a genuine finding; the types the reader reads are unchanged (`name` is
 /// a string), so the digest is version 11's.
+/// Version 13 (CF-33): the identity's
+/// `options.backend` is a solver budget of units or a clock (`smt-resource-limit` or
+/// `smt-timeout-ms`, never both), and `identity.z3` names the Z3 build (k-rust's `SolverBuild`).
 const REPORT_SHAPE: (u32, &str) = (
-    12,
-    "376848c5bdff81f7114f08c33afc9a62ab4fa038f7238a898f65194e06c04d58",
+    13,
+    "0ab5437771672b03f0d00a91940f309ccf8ae377444495296dece016d51b20a5",
 );
 
 /// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds. Re-pinned

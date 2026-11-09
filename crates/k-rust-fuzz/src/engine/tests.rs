@@ -318,6 +318,7 @@ fn identity() -> ReportIdentity {
         budget: Budget::Cases(0),
         thread_stack_size: None,
         solver: "none".into(),
+        z3: None,
         debug_assertions: cfg!(debug_assertions),
         parse_diagnostic_work: "1048576".into(),
         dictionary: None,

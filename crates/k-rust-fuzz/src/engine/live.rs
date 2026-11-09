@@ -964,12 +964,16 @@ impl LiveCases {
                 write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
             }
         }
+        let budget = match options.backend.smt_budget {
+            k_rust::backend::SmtBudget::Units(units) => format!("--smt-resource-limit {units}"),
+            k_rust::backend::SmtBudget::Clock(clock) => {
+                format!("--smt-timeout {}", clock.timeout_ms())
+            }
+        };
         write!(
             line,
-            " --max-simplification-iterations {} --smt-timeout {} --smt-retry-limit {}",
-            options.max_simplification_iterations,
-            options.backend.smt_timeout_ms,
-            options.backend.smt_retry_limit
+            " --max-simplification-iterations {} {budget} --smt-retry-limit {}",
+            options.max_simplification_iterations, options.backend.smt_retry_limit
         )
         .expect("writing to a String");
         for (name, value) in config_vars {

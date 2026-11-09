@@ -133,7 +133,15 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// 11 named it by written positions; `assume-joined` assumes the findings whose name is byte-equal
 /// to a given one and refuses a genuine one, and the report no longer warns of an assumed genuine
 /// finding. A version-11 name is refused (`position-name`).
-pub const REPORT_VERSION: u32 = 12;
+///
+/// Version 13 (CF-33) bounds the solver by Z3 resource units unless the campaign asks for the
+/// clock: `identity.options.backend` is `{smt-resource-limit, smt-retry-limit}` (370,000 units by
+/// default) or, for a clock, `{smt-timeout-ms, smt-retry-limit}`, never both, where version 12
+/// always held a 125 ms `smt-timeout-ms`. Under units whether a query is decided is a function of
+/// the query, the units and the Z3 build, so the identity names the build, `identity.z3`
+/// (k-rust's `SolverBuild`: the version string and the SHA-256 of the library file Z3's code
+/// comes from), in a build with Z3. A version-12 reader refuses both.
+pub const REPORT_VERSION: u32 = 13;
 
 /// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
 pub const LISTED_HOOKS: usize = 8;
@@ -449,6 +457,11 @@ pub struct ReportIdentity {
     /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
     /// solver decides.
     pub solver: String,
+    /// The Z3 build that decides the solver's queries (k-rust `SolverBuild::of_process`),
+    /// absent in a build without Z3: under resource units an answer is a function of the query,
+    /// the units and this build, and two builds of one Z3 version can count units differently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub z3: Option<k_rust::backend::SolverBuild>,
     /// Whether this build of k-rust-fuzz has debug assertions (`cfg!(debug_assertions)`): a
     /// debug assertion's panic is a crash a release build does not raise, so the build profile
     /// decides which crashes a report holds (FZ-REPLAY-WHOLE fix round S-E).
@@ -2470,6 +2483,7 @@ mod tests {
                 budget: Budget::Cases(5000),
                 thread_stack_size: Some(64 << 20),
                 solver: "none".into(),
+                z3: None,
                 debug_assertions: false,
                 parse_diagnostic_work: "1048576".into(),
                 dictionary: None,
@@ -2911,7 +2925,7 @@ mod tests {
             r#""target-rule":{"id":"a","name":{"kind":"rewrite","label":null,"locations":[]}},"#,
             r#""options":{"paths":"one-path","max-depth":null,"max-work":100000,"#,
             r#""max-simplification-iterations":ITER,"normal-end-pattern":null,"#,
-            r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3},"#,
+            r#""safety-limit-ms":null,"backend":{"smt-resource-limit":370000,"smt-retry-limit":3},"#,
             r#""shrink":true},"#,
             r#""execution-modality":{"cases":"path-set","every-path":"state-set"},"#,
             r#""proposers":{"anchors-first":true,"explicit":"#,

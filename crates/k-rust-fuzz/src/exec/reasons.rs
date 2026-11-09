@@ -331,9 +331,9 @@ const REACHED_END_NOT_DATA_REMEDY: &str = concat!(
 const HALT_SMT_REMEDY: &str = concat!(
     "a step needed a solver answer it did not get: the query does not translate to SMT-LIB, ",
     "this build has no solver, the solver answered unknown, or it rejected SMT text the ",
-    "definition or a user prelude supplies; a build with Z3, or a larger time limit per query ",
-    "(campaign key `smt-timeout-ms`, command line `--smt-timeout`, library ",
-    "`CaseOptions::backend.smt_timeout_ms`), may decide it, or choose a program or hole range ",
+    "definition or a user prelude supplies; a build with Z3, or more resource units per query ",
+    "(campaign key `smt-resource-limit`, command line `--smt-resource-limit`, library ",
+    "`CaseOptions::backend.smt_budget`), may decide it, or choose a program or hole range ",
     "whose runs avoid that query",
 );
 
@@ -552,9 +552,9 @@ impl UnjudgedReason {
                  or hole range whose path does not read such a value or apply such a rule can be"
             }
             Self::SmtUnknowns => {
-                "raise the solver's time limit per query (campaign key `smt-timeout-ms`, \
-                 command line `--smt-timeout`, library \
-                 `CaseOptions::backend.smt_timeout_ms`)"
+                "raise the solver's resource units per query (campaign key \
+                 `smt-resource-limit`, command line `--smt-resource-limit`, library \
+                 `CaseOptions::backend.smt_budget`)"
             }
             Self::EndNotComparable(_) => END_NOT_COMPARABLE_REMEDY,
             Self::QueryNotConfirmable(_) => QUERY_NOT_CONFIRMABLE_REMEDY,

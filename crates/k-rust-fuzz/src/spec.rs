@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, num::NonZeroU64, sync::Arc};
 
 use k_rust::{
-    backend::{BackendOptions, ExecutionDigest},
+    backend::{BackendOptions, ExecutionDigest, SmtBudget},
     definition::Definition as FrontendDefinition,
     definition::json::to_provenance_string,
     kast::Sort as KastSort,
@@ -497,20 +497,66 @@ impl CaseStop {
 }
 
 /// The solver options of every backend a campaign builds: a serializable copy of
-/// `k_rust::backend::BackendOptions`, recorded in the report.
+/// `k_rust::backend::BackendOptions`, recorded in the report. The budget is Z3 resource units
+/// unless a campaign asks for the clock (`smt-timeout-ms`, `--smt-timeout`), so by default
+/// whether a query is decided is a function of the query, the units and the Z3 build.
+///
+/// In a report it is `{"smt-resource-limit": UNITS, "smt-retry-limit": R}` or, for a clock,
+/// `{"smt-timeout-ms": MS, "smt-retry-limit": R}`; a document naming both is refused.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(try_from = "WireBackendSettings", into = "WireBackendSettings")]
 pub struct BackendSettings {
-    /// `BackendOptions::smt_timeout_ms`.
-    pub smt_timeout_ms: u32,
+    /// `BackendOptions::smt_budget`.
+    pub smt_budget: SmtBudget,
     /// `BackendOptions::smt_retry_limit`.
     pub smt_retry_limit: u32,
+}
+
+/// The report form of [`BackendSettings`]: exactly one of the bounds.
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields are the report's keys, which name the solver"
+)]
+struct WireBackendSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    smt_resource_limit: Option<std::num::NonZeroU32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    smt_timeout_ms: Option<u32>,
+    smt_retry_limit: u32,
+}
+
+impl TryFrom<WireBackendSettings> for BackendSettings {
+    type Error = k_rust::backend::BudgetConflict;
+
+    fn try_from(wire: WireBackendSettings) -> Result<Self, Self::Error> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a report's `smt-timeout-ms` records a campaign that asked for the clock"
+        )]
+        let smt_budget = SmtBudget::requested(wire.smt_timeout_ms, wire.smt_resource_limit)?;
+        Ok(Self {
+            smt_budget,
+            smt_retry_limit: wire.smt_retry_limit,
+        })
+    }
+}
+
+impl From<BackendSettings> for WireBackendSettings {
+    fn from(settings: BackendSettings) -> Self {
+        Self {
+            smt_resource_limit: settings.smt_budget.units(),
+            smt_timeout_ms: settings.smt_budget.clock_ms(),
+            smt_retry_limit: settings.smt_retry_limit,
+        }
+    }
 }
 
 impl Default for BackendSettings {
     fn default() -> Self {
         Self {
-            smt_timeout_ms: 125,
+            smt_budget: BackendOptions::DEFAULT.smt_budget,
             smt_retry_limit: BackendOptions::DEFAULT.smt_retry_limit,
         }
     }
@@ -519,13 +565,9 @@ impl Default for BackendSettings {
 impl BackendSettings {
     /// The backend options these settings stand for.
     #[must_use]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the fuzz campaign's `smt-timeout-ms` is still a clock with a 125 ms default (CF-33 unit 4 makes units the default)"
-    )]
-    pub fn options(self) -> BackendOptions {
+    pub const fn options(self) -> BackendOptions {
         BackendOptions {
-            smt_budget: k_rust::backend::SmtBudget::clock(self.smt_timeout_ms),
+            smt_budget: self.smt_budget,
             smt_retry_limit: self.smt_retry_limit,
         }
     }
@@ -631,6 +673,45 @@ pub enum Budget {
 
 #[cfg(test)]
 mod tests {
+    /// The settings default to the backend's units, and a report's settings name units, a clock
+    /// or neither (the default), never both.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the expected settings of a report that names a clock"
+    )]
+    fn backend_settings_default_to_units() {
+        let read = |text: &str| serde_json::from_str::<BackendSettings>(text);
+        assert_eq!(
+            BackendSettings::default().options(),
+            BackendOptions::DEFAULT
+        );
+        assert_eq!(
+            read(r#"{"smt-retry-limit":3}"#).unwrap(),
+            BackendSettings::default()
+        );
+        assert_eq!(
+            serde_json::to_string(&BackendSettings::default()).unwrap(),
+            r#"{"smt-resource-limit":370000,"smt-retry-limit":3}"#
+        );
+        let clock = read(r#"{"smt-timeout-ms":40,"smt-retry-limit":1}"#).unwrap();
+        assert_eq!(
+            clock,
+            BackendSettings {
+                smt_budget: SmtBudget::clock(40),
+                smt_retry_limit: 1,
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&clock).unwrap(),
+            r#"{"smt-timeout-ms":40,"smt-retry-limit":1}"#
+        );
+        assert!(
+            read(r#"{"smt-timeout-ms":40,"smt-resource-limit":9,"smt-retry-limit":1}"#).is_err()
+        );
+        assert!(read(r#"{"smt-resource-limit":0,"smt-retry-limit":1}"#).is_err());
+    }
+
     use serde::de::DeserializeOwned;
     use serde_json::{Value as Json, json};
 

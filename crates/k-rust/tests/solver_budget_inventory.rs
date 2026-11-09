@@ -34,19 +34,12 @@ struct Build {
     options: &'static str,
 }
 
-/// A place that makes solver options, and what its default is.
+/// A place that makes solver options, and the test (file, function) that asserts its default
+/// is units.
 struct Producer {
     file: &'static str,
     item: &'static str,
-    default: Mode,
-}
-
-/// What a producer's default is.
-enum Mode {
-    /// Units, which the named test (file, function) asserts.
-    Units(&'static str, &'static str),
-    /// Still the clock, through the door, until the named CF-33 unit makes it units.
-    Clock(&'static str),
+    test: (&'static str, &'static str),
 }
 
 const THIS: &str = "crates/k-rust/tests/solver_budget_inventory.rs";
@@ -180,17 +173,17 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "crates/k-rust-backend/src/smt/budget.rs",
         item: "impl Default for SmtBudget",
-        default: Mode::Units(THIS, "library_defaults_are_units"),
+        test: (THIS, "library_defaults_are_units"),
     },
     Producer {
         file: "crates/k-rust-backend/src/smt/z3.rs",
         item: "impl Default for Z3Options",
-        default: Mode::Units(THIS, "library_defaults_are_units"),
+        test: (THIS, "library_defaults_are_units"),
     },
     Producer {
         file: "crates/k-rust-backend/src/smt/z3/trace.rs",
         item: "fn parse_budget",
-        default: Mode::Units(
+        test: (
             "crates/k-rust-backend/src/smt/z3/trace/tests.rs",
             "a_headers_budget_is_units_unless_it_states_a_clock",
         ),
@@ -198,7 +191,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "crates/k-rust-backend/src/smt/z3/trace.rs",
         item: "fn legacy_budget",
-        default: Mode::Units(
+        test: (
             "crates/k-rust-backend/src/smt/z3/trace/tests.rs",
             "a_headers_budget_is_units_unless_it_states_a_clock",
         ),
@@ -206,12 +199,12 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "crates/k-rust/src/backend/mod.rs",
         item: "impl Default for BackendOptions",
-        default: Mode::Units(THIS, "library_defaults_are_units"),
+        test: (THIS, "library_defaults_are_units"),
     },
     Producer {
         file: "crates/k-rust/src/main.rs",
         item: "fn options",
-        default: Mode::Units(
+        test: (
             "crates/k-rust/src/main.rs",
             "smt_flags_give_units_unless_a_clock_is_asked_for",
         ),
@@ -219,17 +212,23 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "crates/k-rust-fuzz/src/spec.rs",
         item: "fn options",
-        default: Mode::Clock("unit 4, the fuzz campaign's smt-timeout-ms"),
+        test: (
+            "crates/k-rust-fuzz/src/spec.rs",
+            "backend_settings_default_to_units",
+        ),
     },
     Producer {
         file: "crates/k-rust-fuzz/src/spec.rs",
         item: "impl Default for BackendSettings",
-        default: Mode::Clock("unit 4, the fuzz campaign's smt-timeout-ms"),
+        test: (
+            "crates/k-rust-fuzz/src/spec.rs",
+            "backend_settings_default_to_units",
+        ),
     },
     Producer {
         file: "kink/crates/kink-native/src/lib.rs",
         item: "const BACKEND_OPTIONS",
-        default: Mode::Units(
+        test: (
             "kink/crates/kink-native/src/lib.rs",
             "answers_are_keyed_under_resource_bounds_or_without_z3",
         ),
@@ -237,7 +236,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "kink/crates/kink-native/src/lib.rs",
         item: "fn backend_options",
-        default: Mode::Units(
+        test: (
             "kink/crates/kink-native/src/lib.rs",
             "answers_are_keyed_under_resource_bounds_or_without_z3",
         ),
@@ -245,7 +244,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "kink/crates/kink-campaign/src/runner.rs",
         item: "fn backend_options",
-        default: Mode::Units(
+        test: (
             "kink/crates/kink-campaign/tests/manifest.rs",
             "kink_tier::counter_manifest_is_deterministic_and_declaration_changes_are_local",
         ),
@@ -253,7 +252,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "kink/crates/kink-flow/src/manifest.rs",
         item: "fn backend_options",
-        default: Mode::Units(
+        test: (
             "kink/crates/kink-flow/tests/manifest.rs",
             "a_minimal_manifest_takes_every_default",
         ),
@@ -261,7 +260,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "krs/crates/krs-exec/src/lib.rs",
         item: "fn solver",
-        default: Mode::Units(
+        test: (
             "krs/crates/krs-cli/src/main.rs",
             "solver_options_select_one_mode_and_claim_timeout_is_prove_only",
         ),
@@ -269,7 +268,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "krs/crates/krs-cli/src/command.rs",
         item: "fn solver",
-        default: Mode::Units(
+        test: (
             "krs/crates/krs-cli/src/main.rs",
             "solver_options_select_one_mode_and_claim_timeout_is_prove_only",
         ),
@@ -277,7 +276,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         file: "krs/crates/krs-cli/src/main.rs",
         item: "fn solver",
-        default: Mode::Units(
+        test: (
             "krs/crates/krs-cli/src/main.rs",
             "solver_options_select_one_mode_and_claim_timeout_is_prove_only",
         ),
@@ -472,13 +471,7 @@ fn every_backend_and_solver_entry_point_is_inventoried() {
         "listed makers of solver options that are gone"
     );
     for producer in PRODUCERS {
-        let (test_file, test) = match producer.default {
-            Mode::Units(test_file, test) => (test_file, test),
-            Mode::Clock(until) => {
-                assert!(until.starts_with("unit "), "{until}");
-                continue;
-            }
-        };
+        let (test_file, test) = producer.test;
         let text = fs::read_to_string(workspace().join(test_file)).unwrap();
         let name = test.rsplit("::").next().unwrap();
         assert!(

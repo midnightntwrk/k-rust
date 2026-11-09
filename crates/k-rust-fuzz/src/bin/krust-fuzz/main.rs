@@ -227,7 +227,13 @@ struct Args {
     #[arg(long, overrides_with = "no_shrink")]
     shrink: bool,
 
-    /// Solver time limit per query, in milliseconds.
+    /// Z3 resource units of each solver query's first attempt, doubled on each retry
+    /// (default 370,000).
+    #[arg(long, value_name = "UNITS", conflicts_with = "smt_timeout")]
+    smt_resource_limit: Option<std::num::NonZeroU32>,
+
+    /// Bound each solver query by the clock instead, this many milliseconds for its first
+    /// attempt: whether a query is decided then depends on the machine's speed and load.
     #[arg(long, value_name = "MS")]
     smt_timeout: Option<u32>,
 
@@ -261,7 +267,8 @@ struct Args {
             "one_path",
             "max_depth", "max_work",
             "normal_end", "cases", "work", "seed", "rejection_cap", "safety_limit",
-            "no_safety_limit", "no_shrink", "shrink", "smt_timeout", "smt_retry_limit", "json",
+            "no_safety_limit", "no_shrink", "shrink", "smt_resource_limit", "smt_timeout",
+            "smt_retry_limit", "json",
             "report", "witness",
         ]
     )]
@@ -425,6 +432,7 @@ fn run(args: Args) -> Result<u8, String> {
         safety_limit_seconds: args.safety_limit,
         no_safety_limit: args.no_safety_limit,
         shrink: switch(args.shrink, args.no_shrink),
+        smt_resource_limit: args.smt_resource_limit,
         smt_timeout_ms: args.smt_timeout,
         smt_retry_limit: args.smt_retry_limit,
     };
@@ -1624,6 +1632,25 @@ mod tests {
     fn the_arguments_are_consistent() {
         use clap::CommandFactory as _;
         Args::command().debug_assert();
+    }
+
+    /// `--smt-resource-limit` and `--smt-timeout` are each optional and never given together.
+    #[test]
+    fn the_solver_flags_are_exclusive() {
+        let parse = |flags: &[&str]| {
+            Args::try_parse_from(["krust-fuzz", "--definition", "d"].iter().chain(flags))
+        };
+        let none = parse(&[]).unwrap();
+        assert_eq!((none.smt_resource_limit, none.smt_timeout), (None, None));
+        let units = parse(&["--smt-resource-limit", "9"]).unwrap();
+        assert_eq!(units.smt_resource_limit, std::num::NonZeroU32::new(9));
+        assert_eq!(
+            parse(&["--smt-timeout", "40"]).unwrap().smt_timeout,
+            Some(40)
+        );
+        let both = parse(&["--smt-timeout", "40", "--smt-resource-limit", "9"]).unwrap_err();
+        assert_eq!(both.kind(), clap::error::ErrorKind::ArgumentConflict);
+        assert!(parse(&["--smt-resource-limit", "0"]).is_err());
     }
 
     #[test]

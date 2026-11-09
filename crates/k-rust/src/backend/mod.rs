@@ -501,11 +501,19 @@ impl SolverReport {
             mode: mode.to_owned(),
             retries: options.smt_retry_limit,
             units,
-            z3: z3_build().map(|build| SolverBuild {
-                library_sha256: build.library_sha256.clone(),
-                version: build.version.to_owned(),
-            }),
+            z3: SolverBuild::of_process(),
         }
+    }
+}
+
+impl SolverBuild {
+    /// The Z3 build this process links ([`z3_build`]); `None` in a build without Z3.
+    #[must_use]
+    pub fn of_process() -> Option<Self> {
+        z3_build().map(|build| Self {
+            library_sha256: build.library_sha256.clone(),
+            version: build.version.to_owned(),
+        })
     }
 }
 

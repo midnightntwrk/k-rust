@@ -124,7 +124,10 @@ pub struct OptionsFile {
     pub no_safety_limit: Option<bool>,
     /// Shrink a confirmed witness.
     pub shrink: Option<bool>,
-    /// The solver's time limit per query, in milliseconds.
+    /// The Z3 resource units of each solver query's first attempt (default 370,000).
+    pub smt_resource_limit: Option<std::num::NonZeroU32>,
+    /// A wall-clock bound of each solver query's first attempt, in milliseconds, in place of
+    /// units: answers then depend on the machine's speed and load.
     pub smt_timeout_ms: Option<u32>,
     /// The solver's retry limit.
     pub smt_retry_limit: Option<u32>,
@@ -214,6 +217,7 @@ pub struct Overrides {
     pub safety_limit_seconds: Option<u64>,
     pub no_safety_limit: bool,
     pub shrink: Option<bool>,
+    pub smt_resource_limit: Option<std::num::NonZeroU32>,
     pub smt_timeout_ms: Option<u32>,
     pub smt_retry_limit: Option<u32>,
 }
@@ -781,8 +785,35 @@ fn options(file: OptionsFile, flags: &Overrides) -> Result<CaseOptions, String> 
     if let Some(shrink) = flags.shrink.or(file.shrink) {
         options.shrink = shrink;
     }
-    if let Some(timeout) = flags.smt_timeout_ms.or(file.smt_timeout_ms) {
-        options.backend.smt_timeout_ms = timeout;
+    // Each side names at most one bound; the flags' bound, when they name one, replaces the
+    // file's.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the campaign's `smt-timeout-ms` or `--smt-timeout` asks for the clock"
+    )]
+    let budget = |timeout, units, side: &str| match (timeout, units) {
+        (None, None) => Ok(None),
+        (timeout, units) => k_rust::backend::SmtBudget::requested(timeout, units)
+            .map(Some)
+            .map_err(|_| {
+                format!(
+                    "{side} names both smt-timeout-ms and smt-resource-limit: a solver query is \
+                     bounded by the clock or by Z3 resource units, not both"
+                )
+            }),
+    };
+    let file_budget = budget(
+        file.smt_timeout_ms,
+        file.smt_resource_limit,
+        "the campaign file",
+    )?;
+    let flag_budget = budget(
+        flags.smt_timeout_ms,
+        flags.smt_resource_limit,
+        "the command line",
+    )?;
+    if let Some(budget) = flag_budget.or(file_budget) {
+        options.backend.smt_budget = budget;
     }
     if let Some(limit) = flags.smt_retry_limit.or(file.smt_retry_limit) {
         options.backend.smt_retry_limit = limit;
@@ -1088,5 +1119,60 @@ choices = [0, 255]
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod solver_settings {
+    //! The campaign's solver budget, from its file and its flags: units unless a clock is asked
+    //! for, never both on one side, the flags' over the file's.
+
+    use std::num::NonZeroU32;
+
+    use k_rust::backend::SmtBudget;
+
+    use super::{OptionsFile, Overrides, options};
+
+    fn budget(file: &str, flags: &Overrides) -> Result<SmtBudget, String> {
+        let file = toml::from_str::<OptionsFile>(file).map_err(|error| error.to_string())?;
+        options(file, flags).map(|options| options.backend.smt_budget)
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the expected budget of a campaign that asks for the clock"
+    )]
+    fn the_campaign_budget_is_units_unless_a_clock_is_asked_for() {
+        let none = Overrides::default();
+        let units = |units: u32| SmtBudget::Units(NonZeroU32::new(units).unwrap());
+        assert_eq!(budget("", &none), Ok(SmtBudget::DEFAULT));
+        assert_eq!(budget("smt-resource-limit = 9", &none), Ok(units(9)));
+        assert_eq!(
+            budget("smt-timeout-ms = 40", &none),
+            Ok(SmtBudget::clock(40))
+        );
+        assert!(budget("smt-timeout-ms = 40\nsmt-resource-limit = 9", &none).is_err());
+        assert!(budget("smt-resource-limit = 0", &none).is_err());
+        let clock = Overrides {
+            smt_timeout_ms: Some(40),
+            ..Overrides::default()
+        };
+        assert_eq!(budget("", &clock), Ok(SmtBudget::clock(40)));
+        assert_eq!(
+            budget("smt-resource-limit = 9", &clock),
+            Ok(SmtBudget::clock(40))
+        );
+        let flag_units = Overrides {
+            smt_resource_limit: NonZeroU32::new(7),
+            ..Overrides::default()
+        };
+        assert_eq!(budget("smt-timeout-ms = 40", &flag_units), Ok(units(7)));
+        let both = Overrides {
+            smt_timeout_ms: Some(40),
+            smt_resource_limit: NonZeroU32::new(7),
+            ..Overrides::default()
+        };
+        assert!(budget("", &both).is_err());
     }
 }
