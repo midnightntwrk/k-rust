@@ -463,7 +463,8 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// Version 21 keeps a coverage lock entry a run the clock (`budget.time_ms`) stopped could
 /// change ([`crate::clock`]): the lock has `kept` and `clock_stopped`, `--locked` gives the
 /// status `undecided` where nothing else differs, and each flip names the programs whose run on
-/// its mutant the clock stopped (`timed_out`; FB45-LOCKED-TIMEOUT).
+/// its mutant the clock stopped (`timed_out`), and each argued item's evidence the programs whose
+/// evidence run it stopped (`argument_check.evidence.clock_stopped`; FB45-LOCKED-TIMEOUT).
 pub const COVERAGE_VERSION: u64 = 21;
 
 /// The status of a rule some comparable program fired.

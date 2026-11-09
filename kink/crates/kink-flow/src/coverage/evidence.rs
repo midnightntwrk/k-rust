@@ -52,7 +52,9 @@
 //! is per evaluation, not a total of the run: a total would make whether a state is read depend
 //! on what every evaluation before it cost, the dependence on the invariant's cumulative cost
 //! the clock was taken off for. A run the watchdog stops all the same gives no evidence, and the
-//! reason says so, with the evaluations' count and time.
+//! reason says so, with the evaluations' count and time; the item's evidence names the program
+//! under `clock_stopped` (from kink-campaign's `RunStop::Time` or `TimeLimit`, not the reason's
+//! text), so that the coverage lock keeps the standing it recorded ([`crate::clock`]).
 //! Where every cell holds the term node the previous decided evaluation read, the value is that
 //! evaluation's (the `Evaluator`).
 //!
@@ -583,8 +585,9 @@ pub(super) fn evidence(
 }
 
 /// What one program's evidence run read of an invariant: the program's id, the record or why the
-/// program gives none, and whether the record was read from the memo.
-type Read = (String, Result<Value, String>, bool);
+/// program gives none, whether the record was read from the memo, and whether the clock
+/// (`budget.time_ms`) stopped the evidence run, so that it gives none.
+type Read = (String, Result<Value, String>, bool, bool);
 
 /// What each program's evidence run read of `invariant` at the points of `labels`, for the items
 /// `serves` gives by label, each run counted in `runs` (run, cached).
@@ -652,6 +655,7 @@ fn program_evidence(
                 program.id.clone(),
                 Err(format!("the program `{}` is {class}", program.id)),
                 false,
+                false,
             ));
             continue;
         }
@@ -659,6 +663,7 @@ fn program_evidence(
             programs.push((
                 program.id.clone(),
                 Err(format!("the program `{}` has no inputs", program.id)),
+                false,
                 false,
             ));
             continue;
@@ -685,7 +690,7 @@ fn program_evidence(
             && let Some(record) = memo::read_evidence(path, key)
         {
             runs.1 += 1;
-            programs.push((program.id.clone(), Ok(record), true));
+            programs.push((program.id.clone(), Ok(record), true, false));
             continue;
         }
         let test = match row.test.clone() {
@@ -699,6 +704,7 @@ fn program_evidence(
                             "the program `{}` is refused: {}",
                             program.id, refusal.detail
                         )),
+                        false,
                         false,
                     ));
                     continue;
@@ -714,16 +720,19 @@ fn program_evidence(
         let observed = match &runner {
             _ if initial_cut => Ok(None),
             None => Ok(None),
-            Some(Err(reason)) => Err(reason.clone()),
+            Some(Err(reason)) => Err((reason.clone(), false)),
             Some(Ok(runner)) => {
                 *log.lock().unwrap_or_else(PoisonError::into_inner) = Log::default();
                 runs.0 += 1;
-                runner.evidence_of(test).map(Some)
+                runner
+                    .evidence_of(test)
+                    .map(Some)
+                    .map_err(|refused| (refused.reason, refused.clock_stopped))
             }
         };
         let evidence = match observed {
             Ok(evidence) => evidence,
-            Err(reason) => {
+            Err((reason, clock_stopped)) => {
                 // How many evaluations of the invariant the run made before it failed, and
                 // their time, off the run's clock: what the reading cost, beside the run's cause.
                 let log = std::mem::take(&mut *log.lock().unwrap_or_else(PoisonError::into_inner));
@@ -743,6 +752,7 @@ fn program_evidence(
                         program.id
                     )),
                     false,
+                    clock_stopped,
                 ));
                 continue;
             }
@@ -765,7 +775,7 @@ fn program_evidence(
         {
             memo::write_evidence(&store, path, key, &record);
         }
-        programs.push((program.id.clone(), Ok(record), false));
+        programs.push((program.id.clone(), Ok(record), false, false));
     }
     programs
 }
@@ -1094,6 +1104,7 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
                 "failure": null,
                 "reason": format!("the rules that step where the item's rule matches are not known: {reason}"),
                 "cached": false,
+                "clock_stopped": [],
             });
         }
     };
@@ -1108,8 +1119,15 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
     let mut failure = Value::Null;
     let (mut states, mut stepped) = (0_u64, 0_u64);
     let mut programs = Vec::new();
-    let cached = !read.is_empty() && read.iter().all(|(_, _, cached)| *cached);
-    for (program, record, _) in read {
+    let cached = !read.is_empty() && read.iter().all(|(_, _, cached, _)| *cached);
+    // The programs whose evidence run the clock stopped: what they would have read is not known
+    // on this host ([`crate::clock`]).
+    let clock_stopped = read
+        .iter()
+        .filter(|(_, _, _, stopped)| *stopped)
+        .map(|(program, ..)| program.clone())
+        .collect::<Vec<_>>();
+    for (program, record, ..) in read {
         let record = match record {
             Ok(record) => record,
             Err(reason) => {
@@ -1169,5 +1187,6 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
             json!(reasons.join("; "))
         },
         "cached": cached,
+        "clock_stopped": clock_stopped,
     })
 }

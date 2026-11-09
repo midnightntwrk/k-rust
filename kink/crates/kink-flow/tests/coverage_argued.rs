@@ -1149,6 +1149,7 @@ mod kink_tier {
                 "failure": null,
                 "reason": null,
                 "cached": false,
+                "clock_stopped": [],
             }),
             "{walk:#}"
         );

@@ -1232,4 +1232,94 @@ mod clock {
         assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
         assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }
+
+    /// An argued item's evidence run that the clock stops: `rule:unused` is argued by an
+    /// invariant false wherever `unused` heads the computation, so its connection holds, and the
+    /// evidence of `countdown(20000)`, which steps no rule that can step where `unused` matches, is
+    /// vacuous: `connected`. The program's baseline record does not name `time_ms`, so under a
+    /// clock of 50 ms, about a thirtieth of that run's time, the baseline stays cached and
+    /// comparable while its evidence run, made again once the evidence memo is gone, is stopped:
+    /// the standing would be `unchecked`, and the lock keeps `connected`, unverified.
+    #[test]
+    #[ignore = "kink"]
+    fn a_standing_whose_evidence_run_the_clock_stopped_is_kept() {
+        let manifest = looping("evidence-stopped", &[("long", "countdown(20000)")]);
+        let k = manifest.with_file_name("loop.k");
+        let definition = fs::read_to_string(&k).unwrap().replacen(
+            "  rule [unused]:",
+            "  syntax Bool ::= noUnused(K) [function, total, symbol(noUnused)]\n  rule \
+             noUnused(unused(_) ~> _) => false\n  rule noUnused(_) => true [owise]\n  rule \
+             [unused]:",
+            1,
+        );
+        fs::write(&k, definition).unwrap();
+        let clock = |ms: &str| {
+            let text = fs::read_to_string(&manifest).unwrap();
+            let at = text.find("time_ms = ").unwrap();
+            let end = at + text[at..].find('\n').unwrap();
+            fs::write(
+                &manifest,
+                format!("{}time_ms = {ms}{}", &text[..at], &text[end..]),
+            )
+            .unwrap();
+        };
+        clock("600000");
+        let mut text = fs::read_to_string(&manifest).unwrap();
+        text.push_str(
+            "\n[[coverage.invariant]]\nname = \"no-unused\"\nfunction = \"noUnused\"\ncells = \
+             [\"k\"]\n\n[[coverage.argued]]\nitem = \"rule:LOOP.unused\"\nargument = \"no \
+             program writes unused\"\ninvariant = \"no-unused\"\n",
+        );
+        fs::write(&manifest, text).unwrap();
+        let lock = manifest.with_file_name("coverage.lock");
+        let (first, _) = coverage(&manifest, false);
+        let unused = first["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "rule:LOOP.unused")
+            .unwrap()["argument_check"]
+            .clone();
+        assert_eq!(
+            (&unused["standing"], &unused["evidence"]["clock_stopped"]),
+            (&json!("connected"), &json!([])),
+            "{unused:#}"
+        );
+        assert_eq!(first["lock"]["status"], "created", "{:#}", first["lock"]);
+        let recorded = fs::read_to_string(&lock).unwrap();
+        assert!(
+            recorded.contains("\"rule:LOOP.unused\" = \"connected\"\n"),
+            "{recorded}"
+        );
+
+        // The evidence runs again, under a clock its run cannot meet.
+        let cache = manifest.with_file_name(CACHE_DIRECTORY);
+        fs::remove_dir_all(cache.join(kink_flow::memo::MEMO_DIRECTORY).join("evidence")).unwrap();
+        clock("50");
+        let (locked, status) = coverage(&manifest, true);
+        let long = &locked["programs"][0];
+        assert_eq!(
+            (&long["class"], &long["cached"]),
+            (&json!("comparable"), &json!(true)),
+            "{long:#}"
+        );
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED, "{:#}", locked["lock"]);
+        assert_eq!(
+            locked["lock"]["kept"],
+            json!([{"argument": "rule:LOOP.unused", "recorded": "connected", "now": "unchecked"}])
+        );
+        assert_eq!(
+            locked["lock"]["clock_stopped"],
+            json!([{"program": "long", "run": "evidence", "argument": "rule:LOOP.unused"}])
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+        let (kept, _) = coverage(&manifest, false);
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+    }
 }

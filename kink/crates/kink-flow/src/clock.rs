@@ -12,7 +12,10 @@
 //!
 //! The runs the clock stops are a program's baseline run, which is then `timeout` (or `unknown`
 //! with the watchdog named in its `not_cached`), so the program is not comparable and cannot
-//! kill or cover anything, and a program's run on a mutant, whose executed entry is `timeout`.
+//! kill or cover anything; a program's run on a mutant, whose executed entry is `timeout`; and an
+//! argued item's evidence run of a program, which the item's evidence names
+//! (`argument_check.evidence.clock_stopped`, from kink-campaign's `RunStop::Time`), and which
+//! leaves the evidence unread there.
 //!
 //! What a mutation's (or a flip's) entry depends on follows from the killer rule (README, "The
 //! killer record"), with k the recorded killer and C the search order:
@@ -41,7 +44,8 @@
 //! undecided that shows open is kept undecided; an obligation the lock lists open or argued and
 //! that a program that ended now covers, or whose argument the manifest added or removed, has
 //! moved. An argued item's standing rests on the evidence of the comparable programs' runs, so
-//! it is kept too where it moved, unless either side is `text`, which no run decides. A lock does
+//! it is kept too where it moved, unless either side is `text`, which no run decides; and so is
+//! a standing one of whose own evidence runs the clock stopped, where every baseline ended. A lock does
 //! not tell an obligation it recorded covered from one that was no obligation when it was written,
 //! so after a definition edit on a host whose clock stops a program, a new obligation that shows
 //! open stays unlisted until a host that runs every program writes the lock.
@@ -62,8 +66,9 @@ pub struct Kept {
     /// The document with each kept entry's recorded value in place of the one the run gave.
     pub document: Value,
     /// The runs the clock stopped that some entry depends on (`lock.clock_stopped`):
-    /// `{program, run: "baseline"}`, once per program, and `{program, run: "mutant", <row>: id}`
-    /// per row whose entry depends on that run.
+    /// `{program, run: "baseline"}`, once per program, `{program, run: "mutant", <row>: id}`
+    /// per row whose entry depends on that run, and `{program, run: "evidence", argument: id}`
+    /// per argued item whose evidence run of that program the clock stopped.
     pub stopped: Vec<Value>,
     /// Each entry whose recorded value the lock keeps over a different one a stopped run decided
     /// (`lock.kept`): `{<row>: id, recorded, now}` for a mutation or a flip (each side `{status,
@@ -128,8 +133,8 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     let mut on_baseline = false;
     let kind = lock.kind;
     let rows = match kind {
-        LockKind::Run => kept.document["mutations"].as_array_mut(),
-        LockKind::Coverage => kept.document["families"]["flips"]["items"].as_array_mut(),
+        LockKind::Run => items_mut(&mut kept.document, "/mutations"),
+        LockKind::Coverage => items_mut(&mut kept.document, "/families/flips/items"),
     };
     for row in rows.into_iter().flatten() {
         let Some(id) = row["id"].as_str().map(str::to_owned) else {
@@ -172,10 +177,14 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         row["reason"] = json!(record.reason);
         row["horizon"] = horizon;
     }
-    if kind == LockKind::Coverage && !baseline.is_empty() && lock.text.is_some() {
-        on_baseline = true;
-        keep_obligations(lock, &mut kept);
-        keep_standings(lock, &mut kept);
+    if kind == LockKind::Coverage {
+        if !baseline.is_empty() {
+            on_baseline = true;
+            if lock.text.is_some() {
+                keep_obligations(lock, &mut kept);
+            }
+        }
+        keep_standings(lock, &mut kept, !baseline.is_empty());
     }
     if on_baseline {
         let stops = baseline
@@ -184,6 +193,12 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         kept.stopped.splice(0..0, stops);
     }
     kept
+}
+
+/// The array at `pointer` in `document`, where there is one. Indexing a `Value` mutably would
+/// insert each missing key, and a family the document did not build would then render.
+fn items_mut<'d>(document: &'d mut Value, pointer: &str) -> Option<&'d mut Vec<Value>> {
+    document.pointer_mut(pointer)?.as_array_mut()
 }
 
 /// The status of a kill: a mutation's `killed`, a flip's `distinguished`.
@@ -368,7 +383,8 @@ fn keep_obligations(lock: &Lock, kept: &mut Kept) {
         let listed = |ids: Option<&Vec<String>>, id: &str| {
             ids.is_some_and(|ids| ids.iter().any(|i| i == id))
         };
-        let Some(items) = kept.document["families"][*family]["items"].as_array_mut() else {
+        let Some(items) = items_mut(&mut kept.document, &format!("/families/{family}/items"))
+        else {
             continue;
         };
         for item in items {
@@ -409,29 +425,50 @@ fn keep_obligations(lock: &Lock, kept: &mut Kept) {
     }
 }
 
-/// Keep each argued item's recorded standing where it moved and neither side is `text`: the
-/// evidence it rests on reads the comparable programs' runs (module documentation).
-fn keep_standings(lock: &Lock, kept: &mut Kept) {
-    let now = crate::coverage::argument_standings(&kept.document);
-    for (id, standing) in now {
-        let Some(recorded) = lock.arguments.get(&id) else {
-            continue;
-        };
-        let text = |standing: &str| standing.split(',').next() == Some(STANDING_TEXT);
-        if *recorded == standing || text(recorded) || text(&standing) {
-            continue;
-        }
-        for family in ARGUABLE {
-            let items = kept.document["families"][family]["items"].as_array_mut();
-            for item in items.into_iter().flatten() {
-                if item["id"] == id.as_str() && item["status"] == ARGUED {
-                    // The standing as the lock spells it, assumed findings included.
-                    item["argument_check"] = json!({"standing": recorded});
-                }
+/// Keep each argued item's recorded standing where it moved and the standing depends on a run
+/// the clock stopped: a baseline (`baseline`), since the evidence reads the comparable programs'
+/// runs, or one of the item's own evidence runs (`argument_check.evidence.clock_stopped`), each
+/// of which a stopped run leaves unread. A `text` standing rests on no run (module
+/// documentation).
+fn keep_standings(lock: &Lock, kept: &mut Kept, baseline: bool) {
+    let now = crate::coverage::argument_standings(&kept.document)
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    let text = |standing: &str| standing.split(',').next() == Some(STANDING_TEXT);
+    for family in ARGUABLE {
+        let items = items_mut(&mut kept.document, &format!("/families/{family}/items"));
+        for item in items.into_iter().flatten() {
+            let Some(id) = item["id"].as_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(standing) = now.get(&id).filter(|_| item["status"] == ARGUED) else {
+                continue;
+            };
+            let evidence = item["argument_check"]["evidence"]["clock_stopped"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            if text(standing) || (!baseline && evidence.is_empty()) {
+                continue;
             }
+            for program in evidence {
+                kept.stopped
+                    .push(json!({"program": program, "run": "evidence", "argument": id}));
+            }
+            let Some(recorded) = lock.arguments.get(&id) else {
+                continue;
+            };
+            if recorded == standing || text(recorded) {
+                continue;
+            }
+            // The standing as the lock spells it, assumed findings included.
+            item["argument_check"] = json!({"standing": recorded});
+            kept.kept
+                .push(json!({"argument": id, "recorded": recorded, "now": standing}));
         }
-        kept.kept
-            .push(json!({"argument": id, "recorded": recorded, "now": standing}));
     }
 }
 
@@ -455,6 +492,12 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
             format!(
                 "{path}: the clock (budget.time_ms) stopped the baseline run of {program}: what \
                  depends on it is not decided on this host"
+            )
+        } else if stop["run"] == "evidence" {
+            format!(
+                "{path}: arguments: {}: the clock (budget.time_ms) stopped the evidence run of \
+                 {program}: its standing is not decided on this host",
+                text(&stop["argument"])
             )
         } else {
             format!(
