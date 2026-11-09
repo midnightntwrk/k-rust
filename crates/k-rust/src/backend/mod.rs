@@ -445,6 +445,70 @@ pub fn z3_build() -> Option<&'static Z3Build> {
         .as_ref()
 }
 
+/// The solver an output's answers were decided with: whether each Z3 attempt is bounded by Z3
+/// resource units or by the clock, the first attempt's bound, the retries, each at twice the
+/// previous bound, and the Z3 build ([`SolverBuild`]). Under resource units an answer is a
+/// function of the question, these options and the Z3 build; under the clock it also depends
+/// on the host's speed and load. Every output of krust, krs and kink whose content depends on a
+/// solver answer carries it (or, in kink's stores, the same facts as a key).
+///
+/// The members are in the order of their names, as every krs JSON document has its keys.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SolverReport {
+    /// The first attempt's wall-clock timeout in milliseconds, in mode `clock`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock_ms: Option<u32>,
+    /// `resource` or `clock`.
+    pub mode: String,
+    /// The retries of an undecided answer.
+    pub retries: u32,
+    /// The first attempt's Z3 resource units, in mode `resource`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units: Option<u32>,
+    /// The Z3 build the process linked, absent in a build without Z3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub z3: Option<SolverBuild>,
+}
+
+/// The Z3 build that counted an output's resource units ([`z3_build`]): Z3's version string,
+/// and the SHA-256 of the library file Z3's code comes from (the shared library when Z3 is
+/// linked dynamically, the archive the build linked when statically). Two builds of one version
+/// can count the units of one query differently, so the version alone does not name the solver
+/// an answer depends on; the library's digest does.
+///
+/// The members are in the order of their names.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SolverBuild {
+    /// The lowercase hexadecimal SHA-256 of the library file Z3's code comes from; null when it
+    /// cannot be named (a shared library replaced since it was mapped, or a static link whose
+    /// archive the build could not name), and then the output does not say which build
+    /// counted.
+    pub library_sha256: Option<String>,
+    /// Z3's version string (`Z3_get_full_version`).
+    pub version: String,
+}
+
+impl SolverReport {
+    /// The record of the solver options `options` in this process.
+    #[must_use]
+    pub fn of(options: BackendOptions) -> Self {
+        let (mode, units, clock_ms) = match options.smt_budget {
+            SmtBudget::Units(units) => ("resource", Some(units.get()), None),
+            SmtBudget::Clock(clock) => ("clock", None, Some(clock.timeout_ms())),
+        };
+        Self {
+            clock_ms,
+            mode: mode.to_owned(),
+            retries: options.smt_retry_limit,
+            units,
+            z3: z3_build().map(|build| SolverBuild {
+                library_sha256: build.library_sha256.clone(),
+                version: build.version.to_owned(),
+            }),
+        }
+    }
+}
+
 /// Whether `version`, a `Z3_get_full_version` text, is of the release `release` (`5.3.3`):
 /// builds spell it with or without a `Z3 ` prefix, and with a component after the patch number,
 /// which Z3's `CMake` build follows with the commit (`Z3 4.16.0.0`, `4.12.5.0`,
@@ -4406,6 +4470,39 @@ mod tests {
         assert!(both.to_string().contains("not both"), "{both}");
         assert!(read(r#"{"smtResourceLimit": 0}"#).is_err());
         assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
+    }
+
+    /// The solver record names the mode and its one bound, the retries and, in a build with Z3,
+    /// the build; it serializes in the order of its members' names, without the absent bound.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "the record of a clocked solver")]
+    fn the_solver_record_names_the_mode_and_its_bound() {
+        let units = SolverReport::of(BackendOptions::DEFAULT);
+        assert_eq!(
+            (
+                units.mode.as_str(),
+                units.units,
+                units.clock_ms,
+                units.retries
+            ),
+            ("resource", Some(DEFAULT_SMT_RESOURCE_LIMIT.get()), None, 3)
+        );
+        assert_eq!(units.z3.is_some(), z3_build().is_some());
+        let clock = SolverReport::of(BackendOptions {
+            smt_budget: SmtBudget::clock(40),
+            smt_retry_limit: 1,
+        });
+        assert_eq!(
+            (
+                clock.mode.as_str(),
+                clock.units,
+                clock.clock_ms,
+                clock.retries
+            ),
+            ("clock", None, Some(40), 1)
+        );
+        let text = serde_json::to_string(&SolverReport { z3: None, ..units }).unwrap();
+        assert_eq!(text, r#"{"mode":"resource","retries":3,"units":370000}"#);
     }
 
     /// The default options are the backend crate's own default solver options.

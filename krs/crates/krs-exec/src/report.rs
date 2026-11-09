@@ -925,68 +925,8 @@ const fn signal_name(signal: i32) -> Option<&'static str> {
 }
 
 /// The solver a proof document's claims were proved with (the document's `solver` member):
-/// whether each Z3 attempt is bounded by Z3 resource units or by the clock, the first attempt's
-/// bound, the retries, each at twice the previous bound, and the Z3 build ([`SolverBuild`]).
-/// Under resource bounds a verdict is a function of the claim, these options and the Z3 build;
-/// under the clock it also depends on the host's speed and load.
-///
-/// The members are in the order every krs JSON document has its keys.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct SolverReport {
-    /// The first attempt's wall-clock timeout in milliseconds, in mode `clock`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub clock_ms: Option<u32>,
-    /// `resource` or `clock`.
-    pub mode: String,
-    /// The retries of an undecided answer.
-    pub retries: u32,
-    /// The first attempt's Z3 resource units, in mode `resource`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub units: Option<u32>,
-    /// The Z3 build the process linked, absent in a build without Z3.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub z3: Option<SolverBuild>,
-}
-
-/// The Z3 build that counted a proof's resource units (`solver.z3`, k-rust's `z3_build`): Z3's
-/// version string, and the SHA-256 of the library file Z3's code comes from (the shared library
-/// when krs links Z3 dynamically, the archive the build linked when statically). Two builds of
-/// one version (another compiler, other flags, another architecture) can count the units of one
-/// query differently, so the version alone does not name the solver a verdict depends on; the
-/// library's digest does, and it stays the same across builds of krs that link the same Z3.
-///
-/// The members are in the order every krs JSON document has its keys.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct SolverBuild {
-    /// The lowercase hexadecimal SHA-256 of the library file Z3's code comes from; null when it
-    /// cannot be named (a shared library replaced since it was mapped, or a static link whose
-    /// archive the build could not name), and then the document does not say which build
-    /// counted.
-    pub library_sha256: Option<String>,
-    /// Z3's version string (`Z3_get_full_version`).
-    pub version: String,
-}
-
-impl SolverReport {
-    /// The report of the solver options `options` in this process.
-    #[must_use]
-    pub fn of(options: k_rust::backend::BackendOptions) -> Self {
-        let (mode, units, clock_ms) = match options.smt_budget {
-            k_rust::backend::SmtBudget::Units(units) => ("resource", Some(units.get()), None),
-            k_rust::backend::SmtBudget::Clock(clock) => ("clock", None, Some(clock.timeout_ms())),
-        };
-        Self {
-            clock_ms,
-            mode: mode.to_owned(),
-            retries: options.smt_retry_limit,
-            units,
-            z3: k_rust::backend::z3_build().map(|build| SolverBuild {
-                library_sha256: build.library_sha256.clone(),
-                version: build.version.to_owned(),
-            }),
-        }
-    }
-}
+/// k-rust's solver record, which every output whose content depends on a solver answer carries.
+pub use k_rust::backend::{SolverBuild, SolverReport};
 
 /// What a compiled definition supports in this build.
 ///
