@@ -187,7 +187,8 @@ const UNREAD: &[&str] = &[
 ];
 
 const STATUSES: &[&str] = &[
-    "860 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
+    "4411 judged by its direct case: a case through a local, whose K, read through the block, K3 compares with its direct case's, which K6 and K7 judge",
+    "1704 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
     "187 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
     "201 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
     "26 no driver: a malformed attribute is refused",
@@ -195,23 +196,23 @@ const STATUSES: &[&str] = &[
     "79 no driver: the base applies no function but Probe, ProbeK and Size from a rule",
     "10 no driver: the case's hole has a sort the context form's driver does not write in all its fields, or a production of the case's own no driver writes; whether a hole is ever cooled is a fact of sorts, which no finite run shows",
     "3559 no driver: the compiled sweep's cases witness the compiler's verdict on each root sweep cell; the sweep base has no driver commands to set its cells up",
-    "187 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
+    "191 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "5376 no driver: the path sweep's cases witness the compiler's verdict on each sweep cell below a marked ancestor; the path base has no driver commands to set its cells up",
     "1268 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "4 no driver: the sentence cannot take both attributes, and is refused",
-    "160 no driver: the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
+    "162 no driver: the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
     "7 no value: a cell's value, which the generator's ground terms do not write",
-    "113 no value: a matching-logic predicate, which only a prover reads",
-    "175 no value: a pattern, which names or tests a term and builds none",
-    "35 no value: an anonymous variable, which names no value",
+    "122 no value: a matching-logic predicate, which only a prover reads",
+    "215 no value: a pattern, which names or tests a term and builds none",
+    "43 no value: an anonymous variable, which names no value",
     "131 no value: refused at K2, so no definition is emitted to run",
     "5 no value: the condition's stated value, \"s\", is no Bool",
     "5 no value: the condition's stated value, $x, is no Bool",
     "5 no value: the condition's stated value, -1, is no Bool",
     "5 no value: the condition's stated value, -2, is no Bool",
     "10 no value: the condition's stated value, 0, is no Bool",
-    "60 no value: the condition's stated value, 1, is no Bool",
+    "69 no value: the condition's stated value, 1, is no Bool",
     "5 no value: the condition's stated value, 1.5, is no Bool",
     "20 no value: the condition's stated value, 2, is no Bool",
     "5 no value: the condition's stated value, 3, is no Bool",
@@ -248,12 +249,12 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "80 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1319 runs a counter-witness",
-    "2206 runs at another input",
+    "1321 runs a counter-witness",
+    "2588 runs at another input",
     "1781 runs, liveness",
     "246 runs, undefined",
-    "266 runs, undefined result",
-    "2793 runs, value",
+    "322 runs, undefined result",
+    "3356 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it
@@ -1601,10 +1602,16 @@ fn every_static_result_that_states_one_item_only_has_a_rule_twin_that_takes_a_st
         );
     }
     assert!(stated.contains("terms/desugar/result-root/k::fragment![crate::Frame { ret: 1 }]"));
+    // A case through a local states what its direct case does, which has the rule twin.
     let elsewhere = cases
         .iter()
         .filter(|case| case.removed() == Removed::Unchanged(class_matrix::BUILT_UNSTATED))
         .filter(|case| !stated.contains(case.id.as_str()))
+        .filter(|case| {
+            case.through
+                .as_ref()
+                .is_none_or(|through| !stated.contains(through.direct.as_str()))
+        })
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
     assert!(

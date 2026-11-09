@@ -651,7 +651,9 @@ impl<'w> Worker<'w> {
 
     /// K6 over a collected batch: the definition of each case that KRS accepted and the table does
     /// not refuse, the base's descriptors and the case's, judged as `krs check` judges it: the
-    /// cases together, bisected ([`Self::native_bisect`]), or each alone in the alone mode.
+    /// cases together, bisected ([`Self::native_bisect`]), or each alone in the alone mode. A case
+    /// through a local whose K K3 compares with its direct case's
+    /// ([`krs_test_support::class_matrix::through`]) is left to its direct case's K6 and K7.
     fn check_native(
         &self,
         collected: &CollectedDefinition,
@@ -672,6 +674,13 @@ impl<'w> Worker<'w> {
         let cases = all
             .iter()
             .filter(|placed| judged_cases.contains(placed.case.id.as_str()))
+            .filter(|placed| {
+                !placed
+                    .case
+                    .through
+                    .as_ref()
+                    .is_some_and(krs_test_support::class_matrix::through::Through::reduced)
+            })
             .collect::<Vec<_>>();
         let mut verdicts = Verdicts::default();
         if run.alone {

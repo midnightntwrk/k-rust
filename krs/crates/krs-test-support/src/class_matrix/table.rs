@@ -49,6 +49,10 @@
 //! twin: the two are judged by the same rules, and a pair with different outcomes is a deviation of
 //! one of them. Its accept entry is its own, since its K names its own command.
 //!
+//! **Cases through a local.** A case of a family through a local ([`through`]) is expected
+//! exactly what its direct case is, accepted with its accept entry or refused with its class at
+//! its site: no entry names it, and an accept entry that does is a table error.
+//!
 //! **Resolution.** A case is decided by the most specific entry that covers it: an accept
 //! entry covers its one ID, and a refusal rule the IDs its glob matches. One entry is more
 //! specific than another when the cases it covers are a strict subset of the other's, over the
@@ -87,7 +91,7 @@ use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
 use super::invariants::{Observed, Severity};
 use super::oracle::{Class as OracleClass, Outcome, Stage};
-use super::{Case, Family, Placed};
+use super::{Case, Family, Placed, through};
 
 /// The file beside `expected.toml` that holds the accept entries of the families the oracle
 /// judges: the term families and the attribute axis.
@@ -786,7 +790,15 @@ impl Table {
         }
 
         let mut expected = BTreeMap::new();
+        // A case through a local is expected what its direct case is, once that is decided.
+        let derived = ids
+            .iter()
+            .filter_map(|id| Some((*id, through::direct(id)?)))
+            .collect::<Vec<_>>();
         for id in ids {
+            if through::direct(id).is_some() {
+                continue;
+            }
             let decided = match outcomes[id] {
                 None => decided(id, most_specific(id, &covers, false), &mut gathered.errors)
                     .map(|entry| gathered.decide(entry)),
@@ -796,6 +808,7 @@ impl Table {
                 expected.insert((*id).to_owned(), decided);
             }
         }
+        Self::derive(derived, &mut expected, &mut gathered.errors);
         for (entry, matched) in &covers {
             if let Entry::Refuse { rule, .. } = entry
                 && !matched.is_empty()
@@ -815,6 +828,23 @@ impl Table {
             expected,
             errors: gathered.errors,
             overridden: gathered.overridden,
+        }
+    }
+
+    /// Expect of each case through a local, `(ID, its direct case's ID)`, what its direct case is
+    /// expected ([`through`]); a case whose direct case is not decided is uncovered.
+    fn derive(
+        derived: Vec<(&str, String)>,
+        expected: &mut BTreeMap<String, Expected<'_>>,
+        errors: &mut Vec<TableError>,
+    ) {
+        for (id, direct) in derived {
+            match expected.get(&direct).copied() {
+                Some(decided) => {
+                    expected.insert(id.to_owned(), decided);
+                }
+                None => errors.push(TableError::Uncovered { id: id.to_owned() }),
+            }
         }
     }
 
@@ -968,7 +998,14 @@ impl Table {
 
     fn check_accepts(&self, known: &BTreeSet<&str>, errors: &mut Vec<TableError>) {
         for (id, accepted) in &self.accept {
-            if !known.contains(id.as_str()) {
+            if through::direct(id).is_some() {
+                errors.push(TableError::UnknownCase {
+                    owner: "an accept entry (a case through a local is expected what its direct \
+                            case is)"
+                        .to_owned(),
+                    id: id.clone(),
+                });
+            } else if !known.contains(id.as_str()) {
                 errors.push(TableError::UnknownCase {
                     owner: "an accept entry".to_owned(),
                     id: id.clone(),

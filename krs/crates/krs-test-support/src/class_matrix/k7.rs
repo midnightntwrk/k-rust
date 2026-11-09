@@ -491,6 +491,9 @@ pub enum SkipKind {
     Witness,
     /// The case's construct has no value at a built position.
     Value,
+    /// A case through a local whose K is its direct case's through the block it adds
+    /// ([`super::through`]): its direct case's K7 judges that K.
+    Direct,
 }
 
 impl SkipKind {
@@ -501,6 +504,7 @@ impl SkipKind {
             Self::Form => "no driver",
             Self::Witness => "no witness",
             Self::Value => "no value",
+            Self::Direct => "judged by its direct case",
         }
     }
 }

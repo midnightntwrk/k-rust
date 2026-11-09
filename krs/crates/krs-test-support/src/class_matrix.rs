@@ -100,6 +100,7 @@ pub mod positions;
 pub mod sweep;
 pub mod table;
 mod terms;
+pub mod through;
 
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -115,6 +116,9 @@ pub const FRONT_CASE_CAP: usize = 6_000;
 /// The shards of the fast tier, each the families one of its tests runs, and each within
 /// [`FRONT_CASE_CAP`]: the collection notation's term cases are a shard of their own, and so,
 /// since NT-12's static productions took the first shard past the cap, are the term family's.
+/// The families through a local ([`through`]) join the shards with room for them: the notation
+/// family's beside it, the term family's of depth 1 in the first shard and the others beside
+/// the compiled sweep.
 pub const FRONT_SHARDS: [&[Family]; 5] = [
     &[
         Family::Readable,
@@ -125,10 +129,15 @@ pub const FRONT_SHARDS: [&[Family]; 5] = [
         Family::Attributes,
         Family::ReadableRun,
         Family::CellsRun,
+        Family::TermsLocalBlock,
     ],
-    &[Family::Notation],
+    &[
+        Family::Notation,
+        Family::NotationLocal,
+        Family::NotationLocalBlock,
+    ],
     &[Family::Terms],
-    &[Family::Sweep],
+    &[Family::Sweep, Family::TermsLocal],
     &[Family::SweepPaths],
 ];
 
@@ -170,11 +179,24 @@ pub enum Family {
     /// [`Base::SweepPaths`] for each rule-form cell of the cells oracle's sweep below a `?` and
     /// below a `*` ancestor, so that the compiler's verdict witnesses `outcome` there (S5.3).
     SweepPaths,
+    /// The term family's cases again through a local ([`through`]): where a block stands, the
+    /// construct `S` of a [`Family::Terms`] case written `{ let y = S; y }`, which means what `S`
+    /// means there, so the table expects of it what it expects of its direct case.
+    TermsLocal,
+    /// The notation family's cases through a local, as [`Family::TermsLocal`] is the term
+    /// family's.
+    NotationLocal,
+    /// The term family's cases of depth 1 through a local whose value is a block, `{ let y = { S
+    /// }; y }`: a block denotes its result, so this too means what `S` means ([`through`]).
+    TermsLocalBlock,
+    /// The notation family's cases of depth 1 through a local whose value is a block, as
+    /// [`Family::TermsLocalBlock`] is the term family's.
+    NotationLocalBlock,
 }
 
 impl Family {
     /// Every family, in ID order.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 16] = [
         Self::Readable,
         Self::Claim,
         Self::Cells,
@@ -187,6 +209,10 @@ impl Family {
         Self::CellsRun,
         Self::Sweep,
         Self::SweepPaths,
+        Self::TermsLocal,
+        Self::NotationLocal,
+        Self::TermsLocalBlock,
+        Self::NotationLocalBlock,
     ];
 
     /// The first segment of the IDs of this family's cases.
@@ -205,6 +231,10 @@ impl Family {
             Self::CellsRun => "cells-run",
             Self::Sweep => "sweep",
             Self::SweepPaths => "sweep-paths",
+            Self::TermsLocal => "terms-local",
+            Self::NotationLocal => "notation-local",
+            Self::TermsLocalBlock => "terms-local-block",
+            Self::NotationLocalBlock => "notation-local-block",
         }
     }
 
@@ -215,6 +245,17 @@ impl Family {
         match self {
             Self::ReadableRun => Some(Self::Readable),
             Self::CellsRun => Some(Self::Cells),
+            _ => None,
+        }
+    }
+
+    /// The family whose cases a family through a local writes again ([`through`]): each case's
+    /// direct case, of the same slot and construct, is that family's.
+    #[must_use]
+    pub const fn direct(self) -> Option<Self> {
+        match self {
+            Self::TermsLocal | Self::TermsLocalBlock => Some(Self::Terms),
+            Self::NotationLocal | Self::NotationLocalBlock => Some(Self::Notation),
             _ => None,
         }
     }
@@ -607,6 +648,9 @@ pub struct Case {
     /// An attribute case's form and attribute, which the attribute axis's oracle reads
     /// ([`Case::oracle`]); `None` outside the attribute family.
     pub attribute: Option<attributes::Pair>,
+    /// A case of a family through a local: its direct case, and how its K is judged
+    /// ([`through`]); `None` for every other case.
+    pub through: Option<through::Through>,
     /// What the case's runs show without what it states, where the case's own data decides it
     /// ([`Case::removed`]).
     removed: k7::Removed,
@@ -1275,6 +1319,7 @@ impl CaseSpec {
             k7_inputs: Vec::new(),
             unkeyed: false,
             attribute: None,
+            through: None,
             removed: k7::Removed::Changes,
             item: item.text.clone(),
             spelling,

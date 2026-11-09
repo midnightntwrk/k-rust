@@ -683,10 +683,10 @@ fn k2_verdict(
     judged: &Judged,
     recording: bool,
 ) -> K2Verdict {
-    let k = (!judged.observed.refused() && !recording)
+    let k = (!judged.observed.refused() && !recording && k_compared(case))
         .then_some(judged.additions.as_deref())
         .flatten()
-        .map(|additions| case_k(additions, &case.tag()));
+        .map(|additions| own_k(case, additions));
     let misses = k2_misses(resolution, case, judged, k.as_deref());
     let signature = k2_signature(resolution, judged, &judged.placed(case), k.as_deref());
     let observation = if misses.is_empty() {
@@ -1309,7 +1309,7 @@ fn accepted_ks(
             (!judged.observed.refused())
                 .then_some(judged.additions.as_deref())
                 .flatten()
-                .map(|additions| case_k(additions, &by_id[judged.id.as_str()].tag()))
+                .map(|additions| own_k(by_id[judged.id.as_str()], additions))
         })
         .collect::<Vec<_>>();
     let mut recorded = BTreeMap::new();
@@ -1318,8 +1318,10 @@ fn accepted_ks(
             resolution.expected.get(&judged.id),
             Some(Expected::Refuse { .. })
         );
+        // A case through a local has its direct case's entry, and no K of its own to record.
         if recording
             && !refusal
+            && by_id[judged.id.as_str()].through.is_none()
             && let Some(k) = k
         {
             recorded.insert(judged.id.clone(), k.clone());
@@ -1330,6 +1332,49 @@ fn accepted_ks(
         .expect("the recorded K is not poisoned")
         .extend(recorded.clone());
     (ks, recorded)
+}
+
+/// A case's K as the table compares it ([`case_k`]). For a case through a local written in
+/// place ([`class_matrix::through`]), its K with the block it adds read as its value: of the
+/// readings [`class_matrix::through::reductions`] gives, the one that is its direct case's K
+/// (this run's, else the table's), else the first, whose difference from it K2 reports; its K
+/// as emitted where no block reads so.
+fn own_k(case: &Case, additions: &[String]) -> String {
+    let tag = case.tag();
+    let Some(through) = case.through.as_ref().filter(|through| through.reduced()) else {
+        return case_k(additions, &tag);
+    };
+    let direct = RECORDED
+        .lock()
+        .expect("the recorded K is not poisoned")
+        .get(&through.direct)
+        .cloned()
+        .or_else(|| {
+            spec()
+                .table
+                .accept
+                .get(&through.direct)
+                .and_then(|accepted| accepted.k.clone())
+        });
+    let readings = class_matrix::through::reductions(additions)
+        .iter()
+        .map(|reduced| case_k(reduced, &tag))
+        .collect::<Vec<_>>();
+    readings
+        .iter()
+        .find(|reading| Some(reading.as_str()) == direct.as_deref())
+        .or_else(|| readings.first())
+        .cloned()
+        .unwrap_or_else(|| case_k(additions, &tag))
+}
+
+/// Whether the table compares a case's K: not for a case through a local whose K differs from its
+/// direct case's beyond the block ([`class_matrix::through::Through::differs`]), which K6 and K7
+/// judge instead.
+fn k_compared(case: &Case) -> bool {
+    case.through
+        .as_ref()
+        .is_none_or(class_matrix::through::Through::reduced)
 }
 
 /// The table's errors, each a failure of every shard (an uncovered case only where
@@ -1501,11 +1546,14 @@ fn shard(name: &str, families: &[Family]) {
                 judged.id
             ));
         }
-        let compared = k.as_deref().filter(|_| !recording);
+        let compared = k.as_deref().filter(|_| !recording && k_compared(case));
         let covered = k2(&mut shard, resolution, case, judged, compared);
         uncovered += usize::from(!covered);
         k1(&mut shard, judged);
-        let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
+        let pairs = k
+            .as_deref()
+            .filter(|_| k_compared(case))
+            .map_or_else(Vec::new, |k| other_k(expected, k));
         k3(&mut shard, judged, pairs, &mut forms);
         k6(&mut shard, judged);
         k7(&mut shard, judged);
@@ -1577,7 +1625,10 @@ fn init() {
 #[test]
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn terms() {
-    shard("terms", &[Family::Terms]);
+    shard(
+        "terms",
+        &[Family::Terms, Family::TermsLocal, Family::TermsLocalBlock],
+    );
 }
 
 #[test]
@@ -1589,7 +1640,14 @@ fn import() {
 #[test]
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn notation() {
-    shard("notation", &[Family::Notation]);
+    shard(
+        "notation",
+        &[
+            Family::Notation,
+            Family::NotationLocal,
+            Family::NotationLocalBlock,
+        ],
+    );
 }
 
 #[test]

@@ -71,6 +71,7 @@
 
 mod attributes;
 mod drivers;
+mod local;
 
 use std::fmt::Write as _;
 
@@ -3798,20 +3799,25 @@ pub(super) fn meanings() -> Vec<super::SpellingMeaning> {
 }
 
 /// The term family: every slot × every construct, the import axis: every slot of depth 1 × 2
-/// bare variants, and the notation family: every slot × the collection notation and its calls.
+/// bare variants, and the notation family: every slot × the collection notation and its calls;
+/// and each term and notation case again through a local where a local names its construct's
+/// value ([`local::through`]), after them.
 pub(super) fn cases(cases: &mut Vec<Case>) {
     let spellings = spellings();
     let imported = imported_spellings();
     let notation = notation_spellings();
+    let mut through = Vec::new();
     for slot in slots() {
         for spelling in &spellings {
             if slot.holds.admits(spelling.text(slot.at.form)) && spelling.stands_at(&slot) {
                 cases.push(case(Family::Terms, &slot, spelling));
+                through.extend(local::derived(Family::Terms, &slot, spelling));
             }
         }
         for spelling in &notation {
             if slot.holds.admits(spelling.text(slot.at.form)) {
                 cases.push(case(Family::Notation, &slot, spelling));
+                through.extend(local::derived(Family::Notation, &slot, spelling));
             }
         }
         if slot.opener.is_none() {
@@ -3821,6 +3827,7 @@ pub(super) fn cases(cases: &mut Vec<Case>) {
         }
     }
     attributes::cases(cases);
+    cases.extend(through);
 }
 
 /// The attribute case `case` without its attribute ([`super::without_attribute`]).
@@ -3891,6 +3898,21 @@ fn removed_unchanged(slot: &Slot, plan: &K7) -> Option<Removed> {
 }
 
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
+    case_of(family, slot, spelling, None)
+}
+
+/// The case of `spelling` at `slot` in `family`; `through`, for a family through a local, says
+/// why its K differs from its direct case's beyond the block ([`local::through`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case's template, ranges, plans and packaging, each from the slot and spelling."
+)]
+fn case_of(
+    family: Family,
+    slot: &Slot,
+    spelling: &Spelling,
+    through: Option<local::Differs>,
+) -> Case {
     let construct = spelling.text(slot.at.form);
     let imported = family == Family::Import;
     let mut segments = vec![slot.form.to_owned(), slot.position.to_owned()];
@@ -3909,15 +3931,28 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let tag = spec.tag();
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(slot.marker);
-    let (plan, inputs) = drivers::at_inputs(
-        slot,
-        spelling,
-        &command,
-        drivers::plan(slot, spelling, &command),
-    );
-    let mut inputs = inputs;
-    inputs.extend(drivers::twin_left_sides(slot, spelling, &command));
-    let counters = drivers::counter_plans(slot, spelling, &command);
+    let (plan, mut inputs, counters) = if through == Some(local::Differs(None)) {
+        (
+            K7::skip(super::k7::SkipKind::Direct, local::JUDGED_BY_DIRECT),
+            Vec::new(),
+            Vec::new(),
+        )
+    } else {
+        let (plan, inputs) = drivers::at_inputs(
+            slot,
+            spelling,
+            &command,
+            drivers::plan(slot, spelling, &command),
+        );
+        (
+            plan,
+            inputs,
+            drivers::counter_plans(slot, spelling, &command),
+        )
+    };
+    if through.is_none() {
+        inputs.extend(drivers::twin_left_sides(slot, spelling, &command));
+    }
     let template = slot_template(slot, spelling)
         .replace("TAG", &tag)
         .replace("DRIVE", &command.drive().to_string())
@@ -3939,6 +3974,14 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
         .expect("every template has a hole");
     let mut item = ItemBuilder::new();
     item.push(before);
+    // Through a local, the construct is the value of the block `{ let y = HOLE; y }` that stands
+    // in the hole, or the result of that value's own block (`{ let y = { HOLE }; y }`): the block
+    // is the case's entry (inside the opener's text at depth 2), the construct its spelling.
+    let (block_open, block_close) = if through.is_some() {
+        local::around(family)
+    } else {
+        ("", "")
+    };
     if slot.opener.is_some() {
         let grouped = slot.groups_alternatives
             && spelling.nodes.first().is_some_and(|node| {
@@ -3946,10 +3989,12 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
             });
         let (open, close) = if grouped { ("(", ")") } else { ("", "") };
         item.inside(
-            &format!("{}{open}", slot.around.0),
+            &format!("{}{open}{block_open}", slot.around.0),
             construct,
-            &format!("{close}{}", slot.around.1),
+            &format!("{block_close}{close}{}", slot.around.1),
         );
+    } else if through.is_some() {
+        item.inside(block_open, construct, block_close);
     } else {
         item.term(construct);
     }
@@ -3987,6 +4032,16 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.
     case.unkeyed = slot.side == Side::Subject && slot.path.is_empty();
+    if let Some(local::Differs(differs)) = through {
+        // A case through a local is judged as its direct case is ([`super::through`]): it
+        // carries no position for the oracle, which judges the direct case.
+        case.through = Some(super::through::Through {
+            direct: super::through::direct(&case.id)
+                .expect("a family through a local has a direct family"),
+            differs,
+        });
+        return case;
+    }
     let mut nodes = slot.before.clone();
     nodes.extend(spelling.nodes.iter().map(|node| node.below(&slot.hole)));
     nodes.extend(slot.after.iter().cloned());

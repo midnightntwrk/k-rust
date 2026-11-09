@@ -122,6 +122,46 @@ the table, so they live in `accepted-terms.toml`, in `expected.toml`'s accept sc
 the same record mode; `expected.toml` keeps the classes, the refusal rules and the other families'
 accept entries, and holds none of theirs (`class_matrix::table`).
 
+**Cases through a local** (`class_matrix::through`, GEN M1). A local names the value its
+pattern matched, and a block denotes its result, so `{ let y = S; y }` and `{ let y = { S }; y }`
+mean what `S` means wherever a block stands. Each term and notation case is written again in the
+first block at every position where the rule holds (`terms-local/..`, `notation-local/..`, depth 2
+included) and in the second at the positions of depth 1 and the slots' roots
+(`terms-local-block/..`, `notation-local-block/..`); the ID is its direct case's with the family
+renamed, `terms-local/rule/result/x + 1` of `terms/rule/result/x + 1`. Where the rule holds is the
+generator's (`terms/local.rs`, each exception with its reason): a term built or a condition
+computed, where the oracle admits a block (not in a pattern, `let-outside-term`, nor in a
+constant's ground value); not in a key a pattern computes, which reads two ways where a block reads
+one (a lookup); and no matching-logic predicate at a condition, where it is a formula and a block's
+result an object term. The table holds no entry for these cases: each is expected what its direct
+case is (`table::resolve`), accepted with its accept entry, or refused with its class, inside `S`
+(the case's spelling; its entry is the block). Not below a key or a set's element a pattern
+computes either, whose notation is the key's at every depth (`A | B` alternatives, R-K1) where a
+block's value is a built term; and no cell fragment, which is cell-state notation, no value. A unit
+test of `terms/local.rs` checks that the oracle reads every derived block as its value, case by
+case.
+
+Their K: K defines `#let P = A #in B` as `#fun(P => B)(A)`, so the identity block `( #let Y:S = T
+#in Y:S )` is `T`. Where KRS writes the block in place, K3 compares the derived case's K, with the
+outermost identity block read as its value (`through::reductions`), against the direct case's
+recorded K (a mismatch is K2's "other K than the table records"), and the full tier judges the case
+by K1 to K3 alone: K6 and K7 judge K, which is then the direct case's, judged by them there, and the
+`{ let y = x; y }` spelling at every slot shows an identity block runs as its value. Its K7 status is
+`judged by its direct case`. Where the K differs beyond the block (`Through::differs`: KRS lifts a
+block into a function in a claim's states and conditions and a static clause's result; a
+projection's sort test is hoisted into the condition where it stands directly; a framed `cells!`
+map result writes the matched key's entry in place), its K is not compared and the case is judged
+in full, K6 and K7 by its direct case's plans. A derived case is never recorded.
+
+What they cost (2026-11-10, 9 workers, under a host load of 40 to 120 from other work, and with
+the reds the derived cases found still unrecorded, each re-judged alone): `terms` went from 5,646
+cases (1,590 package builds, K6 372 checks, K7 2,096 programs, 525 s) to 9,743 (2,959 builds, 539
+of them the alone re-runs; K6 405 checks; K7 2,449 programs; 1,634 s), `notation` from 2,864 (747
+builds, K6 208 checks, K7 1,093 programs, 304 s) to 4,943 (1,555 builds, 452 alone; K6 226 checks;
+K7 1,209 programs; 2,266 s). The batch builds, which collect and lower, grow by about half; K6's
+checks by a tenth, the derived cases judged in full; the wall times are the load's and the alone
+re-runs' as much as the cases'.
+
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
 

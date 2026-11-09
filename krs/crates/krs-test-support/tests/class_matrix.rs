@@ -185,6 +185,16 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // a `*` ancestor (64 columns × 4 sides × 2 paths × 14 stacks), less the 1,792 written
             // subjects no case can be compiled for (`sweep::WRITTEN_BELOW_ANCESTOR`).
             (Family::SweepPaths, 64 * 4 * 2 * 14 - 1_792),
+            // The term and the notation family's cases again through a local (GEN M1,
+            // `class_matrix::through`): `{ let y = S; y }` at every position where a block stands
+            // and reads `S` as `S` is read there (a term built or a condition, not below a key a
+            // pattern computes, the oracle admitting a block there; no predicate at a condition,
+            // no cell fragment), depth 2 included; and `{ let y = { S }; y }` at those of depth 1
+            // and the slots' roots.
+            (Family::TermsLocal, 2_113),
+            (Family::NotationLocal, 1_134),
+            (Family::TermsLocalBlock, 1_754),
+            (Family::NotationLocalBlock, 945),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -3112,9 +3122,10 @@ fn several_rustc_parse_errors_are_admitted_beside_krss_one_error() {
 #[test]
 fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
     let cases = class_matrix::cases();
+    // A case through a local stands where its direct case does.
     let term = |case: &Case| {
         matches!(
-            case.family,
+            case.family.direct().unwrap_or(case.family),
             Family::Terms | Family::Import | Family::Notation
         )
     };
@@ -3135,13 +3146,22 @@ fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
             let position = segments.next().unwrap_or_default();
             assert!(
                 matches!(
-                    case.family,
+                    case.family.direct().unwrap_or(case.family),
                     Family::Terms | Family::Import | Family::Notation
                 ),
                 "{} is no term position",
                 case.id
             );
-            assert!(matches!(family, "terms" | "import" | "notation"));
+            assert!(matches!(
+                family,
+                "terms"
+                    | "import"
+                    | "notation"
+                    | "terms-local"
+                    | "notation-local"
+                    | "terms-local-block"
+                    | "notation-local-block"
+            ));
             format!("{form}/{position}")
         })
         .collect::<BTreeSet<_>>();
