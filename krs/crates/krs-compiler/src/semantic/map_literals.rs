@@ -161,6 +161,12 @@ fn read_cells(
 
 /// The state of the cell `cell` names, when it names one: its map's keys are looked up, and
 /// built, and so is a Set collection's instance, which the collection is looked up by.
+///
+/// The cell is read only to tell a Set collection's instances. An instance's or a group
+/// record's child names no cell here: such a child is a term, a map, a computation or a
+/// presence, never a list of instances (the syntax reads no other), so a collection nested in
+/// an instance or a group is reached only as a cell a sentence names itself, a rule for the
+/// instance's own group among them, whose identity [`read_cells`] passes.
 fn read_state(
     cell: Option<&DescriptorCellIdentity>,
     state: &mut ProtocolRuleStateTerm<DescriptorTerm>,

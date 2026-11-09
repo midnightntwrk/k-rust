@@ -235,11 +235,16 @@ fn an_equation_walks_a_map_parameter_entry_by_entry() {
 
 /// The first `error[..]` headline of `krs check` on [`SOURCE`] with `item` appended.
 fn check_error(target: &Path, item: &str) -> String {
+    check_error_in(target, SOURCE, item)
+}
+
+/// The first `error[..]` headline of `krs check` on `source` with `item` appended.
+fn check_error_in(target: &Path, source: &str, item: &str) -> String {
     let temporary = temp_dir();
     let manifest = package(
         temporary.path(),
         "mappatterns",
-        &format!("{SOURCE}\n{item}"),
+        &format!("{source}\n{item}"),
     );
     let (success, _, stderr) = krs(target, &manifest, "check", &[]);
     assert!(!success, "{item} was accepted");
@@ -310,4 +315,153 @@ fn krs_expand_writes_map_patterns_back_to_the_same_k() {
             .collect::<Vec<_>>()
     };
     assert_eq!(strip(original), strip(rewritten));
+}
+
+/// A Set collection, `pouch`, nested in each instance of a Map collection, `thread`, and a Set
+/// collection, `bag`, below a group, `sacks`. [`NESTED_RULES`] holds the rules for `Thread`.
+const NESTED: &str = r#"
+use k::builtin::{Int, KSequence, Map, map};
+use k::{KItem, KResult};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("peek({n})")]
+    Peek { n: Int },
+}
+
+#[k::cell]
+pub struct Threads {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub thread: Thread,
+}
+
+#[k::cell]
+pub struct Thread {
+    #[k::cell]
+    pub tid: Int,
+    #[k::cell]
+    pub hits: Int,
+    #[k::cell(nested)]
+    pub pouches: Pouches,
+}
+
+#[k::cell]
+pub struct Pouches {
+    #[k::cell(multiplicity = "*", cell_type = "Set", nested)]
+    pub pouch: Pouch,
+}
+
+#[k::cell]
+pub struct Pouch {
+    #[k::cell]
+    pub pk: Int,
+    #[k::cell]
+    pub pm: Map,
+}
+
+#[k::cell]
+pub struct Sacks {
+    #[k::cell(multiplicity = "*", cell_type = "Set", nested)]
+    pub bag: Bag,
+}
+
+#[k::cell]
+pub struct Bag {
+    #[k::cell]
+    pub key: Int,
+    #[k::cell]
+    pub m: Map,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub threads: Threads,
+    #[k::cell(nested)]
+    pub sacks: Sacks,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            threads: Threads {
+                thread: Thread { tid: 0, hits: 0, pouches: Pouches { pouch: Pouch { pk: 0, pm: map![] } } },
+            },
+            sacks: Sacks { bag: Bag { key: 0, m: map![] } },
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    peek: { k: [Peek(n), ..] } => { k: [..] };
+}
+"#;
+
+/// Two rules for one `Thread`, each looking its `pouch` collection up by an instance: `inner`
+/// writes the instance's map as a literal, `spelled` as the update `map::update` it denotes.
+const NESTED_RULES: &str = r"
+k::rules! {
+    for Thread;
+
+    inner: { tid: n, hits: 0, pouch: { Pouch { pk: n, pm: map![n -> 1] }, .. } } => { hits: 1 };
+    spelled: { tid: n, hits: 5, pouch: { Pouch { pk: n + 7, pm: map::update(map::empty(), n, 1) }, .. } } => { hits: 2 };
+}
+";
+
+/// A Set collection is a set of its instances, looked up by an instance the pattern computes,
+/// so a rest-less map literal in a Set collection's instance is the map it builds, wherever
+/// the collection is nested. A rule for the instance of another collection (`for Thread`)
+/// names its nested Set collection `pouch` as its own cell: the literal `map![n -> 1]` is the
+/// update a guard equates, the K `map::update` written out has and the literal had before map
+/// patterns. Nothing else reaches a Set collection inside an instance or a group record: an
+/// instance's child and a group record's child is a term, a map, a computation or a presence,
+/// never a list of instances, so the instances written there are not Rust syntax, a single
+/// value there is refused, and the nested collection named at the record's level is refused.
+#[test]
+fn a_map_literal_in_a_nested_set_collections_instance_is_the_map_it_builds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "mappatterns",
+        &format!("{NESTED}\n{NESTED_RULES}"),
+    );
+    let k = emitted_k(target.path(), &manifest);
+    expect_test::expect![[r#"
+        [
+            "<pm> Krs_Instance0:Map </pm>",
+            "requires Krs_Instance0:Map ==K .Map [ N:Int <- 1 ]",
+            "<pk> Krs_Instance0:Int </pk>",
+            "<pm> Krs_Instance1:Map </pm>",
+            "requires (Krs_Instance0:Int ==K (N:Int +Int 7)) andThenBool (Krs_Instance1:Map ==K .Map [ N:Int <- 1 ])",
+        ]
+    "#]]
+    .assert_debug_eq(&lines_with(&k, "Krs_Instance"));
+    let errors = [
+        "k::rules! { for Machine; use Cmd::*; bad: { k: [Peek(n), ..], thread: { Thread { tid: n, pouches: Pouches { pouch: { Pouch { pk: n, pm: map![n -> 1] }, .. } }, .. }, .. } } => { k: [..] }; }",
+        "k::rules! { for Machine; use Cmd::*; bad: { k: [Peek(n), ..], thread: { Thread { tid: n, pouches: Pouches { pouch: Pouch { pk: n, pm: map![n -> 1] } }, .. }, .. } } => { k: [..] }; }",
+        "k::rules! { for Machine; use Cmd::*; bad: { k: [Peek(n), ..], sacks: Sacks { bag: { Bag { key: n, m: map![n -> 1] }, .. } } } => { k: [..] }; }",
+        "k::rules! { for Machine; use Cmd::*; bad: { k: [Peek(n), ..], pouch: { Pouch { pk: n, pm: map![n -> 1] }, .. } } => { k: [..] }; }",
+    ]
+    .map(|item| check_error_in(target.path(), NESTED, item));
+    expect_test::expect![[r#"
+        [
+            "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
+            "error[krs::analysis::collection-entry]: the cell `pouch` is a Set collection of `Pouch` instances (`multiplicity = \"*\"`), so its entry is a list of its instances, each an instance record, not one value: no single cell has the content a value would name; write its entry as its instances, `{ Pouch { .. }, .. }`",
+            "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
+            "error[krs::analysis::collection-entry]: the rule matches `pouch`, a cell of an instance of the Map collection cell `thread`, and `k`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
+        ]
+    "#]]
+    .assert_debug_eq(&errors);
 }
