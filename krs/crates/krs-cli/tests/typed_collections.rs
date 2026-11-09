@@ -827,6 +827,145 @@ fn a_user_function_result_is_typed_by_its_signature() {
     );
 }
 
+/// A local names its value, so a collection whose elements nothing declares
+/// is one through a local too: written at a typed position, the local is
+/// refused as the value written there directly is, for a map and a list, a
+/// local bound to the whole value and one bound to a part of it.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of direct and local forms, each with its expected diagnostic."
+)]
+fn an_untyped_value_keeps_its_verdict_through_a_local() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let function = |parameter: &str, result: &str, body: &str| {
+        format!(
+            "{PREAMBLE}#[k::function(total, internal)]\npub fn Narrow(x: Term<{parameter}>) -> Term<{result}> {{\n    {body}\n}}\n"
+        )
+    };
+    let untyped = |reason: &str, position: &str| {
+        format!(
+            "error[krs::analysis::untyped-collection]: {reason}, so nothing checks the elements it writes to {position}"
+        )
+    };
+    let map_result = "the result of `Narrow`, declared `Map<Id, Value>`";
+    let list_result = "the result of `Narrow`, declared `List<Value>`";
+    let parameter =
+        |sort: &str| format!("`x` is matched in the parameter `x` of `Narrow`, declared `{sort}`");
+    let cases = [
+        (
+            "map-direct",
+            function("Map", "Map<Id, Value>", "x"),
+            untyped(&parameter("Map"), map_result),
+            "x",
+        ),
+        (
+            "map-local",
+            function("Map", "Map<Id, Value>", "let named = x;\n    named"),
+            untyped(
+                &format!("`named` is bound to `x`, and {}", parameter("Map")),
+                map_result,
+            ),
+            "named",
+        ),
+        (
+            "list-direct",
+            function("List", "List<Value>", "x"),
+            untyped(&parameter("List"), list_result),
+            "x",
+        ),
+        (
+            "list-local",
+            function("List", "List<Value>", "let named = x;\n    named"),
+            untyped(
+                &format!("`named` is bound to `x`, and {}", parameter("List")),
+                list_result,
+            ),
+            "named",
+        ),
+        (
+            "rule-direct",
+            format!(
+                "{PREAMBLE}{}",
+                rules("probe: { k: [Skip(), ..], raw: r, env: _ } => { k: [..], env: r };")
+            ),
+            untyped(
+                "`r` is matched in the cell `raw`, declared `Map`",
+                "the cell `env`, declared `Map<Id, Value>`",
+            ),
+            "r",
+        ),
+        (
+            "rule-local",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "probe: { k: [Skip(), ..], raw: r, env: _ } => { k: [..], env: { let named = r; named } };"
+                )
+            ),
+            untyped(
+                "`named` is bound to `r`, and `r` is matched in the cell `raw`, declared `Map`",
+                "the cell `env`, declared `Map<Id, Value>`",
+            ),
+            "named",
+        ),
+        (
+            "part-direct",
+            function("List", "Map<Id, Value>", "list::get(x, 0)"),
+            untyped(
+                "`list::get(..)` reads a collection whose element types are not declared",
+                map_result,
+            ),
+            "list::get",
+        ),
+        (
+            "part-local",
+            function("List", "Map<Id, Value>", "let [first, ..] = x;\n    first"),
+            untyped(
+                &format!(
+                    "`first` is matched in a part of `x`, and {}",
+                    parameter("List")
+                ),
+                map_result,
+            ),
+            "first",
+        ),
+        (
+            "typed-part-direct",
+            function("List<Map>", "Map<Id, Value>", "list::get(x, 0)"),
+            untyped(
+                "`list::get(..)`, read from the parameter `x` of `Narrow`, has type `Map`, which declares not every element type",
+                map_result,
+            ),
+            "list::get",
+        ),
+        (
+            "typed-part-local",
+            function(
+                "List<Map>",
+                "Map<Id, Value>",
+                "let [first, ..] = x;\n    first",
+            ),
+            untyped(
+                "`first` is matched in an element of the parameter `x` of `Narrow`, declared `List<Map>`",
+                map_result,
+            ),
+            "first",
+        ),
+    ];
+    for (name, source, headline, marked) in cases {
+        let manifest = package(temporary.path(), name, &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first(),
+            Some(&(headline, marked.to_owned())),
+            "{name}:\n{stderr}"
+        );
+    }
+}
+
 /// A reading operation whose operand the sentence builds is checked
 /// through: `map::keys(m)` at `Set<K>` checks `m` at `Map<K, KItem>`,
 /// `set::from_list(l)` at `Set<T>` checks `l` at `List<T>`, and so on, the

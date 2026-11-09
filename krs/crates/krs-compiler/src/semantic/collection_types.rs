@@ -510,6 +510,15 @@ enum Matched {
     Checked,
 }
 
+/// What a local name is known to be: it names the value its pattern
+/// matched, so it is what that value is.
+enum Local {
+    /// Matched at a position of this type.
+    Typed(Box<(SortType, Position)>),
+    /// A collection whose elements nothing declares, and why.
+    Untyped(String),
+}
+
 /// What a term at a typed position is known to be.
 enum Source {
     /// `.Map`, `.List`, `.Set`, or a configuration variable: fits every type.
@@ -626,8 +635,8 @@ pub(super) struct Walker<'a> {
     /// second).
     binding: bool,
     /// Names a `let`, `k::matches!`, or `ml::exists` binds in scope, each
-    /// with the typed position its pattern matched it at, if any.
-    locals: Vec<BTreeMap<String, Option<(SortType, Position)>>>,
+    /// with what its pattern matched it as, if that is known.
+    locals: Vec<BTreeMap<String, Option<Local>>>,
     /// Whether the walk is inside a local pattern, where a local name at a
     /// typed position is bound there rather than read.
     in_local_pattern: bool,
@@ -1025,6 +1034,13 @@ impl<'a> Walker<'a> {
     /// position it matched: the value's own for `let s = v`, a part's for a
     /// name inside the pattern.
     fn local_type(&self, name: &str) -> Option<&(SortType, Position)> {
+        match self.local(name)? {
+            Local::Typed(typed) => Some(typed),
+            Local::Untyped(_) => None,
+        }
+    }
+
+    fn local(&self, name: &str) -> Option<&Local> {
         self.locals
             .iter()
             .rev()
@@ -1032,13 +1048,22 @@ impl<'a> Walker<'a> {
             .and_then(Option::as_ref)
     }
 
-    /// Records that the local `name` is matched at a typed position. A name
-    /// written twice in one pattern stands for one value, so it has the meet
-    /// of both positions' types, as a binder of the sentence's patterns does.
+    /// Records that the local `name` is matched at a collection position of
+    /// `ty`: typed, or one whose elements nothing declares. A name written
+    /// twice in one pattern stands for one value, so it has the meet of both
+    /// positions' types, as a binder of the sentence's patterns does.
     fn bind_local(&mut self, name: &str, ty: &SortType, position: &Position) {
-        if !ty.is_typed() {
+        if ty.kind().is_none() {
             return;
         }
+        let matched = if ty.is_typed() {
+            Local::Typed(Box::new((ty.clone(), position.clone())))
+        } else {
+            Local::Untyped(format!(
+                "`{name}` is matched in {}",
+                position.describe_declared()
+            ))
+        };
         let parents = self.parents;
         let Some(slot) = self
             .locals
@@ -1048,26 +1073,38 @@ impl<'a> Walker<'a> {
         else {
             return;
         };
-        *slot = Some(match slot.take() {
-            None => (ty.clone(), position.clone()),
-            Some((left, left_position)) => {
-                let meet = left.clone().meet(ty.clone(), parents);
-                if meet == left {
+        *slot = Some(match (slot.take(), matched) {
+            (None | Some(Local::Untyped(_)), matched) => matched,
+            (Some(Local::Typed(left)), Local::Untyped(_)) => Local::Typed(left),
+            (Some(Local::Typed(left)), Local::Typed(right)) => {
+                let (left, left_position) = *left;
+                let (right, right_position) = *right;
+                let meet = left.clone().meet(right, parents);
+                Local::Typed(Box::new(if meet == left {
                     (left, left_position)
                 } else {
-                    (meet, position.clone())
-                }
+                    (meet, right_position)
+                }))
             }
         });
     }
 
-    /// A local pattern, walked at the type of the value it matches, with its
-    /// names in scope. The caller pops the scope.
+    /// A local pattern over `value`, walked at the type of the value it
+    /// matches, with its names in scope. The caller pops the scope. A value
+    /// that is a collection whose elements nothing declares makes each name
+    /// the pattern leaves unmatched such a collection too: the pattern's
+    /// root names that value, and a name inside it a part of it.
     fn local_pattern(
         &mut self,
         pattern: &DescriptorTerm,
+        value: &DescriptorTerm,
         matched: Option<&(SortType, Position)>,
     ) -> Result<(), DescriptorLoweringError> {
+        // Read before the pattern's names are in scope, which the value does not see.
+        let untyped = match matched {
+            Some(_) => None,
+            None => self.untyped_reason(value),
+        };
         self.locals.push(
             pattern_names(pattern)
                 .into_iter()
@@ -1077,19 +1114,142 @@ impl<'a> Walker<'a> {
         let outer = std::mem::replace(&mut self.in_local_pattern, true);
         let walked = self.walk(pattern, matched, true);
         self.in_local_pattern = outer;
+        if let Some(reason) = untyped
+            && let Some(scope) = self.locals.last_mut()
+        {
+            let roots = root_names(pattern);
+            let value = spelling(value);
+            for (name, slot) in scope.iter_mut().filter(|(_, slot)| slot.is_none()) {
+                *slot = Some(Local::Untyped(if roots.contains(name.as_str()) {
+                    format!("`{name}` is bound to `{value}`, and {reason}")
+                } else {
+                    format!("`{name}` is matched in a part of `{value}`, and {reason}")
+                }));
+            }
+        }
         walked
     }
 
     /// What a local is known to be at a typed position: the typed collection
-    /// its pattern matched it at, else for sort inference to decide.
+    /// its pattern matched it at, a collection whose elements nothing
+    /// declares, else for sort inference to decide.
     fn local_source(&self, name: &str) -> Source {
-        match self.local_type(name) {
-            Some((ty, position)) => Source::Typed(
-                Box::new(ty.clone()),
-                format!("`{name}`, bound to {},", position.describe()),
+        match self.local(name) {
+            Some(Local::Typed(typed)) => Source::Typed(
+                Box::new(typed.0.clone()),
+                format!("`{name}`, bound to {},", typed.1.describe()),
             ),
+            Some(Local::Untyped(reason)) => Source::Untyped(reason.clone()),
             None => Source::Unknown,
         }
+    }
+
+    /// Why a value is a collection whose elements nothing declares, when it
+    /// is one wherever it is written: a binder or local matched as one, a
+    /// production's untyped result, a projection, or an operation that
+    /// carries or reads such a collection. A collection the sentence builds
+    /// is typed by the position it is written at, so it is not one here.
+    fn untyped_reason(&self, term: &DescriptorTerm) -> Option<String> {
+        if self.typed_source(term).is_some() {
+            return None;
+        }
+        match term {
+            DescriptorTerm::Variable { .. } => match self.source(term) {
+                Source::Untyped(reason) => Some(reason),
+                Source::Fits | Source::Typed(..) | Source::Unknown => None,
+            },
+            DescriptorTerm::SortTest {
+                kind: krs_ir::SortTestKind::Projection,
+                ..
+            } => Some(format!(
+                "`{}` is a projection, which tests only the sort",
+                spelling(term)
+            )),
+            DescriptorTerm::Application {
+                reference,
+                arguments,
+                ..
+            } => {
+                let operands = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        krs_ir::TermArgumentRef::Positional { value }
+                        | krs_ir::TermArgumentRef::Named { value, .. } => value,
+                    })
+                    .collect::<Vec<_>>();
+                match &reference.application {
+                    DescriptorApplicationRef::Declared(id) => {
+                        let (ty, _) = self.production_types(id)?.result?;
+                        Some(format!(
+                            "`{}` returns an untyped `{}`",
+                            spelling(term),
+                            super::overload::sort_name(&ty.sort)
+                        ))
+                    }
+                    DescriptorApplicationRef::Map(operation) => {
+                        self.untyped_operation(term, *operation, &operands)
+                    }
+                    DescriptorApplicationRef::List(operation) => {
+                        self.untyped_operation(term, *operation, &operands)
+                    }
+                    DescriptorApplicationRef::Set(operation) => {
+                        self.untyped_operation(term, *operation, &operands)
+                    }
+                    DescriptorApplicationRef::CollectionMethod(method)
+                        if operands.len() == method.arity() =>
+                    {
+                        match self.method_reading(*method, &operands, None) {
+                            Some(CollectionReading::Map(operation)) => {
+                                self.untyped_operation(term, operation, &operands)
+                            }
+                            Some(CollectionReading::List(operation)) => {
+                                self.untyped_operation(term, operation, &operands)
+                            }
+                            Some(CollectionReading::Set(operation)) => {
+                                self.untyped_operation(term, operation, &operands)
+                            }
+                            None => {
+                                let reason =
+                                    self.untyped_reason(operands.get(method.receiver())?)?;
+                                let carries = method
+                                    .domains()
+                                    .into_iter()
+                                    .filter_map(|domain| method.reading(domain))
+                                    .any(reading_carries);
+                                Some(if carries { reason } else { reads_untyped(term) })
+                            }
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// An operation over a collection whose elements nothing declares: one
+    /// that carries it is that collection, one that reads from it reads
+    /// untyped parts.
+    fn untyped_operation<O: Typed>(
+        &self,
+        term: &DescriptorTerm,
+        operation: O,
+        operands: &[&DescriptorTerm],
+    ) -> Option<String> {
+        let roles = operation.roles();
+        if roles.len() != operands.len() {
+            return None;
+        }
+        let reason = operands
+            .iter()
+            .zip(&roles)
+            .filter(|(_, role)| matches!(role, Role::Collection))
+            .find_map(|(operand, _)| self.untyped_reason(operand))?;
+        Some(if operation.carries() {
+            reason
+        } else {
+            reads_untyped(term)
+        })
     }
 
     /// Walks `term` standing at `at` (a collection position, typed or not)
@@ -1151,7 +1311,7 @@ impl<'a> Walker<'a> {
             } => {
                 self.walk(value, None, subject)?;
                 let matched = self.typed_source(value);
-                self.local_pattern(pattern, matched.as_ref())?;
+                self.local_pattern(pattern, value, matched.as_ref())?;
                 self.walk(body, at, subject)?;
                 self.locals.pop();
             }
@@ -1162,7 +1322,7 @@ impl<'a> Walker<'a> {
             } => {
                 self.walk(tested, None, subject)?;
                 let matched = self.typed_source(tested);
-                self.local_pattern(pattern, matched.as_ref())?;
+                self.local_pattern(pattern, tested, matched.as_ref())?;
                 self.locals.pop();
             }
             DescriptorTerm::Closure { name, body, .. } => {
@@ -1384,11 +1544,7 @@ impl<'a> Walker<'a> {
             && !self.binding
             && let Some(at) = at
         {
-            let source = Source::Untyped(format!(
-                "`{}` reads a collection whose element types are not declared",
-                spelling(term)
-            ));
-            self.flow(source, at, term_key(term))?;
+            self.flow(Source::Untyped(reads_untyped(term)), at, term_key(term))?;
         }
         Ok(())
     }
@@ -1721,10 +1877,7 @@ impl<'a> Walker<'a> {
                         Box::new(ty),
                         format!("`{}`, read from {},", spelling(term), position.describe()),
                     ),
-                    None => Source::Untyped(format!(
-                        "`{}` reads a collection whose element types are not declared",
-                        spelling(term)
-                    )),
+                    None => Source::Untyped(reads_untyped(term)),
                 },
                 _ => Source::Unknown,
             },
@@ -2299,6 +2452,35 @@ pub(super) fn operator_spelling(operator: krs_ir::BuiltinOperator) -> String {
 
 fn marker(marker: krs_ir::FacadeMarker) -> String {
     format!("{}::{}", marker.module, marker.name)
+}
+
+/// The reason a read from a collection whose elements nothing declares is
+/// untyped.
+fn reads_untyped(term: &DescriptorTerm) -> String {
+    format!(
+        "`{}` reads a collection whose element types are not declared",
+        spelling(term)
+    )
+}
+
+/// The names a pattern binds to the whole value it matches: `s` in `let s =
+/// v` and `s @ [x, ..]`.
+fn root_names(pattern: &DescriptorTerm) -> BTreeSet<&str> {
+    let mut names = BTreeSet::new();
+    let mut root = pattern;
+    loop {
+        match root {
+            DescriptorTerm::Variable { name, .. } => {
+                names.insert(name.as_str());
+                return names;
+            }
+            DescriptorTerm::As { name, pattern, .. } => {
+                names.insert(name.as_str());
+                root = pattern;
+            }
+            _ => return names,
+        }
+    }
 }
 
 /// Every name a pattern binds.
