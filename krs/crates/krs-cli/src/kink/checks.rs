@@ -142,7 +142,10 @@ const NEXT_INSERTED: &str = "edit the authored node the detail names instead of 
 /// `siblings` says whether the detail lists siblings, renderings of an edited construct that the
 /// mutation leaves unchanged: only then is making their edits a step the detail supports; without
 /// them, the other sentence the detail names is changed in the same mutation (a correlated edit).
-fn krs_next(code: &str, siblings: bool) -> &'static str {
+/// `one_item` says whether the refusal names one item: an overlap of one equation with itself,
+/// which applies to one argument in two ways with different results, has no other equation to
+/// change, so its step is to make every way give one result.
+fn krs_next(code: &str, siblings: bool, one_item: bool) -> &'static str {
     match code {
         "krs::analysis::overlapping-rule-heads" if siblings => {
             "KRS accepts these rules only if they cannot apply to one configuration: also make \
@@ -164,6 +167,21 @@ fn krs_next(code: &str, siblings: bool) -> &'static str {
         "krs::analysis::priority-after-owise" => {
             "keep the priority below 200, or make the rule unable to apply where the `owise` rule \
              does"
+        }
+        "krs::analysis::overlapping-equations" | "krs::analysis::overlapping-match-arms"
+            if one_item && siblings =>
+        {
+            "the equation the detail names now applies to the argument it names in two ways with \
+             different results: also make the edits the detail lists as siblings (an if/else \
+             condition is rendered, negated, in every later branch), or change the edit so that \
+             every way the equation applies gives one result"
+        }
+        "krs::analysis::overlapping-equations" | "krs::analysis::overlapping-match-arms"
+            if one_item =>
+        {
+            "the equation the detail names now applies to the argument it names in two ways with \
+             different results: change the edit so that every way the equation applies gives one \
+             result, or so that its pattern matches that argument one way"
         }
         "krs::analysis::overlapping-equations" | "krs::analysis::overlapping-match-arms"
             if siblings =>
@@ -641,7 +659,18 @@ fn next_steps(reason: &'static str) -> Vec<&'static str> {
         DERIVED_MISMATCH => vec![NEXT_DERIVED_MISMATCH],
         NO_CHANGE => vec![NEXT_NO_CHANGE],
         NOT_JUDGED => vec![NEXT_NOT_JUDGED],
-        code => vec![krs_next(code, false), krs_next(code, true)],
+        code => {
+            let mut steps = Vec::new();
+            for one_item in [false, true] {
+                for siblings in [false, true] {
+                    let step = krs_next(code, siblings, one_item);
+                    if !steps.contains(&step) {
+                        steps.push(step);
+                    }
+                }
+            }
+            steps
+        }
     }
 }
 
@@ -1335,7 +1364,8 @@ impl<'a> KrsChecks<'a> {
                     match krs_diagnostic::codes::static_spelling(&code) {
                         Some(code) => judged.refuse(
                             code,
-                            krs_next(code, false),
+                            // A sentence's own re-derivation refusal names no items.
+                            krs_next(code, false, false),
                             edit,
                             format!("{at}: {refusal}"),
                         ),
@@ -1441,7 +1471,13 @@ impl<'a> KrsChecks<'a> {
         let detail = self.theory_detail(&refusal, &named, &edited, &deleted, &siblings);
         // The detail lists the renderings the mutation leaves unchanged as its siblings.
         let listed = siblings.iter().any(|sibling| !sibling.changed);
-        judged.refuse(refusal.code, krs_next(refusal.code, listed), first, detail);
+        let one_item = refusal.items.len() == 1;
+        judged.refuse(
+            refusal.code,
+            krs_next(refusal.code, listed, one_item),
+            first,
+            detail,
+        );
     }
 
     /// The detail of KRS's refusal of the mutation's source: its message (its code is the row's
@@ -1962,7 +1998,12 @@ mod tests {
         ] {
             assert_eq!(static_spelling(code), Some(code), "{code} is registered");
             for siblings in [false, true] {
-                assert!(!krs_next(code, siblings).starts_with("the detail is KRS's message"));
+                for one_item in [false, true] {
+                    assert!(
+                        !krs_next(code, siblings, one_item)
+                            .starts_with("the detail is KRS's message")
+                    );
+                }
             }
         }
         // Without siblings in the detail, the next step does not send the author to them.
@@ -1971,12 +2012,34 @@ mod tests {
             "krs::analysis::overlapping-equations",
             "krs::analysis::overlapping-match-arms",
         ] {
-            assert!(krs_next(code, true).contains("siblings"), "{code}");
-            assert!(!krs_next(code, false).contains("siblings"), "{code}");
+            for one_item in [false, true] {
+                assert!(
+                    krs_next(code, true, one_item).contains("siblings"),
+                    "{code}"
+                );
+                assert!(
+                    !krs_next(code, false, one_item).contains("siblings"),
+                    "{code}"
+                );
+            }
             assert!(
-                krs_next(code, false).contains("a correlated edit"),
+                krs_next(code, false, false).contains("a correlated edit"),
                 "{code}"
             );
+        }
+        // One equation that applies to one argument in two ways has no other equation to
+        // change, so its step names neither another equation nor a correlated edit.
+        for code in [
+            "krs::analysis::overlapping-equations",
+            "krs::analysis::overlapping-match-arms",
+        ] {
+            for siblings in [false, true] {
+                let next = krs_next(code, siblings, true);
+                assert!(next.contains("in two ways"), "{code}: {next}");
+                assert!(!next.contains("other equation"), "{code}: {next}");
+                assert!(!next.contains("correlated"), "{code}: {next}");
+                assert_ne!(next, krs_next(code, siblings, false), "{code}");
+            }
         }
         assert_eq!(static_spelling("krs::analysis::no-such-code"), None);
     }
