@@ -10,8 +10,9 @@ use krs_ir_levels::SortParameterId;
 use num_bigint::BigInt;
 
 use super::{
-    Atom, Bound, Column, ConstructorInfo, Counterexample, Fact, Formula, Head, Order, Pattern,
-    Projection, Projections, Row, Search, Signature, Verdict, decide, points, render,
+    Atom, Bound, CollectionPattern, Column, ConstructorInfo, Counterexample, Elements, Fact,
+    Formula, Head, Order, Pattern, Projection, Projections, Row, Search, Shape, Signature, Verdict,
+    decide, points, render,
 };
 
 const INT: Sort = Sort::Builtin(BuiltinSort::Int);
@@ -61,6 +62,7 @@ impl Builder {
                 result,
                 parameters: Vec::new(),
                 arguments: arguments.to_vec(),
+                types: vec![None; arguments.len()],
             },
         );
         self
@@ -74,6 +76,7 @@ impl Builder {
                 result: Sort::Parameter(parameter.clone()),
                 parameters: vec![parameter.clone()],
                 arguments: vec![Sort::Parameter(parameter)],
+                types: vec![None],
             },
         );
         self
@@ -139,12 +142,18 @@ fn columns(sorts: &[Sort]) -> Vec<Column> {
             sort: sort.clone(),
             path: vec![index],
             heads: None,
+            elements: None,
         })
         .collect()
 }
 
 /// The uncovered argument vectors, each rendered `(a, b)`.
 fn gaps(signature: &Signature, rows: &[Row], sorts: &[Sort]) -> Vec<String> {
+    gaps_in(signature, rows, &columns(sorts))
+}
+
+/// [`gaps`] over columns with their element types.
+fn gaps_in(signature: &Signature, rows: &[Row], columns: &[Column]) -> Vec<String> {
     let projections = Projections::new();
     let mut search = Search {
         signature,
@@ -155,7 +164,7 @@ fn gaps(signature: &Signature, rows: &[Row], sorts: &[Sort]) -> Vec<String> {
         valuations: 0,
         exhausted: false,
     };
-    let found = search.missing(rows, &columns(sorts), &BTreeMap::new(), 3);
+    let found = search.missing(rows, columns, &BTreeMap::new(), 3);
     assert!(!search.exhausted);
     found
         .iter()
@@ -1200,7 +1209,7 @@ fn show(pattern: &Pattern) -> String {
         ),
         Pattern::Literal { value, .. } => value.clone(),
         Pattern::Family(sort) => format!("family {}", super::sort_name(sort)),
-        Pattern::Opaque => "opaque".to_owned(),
+        Pattern::Opaque | Pattern::Collection(_) => "opaque".to_owned(),
     }
 }
 
@@ -1807,4 +1816,166 @@ mod reading {
             format!("{:?}", super::bound("$1", super::Bound::Below, 1))
         );
     }
+}
+
+const MAP: Sort = Sort::Builtin(BuiltinSort::Map);
+const SET: Sort = Sort::Builtin(BuiltinSort::Set);
+const LIST: Sort = Sort::Builtin(BuiltinSort::List);
+
+/// A column of a typed collection whose parts are `parts`.
+fn typed(sort: Sort, parts: &[Sort]) -> Column {
+    let elements: Elements = Some(Rc::from(
+        parts
+            .iter()
+            .map(|part| krs_ir::CellSortArgument {
+                sort: part.clone(),
+                arguments: Vec::new(),
+            })
+            .collect::<Vec<_>>(),
+    ));
+    Column {
+        sort,
+        path: vec![0],
+        heads: None,
+        elements,
+    }
+}
+
+fn collection(shape: Shape) -> Pattern {
+    Pattern::Collection(Box::new(CollectionPattern {
+        shape,
+        binders: Vec::new(),
+    }))
+}
+
+/// `entries` entries of Int binders, with a rest when `open`.
+fn map_of(entries: usize, open: bool) -> Pattern {
+    collection(Shape::Map {
+        entries: vec![(binder(INT), binder(INT)); entries],
+        open,
+    })
+}
+
+fn list_of(front: Vec<Pattern>, open: bool, back: Vec<Pattern>) -> Pattern {
+    collection(Shape::List { front, back, open })
+}
+
+#[test]
+fn a_map_column_is_covered_by_its_sizes() {
+    let signature = Builder::new().build();
+    let column = [typed(MAP, &[INT, INT])];
+    // FB-39's walk: one entry and the rest, and the empty map.
+    let walk = [row(vec![map_of(1, true)]), row(vec![map_of(0, false)])];
+    assert!(gaps_in(&signature, &walk, &column).is_empty());
+    assert_eq!(gaps_in(&signature, &walk[..1], &column), ["(map![])"]);
+    assert_eq!(
+        gaps_in(&signature, &walk[1..], &column),
+        ["(map![_ -> _, ..])"]
+    );
+    // Exact sizes leave every larger one.
+    let exact = [
+        row(vec![map_of(0, false)]),
+        row(vec![map_of(1, false)]),
+        row(vec![map_of(2, false)]),
+    ];
+    assert_eq!(
+        gaps_in(&signature, &exact, &column),
+        ["(map![_ -> _, _ -> _, _ -> _, ..])"]
+    );
+    // A key binder of a sort narrower than the keys covers only some maps of its size.
+    let narrow = collection(Shape::Map {
+        entries: vec![(binder(BOOL), binder(INT))],
+        open: true,
+    });
+    assert_eq!(
+        gaps_in(&signature, &[row(vec![narrow]), walk[1].clone()], &column),
+        ["(_)"]
+    );
+    // A literal key is undecomposed: the gap is shown as `_`, as for any undecomposed row.
+    let literal = collection(Shape::Map {
+        entries: vec![(Pattern::Opaque, binder(INT))],
+        open: true,
+    });
+    assert_eq!(
+        gaps_in(&signature, &[row(vec![literal]), walk[1].clone()], &column),
+        ["(_)"]
+    );
+    // An untyped map's keys are `KItem`s, which no Int binder covers: without `KItem`, no
+    // key sort is known and the walk decomposes nothing.
+    assert_eq!(gaps(&signature, &walk, &[MAP]), ["(_)"]);
+}
+
+#[test]
+fn a_set_column_is_covered_by_its_sizes() {
+    let signature = Builder::new().build();
+    let column = [typed(SET, &[INT])];
+    let element = |open| {
+        collection(Shape::Set {
+            elements: vec![binder(INT)],
+            open,
+        })
+    };
+    let empty = collection(Shape::Set {
+        elements: Vec::new(),
+        open: false,
+    });
+    let walk = [row(vec![element(true)]), row(vec![empty.clone()])];
+    assert!(gaps_in(&signature, &walk, &column).is_empty());
+    assert_eq!(gaps_in(&signature, &walk[..1], &column), ["(set![])"]);
+    assert_eq!(
+        gaps_in(
+            &signature,
+            &[row(vec![empty]), row(vec![element(false)])],
+            &column
+        ),
+        ["(set::concat(set::item(_), set::concat(set::item(_), _)))"]
+    );
+}
+
+#[test]
+fn a_list_column_is_covered_by_its_lengths_and_elements() {
+    let signature = Builder::new().build();
+    let column = [typed(LIST, &[BOOL])];
+    let empty = row(vec![list_of(Vec::new(), false, Vec::new())]);
+    let walk = [
+        row(vec![list_of(vec![binder(BOOL)], true, Vec::new())]),
+        empty.clone(),
+    ];
+    assert!(gaps_in(&signature, &walk, &column).is_empty());
+    assert_eq!(gaps_in(&signature, &walk[..1], &column), ["([])"]);
+    let closed = [
+        empty.clone(),
+        row(vec![list_of(vec![binder(BOOL)], false, Vec::new())]),
+    ];
+    assert_eq!(gaps_in(&signature, &closed, &column), ["([_, _, ..])"]);
+    // Elements decompose: the front's `true` and `false` cover every first element.
+    let first = |value| row(vec![list_of(vec![boolean(value)], true, Vec::new())]);
+    assert!(
+        gaps_in(
+            &signature,
+            &[first(true), first(false), empty.clone()],
+            &column
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        gaps_in(&signature, &[first(true), empty.clone()], &column),
+        ["([false])", "([false, _, ..])"]
+    );
+    // A back element is the list's last, whatever its length.
+    let last = |value| row(vec![list_of(Vec::new(), true, vec![boolean(value)])]);
+    assert!(
+        gaps_in(
+            &signature,
+            &[last(true), last(false), empty.clone()],
+            &column
+        )
+        .is_empty()
+    );
+    // A front and a back row: a list of one element is both its first and its last.
+    let both = [first(true), last(false), empty];
+    assert_eq!(
+        gaps_in(&signature, &both, &column),
+        ["([false, true])", "([false, _, .., true])"]
+    );
 }

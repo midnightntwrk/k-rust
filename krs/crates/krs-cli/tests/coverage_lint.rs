@@ -1023,3 +1023,142 @@ fn a_constructor_another_package_adds_uncovers_a_total_function() {
     "#]]
     .assert_debug_eq(&lines);
 }
+
+/// Walks of typed collections, `total`: a Map, a List and a Set pattern cover by size.
+const COLLECTIONS: &str = r#"
+use k::builtin::{Bool, Int, KSequence, List, Map, Set, set};
+use k::Term;
+
+/// FB-39's walk of a memory, one entry at a time: covered.
+#[k::function(total, internal)]
+pub fn OutsideRom(memory: Term<Map<Int, Int>>, rom_end: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for OutsideRom;
+    rom_walk: (map![k -> _, rest @ ..], e) => !(k < e) && OutsideRom(rest, e);
+    rom_done: (map![], _) => true;
+}
+
+/// The same walk without its end.
+#[k::function(total, internal)]
+pub fn Unended(memory: Term<Map<Int, Int>>, rom_end: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for Unended;
+    unended_walk: (map![k -> _, rest @ ..], e) => !(k < e) && Unended(rest, e);
+}
+
+/// A literal key matches only the maps that hold it: not decomposed.
+#[k::function(total, internal)]
+pub fn AtOne(memory: Term<Map<Int, Int>>) -> Term<Int>;
+
+k::equations! {
+    for AtOne;
+    at_one: (map![1 -> v, ..]) => v;
+    at_none: (map![]) => 0;
+}
+
+/// The walk of an untyped map: its key binder is an Int, which not every key is.
+#[k::function(total, internal)]
+pub fn Untyped(memory: Term<Map>, rom_end: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for Untyped;
+    untyped_walk: (map![k -> _, rest @ ..], e) => !(k < e) && Untyped(rest, e);
+    untyped_done: (map![], _) => true;
+}
+
+/// A list walk: covered.
+#[k::function(total, internal)]
+pub fn Sum(items: Term<List<Int>>) -> Term<Int>;
+
+k::equations! {
+    for Sum;
+    cons: ([x, rest @ ..]) => x + Sum(rest);
+    nil: ([]) => 0;
+}
+
+/// A list of at most one element.
+#[k::function(total, internal)]
+pub fn Only(items: Term<List<Int>>) -> Term<Int>;
+
+k::equations! {
+    for Only;
+    only_one: ([x]) => x;
+    only_none: ([]) => 0;
+}
+
+/// A set walk: covered.
+#[k::function(total, internal)]
+pub fn Count(items: Term<Set<Int>>) -> Term<Int>;
+
+k::equations! {
+    for Count;
+    more: (set::concat(set::item(_), rest)) => 1 + Count(rest);
+    count_none: (set![]) => 0;
+}
+
+/// A set of at most one element.
+#[k::function(total, internal)]
+pub fn Single(items: Term<Set<Int>>) -> Term<Int>;
+
+k::equations! {
+    for Single;
+    single_one: (set![x]) => x;
+    single_none: (set![]) => 0;
+}
+
+/// A gap stated on purpose that the equations do not leave.
+#[k::function(total, internal, underspecified = "the empty list")]
+pub fn First(items: Term<List<Int>>) -> Term<Int>;
+
+k::equations! {
+    for First;
+    first: ([x, ..]) => x;
+    first_none: ([]) => 0;
+}
+
+#[k::configuration(root = "machine")]
+pub struct Machine {
+    pub k: k::configuration::KCell<KSequence>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init() -> Self {
+        Self {
+            k: k::configuration::KCell::new(k::k![]),
+        }
+    }
+}
+"#;
+
+/// A collection is the collection of its parts, so a column of collection patterns covers by
+/// size: the walks of a typed Map, List and Set warn nothing, and each gap of the others is
+/// named in KRS notation; a literal key, and a key binder narrower than an untyped map's keys,
+/// match part of a size and are not decomposed, so their gaps are `_`, as before.
+#[test]
+fn collection_patterns_cover_by_size() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    package(temporary.path(), "collections", COLLECTIONS, None, "main");
+    let manifest = workspace(temporary.path(), &["collections"]);
+    let (success, lines) = emit(
+        target.path(),
+        &manifest,
+        "collections",
+        &temporary.path().join("emitted"),
+        &[],
+    );
+    assert!(success, "{lines:#?}");
+    expect_test::expect![[r#"
+        [
+            "warning[krs::analysis::uncovered-total-function]: total function `AtOne` has no equation for `AtOne(_)`",
+            "warning[krs::analysis::stale-underspecified]: `First` states `underspecified`, but its equations define every argument; remove `underspecified`",
+            "warning[krs::analysis::uncovered-total-function]: total function `Only` has no equation for `Only([_, _, ..])`",
+            "warning[krs::analysis::uncovered-total-function]: total function `Single` has no equation for `Single(set::concat(set::item(_), set::concat(set::item(_), _)))`",
+            "warning[krs::analysis::uncovered-total-function]: total function `Unended` has no equation for `Unended(map![], 0)`",
+            "warning[krs::analysis::uncovered-total-function]: total function `Untyped` has no equation for `Untyped(_, 0)`",
+        ]
+    "#]].assert_debug_eq(&lines);
+}

@@ -16,7 +16,9 @@
 //! equation, not what it states.
 //!
 //! The patterns are compared by Maranget's usefulness algorithm over each
-//! argument sort's constructors and value families. A guarded equation stays
+//! argument sort's constructors and value families; a Map, Set or List column
+//! of collection patterns is searched by the collections' sizes, a list's
+//! elements as a constructor's arguments ([`Search::collection`]). A guarded equation stays
 //! in the matrix with its guard: a region every row of which is guarded is
 //! covered exactly when the disjunction of their guards is valid, which
 //! [`decide`] checks over a sound abstraction (Boolean structure, comparisons
@@ -51,13 +53,13 @@ use std::rc::Rc;
 
 use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, GeneratedOperation, GrammarProductionItemKind,
-    GuardMeaning, ItemKind, ListOperation, MapOperation, ProductionAttribute, SemanticId,
-    SemanticIdKind, SentenceKind, SetOperation, StableItemId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellSortArgument, GeneratedOperation,
+    GrammarProductionItemKind, GuardMeaning, ItemKind, ListOperation, MapOperation,
+    ProductionAttribute, SemanticId, SemanticIdKind, SentenceKind, SetOperation, StableItemId,
 };
 use krs_ir_levels::{
-    IrCondition, SemanticModule, SemanticProduction, SemanticRule, SemanticSortRef as Sort,
-    SemanticTerm, SemanticTermKind,
+    IrCondition, ListOperands, MapOperands, SemanticModule, SemanticProduction, SemanticRule,
+    SemanticSortRef as Sort, SemanticTerm, SemanticTermKind, SetOperands,
 };
 use num_bigint::BigInt;
 
@@ -326,7 +328,13 @@ struct ConstructorInfo {
     result: Sort,
     parameters: Vec<krs_ir_levels::SortParameterId>,
     arguments: Vec<Sort>,
+    /// The element types each argument declares, by argument ([`production_argument_types`]).
+    types: Vec<Elements>,
 }
+
+/// The element types a typed collection position declares, `Map<Int, Int>`'s `[Int, Int]`;
+/// `None` for a position that declares none (a bare `Map`, or no collection).
+type Elements = Option<Rc<[CellSortArgument<Sort>]>>;
 
 /// One kind of value of a sort: a constructor at an instance, or the values
 /// of a sort whose values are not constructor terms (a family).
@@ -345,6 +353,24 @@ pub(crate) fn production_argument_sorts(production: &SemanticProduction) -> Vec<
         .iter()
         .filter_map(|item| match item.kind() {
             GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort.clone()),
+            GrammarProductionItemKind::Terminal { .. }
+            | GrammarProductionItemKind::RegexTerminal { .. } => None,
+        })
+        .collect()
+}
+
+/// The element types each argument of a production declares, in argument order.
+fn production_argument_types(production: &SemanticProduction) -> Vec<Elements> {
+    production
+        .items()
+        .iter()
+        .filter_map(|item| match item.kind() {
+            GrammarProductionItemKind::NonTerminal { field, .. } => Some(
+                production
+                    .field_arguments()
+                    .get(field)
+                    .map(|arguments| Rc::from(arguments.as_slice())),
+            ),
             GrammarProductionItemKind::Terminal { .. }
             | GrammarProductionItemKind::RegexTerminal { .. } => None,
         })
@@ -417,6 +443,7 @@ impl Signature {
                             result: production.result_sort().clone(),
                             parameters: production.parameters().to_vec(),
                             arguments: production_argument_sorts(production),
+                            types: production_argument_types(production),
                         },
                     );
                 }
@@ -526,6 +553,20 @@ impl Signature {
         instantiate(&info.arguments, &info.parameters, instance)
     }
 
+    /// The element types a constructor's arguments declare.
+    fn argument_types(&self, id: &StableItemId) -> Vec<Elements> {
+        self.constructors[id].types.clone()
+    }
+
+    /// The sort of an element of a collection whose element types nothing declares:
+    /// the framework's `KItem`, which every sort injects into, when the definition has it.
+    fn k_item(&self) -> Option<&Sort> {
+        self.sorts.iter().find(|sort| {
+            matches!(sort, Sort::Declared(id)
+                if id.package().k_namespace() == "KRS-FRAMEWORK" && id.item_name() == "KItem")
+        })
+    }
+
     /// The sort a head's values have.
     fn head_sort(&self, head: &Head) -> Sort {
         match head {
@@ -627,9 +668,44 @@ enum Pattern {
     /// a binder of the family's sort would also match the constructors of
     /// its subsorts. Only a complement ([`complement`]) builds one.
     Family(Sort),
-    /// A pattern the lint does not decompose (a collection, a function
-    /// application, a non-linear binder); it may match nothing.
+    /// A Map, Set or List pattern, by its parts ([`CollectionPattern`]). The column search
+    /// decomposes it by size where its column is that collection's sort; everywhere else
+    /// (meets, complements, the overlap check) it is [`Pattern::Opaque`].
+    Collection(Box<CollectionPattern>),
+    /// A pattern the lint does not decompose (a function application, a
+    /// non-linear binder); it may match nothing.
     Opaque,
+}
+
+/// A collection pattern: a collection value is the collection of its parts, so it is matched
+/// by how many it has and, for a list, by its elements in order.
+#[derive(Clone, Debug)]
+struct CollectionPattern {
+    shape: Shape,
+    /// The names it binds inside, once per occurrence: a name that occurs twice, here or
+    /// elsewhere in the arguments, equates parts, which the matrix cannot state, and the
+    /// search then reads the pattern as [`Pattern::Opaque`] ([`linearized`]).
+    binders: Vec<SemanticId>,
+}
+
+#[derive(Clone, Debug)]
+enum Shape {
+    /// `map![k -> v, .., rest @ ..]`: the patterns of each entry's key and value, each a
+    /// [`Pattern::Binder`] where it is a name or `_` and [`Pattern::Opaque`] otherwise (a
+    /// literal or computed key, a value with structure); `open` with a rest.
+    Map {
+        entries: Vec<(Pattern, Pattern)>,
+        open: bool,
+    },
+    /// `set::concat(set::item(x), rest)`: each element's pattern, as a map's key's.
+    Set { elements: Vec<Pattern>, open: bool },
+    /// `[a, b, rest @ .., z]`: the elements before the rest and after it, decomposed; a list
+    /// with no rest has its elements in `front`.
+    List {
+        front: Vec<Pattern>,
+        back: Vec<Pattern>,
+        open: bool,
+    },
 }
 
 /// The paths a pattern's binders bind, relative to the pattern.
@@ -641,12 +717,12 @@ type Alternative = (Pattern, Bindings);
 /// The alternatives of an argument list: one pattern per argument for each
 /// choice of an alternative in every argument, binders with their paths
 /// from the list; `None` past [`ALTERNATIVE_LIMIT`].
-fn argument_alternatives(
+fn argument_alternatives<'t>(
     signature: &Signature,
-    arguments: &[SemanticTerm],
+    arguments: impl IntoIterator<Item = &'t SemanticTerm>,
 ) -> Option<Vec<(Vec<Pattern>, Bindings)>> {
     let mut combined = vec![(Vec::new(), Bindings::new())];
-    for (index, argument) in arguments.iter().enumerate() {
+    for (index, argument) in arguments.into_iter().enumerate() {
         let choices = alternatives(signature, argument);
         if combined.len() * choices.len() > ALTERNATIVE_LIMIT {
             return None;
@@ -739,14 +815,242 @@ fn alternatives(signature: &Signature, term: &SemanticTerm) -> Vec<Alternative> 
                 all
             }
         }
+        SemanticTermKind::Map(_) | SemanticTermKind::Set(_) | SemanticTermKind::List(_) => {
+            collection_alternatives(signature, term)
+                .unwrap_or_else(|| vec![(Pattern::Opaque, Vec::new())])
+        }
         _ => vec![(Pattern::Opaque, Vec::new())],
     }
+}
+
+/// What one row matches in a collection column ([`Search::collection`]).
+enum Matched<'p> {
+    /// Every size: a binder of the column's sort.
+    All,
+    /// Sizes from `min` when `open`, or exactly `min`, with a list's front and back element
+    /// patterns.
+    Sized {
+        min: usize,
+        open: bool,
+        front: &'p [Pattern],
+        back: &'p [Pattern],
+    },
+    /// Part of some sizes, which the matrix cannot state.
+    Undecomposed,
+}
+
+/// One part of a flattened collection term: an element (an entry, for a map) or the rest.
+enum Part<'t> {
+    Element(&'t SemanticTerm),
+    Rest,
+}
+
+/// The parts of a Set or List pattern built of the empty collection, singletons, a
+/// concatenation and names (a name is a rest), in order; `None` for any other operation, a
+/// function's application, which no part decomposition describes.
+fn collection_parts<'t>(term: &'t SemanticTerm, parts: &mut Vec<Part<'t>>) -> Option<()> {
+    match term.kind() {
+        SemanticTermKind::Variable { .. } => parts.push(Part::Rest),
+        SemanticTermKind::List(operands) => match &**operands {
+            ListOperands::Empty => {}
+            ListOperands::Item { element } => parts.push(Part::Element(element)),
+            ListOperands::Concat { left, right } => {
+                collection_parts(left, parts)?;
+                collection_parts(right, parts)?;
+            }
+            _ => return None,
+        },
+        SemanticTermKind::Set(operands) => match &**operands {
+            SetOperands::Empty => {}
+            SetOperands::Item { element } => parts.push(Part::Element(element)),
+            SetOperands::Concat { left, right } => {
+                collection_parts(left, parts)?;
+                collection_parts(right, parts)?;
+            }
+            _ => return None,
+        },
+        _ => return None,
+    }
+    Some(())
+}
+
+/// A key's, a value's or a set element's pattern: a name or `_` matches any part of its sort;
+/// anything else (a literal, a key computed from names bound elsewhere, a value with
+/// structure) matches only some, and is not decomposed.
+fn entry_part(term: &SemanticTerm) -> Pattern {
+    match term.kind() {
+        SemanticTermKind::Variable { .. } => Pattern::Binder(term.sort().clone()),
+        _ => Pattern::Opaque,
+    }
+}
+
+/// Every name a term binds, once per occurrence, wildcards aside.
+fn bound_names(term: &SemanticTerm, names: &mut Vec<SemanticId>) {
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => {
+            if !matches!(variable.kind(), SemanticIdKind::Wildcard) {
+                names.push(variable.clone());
+            }
+        }
+        SemanticTermKind::As { alias, pattern } => {
+            names.push(alias.clone());
+            bound_names(pattern, names);
+        }
+        _ => {
+            for child in term.children() {
+                bound_names(child, names);
+            }
+        }
+    }
+}
+
+/// The alternatives of a Map, Set or List pattern ([`CollectionPattern`]); `None` for a
+/// collection term that is not built of its parts (an update, a lookup, a union, two rests).
+fn collection_alternatives(signature: &Signature, term: &SemanticTerm) -> Option<Vec<Alternative>> {
+    let mut binders = Vec::new();
+    bound_names(term, &mut binders);
+    let collection = |shape| {
+        Pattern::Collection(Box::new(CollectionPattern {
+            shape,
+            binders: binders.clone(),
+        }))
+    };
+    if let SemanticTermKind::Map(operands) = term.kind() {
+        let (entries, rest) = match &**operands {
+            MapOperands::Empty => (Vec::new(), None),
+            MapOperands::Items(items) => (items.iter().collect::<Vec<_>>(), None),
+            MapOperands::ItemsWithRest { items, rest } => (items.iter().collect(), Some(rest)),
+            _ => return None,
+        };
+        if rest.is_some_and(|rest| !matches!(rest.kind(), SemanticTermKind::Variable { .. })) {
+            return None;
+        }
+        let entries = entries
+            .into_iter()
+            .map(|entry| (entry_part(&entry.key), entry_part(&entry.value)))
+            .collect();
+        return Some(vec![(
+            collection(Shape::Map {
+                entries,
+                open: rest.is_some(),
+            }),
+            Vec::new(),
+        )]);
+    }
+    let mut parts = Vec::new();
+    collection_parts(term, &mut parts)?;
+    let rests = parts
+        .iter()
+        .filter(|part| matches!(part, Part::Rest))
+        .count();
+    if rests > 1 {
+        return None;
+    }
+    let elements = parts.iter().filter_map(|part| match part {
+        Part::Element(element) => Some(*element),
+        Part::Rest => None,
+    });
+    if matches!(term.kind(), SemanticTermKind::Set(_)) {
+        return Some(vec![(
+            collection(Shape::Set {
+                elements: elements.map(entry_part).collect(),
+                open: rests == 1,
+            }),
+            Vec::new(),
+        )]);
+    }
+    let front = parts
+        .iter()
+        .take_while(|part| matches!(part, Part::Element(_)))
+        .count();
+    // A list's elements decompose as a constructor's arguments do: or-patterns multiply.
+    let choices = argument_alternatives(signature, elements)?;
+    Some(
+        choices
+            .into_iter()
+            .map(|(mut front_patterns, _)| {
+                let back = front_patterns.split_off(front);
+                (
+                    collection(Shape::List {
+                        front: front_patterns,
+                        back,
+                        open: rests == 1,
+                    }),
+                    Vec::new(),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// `patterns` with every collection pattern that binds a name occurring twice in the
+/// arguments (`bindings`, the names outside collections, and the collections' own) made
+/// [`Pattern::Opaque`]: it equates parts, which the matrix cannot state.
+fn linearized(patterns: Vec<Pattern>, bindings: &Bindings) -> Vec<Pattern> {
+    fn inner<'p>(pattern: &'p Pattern, names: &mut Vec<&'p SemanticId>) {
+        match pattern {
+            Pattern::Collection(collection) => names.extend(&collection.binders),
+            Pattern::Constructor { arguments, .. } => {
+                for argument in arguments {
+                    inner(argument, names);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn rewrite(pattern: Pattern, repeated: &BTreeSet<&SemanticId>) -> Pattern {
+        match pattern {
+            Pattern::Collection(collection)
+                if collection
+                    .binders
+                    .iter()
+                    .any(|name| repeated.contains(name)) =>
+            {
+                Pattern::Opaque
+            }
+            Pattern::Constructor {
+                id,
+                instance,
+                arguments,
+            } => Pattern::Constructor {
+                id,
+                instance,
+                arguments: arguments
+                    .into_iter()
+                    .map(|argument| rewrite(argument, repeated))
+                    .collect(),
+            },
+            other => other,
+        }
+    }
+    let mut names = bindings
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| !matches!(name.kind(), SemanticIdKind::Wildcard))
+        .collect::<Vec<_>>();
+    for pattern in &patterns {
+        inner(pattern, &mut names);
+    }
+    let mut seen = BTreeSet::new();
+    let repeated = names
+        .into_iter()
+        .filter(|name| !seen.insert(*name))
+        .collect::<BTreeSet<_>>();
+    if repeated.is_empty() {
+        return patterns;
+    }
+    let repeated = repeated.into_iter().cloned().collect::<Vec<_>>();
+    let repeated = repeated.iter().collect::<BTreeSet<_>>();
+    patterns
+        .into_iter()
+        .map(|pattern| rewrite(pattern, &repeated))
+        .collect()
 }
 
 /// Whether a pattern is decomposed all the way down: it has no opaque part.
 fn decomposed(pattern: &Pattern) -> bool {
     match pattern {
-        Pattern::Opaque => false,
+        Pattern::Opaque | Pattern::Collection(_) => false,
         Pattern::Constructor { arguments, .. } => arguments.iter().all(decomposed),
         Pattern::Binder(_) | Pattern::Literal { .. } | Pattern::Family(_) => true,
     }
@@ -877,7 +1181,8 @@ fn replace_at(patterns: &[Pattern], path: &[usize], replacement: Pattern) -> Opt
 fn meet(signature: &Signature, left: &Pattern, right: &Pattern) -> Option<Vec<Pattern>> {
     let covers = |sort: &Sort, head: &Head| signature.binder_covers(sort, head);
     Some(match (left, right) {
-        (Pattern::Opaque, _) | (_, Pattern::Opaque) => return None,
+        (Pattern::Opaque | Pattern::Collection(_), _)
+        | (_, Pattern::Opaque | Pattern::Collection(_)) => return None,
         (Pattern::Binder(first), Pattern::Binder(second)) => {
             if signature.is_subsort(first, second) {
                 vec![left.clone()]
@@ -1017,7 +1322,7 @@ fn complement(
             .collect()
     };
     let refined = match pattern {
-        Pattern::Opaque => return None,
+        Pattern::Opaque | Pattern::Collection(_) => return None,
         Pattern::Binder(binder) => heads
             .iter()
             .filter(|head| !signature.binder_covers(binder, head))
@@ -3122,6 +3427,8 @@ struct Column {
     /// The only heads the column's values can have, when a range restricts
     /// a virtual column.
     heads: Option<Rc<BTreeSet<Head>>>,
+    /// The element types the column's position declares, for a typed collection.
+    elements: Elements,
 }
 
 /// An uncovered value, in a witness vector.
@@ -3130,6 +3437,23 @@ enum Witness {
     Any,
     Constructor(String, Vec<Witness>),
     Literal(String),
+    /// The maps with exactly `entries` entries, or with at least that many when `open`.
+    Map {
+        entries: usize,
+        open: bool,
+    },
+    /// The sets with exactly `elements` elements, or at least that many when `open`.
+    Set {
+        elements: usize,
+        open: bool,
+    },
+    /// The lists of these elements, or, when `open` is `Some(n)`, of `front`, at least `n`
+    /// elements more, and `back`.
+    List {
+        front: Vec<Witness>,
+        open: Option<usize>,
+        back: Vec<Witness>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -3175,6 +3499,14 @@ impl Search<'_> {
         let Some((column, rest)) = columns.split_first() else {
             return self.leaf(rows, facts);
         };
+        if column.heads.is_none()
+            && rows
+                .iter()
+                .any(|row| matches!(row.patterns[0], Pattern::Collection(_)))
+            && let Some(gaps) = self.collection(rows, column, rest, facts, limit)
+        {
+            return gaps;
+        }
         let rows = rows
             .iter()
             .filter(|row| !matches!(row.patterns[0], Pattern::Opaque))
@@ -3239,6 +3571,7 @@ impl Search<'_> {
                             })
                         })
                         .collect::<Vec<_>>();
+                    let types = self.signature.argument_types(id);
                     let columns = arguments
                         .into_iter()
                         .enumerate()
@@ -3246,6 +3579,7 @@ impl Search<'_> {
                             sort,
                             path: column.path.iter().copied().chain([index]).collect(),
                             heads: None,
+                            elements: types.get(index).cloned().flatten(),
                         })
                         .chain(rest.iter().cloned())
                         .collect::<Vec<_>>();
@@ -3312,6 +3646,264 @@ impl Search<'_> {
             }
         }
         gaps
+    }
+
+    /// The gaps of a first column of sort Map, Set or List some row matches with a collection
+    /// pattern; `None` for any other column, which [`Self::missing`] searches by its heads,
+    /// a collection pattern there matching as [`Pattern::Opaque`] does.
+    ///
+    /// A collection value is the collection of its parts, so a column of collection patterns
+    /// covers by size. A map or a set of `n` parts is matched by `n` entries (elements) whose
+    /// keys (elements) are names bound nowhere else and whose values are names or `_`, of
+    /// sorts holding every key and value the position can hold, exactly when the pattern has
+    /// no rest and whenever it has `n` or more parts with one: such names pick distinct parts
+    /// and constrain nothing else. A list of length `n` is the constructor of `n` elements, and
+    /// a pattern with a rest matches every length of its fixed elements' count or more, its
+    /// front elements at the list's front and its back ones at its back. A binder or `_` of
+    /// the column's sort matches every size. Any other row (a literal or a key bound
+    /// elsewhere, a value with structure, an element sort that does not hold every element)
+    /// matches part of a size, which the matrix cannot state: it covers nothing here, as an
+    /// undecomposed pattern covers nothing, and a gap in this column is then shown as `_`,
+    /// since some of its sizes' values may be covered.
+    ///
+    /// Sizes up to the largest any row fixes are searched one by one; every larger one is
+    /// one region, since no row tells two of them apart: a list row of `f` front and `b`
+    /// back elements, past every row's `f + b` and every closed row's length, constrains the
+    /// same leading and trailing positions at every length.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One matrix step over a collection column: each size, then every larger one."
+    )]
+    fn collection(
+        &mut self,
+        rows: &[Row],
+        column: &Column,
+        rest: &[Column],
+        facts: &BTreeMap<String, Fact>,
+        limit: usize,
+    ) -> Option<Vec<Gap>> {
+        let kind = match &column.sort {
+            Sort::Builtin(kind @ (BuiltinSort::Map | BuiltinSort::Set | BuiltinSort::List)) => {
+                *kind
+            }
+            _ => return None,
+        };
+        let types = column.elements.as_deref().unwrap_or_default();
+        let part = |index: usize| -> Option<(Sort, Elements)> {
+            match types.get(index) {
+                Some(argument) => Some((
+                    argument.sort.clone(),
+                    (!argument.arguments.is_empty())
+                        .then(|| Rc::from(argument.arguments.as_slice())),
+                )),
+                None => self.signature.k_item().cloned().map(|sort| (sort, None)),
+            }
+        };
+        let family = Head::Family(column.sort.clone());
+        let covers = |binder: &Sort, sort: &Option<(Sort, Elements)>| {
+            sort.as_ref()
+                .is_some_and(|(sort, _)| self.signature.is_subsort(sort, binder))
+        };
+        // A name or `_` that holds every part the position can hold.
+        let free = |pattern: &Pattern, sort: &Option<(Sort, Elements)>| match pattern {
+            Pattern::Binder(binder) => covers(binder, sort),
+            _ => false,
+        };
+        let (first, second) = match kind {
+            BuiltinSort::Map => (part(0), part(1)),
+            _ => (part(0), None),
+        };
+        let element = first.clone();
+        let matched = rows
+            .iter()
+            .map(|row| match &row.patterns[0] {
+                Pattern::Binder(sort) if self.signature.binder_covers(sort, &family) => {
+                    Matched::All
+                }
+                Pattern::Family(sort) if *sort == column.sort => Matched::All,
+                Pattern::Collection(collection) => match (&collection.shape, kind) {
+                    (Shape::Map { entries, open }, BuiltinSort::Map)
+                        if entries
+                            .iter()
+                            .all(|(key, value)| free(key, &first) && free(value, &second)) =>
+                    {
+                        Matched::Sized {
+                            min: entries.len(),
+                            open: *open,
+                            front: &[],
+                            back: &[],
+                        }
+                    }
+                    (Shape::Set { elements, open }, BuiltinSort::Set)
+                        if elements.iter().all(|element| free(element, &first)) =>
+                    {
+                        Matched::Sized {
+                            min: elements.len(),
+                            open: *open,
+                            front: &[],
+                            back: &[],
+                        }
+                    }
+                    (Shape::List { front, back, open }, BuiltinSort::List) if element.is_some() => {
+                        Matched::Sized {
+                            min: front.len() + back.len(),
+                            open: *open,
+                            front,
+                            back,
+                        }
+                    }
+                    _ => Matched::Undecomposed,
+                },
+                _ => Matched::Undecomposed,
+            })
+            .collect::<Vec<_>>();
+        let undecomposed = matched
+            .iter()
+            .any(|matched| matches!(matched, Matched::Undecomposed));
+        // The longest front and back a row with a rest fixes, and the largest size any row
+        // fixes: past it, sizes are one region.
+        let (mut fronts, mut backs, mut largest) = (0, 0, 0);
+        for matched in &matched {
+            if let Matched::Sized {
+                min,
+                open,
+                front,
+                back,
+            } = matched
+            {
+                largest = largest.max(*min);
+                if *open {
+                    fronts = fronts.max(front.len());
+                    backs = backs.max(back.len());
+                }
+            }
+        }
+        let list = kind == BuiltinSort::List;
+        if list {
+            largest = largest.max(fronts + backs);
+        }
+        // A list's elements are columns of their own, of the element sort.
+        let (element_sort, element_types) = match element {
+            Some(element) => element,
+            None if list => return None,
+            None => (column.sort.clone(), None),
+        };
+        let element_column = |index: usize| Column {
+            sort: element_sort.clone(),
+            path: column.path.iter().copied().chain([index]).collect(),
+            heads: None,
+            elements: element_types.clone(),
+        };
+        let binders = |count: usize| vec![Pattern::Binder(element_sort.clone()); count];
+        let mut gaps = Vec::new();
+        // Each size up to `largest` exactly (`Some`), then every larger one (`None`).
+        let sizes = (0..=largest).map(Some).chain([None]);
+        for size in sizes {
+            if gaps.len() >= limit || self.exhausted {
+                break;
+            }
+            // The element columns a list of this size is matched by.
+            let (heads, tails) = match size {
+                Some(length) if list => (length, 0),
+                None if list => (fronts, backs),
+                _ => (0, 0),
+            };
+            let specialized = rows
+                .iter()
+                .zip(&matched)
+                .filter_map(|(row, matched)| {
+                    let elements = match (matched, size) {
+                        (Matched::All, _) => binders(heads + tails),
+                        (
+                            Matched::Sized {
+                                min,
+                                open,
+                                front,
+                                back,
+                            },
+                            Some(length),
+                        ) if length == *min || (*open && length > *min) => {
+                            if list {
+                                let mut elements = front.to_vec();
+                                elements.extend(binders(length - *min));
+                                elements.extend(back.iter().cloned());
+                                elements
+                            } else {
+                                Vec::new()
+                            }
+                        }
+                        (
+                            Matched::Sized {
+                                open: true,
+                                front,
+                                back,
+                                ..
+                            },
+                            None,
+                        ) => {
+                            if list {
+                                let mut elements = front.to_vec();
+                                elements.extend(binders(heads - front.len()));
+                                elements.extend(binders(tails - back.len()));
+                                elements.extend(back.iter().cloned());
+                                elements
+                            } else {
+                                Vec::new()
+                            }
+                        }
+                        _ => return None,
+                    };
+                    Some(Row {
+                        patterns: elements
+                            .into_iter()
+                            .chain(row.patterns[1..].iter().cloned())
+                            .collect(),
+                        guard: row.guard.clone(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            let columns = (0..heads + tails)
+                .map(element_column)
+                .chain(rest.iter().cloned())
+                .collect::<Vec<_>>();
+            for mut gap in self.missing(&specialized, &columns, facts, limit - gaps.len()) {
+                let tail = gap.values.split_off(heads + tails);
+                let witness = if undecomposed {
+                    Witness::Any
+                } else {
+                    match (kind, size) {
+                        (BuiltinSort::Map, _) => Witness::Map {
+                            entries: size.unwrap_or(largest + 1),
+                            open: size.is_none(),
+                        },
+                        (BuiltinSort::Set, _) => Witness::Set {
+                            elements: size.unwrap_or(largest + 1),
+                            open: size.is_none(),
+                        },
+                        (_, Some(_)) => Witness::List {
+                            front: gap.values,
+                            open: None,
+                            back: Vec::new(),
+                        },
+                        (_, None) => {
+                            let back = gap.values.split_off(heads);
+                            Witness::List {
+                                front: gap.values,
+                                open: Some(largest + 1 - heads - tails),
+                                back,
+                            }
+                        }
+                    }
+                };
+                let mut values = vec![witness];
+                values.extend(tail);
+                gaps.push(Gap {
+                    values,
+                    condition: gap.condition,
+                });
+            }
+        }
+        Some(gaps)
     }
 
     /// The gaps among the values of one family in the first column: each
@@ -3638,8 +4230,9 @@ fn check_instance(
         production.parameters(),
         instance,
     );
+    let types = production_argument_types(production);
     evaluate_instance(evaluator, &columns, rules)
-        .unwrap_or_else(|| search_instance(signature, columns, rules, Some(ranges)))
+        .unwrap_or_else(|| search_instance(signature, columns, &types, rules, Some(ranges)))
 }
 
 /// Coverage decided by the pattern matrix and the guard abstraction. The
@@ -3652,6 +4245,7 @@ fn check_instance(
 fn search_instance(
     signature: &Signature,
     columns: Vec<Sort>,
+    types: &[Elements],
     rules: &[&SemanticRule],
     ranges: Option<&dyn RangeOf>,
 ) -> Outcome {
@@ -3696,6 +4290,7 @@ fn search_instance(
                 unread += 1;
                 continue;
             }
+            let patterns = linearized(patterns, &bindings);
             match rule.requires() {
                 None => read.push((patterns, None, BTreeMap::new())),
                 Some(IrCondition::Bool(condition)) => {
@@ -3734,11 +4329,13 @@ fn search_instance(
             sort,
             path: vec![index],
             heads: None,
+            elements: types.get(index).cloned().flatten(),
         })
         .chain(virtuals.iter().map(|(key, column)| Column {
             sort: column.sort.clone(),
             path: virtual_paths[key].clone(),
             heads: column.heads.clone().map(Rc::new),
+            elements: None,
         }))
         .collect::<Vec<_>>();
     let mut rows = Vec::new();
@@ -3819,6 +4416,40 @@ fn render(witness: &Witness) -> String {
             "{name}({})",
             arguments.iter().map(render).collect::<Vec<_>>().join(", ")
         ),
+        // Collections as their patterns: two `_` keys are two entries, `..` the rest.
+        Witness::Map { entries, open } => {
+            let mut parts = vec!["_ -> _".to_owned(); *entries];
+            if *open {
+                parts.push("..".to_owned());
+            }
+            format!("map![{}]", parts.join(", "))
+        }
+        // A set pattern of two or more parts is their concatenation: `set![a, b]` would be
+        // their union, a function.
+        Witness::Set { elements, open } => match (*elements, *open) {
+            (0, false) => "set![]".to_owned(),
+            (1, false) => "set![_]".to_owned(),
+            (count, open) => {
+                let (mut text, inner) = if open {
+                    ("_".to_owned(), count)
+                } else {
+                    ("set::item(_)".to_owned(), count - 1)
+                };
+                for _ in 0..inner {
+                    text = format!("set::concat(set::item(_), {text})");
+                }
+                text
+            }
+        },
+        Witness::List { front, open, back } => {
+            let mut parts = front.iter().map(render).collect::<Vec<_>>();
+            if let Some(more) = open {
+                parts.extend(std::iter::repeat_n("_".to_owned(), *more));
+                parts.push("..".to_owned());
+            }
+            parts.extend(back.iter().map(render));
+            format!("[{}]", parts.join(", "))
+        }
     }
 }
 

@@ -163,7 +163,8 @@ fn unify(
 ) -> Result<Pattern, Stop> {
     let covers = |sort: &Sort, head: &Head| signature.binder_covers(sort, head);
     match (left, right) {
-        (Pattern::Opaque, _) | (_, Pattern::Opaque) => Err(Stop::Unknown),
+        (Pattern::Opaque | Pattern::Collection(_), _)
+        | (_, Pattern::Opaque | Pattern::Collection(_)) => Err(Stop::Unknown),
         (Pattern::Binder(first), Pattern::Binder(second)) => {
             if signature.is_subsort(first, second) {
                 Ok(left.clone())
@@ -286,10 +287,12 @@ fn pattern_text(
     values: &BTreeMap<Path, i128>,
 ) -> (String, String) {
     match pattern {
-        Pattern::Binder(_) | Pattern::Family(_) | Pattern::Opaque => match values.get(path) {
-            Some(value) => (value.to_string(), value.to_string()),
-            None => (path_text(path), "_".to_owned()),
-        },
+        Pattern::Binder(_) | Pattern::Family(_) | Pattern::Opaque | Pattern::Collection(_) => {
+            match values.get(path) {
+                Some(value) => (value.to_string(), value.to_string()),
+                None => (path_text(path), "_".to_owned()),
+            }
+        }
         Pattern::Literal { sort, value } => {
             let key = if matches!(sort, Sort::Builtin(BuiltinSort::Int | BuiltinSort::Bool)) {
                 value.clone()
@@ -488,7 +491,7 @@ fn ground(pattern: &Pattern, path: &mut Path, values: &BTreeMap<Path, i128>) -> 
                 arguments: grounds,
             })
         }
-        Pattern::Binder(_) | Pattern::Family(_) | Pattern::Opaque => None,
+        Pattern::Binder(_) | Pattern::Family(_) | Pattern::Opaque | Pattern::Collection(_) => None,
     }
 }
 
