@@ -12,8 +12,8 @@ source_map_sha256 = "d0311747638d623d913bb9dcd81fd18f963690f8079f0f9a72bb4355847
 refusal_sha256 = "b56ec1282fdb48a079f6f96835c41979b35727b016fd95f85c131682588c23ac"
 
 [macro_output.imp."tests/imp/rust-definition/src/imp.rs"]
-text_sha256 = "0adc992dace3813b5b8bad80e79aea51836eb132b097c3395134215801bb23aa"
-source_map_sha256 = "ab8d76d0c27a15ed3894c7bcef9cc664f5eed18fab4a3cc5e4bc4897da35ca8c"
+text_sha256 = "62e0a77838b38611892f37d69b30ce0b052f27878cb18f488cd6fef6d94520e3"
+source_map_sha256 = "a68d5846a0b5566570da18b50afb055ab4f54d45df382ed147ae3ee2598db291"
 
 [macro_output.imp."tests/imp/rust-definition/src/lib.rs"]
 text_sha256 = "39715992111fe6c7c802d2fa710c67e95c17393478c6b89980d9383fb89fb6e7"
@@ -45,17 +45,17 @@ source_map_sha256 = "a808d91b775d05f7d0570c38cc06a2eb12f6a31f140e8b35d0f3aa39275
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "a1b4f1d445033244fb5fa5511293371a87c633aafd3e1a6c03fb1ba5e5724589"
-source_map_sha256 = "cb3e7a9d66b3f02bb7033e0ccc1721900382e823267b9c2ba9470da54bd4c5d4"
+text_sha256 = "acc1750eddad6a890734eae72eeab58fbbbec12528421e2782392c0ad5ebf7e8"
+source_map_sha256 = "ff0332fe127c0f50674f13e7b44ab8c6458b4dfe32047141d081c5f262c35392"
 
 [macro_output.kmir]
 
 [macro_output.kmir."semantics/kmir/src/lib.rs"]
-text_sha256 = "c02931415c5db97a74eca6826ad35a928d1bd0abb815f9b2fa0e448bf68c7d7b"
-source_map_sha256 = "12dda573b2783f5f2c5f1e9986c7b22c65f0b333e045a49c1043881527c5f7e5"
+text_sha256 = "78dd61a1b1440feaf324d5c8f873f994db9a37a08c6b4d94013525ba669caeeb"
+source_map_sha256 = "d4d2b49b8a15c4d39f95f71cf881cede77e1711d90ed6feadda53729d731c61f"
 
 [macro_output.kwasm]
 
 [macro_output.kwasm."semantics/kwasm/src/lib.rs"]
-text_sha256 = "9fd71d64dba8e71997fc4dfa2deb57f9d7629e559d1253ea17a5b8ab3e580a92"
-source_map_sha256 = "341ca4493ad9c613d990b26afd23fa60853d909f4b4d1d7f7834078925ed1d26"
+text_sha256 = "b6407c1fcac609a5d46455fb9adc1c9de0383362b52baef00f017502c0724bb9"
+source_map_sha256 = "31f9b5a5dd9be93a478c72c6c87c13463808e9c5ff5acbc5f8b7d85866f89a9f"
