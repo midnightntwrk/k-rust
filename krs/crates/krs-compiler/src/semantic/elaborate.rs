@@ -681,17 +681,21 @@ impl Elaborator<'_> {
             let declared = require_cell_field(&field.cell, self.declarations)
                 .map_err(|_| Unelaborated("a cell the declarations lack"))?;
             // A group's record there is the record of its children's entries (R4), one
-            // representation for every group record at a configuration position.
+            // representation for every group record at a configuration position; a computation
+            // child's brackets are its K sequence.
             let value = if let ProtocolCellContent::Nested { declaration } = &declared.content {
-                super::group_records::record_of_cell(
-                    term,
-                    &declaration.declaration,
-                    self.declarations,
-                )
-                .map_or_else(
-                    || ProtocolRuleStateTerm::Group(term.clone()),
-                    ProtocolRuleStateTerm::Record,
-                )
+                super::group_records::bracketed_record(term, declared, self.declarations)
+                    .or_else(|| {
+                        super::group_records::record_of_cell(
+                            term,
+                            &declaration.declaration,
+                            self.declarations,
+                        )
+                    })
+                    .map_or_else(
+                        || ProtocolRuleStateTerm::Group(term.clone()),
+                        ProtocolRuleStateTerm::Record,
+                    )
             } else {
                 ProtocolRuleStateTerm::Term(term.clone())
             };

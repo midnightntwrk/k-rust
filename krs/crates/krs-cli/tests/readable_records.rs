@@ -685,3 +685,170 @@ pub fn ct(
         assert!(expanded.contains(record), "no `{record}` in {expanded}");
     }
 }
+
+/// A group, a List collection whose instances hold a computation cell, and the commands the
+/// computation-child cases match.
+const COMPUTATION_CHILDREN: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Go, Put, Add))]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("put({x})")]
+    Put { x: Int },
+    #[k::syntax("add({x})")]
+    Add { x: Int },
+}
+
+#[k::cell]
+pub struct C {
+    #[k::cell]
+    pub cc: KSequence,
+    #[k::cell]
+    pub cn: Int,
+}
+
+#[k::cell]
+pub struct T {
+    #[k::cell]
+    pub tk: KSequence,
+    #[k::cell]
+    pub tn: Int,
+}
+
+#[k::cell]
+pub struct Tqueue {
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub tjob: T,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub ccell: C,
+    #[k::cell(nested)]
+    pub tqueue: Tqueue,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            ccell: C { cc: k::k![], cn: 0 },
+            tqueue: Tqueue { tjob: T { tk: k::k![], tn: 0 } },
+        }
+    }
+}
+"#;
+
+/// Brackets on a group record's computation child, or on a `cells!` instance record's, are that
+/// child's K sequence (ruling R4): the child's entry is read by its declared kind, and brackets
+/// on a computation cell are its items wherever it is declared. The readable rules and their
+/// `cells!` twins emit the same K, the child's own cell, and `krs expand` writes the brackets
+/// back in the record.
+#[test]
+fn a_record_computation_child_in_brackets_is_its_k_sequence_on_both_routes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = r"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    go: { k: [Go(), ..], ccell: C { cc: [y, ..], .. } } => { k: [..] };
+    put: { k: [Put { x }, ..], ccell: C { cc: [z], .. } } => { k: [..], ccell: C { cc: [x], cn: 0 } };
+    add: { k: [Add { x }, ..], tjob: [..] } => { k: [..], tjob: [T { tk: [x], tn: 0 }, ..] };
+}
+";
+    let cells = r#"
+#[k::rule(label = "go")]
+pub fn go(
+    y: KItem,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Go(), tail @ ..),
+        ccell: k::fragment![crate::C { cc: [y, ..], .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), ..state }
+}
+
+#[k::rule(label = "put")]
+pub fn put(
+    x: Int,
+    z: KItem,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Put { x }, tail @ ..),
+        ccell: k::fragment![crate::C { cc: [z], .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        ccell: k::fragment![crate::C { cc: [x], cn: 0 }],
+        ..state
+    }
+}
+
+#[k::rule(label = "add")]
+pub fn add(
+    x: Int,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Add { x }, tail @ ..),
+        crate::Tqueue::tjob: [..],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        crate::Tqueue::tjob: [k::fragment![crate::T { tk: [x], tn: 0 }], ..],
+        ..state
+    }
+}
+"#;
+    let readable = package_over(
+        temporary.path(),
+        "brackets-readable",
+        COMPUTATION_CHILDREN,
+        readable,
+    );
+    let cells = package_over(
+        temporary.path(),
+        "brackets-cells",
+        COMPUTATION_CHILDREN,
+        cells,
+    );
+    let flat = |k: &str| k.split_whitespace().collect::<Vec<_>>().join(" ");
+    let readable_k = flat(&emitted_k(target.path(), &readable));
+    let cells_k = flat(&emitted_k(target.path(), &cells));
+    for sentence in [
+        "<cc> Y:KItem ... </cc>",
+        "<cc> Z:KItem => X:Int </cc> <cn> _ => 0 </cn>",
+        "<tjob> <tk> X:Int </tk> <tn> 0 </tn> </tjob>",
+    ] {
+        assert!(
+            readable_k.contains(sentence),
+            "no `{sentence}` in {readable_k}"
+        );
+        assert!(cells_k.contains(sentence), "no `{sentence}` in {cells_k}");
+    }
+    let expanded = flat(&expanded(target.path(), &readable));
+    for record in [
+        "ccell : k::fragment![crate ::C { cc : [y, ..], .. }]",
+        "ccell : k::fragment![crate ::C { cc : [x], cn : 0 }]",
+    ] {
+        assert!(expanded.contains(record), "no `{record}` in {expanded}");
+    }
+}

@@ -2812,8 +2812,8 @@ fn render_leaf_state(
 }
 
 /// A group record of entries, `k::fragment![Group { child: entry, .. }]`: each child written as
-/// a `cells!` fragment writes its cell's content, a map child `k::map![..]`, which re-reads to
-/// the same record ([`render_leaf_state`]).
+/// a `cells!` fragment writes its cell's content, a map child `k::map![..]` and a computation
+/// child's K sequence in brackets, which re-reads to the same record ([`render_leaf_state`]).
 fn render_group_record(
     record: &krs_ir::ProtocolRuleRecord<DescriptorTerm>,
     pattern: bool,
@@ -2839,6 +2839,17 @@ fn render_group_record(
                         Some(term) => render_term(&term, pattern, package, bundle)?,
                         None => render_group_record(record, pattern, package, bundle)?,
                     }
+                }
+                // A computation child's K sequence, in the brackets that write it there.
+                State::KSequence(sequence) => {
+                    let items = sequence
+                        .items
+                        .iter()
+                        .map(|item| render_term(&item.value, pattern, package, bundle))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .chain(render_frame(&sequence.tail)?);
+                    quote!([#(#items),*])
                 }
                 State::Map(krs_ir::ProtocolRuleMap {
                     body: krs_ir::ProtocolRuleMapBody::Items { items, remainder },

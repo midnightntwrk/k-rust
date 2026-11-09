@@ -13185,6 +13185,14 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<cc> _ => V0:Int </cc>
+<cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
 k = """
@@ -13290,6 +13298,19 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/result/c12-tjob/[k::fragment![crate::T { tk: [x], tn: 0 }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tqueue>
+(.Bag => <tjob>
+<tk> V0:Int </tk>
+<tn> 0 </tn>
+</tjob>)
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/c15-acc/{ k::fragment![crate::A { aid: z, ..me }], .. }"]
 k = """
@@ -13387,6 +13408,14 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/cells/result/f19-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<cc> V1:KItem => V0:Int </cc>
+<cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
 k = """
@@ -13540,8 +13569,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/subject/f14-ccell/k::fragment![crate::C { cc: [y, ..], .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<cc> V0:KItem ... </cc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/f15-ccell/k::fragment![crate::C { cc: [y], .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<cc> V0:KItem </cc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/frame/k::fragment![crate::G { a: x, .. }]"]
 k = """
@@ -14190,6 +14233,14 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/claim/result/f19-ccell/C { cc: [x], cn: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<cc> V1:KItem => V0:Int </cc>
+<cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/result/frame/G { a: x, b: y, .. }"]
 k = """
@@ -14450,8 +14501,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/subject/f14-ccell/C { cc: [y, ..], .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<cc> V0:KItem ... </cc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/f15-ccell/C { cc: [y], .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<cc> V0:KItem </cc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/frame/G { a: x, .. }"]
 k = """
@@ -16138,6 +16203,14 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/readable/result/f19-ccell/C { cc: [x], cn: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<cc> V1:KItem => V0:Int </cc>
+<cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/result/frame/G { a: x, b: y, .. }"]
 k = """
@@ -16398,8 +16471,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/subject/f14-ccell/C { cc: [y, ..], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<cc> V0:KItem ... </cc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/f15-ccell/C { cc: [y], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<cc> V0:KItem </cc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/frame/G { a: x, .. }"]
 k = """

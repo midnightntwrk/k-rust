@@ -39,6 +39,216 @@ pub(crate) fn record_term(record: &Record) -> Option<DescriptorTerm> {
     record.group_term()
 }
 
+/// `rule` with each computation child that a group record or an instance record writes in
+/// brackets read as that child's K sequence (ruling R4). A record's child is its cell's entry,
+/// read by the child's declared kind, and brackets on a computation cell are its items wherever
+/// the cell is declared: `C { cc: [y, ..], .. }` matches what `cc: KCell(y, ..)` would. The macros
+/// read such a child by its spelling, as list notation, since they cannot see that `cc` is a
+/// computation cell, and list notation names a list, which a computation cell never holds: the
+/// reading by kind is this one. Only brackets a K sequence spells are read so, the items and an
+/// exact end or an anonymous `..`; any other list notation keeps its reading. `None` when no
+/// child is read anew.
+///
+/// # Errors
+///
+/// A cell the declarations lack.
+pub(super) fn with_computation_brackets(
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorConfigurationRule>, DescriptorLoweringError> {
+    let holds_records = |cells: &[DescriptorRuleCell]| {
+        cells.iter().any(|cell| {
+            matches!(
+                cell.value,
+                State::Record(_) | State::Instances(_) | State::Present { .. }
+            )
+        })
+    };
+    if !holds_records(&rule.subject.cells)
+        && !rule
+            .result
+            .as_ref()
+            .is_some_and(|result| holds_records(&result.cells))
+    {
+        return Ok(None);
+    }
+    let mut rule = rule.clone();
+    let mut changed = false;
+    for cell in rule
+        .subject
+        .cells
+        .iter_mut()
+        .chain(rule.result.iter_mut().flat_map(|result| &mut result.cells))
+    {
+        let declared = require_cell_field(&cell.field.cell, declarations)?;
+        changed |= read_computation_brackets(&mut cell.value, declared, declarations);
+    }
+    Ok(changed.then_some(rule))
+}
+
+/// The record of its children's entries that the cell term `term` of the group cell `declared`
+/// is when a computation child of it, or of a group it holds, is written in brackets, which only
+/// that record reads as the child's K sequence ([`with_computation_brackets`]). `None` for every
+/// other term, which keeps its reading as the group's term.
+pub(super) fn bracketed_record(
+    term: &DescriptorTerm,
+    declared: &DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<Record> {
+    let ProtocolCellContent::Nested { declaration } = &declared.content else {
+        return None;
+    };
+    let mut record = Record::of_group_term(term, &declaration.declaration, declarations)?;
+    read_children_brackets(&mut record.fields, &declaration.declaration, declarations)
+        .then_some(record)
+}
+
+/// The items of the K sequences that `record`'s children, and those of the groups it holds,
+/// are entries of, in authored order.
+pub(super) fn computation_items(record: &Record) -> Vec<DescriptorTerm> {
+    record
+        .fields
+        .iter()
+        .flat_map(|field| match &field.value {
+            State::KSequence(sequence) => sequence
+                .items
+                .iter()
+                .map(|item| item.value.clone())
+                .collect(),
+            State::Record(record) => computation_items(record),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+/// Reads the computation children's brackets of the records `state` holds as their K
+/// sequences ([`with_computation_brackets`]); `declared` is the cell `state` is the entry of.
+/// Whether any was read.
+fn read_computation_brackets(
+    state: &mut State,
+    declared: &DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> bool {
+    match state {
+        State::Present { value } => read_computation_brackets(value, declared, declarations),
+        State::Record(record) => match &record.head {
+            DescriptorTerm::Cell { declaration, .. } => {
+                let group = declaration.clone();
+                read_children_brackets(&mut record.fields, &group, declarations)
+            }
+            _ => false,
+        },
+        State::Instances(instances) => {
+            let ProtocolCellContent::Nested { declaration } = &declared.content else {
+                return false;
+            };
+            let mut changed = false;
+            for instance in instances.front.iter_mut().chain(&mut instances.back) {
+                changed |= read_children_brackets(
+                    &mut instance.fields,
+                    &declaration.declaration,
+                    declarations,
+                );
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+/// [`read_computation_brackets`] over the children `fields` of a record of the group `group`.
+fn read_children_brackets(
+    fields: &mut [krs_ir::ProtocolRuleInstanceField<DescriptorTerm>],
+    group: &StableItemId,
+    declarations: &DescriptorIndex<'_>,
+) -> bool {
+    let Ok(declaration) = declarations.cell(group) else {
+        return false;
+    };
+    let mut changed = false;
+    for field in fields {
+        let Some(child) = declaration
+            .fields
+            .iter()
+            .find(|child| child.rust_field == field.field)
+        else {
+            continue;
+        };
+        let computation = matches!(
+            child.content,
+            ProtocolCellContent::Leaf {
+                wrapper: CellWrapper::KCell,
+                ..
+            }
+        );
+        if computation
+            && let State::Term(term) = &field.value
+            && let Some(sequence) = bracket_sequence(term)
+        {
+            field.value = State::KSequence(sequence);
+            changed = true;
+        } else {
+            changed |= read_computation_brackets(&mut field.value, child, declarations);
+        }
+    }
+    changed
+}
+
+/// The K sequence that the list notation `term` spells: its levels' heads are the items, and the
+/// brackets end exactly (`[x]`, `[]`) or in an anonymous `..` (`[y, ..]`), which a pattern's list
+/// notation writes as `_` in the last level's tail. Each item keeps its own key, the sequence is
+/// located at the brackets' outer level, and its `..` at the `_` the macro wrote at it. `None`
+/// for any other term, a named rest or a level taken from the back included.
+fn bracket_sequence(
+    term: &DescriptorTerm,
+) -> Option<krs_ir::ProtocolRuleKSequence<DescriptorTerm>> {
+    use krs_ir::{DescriptorApplicationRef, ListNotation};
+    let DescriptorTerm::Application { reference, .. } = term else {
+        return None;
+    };
+    if !matches!(
+        reference.application,
+        DescriptorApplicationRef::ListNotation(ListNotation::Cons | ListNotation::Empty)
+    ) {
+        return None;
+    }
+    let mut items = Vec::new();
+    let mut level = term;
+    let tail = loop {
+        match level {
+            DescriptorTerm::Application {
+                reference,
+                arguments: krs_ir::Arguments::Positional(arguments),
+                update: None,
+                ..
+            } => match (&reference.application, arguments.as_slice()) {
+                (DescriptorApplicationRef::ListNotation(ListNotation::Cons), [head, tail]) => {
+                    items.push(krs_ir::ProtocolRuleKSequenceItem {
+                        key: super::collection_types::term_key(head).clone(),
+                        value: (**head).clone(),
+                    });
+                    level = tail;
+                }
+                (DescriptorApplicationRef::ListNotation(ListNotation::Empty), []) => {
+                    break krs_ir::ProtocolRuleFrame::Exact;
+                }
+                _ => return None,
+            },
+            DescriptorTerm::Wildcard { key } if !items.is_empty() => {
+                break krs_ir::ProtocolRuleFrame::Anonymous { key: key.clone() };
+            }
+            _ => return None,
+        }
+    };
+    Some(krs_ir::ProtocolRuleKSequence {
+        payload_key: reference.key.clone(),
+        dot_k_key: None,
+        notation: krs_ir::DescriptorKSequenceNotation::Comma,
+        items,
+        tail,
+    })
+}
+
 /// The struct a record's head names, for a message: its `#[k::cell]` struct, else none.
 fn head_name(record: &Record) -> String {
     match &record.head {

@@ -1138,9 +1138,24 @@ fn infer_head_rule(
                             format!("ordinary cell {:?} is not a fixed leaf", cell.cell.field),
                         )
                     })?;
-                    builder.infer(before, Some(expected), true)?;
-                    if let Some(after) = after {
-                        builder.infer(after, Some(expected), false)?;
+                    // A group record whose computation child is written in brackets is the
+                    // record of its children's entries, that child's its K sequence (R4), as
+                    // its elaboration reads it; any other value is a term of the cell's sort.
+                    let declarations = builder.declarations;
+                    let field = require_cell_field(&cell.cell, declarations)?;
+                    let sides = std::iter::once((before, true))
+                        .chain(after.iter().map(|after| (after, false)));
+                    for (term, subject) in sides {
+                        match super::group_records::bracketed_record(term, field, declarations) {
+                            Some(record) => infer_readable_state(
+                                builder,
+                                declarations,
+                                field,
+                                &krs_ir::ProtocolRuleStateTerm::Record(record),
+                                subject,
+                            )?,
+                            None => builder.infer(term, Some(expected), subject)?,
+                        }
                     }
                 }
                 krs_ir::ProtocolHeadRuleExtra::RewriteState {
@@ -1193,17 +1208,45 @@ fn infer_head_rule(
 }
 
 /// Gives an item binder of a record that nothing else constrains its default
-/// sort: it is any one item, a `KItem`.
+/// sort: it is any one item, a `KItem`. The items of a group record's computation
+/// child written in brackets are items alike.
 fn default_item_binders(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
     head_sort: Option<&SemanticSortRef>,
 ) {
-    if head_sort.is_none()
-        && let Some(head) = &rule.head
+    let k_item = builder.k_item_sort.clone();
+    let head = rule.head.as_ref().filter(|_| head_sort.is_none());
+    // A group record's computation child written in brackets holds items as the head does.
+    let declarations = builder.declarations;
+    let children = rule
+        .extras
+        .iter()
+        .filter_map(|extra| match extra {
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                before,
+                after,
+                ..
+            } => Some((cell, before, after)),
+            _ => None,
+        })
+        .flat_map(|(cell, before, after)| {
+            let field = require_cell_field(&cell.cell, declarations).ok();
+            std::iter::once(before)
+                .chain(after)
+                .filter_map(move |term| {
+                    super::group_records::bracketed_record(term, field?, declarations)
+                })
+        })
+        .flat_map(|record| super::group_records::computation_items(&record))
+        .collect::<Vec<_>>();
     {
-        let k_item = builder.k_item_sort.clone();
-        for item in &head.items {
+        for item in head
+            .into_iter()
+            .flat_map(|head| &head.items)
+            .chain(&children)
+        {
             if let DescriptorTerm::Variable { name, .. } = item
                 && !builder.binding_sorts.contains_key(name)
                 && builder

@@ -64,11 +64,6 @@ owner = "S5"
 kind = "bug"
 what = "a readable map below an entry's head is the child's entry (P1, P2; S5.0g fixes review F-1; ruling R4). Since TRI-D2 a group record's Map child (`M { mm: { y -> x, .. }, .. }`, `M { mm: { y -> x }, .. }`) is read as the group record of its children's entries (`ProtocolRuleStateTerm::Record`) and lowered as the children's own cells; `Some({ z -> y, .. })` on an optional Map leaf is read since TRI-D. Since TRI-D2 an instance child's exact map (`aenv: { x -> 1 }`, g1-e) is its map state too; g1-e is then refused because `..me` names a stack element, not a labelled instance of the collection, which the table admits for g1-e while it refuses g1-c's same base as `instance-update-base-elsewhere`: open as a table question"
 
-["S5-C2"]
-owner = "S5"
-kind = "bug"
-what = "a second computation cell (`code: [x, ..]` below a plain group) is refused bracket notation as `invalid-list-notation` (\"the cell `code` holds `K`, which is not a list\"), though brackets are a computation's mark wherever it is declared (P1: a cell's name and role play no part; P2); S5.2's; S5-LOW (S5.3 part 2, ruling 4): the table admits it and the compiler cannot lower it yet, product feature work after S5.2, not routing. TRI-A5 (ruling R3): a readable record's brackets on a second computation cell beside the one its brackets read (`k`) are the limit computation-brackets-per-rule; residue: a group record's computation child in brackets (`C { cc: [y, ..], .. }`, read as list notation at sort `K`) and the `cells!` fragments' children"
-
 ["S5-F2"]
 owner = "S5"
 kind = "bug"
