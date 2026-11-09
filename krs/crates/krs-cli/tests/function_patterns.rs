@@ -1116,7 +1116,7 @@ fn a_key_is_computed_in_an_order_of_lookups_or_a_selection() {
                 (
                     false,
                     [
-                        "error[krs::syntax::invalid-record-update]: an open record `Ctor { f: e, .. }` stands below the function `Size` in a map key, which computes the value looked up, so the position is built: `..` stands only in a pattern, where it leaves the fields the record does not name unconstrained; a built term names every field of the record it builds, so it holds no `..`, even with every field named",
+                        "error[krs::syntax::invalid-record-update]: an open record `Ctor { f: e, .. }` stands below the function `Size` in a map key, which computes the value looked up, so the position is built: `..` stands in a pattern, where it leaves the fields the record does not name unconstrained, and in a cell's entry, where a created instance takes its defaults for them and a `..` after every child is the exact record; a term built anywhere else names every field of the record it builds, so it holds no `..`, even with every field named",
                         "--> src/lib.rs:54:40",
                     ],
                 ),

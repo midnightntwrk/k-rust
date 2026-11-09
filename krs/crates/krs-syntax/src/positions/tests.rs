@@ -814,17 +814,16 @@ fn a_cells_value_names_every_field_and_computes_only_where_built() {
         admits(instance, Construct::Matches),
         Admission::After(Rule::MatchesOutsideCondition)
     );
-    // A pattern's group record leaves the group's other children unconstrained; a result
-    // builds the group, which has no value for them (S5-F2).
+    // A pattern's group record leaves the group's other children unconstrained (S5-F2); a
+    // result's `..` after every child is the exact record, and the entry's admission refuses one
+    // that leaves a child out, as it does the bare twin's (RDRA item 1).
     for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {
-        assert_eq!(
-            admits(Position::root(form, Slot::Subject), Construct::OpenFragment),
-            Admission::Admit
-        );
-        assert_eq!(
-            admits(Position::root(form, Slot::Result), Construct::OpenFragment),
-            Admission::Refuse(Class::RecordRemainderInCellsTerm)
-        );
+        for slot in [Slot::Subject, Slot::Result] {
+            assert_eq!(
+                admits(Position::root(form, slot), Construct::OpenFragment),
+                Admission::Admit
+            );
+        }
     }
     // Its conditions are a rule's conditions.
     let requires = Position::root(Form::CellsRule, Slot::Requires);

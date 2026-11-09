@@ -808,7 +808,7 @@ impl Class {
                 "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the fields `..` leaves open have no value from that match: they print as variables (`_Krs_Wildcard0`); name every field and use it in the result, or write `#[k::desugar]` for an expansion that runs one way"
             }
             Self::OpenRecordOutsidePattern => {
-                "`..` stands only in a pattern, where it leaves the fields the record does not name unconstrained; a built term names every field of the record it builds, so it holds no `..`, even with every field named"
+                "`..` stands in a pattern, where it leaves the fields the record does not name unconstrained, and in a cell's entry, where a created instance takes its defaults for them and a `..` after every child is the exact record; a term built anywhere else names every field of the record it builds, so it holds no `..`, even with every field named"
             }
             Self::RecordRemainderInCellsTerm => {
                 "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained, and only a pattern's group record leaves its other children open (`k::fragment![G { c: e, .. }]`); `..base` and `..` are readable-record notation"
@@ -1155,18 +1155,22 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // A group record's `..` in a `cells!` pattern leaves the group's other children
         // unconstrained, as a pattern's open record leaves its other fields (records follow
         // Rust): its children are the group's entries, and K frames the ones it leaves out. A
-        // `cells!` result builds the group, which has no value for them; elsewhere it is an open
-        // record. A record `G { c: e, .. }` written inside a `cells!` value without `k::fragment!`
-        // is a group record when its head is a group's struct, and then a cell's entry as a
-        // fragment's child is (ruling R4), which the entry's admission judges by the group's
-        // children; only resolution tells it from a constructor's record, which a `cells!` term
-        // writes whole ([`Rule::RecordRemainderInCellsTerm`]).
-        Construct::OpenFragment if cells_value(position) && pattern => Admit,
+        // `cells!` result builds the group, which has no value for them, so the entry's
+        // admission, which knows the group's children, refuses a `..` that leaves a child out,
+        // for a fragment as for its bare twin; a `..` after every child leaves nothing open, and
+        // the record is the exact one (a degenerate form stands where its general form means
+        // something, and a cell's entry is such a place). A record `G { c: e, .. }` written inside a `cells!` value without
+        // `k::fragment!` is a group record when its head is a group's struct, and then a cell's
+        // entry as a fragment's child is (ruling R4), which the entry's admission judges by the
+        // group's children; only resolution tells it from a constructor's record, which a
+        // `cells!` term writes whole ([`Rule::RecordRemainderInCellsTerm`]). A fragment names a
+        // group's struct, so nothing is left to resolution. Where a term is built outside a
+        // cell's entry, `..` with no base has no meaning, and a `..` after every field is
+        // refused as one that leaves a field out is.
+        Construct::OpenFragment if cells_value(position) => Admit,
         Construct::OpenRecord if cells_value(position) => After(Rule::RecordRemainderInCellsTerm),
         Construct::OpenRecord | Construct::OpenFragment => {
-            if cells_value(position) {
-                Refuse(Class::RecordRemainderInCellsTerm)
-            } else if built_backwards {
+            if built_backwards {
                 Refuse(Class::OpenRecordInAliasSubject)
             } else if pattern || (matches!(position.slot, Slot::Result) && form.creates_instances())
             {

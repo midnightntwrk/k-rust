@@ -309,6 +309,154 @@ k::rules! {
     );
 }
 
+/// Built terms outside a cell's entry for RDRA item 1: an equation's result, a constructor
+/// argument in it, and an alias's result. `{record}` is the `Frame` record each one holds.
+const BUILT_FRAMES: [(&str, &str, &str); 3] = [
+    (
+        "equation",
+        "the result of an equation",
+        "#[k::function(total, internal)]\npub fn Pushed(s: k::Term<List>) -> k::Term<List> {\n    k::term![list::concat(list::item({record}), s)]\n}\n",
+    ),
+    (
+        "argument",
+        "the result of an equation",
+        "#[k::function(total, internal)]\npub fn Wrapped(s: k::Term<Stmt>) -> k::Term<Stmt> {\n    k::term![Cmd::Held { saved: {record} }]\n}\n",
+    ),
+    (
+        "alias",
+        "the result of a `#[k::alias]` fn",
+        "#[k::constructors(sort = Stmt, result = KResult)]\npub enum Short {\n    #[k::syntax(\"short()\")]\n    #[k::alias]\n    Short(),\n}\n\n#[k::alias]\nfn short(k::term![Short::Short()]: k::Term<Stmt>) -> k::Term<Stmt> {\n    Cmd::Held { saved: {record} }\n}\n",
+    ),
+];
+
+/// A bare `..` (no base) means something only where a pattern leaves fields unconstrained or a
+/// cell's entry leaves them to the entry: where a term is built anywhere else it names no
+/// value for the fields, so a record holding one is refused there even with every field named,
+/// as written bare or in `k::fragment!`, with one class and one text (RDRA item 1, AUDIT-R
+/// A1-1: the fragment's `..` was dropped by the reader, so `k::fragment![Frame { pc: 1, gas: 2,
+/// .. }]` in an equation passed where its bare twin was refused).
+#[test]
+fn a_built_record_outside_an_entry_holds_no_bare_rest_in_either_spelling() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (label, position, template) in BUILT_FRAMES {
+        for fields in ["pc: 1, gas: 2, ..", "pc: 1, .."] {
+            let refusals = ["bare", "fragment"].map(|spelling| {
+                let record = if spelling == "bare" {
+                    format!("Frame {{ {fields} }}")
+                } else {
+                    format!("k::fragment![Frame {{ {fields} }}]")
+                };
+                let named = if fields.contains("gas") {
+                    "all"
+                } else {
+                    "some"
+                };
+                let manifest = package(
+                    temporary.path(),
+                    &format!("built-{label}-{spelling}-{named}"),
+                    &template.replace("{record}", &record),
+                );
+                check_errors(target.path(), &manifest)
+            });
+            let [bare, fragment] = &refusals;
+            assert_eq!(
+                bare, fragment,
+                "{label}, `{fields}`: one class and text for both spellings"
+            );
+            assert!(
+                bare.starts_with("error[krs::syntax::invalid-record-update]: ")
+                    && bare.contains(&format!(
+                        "so it holds no `..`, even with every field named; here it stands in {position}"
+                    )),
+                "{label}, `{fields}`: {bare}"
+            );
+        }
+    }
+}
+
+/// A `TWO_LEVEL` `cells!` rule writing `outer` whole in its result as `outer`.
+fn cells_outer_rule(outer: &str) -> String {
+    format!(
+        "{TWO_LEVEL}#[k::rule(label = \"reset\")]\npub fn reset(\n    k::cells! {{ k: k::configuration::KCell(Cmd::Bump(), tail @ ..), outer: _, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), outer: {outer}, ..state }}\n}}\n"
+    )
+}
+
+/// In a `cells!` result a `..` after every child leaves nothing open, so the record is the exact
+/// one, at a fragment's root and at a group child inside it, bare or in `k::fragment!`
+/// (`language.mdx`, group records); one that leaves a child out is refused by the entry's
+/// admission, for both spellings of the child alike (RDRA item 1).
+#[test]
+fn a_cells_result_record_may_end_in_rest_once_every_child_is_named() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let exact = library_package(
+        temporary.path(),
+        "cells-exact",
+        &cells_outer_rule(
+            "k::fragment![crate::Outer { frame: crate::Frame { pc: 1, gas: 2 }, flag: 0 }]",
+        ),
+    );
+    let expected = rule(&emitted_k(target.path(), &exact), "reset").to_owned();
+    for (label, outer) in [
+        (
+            "root",
+            "k::fragment![crate::Outer { frame: crate::Frame { pc: 1, gas: 2 }, flag: 0, .. }]",
+        ),
+        (
+            "bare-child",
+            "k::fragment![crate::Outer { frame: crate::Frame { pc: 1, gas: 2, .. }, flag: 0 }]",
+        ),
+        (
+            "fragment-child",
+            "k::fragment![crate::Outer { frame: k::fragment![crate::Frame { pc: 1, gas: 2, .. }], flag: 0, .. }]",
+        ),
+    ] {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("cells-{label}"),
+            &cells_outer_rule(outer),
+        );
+        assert_eq!(
+            rule(&emitted_k(target.path(), &manifest), "reset"),
+            expected,
+            "{label}"
+        );
+    }
+    let refusals = [
+        ("root", "k::fragment![crate::Outer { frame: crate::Frame { pc: 1, gas: 2 }, .. }]"),
+        (
+            "bare-child",
+            "k::fragment![crate::Outer { frame: crate::Frame { pc: 1, .. }, flag: 0 }]",
+        ),
+        (
+            "fragment-child",
+            "k::fragment![crate::Outer { frame: k::fragment![crate::Frame { pc: 1, .. }], flag: 0 }]",
+        ),
+    ]
+    .map(|(label, outer)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("cells-open-{label}"),
+            &cells_outer_rule(outer),
+        );
+        (label, check_errors(target.path(), &manifest))
+    });
+    for (label, errors) in &refusals {
+        assert!(
+            errors.starts_with("error[krs::syntax::invalid-record-update]: ")
+                && errors.contains(
+                    "leaves a record open (`..`) outside a pattern, over a group that exists"
+                ),
+            "{label}: {errors}"
+        );
+    }
+    assert_eq!(
+        refusals[1].1, refusals[2].1,
+        "one text for both spellings of the child"
+    );
+}
+
 /// A record whose path names a constructor stays the constructor, even when
 /// a `#[k::cell]` struct of the same name exists: the path resolves as
 /// rustc resolves it.

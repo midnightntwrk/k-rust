@@ -4215,7 +4215,8 @@ fn validate_cell_term(
     let update = base
         .map(|base| validate_path_expression(base, symbols, nodes).map(Box::new))
         .transpose()?;
-    if fields.is_empty() && update.is_none() {
+    let open = record.rest.is_none() && record.dot2_token.is_some();
+    if fields.is_empty() && update.is_none() && !open {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "complete cell terms require at least one child field".into(),
@@ -4227,7 +4228,10 @@ fn validate_cell_term(
         range: TokenRange::for_tokens(value)?,
         owner: record.path,
         fields,
-        open: false,
+        // `..` with no base is kept, as the pattern twin and a bare record keep it: where it
+        // may stand, and what it means there, is the position table's and the entry's
+        // admission's to say, for both spellings alike.
+        open,
         update,
     }))
 }
