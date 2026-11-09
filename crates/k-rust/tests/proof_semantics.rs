@@ -67,7 +67,17 @@ fn compile(source: &str, spec: &str, definition: &str) -> String {
 
 /// The prover's result for the claim `claim` (a label or `#index`) of `spec`.
 fn prove(kore: &str, spec: &str, claim: &str, request: ProveRequest) -> KoreProofResult {
-    let mut backend = Backend::new(kore, spec, BackendOptions::default()).unwrap();
+    prove_with(kore, spec, claim, request, BackendOptions::RESOURCE_BOUNDED)
+}
+
+fn prove_with(
+    kore: &str,
+    spec: &str,
+    claim: &str,
+    request: ProveRequest,
+    options: BackendOptions,
+) -> KoreProofResult {
+    let mut backend = Backend::new(kore, spec, options).unwrap();
     backend
         .prove_kore(ProveRequest {
             claim: Some(claim.to_owned()),
@@ -1204,7 +1214,8 @@ endmodule
 "#;
     let kore = compile(SOURCE, "ORD-SPEC", "ORD");
     let statuses = with_evaluation(EvaluationMode::Execution, || {
-        let mut backend = Backend::new(&kore, "ORD-SPEC", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&kore, "ORD-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
         ["ORD-SPEC.text-order", "ORD-SPEC.some-list"].map(|claim| {
             backend
                 .prove_kore(ProveRequest {
@@ -2666,7 +2677,7 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
         matrix_source()
     );
     let kore = compile(&source, "FU42-SPEC", "FU42-SOLVER");
-    let mut backend = Backend::new(&kore, "FU42-SPEC", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&kore, "FU42-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let top = format!("\\top{{{TOP}}}()");
     let not_zero = format!(
         "\\not{{{TOP}}}(\\equals{{SortInt{{}}, {TOP}}}(VarN:SortInt{{}}, \\dv{{SortInt{{}}}}(\"0\")))"
@@ -2870,7 +2881,7 @@ module DISJ-SPEC
 endmodule
 "#;
     let kore = compile(source, "DISJ-SPEC", "DEFPROBE");
-    let mut backend = Backend::new(&kore, "DISJ-SPEC", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&kore, "DISJ-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let selector = "DISJ-SPEC.disj";
     let error = backend
         .prove_kore(ProveRequest {
@@ -3003,7 +3014,8 @@ fn defprobe_backend() -> (Backend, String) {
         "DEFPROBE-SPEC",
         "DEFPROBE",
     );
-    let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let name = backend.add_module(&module, false).unwrap();
     (backend, name)
 }
@@ -3128,8 +3140,12 @@ fn a_claim_whose_constraints_have_no_explicit_form_is_refused_alone() {
         "DEFPROBE-REFUSED-SPEC",
         "DEFPROBE",
     );
-    let mut backend =
-        Backend::new(&kore, "DEFPROBE-REFUSED-SPEC", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &kore,
+        "DEFPROBE-REFUSED-SPEC",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     let proven = backend
         .prove_kore(ProveRequest {
             claim: Some("DEFPROBE-REFUSED-SPEC.cposctl".into()),
@@ -3166,7 +3182,8 @@ fn a_claim_with_an_equality_reading_a_term_as_a_predicate_is_refused() {
         "DEFPROBE-SPEC",
         "DEFPROBE",
     );
-    let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let module = backend
         .add_module(
             &format!(
@@ -3506,7 +3523,7 @@ endmodule
     let parsed = parse_definition(&kore).expect("definition.kore parses");
     let definition = BackendDefinition::internalize(&parsed, "DOMAIN-GRID-SPEC")
         .expect("definition.kore internalizes");
-    let solver = Z3Solver::new(&definition).expect("Z3 starts");
+    let solver = Z3Solver::resource_bounded(&definition).expect("Z3 starts");
     let term = |text: &str| {
         definition
             .admit_unverified(&parse_pattern(text).expect("pattern parses"), &[])
@@ -3685,8 +3702,12 @@ fn literal_equation_rows_apply_only_when_the_complete_condition_is_established()
         "LITERAL-CONDITIONS-SPEC",
         "LITERAL-CONDITIONS",
     );
-    let mut backend =
-        Backend::new(&kore, "LITERAL-CONDITIONS-SPEC", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &kore,
+        "LITERAL-CONDITIONS-SPEC",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     for (label, proven) in [
         ("true-row", true),
         ("false-row", true),
@@ -3733,8 +3754,12 @@ fn scalar_equalities_compose_through_pure_functions_injections_and_symbolic_writ
         "CONTEXTUAL-EQUALITY-SPEC",
         "CONTEXTUAL-EQUALITY",
     );
-    let mut backend =
-        Backend::new(&kore, "CONTEXTUAL-EQUALITY-SPEC", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &kore,
+        "CONTEXTUAL-EQUALITY-SPEC",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     for (label, proven) in [
         ("opaque", true),
         ("named", true),
@@ -3856,8 +3881,12 @@ module PROOF-EVIDENCE-SPEC
 endmodule
 "#;
     let kore = compile(source, "PROOF-EVIDENCE-SPEC", "PROOF-EVIDENCE");
-    let mut backend =
-        Backend::new(&kore, "PROOF-EVIDENCE-SPEC", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &kore,
+        "PROOF-EVIDENCE-SPEC",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     let request = ProveRequest {
         claim: Some("PROOF-EVIDENCE-SPEC.empty".into()),
         allow_vacuous: true,
@@ -3907,8 +3936,18 @@ endmodule
 
 /// These independent arithmetic targets exercise word planning after real K compilation,
 /// definedness simplification, implication checking and the public proof facade.
+///
+/// The 16-bit `digits` claim's implication needs more Z3 work than the clock-free options grant
+/// (on Z3 5.3.3 one attempt of 3,000,000 units leaves it undecided and one of 6,000,000 decides
+/// it), so these proofs run under one attempt of 12,000,000 units. Under the default options its
+/// answer depended on how much of that work the host did within the clock's attempts.
 #[test]
 fn bounded_word_values_compose_with_independent_arithmetic_claims() {
+    const OPTIONS: BackendOptions = BackendOptions {
+        smt_retry_limit: 0,
+        smt_resource_limit: std::num::NonZeroU32::new(12_000_000),
+        ..BackendOptions::RESOURCE_BOUNDED
+    };
     let mut source = String::from(
         r#"
 module WORD-EXPRESSIONS
@@ -3969,11 +4008,12 @@ module WORD-EXPRESSIONS-SPEC
     source.push_str("endmodule\n");
     let kore = compile(&source, "WORD-EXPRESSIONS-SPEC", "WORD-EXPRESSIONS");
     for label in labels {
-        let result = prove(
+        let result = prove_with(
             &kore,
             "WORD-EXPRESSIONS-SPEC",
             &format!("WORD-EXPRESSIONS-SPEC.{label}"),
             ProveRequest::default(),
+            OPTIONS,
         );
         assert_eq!(result.status, "proven", "{label}: {:?}", leaf_text(&result));
         assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{label}");

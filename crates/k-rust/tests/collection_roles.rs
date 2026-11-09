@@ -57,7 +57,7 @@ endmodule []"#;
 
 #[test]
 fn an_element_symbol_of_another_result_sort_is_refused_at_load() {
-    let error = match Backend::new(DEFINITION, "MAIN", BackendOptions::default()) {
+    let error = match Backend::new(DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED) {
         Err(error) => error.to_string(),
         Ok(mut backend) => {
             let request =

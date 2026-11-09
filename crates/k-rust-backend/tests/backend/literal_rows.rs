@@ -96,7 +96,7 @@ fn simplified(
     source: &str,
     known: &[Predicate],
 ) -> (Term, Vec<String>) {
-    let solver = Z3Solver::new(definition).unwrap();
+    let solver = Z3Solver::resource_bounded(definition).unwrap();
     let result = simplify_with_solver(
         definition,
         &internal_term(definition, source),

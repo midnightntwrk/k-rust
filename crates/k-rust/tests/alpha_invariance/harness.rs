@@ -608,10 +608,11 @@ fn runs(
     for initial in initial {
         for (strategy, _) in RUN_STRATEGIES {
             results.push(definition.clone().and_then(|definition| {
-                let mut backend = Backend::from_internalized(definition, BackendOptions::default())
-                    .map_err(|error| {
-                        format!("from_internalized: {}", one_line(&error.to_string()))
-                    })?;
+                let mut backend =
+                    Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED)
+                        .map_err(|error| {
+                            format!("from_internalized: {}", one_line(&error.to_string()))
+                        })?;
                 let result = backend
                     .execute_kore(ExecuteRequest {
                         max_depth: Some(case.depth),

@@ -157,13 +157,13 @@ fn equal_digests_execute_alike_and_rule_order_is_kept() {
     let mut left = Backend::new(
         &base.artifacts.definition_kore,
         "DIG",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     let mut right = Backend::from_definition(
         parse_definition(&shifted.artifacts.definition_kore).unwrap(),
         "DIG",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     for program in ["go", "calc"] {
@@ -180,7 +180,7 @@ fn equal_digests_execute_alike_and_rule_order_is_kept() {
             "DIG",
         )
         .unwrap(),
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     for program in ["go", "calc"] {
@@ -196,7 +196,7 @@ fn equal_digests_execute_alike_and_rule_order_is_kept() {
     let mut swapped_backend = Backend::new(
         &swapped.artifacts.definition_kore,
         "DIG",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     let any = |results: Vec<Value>| results.into_iter().next().unwrap();
@@ -290,7 +290,7 @@ fn the_source_route_also_reads_the_rewrite_order() {
         let definition = Backend::internalize_source_definition(&syntax, "DIG", &order).unwrap();
         assert_eq!(execution_digest(&syntax), Ok(compiled.digest()));
         let mut backend =
-            Backend::from_internalized(definition, BackendOptions::default()).unwrap();
+            Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED).unwrap();
         results.push(compiled.results(&mut backend, "go").remove(0));
     }
     assert_ne!(results[0], results[1]);

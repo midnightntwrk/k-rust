@@ -106,7 +106,7 @@ fn compile_bound(
 }
 
 fn execute(compiled: &Compiled, main: &str, max_depth: Option<u64>) -> KoreExecutionResult {
-    let mut backend = Backend::new(&compiled.kore, main, BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&compiled.kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap();
     backend
         .execute_kore(ExecuteRequest {
             max_depth,
@@ -134,7 +134,8 @@ fn text(result: &KoreExecutionResult) -> Vec<String> {
 #[test]
 fn a_search_match_has_an_empty_condition_only_when_its_state_has_an_instance() {
     let compiled = compile(SEARCH_EXISTS, "EXISTS", "EXISTS-SYNTAX", "Pgm", "p(3)");
-    let mut backend = Backend::new(&compiled.kore, "EXISTS", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "EXISTS", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let printer = Printer::compact();
     let compiled_initial = printer.print_pattern(&compiled.initial);
     let compiled_program = r#"Lblp{}(\dv{SortInt{}}("3"))"#;
@@ -346,7 +347,8 @@ fn a_search_finds_the_renamings_of_one_state_once() {
     let compiled = compile(RENAMINGS, "T", "T", "KItem", "go(.Map, .List, 4)");
     let counter = regex::Regex::new(r#"\("([0-9]+)"\)\), dotk\{\}\(\)"#).unwrap();
     let search = |search_type| {
-        let mut backend = Backend::new(&compiled.kore, "T", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, "T", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let response = backend
             .search_pattern_kore(SearchPatternRequest {
@@ -375,7 +377,8 @@ fn a_search_finds_the_renamings_of_one_state_once() {
     assert_eq!(search(SearchTypeArg::Final), ["0"]);
     assert_eq!(search(SearchTypeArg::All), ["0", "1", "2", "3", "4"]);
     let states = |search_type| {
-        let mut backend = Backend::new(&compiled.kore, "T", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, "T", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let response = backend
             .search_kore(SearchRequest {
                 search_type,
@@ -598,8 +601,12 @@ fn a_search_condition_on_a_result_above_the_size_bound_is_decided_only_by_an_int
             "SEARCH-BOUND",
             &format!("<k> f(X) </k> requires {condition}"),
         );
-        let mut backend =
-            Backend::new(&compiled.kore, "SEARCH-BOUND", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(
+            &compiled.kore,
+            "SEARCH-BOUND",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
         backend
             .search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::All,
@@ -662,7 +669,8 @@ endmodule
         condition("Lbl'UndsEqlsSlshEqls'Int'Unds'"),
     ))
     .unwrap();
-    let mut backend = Backend::new(&compiled.kore, "MAIN", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let result = backend
         .execute_kore(ExecuteRequest::new(constrained))
         .unwrap();
@@ -687,7 +695,8 @@ fn fresh_remainder_variables_are_kore_identifiers() {
     );
     let initial =
         parse_pattern(include_str!("fixtures/reference/matching/map/pgm-map.kore")).unwrap();
-    let mut backend = Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let result = backend
         .execute_kore(ExecuteRequest {
             max_depth: Some(1),
@@ -732,8 +741,12 @@ fn a_run_reports_an_inconsistent_solver_prelude() {
         "State",
         "start(f(0))",
     );
-    let mut backend =
-        Backend::new(&compiled.kore, "LIVENESS-KRUN", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &compiled.kore,
+        "LIVENESS-KRUN",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     let error = backend
         .execute_kore(ExecuteRequest {
             max_depth: Some(10),
@@ -773,7 +786,7 @@ endmodule
     let mut backend = Backend::from_definition_with_prelude(
         parse_definition(&compiled.kore).unwrap(),
         "PRELUDE-SEARCH",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
         "(assert false)".to_owned(),
     )
     .unwrap();
@@ -802,7 +815,7 @@ fn run_driver(
     use k_rust::backend::execution::BackendRunOptions;
     use k_rust_backend::{rewrite::ExecutionMode, simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS};
 
-    let mut backend = Backend::new(&compiled.kore, main, BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&compiled.kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap();
     let (initial, request_literals) = backend
         .internalize_executable(None, &compiled.initial)
         .unwrap();
@@ -949,8 +962,12 @@ fn an_ensures_some_value_satisfies_leaves_no_undefined_instances() {
     )
     .unwrap();
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
-        let mut backend =
-            Backend::new(&compiled.kore, "CAPTURED-OUTPUT", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(
+            &compiled.kore,
+            "CAPTURED-OUTPUT",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
         let result = backend
             .execute_kore(ExecuteRequest {
                 strategy,
@@ -1073,7 +1090,7 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
             let mut backend = Backend::new(
                 &artifacts.definition_kore,
                 "TEST",
-                BackendOptions::default(),
+                BackendOptions::RESOURCE_BOUNDED,
             )
             .unwrap();
             let run = match backend.execute_kore(ExecuteRequest::new(initial.clone())) {
@@ -1307,7 +1324,7 @@ fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
                 let printed = Printer::compact().print_pattern(&target);
                 assert!(!printed.contains("RCellMapKey"), "{contents}: {printed}");
                 let mut backend =
-                    Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+                    Backend::new(&compiled.kore, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
                 let response = backend
                     .search_pattern_kore(SearchPatternRequest {
                         search_type: SearchTypeArg::Final,
@@ -1381,7 +1398,7 @@ fn a_search_pattern_that_matches_a_state_in_several_ways_reports_each_way() {
             let search = |contents: &str, names: &[&str], max_results: Option<usize>| {
                 let target = compiled.target("TEST", contents);
                 let mut backend =
-                    Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+                    Backend::new(&compiled.kore, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
                 let response = backend
                     .search_pattern_kore(SearchPatternRequest {
                         search_type: SearchTypeArg::Final,
@@ -1542,7 +1559,8 @@ fn a_list_cell_frame_stands_for_the_rest_of_the_list_where_it_is_written() {
         let result = execute(&compiled, MAIN, None);
         let states = text(&result);
         assert_eq!(states.len(), 1, "{program}: {states:?}");
-        let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, MAIN, BackendOptions::RESOURCE_BOUNDED).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let finals = backend
             .search_pattern_kore(SearchPatternRequest {
@@ -1765,7 +1783,8 @@ fn a_list_cell_variable_stands_for_the_part_of_the_list_where_it_is_written() {
             HaltReasonOutput::Stuck,
             "{program}: {states:?}"
         );
-        let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, MAIN, BackendOptions::RESOURCE_BOUNDED).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let finals = backend
             .search_pattern_kore(SearchPatternRequest {
@@ -2039,7 +2058,7 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
         let initial = undefined_instances_initial(program);
         for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
             let mut backend =
-                Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+                Backend::new(&compiled.kore, "UD", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let result = backend
                 .execute_kore(ExecuteRequest {
                     strategy,
@@ -2078,7 +2097,7 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
         }
         if *program == format!("Lblstz{{}}({quotient})") {
             let mut backend =
-                Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+                Backend::new(&compiled.kore, "UD", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let result = backend
                 .execute_kore(ExecuteRequest::new(initial.clone()))
                 .unwrap();
@@ -2088,7 +2107,8 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
                 .unwrap();
             assert!(stuck.contains(y_is_not_zero), "{stuck}");
         }
-        let mut backend = Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, "UD", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let response = backend
             .search_kore(SearchRequest {
                 search_type: SearchTypeArg::Final,
@@ -2163,7 +2183,7 @@ fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefin
         let initial = undefined_instances_initial(&program);
         for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
             let mut backend =
-                Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+                Backend::new(&compiled.kore, "CB", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let result = backend
                 .execute_kore(ExecuteRequest {
                     strategy,
@@ -2184,7 +2204,8 @@ fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefin
                 "{program} {strategy:?}: {states:#?}"
             );
         }
-        let mut backend = Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, "CB", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let response = backend
             .search_kore(SearchRequest {
                 search_type: SearchTypeArg::Final,
@@ -2230,7 +2251,7 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
     for (condition, heads) in [(positive, vec!["Lbldonei{}("]), (square_zero, vec![])] {
         for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
             let mut backend =
-                Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+                Backend::new(&compiled.kore, "UD", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let result = backend
                 .execute_kore(ExecuteRequest {
                     strategy,
@@ -2262,7 +2283,8 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
             );
         }
         // A search from no configuration says so, as its empty result alone cannot.
-        let mut backend = Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, "UD", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let request = SearchRequest {
             search_type: SearchTypeArg::Final,
             ..SearchRequest::new(initial(condition))
@@ -2334,7 +2356,7 @@ fn backend_execute_and_search_keep_the_order_in_conditions() {
             "execute {program}: {executed:?}"
         );
         let mut backend =
-            Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+            Backend::new(&compiled.kore, "ORDREQ", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let response = backend
             .search_pattern_kore(SearchPatternRequest {
@@ -2424,7 +2446,8 @@ fn backend_search_rounds_float_arithmetic_over_two_formats() {
         "Pgm",
         "pick(1.0f, 2.0)",
     );
-    let mut backend = Backend::new(&compiled.kore, "MIXED", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "MIXED", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
     let response = backend
         .search_pattern_kore(SearchPatternRequest {
@@ -2469,7 +2492,8 @@ fn backend_simplify_stays_a_proof_route_inside_an_execution_scope() {
         item(-1, 3)
     ))
     .unwrap();
-    let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "ORDREQ", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let simplified = with_evaluation(EvaluationMode::Execution, || {
         backend
             .simplify_kore(None, &listing, Admission::Unverified)
@@ -2515,7 +2539,8 @@ fn backend_match_patterns_stays_a_proof_route_inside_an_execution_scope() {
         int(2)
     ))
     .unwrap();
-    let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "ORDREQ", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let internalize = |backend: &mut Backend, pattern: &Pattern| {
         backend
             .with_solver(None, |definition, _| {
@@ -2827,7 +2852,7 @@ endmodule
         let mut backend = Backend::new(
             &compiled.kore,
             "MERGE-DIAGNOSTICS",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let mut run = |result_modality| {
@@ -2892,7 +2917,8 @@ module LOOP
 endmodule
 "#;
     let compiled = compile(SOURCE, "LOOP", "LOOP", "Pgm", "loop(0)");
-    let mut backend = Backend::new(&compiled.kore, "LOOP", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&compiled.kore, "LOOP", BackendOptions::RESOURCE_BOUNDED).unwrap();
 
     let budgeted = backend
         .execute_kore(ExecuteRequest {
@@ -2923,7 +2949,8 @@ endmodule
     assert_eq!(output["leaves"][0]["reason"], "work-bound");
 
     let finished = compile(SOURCE, "LOOP", "LOOP", "Pgm", "done(0)");
-    let mut backend = Backend::new(&finished.kore, "LOOP", BackendOptions::default()).unwrap();
+    let mut backend =
+        Backend::new(&finished.kore, "LOOP", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let unbounded = backend
         .execute_kore(ExecuteRequest::new(finished.initial.clone()))
         .unwrap();
@@ -2983,7 +3010,7 @@ fn an_execution_without_traces_keeps_the_halt_metadata() {
     for (program, rule, depth) in [("start(1)", "TRACES.half", 2), ("gf(0)", "TRACES.gd", 1)] {
         let compiled = compile(TRACES, "TRACES", "TRACES", "KItem", program);
         let mut backend =
-            Backend::new(&compiled.kore, "TRACES", BackendOptions::default()).unwrap();
+            Backend::new(&compiled.kore, "TRACES", BackendOptions::RESOURCE_BOUNDED).unwrap();
         for modality in [
             ResultModalityOutput::StateSet,
             ResultModalityOutput::PathSet,
@@ -3316,7 +3343,8 @@ fn a_state_set_run_of_a_strict_loop_is_linear_in_its_iterations() {
 
     let run = |n: u64, result_modality| {
         let compiled = compile(STRICT_IMP, "IMP", "IMP-SYNTAX", "Pgm", &strict_imp_sum(n));
-        let mut backend = Backend::new(&compiled.kore, "IMP", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&compiled.kore, "IMP", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let before = snapshot();
         let result = backend
             .execute_kore(ExecuteRequest {
@@ -3421,8 +3449,12 @@ fn smt_unknowns_run(
 #[test]
 fn a_run_that_receives_no_undecided_answer_reports_no_smt_unknowns() {
     let concrete = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "done");
-    let mut backend =
-        Backend::new(&concrete.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &concrete.kore,
+        "SMT-UNKNOWNS",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     assert!(backend.capabilities().smt_unknowns);
     let (result, json) = smt_unknowns_run(&mut backend, &concrete.initial);
     assert_eq!(result.smt_unknowns, 0);
@@ -3437,10 +3469,10 @@ fn a_run_that_receives_no_undecided_answer_reports_no_smt_unknowns() {
     }
 }
 
-/// With a 50 ms timeout and no retry, Z3 leaves the nonlinear condition undecided, and the run
-/// counts it. The prelude check runs only the first time a query answers `unsat`; no query of
-/// this run does, and the backend is built for this test alone, so a timed-out prelude check
-/// (a `SolverPrelude` error that depends on time) cannot reach it from another request.
+/// With 150,000 resource units and no retry, Z3 leaves the nonlinear condition undecided, and the
+/// run counts it. The prelude check runs only the first time a query answers `unsat`; no query of
+/// this run does, and the backend is built for this test alone, so an undecided prelude check (a
+/// `SolverPrelude` error) cannot reach it from another request.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn a_run_that_receives_an_undecided_answer_counts_it() {
@@ -3449,18 +3481,18 @@ fn a_run_that_receives_an_undecided_answer_counts_it() {
         &compiled.kore,
         "SMT-UNKNOWNS",
         BackendOptions {
-            smt_timeout_ms: 50,
             smt_retry_limit: 0,
-            smt_resource_limit: None,
+            smt_resource_limit: std::num::NonZeroU32::new(150_000),
+            ..BackendOptions::RESOURCE_BOUNDED
         },
     )
     .unwrap();
     let (result, json) = smt_unknowns_run(&mut backend, &compiled.initial);
-    // The two counts come from two runs, and a query decided in one may time out in the other
-    // on a loaded host, so each is required positive rather than equal.
+    // The two counts come from two runs, and no clock bounds their queries, so they are equal.
     assert!(result.smt_unknowns > 0, "{json}");
-    assert!(
-        json["smtUnknowns"].as_u64().is_some_and(|count| count > 0),
+    assert_eq!(
+        json["smtUnknowns"].as_u64(),
+        u64::try_from(result.smt_unknowns).ok(),
         "{json}"
     );
 }
@@ -3471,10 +3503,18 @@ fn a_run_that_receives_an_undecided_answer_counts_it() {
 #[test]
 fn a_run_whose_answers_are_all_decided_gives_one_result_on_any_backend() {
     let compiled = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "sign");
-    let mut reused =
-        Backend::new(&compiled.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
-    let mut fresh =
-        Backend::new(&compiled.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    let mut reused = Backend::new(
+        &compiled.kore,
+        "SMT-UNKNOWNS",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
+    let mut fresh = Backend::new(
+        &compiled.kore,
+        "SMT-UNKNOWNS",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     let request = || ExecuteRequest::new(compiled.initial.clone());
     let texts = [
         reused.execute_json(request()).unwrap(),

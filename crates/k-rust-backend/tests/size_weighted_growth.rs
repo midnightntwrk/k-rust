@@ -1031,7 +1031,7 @@ fn validity_check_bytes(
     known: &[Predicate],
     checked: &[Predicate],
 ) -> u64 {
-    let solver = Z3Solver::new(definition).expect("the solver starts");
+    let solver = Z3Solver::resource_bounded(definition).expect("the solver starts");
     bytes_of(|| {
         solver
             .check_predicates(known, &Substitution::new(), checked)

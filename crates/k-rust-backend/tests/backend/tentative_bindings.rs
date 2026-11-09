@@ -100,7 +100,7 @@ fn val(left: &str, right: i64) -> String {
 
 /// `source` simplified: the result and the equations applied.
 fn simplified(definition: &BackendDefinition, source: &str) -> (Term, Vec<String>) {
-    let solver = Z3Solver::new(definition).unwrap();
+    let solver = Z3Solver::resource_bounded(definition).unwrap();
     let result = simplify_with_solver(
         definition,
         &internal_term(definition, source),

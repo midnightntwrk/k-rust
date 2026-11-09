@@ -260,7 +260,7 @@ mod tests {
         );
         assert_eq!(query.exactness(), Exactness::Approximate);
         assert!(query.model_mappings().is_none());
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         use super::super::{SmtSolver, Validity};
         assert_eq!(
             solver.check_predicates(&known, &Substitution::new(), &checked),
@@ -272,7 +272,7 @@ mod tests {
     fn congruence_does_not_assert_injectivity_or_an_effectful_function_rank() {
         use super::super::{Satisfiability, SmtSolver};
         let definition = congruence_definition();
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         let f0 = parsed_term(&definition, r#"f{}(\dv{SortInt{}}("0"))"#);
         let f1 = parsed_term(&definition, r#"f{}(\dv{SortInt{}}("1"))"#);
         let equal = Predicate::Equals(f0, f1);
@@ -303,7 +303,7 @@ mod tests {
     fn partial_values_and_domains_share_argument_congruence_without_asserting_totality() {
         use super::super::{SmtSolver, Validity};
         let definition = congruence_definition();
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         let left = parsed_term(
             &definition,
             r#"partial{}(plus{}(X:SortInt{}, \dv{SortInt{}}("1")))"#,
@@ -346,7 +346,7 @@ mod tests {
     fn partial_domains_keep_discarded_arguments_and_undefined_values_unrelated() {
         use super::super::{SmtSolver, Validity};
         let definition = congruence_definition();
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         let left = parsed_term(&definition, r#"partial{}(\dv{SortInt{}}("0"))"#);
         let right = parsed_term(&definition, r#"partial{}(\dv{SortInt{}}("1"))"#);
         let outer = parsed_term(&definition, r#"g{}(partial{}(\dv{SortInt{}}("0")))"#);
@@ -382,7 +382,7 @@ mod tests {
     fn decided_source_domains_remain_congruent_with_unresolved_instances() {
         use super::super::{SmtSolver, Validity};
         let definition = congruence_definition();
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         let zero = parsed_term(&definition, r#"restricted{}(\dv{SortInt{}}("0"))"#);
         let symbolic = parsed_term(&definition, "restricted{}(X:SortInt{})");
         let known = [
@@ -403,7 +403,7 @@ mod tests {
     fn source_domain_facts_and_lets_stay_under_their_own_quantifiers() {
         use super::super::{Satisfiability, SmtSolver, Validity};
         let definition = congruence_definition();
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         let x = Variable::new("X", int());
         let partial = parsed_term(&definition, "nonzero{}(X:SortInt{})");
         let some_defined = Predicate::Exists(x.clone(), Arc::new(Predicate::Ceil(partial.clone())));
@@ -470,7 +470,7 @@ mod tests {
     fn source_head_facts_are_guarded_by_the_original_argument_domains() {
         use super::super::{Satisfiability, SmtSolver};
         let definition = congruence_definition();
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         let known = [
             Predicate::Forall(
                 Variable::new("X", int()),
@@ -514,7 +514,7 @@ mod tests {
             &definition,
             r#"domainEffect{}(plus{}(\dv{SortInt{}}("1"),X:SortInt{}))"#,
         );
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         assert_eq!(
             solver.check_predicates(
                 &[Predicate::Ceil(left)],
@@ -534,7 +534,7 @@ mod tests {
             Predicate::Ceil(term.clone()),
             Predicate::Not(Arc::new(Predicate::Term(term))),
         ];
-        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let solver = super::super::Z3Solver::resource_bounded(&definition).unwrap();
         assert_eq!(
             solver.is_sat(&predicates, &Substitution::new()),
             Ok(Ok(Satisfiability::Sat))
@@ -587,7 +587,7 @@ mod tests {
         assert!(query.base().contains("(NAMED "));
         use super::super::{Satisfiability, SmtSolver};
         assert_eq!(
-            super::super::Z3Solver::new(&definition)
+            super::super::Z3Solver::resource_bounded(&definition)
                 .unwrap()
                 .is_sat(&known, &Substitution::new()),
             Ok(Ok(Satisfiability::Sat))
@@ -622,7 +622,7 @@ mod tests {
             )),
         )];
         assert_eq!(
-            super::super::Z3Solver::new(&definition)
+            super::super::Z3Solver::resource_bounded(&definition)
                 .unwrap()
                 .check_predicates(&known, &Substitution::new(), &checked),
             Ok(Ok(Validity::Valid))
@@ -660,7 +660,7 @@ mod tests {
             }
             sizes.push(bytes);
             assert_eq!(
-                super::super::Z3Solver::new(&definition)
+                super::super::Z3Solver::resource_bounded(&definition)
                     .unwrap()
                     .is_sat(&predicates, &Substitution::new()),
                 Ok(Ok(Satisfiability::Unsat))
@@ -696,7 +696,7 @@ mod tests {
         {
             use super::super::{SmtSolver, Validity};
             assert_eq!(
-                super::super::Z3Solver::new(&definition)
+                super::super::Z3Solver::resource_bounded(&definition)
                     .unwrap()
                     .check_predicates(
                         &known,

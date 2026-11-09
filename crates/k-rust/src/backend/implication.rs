@@ -491,7 +491,7 @@ mod tests {
         consequent: &str,
         admission: Admission,
     ) -> Result<(ImplicationVerdict, Sort), BackendError> {
-        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default())
+        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .expect("implication definition should internalize");
         backend.implies_kore(
             None,
@@ -541,7 +541,7 @@ mod tests {
         antecedent: &str,
         consequent: &str,
     ) -> (KorePattern, KorePattern, ImplicationVerdict, Sort) {
-        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default())
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .expect("the chain definition should internalize");
         let antecedent = parse_pattern(antecedent).expect("antecedent should parse");
         let consequent = parse_pattern(consequent).expect("consequent should parse");

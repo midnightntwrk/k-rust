@@ -276,8 +276,10 @@ fn compare(
     case: &str,
     exact: bool,
 ) -> Result<(), String> {
-    let cascade_solver = Z3Solver::new(definition).map_err(|error| format!("{error:?}"))?;
-    let oracle_solver = Z3Solver::new(definition).map_err(|error| format!("{error:?}"))?;
+    let cascade_solver =
+        Z3Solver::resource_bounded(definition).map_err(|error| format!("{error:?}"))?;
+    let oracle_solver =
+        Z3Solver::resource_bounded(definition).map_err(|error| format!("{error:?}"))?;
     compare_with_solvers(
         definition,
         initial,
@@ -958,8 +960,8 @@ proptest! {
 fn replay_oracle_smoke_uses_one_global_alpha_gate() {
     let (definition, _) = definition(&fixture_rules()[0].1);
     let options = SimplificationOptions::keep_partial(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
-    let cascade_solver = Z3Solver::new(&definition).unwrap();
-    let oracle_solver = Z3Solver::new(&definition).unwrap();
+    let cascade_solver = Z3Solver::resource_bounded(&definition).unwrap();
+    let oracle_solver = Z3Solver::resource_bounded(&definition).unwrap();
     let mut cascade_fresh = crate::fresh::FreshCounter::default();
     let mut oracle_fresh = crate::fresh::FreshCounter::default();
     let cascade = rewrite_step_with_mode(

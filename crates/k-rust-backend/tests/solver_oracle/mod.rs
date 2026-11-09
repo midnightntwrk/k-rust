@@ -1360,30 +1360,30 @@ pub fn configured_runner(prefix: &str) -> (TestRunner, u32, Option<u64>) {
     (runner, cases, seed)
 }
 
-/// A short wall-clock bound per Z3 check and no retry (`{prefix}_TIMEOUT_MS`, default 100), and a
-/// bound on Z3's own memory (`memory_max_size`, megabytes): both make an answer `Unknown`, which
-/// is counted and refutes nothing, so they bound the test's cost without weakening any check.
-/// Which cases are decided can then vary with the machine's load; every decided answer is checked
-/// whatever it is, so a failure is a wrong answer on any run, and the failure prints its shrunk
-/// case for a rerun.
+/// A Z3 check bounded by resource units alone, with no retry (`{prefix}_RESOURCE_LIMIT`, default
+/// the first attempt of `Z3Options::RESOURCE_BOUNDED`), and a bound on Z3's own memory
+/// (`memory_max_size`, megabytes): both make an answer `Unknown`, which is counted and refutes
+/// nothing, so they bound the test's cost without weakening any check. Neither is a clock, so
+/// which cases are decided is a function of the cases and the Z3 build, not of the machine's
+/// load: a run from one seed asks and checks the same answers on every machine, and a failure
+/// prints its shrunk case for a rerun.
 ///
-/// Not the clock-free mode (`Z3Options::resource_limit`), which `solver_translation`'s
-/// `the_symbolic_power_queries_k19_found_return_under_either_bound` covers for the queries that
-/// hung there before GAP K32 (one ran 362 s, one did not end in 300 s, a power of a power
-/// exhausted 8 GiB: GAP K19 report), when the translation read a power with a symbolic exponent
-/// as Z3's own.
+/// `solver_translation`'s `the_symbolic_power_queries_k19_found_return_under_either_bound` covers
+/// the clocked mode for the queries that hung there before GAP K32 (one ran 362 s, one did not
+/// end in 300 s, a power of a power exhausted 8 GiB: GAP K19 report), when the translation read a
+/// power with a symbolic exponent as Z3's own.
 pub fn solver(definition: &BackendDefinition, prefix: &str) -> Z3Solver {
     z3::set_global_param("memory_max_size", "256");
-    let timeout_ms = std::env::var(format!("{prefix}_TIMEOUT_MS"))
+    let resource_limit = std::env::var(format!("{prefix}_RESOURCE_LIMIT"))
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(100);
+        .or(Z3Options::RESOURCE_BOUNDED.resource_limit);
     Z3Solver::with_options(
         definition,
         Z3Options {
-            timeout_ms,
             retry_limit: 0,
-            resource_limit: None,
+            resource_limit,
+            ..Z3Options::RESOURCE_BOUNDED
         },
     )
     .expect("the solver loads the definition, its smt-lemma included")

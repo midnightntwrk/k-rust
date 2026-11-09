@@ -44,7 +44,7 @@ fn framed(d: &BackendDefinition) -> Vec<Predicate> {
 #[test]
 fn proved_map_observation_aliases_compose_under_an_opaque_scalar_function() {
     let d = definition(SOURCE);
-    let solver = Z3Solver::new(&d).unwrap();
+    let solver = Z3Solver::resource_bounded(&d).unwrap();
     let checked = [equality(
         &d,
         &format!("outer{{}}({UPDATED})"),
@@ -72,7 +72,7 @@ fn true_or_unknown_key_aliases_cannot_assume_the_preserved_base_read() {
         if alias {
             known.push(equality(&d, "K:SortInt{}", "J:SortInt{}"));
         }
-        let solver = Z3Solver::new(&d).unwrap();
+        let solver = Z3Solver::resource_bounded(&d).unwrap();
         assert_eq!(
             solver.prove_with_observation_aliases(
                 &known,
@@ -90,7 +90,7 @@ fn missing_reads_and_strict_undefined_writes_do_not_become_defined_aliases() {
     let missing = Predicate::Not(Arc::new(Predicate::Ceil(term(&d, BASE))));
     let mut known = framed(&d);
     known[0] = missing;
-    let solver = Z3Solver::new(&d).unwrap();
+    let solver = Z3Solver::resource_bounded(&d).unwrap();
     assert_eq!(
         solver.prove_with_observation_aliases(
             &known,

@@ -349,7 +349,7 @@ fn the_leaves_before_a_work_bound_leaf_are_a_prefix_of_every_larger_budget_resul
         ("c first", "rule a(K) => c(K)\n  rule a(K) => b(K)"),
     ] {
         let (kore, initial) = compile(&ABSORB.replace("{A_RULES}", a_rules), "ABSORB", "s(3)");
-        let mut backend = Backend::new(&kore, "ABSORB", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(&kore, "ABSORB", BackendOptions::RESOURCE_BOUNDED).unwrap();
         for shape in shapes {
             let [path_set, state_set] = MODALITIES.map(|modality| {
                 assert_shaped_prefix_contract(variant, &mut backend, &initial, modality, shape)
@@ -399,7 +399,7 @@ fn the_leaves_before_a_work_bound_leaf_are_a_prefix_of_every_larger_budget_resul
 #[test]
 fn a_clean_stuck_leaf_that_applies_a_function_is_not_a_final_configuration() {
     let (kore, initial) = compile(PARTIAL, "PARTIAL", "s(0)");
-    let mut backend = Backend::new(&kore, "PARTIAL", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&kore, "PARTIAL", BackendOptions::RESOURCE_BOUNDED).unwrap();
     for modality in MODALITIES {
         let unbounded = assert_prefix_contract("partial", &mut backend, &initial, modality, None);
         let [leaf] = unbounded
@@ -457,7 +457,7 @@ fn a_stuck_leaf_absorbs_a_later_bound_leaf_and_the_state_set_is_complete() {
         ("c first", "rule a(K) => c(K)\n  rule a(K) => b(K)"),
     ] {
         let (kore, initial) = compile(&ABSORB.replace("{A_RULES}", a_rules), "ABSORB", "s(3)");
-        let mut backend = Backend::new(&kore, "ABSORB", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(&kore, "ABSORB", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let path_set = run(
             &mut backend,
             &initial,
@@ -674,7 +674,7 @@ module FACTS
 endmodule
 "#;
     let (kore, initial) = compile(FACTS, "FACTS", "g2(0)");
-    let mut backend = Backend::new(&kore, "FACTS", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&kore, "FACTS", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let kinds = |leaf: &k_rust::backend::KoreExecutionLeaf| {
         let (_, facts) = diagnostics(leaf);
         let mut kinds = facts

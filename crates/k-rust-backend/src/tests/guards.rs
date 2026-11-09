@@ -1787,7 +1787,8 @@ fn z3_rule_guards(
         initial,
         options,
         |definition, initial, options| {
-            let solver = crate::smt::Z3Solver::new(definition).expect("Z3 should initialize");
+            let solver =
+                crate::smt::Z3Solver::resource_bounded(definition).expect("Z3 should initialize");
             crate::rewrite::execute_with_solver(definition, initial, options, &solver)
         },
     )

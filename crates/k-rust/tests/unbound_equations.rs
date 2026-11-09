@@ -64,7 +64,7 @@ fn backend() -> Backend {
     Backend::new(
         &compiled.definition_kore,
         "UNBOUND",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .expect("a definition with such an equation loads")
 }

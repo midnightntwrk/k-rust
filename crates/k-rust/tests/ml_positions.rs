@@ -865,11 +865,14 @@ fn observe_unguarded(
     } else {
         "P"
     };
-    let mut backend =
-        match Backend::new(&artifacts.definition_kore, main, BackendOptions::default()) {
-            Ok(backend) => backend,
-            Err(error) => return Outcome::BackendRefused(error.to_string()),
-        };
+    let mut backend = match Backend::new(
+        &artifacts.definition_kore,
+        main,
+        BackendOptions::RESOURCE_BOUNDED,
+    ) {
+        Ok(backend) => backend,
+        Err(error) => return Outcome::BackendRefused(error.to_string()),
+    };
     let mut runs = Vec::new();
     let mut proofs = Vec::new();
     match (&cell.route, &cell.expect) {

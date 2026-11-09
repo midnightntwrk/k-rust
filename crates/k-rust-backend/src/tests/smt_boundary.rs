@@ -297,15 +297,16 @@ fn an_undecided_prelude_is_a_failed_prelude_that_stops_every_later_query() {
 /// The first `Unsat` answer under an unchecked prelude is confirmed by checking the prelude; when
 /// that check cannot decide it, the query stops with the failed prelude instead of answering
 /// `Unsat`, which an inconsistent prelude would also have produced.
+///
+/// Clock-free, so that the query's `Unsat` is no race with a timer: Z3 refutes `X = 1 ∧ X = 2`
+/// within the first attempt's units, and the prelude check ends `Unknown` under any budget.
 #[test]
 fn an_unsat_answer_under_an_undecided_prelude_stops_instead_of_answering() {
     let definition = definition();
-    // Long enough for Z3 to refute `X = 1 ∧ X = 2` on a loaded machine; the prelude check still
-    // ends `Unknown` at any timeout.
     let options = Z3Options {
         timeout_ms: 25,
         retry_limit: 1,
-        resource_limit: None,
+        resource_limit: std::num::NonZeroU32::new(50_000),
     };
     let solver =
         Z3Solver::with_options_and_prelude(&definition, options, Some(UNDECIDED_PRELUDE)).unwrap();
@@ -317,9 +318,10 @@ fn an_unsat_answer_under_an_undecided_prelude_stops_instead_of_answering() {
         ),
         "{answer:?}"
     );
-    let timeouts = solver.attempt_timeouts();
+    let check = [(None, 50_000), (None, 100_000)];
+    let limits = solver.attempt_limits();
     assert!(
-        timeouts.ends_with(&doubling(25, 1)) && timeouts.len() > doubling(25, 1).len(),
-        "the query's own attempts, then the prelude check's: {timeouts:?}"
+        limits.ends_with(&check) && limits.len() > check.len(),
+        "the query's own attempts, then the prelude check's: {limits:?}"
     );
 }

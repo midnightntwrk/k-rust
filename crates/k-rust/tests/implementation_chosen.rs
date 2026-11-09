@@ -65,7 +65,7 @@ fn compile(source: &str, program: &str) -> (String, Pattern) {
 }
 
 fn backend(kore: &str) -> Backend {
-    Backend::new(kore, "MAIN", BackendOptions::default()).unwrap()
+    Backend::new(kore, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap()
 }
 
 fn request(
@@ -1985,7 +1985,7 @@ endmodule
         let result = if z3 {
             #[cfg(feature = "z3-inference")]
             {
-                let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+                let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
                 k_rust_backend::rewrite::execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status(
                     &definition,
                     vec![pattern],

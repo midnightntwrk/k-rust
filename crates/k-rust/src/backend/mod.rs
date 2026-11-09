@@ -4396,7 +4396,8 @@ mod tests {
     }
 
     /// The resource-bounded options keep the default's retries and bound the first attempt by
-    /// the calibrated budget; the wire default stays clock-bounded.
+    /// the calibrated budget, as the backend crate's own clock-free solver options do; the wire
+    /// default stays clock-bounded.
     #[test]
     fn resource_bounded_options_keep_the_default_retries() {
         let bounded = BackendOptions::RESOURCE_BOUNDED;
@@ -4404,6 +4405,15 @@ mod tests {
         assert_eq!(
             bounded.smt_retry_limit,
             BackendOptions::default().smt_retry_limit
+        );
+        #[cfg(feature = "z3-inference")]
+        assert_eq!(
+            Z3Options {
+                timeout_ms: bounded.smt_timeout_ms,
+                retry_limit: bounded.smt_retry_limit,
+                resource_limit: bounded.smt_resource_limit,
+            },
+            Z3Options::RESOURCE_BOUNDED
         );
         assert_ne!(bounded, BackendOptions::default());
         assert_eq!(
@@ -4516,7 +4526,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4535,7 +4545,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4553,7 +4563,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4574,7 +4584,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4620,7 +4630,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4637,7 +4647,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4691,7 +4701,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4798,7 +4808,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4898,7 +4908,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -4996,7 +5006,7 @@ mod tests {
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
@@ -5251,7 +5261,8 @@ mod tests {
         ];
         let mut causes = Vec::new();
         for (definition, state) in cases {
-            let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+            let mut backend =
+                Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let result = backend
                 .execute_kore(ExecuteRequest::new(kore(state)))
                 .unwrap();
@@ -5307,7 +5318,8 @@ mod tests {
                     ), done{}()
                 ) [label{}("go")]
             endmodule []"#;
-        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let result = backend
             .execute_kore(ExecuteRequest::new(kore(r#"go{}(\dv{SortInt{}}("5"))"#)))
             .unwrap();
@@ -5326,7 +5338,8 @@ mod tests {
             (NARROWING_DEFINITION, "wrap{}(Y:SortS{})", "smt"),
         ];
         for (definition, state, kind) in cases {
-            let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+            let mut backend =
+                Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let leaf = backend
                 .execute_kore(ExecuteRequest::new(kore(state)))
                 .unwrap()
@@ -5363,12 +5376,16 @@ mod tests {
     #[test]
     fn a_rewrite_rule_minting_a_set_variable_is_refused_at_load_and_by_add_module() {
         let names = |message: &str| message.contains("`@Y`") && message.contains("mint");
-        let loaded = Backend::new(SET_BINDING_DEFINITION, "MAIN", BackendOptions::default())
-            .err()
-            .expect("the definition is refused");
+        let loaded = Backend::new(
+            SET_BINDING_DEFINITION,
+            "MAIN",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .err()
+        .expect("the definition is refused");
         assert!(names(loaded.message()), "{}", loaded.message());
         let mut backend =
-            Backend::new(SET_BINDING_BASE, "MAIN", BackendOptions::default()).unwrap();
+            Backend::new(SET_BINDING_BASE, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let added = backend
             .add_module(
                 r#"module MINT import MAIN []
@@ -5384,7 +5401,7 @@ mod tests {
     }
 
     fn backend() -> Backend {
-        Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
+        Backend::new(DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap()
     }
 
     /// A request the backend refuses is refused in words that name what is wrong: the rule
@@ -5468,7 +5485,7 @@ mod tests {
             symbol a{}() : SortS{} [constructor{}()]
             symbol f{S}(S) : S [function{}(), smtlib{}("f")]
         endmodule []"#;
-        let error = Backend::new(definition, "MAIN", BackendOptions::default())
+        let error = Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .err()
             .expect("the solver is not created");
         assert_eq!(error.kind(), Some(BackendErrorKind::SolverInit), "{error}");
@@ -5881,7 +5898,8 @@ mod tests {
                 ) [label{}("cb"), trusted{}()]
             endmodule []"#;
 
-        let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let default = backend
             .prove_kore(ProveRequest {
                 claim: Some("ca".into()),
@@ -5922,7 +5940,8 @@ mod tests {
                 claim{} \implies{SortS{}}(b{}(), weakAlwaysFinally{SortS{}}(c{}()))
                     [label{}("all"), trusted{}(), UNIQUE'Unds'ID{}("shared")]
             endmodule []"#;
-        let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let result = backend
             .prove_kore(ProveRequest {
                 claim: Some("goal".into()),
@@ -5987,7 +6006,7 @@ mod tests {
         let mut backend = Backend::new(
             include_str!("../../tests/fixtures/execution-budget.kore"),
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let result = backend
@@ -6015,7 +6034,7 @@ mod tests {
         let mut backend = Backend::new(
             include_str!("../../tests/fixtures/execution-candidates.kore"),
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let result = backend
@@ -6042,7 +6061,7 @@ mod tests {
         let mut backend = Backend::new(
             include_str!("../../tests/fixtures/execution-candidates.kore"),
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let result = backend
@@ -6090,7 +6109,7 @@ mod tests {
     /// the capability are declared in TypeScript.
     #[test]
     fn the_stop_count_reaches_the_facade() {
-        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let rules = || vec!["ab".to_owned(), "bc".to_owned(), "cd".to_owned()];
         let mut run = |terminal: bool, stop_count: Option<u64>| {
             let (cut_point_rules, terminal_rules) = if terminal {
@@ -6139,7 +6158,7 @@ mod tests {
     /// naming the rule and the depth. On `a -> b -> c -> d`, every step selected.
     #[test]
     fn the_stop_condition_reaches_the_facade() {
-        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let rules = || vec!["ab".to_owned(), "bc".to_owned(), "cd".to_owned()];
         // The condition holds at `holds`, is undecided at `undecided` and refuses at `refused`.
         let mut run = |terminal: bool, count: u64, holds: &str, undecided: &str, refused: &str| {
@@ -6241,7 +6260,7 @@ mod tests {
                 self.ended.push(text(leaf.configuration()));
             }
         }
-        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let rules = || ProbeRules {
             before: ["ab".to_owned()].into(),
             after: ["bc".to_owned()].into(),
@@ -6284,7 +6303,7 @@ mod tests {
             ]
         );
         assert_eq!(probe.ended, ["d{}()"]);
-        let plain = Backend::new(CHAIN, "MAIN", BackendOptions::default())
+        let plain = Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .unwrap()
             .execute_kore(ExecuteRequest::new(kore("a{}()")))
             .unwrap();
@@ -6323,7 +6342,7 @@ mod tests {
         let mut backend = Backend::new(
             include_str!("../../tests/fixtures/execution-budget.kore"),
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let result = backend
@@ -6355,7 +6374,7 @@ mod tests {
         Backend::new(
             include_str!("../../tests/fixtures/search-diagnostics.kore"),
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap()
     }
@@ -6670,7 +6689,7 @@ mod tests {
         let mut backend = Backend::new(
             UNSUPPORTED_HOOK_DEFINITION,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
 
@@ -6727,8 +6746,12 @@ mod tests {
     #[test]
     fn persistent_backend_searches_deterministic_path_witnesses() {
         let request = SearchRequest::new(kore("initial{}()"));
-        let mut backend =
-            Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(
+            DIAMOND_DEFINITION,
+            "DIAMOND",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
         let first = backend.search_paths_kore(request.clone()).unwrap();
         let second = backend.search_paths_kore(request).unwrap();
 
@@ -6760,8 +6783,12 @@ mod tests {
         assert_eq!(state_set.matches.len(), 1);
         assert_eq!(text(state_set.matches[0].state.state.clone()), "c{}()");
 
-        let mut diamond =
-            Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
+        let mut diamond = Backend::new(
+            DIAMOND_DEFINITION,
+            "DIAMOND",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
         let path_set = diamond
             .search_pattern_paths_kore(SearchPatternRequest::new(
                 kore("initial{}()"),
@@ -6796,7 +6823,8 @@ module DROP
     \and{S{}}(pair{}(Y:S{}, a{}()), \top{S{}}())
   ) [label{}("mint")]
 endmodule []"#;
-        let mut backend = Backend::new(DEFINITION, "DROP", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(DEFINITION, "DROP", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let request = SearchPatternRequest::new(
             kore("c{}(a{}())"),
             kore("pair{}(W:S{}, ignore{}(Ex-hY-b0:S{}))"),
@@ -6844,7 +6872,8 @@ endmodule []"#;
     #[test]
     fn execute_preserves_effects_and_observed_execution_attributes_them() {
         let request = ExecuteRequest::new(kore(r#"log{}(\dv{SortString{}}("one line"))"#));
-        let mut backend = Backend::new(LOG_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(LOG_DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let ordinary = backend.execute_kore(request.clone()).unwrap();
         assert_eq!(
             ordinary.effects,
@@ -6887,7 +6916,7 @@ endmodule []"#;
         let mut backend = Backend::new(
             EFFECTFUL_BRANCH_DEFINITION,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let ordinary = backend.execute_kore(request.clone()).unwrap();
@@ -6941,7 +6970,7 @@ endmodule []"#;
         let mut backend = Backend::new(
             OBSERVATION_ERASURE_DEFINITION,
             "MAIN",
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap();
         let erase = |mut result: KoreExecutionResult| {
@@ -7031,8 +7060,12 @@ endmodule []"#;
                 })
                 .collect::<Vec<_>>()
         };
-        let mut backend =
-            Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(
+            DIAMOND_DEFINITION,
+            "DIAMOND",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
 
         let state_set = backend
             .execute_observed_kore(ObservedRequest {
@@ -7098,8 +7131,12 @@ endmodule []"#;
                     next{}(value{}())
                 ) [label{}("step")]
             endmodule []"#;
-        let mut backend =
-            Backend::new(EVALUATING_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(
+            EVALUATING_DEFINITION,
+            "MAIN",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
         let request = ExecuteRequest::new(kore("start{}()"));
         let ordinary = backend.execute_kore(request.clone()).unwrap();
 
@@ -7181,7 +7218,8 @@ endmodule []"#;
                     done{}(isZero{}(\dv{SortS{}}("z")))
                 ) [label{}("step")]
             endmodule []"#;
-        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let request = ExecuteRequest::new(kore("start{}()"));
         let selected = backend
             .execute_observed_kore(ObservedRequest {
@@ -7335,7 +7373,8 @@ endmodule
         let mut outcomes = Vec::new();
         for definition in [single, duplicated] {
             let mut backend =
-                Backend::from_internalized(definition, BackendOptions::default()).expect("backend");
+                Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED)
+                    .expect("backend");
             let result = backend.execute_kore(request.clone()).unwrap();
             let [leaf] = result.leaves.as_slice() else {
                 panic!("expected one leaf: {:?}", result.leaves);
@@ -7433,7 +7472,8 @@ endmodule
                 ) [label{{}}("budgeted-claim")]
             endmodule []"#
         );
-        let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
 
         let result = backend
             .prove_kore(ProveRequest {
@@ -7778,7 +7818,7 @@ endmodule
     fn a_deep_state_executes_on_node_s_main_thread() {
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
-                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let request = deserialize_request::<ExecuteRequest>(&format!(
                 r#"{{"state":{},"maxDepth":0}}"#,
                 wrap_json(6_000, false)
@@ -7797,7 +7837,7 @@ endmodule
     fn a_returned_state_is_accepted_again() {
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
-                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let mut state = wrap_json(1_900, true);
             for levels in [2_200, 2_500] {
                 let request = deserialize_request::<ExecuteRequest>(&format!(
@@ -7850,7 +7890,8 @@ endmodule
     fn a_deep_proof_result_is_written_inside_the_operation() {
         let definition = deep_claim_definition(DEEP_PROOF_LEVELS);
         let response = on_thread(SMALL_STACK, move || {
-            let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            let mut backend =
+                Backend::new(&definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             backend
                 .prove_json(ProveRequest {
                     max_depth: Some(1),
@@ -7865,8 +7906,12 @@ endmodule
     /// `prove_json` writes the result `prove_kore` returns.
     #[test]
     fn prove_json_writes_the_proof_result() {
-        let mut backend =
-            Backend::new(&deep_claim_definition(3), "MAIN", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(
+            &deep_claim_definition(3),
+            "MAIN",
+            BackendOptions::RESOURCE_BOUNDED,
+        )
+        .unwrap();
         let request = ProveRequest {
             max_depth: Some(1),
             ..ProveRequest::default()
@@ -7892,7 +7937,7 @@ endmodule
     fn wide_conjunctions_execute_or_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
-                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let constant = r#"{"tag":"App","name":"a","sorts":[],"args":[]}"#;
             let and =
                 r#"{"tag":"And","sort":{"tag":"SortApp","name":"SortS","args":[]},"patterns":["#;
@@ -7986,7 +8031,7 @@ endmodule
     fn deep_function_chains_simplify_on_the_stack_the_backend_provides() {
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
-                Backend::new(FUNCTION_CHAINS, "MAIN", BackendOptions::default()).unwrap();
+                Backend::new(FUNCTION_CHAINS, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             // Confined to the stack sized from the input, the bound under test.
             backend.set_simplification_stack_budget(0);
             let envelope = |term: &str| format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
@@ -8054,7 +8099,8 @@ endmodule
                 ) [label{}("lenb-cons")]
                 endmodule []"#,
             );
-            let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            let mut backend =
+                Backend::new(&definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
             // Confined to the stack sized from the input, the bound under test.
             backend.set_simplification_stack_budget(0);
             let levels = BEYOND_THE_THREAD;

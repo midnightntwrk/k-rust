@@ -739,7 +739,7 @@ pub fn cell_ids() -> &'static BTreeMap<String, &'static str> {
             execution_rewrite_order,
         )
         .unwrap_or_else(|error| panic!("the maze: {error:?}"));
-        let backend = Backend::from_internalized(internalized, BackendOptions::default())
+        let backend = Backend::from_internalized(internalized, BackendOptions::RESOURCE_BOUNDED)
             .unwrap_or_else(|error| panic!("the maze: {error:?}"));
         let catalog = backend
             .rule_catalog(None)

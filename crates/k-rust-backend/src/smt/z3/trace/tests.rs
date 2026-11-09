@@ -185,7 +185,12 @@ fn a_traced_query_answers_as_untraced_and_replays_to_its_answers() {
         .join()
         .unwrap()
     };
-    let clocked = Z3Options::default();
+    // A clocked ladder whose clock never ends an attempt: the query decides in under 1,000
+    // units, far within a minute, so the traced, untraced and replayed answers compare.
+    let clocked = Z3Options {
+        timeout_ms: 60_000,
+        ..Z3Options::default()
+    };
     for (options, script) in [
         (retried(), FACTORING_QUERY),
         (clocked, PATH_SENSITIVE_QUERY),
@@ -273,7 +278,7 @@ fn a_traced_query_answers_as_untraced_and_replays_to_its_answers() {
 fn a_rejected_script_is_recorded() {
     let scratch = Scratch::new("rejected");
     let script = "(assert (> undeclared 0))";
-    let solver = Z3Solver::new(&definition()).unwrap();
+    let solver = Z3Solver::resource_bounded(&definition()).unwrap();
     with_directory(Some(&scratch.0), false, || {
         assert!(matches!(solver.solve_uncached(script), Ok(Err(_))));
     });

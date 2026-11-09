@@ -322,7 +322,7 @@ fn blocked_total_function_does_not_narrow_a_ground_configuration() {
 fn blocked_total_function_does_not_narrow_a_ground_configuration_with_z3() {
     let definition = nil_cons_definition();
     let subject = ground_case_configuration(&definition);
-    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
     assert_one_failed_successor(
         &definition,
         crate::support::unstopped::rewrite_step_with_solver(

@@ -31,8 +31,8 @@ fn results(budget: Option<usize>) -> Vec<serde_json::Value> {
     std::thread::Builder::new()
         .stack_size(8 << 20)
         .spawn(move || {
-            let mut backend =
-                Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
+            let mut backend = Backend::new(DEEP, "MAIN", BackendOptions::RESOURCE_BOUNDED)
+                .expect("the backend loads");
             if let Some(budget) = budget {
                 backend.set_simplification_stack_budget(budget);
             }
@@ -107,7 +107,8 @@ fn a_run_without_stack_stops_reports_none() {
 
 #[test]
 fn the_backend_advertises_its_stack_stop_count() {
-    let backend = Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
+    let backend =
+        Backend::new(DEEP, "MAIN", BackendOptions::RESOURCE_BOUNDED).expect("the backend loads");
     assert!(backend.capabilities().stack_stops);
 }
 
@@ -122,7 +123,7 @@ fn a_state_matcher_stack_stop_is_counted_on_its_summary() {
         .stack_size(8 << 20)
         .spawn(|| {
             let mut backend =
-                Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
+                Backend::new(DEEP, "MAIN", BackendOptions::RESOURCE_BOUNDED).expect("the backend loads");
             backend.set_simplification_stack_budget(0);
             let request = ExecuteRequest {
                 match_states: Some(k_rust::backend::StateMatchRequest {
@@ -166,7 +167,7 @@ fn a_state_match_is_bounded_by_the_step_deadline() {
         .stack_size(8 << 20)
         .spawn(|| {
             let mut backend =
-                Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
+                Backend::new(DEEP, "MAIN", BackendOptions::RESOURCE_BOUNDED).expect("the backend loads");
             let request = ExecuteRequest {
                 step_timeout_ms: Some(5),
                 match_states: Some(k_rust::backend::StateMatchRequest {

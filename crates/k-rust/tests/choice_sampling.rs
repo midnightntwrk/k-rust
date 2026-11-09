@@ -346,7 +346,7 @@ fn run_counting(program: &Program, seed: Option<u64>) -> (Run, Choices) {
     let go = || {
         choice_sampling::take_counts();
         let (kore, initial) = compile(program.source, program.program);
-        let mut backend = Backend::new(&kore, "MAIN", BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(&kore, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let definition = backend.select_definition(None).unwrap();
         let pattern = definition
             .admit_unverified(&initial, &[])

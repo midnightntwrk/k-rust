@@ -54,7 +54,7 @@ endmodule
 
 fn definition() -> std::sync::Arc<BackendDefinition> {
     let kore = compile(CLAIMS, "CLAIMS");
-    let mut backend = Backend::new(&kore, "CLAIMS", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&kore, "CLAIMS", BackendOptions::RESOURCE_BOUNDED).unwrap();
     backend.select_definition(None).unwrap()
 }
 
@@ -232,7 +232,7 @@ endmodule
 
     /// [`backend`] for main module `main`.
     pub(super) fn backend_in(kore: &str, main: &str) -> Backend {
-        Backend::new(kore, main, BackendOptions::default()).unwrap()
+        Backend::new(kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap()
     }
 
     /// One record as a consumer reads it: the claim, the contradicted symbol's K label, the
@@ -2341,17 +2341,12 @@ mod checks_off {
     /// The SMT options of every run. The oracle compares `smt.rlimit_count`, the Z3 work of the
     /// run's checks, which is a function of the queries only while no attempt is cut short: an
     /// attempt the wall clock ends answers unknown and is retried, and both attempts count. With
-    /// the default 125 ms timeout a loaded host ends attempts that need microseconds of solver
-    /// work (one claim-free pair once counted 690 units on one side and 1,018 on the other,
-    /// every other counter equal). A 60 s timeout leaves the clock no say, and the resource
-    /// limit each attempt also carries, proportional to the timeout, saturates at Z3's largest
-    /// (about 4.3e9 units), while a run here counts about a thousand; so every query is decided
-    /// on its first attempt, as it is unloaded, and the count is the queries' own.
-    const SOLVER_OPTIONS: BackendOptions = BackendOptions {
-        smt_timeout_ms: 60_000,
-        smt_retry_limit: 3,
-        smt_resource_limit: None,
-    };
+    /// the default 125 ms timeout a loaded host ends attempts that need microseconds of solver work
+    /// (one claim-free pair once counted 690 units on one side and 1,018 on the other, every other
+    /// counter equal). The clock-free options bound each attempt by Z3's own resource units, which
+    /// no load changes, and a run here counts about a thousand, far within the first attempt's
+    /// 370,000; so every query is decided on its first attempt and the count is the queries' own.
+    const SOLVER_OPTIONS: BackendOptions = BackendOptions::RESOURCE_BOUNDED;
 
     /// The backend of `kore` with main module `main`, under [`SOLVER_OPTIONS`].
     fn backend_in(kore: &str, main: &str) -> Backend {

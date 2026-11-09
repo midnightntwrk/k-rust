@@ -16,12 +16,12 @@
 //! rate is printed. The oracle's three-valued `\exists` keeps "unknown" out of the comparison.
 //!
 //! Each case runs the simplifier three times: under `NoSolver` with the default options, under
-//! the Z3 solver `solver_translation` uses (100 ms, 256 MB, no retry) with the default options,
+//! the Z3 solver `solver_translation` uses (370,000 resource units, 256 MB, no retry) with the default options,
 //! and under that solver with a small iteration budget kept partial (the case's `budget`).
 //!
 //! By default 512 cases from a fixed seed. Run deeper with `PROPTEST_CASES=20000`, from another
-//! seed with `SIMPLIFIER_EQUIVALENCE_SEED=<u64>`, with a longer Z3 check bound with
-//! `SIMPLIFIER_EQUIVALENCE_TIMEOUT_MS` (default 100), with symbolic `^Int` exponents (which can
+//! seed with `SIMPLIFIER_EQUIVALENCE_SEED=<u64>`, with a larger Z3 check bound in resource units with
+//! `SIMPLIFIER_EQUIVALENCE_RESOURCE_LIMIT` (default 370,000), with symbolic `^Int` exponents (which can
 //! make a Z3 check that no bound stops, `solver_oracle::power_exponent`) with
 //! `SIMPLIFIER_EQUIVALENCE_SYMBOLIC_EXPONENTS=1`, and print every case, each output and its time
 //! with `SIMPLIFIER_EQUIVALENCE_TRACE=1`. A failure prints the shrunk `P`, `F` and `P'`, the
@@ -52,7 +52,7 @@ use proptest::{
 };
 use solver_oracle::*;
 
-/// The prefix of this target's knobs (`SIMPLIFIER_EQUIVALENCE_SEED`, `_TIMEOUT_MS`,
+/// The prefix of this target's knobs (`SIMPLIFIER_EQUIVALENCE_SEED`, `_RESOURCE_LIMIT`,
 /// `_SYMBOLIC_EXPONENTS`, `_TRACE`).
 const KNOBS: &str = "SIMPLIFIER_EQUIVALENCE";
 

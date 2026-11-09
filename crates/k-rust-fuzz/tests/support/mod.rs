@@ -389,7 +389,7 @@ impl Compiled {
             &self.artifacts.execution_rewrite_order,
         )
         .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file));
-        Backend::from_internalized(definition, BackendOptions::default())
+        Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED)
             .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
     }
 
@@ -403,7 +403,7 @@ impl Compiled {
         Backend::from_definition(
             self.kore.clone(),
             self.fixture.main_module,
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
     }
@@ -483,7 +483,7 @@ impl Compiled {
         Backend::from_definition(
             self.kore_with_axiom_attribute(label, "non-executable{}()"),
             self.fixture.main_module,
-            BackendOptions::default(),
+            BackendOptions::RESOURCE_BOUNDED,
         )
         .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
     }

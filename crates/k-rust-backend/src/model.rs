@@ -168,7 +168,7 @@ mod tests {
         let syntax = parse_definition(MODEL_DEFINITION).expect("model definition should parse");
         let definition = BackendDefinition::internalize(&syntax, "MAIN")
             .expect("model definition should internalize");
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let pattern = parse_pattern(source).expect("model predicate should parse");
         let (predicate, _) = definition
             .verify_standalone_pattern(&pattern, &[])

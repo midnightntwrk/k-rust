@@ -226,7 +226,7 @@ mod tests {
                             Predicate::Ceil(typed.clone()),
                             Predicate::Equals(typed, Term::int(7)),
                         ];
-                        let solver = Z3Solver::new(&definition).unwrap();
+                        let solver = Z3Solver::resource_bounded(&definition).unwrap();
                         for guard in &guards {
                             assert_eq!(
                                 solver
@@ -340,7 +340,7 @@ mod tests {
             Predicate::Ceil(typed.clone()),
             Predicate::Equals(typed, Term::int(7)),
         ];
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         assert_eq!(
             solver
                 .check_predicates(&known, &Substitution::new(), &guards)
@@ -404,7 +404,7 @@ mod tests {
         let subject = term(&definition, "M:SortMap{}");
         let key = Variable::new("K", Sort::simple("SortInt"));
         let value = Variable::new("X", Sort::simple("SortInt"));
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         let typed = term(
             &definition,
             "project{}(kseq{}(get{}(M:SortMap{},inj{SortInt{},SortKItem{}}(Address:SortInt{})),dotk{}()))",
@@ -487,7 +487,7 @@ mod tests {
             r#"project{}(kseq{}(get{}(M:SortMap{},inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("0"))),dotk{}()))"#,
         );
         assert_eq!(
-            Z3Solver::new(&definition)
+            Z3Solver::resource_bounded(&definition)
                 .unwrap()
                 .check_predicates(
                     &[

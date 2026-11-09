@@ -379,7 +379,7 @@ fn a_source_helper_word_candidate_replays_on_a_fresh_backend() {
             execution_rewrite_order,
         )
         .unwrap();
-        Backend::from_internalized(internal, BackendOptions::default()).unwrap()
+        Backend::from_internalized(internal, BackendOptions::RESOURCE_BOUNDED).unwrap()
     };
     let rule = fresh()
         .rule_catalog(None)

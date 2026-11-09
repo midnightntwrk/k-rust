@@ -81,7 +81,7 @@ impl Definition {
     }
 
     fn backend(&self) -> Backend {
-        Backend::new(&self.kore, MAIN, BackendOptions::default()).unwrap()
+        Backend::new(&self.kore, MAIN, BackendOptions::RESOURCE_BOUNDED).unwrap()
     }
 
     fn id(&self, label: &str) -> String {

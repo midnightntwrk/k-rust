@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn a_verified_admission_rejects_a_variable_at_two_sorts() {
-        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::default())
+        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .expect("model definition should internalize");
         let syntax = parse_pattern(ONE_NAME_TWO_SORTS).expect("predicate should parse");
         let model = backend
@@ -283,7 +283,7 @@ mod tests {
     /// and `Unsat`.
     #[test]
     fn a_term_conjunct_below_an_existential_is_dropped_for_a_model() {
-        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::default())
+        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .expect("model definition should internalize");
         let equals = |value: i64| {
             format!(

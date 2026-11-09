@@ -48,7 +48,7 @@ fn matched(target: &str, searching: bool) -> String {
     let mut backend = Backend::from_definition(
         parse_definition(DEFINITION).unwrap(),
         "TEST",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     let definition = backend.select_definition(None).unwrap();
@@ -104,7 +104,7 @@ fn execution_then_match_mints_apart_from_the_target() {
         let printed = matched("pair{}(Y:SortS{}, Ex-hX-b0:SortT{})", searching);
         let parsed = parse_pattern(&printed).unwrap();
         let mut backend =
-            Backend::new(DEFINITION, "TEST", BackendOptions::default()).expect("definition");
+            Backend::new(DEFINITION, "TEST", BackendOptions::RESOURCE_BOUNDED).expect("definition");
         let _ = backend
             .select_definition(None)
             .unwrap()
@@ -162,7 +162,7 @@ fn default_target_answers(
     let mut backend = Backend::from_definition(
         parse_definition(SEARCH_DEFINITION).unwrap(),
         "TEST",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     let definition = backend.select_definition(None).unwrap();
@@ -201,8 +201,8 @@ fn default_target_answers(
         .unwrap();
     let response = result.pattern.to_pattern();
     let printed = Printer::compact().print_pattern(&response);
-    let mut verifier =
-        Backend::new(SEARCH_DEFINITION, "TEST", BackendOptions::default()).expect("definition");
+    let mut verifier = Backend::new(SEARCH_DEFINITION, "TEST", BackendOptions::RESOURCE_BOUNDED)
+        .expect("definition");
     let _ = verifier
         .select_definition(None)
         .unwrap()

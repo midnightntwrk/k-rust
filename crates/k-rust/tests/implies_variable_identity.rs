@@ -12,7 +12,7 @@ module TEST
 endmodule []"#;
 
 fn implication_output(antecedent: &str, consequent: &str) -> serde_json::Value {
-    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let antecedent = parse_pattern(antecedent).unwrap();
     let consequent = parse_pattern(consequent).unwrap();
     let (verdict, sort) = backend
@@ -67,7 +67,7 @@ module TEST
 endmodule []"#;
 
 fn two_values_implication(antecedent: &str, consequent: &str) -> (String, serde_json::Value) {
-    let mut backend = Backend::new(TWO_VALUES, "TEST", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(TWO_VALUES, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let antecedent = parse_pattern(antecedent).unwrap();
     let consequent = parse_pattern(consequent).unwrap();
     let (verdict, sort) = backend

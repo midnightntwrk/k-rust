@@ -217,7 +217,7 @@ fn assert_each_case_listed(position: Position) {
     let mut backend = Backend::new(
         &artifacts.definition_kore,
         "MAIN",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     for (index, (hook, application)) in CASES.iter().enumerate() {
@@ -386,7 +386,7 @@ endmodule
     let mut backend = Backend::new(
         &artifacts.definition_kore,
         "MAIN",
-        BackendOptions::default(),
+        BackendOptions::RESOURCE_BOUNDED,
     )
     .unwrap();
     for (program, listed) in [("go(1)", None), ("get(0)", Some("IO.getc"))] {

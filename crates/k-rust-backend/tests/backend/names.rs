@@ -360,7 +360,7 @@ fn pattern(definition: &BackendDefinition, source: &str) -> Pattern {
 
 #[cfg(feature = "z3")]
 fn solver(definition: &BackendDefinition) -> Box<dyn SmtSolver> {
-    Box::new(k_rust_backend::smt::Z3Solver::new(definition).expect("Z3 should start"))
+    Box::new(k_rust_backend::smt::Z3Solver::resource_bounded(definition).expect("Z3 should start"))
 }
 
 #[cfg(not(feature = "z3"))]

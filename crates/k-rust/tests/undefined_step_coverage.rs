@@ -160,7 +160,12 @@ fn compile() -> String {
 
 /// A fresh backend over the shared definition, so no test observes another's backend state.
 fn backend() -> Backend {
-    Backend::new(&definition_kore(), "UNDEF", BackendOptions::default()).unwrap()
+    Backend::new(
+        &definition_kore(),
+        "UNDEF",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap()
 }
 
 fn top(program: &str) -> String {
@@ -1479,7 +1484,8 @@ mod matrix {
         modality: ResultModalityOutput,
         stops: Stops,
     ) -> Vec<Row> {
-        let mut backend = Backend::new(&matrix_kore(), "FU42", BackendOptions::default()).unwrap();
+        let mut backend =
+            Backend::new(&matrix_kore(), "FU42", BackendOptions::RESOURCE_BOUNDED).unwrap();
         let rule = |letter: char| format!("FU42.{program}{letter}");
         let mut request = ExecuteRequest {
             result_modality: modality,
@@ -2210,7 +2216,7 @@ endmodule
         let mut wrong = Vec::new();
         for (program, constraints, samples, stops_list, expect) in cases {
             let (kore, start) = shape_initial(program, &constraints);
-            let mut backend = Backend::new(&kore, "P", BackendOptions::default()).unwrap();
+            let mut backend = Backend::new(&kore, "P", BackendOptions::RESOURCE_BOUNDED).unwrap();
             if !backend.capabilities().smt {
                 // Without a solver the symbolic conditions are undecided.
                 return;
@@ -2319,7 +2325,7 @@ endmodule
         let mut wrong = Vec::new();
         for (program, route, shape) in programs() {
             let mut backend =
-                Backend::new(&matrix_kore(), "FU42", BackendOptions::default()).unwrap();
+                Backend::new(&matrix_kore(), "FU42", BackendOptions::RESOURCE_BOUNDED).unwrap();
             let request = |search_type| SearchRequest {
                 search_type,
                 max_depth: Some(10),

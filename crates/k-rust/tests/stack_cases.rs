@@ -197,8 +197,9 @@ fn execute_deep_evaluation(levels: usize, budget: Option<usize>) -> Result<Strin
     std::thread::Builder::new()
         .stack_size(THREAD_STACK)
         .spawn(move || {
-            let mut backend = Backend::new(DEEP_EVALUATION, "MAIN", BackendOptions::default())
-                .expect("the definition loads");
+            let mut backend =
+                Backend::new(DEEP_EVALUATION, "MAIN", BackendOptions::RESOURCE_BOUNDED)
+                    .expect("the definition loads");
             if let Some(budget) = budget {
                 backend.set_simplification_stack_budget(budget);
             }
@@ -444,7 +445,7 @@ fn a_state_holding_a_million_entry_list_executes_to_a_pattern_on_an_8_mib_thread
         for value in (0..entries - 1).rev() {
             list = apply("listConcat", vec![element(value), list]);
         }
-        let mut backend = Backend::new(LIST_STATE, "MAIN", BackendOptions::default())
+        let mut backend = Backend::new(LIST_STATE, "MAIN", BackendOptions::RESOURCE_BOUNDED)
             .expect("the definition loads");
         let mut request = ExecuteRequest::new(apply("wrap", vec![list]));
         request.max_depth = Some(0);

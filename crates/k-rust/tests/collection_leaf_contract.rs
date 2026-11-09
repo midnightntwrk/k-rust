@@ -105,7 +105,7 @@ fn compile(source: &str, main: &str) -> String {
 }
 
 fn backend() -> Backend {
-    Backend::new(&definition_kore(), "COLL", BackendOptions::default()).unwrap()
+    Backend::new(&definition_kore(), "COLL", BackendOptions::RESOURCE_BOUNDED).unwrap()
 }
 
 fn top(k: &str) -> String {
@@ -696,7 +696,7 @@ fn violations_with(axiom: &str) -> Vec<ViolationKind> {
         "module ROLES\n  imports INT\n  imports BOOL\n  imports LIST\n  imports SET\n  syntax Prog ::= start(Int) | done(List, Set)\n  {axiom}\n  configuration <k> $PGM:Prog </k>\n  rule start(I) => done(ListItem(I), SetItem(I))\nendmodule\n"
     );
     let kore = compile(&source, "ROLES");
-    let mut backend = Backend::new(&kore, "ROLES", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(&kore, "ROLES", BackendOptions::RESOURCE_BOUNDED).unwrap();
     let definition = definition(&mut backend);
     definition
         .value_claims()

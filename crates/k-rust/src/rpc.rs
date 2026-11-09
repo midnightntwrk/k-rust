@@ -606,7 +606,7 @@ impl RpcService {
     #[cfg(test)]
     pub(super) fn new(session: BackendSession) -> Self {
         Self::with_backend(
-            Backend::from_session(session, BackendOptions::default(), None)
+            Backend::from_session(session, BackendOptions::RESOURCE_BOUNDED, None)
                 .expect("test backend should initialize"),
         )
     }
@@ -3464,7 +3464,12 @@ endmodule
         .unwrap();
         let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
         RpcService::with_backend(
-            Backend::new(&compiled.definition_kore, "HZ", BackendOptions::default()).unwrap(),
+            Backend::new(
+                &compiled.definition_kore,
+                "HZ",
+                BackendOptions::RESOURCE_BOUNDED,
+            )
+            .unwrap(),
         )
     }
 
@@ -3526,7 +3531,7 @@ endmodule
                 ) [label{}("cd")]
             endmodule []"#;
         let mut service = RpcService::with_backend(
-            k_rust::backend::Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap(),
+            k_rust::backend::Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap(),
         );
         let state = encode_kore(&parse_pattern("a{}()").unwrap()).unwrap();
         let rules = json!(["ab", "bc", "cd"]);
@@ -3596,7 +3601,7 @@ endmodule
             Backend::new(
                 &compiled.definition_kore,
                 "ORDREQ",
-                BackendOptions::default(),
+                BackendOptions::RESOURCE_BOUNDED,
             )
             .unwrap(),
         )
@@ -3678,7 +3683,7 @@ endmodule
             Backend::new(
                 &compiled.definition_kore,
                 "MIXED",
-                BackendOptions::default(),
+                BackendOptions::RESOURCE_BOUNDED,
             )
             .unwrap(),
         )
@@ -5035,7 +5040,7 @@ endmodule
         )
         .unwrap();
         let mut service = RpcService::with_backend(
-            Backend::from_definition(syntax, "MAIN", BackendOptions::default())
+            Backend::from_definition(syntax, "MAIN", BackendOptions::RESOURCE_BOUNDED)
                 .expect("an unused SMT prelude does not affect initialization"),
         );
         let zero_query = request(
@@ -5172,7 +5177,7 @@ endmodule
             Backend::from_definition(
                 parse_definition(STUCK_UNDER_AN_INCONSISTENT_PRELUDE).unwrap(),
                 "MAIN",
-                BackendOptions::default(),
+                BackendOptions::RESOURCE_BOUNDED,
             )
             .expect("an unused SMT prelude does not affect initialization")
         };

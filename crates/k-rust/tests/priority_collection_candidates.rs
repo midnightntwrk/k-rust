@@ -126,7 +126,7 @@ fn verdict(backend: &mut Backend, leaf: &KoreExecutionLeaf, conditions: &[String
 }
 
 fn backend() -> Backend {
-    Backend::new(&compile(SOURCE), "PICK", BackendOptions::default()).unwrap()
+    Backend::new(&compile(SOURCE), "PICK", BackendOptions::RESOURCE_BOUNDED).unwrap()
 }
 
 /// The leaves of `go(X, Y)` under `strategy` whose state is a successor of the step.
@@ -257,8 +257,12 @@ endmodule
 /// whose result is defined, and is undefined (`trivial`, never `low`'s) when no match has one.
 #[test]
 fn a_ground_instance_skips_a_match_whose_result_is_undefined() {
-    let mut backend =
-        Backend::new(&compile(UNDEFINED_FIRST), "PICK", BackendOptions::default()).unwrap();
+    let mut backend = Backend::new(
+        &compile(UNDEFINED_FIRST),
+        "PICK",
+        BackendOptions::RESOURCE_BOUNDED,
+    )
+    .unwrap();
     let ground = |value: &str| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
         for (first, second) in [("0", "5"), ("5", "0")] {

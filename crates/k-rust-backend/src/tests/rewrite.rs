@@ -495,7 +495,7 @@ fn requires_definedness_unless_the_configuration_is_assumed_defined() {
         term: internal_term(&definition, r#"wrap{}(partial{}(\dv{SortS{}}("value")))"#),
         constraints: Vec::new(),
     };
-    let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+    let solver = crate::smt::Z3Solver::resource_bounded(&definition).unwrap();
     let mut fresh = crate::fresh::FreshCounter::default();
 
     let RewriteResult::Branch {

@@ -685,7 +685,7 @@ mod tests {
                 Some((ops.tail(list.clone(), count).unwrap(), vec![])),
             );
             assert_eq!(
-                Z3Solver::new(&definition)
+                Z3Solver::resource_bounded(&definition)
                     .unwrap()
                     .check_predicates(
                         &known,
@@ -855,7 +855,7 @@ mod tests {
                 ops.get(list.clone(), 1).unwrap(),
             ),
         ];
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         assert_eq!(
             solver
                 .check_predicates(&known, &Substitution::new(), &checked)
@@ -952,7 +952,7 @@ mod tests {
         let list = term(&definition, "L:SortList{}");
         let past = ops.tail(list.clone(), 2).unwrap();
         let twice = ops.tail(ops.tail(list.clone(), 1).unwrap(), 1).unwrap();
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         let validity = |known: &[Predicate], checked: Predicate| {
             solver
                 .check_predicates(known, &Substitution::new(), &[checked])
@@ -1026,7 +1026,7 @@ mod tests {
         );
         let read = ops.get(source, 0).unwrap();
         let known = [Predicate::Not(Arc::new(Predicate::Ceil(partial)))];
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         assert_eq!(
             solver
                 .is_sat(&known, &Substitution::new())
@@ -1064,7 +1064,7 @@ mod tests {
             .list_operations(&Sort::simple("SortList"))
             .unwrap();
         let list = term(&definition, "L:SortList{}");
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         let empty = Term::list(ops.collection.clone(), vec![], None);
         assert_eq!(
             solver
@@ -1172,7 +1172,7 @@ mod tests {
             Some(&ops.tail(list.clone(), 2).unwrap())
         );
         assert!(!bindings.contains_key(&Variable::new("L", Sort::simple("SortList"))));
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         assert_eq!(
             solver
                 .check_predicates(

@@ -70,7 +70,7 @@ fn a_module_first_loaded_by_a_cancelled_request_is_cached_with_its_rules_dischar
     );
     let state = parse_pattern("state{}()").expect("the state parses");
     let mut backend =
-        Backend::new(&two, "OTHER", BackendOptions::default()).expect("the backend loads");
+        Backend::new(&two, "OTHER", BackendOptions::RESOURCE_BOUNDED).expect("the backend loads");
     assert!(
         !backend.is_loaded("MAIN"),
         "MAIN is loaded only when a request names it"
@@ -91,7 +91,7 @@ fn a_module_first_loaded_by_a_cancelled_request_is_cached_with_its_rules_dischar
         .select_definition(Some("MAIN"))
         .expect("MAIN is loaded");
     let mut fresh =
-        Backend::new(&two, "OTHER", BackendOptions::default()).expect("the backend loads");
+        Backend::new(&two, "OTHER", BackendOptions::RESOURCE_BOUNDED).expect("the backend loads");
     let fresh = fresh.select_definition(Some("MAIN")).expect("MAIN loads");
     assert_eq!(discharged(&fresh), [true]);
     assert_eq!(discharged(&cached), discharged(&fresh));

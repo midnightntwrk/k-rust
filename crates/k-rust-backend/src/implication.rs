@@ -3328,7 +3328,7 @@ mod tests {
         };
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         let antecedent = Pattern {
             term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
@@ -3379,7 +3379,7 @@ mod tests {
         };
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let consequents = [
             pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#),
             pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("2"))"#),
@@ -3433,7 +3433,7 @@ mod tests {
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         let antecedent = |condition: Predicate| Pattern {
             term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
@@ -3726,7 +3726,7 @@ mod tests {
     #[test]
     fn decides_free_variables_introduced_by_the_consequent() {
         let definition = definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
         let check = |antecedent: &Pattern, consequent: &Pattern| {
@@ -3774,7 +3774,7 @@ mod tests {
     #[test]
     fn antecedent_existentials_do_not_capture_consequent_universals() {
         let definition = definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let pair = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
 
@@ -4385,7 +4385,7 @@ mod tests {
             r#"pair{}(X:SortInt{}, sub{}(Y:SortInt{}, \dv{SortInt{}}("1")))"#,
         );
         let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
 
         let result = check_implication_with_existentials(
             &definition,
@@ -4531,7 +4531,7 @@ mod tests {
     #[test]
     fn negated_existential_implication_is_invariant_under_bound_variable_renaming() {
         let definition = definition();
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         let constrained = |name: &str, value: &str| {
             let mut result = pattern(&definition, r#"\dv{SortInt{}}("1")"#);
             result
@@ -4560,7 +4560,7 @@ mod tests {
     #[test]
     fn negated_existential_implication_preserves_free_variables_under_renaming() {
         let definition = definition();
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = Z3Solver::resource_bounded(&definition).unwrap();
         let constrained = |bound: &str, free: &str| {
             let mut result = pattern(&definition, "pair{}(F:SortInt{}, G:SortInt{})");
             result
@@ -4810,7 +4810,7 @@ mod tests {
 
         #[cfg(feature = "z3")]
         {
-            let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+            let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
             let result = check_complete(&definition, &antecedent, &partial, &solver)
                 .expect("implication should be checked");
             assert_ne!(result.status(), ImplicationStatus::Valid, "{result:#?}");
@@ -4894,7 +4894,7 @@ mod tests {
     #[test]
     fn complete_policy_reports_invalid_only_for_an_antecedent_shown_nonempty() {
         let definition = bitwise_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
 
         let result = check_complete(
             &definition,
@@ -4953,7 +4953,7 @@ mod tests {
     #[test]
     fn complete_policy_reports_a_term_mismatch_only_for_an_antecedent_shown_nonempty() {
         let definition = bitwise_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let consequent = pattern(&definition, "other{}(Y:SortInt{})");
 
         for (op, status) in [
@@ -4984,7 +4984,7 @@ mod tests {
     #[test]
     fn complete_policy_reports_a_counterexample_only_when_it_is_shown() {
         let definition = bitwise_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let consequent = pattern(&definition, r#"stay{}(\dv{SortInt{}}("5"))"#);
 
         let result = check_complete(
@@ -5016,7 +5016,7 @@ mod tests {
     #[test]
     fn a_bottom_consequent_is_invalid_only_for_an_antecedent_shown_nonempty() {
         let definition = bitwise_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let antecedent = parse_pattern("stay{}(X:SortInt{})").expect("antecedent should parse");
         let consequent =
             parse_pattern(r#"\bottom{SortKItem{}}()"#).expect("consequent should parse");
@@ -5092,7 +5092,7 @@ mod tests {
     #[test]
     fn complete_policy_reports_invalid_only_over_inhabited_variable_sorts() {
         let definition = bitwise_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let consequent = pattern(&definition, "other{}(Y:SortInt{})");
         for (antecedent, status) in [
             ("hold{}(V:SortVoid{})", ImplicationStatus::Indeterminate),
@@ -5121,7 +5121,7 @@ mod tests {
         antecedent: Pattern,
         consequent: &str,
     ) -> ImplicationStatus {
-        let solver = Z3Solver::new(definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(definition).expect("Z3 should initialize");
         let consequent = parse_pattern(consequent).expect("consequent should parse");
         check_negated_consequent(
             definition,
@@ -5276,7 +5276,7 @@ mod tests {
     #[test]
     fn a_consequent_condition_over_a_partial_term_is_not_valid() {
         let definition = partial_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         let mut answers = Vec::new();
         for value in PARTIAL_VALUES {
@@ -5317,7 +5317,7 @@ mod tests {
                     )
                 ) [label{}("div-defined"), simplification{}()]"#,
         );
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         antecedent.constraints.push(holds(
             &definition,
@@ -5343,7 +5343,7 @@ mod tests {
     #[test]
     fn an_existential_witness_over_a_partial_term_is_not_valid() {
         let definition = partial_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let e = Variable::new("E", Sort::simple("SortInt"));
         let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         let mut answers = Vec::new();
@@ -5419,7 +5419,7 @@ mod tests {
     #[test]
     fn an_antecedent_term_defines_the_partial_terms_it_contains() {
         let definition = partial_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let y = Variable::new("Y", Sort::simple("SortInt"));
         let existentials = BTreeSet::from([y]);
         for value in PARTIAL_VALUES {
@@ -5462,7 +5462,7 @@ mod tests {
     #[test]
     fn an_antecedent_constraint_defines_the_partial_terms_it_contains() {
         let definition = partial_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let value = PARTIAL_VALUES[1];
         let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         antecedent.constraints.push(holds(
@@ -5590,7 +5590,7 @@ mod tests {
     #[test]
     fn an_antecedent_whose_constraints_leave_its_term_undefined_implies_anything() {
         let definition = map_frame_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let antecedent = map_frame_state(
             &definition,
             Predicate::Not(Arc::new(Predicate::Equals(
@@ -5627,7 +5627,7 @@ mod tests {
     #[test]
     fn a_map_frame_antecedent_with_instances_still_refutes_its_consequent() {
         let definition = map_frame_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let antecedent = map_frame_state(
             &definition,
             Predicate::Equals(
@@ -5678,7 +5678,7 @@ mod tests {
         };
         check(&NoSolver);
         #[cfg(feature = "z3")]
-        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+        check(&Z3Solver::resource_bounded(&definition).expect("Z3 should initialize"));
     }
 
     /// `A -> \bottom` holds exactly when `A` is empty, also when only the definedness of its term
@@ -5689,7 +5689,7 @@ mod tests {
     #[test]
     fn a_bottom_consequent_holds_for_an_antecedent_whose_constraints_leave_its_term_undefined() {
         let definition = map_frame_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let is_false = Predicate::Equals(
             term(&definition, ONE_IN_KEYS),
             term(&definition, r#"\dv{SortBool{}}("false")"#),
@@ -5733,7 +5733,7 @@ mod tests {
         };
         check(&NoSolver);
         #[cfg(feature = "z3")]
-        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+        check(&Z3Solver::resource_bounded(&definition).expect("Z3 should initialize"));
     }
 
     /// `A -> C` holds when every instance of `A` lies in `C`, so an `A` with no instance implies a
@@ -5747,7 +5747,7 @@ mod tests {
     #[test]
     fn an_empty_antecedent_implies_a_consequent_whose_term_it_does_not_match() {
         let definition = map_frame_definition();
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let is_false = Predicate::Equals(
             term(&definition, ONE_IN_KEYS),
             term(&definition, r#"\dv{SortBool{}}("false")"#),
@@ -5796,7 +5796,7 @@ mod tests {
         };
         check(&NoSolver);
         #[cfg(feature = "z3")]
-        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+        check(&Z3Solver::resource_bounded(&definition).expect("Z3 should initialize"));
     }
 
     /// `A -> \not C` holds when `A /\ C` is empty, which an empty `A` makes it. The conjunction of
@@ -5833,7 +5833,7 @@ mod tests {
         };
         check(&NoSolver);
         #[cfg(feature = "z3")]
-        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+        check(&Z3Solver::resource_bounded(&definition).expect("Z3 should initialize"));
     }
 
     /// `pair(X, 1) ∧ h(X) <=Int 0 ∧ 1 <=Int X`, where the equation `h(X) = X` makes the
@@ -5857,7 +5857,7 @@ mod tests {
                     )
                 ) [label{}("identity-h"), simplification{}("40")]"#,
         );
-        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
         let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         antecedent.constraints.push(holds(
             &definition,

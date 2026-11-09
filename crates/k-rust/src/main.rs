@@ -4264,7 +4264,7 @@ mod tests {
         definition: &BackendDefinition,
         syntax: &KorePattern,
     ) -> Result<KorePattern, Box<dyn Error>> {
-        simplify_kore_pattern_with_options(definition, syntax, Z3Options::default())
+        simplify_kore_pattern_with_options(definition, syntax, Z3Options::RESOURCE_BOUNDED)
     }
 
     #[cfg(test)]

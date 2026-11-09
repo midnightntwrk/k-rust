@@ -181,7 +181,7 @@ fn bounded_partial_scalar_observations_are_guarded_inputs_and_effects_stay_out()
         let q = query(&d, &known, std::slice::from_ref(&checked));
         assert_eq!(q.checked().to_string().contains("bvand"), !effect);
         assert!(q.model_mappings().is_none());
-        let validity = Z3Solver::new(&d)
+        let validity = Z3Solver::resource_bounded(&d)
             .unwrap()
             .check_predicates(&known, &Substitution::new(), &[checked])
             .unwrap()
@@ -221,7 +221,7 @@ fn word_meanings_compose_through_map_only_and_opaque_targets_without_assuming_eq
     );
     let m = Term::variable(Variable::new("M", Sort::simple("SortMap")));
     let update = |value| call(&d, "put", vec![m.clone(), int(0), value]);
-    let solver = Z3Solver::new(&d).unwrap();
+    let solver = Z3Solver::resource_bounded(&d).unwrap();
     for wrapped in [false, true] {
         for wrong in [false, true] {
             let mut left = update(actual.clone());
@@ -315,7 +315,7 @@ fn compound_boolean_word_guards_reuse_source_constructor_decisions_and_refuse_ef
             !effect
         );
         assert!(q.model_mappings().is_none());
-        let result = Z3Solver::new(&d)
+        let result = Z3Solver::resource_bounded(&d)
             .unwrap()
             .check_predicates(&known, &Substitution::new(), &[checked])
             .unwrap()
@@ -586,9 +586,11 @@ fn a_ceil_condition_over_a_shared_argument_is_read_on_its_dag() {
     let bytes = built.base().len() + built.checked().to_string().len();
     assert!(bytes < 100_000, "shared query bytes: {bytes}");
     assert_eq!(
-        Z3Solver::new(&d)
-            .unwrap()
-            .check_predicates(&known, &Substitution::new(), &[checked]),
+        Z3Solver::resource_bounded(&d).unwrap().check_predicates(
+            &known,
+            &Substitution::new(),
+            &[checked]
+        ),
         Ok(Ok(Validity::Valid))
     );
 }
@@ -705,7 +707,7 @@ fn actual_native_eight_and_sixteen_bit_mixed_expression_gate() {
             let built = query(&d, &known, std::slice::from_ref(&claim));
             let construction = started.elapsed();
             assert!(built.checked().to_string().contains("KRUST-WORD"));
-            let solver = Z3Solver::new(&d).unwrap();
+            let solver = Z3Solver::resource_bounded(&d).unwrap();
             let started = std::time::Instant::now();
             let counters = k_rust_kore::measure::snapshot();
             let result = solver.check_predicates(&known, &Substitution::new(), &[claim]);
@@ -757,9 +759,11 @@ fn overflow_negative_and_outside_guard_controls_do_not_become_theorems() {
                     .contains("KRUST-WORD")
             );
             assert_ne!(
-                Z3Solver::new(&d)
-                    .unwrap()
-                    .check_predicates(&known, &Substitution::new(), &[claim]),
+                Z3Solver::resource_bounded(&d).unwrap().check_predicates(
+                    &known,
+                    &Substitution::new(),
+                    &[claim]
+                ),
                 Ok(Ok(Validity::Valid))
             );
         }

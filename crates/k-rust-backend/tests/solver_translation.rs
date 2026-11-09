@@ -18,8 +18,8 @@
 //! and which models of the definition are enumerated.
 //!
 //! By default 512 cases from a fixed seed. Run deeper with `PROPTEST_CASES=20000`, from another
-//! seed with `SOLVER_TRANSLATION_SEED=<u64>`, with a longer Z3 check bound with
-//! `SOLVER_TRANSLATION_TIMEOUT_MS` (default 100), with literal `^Int` exponents only with
+//! seed with `SOLVER_TRANSLATION_SEED=<u64>`, with a larger Z3 check bound in resource units with
+//! `SOLVER_TRANSLATION_RESOURCE_LIMIT` (default 370,000), with literal `^Int` exponents only with
 //! `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS=0` (see `power_exponent`; symbolic exponents are on by
 //! default here since GAP K32), without term-level `\and`s (on by default since GAP K30,
 //! `terms_with`) with `SOLVER_TRANSLATION_CONJUNCTIONS=0`, and print every case and its time with
@@ -43,7 +43,7 @@ use k_rust_backend::{
 use proptest::test_runner::{TestCaseError, TestError};
 use solver_oracle::*;
 
-/// The prefix of this target's knobs (`SOLVER_TRANSLATION_SEED`, `_TIMEOUT_MS`,
+/// The prefix of this target's knobs (`SOLVER_TRANSLATION_SEED`, `_RESOURCE_LIMIT`,
 /// `_SYMBOLIC_EXPONENTS`, `_CONJUNCTIONS`, `_TRACE`).
 const KNOBS: &str = "SOLVER_TRANSLATION";
 

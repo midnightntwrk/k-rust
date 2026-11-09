@@ -5568,7 +5568,7 @@ fn compiled_load_error(
     Ok(k_rust::backend::Backend::new(
         &artifacts.definition_kore,
         main,
-        k_rust::backend::BackendOptions::default(),
+        k_rust::backend::BackendOptions::RESOURCE_BOUNDED,
     )
     .err()
     .map(|error| error.to_string()))
