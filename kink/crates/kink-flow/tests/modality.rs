@@ -811,7 +811,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 35] = [
+const CORPUS: [(&str, &[&str], Minimums); 36] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -848,6 +848,9 @@ const CORPUS: [(&str, &[&str], Minimums); 35] = [
     // The argued invariants' fixture (there for `tests/coverage_argued.rs`), which has no
     // mutations.
     ("invariant", &["FLOW.toml"], at_least(1, 0, 0, 0)),
+    // The shapes of an argued invariant's violation form (there for `tests/coverage_argued.rs`),
+    // which has no mutations.
+    ("invariant-shapes", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "loop",
         &[
@@ -1083,6 +1086,12 @@ mod kink_tier {
     #[ignore = "kink"]
     fn modality_on_invariant() {
         corpus_specification("invariant", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_invariant_shapes() {
+        corpus_specification("invariant-shapes", &["FLOW.toml"]);
     }
 
     #[test]

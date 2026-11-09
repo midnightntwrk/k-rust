@@ -1888,6 +1888,261 @@ mod kink_tier {
         );
     }
 
+    /// The invariant-shapes fixture's invariants: two bound entries with a pairwise property, a
+    /// nested collection, an enum in the guard, a set pattern, the existential dual, two of them
+    /// combined by `andBool`, and the recursive walk.
+    const MONOTONE: (&str, &str, &[&str]) = ("monotone", "monotone", &["memory"]);
+    const OWNED_OUTSIDE: (&str, &str, &[&str]) =
+        ("owned-outside", "ownedOutside", &["owners", "romEnd"]);
+    const ROM_READ_ONLY: (&str, &str, &[&str]) =
+        ("rom-read-only", "romReadOnly", &["perms", "romEnd"]);
+    const ROOTS_OUTSIDE: (&str, &str, &[&str]) =
+        ("roots-outside", "rootsOutside", &["roots", "romEnd"]);
+    const SOME_ROM: (&str, &str, &[&str]) = ("some-rom", "someRom", &["rom", "romEnd"]);
+    const MONOTONE_ROOTS: (&str, &str, &[&str]) = (
+        "monotone-roots",
+        "monotoneRoots",
+        &["memory", "roots", "romEnd"],
+    );
+    const SHAPES_WALK: (&str, &str, &[&str]) = ("walk", "outsideRomWalk", &["memory", "romEnd"]);
+    const TOUCH_ROM: &str = "rule:SHAPES.touchRom";
+
+    /// The argued entries of the invariant-shapes fixture, `(family, item, invariant, the rules
+    /// that can step where the item's rule matches)`: each shape on the rule its condition makes
+    /// hold, the combination on the held requirements of two of them, and the walk on `readRom`.
+    const SHAPE_ENTRIES: [(&str, &str, &str, [&str; 2]); 8] = [
+        (
+            "rules",
+            "rule:SHAPES.cmpBad",
+            MONOTONE.0,
+            ["SHAPES.cmpBad", "SHAPES.cmpOk"],
+        ),
+        (
+            "rules",
+            TOUCH_ROM,
+            OWNED_OUTSIDE.0,
+            ["SHAPES.touchOk", "SHAPES.touchRom"],
+        ),
+        (
+            "rules",
+            "rule:SHAPES.storeRom",
+            ROM_READ_ONLY.0,
+            ["SHAPES.storeOk", "SHAPES.storeRom"],
+        ),
+        (
+            "rules",
+            "rule:SHAPES.dropRom",
+            ROOTS_OUTSIDE.0,
+            ["SHAPES.dropOk", "SHAPES.dropRom"],
+        ),
+        (
+            "rules",
+            "rule:SHAPES.unloaded",
+            SOME_ROM.0,
+            ["SHAPES.loaded", "SHAPES.unloaded"],
+        ),
+        (
+            "requirements",
+            "requirement:SHAPES.cmpBad:held",
+            MONOTONE_ROOTS.0,
+            ["SHAPES.cmpBad", "SHAPES.cmpOk"],
+        ),
+        (
+            "requirements",
+            "requirement:SHAPES.dropRom:held",
+            MONOTONE_ROOTS.0,
+            ["SHAPES.dropOk", "SHAPES.dropRom"],
+        ),
+        (
+            "rules",
+            "rule:SHAPES.readRom",
+            SHAPES_WALK.0,
+            ["SHAPES.readOk", "SHAPES.readRom"],
+        ),
+    ];
+
+    /// A private copy of the invariant-shapes fixture for one test, its entries argued.
+    fn shapes(test: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("kink-flow-coverage-argued-{}", std::process::id()))
+            .join(test)
+            .join("invariant-shapes");
+        let _ = fs::remove_dir_all(&dir);
+        copy_dir(&flow("invariant-shapes"), &dir);
+        let entries = SHAPE_ENTRIES
+            .iter()
+            .map(|(_, item, invariant, _)| (*item, "the invariant excludes it", Some(*invariant)))
+            .collect::<Vec<_>>();
+        argue_on(
+            &dir,
+            &[
+                MONOTONE,
+                OWNED_OUTSIDE,
+                ROM_READ_ONLY,
+                ROOTS_OUTSIDE,
+                SOME_ROM,
+                MONOTONE_ROOTS,
+                SHAPES_WALK,
+            ],
+            &entries,
+        );
+        dir
+    }
+
+    /// The line of `shapes.k` in `dir` that starts with `start` after its indentation.
+    fn shapes_line(dir: &Path, start: &str) -> usize {
+        let k = fs::read_to_string(dir.join("shapes.k")).unwrap();
+        let lines = k
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.trim_start().starts_with(start))
+            .map(|(at, _)| at + 1)
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 1, "{start}: {lines:?}");
+        lines[0]
+    }
+
+    /// The violation form is shown to be a function with no premise in every shape the canonical
+    /// form names: two bound entries with a pairwise property (`monotone`), a set pattern nested
+    /// in a map's value (`ownedOutside`), a guard that reads a user-declared constructor sort
+    /// through a function of its constructors (`romReadOnly`), a set pattern (`rootsOutside`),
+    /// the existential dual, `true` where some binding is in the region and `false` otherwise
+    /// (`someRom`), and two such functions combined by `andBool` (`monotoneRoots`, argued at two
+    /// rules, each excluded by one of its conjuncts). Each argued item's function is `shown` with
+    /// no finding, its connection holds by the simplification alone, in both profiles, and its
+    /// evidence holds on the one program, which steps every rule its condition refutes, so it is
+    /// `checked-on-runs`. The baseline's only findings are the two self-pairs of the recursive
+    /// walk, whose right-hand side reads the binding it chose: `rule:readRom`, argued on it, is
+    /// `unchecked` with its function `not-shown`, while its connection and evidence hold, and the
+    /// command exits 3.
+    #[test]
+    #[ignore = "kink"]
+    fn each_violation_shape_is_shown_to_be_a_function_with_no_premise() {
+        let dir = shapes("function-shapes");
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let shown = json!({"status": "shown", "findings": [], "reason": null});
+        for (family, id, invariant, rules) in SHAPE_ENTRIES {
+            let check = &item(&document, family, id)["argument_check"];
+            assert_eq!(check["invariant"], invariant, "{id}: {check:#}");
+            let connection = &check["connection"];
+            assert_eq!(connection["status"], "holds", "{id}: {check:#}");
+            assert!(
+                connection["axioms"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|axiom| axiom["answer"] == "connected"),
+                "{id}: {check:#}"
+            );
+            let evidence = &check["evidence"];
+            assert_eq!(
+                (
+                    &evidence["status"],
+                    &evidence["rules"],
+                    &evidence["steps"],
+                    &evidence["programs"]
+                ),
+                (&json!("holds"), &json!(rules), &json!(1), &json!(["safe"])),
+                "{id}: {check:#}"
+            );
+            if invariant == SHAPES_WALK.0 {
+                assert_eq!(
+                    (&check["standing"], &check["function"]["status"]),
+                    (&json!("unchecked"), &json!("not-shown")),
+                    "{id}: {check:#}"
+                );
+                assert_eq!(
+                    check["function"]["findings"].as_array().unwrap().len(),
+                    2,
+                    "{check:#}"
+                );
+                let reason = check["reason"].as_str().unwrap();
+                assert!(
+                    reason.contains("`outsideRomWalk` is not shown to be a function"),
+                    "{reason}"
+                );
+            } else {
+                assert_eq!(
+                    (&check["standing"], &check["function"]),
+                    (&json!("checked-on-runs"), &shown),
+                    "{id}: {check:#}"
+                );
+                assert_eq!(check["reason"], Value::Null, "{id}: {check:#}");
+            }
+        }
+        // The definition's only findings are the walk's two self-pairs.
+        let mut names = document["data"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|finding| finding["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        let walk = [
+            shapes_line(&dir, "rule outsideRomWalk((K:Int |-> _) M, E)"),
+            shapes_line(&dir, "rule outsideRomWalk((_ |-> _) M, E)"),
+        ]
+        .map(|line| format!("shapes.k:{line}:3,shapes.k:{line}:3@root"));
+        assert_eq!(names, walk, "{:#}", document["data"]);
+        let summary = &document["summary"];
+        assert_eq!(
+            summary["argued_by_standing"],
+            json!({"text": 0, "connected": 0, "checked_on_runs": 7, "proved": 0,
+                   "unchecked": 1})
+        );
+        assert_eq!(summary["failed_arguments"], json!([]));
+    }
+
+    /// A set pattern nested in a map's value is matched by the backend's equation matching only
+    /// against an inner set without a rest: against `SetItem(P) S`, its match is left to the
+    /// collection solver, which solves a nested collection pair only where it may narrow a
+    /// subject frame, and equation matching does not (k-rust-backend `matching/collections.rs`,
+    /// `solve_term_pair_as_bound`). So where `touchRom` reads an owner's set with its rest, the
+    /// `false` equation of `ownedOutside` does not apply at its left-hand side and the connection
+    /// is undecided in both profiles, though the function is still `shown` and its evidence holds:
+    /// an incompleteness of the simplification, not of the claim that the shape is a function.
+    /// The fixture's `touch` rules read the set whole, where the connection holds.
+    #[test]
+    #[ignore = "kink"]
+    fn a_nested_pattern_against_an_open_inner_collection_leaves_the_connection_undecided() {
+        let dir = shapes("nested-open");
+        let source = dir.join("shapes.k");
+        let k = fs::read_to_string(&source).unwrap();
+        let closed = "<owners> (O |-> SetItem(P)) _ </owners>";
+        assert_eq!(k.matches(closed).count(), 2, "{k}");
+        fs::write(
+            &source,
+            k.replace(closed, "<owners> (O |-> (SetItem(P) _:Set)) _ </owners>"),
+        )
+        .unwrap();
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let check = &item(&document, "rules", TOUCH_ROM)["argument_check"];
+        let reason = if cfg!(feature = "z3") {
+            "the solver found a model of an approximate translation, which shows no state"
+        } else {
+            "no solver decides the simplified predicate"
+        };
+        assert_eq!(
+            (
+                &check["standing"],
+                &check["function"],
+                &check["connection"]["status"],
+                &check["connection"]["reason"],
+                &check["evidence"]["status"]
+            ),
+            (
+                &json!("unchecked"),
+                &json!({"status": "shown", "findings": [], "reason": null}),
+                &json!("undecided"),
+                &json!(reason),
+                &json!("holds")
+            ),
+            "{check:#}"
+        );
+    }
+
     /// An invariant the front end cannot resolve refuses the command before any mutant runs, at
     /// stage `coverage`: a function the definition does not hold (`invariant-unresolved`, with
     /// the front end's message), a function whose result is not Bool (`invariant-not-bool`), and

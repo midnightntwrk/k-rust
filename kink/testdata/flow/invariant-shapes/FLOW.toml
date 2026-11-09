@@ -1,0 +1,11 @@
+# kink-flow corpus manifest for the invariant-shapes fixture: the one program steps each rule that
+# a shape's condition refutes, so each argued rule is matched and never fires, and the invariants'
+# evidence is read before those steps.
+[spec]
+entry = "shapes.k"
+main_module = "SHAPES"
+syntax_module = "SHAPES-SYNTAX"
+
+[[program]]
+id = "safe"
+text = "cmp(8, 9) ; touch(1, 8) ; store(8) ; drop(8) ; boot ; read(8)"
