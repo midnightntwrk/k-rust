@@ -70,10 +70,11 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// Version 16 (KINK-FINDING-NAMES) names every finding by its kind, sentences and digest, where it
 /// named it by generated-K positions, in `findings`, `assumed`, `spec.unnamed_findings` and the
 /// premises, refuses a genuine finding's name, and embeds report version 12; the digest is
-/// version 15's, since the keys are unchanged and the names are computed.
+/// version 15's, since the keys are unchanged and the names are computed. Version 17 embeds
+/// report version 13 (CF-33, the solver budget); the document's own keys are unchanged.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    16,
-    12,
+    17,
+    13,
     2,
     "b57e997d75141191c20919677e86edae752f77be881dc9e018086e922f2ee4f2",
 );

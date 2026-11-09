@@ -263,7 +263,9 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
 /// refused `name-refused` (KINK-FINDING-NAMES); the names it prints and reads (`assumed`,
 /// `findings`, `--assume-joined`) are those names, and it embeds k-rust-fuzz reports of version 12.
-pub const FUZZ_VERSION: u32 = 16;
+/// 17 embeds k-rust-fuzz reports of version 13, whose identity bounds the solver by Z3 resource
+/// units unless the campaign asks for the clock and names the Z3 build (CF-33).
+pub const FUZZ_VERSION: u32 = 17;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
