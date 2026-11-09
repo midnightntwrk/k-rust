@@ -128,6 +128,6 @@ k::rules! {
 
     byte_of: ByteOf(v)    => crate::Byte(v);
     half_of: HalfOf(v)    => crate::Half(v);
-    reg_of : RegOf(i)     => crate::R8(i);
+    reg_of:  RegOf(i)     => crate::R8(i);
     pick_of: PickOf(f, v) => crate::Pick(f, v);
 }

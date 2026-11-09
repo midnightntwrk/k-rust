@@ -64,5 +64,5 @@ k::rules! {
     use StmtSyntax::*;
 
     call_main: Call(k::lexeme!(Name, "main"))  => Halt();
-    call_foo : Call(k::lexeme!(Name, "Foo_1")) => Other();
+    call_foo:  Call(k::lexeme!(Name, "Foo_1")) => Other();
 }

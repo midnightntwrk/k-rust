@@ -90,8 +90,8 @@ k::rules! {
     for Stmt;
     use StmtSyntax::*;
 
-    step    : Seq(s1, s2)      => k::k![s1, s2];
-    if_true : If(true, s1, _)  => s1;
+    step:     Seq(s1, s2)      => k::k![s1, s2];
+    if_true:  If(true, s1, _)  => s1;
     if_false: If(false, _, s2) => s2;
 }
 

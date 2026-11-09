@@ -139,14 +139,14 @@ pub fn R8(index: Term<Int>) -> Term<Reg>;
 k::equations! {
     for R8;
     use Register::*;
-    r8_b  : 0 => B;
-    r8_c  : 1 => C;
-    r8_d  : 2 => D;
-    r8_e  : 3 => E;
-    r8_h  : 4 => H;
-    r8_l  : 5 => L;
+    r8_b:   0 => B;
+    r8_c:   1 => C;
+    r8_d:   2 => D;
+    r8_e:   3 => E;
+    r8_h:   4 => H;
+    r8_l:   5 => L;
     r8_mhl: 6 => Mhl;
-    r8_a  : 7 => A;
+    r8_a:   7 => A;
 }
 
 /// The instruction an opcode encodes.
@@ -156,15 +156,15 @@ pub fn Decode(opcode: Term<Int>) -> Term<Instr>;
 k::equations! {
     for Decode;
     use Instruction::*;
-    decode_nop    : 0                           => Nop;
-    decode_jr_cc  : k::bits!("00 1cc 000")      => Jr(c);
-    decode_inc_r  : k::bits!("00 yyy 100")      => Inc(crate::R8(y));
-    decode_dec_r  : k::bits!("00 yyy 101")      => Dec(crate::R8(y));
-    decode_halt   : k::bits!("01 110 110")      => Halt;
+    decode_nop:     0                           => Nop;
+    decode_jr_cc:   k::bits!("00 1cc 000")      => Jr(c);
+    decode_inc_r:   k::bits!("00 yyy 100")      => Inc(crate::R8(y));
+    decode_dec_r:   k::bits!("00 yyy 101")      => Dec(crate::R8(y));
+    decode_halt:    k::bits!("01 110 110")      => Halt;
     #[k::requires(op.ne::<Int>(118))]
-    decode_ld_r_r : op @ k::bits!("01 yyy zzz") => Ld(crate::R8(y), crate::R8(z));
-    decode_push   : op @ k::bits!("11 pp0 101") => Push(p);
-    decode_rst    : k::bits!("11 ttt 111")      => Rst(t.mul::<Int>(8));
+    decode_ld_r_r:  op @ k::bits!("01 yyy zzz") => Ld(crate::R8(y), crate::R8(z));
+    decode_push:    op @ k::bits!("11 pp0 101") => Push(p);
+    decode_rst:     k::bits!("11 ttt 111")      => Rst(t.mul::<Int>(8));
     #[k::equation(owise)]
     decode_unknown: opcode                      => Unknown(opcode);
 }
@@ -192,14 +192,14 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    decode_of   : DecodeOf(n)                       => crate::Decode(n);
+    decode_of:    DecodeOf(n)                       => crate::Decode(n);
     decode_cb_of: DecodeCbOf(n)                     => crate::DecodeCb(n);
-    kind_low    : KindOf(k::bits!("0___ ____"))     => 0;
-    kind_high   : KindOf(k::bits!("1___ ____"))     => 1;
-    reg_low     : RegOf(k::bits!("0___ 0zzz"))      => crate::R8(z);
-    reg_high    : RegOf(op @ k::bits!("1yyy ____")) => crate::Instruction::Alu(op, crate::R8(y));
-    edge_of     : EdgeOf(n)                         => crate::Edge(n);
-    imm_of      : ImmOf(n)                          => crate::Imm(n);
+    kind_low:     KindOf(k::bits!("0___ ____"))     => 0;
+    kind_high:    KindOf(k::bits!("1___ ____"))     => 1;
+    reg_low:      RegOf(k::bits!("0___ 0zzz"))      => crate::R8(z);
+    reg_high:     RegOf(op @ k::bits!("1yyy ____")) => crate::Instruction::Alu(op, crate::R8(y));
+    edge_of:      EdgeOf(n)                         => crate::Edge(n);
+    imm_of:       ImmOf(n)                          => crate::Imm(n);
 }
 
 /// Whether an opcode is an 8-bit load or `halt`: the test form of the
@@ -220,11 +220,11 @@ pub fn Edge(opcode: Term<Int>) -> Term<Int>;
 k::equations! {
     for Edge;
     #[k::requires(c.eq::<Int>(0) || c.eq::<Int>(3))]
-    edge_jr    : k::bits!("00 1cc 000") => c;
+    edge_jr:     k::bits!("00 1cc 000") => c;
     #[k::requires(crate::IsLd(opcode) && k::bits!(opcode, "__ 110 ___"))]
     edge_ld_mhl: opcode                 => 6;
     #[k::equation(owise)]
-    edge_other : opcode                 => 0;
+    edge_other:  opcode                 => 0;
 }
 
 #[k::requires(p.eq::<Int>(0) || p.eq::<Int>(3))]
@@ -240,12 +240,13 @@ pub fn Imm(word: Term<Int>) -> Term<Int>;
 
 k::equations! {
     for Imm;
-    imm_addi : k::bits!("iiiiiiiiiiii _____ 000 _____ 0010011", i: signed)              => i;
-    imm_sw   : k::bits!("iiiiiii _____ _____ 010 iiiii 0100011", i: signed[11:5 | 4:0]) => i;
-    imm_beq:
-        k::bits!("bbbbbbb _____ _____ 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => b;
-    imm_lui  : k::bits!("uuuuuuuuuuuuuuuuuuuu _____ 0110111", u: signed[31:12])         => u;
-    imm_jal: k::bits!("jjjjjjjjjjjjjjjjjjjj _____ 1101111", j: signed[20 | 10:1 | 11 | 19:12]) => j;
+    imm_addi:  k::bits!("iiiiiiiiiiii _____ 000 _____ 0010011", i: signed)              => i;
+    imm_sw:    k::bits!("iiiiiii _____ _____ 010 iiiii 0100011", i: signed[11:5 | 4:0]) => i;
+    imm_beq:   k::bits!("bbbbbbb _____ _____ 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11])
+               => b;
+    imm_lui:   k::bits!("uuuuuuuuuuuuuuuuuuuu _____ 0110111", u: signed[31:12])         => u;
+    imm_jal:   k::bits!("jjjjjjjjjjjjjjjjjjjj _____ 1101111", j: signed[20 | 10:1 | 11 | 19:12])
+               => j;
     #[k::equation(owise)]
     imm_other: word                                                                     => 0;
 }

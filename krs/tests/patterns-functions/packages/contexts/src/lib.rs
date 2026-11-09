@@ -93,6 +93,6 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    read : ReadBar()   => crate::BarPlus(1);
+    read:  ReadBar()   => crate::BarPlus(1);
     twice: ReadTwice() => crate::BarTwice(1);
 }

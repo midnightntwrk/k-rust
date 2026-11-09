@@ -199,13 +199,13 @@ k::rules! {
     use StmtSyntax::*;
 
     /// Expose the right-associated statement pair as K sequencing.
-    step    : Sequence(s1, s2)         => k::k![s1, s2];
+    step:     Sequence(s1, s2)         => k::k![s1, s2];
     /// Select the true branch.
-    if_true : IfThenElse(true, s1, _)  => s1;
+    if_true:  IfThenElse(true, s1, _)  => s1;
     /// Select the false branch.
     if_false: IfThenElse(false, _, s2) => s2;
     /// Remove an empty block from the computation cell.
-    done    : EmptyBlock()             => ();
+    done:     EmptyBlock()             => ();
 }
 
 k::rules! {

@@ -83,13 +83,13 @@ k::rules! {
 
     /// `requires ( pair ( _ , _ ) :=K E:Exp )`.
     #[k::requires(k::matches!(e, Pair(_, _)))]
-    is_pair : IsPair { e } => true;
+    is_pair:  IsPair { e } => true;
     /// `requires notBool ( pair ( _ , _ ) :=K E:Exp )`, K's `:/=K`.
     #[k::requires(bool::not(k::matches!(e, Pair(_, _))))]
     not_pair: IsPair { e } => false;
     /// `p @ ..` names the first component, which the second must equal.
     #[k::requires(k::matches!(e, Pair(p @ Pair(_, _), p)))]
-    boxed   : Boxed { e }  => true;
+    boxed:    Boxed { e }  => true;
     #[k::requires(bool::not(k::matches!(e, Pair(p @ Pair(_, _), p))))]
-    unboxed : Boxed { e }  => false;
+    unboxed:  Boxed { e }  => false;
 }

@@ -80,5 +80,5 @@ k::rules! {
     use StmtSyntax::*;
 
     call_foo: Call(k::lexeme!(Name, "foo"))     => Other();
-    say_hi  : Say(k::lexeme!(Quoted, "\"hi\"")) => Halt();
+    say_hi:   Say(k::lexeme!(Quoted, "\"hi\"")) => Halt();
 }

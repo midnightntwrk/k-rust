@@ -427,7 +427,7 @@ pub fn BoolToWord(value: k::Term<Bool>) -> k::Term<Int>;
 
 k::equations! {
     for BoolToWord;
-    bool_to_word_true : true  => 1;
+    bool_to_word_true:  true  => 1;
     bool_to_word_false: false => 0;
 }
 
@@ -530,9 +530,9 @@ pub fn BlockHashLookup(
 k::equations! {
     for BlockHashLookup;
     #[k::requires(requested > highest)]
-    block_hash_future       : (_, requested, highest, _)        => 0;
+    block_hash_future:        (_, requested, highest, _)        => 0;
     #[k::requires(requested <= highest && age >= 256)]
-    block_hash_too_old      : (_, requested, highest, age)      => 0;
+    block_hash_too_old:       (_, requested, highest, age)      => 0;
     #[k::requires(bool::and(
         requested <= highest && age < 256,
         age < list::size(hashes) && list::get(hashes, age) == 0,
@@ -542,14 +542,18 @@ k::equations! {
         requested == highest && age < 256,
         age < list::size(hashes) && list::get(hashes, age) != 0,
     ))]
-    block_hash_found        : (hashes, requested, highest, age) => list::get(hashes, age);
+    block_hash_found:         (hashes, requested, highest, age) => list::get(hashes, age);
     #[k::requires(bool::and(
         requested < highest && age < 256,
         age < list::size(hashes) && list::get(hashes, age) != 0,
     ))]
-    block_hash_continue:
-        (hashes, requested, highest, age)
-        => BlockHashLookup { hashes, requested, highest: highest - 1, age: age + 1 };
+    block_hash_continue:      (hashes, requested, highest, age)
+                              => BlockHashLookup {
+                                  hashes,
+                                  requested,
+                                  highest: highest - 1,
+                                  age: age + 1,
+                              };
 }
 
 #[k::function(total, syntax = "#kevmMemoryUsageUpdate({used}, {start}, {width})")]
@@ -1085,18 +1089,18 @@ pub fn Bn128PointBytes(point: k::Term<G1Point>) -> k::Term<Bytes>;
 
 k::equations! {
     for Bn128PointBytes;
-    bn128_point_bytes:
-        Bn128Point::Point { x, y } => WriteMemoryWord {
-            memory: WriteMemoryWord {
-                memory: bytes::pad_right(bytes::empty(), 64, 0),
-                index: 0,
-                remaining: 32,
-                value: x,
-            },
-            index: 32,
-            remaining: 32,
-            value: y,
-        };
+    bn128_point_bytes: Bn128Point::Point { x, y }
+                       => WriteMemoryWord {
+                           memory: WriteMemoryWord {
+                               memory: bytes::pad_right(bytes::empty(), 64, 0),
+                               index: 0,
+                               remaining: 32,
+                               value: x,
+                           },
+                           index: 32,
+                           remaining: 32,
+                           value: y,
+                       };
 }
 
 #[k::function(total, syntax = "#kevmEcAddPrecompileOutput({data})")]
@@ -1661,7 +1665,7 @@ pub fn StackAt(stack: k::Term<WordStack>, index: k::Term<Int>) -> k::Term<Int>;
 k::equations! {
     for StackAt;
     #[k::requires(index <= 0)]
-    stack_at_here : ([head, ..], index)     => head;
+    stack_at_here:  ([head, ..], index)     => head;
     #[k::requires(index > 0)]
     stack_at_later: ([_, tail @ ..], index) => StackAt(tail, index - 1);
 }
@@ -1676,10 +1680,10 @@ pub fn StackSet(
 k::equations! {
     for StackSet;
     #[k::requires(index <= 0)]
-    stack_set_here: ([_, tail @ ..], index, value) => [value, ..tail];
+    stack_set_here:  ([_, tail @ ..], index, value) => [value, ..tail];
     #[k::requires(index > 0)]
-    stack_set_later:
-        ([head, tail @ ..], index, value) => [head, ..StackSet(tail, index - 1, value)];
+    stack_set_later: ([head, tail @ ..], index, value)
+                     => [head, ..StackSet(tail, index - 1, value)];
 }
 
 #[k::function(total, syntax = "#kevmStackTakeList({stack}, {remaining})")]
@@ -1847,33 +1851,33 @@ k::equations! {
     use GasResult::*;
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
-    charge_static_call_ecrec    : (gas, cost, 1) => EnoughEcrecPrecompileGas(gas - cost);
+    charge_static_call_ecrec:     (gas, cost, 1) => EnoughEcrecPrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
-    charge_static_call_sha256   : (gas, cost, 2) => EnoughSha256PrecompileGas(gas - cost);
+    charge_static_call_sha256:    (gas, cost, 2) => EnoughSha256PrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
     charge_static_call_ripemd160: (gas, cost, 3) => EnoughRipemd160PrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
-    charge_static_call_identity : (gas, cost, 4) => EnoughIdentityPrecompileGas(gas - cost);
+    charge_static_call_identity:  (gas, cost, 4) => EnoughIdentityPrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
-    charge_static_call_modexp   : (gas, cost, 5) => EnoughModExpPrecompileGas(gas - cost);
+    charge_static_call_modexp:    (gas, cost, 5) => EnoughModExpPrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
-    charge_static_call_ecadd    : (gas, cost, 6) => EnoughEcAddPrecompileGas(gas - cost);
+    charge_static_call_ecadd:     (gas, cost, 6) => EnoughEcAddPrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
-    charge_static_call_ecmul    : (gas, cost, 7) => EnoughEcMulPrecompileGas(gas - cost);
+    charge_static_call_ecmul:     (gas, cost, 7) => EnoughEcMulPrecompileGas(gas - cost);
     #[k::equation(priority = 40)]
     #[k::requires(gas >= cost)]
     charge_static_call_ecpairing: (gas, cost, 8) => EnoughEcPairingPrecompileGas(gas - cost);
     #[k::equation(priority = 50)]
     #[k::requires(gas >= cost)]
-    charge_static_call          : (gas, cost, _) => EnoughGas(Operation::StaticCall, gas - cost);
+    charge_static_call:           (gas, cost, _) => EnoughGas(Operation::StaticCall, gas - cost);
     #[k::requires(gas < cost)]
-    charge_static_call_fails    : (gas, cost, _) => InsufficientGas();
+    charge_static_call_fails:     (gas, cost, _) => InsufficientGas();
 }
 
 #[k::function(total, syntax = "#kevmLookup({program}, {pc})")]
@@ -1988,83 +1992,82 @@ pub fn ResolveJumpIf(
 k::equations! {
     for Decode;
     use Operation::*;
-    decode_stop               : (0x00, _, _)                  => Stop;
-    decode_add                : (0x01, _, _)                  => Add;
-    decode_mul                : (0x02, _, _)                  => Mul;
-    decode_sub                : (0x03, _, _)                  => Sub;
-    decode_div                : (0x04, _, _)                  => Div;
-    decode_signed_div         : (0x05, _, _)                  => SignedDiv;
-    decode_mod                : (0x06, _, _)                  => Mod;
-    decode_signed_mod         : (0x07, _, _)                  => SignedMod;
-    decode_add_mod            : (0x08, _, _)                  => AddMod;
-    decode_mul_mod            : (0x09, _, _)                  => MulMod;
-    decode_exponent           : (0x0A, _, _)                  => Exponent;
-    decode_sign_extend        : (0x0B, _, _)                  => SignExtend;
-    decode_less_than          : (0x10, _, _)                  => LessThan;
-    decode_greater_than       : (0x11, _, _)                  => GreaterThan;
-    decode_signed_less_than   : (0x12, _, _)                  => SignedLessThan;
+    decode_stop:                (0x00, _, _)                  => Stop;
+    decode_add:                 (0x01, _, _)                  => Add;
+    decode_mul:                 (0x02, _, _)                  => Mul;
+    decode_sub:                 (0x03, _, _)                  => Sub;
+    decode_div:                 (0x04, _, _)                  => Div;
+    decode_signed_div:          (0x05, _, _)                  => SignedDiv;
+    decode_mod:                 (0x06, _, _)                  => Mod;
+    decode_signed_mod:          (0x07, _, _)                  => SignedMod;
+    decode_add_mod:             (0x08, _, _)                  => AddMod;
+    decode_mul_mod:             (0x09, _, _)                  => MulMod;
+    decode_exponent:            (0x0A, _, _)                  => Exponent;
+    decode_sign_extend:         (0x0B, _, _)                  => SignExtend;
+    decode_less_than:           (0x10, _, _)                  => LessThan;
+    decode_greater_than:        (0x11, _, _)                  => GreaterThan;
+    decode_signed_less_than:    (0x12, _, _)                  => SignedLessThan;
     decode_signed_greater_than: (0x13, _, _)                  => SignedGreaterThan;
-    decode_equal              : (0x14, _, _)                  => Equal;
-    decode_is_zero            : (0x15, _, _)                  => IsZero;
-    decode_bit_and            : (0x16, _, _)                  => BitAnd;
-    decode_bit_or             : (0x17, _, _)                  => BitOr;
-    decode_bit_xor            : (0x18, _, _)                  => BitXor;
-    decode_bit_not            : (0x19, _, _)                  => BitNot;
-    decode_byte               : (0x1A, _, _)                  => Byte;
-    decode_shift_left         : (0x1B, _, _)                  => ShiftLeft;
-    decode_shift_right        : (0x1C, _, _)                  => ShiftRight;
-    decode_signed_shift_right : (0x1D, _, _)                  => SignedShiftRight;
-    decode_sha3               : (0x20, _, _)                  => Sha3;
-    decode_address            : (0x30, _, _)                  => Address;
-    decode_balance            : (0x31, _, _)                  => AccountBalance;
-    decode_origin             : (0x32, _, _)                  => TxOrigin;
-    decode_caller             : (0x33, _, _)                  => MsgCaller;
-    decode_call_value         : (0x34, _, _)                  => MsgCallValue;
-    decode_call_data_load     : (0x35, _, _)                  => CallDataLoad;
-    decode_call_data_size     : (0x36, _, _)                  => CallDataSize;
-    decode_call_data_copy     : (0x37, _, _)                  => CallDataCopy;
-    decode_code_size          : (0x38, _, _)                  => CodeSize;
-    decode_code_copy          : (0x39, _, _)                  => CodeCopy;
-    decode_gas_price          : (0x3A, _, _)                  => TxGasPrice;
-    decode_external_code_size : (0x3B, _, _)                  => ExternalCodeSize;
-    decode_external_code_copy : (0x3C, _, _)                  => ExternalCodeCopy;
-    decode_return_data_size   : (0x3D, _, _)                  => ReturnDataSize;
-    decode_return_data_copy   : (0x3E, _, _)                  => ReturnDataCopy;
-    decode_external_code_hash : (0x3F, _, _)                  => ExternalCodeHash;
-    decode_block_hash         : (0x40, _, _)                  => BlockHash;
-    decode_coinbase           : (0x41, _, _)                  => BlockCoinbase;
-    decode_timestamp          : (0x42, _, _)                  => BlockTimestamp;
-    decode_number             : (0x43, _, _)                  => BlockNumber;
-    decode_prev_randao        : (0x44, _, _)                  => PrevRandao;
-    decode_gas_limit          : (0x45, _, _)                  => BlockGasLimit;
-    decode_chain_id           : (0x46, _, _)                  => NetworkChainId;
-    decode_self_balance       : (0x47, _, _)                  => SelfBalance;
-    decode_base_fee           : (0x48, _, _)                  => BlockBaseFee;
-    decode_pop                : (0x50, _, _)                  => Pop;
-    decode_memory_load        : (0x51, _, _)                  => MemoryLoad;
-    decode_memory_store       : (0x52, _, _)                  => MemoryStore;
-    decode_memory_store8      : (0x53, _, _)                  => MemoryStore8;
-    decode_storage_load       : (0x54, _, _)                  => StorageLoad;
-    decode_storage_store      : (0x55, _, _)                  => StorageStore;
-    decode_jump               : (0x56, _, _)                  => Jump;
-    decode_jump_if            : (0x57, _, _)                  => JumpIf;
-    decode_pc                 : (0x58, _, _)                  => ProgramCounter;
-    decode_memory_size        : (0x59, _, _)                  => MemorySize;
-    decode_gas_remaining      : (0x5A, _, _)                  => GasRemaining;
-    decode_jump_dest          : (0x5B, _, _)                  => JumpDest;
-    decode_push_zero          : (0x5F, _, _)                  => PushZero;
-    decode_push:
-        (k::bits!("011 nnnnn"), program, pc)
-        => Push(n + 1, ReadImmediate(program, pc + 1, n + 1, 0));
-    decode_duplicate          : (k::bits!("1000 dddd"), _, _) => Duplicate(d + 1);
-    decode_swap               : (k::bits!("1001 dddd"), _, _) => Swap(d + 1);
+    decode_equal:               (0x14, _, _)                  => Equal;
+    decode_is_zero:             (0x15, _, _)                  => IsZero;
+    decode_bit_and:             (0x16, _, _)                  => BitAnd;
+    decode_bit_or:              (0x17, _, _)                  => BitOr;
+    decode_bit_xor:             (0x18, _, _)                  => BitXor;
+    decode_bit_not:             (0x19, _, _)                  => BitNot;
+    decode_byte:                (0x1A, _, _)                  => Byte;
+    decode_shift_left:          (0x1B, _, _)                  => ShiftLeft;
+    decode_shift_right:         (0x1C, _, _)                  => ShiftRight;
+    decode_signed_shift_right:  (0x1D, _, _)                  => SignedShiftRight;
+    decode_sha3:                (0x20, _, _)                  => Sha3;
+    decode_address:             (0x30, _, _)                  => Address;
+    decode_balance:             (0x31, _, _)                  => AccountBalance;
+    decode_origin:              (0x32, _, _)                  => TxOrigin;
+    decode_caller:              (0x33, _, _)                  => MsgCaller;
+    decode_call_value:          (0x34, _, _)                  => MsgCallValue;
+    decode_call_data_load:      (0x35, _, _)                  => CallDataLoad;
+    decode_call_data_size:      (0x36, _, _)                  => CallDataSize;
+    decode_call_data_copy:      (0x37, _, _)                  => CallDataCopy;
+    decode_code_size:           (0x38, _, _)                  => CodeSize;
+    decode_code_copy:           (0x39, _, _)                  => CodeCopy;
+    decode_gas_price:           (0x3A, _, _)                  => TxGasPrice;
+    decode_external_code_size:  (0x3B, _, _)                  => ExternalCodeSize;
+    decode_external_code_copy:  (0x3C, _, _)                  => ExternalCodeCopy;
+    decode_return_data_size:    (0x3D, _, _)                  => ReturnDataSize;
+    decode_return_data_copy:    (0x3E, _, _)                  => ReturnDataCopy;
+    decode_external_code_hash:  (0x3F, _, _)                  => ExternalCodeHash;
+    decode_block_hash:          (0x40, _, _)                  => BlockHash;
+    decode_coinbase:            (0x41, _, _)                  => BlockCoinbase;
+    decode_timestamp:           (0x42, _, _)                  => BlockTimestamp;
+    decode_number:              (0x43, _, _)                  => BlockNumber;
+    decode_prev_randao:         (0x44, _, _)                  => PrevRandao;
+    decode_gas_limit:           (0x45, _, _)                  => BlockGasLimit;
+    decode_chain_id:            (0x46, _, _)                  => NetworkChainId;
+    decode_self_balance:        (0x47, _, _)                  => SelfBalance;
+    decode_base_fee:            (0x48, _, _)                  => BlockBaseFee;
+    decode_pop:                 (0x50, _, _)                  => Pop;
+    decode_memory_load:         (0x51, _, _)                  => MemoryLoad;
+    decode_memory_store:        (0x52, _, _)                  => MemoryStore;
+    decode_memory_store8:       (0x53, _, _)                  => MemoryStore8;
+    decode_storage_load:        (0x54, _, _)                  => StorageLoad;
+    decode_storage_store:       (0x55, _, _)                  => StorageStore;
+    decode_jump:                (0x56, _, _)                  => Jump;
+    decode_jump_if:             (0x57, _, _)                  => JumpIf;
+    decode_pc:                  (0x58, _, _)                  => ProgramCounter;
+    decode_memory_size:         (0x59, _, _)                  => MemorySize;
+    decode_gas_remaining:       (0x5A, _, _)                  => GasRemaining;
+    decode_jump_dest:           (0x5B, _, _)                  => JumpDest;
+    decode_push_zero:           (0x5F, _, _)                  => PushZero;
+    decode_push:                (k::bits!("011 nnnnn"), program, pc)
+                                => Push(n + 1, ReadImmediate(program, pc + 1, n + 1, 0));
+    decode_duplicate:           (k::bits!("1000 dddd"), _, _) => Duplicate(d + 1);
+    decode_swap:                (k::bits!("1001 dddd"), _, _) => Swap(d + 1);
     #[k::requires(t <= 4)]
-    decode_log                : (k::bits!("10100 ttt"), _, _) => LogOpcode(t);
-    decode_return             : (0xF3, _, _)                  => Return;
-    decode_static_call        : (0xFA, _, _)                  => StaticCall;
-    decode_revert             : (0xFD, _, _)                  => Revert;
+    decode_log:                 (k::bits!("10100 ttt"), _, _) => LogOpcode(t);
+    decode_return:              (0xF3, _, _)                  => Return;
+    decode_static_call:         (0xFA, _, _)                  => StaticCall;
+    decode_revert:              (0xFD, _, _)                  => Revert;
     #[k::equation(owise)]
-    decode_invalid            : (_, _, _)                     => Invalid;
+    decode_invalid:             (_, _, _)                     => Invalid;
 }
 
 #[k::cell]

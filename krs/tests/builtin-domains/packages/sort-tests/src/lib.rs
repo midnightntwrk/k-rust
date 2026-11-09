@@ -87,13 +87,13 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    prj      : Prj { e }   => int::add(k::project!(Int, e), 1);
+    prj:       Prj { e }   => int::add(k::project!(Int, e), 1);
     #[k::requires(k::is!(Value, e))]
     isval_yes: IsVal { e } => 1;
     #[k::requires(bool::not(k::is!(Value, e)))]
-    isval_no : IsVal { e } => 0;
+    isval_no:  IsVal { e } => 0;
     /// The list lookup keeps its `KItem` result, so the term has one cast.
-    nth:
-        Nth { i } => k::project!(Int, list::get(list::concat(list::item(10), list::item(20)), i))
-        where i: Int;
+    nth:       Nth { i }
+               => k::project!(Int, list::get(list::concat(list::item(10), list::item(20)), i))
+               where i: Int;
 }

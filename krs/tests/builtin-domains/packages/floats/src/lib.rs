@@ -48,10 +48,10 @@ k::rules! {
     use Classifier::*;
 
     one_and_a_half: Classify(1.5)               => 1;
-    single_tenth  : Classify(0.1f32)            => 2;
-    positive_inf  : Classify(f64::INFINITY)     => 3;
-    negative_inf  : Classify(f64::NEG_INFINITY) => 4;
-    negative_zero : Classify(-0.0)              => 5;
+    single_tenth:   Classify(0.1f32)            => 2;
+    positive_inf:   Classify(f64::INFINITY)     => 3;
+    negative_inf:   Classify(f64::NEG_INFINITY) => 4;
+    negative_zero:  Classify(-0.0)              => 5;
 }
 
 /// IEEE equality of a sum: `float::eq(float::add(a, b), c)`.

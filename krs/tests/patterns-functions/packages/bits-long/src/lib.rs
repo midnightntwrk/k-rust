@@ -110,14 +110,14 @@ pub fn R8(index: Term<Int>) -> Term<Reg>;
 k::equations! {
     for R8;
     use Register::*;
-    r8_b  : 0 => B;
-    r8_c  : 1 => C;
-    r8_d  : 2 => D;
-    r8_e  : 3 => E;
-    r8_h  : 4 => H;
-    r8_l  : 5 => L;
+    r8_b:   0 => B;
+    r8_c:   1 => C;
+    r8_d:   2 => D;
+    r8_e:   3 => E;
+    r8_h:   4 => H;
+    r8_l:   5 => L;
     r8_mhl: 6 => Mhl;
-    r8_a  : 7 => A;
+    r8_a:   7 => A;
 }
 
 /// The instruction an opcode encodes.
@@ -127,8 +127,8 @@ pub fn Decode(opcode: Term<Int>) -> Term<Instr>;
 k::equations! {
     for Decode;
     use Instruction::*;
-    decode_nop    : 0      => Nop;
-    decode_halt   : 118    => Halt;
+    decode_nop:     0      => Nop;
+    decode_halt:    118    => Halt;
     #[k::equation(owise)]
     decode_unknown: opcode => Unknown(opcode);
 }
@@ -268,23 +268,24 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    decode_of   : DecodeOf(n)   => crate::Decode(n);
+    decode_of:    DecodeOf(n)   => crate::Decode(n);
     decode_cb_of: DecodeCbOf(n) => crate::DecodeCb(n);
     #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(0))]
-    kind_low    : KindOf(op)    => 0;
+    kind_low:     KindOf(op)    => 0;
     #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(1))]
-    kind_high   : KindOf(op)    => 1;
+    kind_high:    KindOf(op)    => 1;
     #[k::requires(
         op.ge::<Int>(0)
             && op.lt::<Int>(256)
             && op.bit_range::<Int>(7, 1).eq::<Int>(0)
             && op.bit_range::<Int>(3, 1).eq::<Int>(0)
     )]
-    reg_low     : RegOf(op)     => crate::R8(op.bit_range::<Int>(0, 3));
+    reg_low:      RegOf(op)     => crate::R8(op.bit_range::<Int>(0, 3));
     #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(1))]
-    reg_high: RegOf(op) => crate::Instruction::Alu(op, crate::R8(op.bit_range::<Int>(4, 3)));
-    edge_of     : EdgeOf(n)     => crate::Edge(n);
-    imm_of      : ImmOf(n)      => crate::Imm(n);
+    reg_high:     RegOf(op)
+                  => crate::Instruction::Alu(op, crate::R8(op.bit_range::<Int>(4, 3)));
+    edge_of:      EdgeOf(n)     => crate::Edge(n);
+    imm_of:       ImmOf(n)      => crate::Imm(n);
 }
 
 /// Whether an opcode is an 8-bit load or `halt`: the test form of the
@@ -294,10 +295,10 @@ pub fn IsLd(opcode: Term<Int>) -> Term<Bool>;
 
 k::equations! {
     for IsLd;
-    is_ld:
-        opcode => (opcode.ge::<Int>(0)
-            && opcode.lt::<Int>(256)
-            && opcode.bit_range::<Int>(6, 2).eq::<Int>(1));
+    is_ld: opcode
+           => (opcode.ge::<Int>(0)
+               && opcode.lt::<Int>(256)
+               && opcode.bit_range::<Int>(6, 2).eq::<Int>(1));
 }
 
 /// Edge cases of the opcode grid: templates beside authored `||`
@@ -315,7 +316,7 @@ k::equations! {
     )]
     edge_ld_mhl: opcode => 6;
     #[k::equation(owise)]
-    edge_other : opcode => 0;
+    edge_other:  opcode => 0;
 }
 
 #[k::requires(

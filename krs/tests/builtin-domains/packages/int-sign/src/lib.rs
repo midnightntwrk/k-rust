@@ -80,5 +80,5 @@ k::rules! {
     use Op::*;
 
     div_by_minus_one: Div { lhs, rhs: -1 } => int::sub(0, lhs) where lhs: Int;
-    div_by_one      : Div { lhs, rhs: 1 }  => lhs              where lhs: Int;
+    div_by_one:       Div { lhs, rhs: 1 }  => lhs              where lhs: Int;
 }

@@ -87,10 +87,10 @@ pub fn R8(index: Term<Int>) -> Term<Reg>;
 k::equations! {
     for R8;
     use Register::*;
-    r8_a    : 0  => A;
-    r8_b    : 1  => B;
+    r8_a:     0  => A;
+    r8_b:     1  => B;
     /// The register pair.
-    r8_hl   : -1 => Hl;
+    r8_hl:    -1 => Hl;
     #[k::equation(owise)]
     r8_other: _  => A;
 }
@@ -104,7 +104,7 @@ pub struct Pick {
 
 k::equations! {
     for Pick;
-    pick_true : (true, v)  => v;
+    pick_true:  (true, v)  => v;
     pick_false: (false, _) => 0;
 }
 
@@ -114,6 +114,6 @@ k::rules! {
 
     byte_of: ByteOf(v)    => crate::Byte(v);
     half_of: HalfOf(v)    => crate::Half(v);
-    reg_of : RegOf(i)     => crate::R8(i);
+    reg_of:  RegOf(i)     => crate::R8(i);
     pick_of: PickOf(f, v) => crate::Pick(f, v);
 }

@@ -67,8 +67,8 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    inc        : Inc { value }                    => Helper::Wrap { value };
-    goto_done  : Goto(k::lexeme!(Label, "done"))  => Goto(k::lexeme!(Label, "#done"));
+    inc:         Inc { value }                    => Helper::Wrap { value };
+    goto_done:   Goto(k::lexeme!(Label, "done"))  => Goto(k::lexeme!(Label, "#done"));
     goto_hidden: Goto(k::lexeme!(Label, "#done")) => 7;
 }
 

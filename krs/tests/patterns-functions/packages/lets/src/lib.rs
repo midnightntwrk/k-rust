@@ -89,9 +89,9 @@ k::rules! {
     use ExpSyntax::*;
 
     /// `( #let pair ( X , Y ) = E #in pair ( Y , X ) )`.
-    swap    : Swap { e }     => { let Pair(x, y) = e; Pair(y, x) };
+    swap:     Swap { e }     => { let Pair(x, y) = e; Pair(y, x) };
     /// The inner `e` is a new variable; the outer `e` is unaffected.
-    shadow  : Shadow { e }   => Pair({ let e = Pair(e, e); e }, e);
+    shadow:   Shadow { e }   => Pair({ let e = Pair(e, e); e }, e);
     /// A block as a condition.
     #[k::requires({ let m: Int = e; int::gt(m, 0) })]
     positive: Positive { e } => 1;

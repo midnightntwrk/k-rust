@@ -108,12 +108,12 @@ k::equations! {
     use IntegerType::*;
     use Value::*;
 
-    add       : (ty, Add(), lhs, rhs)  => Chop(ty, lhs + rhs);
-    sub_i32   : (I32, Sub(), lhs, rhs) => Chop(I32, lhs + POW32 - rhs);
-    sub_i64   : (I64, Sub(), lhs, rhs) => Chop(I64, lhs + POW64 - rhs);
-    mul       : (ty, Mul(), lhs, rhs)  => Chop(ty, lhs * rhs);
+    add:        (ty, Add(), lhs, rhs)  => Chop(ty, lhs + rhs);
+    sub_i32:    (I32, Sub(), lhs, rhs) => Chop(I32, lhs + POW32 - rhs);
+    sub_i64:    (I64, Sub(), lhs, rhs) => Chop(I64, lhs + POW64 - rhs);
+    mul:        (ty, Mul(), lhs, rhs)  => Chop(ty, lhs * rhs);
     #[k::requires(rhs != 0)]
-    div_u     : (ty, DivU(), lhs, rhs) => Integer(ty, lhs / rhs);
+    div_u:      (ty, DivU(), lhs, rhs) => Integer(ty, lhs / rhs);
     #[k::requires(rhs == 0)]
     div_u_zero: (_, DivU(), _, rhs)    => Undefined();
 }

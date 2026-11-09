@@ -48,8 +48,8 @@ k::rules! {
     for Stmt;
     use StmtSyntax::*;
 
-    if_then_true : IfThen { condition: true, body }                             => body;
+    if_then_true:  IfThen { condition: true, body }                             => body;
     if_then_false: IfThen { condition: false, body: _ }                         => Skip();
-    if_else_true : IfThenElse { condition: true, then_branch, else_branch: _ }  => then_branch;
+    if_else_true:  IfThenElse { condition: true, then_branch, else_branch: _ }  => then_branch;
     if_else_false: IfThenElse { condition: false, then_branch: _, else_branch } => else_branch;
 }

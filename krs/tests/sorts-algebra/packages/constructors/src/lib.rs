@@ -68,7 +68,7 @@ k::rules! {
     use PgmSyntax::*;
 
     /// `wrap` at `Val`, solved from its argument.
-    go : Go(n)  => crate::Wrap { inner: crate::ValSyntax::V(n) };
+    go:  Go(n)  => crate::Wrap { inner: crate::ValSyntax::V(n) };
     /// `wrap` at `Done`, solved from its argument.
     fin: Fin(n) => crate::Wrap { inner: crate::DoneSyntax::Finished(n) };
 }

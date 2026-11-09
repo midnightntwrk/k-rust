@@ -40,7 +40,7 @@ k::rules! {
     for Exp;
     use Op::*;
 
-    minus_one      : MinusOne() => -1;
+    minus_one:       MinusOne() => -1;
     check_minus_one: Check(-1)  => true;
-    check_one      : Check(1)   => false;
+    check_one:       Check(1)   => false;
 }

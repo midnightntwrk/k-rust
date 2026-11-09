@@ -100,7 +100,7 @@ k::rules! {
     for Exp;
     use Op::*;
 
-    add  : Add(lhs, rhs)  => int::add(lhs, rhs)         where lhs: Int, rhs: Int;
+    add:   Add(lhs, rhs)  => int::add(lhs, rhs)         where lhs: Int, rhs: Int;
     twice: Twice(operand) => int::add(operand, operand) where operand: Int;
 }
 

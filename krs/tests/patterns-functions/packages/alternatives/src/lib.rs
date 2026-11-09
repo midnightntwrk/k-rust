@@ -76,9 +76,9 @@ k::rules! {
     use ExpSyntax::*;
 
     /// `color(( red() #Or green() #Or blue() ))` is `1`.
-    rgb    : Color(Red() | Green() | Blue())         => 1;
+    rgb:     Color(Red() | Green() | Blue())         => 1;
     /// A whole subject: `( red() #Or green() #Or blue() )` is `1`.
     primary: Red() | Green() | Blue()                => 1;
     /// Both alternatives bind `x`, and no term matches both.
-    pick   : Pick(Pair(x, Red()) | Pair(x, Green())) => x;
+    pick:    Pick(Pair(x, Red()) | Pair(x, Green())) => x;
 }
