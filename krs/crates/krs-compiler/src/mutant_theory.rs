@@ -282,6 +282,9 @@ fn named_items(error: &DescriptorLoweringError) -> Vec<StableItemId> {
         | DescriptorLoweringError::OverlappingMatchArms { first, second, .. } => {
             vec![first.as_ref().clone(), second.as_ref().clone()]
         }
+        DescriptorLoweringError::OverlappingEquationChoices { equation, .. } => {
+            vec![equation.as_ref().clone()]
+        }
         DescriptorLoweringError::PriorityAfterOwise { rule, owise, .. } => {
             vec![rule.as_ref().clone(), owise.as_ref().clone()]
         }

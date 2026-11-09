@@ -849,6 +849,21 @@ pub(crate) fn admit_rules(
             second_head_range: range,
         });
     }
+    if let Some(choice) = crate::equation_domain::first_equation_choice(&modules) {
+        let range = choice.range.or_else(|| {
+            declarations
+                .get(&choice.equation)
+                .and_then(exact_rule_head_range)
+        });
+        return Err(DescriptorLoweringError::OverlappingEquationChoices {
+            function: choice.function,
+            equation: Box::new(choice.equation),
+            application: choice.application,
+            choices: Box::new(choice.choices),
+            results: Box::new(choice.results),
+            range: range.map(Box::new),
+        });
+    }
     Ok(modules)
 }
 

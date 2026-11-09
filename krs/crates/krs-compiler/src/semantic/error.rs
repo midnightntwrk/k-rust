@@ -201,6 +201,23 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second equation's head.
         second_head_range: Option<Box<SourceRange>>,
     },
+    /// One equation applies to one argument in two ways, selecting two entries of a map or two
+    /// elements of a set, and gives it different results: the statement two overlapping
+    /// equations make, made by one.
+    OverlappingEquationChoices {
+        /// The function, rendered.
+        function: String,
+        /// The equation.
+        equation: Box<StableItemId>,
+        /// The argument it applies to, rendered.
+        application: String,
+        /// The entry or element each way selects, rendered.
+        choices: Box<(String, String)>,
+        /// The result each way gives, rendered.
+        results: Box<(String, String)>,
+        /// Exact authored range of the selecting pattern, or of the equation's head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A sentence with a written priority of 200 or more meets an `owise`
     /// sentence (an `owise` equation of its function, or an `owise`
     /// transition it overlaps): `owise` comes after every other sentence that
@@ -1035,6 +1052,11 @@ macro_rules! by_subject_slots {
                 second: $named_item,
                 ..
             }
+            | DescriptorLoweringError::OverlappingEquationChoices {
+                range: $named_range,
+                equation: $named_item,
+                ..
+            }
             | DescriptorLoweringError::BuiltinSortNameCollision {
                 range: $named_range,
                 id: $named_item,
@@ -1613,6 +1635,22 @@ impl fmt::Display for DescriptorLoweringError {
                 results.0,
                 results.1
             ),
+            Self::OverlappingEquationChoices {
+                function,
+                equation,
+                application,
+                choices,
+                results,
+                ..
+            } => write!(
+                formatter,
+                "equation `{}` of `{function}` applies to {application} in two ways, choosing {} or {}, and gives it different results, `{}` and `{}`; an equation holds for every way its pattern matches, so the definition would state that these are equal. To test whether some entry or element has a property, guard the equation on it and give a result that reads neither it nor the rest, beside an `owise` equation for the other case (`#[k::requires(..)]` on `f(map![k -> _, ..]) => false`, and `f(_) => true` with `#[k::equation(owise)]`); to read the entry at a known key, bind the key elsewhere in the pattern, so that the entry is looked up (`f(map![k -> v, ..], k)`).",
+                equation.item_name(),
+                choices.0,
+                choices.1,
+                results.0,
+                results.1
+            ),
             Self::OverlappingMatchArms {
                 function,
                 first,
@@ -1841,7 +1879,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTerm { .. } => codes::analysis::INVALID_TERM,
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
-            Self::OverlappingEquations { .. } => codes::analysis::OVERLAPPING_EQUATIONS,
+            Self::OverlappingEquations { .. } | Self::OverlappingEquationChoices { .. } => {
+                codes::analysis::OVERLAPPING_EQUATIONS
+            }
             Self::OverlappingMatchArms { .. } => codes::analysis::OVERLAPPING_MATCH_ARMS,
             Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
@@ -1955,6 +1995,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::OverlappingEquations { first, second, .. } => diagnostic
                 .with_note(format!("first equation: {first}"))
                 .with_note(format!("second equation: {second}")),
+            Self::OverlappingEquationChoices { equation, .. } => {
+                diagnostic.with_note(format!("equation: {equation}"))
+            }
             Self::OverlappingMatchArms {
                 first,
                 second,

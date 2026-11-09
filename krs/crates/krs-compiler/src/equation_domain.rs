@@ -1464,5 +1464,9 @@ fn overlap_among<'a>(
     Ok(None)
 }
 
+mod choices;
+
+pub(crate) use choices::first_equation_choice;
+
 #[cfg(test)]
 mod tests;

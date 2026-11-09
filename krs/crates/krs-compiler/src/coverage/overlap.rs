@@ -62,6 +62,11 @@ impl EquationSignature {
         Self(Signature::new(modules))
     }
 
+    /// The signature itself.
+    pub(crate) const fn signature(&self) -> &Signature {
+        &self.0
+    }
+
     /// An evaluator of ground terms over this signature that applies the
     /// total functions of `modules` by their equations.
     pub(crate) fn evaluator<'a>(&'a self, modules: &'a [SemanticModule]) -> Evaluator<'a> {
