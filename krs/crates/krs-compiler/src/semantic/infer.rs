@@ -17,6 +17,7 @@ use super::catalog::{
 };
 use super::cell_states::{RecordOf, no_child};
 use super::collection_types::{CollectionTyping, share_a_sort};
+use super::denotation::denotation;
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 use super::record_updates::Fill;
@@ -1189,8 +1190,11 @@ impl StructuredTermBuilder<'_> {
                 Ok(None)
             }
             (Some(name), None) => {
-                let named = match value {
-                    DescriptorTerm::Variable { name, .. } => self.positioned_let(name),
+                let denoted = denotation(value);
+                let named = match denoted.term {
+                    DescriptorTerm::Variable { name, .. } if !denoted.binds(name) => {
+                        self.positioned_let(name)
+                    }
                     _ => None,
                 };
                 if named.is_some() {
@@ -1206,37 +1210,23 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// Whether `value` has no sort of its own, so that the position it is read at decides what
-    /// it denotes: list brackets, which denote the list their position's sort is (a cons list's
-    /// constructors or the builtin `List`'s items); a local bound to such a value; or a block
-    /// whose result is one.
+    /// it denotes: what it denotes where it is used ([`denotation`]) is list brackets, which
+    /// denote the list their position's sort is (a cons list's constructors or the builtin
+    /// `List`'s items), or a local bound outside the value to such a value. A name one of the
+    /// value's own statements binds to a part, or with an ascription, has the sort that
+    /// statement gives it.
     fn sorted_by_position(&self, value: &DescriptorTerm) -> bool {
-        match value {
+        let denoted = denotation(value);
+        match denoted.term {
             DescriptorTerm::Application { reference, .. } => {
                 matches!(
                     reference.application,
                     DescriptorApplicationRef::ListNotation(_)
                 )
             }
-            DescriptorTerm::Variable { name, .. } => self.positioned_let(name).is_some(),
-            DescriptorTerm::Let {
-                pattern,
-                sort,
-                value,
-                body,
-                ..
-            } => match (pattern.as_ref(), body.as_ref()) {
-                // The block's result is the name its statement binds: its value's.
-                (
-                    DescriptorTerm::Variable { name: bound, .. },
-                    DescriptorTerm::Variable { name: result, .. },
-                ) if bound == result => sort.is_none() && self.sorted_by_position(value),
-                (_, DescriptorTerm::Variable { name: result, .. })
-                    if pattern_binds(pattern, result) =>
-                {
-                    false
-                }
-                _ => self.sorted_by_position(body),
-            },
+            DescriptorTerm::Variable { name, .. } => {
+                !denoted.binds(name) && self.positioned_let(name).is_some()
+            }
             _ => false,
         }
     }
@@ -4458,7 +4448,7 @@ fn names_its_list_by_position(pattern: &DescriptorTerm) -> bool {
 }
 
 /// Whether a local pattern binds `name`.
-fn pattern_binds(pattern: &DescriptorTerm, name: &str) -> bool {
+pub(super) fn pattern_binds(pattern: &DescriptorTerm, name: &str) -> bool {
     let mut occurrences = Vec::new();
     pattern_names(pattern, &mut occurrences);
     occurrences.iter().any(|(bound, _)| bound == name)

@@ -12,6 +12,7 @@ mod configuration_rules;
 mod cons_lists;
 mod constants;
 mod definedness;
+mod denotation;
 mod equation_alternatives;
 mod error;
 mod evaluation;

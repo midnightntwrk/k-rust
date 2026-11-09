@@ -1186,6 +1186,942 @@ fn a_collection_the_sentence_builds_keeps_its_typing_through_a_local() {
     "#]].assert_debug_eq(&(outcomes, carried));
 }
 
+/// `value` written through the forms that denote another term's value, each
+/// at the position (no local) and as the value of one and of two locals: a
+/// block's result, a block whose result names its own statement's local or
+/// an outer statement's, nested blocks, an ascription (`sort`), and
+/// parentheses, which group and are no term of their own. The first spelling
+/// is `value` itself, the direct form.
+fn through_blocks(value: &str, sort: &str) -> Vec<(String, String)> {
+    let forms = [
+        ("value", value.to_owned()),
+        ("block", format!("{{ let n = 1; {value} }}")),
+        ("named", format!("{{ let c = {value}; c }}")),
+        (
+            "outer",
+            format!("{{ let c = {value}; {{ let n = 1; c }} }}"),
+        ),
+        (
+            "nested",
+            format!("{{ let m = 0; {{ let n = 1; {value} }} }}"),
+        ),
+        ("ascribed", format!("{{ let a: {sort} = {value}; a }}")),
+    ];
+    let mut spellings = Vec::new();
+    for (form, written) in forms {
+        // `named` at the position is `value` through one local, spelled already.
+        if form != "named" {
+            spellings.push((form.to_owned(), written.clone()));
+        }
+        spellings.push((
+            format!("{form}-local"),
+            format!("{{ let b = {written}; b }}"),
+        ));
+        spellings.push((
+            format!("{form}-second-local"),
+            format!("{{ let b = {written}; let d = b; d }}"),
+        ));
+    }
+    spellings.push((
+        "parens-block-local".to_owned(),
+        format!("{{ let b = ({{ let n = 1; {value} }}); b }}"),
+    ));
+    spellings
+}
+
+/// Whether a refusal is the direct form's: the same diagnostic code, and the
+/// same reason, which for a typed source names the local it flows through
+/// and for an untyped source the locals it is bound through first.
+fn same_refusal(direct: &str, through: &str) -> bool {
+    let code = |headline: &str| headline.split_once("]:").map(|(code, _)| code.to_owned());
+    let reason = direct.find(" has type ").map_or_else(
+        || {
+            direct
+                .split_once("]: ")
+                .map_or(direct, |(_, reason)| reason)
+        },
+        |at| &direct[at..],
+    );
+    code(direct) == code(through) && through.ends_with(reason)
+}
+
+/// Where a typed collection's value is read: in a cell (a collection the
+/// sentence builds, `s: Stmt`) or as the parameter `x` of `Narrow` (typed or
+/// untyped), with a value that fits the position and one that does not.
+enum Source {
+    Cell {
+        cell: &'static str,
+        fits: &'static str,
+        breaks: &'static str,
+    },
+    Parameter {
+        fits: (&'static str, &'static str),
+        breaks: (&'static str, &'static str),
+    },
+}
+
+/// A local names its value and a block's value is its result, so a value
+/// written through blocks and locals is, where it is used, the term its
+/// innermost result names, and has that term's verdict there: for a
+/// collection the sentence builds (Built), a typed parameter (Typed) and an
+/// untyped one (Untyped), at a list, a map and a set, every spelling of
+/// [`through_blocks`] that does not fit is refused as the direct form is,
+/// and every one that fits is accepted. The well-typed list cell's K is the
+/// direct form's under the blocks' `#let`s, and the block-valued local runs
+/// to the direct form's cell.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of sources and spellings, each with its verdict."
+)]
+fn a_value_through_blocks_and_locals_has_the_verdict_of_the_term_it_denotes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let narrow = |name: &str, (parameter, result): (&str, &str), written: &str| {
+        format!(
+            "#[k::function(total, internal)]\npub fn {name}(x: Term<{parameter}>) -> Term<{result}> {{\n    {written}\n}}\n"
+        )
+    };
+    // Each source at every spelling, or at the direct form and the block-valued local only.
+    let groups = [
+        (
+            "built-list",
+            "List",
+            true,
+            Source::Cell {
+                cell: "stack",
+                fits: "[1, 2]",
+                breaks: "[1, s]",
+            },
+        ),
+        (
+            "built-map",
+            "Map",
+            false,
+            Source::Cell {
+                cell: "env",
+                fits: "map::update(map::empty(), name, 1)",
+                breaks: "map::update(map::empty(), name, s)",
+            },
+        ),
+        (
+            "built-set",
+            "Set",
+            false,
+            Source::Cell {
+                cell: "seen",
+                fits: "set::item(name)",
+                breaks: "set::item(s)",
+            },
+        ),
+        (
+            "typed-map",
+            "Map",
+            true,
+            Source::Parameter {
+                fits: ("Map<Id, Int>", "Map<Id, Value>"),
+                breaks: ("Map<Id, Value>", "Map<Id, Int>"),
+            },
+        ),
+        (
+            "typed-list",
+            "List",
+            false,
+            Source::Parameter {
+                fits: ("List<Int>", "List<Value>"),
+                breaks: ("List<Value>", "List<Int>"),
+            },
+        ),
+        (
+            "typed-set",
+            "Set",
+            false,
+            Source::Parameter {
+                fits: ("Set<Int>", "Set<Int>"),
+                breaks: ("Set<Value>", "Set<Int>"),
+            },
+        ),
+        (
+            "untyped-set",
+            "Set",
+            true,
+            Source::Parameter {
+                fits: ("Set", "Set"),
+                breaks: ("Set", "Set<Id>"),
+            },
+        ),
+        (
+            "untyped-map",
+            "Map",
+            false,
+            Source::Parameter {
+                fits: ("Map", "Map"),
+                breaks: ("Map", "Map<Id, Value>"),
+            },
+        ),
+        (
+            "untyped-list",
+            "List",
+            false,
+            Source::Parameter {
+                fits: ("List", "List"),
+                breaks: ("List", "List<Value>"),
+            },
+        ),
+    ];
+    let mut refused = Vec::new();
+    let mut kept = Vec::new();
+    for (group, sort, every, source) in &groups {
+        let (fits, breaks) = match source {
+            Source::Cell { fits, breaks, .. } => (*fits, *breaks),
+            Source::Parameter { .. } => ("x", "x"),
+        };
+        let chosen = |spellings: Vec<(String, String)>| {
+            spellings
+                .into_iter()
+                .filter(|(spelling, _)| {
+                    *every || ["value", "block-local"].contains(&spelling.as_str())
+                })
+                .collect::<Vec<_>>()
+        };
+        // Every spelling that does not fit, one package each: `check` reports the first refusal.
+        let mut verdicts = Vec::new();
+        let mut direct = None;
+        for (spelling, written) in chosen(through_blocks(breaks, sort)) {
+            let library = match source {
+                Source::Cell { cell, .. } => rules(&format!(
+                    "probe: {{ k: [Put(name, s), ..], {cell}: _ }} => {{ k: [..], {cell}: {written} }};"
+                )),
+                Source::Parameter { breaks, .. } => narrow("Narrow", *breaks, &written),
+            };
+            let manifest = package(
+                temporary.path(),
+                &format!("{group}-breaks-{spelling}"),
+                &format!("{PREAMBLE}{library}"),
+            );
+            let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+            assert!(!success, "{group} {spelling}: accepted");
+            let (headline, marked) = diagnostics(&stderr)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| panic!("{group} {spelling}: {stderr}"));
+            let direct = direct.get_or_insert_with(|| headline.clone());
+            assert!(
+                same_refusal(direct, &headline),
+                "{group} {spelling}: {headline}, where the direct form is {direct}"
+            );
+            verdicts.push((spelling, marked));
+        }
+        refused.push((*group, direct.unwrap(), verdicts));
+        // Every spelling that fits, one package for the group, one sentence each.
+        let spellings = chosen(through_blocks(fits, sort));
+        let library = match source {
+            Source::Cell { cell, .. } => rules(
+                &spellings
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (_, written))| {
+                        format!(
+                            "probe_{index}: {{ k: [PutI(name, {index}), ..], {cell}: _ }} => {{ k: [..], {cell}: {written} }};"
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n    "),
+            ),
+            Source::Parameter { fits, .. } => spellings
+                .iter()
+                .enumerate()
+                .map(|(index, (_, written))| narrow(&format!("Narrow{index}"), *fits, written))
+                .collect(),
+        };
+        let manifest = package(
+            temporary.path(),
+            &format!("{group}-fits"),
+            &format!("{PREAMBLE}{library}"),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{group}: {stderr}");
+        let Source::Cell { cell, .. } = source else {
+            continue;
+        };
+        if !*every {
+            continue;
+        }
+        let output = manifest.with_file_name("emitted");
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{group}: {stderr}");
+        let definition = krs_test_support::without_source_comments(
+            &fs::read_to_string(output.join("definition.k")).unwrap(),
+        );
+        for (index, (spelling, _)) in spellings.iter().enumerate() {
+            // A label's `_` is K's `-`.
+            let k = rule(&definition, &format!("probe-{index}"));
+            kept.push((spelling.clone(), k));
+        }
+        // The block-valued local runs to the direct form's cell.
+        let index = spellings
+            .iter()
+            .position(|(spelling, _)| spelling == "block-local")
+            .unwrap();
+        let program = manifest.with_file_name("program.txt");
+        fs::write(&program, format!("puti x {index}")).unwrap();
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &manifest,
+            "run",
+            &[program.to_str().unwrap()],
+        );
+        assert!(success, "{stderr}");
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        let open = format!("<{cell}> ");
+        let start = flat
+            .find(&open)
+            .unwrap_or_else(|| panic!("no <{cell}>:\n{stdout}"))
+            + open.len();
+        let end = start + flat[start..].find(&format!(" </{cell}>")).unwrap();
+        kept.push(("block-local run".to_owned(), flat[start..end].to_owned()));
+    }
+    expect_test::expect![[r#"
+        (
+            [
+                (
+                    "built-list",
+                    "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value",
+                    [
+                        (
+                            "value",
+                            "s",
+                        ),
+                        (
+                            "value-local",
+                            "s",
+                        ),
+                        (
+                            "value-second-local",
+                            "s",
+                        ),
+                        (
+                            "block",
+                            "s",
+                        ),
+                        (
+                            "block-local",
+                            "s",
+                        ),
+                        (
+                            "block-second-local",
+                            "s",
+                        ),
+                        (
+                            "named-local",
+                            "s",
+                        ),
+                        (
+                            "named-second-local",
+                            "s",
+                        ),
+                        (
+                            "outer",
+                            "s",
+                        ),
+                        (
+                            "outer-local",
+                            "s",
+                        ),
+                        (
+                            "outer-second-local",
+                            "s",
+                        ),
+                        (
+                            "nested",
+                            "s",
+                        ),
+                        (
+                            "nested-local",
+                            "s",
+                        ),
+                        (
+                            "nested-second-local",
+                            "s",
+                        ),
+                        (
+                            "ascribed",
+                            "s",
+                        ),
+                        (
+                            "ascribed-local",
+                            "s",
+                        ),
+                        (
+                            "ascribed-second-local",
+                            "s",
+                        ),
+                        (
+                            "parens-block-local",
+                            "s",
+                        ),
+                    ],
+                ),
+                (
+                    "built-map",
+                    "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value",
+                    [
+                        (
+                            "value",
+                            "s",
+                        ),
+                        (
+                            "block-local",
+                            "s",
+                        ),
+                    ],
+                ),
+                (
+                    "built-set",
+                    "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `seen`, declared `Set<Id>`, and Stmt is not an Id",
+                    [
+                        (
+                            "value",
+                            "s",
+                        ),
+                        (
+                            "block-local",
+                            "s",
+                        ),
+                    ],
+                ),
+                (
+                    "typed-map",
+                    "error[krs::analysis::collection-element-sort]: `x`, matched as the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int",
+                    [
+                        (
+                            "value",
+                            "x",
+                        ),
+                        (
+                            "value-local",
+                            "b",
+                        ),
+                        (
+                            "value-second-local",
+                            "d",
+                        ),
+                        (
+                            "block",
+                            "x",
+                        ),
+                        (
+                            "block-local",
+                            "b",
+                        ),
+                        (
+                            "block-second-local",
+                            "d",
+                        ),
+                        (
+                            "named-local",
+                            "b",
+                        ),
+                        (
+                            "named-second-local",
+                            "d",
+                        ),
+                        (
+                            "outer",
+                            "c",
+                        ),
+                        (
+                            "outer-local",
+                            "b",
+                        ),
+                        (
+                            "outer-second-local",
+                            "d",
+                        ),
+                        (
+                            "nested",
+                            "x",
+                        ),
+                        (
+                            "nested-local",
+                            "b",
+                        ),
+                        (
+                            "nested-second-local",
+                            "d",
+                        ),
+                        (
+                            "ascribed",
+                            "a",
+                        ),
+                        (
+                            "ascribed-local",
+                            "b",
+                        ),
+                        (
+                            "ascribed-second-local",
+                            "d",
+                        ),
+                        (
+                            "parens-block-local",
+                            "b",
+                        ),
+                    ],
+                ),
+                (
+                    "typed-list",
+                    "error[krs::analysis::collection-element-sort]: `x`, matched as the parameter `x` of `Narrow`, has type `List<Value>`, which does not fit the result of `Narrow`, declared `List<Int>`: Value is not an Int",
+                    [
+                        (
+                            "value",
+                            "x",
+                        ),
+                        (
+                            "block-local",
+                            "b",
+                        ),
+                    ],
+                ),
+                (
+                    "typed-set",
+                    "error[krs::analysis::collection-element-sort]: `x`, matched as the parameter `x` of `Narrow`, has type `Set<Value>`, which does not fit the result of `Narrow`, declared `Set<Int>`: Value is not an Int",
+                    [
+                        (
+                            "value",
+                            "x",
+                        ),
+                        (
+                            "block-local",
+                            "b",
+                        ),
+                    ],
+                ),
+                (
+                    "untyped-set",
+                    "error[krs::analysis::untyped-collection]: `x` is matched in the parameter `x` of `Narrow`, declared `Set`, so nothing checks the elements it writes to the result of `Narrow`, declared `Set<Id>`",
+                    [
+                        (
+                            "value",
+                            "x",
+                        ),
+                        (
+                            "value-local",
+                            "b",
+                        ),
+                        (
+                            "value-second-local",
+                            "d",
+                        ),
+                        (
+                            "block",
+                            "x",
+                        ),
+                        (
+                            "block-local",
+                            "b",
+                        ),
+                        (
+                            "block-second-local",
+                            "d",
+                        ),
+                        (
+                            "named-local",
+                            "b",
+                        ),
+                        (
+                            "named-second-local",
+                            "d",
+                        ),
+                        (
+                            "outer",
+                            "c",
+                        ),
+                        (
+                            "outer-local",
+                            "b",
+                        ),
+                        (
+                            "outer-second-local",
+                            "d",
+                        ),
+                        (
+                            "nested",
+                            "x",
+                        ),
+                        (
+                            "nested-local",
+                            "b",
+                        ),
+                        (
+                            "nested-second-local",
+                            "d",
+                        ),
+                        (
+                            "ascribed",
+                            "a",
+                        ),
+                        (
+                            "ascribed-local",
+                            "b",
+                        ),
+                        (
+                            "ascribed-second-local",
+                            "d",
+                        ),
+                        (
+                            "parens-block-local",
+                            "b",
+                        ),
+                    ],
+                ),
+                (
+                    "untyped-map",
+                    "error[krs::analysis::untyped-collection]: `x` is matched in the parameter `x` of `Narrow`, declared `Map`, so nothing checks the elements it writes to the result of `Narrow`, declared `Map<Id, Value>`",
+                    [
+                        (
+                            "value",
+                            "x",
+                        ),
+                        (
+                            "block-local",
+                            "b",
+                        ),
+                    ],
+                ),
+                (
+                    "untyped-list",
+                    "error[krs::analysis::untyped-collection]: `x` is matched in the parameter `x` of `Narrow`, declared `List`, so nothing checks the elements it writes to the result of `Narrow`, declared `List<Value>`",
+                    [
+                        (
+                            "value",
+                            "x",
+                        ),
+                        (
+                            "block-local",
+                            "b",
+                        ),
+                    ],
+                ),
+            ],
+            [
+                (
+                    "value",
+                    "<k> puti Name:Id 0 => .K ... </k> <stack> _ => ListItem(1) ListItem(2) </stack>",
+                ),
+                (
+                    "value-local",
+                    "<k> puti Name:Id 1 => .K ... </k> <stack> _ => ( #let B:List = ListItem(1) ListItem(2) #in B:List ) </stack>",
+                ),
+                (
+                    "value-second-local",
+                    "<k> puti Name:Id 2 => .K ... </k> <stack> _ => ( #let B:List = ListItem(1) ListItem(2) #in ( #let D:List = B:List #in D:List ) ) </stack>",
+                ),
+                (
+                    "block",
+                    "<k> puti Name:Id 3 => .K ... </k> <stack> _ => ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) </stack>",
+                ),
+                (
+                    "block-local",
+                    "<k> puti Name:Id 4 => .K ... </k> <stack> _ => ( #let B:List = ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) #in B:List ) </stack>",
+                ),
+                (
+                    "block-second-local",
+                    "<k> puti Name:Id 5 => .K ... </k> <stack> _ => ( #let B:List = ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) #in ( #let D:List = B:List #in D:List ) ) </stack>",
+                ),
+                (
+                    "named-local",
+                    "<k> puti Name:Id 6 => .K ... </k> <stack> _ => ( #let B:List = ( #let C:List = ListItem(1) ListItem(2) #in C:List ) #in B:List ) </stack>",
+                ),
+                (
+                    "named-second-local",
+                    "<k> puti Name:Id 7 => .K ... </k> <stack> _ => ( #let B:List = ( #let C:List = ListItem(1) ListItem(2) #in C:List ) #in ( #let D:List = B:List #in D:List ) ) </stack>",
+                ),
+                (
+                    "outer",
+                    "<k> puti Name:Id 8 => .K ... </k> <stack> _ => ( #let C:List = ListItem(1) ListItem(2) #in ( #let N:Int = 1 #in C:List ) ) </stack>",
+                ),
+                (
+                    "outer-local",
+                    "<k> puti Name:Id 9 => .K ... </k> <stack> _ => ( #let B:List = ( #let C:List = ListItem(1) ListItem(2) #in ( #let N:Int = 1 #in C:List ) ) #in B:List ) </stack>",
+                ),
+                (
+                    "outer-second-local",
+                    "<k> puti Name:Id 10 => .K ... </k> <stack> _ => ( #let B:List = ( #let C:List = ListItem(1) ListItem(2) #in ( #let N:Int = 1 #in C:List ) ) #in ( #let D:List = B:List #in D:List ) ) </stack>",
+                ),
+                (
+                    "nested",
+                    "<k> puti Name:Id 11 => .K ... </k> <stack> _ => ( #let M:Int = 0 #in ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) ) </stack>",
+                ),
+                (
+                    "nested-local",
+                    "<k> puti Name:Id 12 => .K ... </k> <stack> _ => ( #let B:List = ( #let M:Int = 0 #in ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) ) #in B:List ) </stack>",
+                ),
+                (
+                    "nested-second-local",
+                    "<k> puti Name:Id 13 => .K ... </k> <stack> _ => ( #let B:List = ( #let M:Int = 0 #in ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) ) #in ( #let D:List = B:List #in D:List ) ) </stack>",
+                ),
+                (
+                    "ascribed",
+                    "<k> puti Name:Id 14 => .K ... </k> <stack> _ => ( #let A:List = ListItem(1) ListItem(2) #in A:List ) </stack>",
+                ),
+                (
+                    "ascribed-local",
+                    "<k> puti Name:Id 15 => .K ... </k> <stack> _ => ( #let B:List = ( #let A:List = ListItem(1) ListItem(2) #in A:List ) #in B:List ) </stack>",
+                ),
+                (
+                    "ascribed-second-local",
+                    "<k> puti Name:Id 16 => .K ... </k> <stack> _ => ( #let B:List = ( #let A:List = ListItem(1) ListItem(2) #in A:List ) #in ( #let D:List = B:List #in D:List ) ) </stack>",
+                ),
+                (
+                    "parens-block-local",
+                    "<k> puti Name:Id 17 => .K ... </k> <stack> _ => ( #let B:List = ( #let N:Int = 1 #in ListItem(1) ListItem(2) ) #in B:List ) </stack> endmodule",
+                ),
+                (
+                    "block-local run",
+                    "ListItem ( 1 ) ListItem ( 2 )",
+                ),
+            ],
+        )
+    "#]].assert_debug_eq(&(refused, kept));
+}
+
+/// A block's result is read in the scope of the block's statements, so what a
+/// block-valued local is follows the names those statements bind: a name that
+/// shadows a parameter is the value it is bound to, a destructured name is a
+/// part of its value, and an operation over a statement's local is an
+/// operation over that local's value; a block that is an operand is the term
+/// it denotes there too. And a collection the sentence builds stands wherever
+/// a local whose value carries it stands, `let b = map::update(c, name, 2);`
+/// through `c`, so it is checked there, through any number of such locals.
+/// Each spelling has the direct form's verdict.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of spellings, each with its verdict."
+)]
+fn a_block_result_is_read_in_the_scope_of_its_statements() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let narrow = |parameters: &str, result: &str, body: &str| {
+        format!(
+            "{PREAMBLE}#[k::function(total, internal)]\npub fn Narrow({parameters}) -> Term<{result}> {{\n    {body}\n}}\n"
+        )
+    };
+    let maps = "x: Term<List<Map<Id, Value>>>";
+    let cases = [
+        (
+            "shadow",
+            narrow(
+                "x: Term<Map<Id, Value>>, y: Term<Map<Id, Int>>",
+                "Map<Id, Int>",
+                "{ let y = x; y }",
+            ),
+        ),
+        (
+            "shadow-local",
+            narrow(
+                "x: Term<Map<Id, Value>>, y: Term<Map<Id, Int>>",
+                "Map<Id, Int>",
+                "let b = { let y = x; y };\n    b",
+            ),
+        ),
+        (
+            "part",
+            narrow(maps, "Map<Id, Int>", "{ let [first, ..] = x; first }"),
+        ),
+        (
+            "part-local",
+            narrow(
+                maps,
+                "Map<Id, Int>",
+                "let b = { let [first, ..] = x; first };\n    b",
+            ),
+        ),
+        (
+            "part-second-local",
+            narrow(
+                maps,
+                "Map<Id, Int>",
+                "let b = { let [first, ..] = x; first };\n    let d = b;\n    d",
+            ),
+        ),
+        ("read", narrow(maps, "Map<Id, Int>", "list::get(x, 0)")),
+        (
+            "read-in-block",
+            narrow(maps, "Map<Id, Int>", "{ let y = x; list::get(y, 0) }"),
+        ),
+        (
+            "read-in-block-local",
+            narrow(
+                maps,
+                "Map<Id, Int>",
+                "let b = { let y = x; list::get(y, 0) };\n    b",
+            ),
+        ),
+        (
+            "read-of-block",
+            narrow(maps, "Map<Id, Int>", "list::get({ let n = 1; x }, 0)"),
+        ),
+        (
+            "read-of-block-local",
+            narrow(
+                maps,
+                "Map<Id, Int>",
+                "let b = list::get({ let n = 1; x }, 0);\n    b",
+            ),
+        ),
+        (
+            "untyped-read",
+            narrow("x: Term<List>", "Map<Id, Value>", "list::get(x, 0)"),
+        ),
+        (
+            "untyped-read-in-block-local",
+            narrow(
+                "x: Term<List>",
+                "Map<Id, Value>",
+                "let b = { let y = x; list::get(y, 0) };\n    b",
+            ),
+        ),
+        (
+            "built-in-block",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "probe: { k: [Put(name, s), ..], stack: _ } => { k: [..], stack: { let c = [1, s]; list::concat(c, []) } };"
+                )
+            ),
+        ),
+        (
+            "built-through-operation",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "probe: { k: [Put(name, s), ..], env: _ } => { k: [..], env: { let c = map::update(map::empty(), name, s); map::update(c, name, 2) } };"
+                )
+            ),
+        ),
+        (
+            "built-through-operation-local",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "probe: { k: [Put(name, s), ..], env: _ } => { k: [..], env: { let c = map::update(map::empty(), name, s); let b = map::update(c, name, 2); b } };"
+                )
+            ),
+        ),
+        (
+            "built-through-two-operations-local",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "probe: { k: [Put(name, s), ..], stack: _ } => { k: [..], stack: { let c = [1, s]; let e = list::concat(c, []); let b = list::concat(e, []); b } };"
+                )
+            ),
+        ),
+        (
+            "built-in-block-local",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "probe: { k: [Put(name, s), ..], stack: _ } => { k: [..], stack: { let b = { let c = [1, s]; list::concat(c, []) }; b } };"
+                )
+            ),
+        ),
+    ];
+    let mut outcomes = Vec::new();
+    for (name, library) in cases {
+        let manifest = package(temporary.path(), &format!("scope-{name}"), &library);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        let verdict = if success {
+            "accepted".to_owned()
+        } else {
+            let (headline, marked) = diagnostics(&stderr)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| panic!("{name}: {stderr}"));
+            format!("{headline} at `{marked}`")
+        };
+        outcomes.push((name, verdict));
+    }
+    expect_test::expect![[r#"
+        [
+            (
+                "shadow",
+                "error[krs::analysis::collection-element-sort]: `y`, bound to the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `y`",
+            ),
+            (
+                "shadow-local",
+                "error[krs::analysis::collection-element-sort]: `b`, bound to the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `b`",
+            ),
+            (
+                "part",
+                "error[krs::analysis::collection-element-sort]: `first`, bound to an element of the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `first`",
+            ),
+            (
+                "part-local",
+                "error[krs::analysis::collection-element-sort]: `b`, bound to an element of the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `b`",
+            ),
+            (
+                "part-second-local",
+                "error[krs::analysis::collection-element-sort]: `d`, bound to an element of the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `d`",
+            ),
+            (
+                "read",
+                "error[krs::analysis::collection-element-sort]: `list::get(..)`, read from the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `list::get`",
+            ),
+            (
+                "read-in-block",
+                "error[krs::analysis::collection-element-sort]: `list::get(..)`, read from the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `list::get`",
+            ),
+            (
+                "read-in-block-local",
+                "error[krs::analysis::collection-element-sort]: `b`, bound to the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `b`",
+            ),
+            (
+                "read-of-block",
+                "error[krs::analysis::collection-element-sort]: `list::get(..)`, read from the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `list::get`",
+            ),
+            (
+                "read-of-block-local",
+                "error[krs::analysis::collection-element-sort]: `b`, bound to the parameter `x` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int at `b`",
+            ),
+            (
+                "untyped-read",
+                "error[krs::analysis::untyped-collection]: `list::get(..)` reads a collection whose element types are not declared, so nothing checks the elements it writes to the result of `Narrow`, declared `Map<Id, Value>` at `list::get`",
+            ),
+            (
+                "untyped-read-in-block-local",
+                "error[krs::analysis::untyped-collection]: `b` is bound to `list::get(..)`, and `list::get(..)` reads a collection whose element types are not declared, so nothing checks the elements it writes to the result of `Narrow`, declared `Map<Id, Value>` at `b`",
+            ),
+            (
+                "built-in-block",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+            ),
+            (
+                "built-through-operation",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value at `s`",
+            ),
+            (
+                "built-through-operation-local",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value at `s`",
+            ),
+            (
+                "built-through-two-operations-local",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+            ),
+            (
+                "built-in-block-local",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
 /// A configuration with list cells of three kinds (a typed and a bare builtin `List`, a cons
 /// list), and constructors whose fields declare lists, `KItem` and `K`.
 const BRACKETS: &str = r#"

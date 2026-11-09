@@ -40,6 +40,7 @@
 //! provenance key of the term they apply to, which inference and lowering
 //! consult.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 
@@ -54,6 +55,7 @@ use krs_ir::{
 use krs_ir_levels::SemanticSortRef;
 
 use super::catalog::{ProductionSignature, semantic_is_subsort, semantic_sort_ref};
+use super::denotation::denotation;
 use super::error::DescriptorLoweringError;
 use super::infer::most_specific_common_descendants;
 use super::references::require_cell_field;
@@ -512,6 +514,7 @@ enum Matched {
 
 /// What a local name is known to be: it names the value its pattern
 /// matched, so it is what that value is.
+#[derive(Clone)]
 enum Local {
     /// Matched at a position of this type.
     Typed(Box<(SortType, Position)>),
@@ -635,8 +638,8 @@ pub(super) struct Walker<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     parents: &'a SortParents,
     typing: CollectionTyping,
-    /// Whether this pass records binder types (the first) or checks (the
-    /// second).
+    /// Whether this pass records binder types (a binding pass) or checks
+    /// (the last, [`Self::run`]).
     binding: bool,
     /// Names a `let`, `k::matches!`, or `ml::exists` binds in scope, each
     /// with what its pattern matched it as, if that is known.
@@ -647,8 +650,16 @@ pub(super) struct Walker<'a> {
     /// The typed positions a collection the sentence builds stands at through
     /// the locals that name it, by the key of the built value: the meet of
     /// every typed position a use of such a local stands at, found by the
-    /// first pass and read by the second at the local's binding.
+    /// binding passes and read by each later pass at the local's binding.
     built_uses: BTreeMap<ProvenanceKey, (SortType, Position)>,
+    /// The names each `let` statement bound, as the walk last bound them, by
+    /// the statement's key: what a value denotes may be a block's result,
+    /// read in the scope of the block's statements ([`Self::denoted`]).
+    statements: BTreeMap<ProvenanceKey, BTreeMap<String, Option<Local>>>,
+    /// The statements a judgement of a value has entered, innermost last,
+    /// each with the names its pattern binds ([`Self::denoted`]): those names
+    /// shadow every other in scope while the judgement reads the term.
+    entered: RefCell<Vec<(ProvenanceKey, BTreeSet<String>)>>,
 }
 
 /// A term of a sentence and the position it stands at.
@@ -716,6 +727,8 @@ impl<'a> Walker<'a> {
             locals: Vec::new(),
             in_local_pattern: false,
             built_uses: BTreeMap::new(),
+            statements: BTreeMap::new(),
+            entered: RefCell::new(Vec::new()),
         }
     }
 
@@ -811,16 +824,30 @@ impl<'a> Walker<'a> {
         self.production_types(id)?.result
     }
 
-    /// Walks every root twice and returns the sentence's typing.
+    /// Walks every root to record binder types and the uses of locals that
+    /// name a collection the sentence builds, then once more to check, and
+    /// returns the sentence's typing. Such a local can stand inside another
+    /// local's value, `let b = list::concat(c, []);`, which stands where `b`
+    /// is used, so it stands there too; a binding pass walks each value at
+    /// the uses the previous one found ([`Self::built_uses`]), so the binding
+    /// passes repeat until they find no more.
     pub(super) fn run(
         mut self,
         roots: &[Root<'_>],
     ) -> Result<CollectionTyping, DescriptorLoweringError> {
-        for binding in [true, false] {
-            self.binding = binding;
+        self.binding = true;
+        loop {
+            let found = self.built_uses.clone();
             for root in roots {
                 self.root(root)?;
             }
+            if self.built_uses == found {
+                break;
+            }
+        }
+        self.binding = false;
+        for root in roots {
+            self.root(root)?;
         }
         Ok(self.typing)
     }
@@ -1036,7 +1063,11 @@ impl<'a> Walker<'a> {
     }
 
     fn is_local(&self, name: &str) -> bool {
-        self.locals.iter().any(|scope| scope.contains_key(name))
+        self.entered
+            .borrow()
+            .iter()
+            .any(|(_, names)| names.contains(name))
+            || self.locals.iter().any(|scope| scope.contains_key(name))
     }
 
     /// The typed position a local was bound at, if it was bound at one. A
@@ -1050,12 +1081,49 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// What the local `name` in scope is known to be: the innermost statement
+    /// a judgement has entered that binds it ([`Self::denoted`]), else the
+    /// innermost scope of the walk that does.
     fn local(&self, name: &str) -> Option<&Local> {
+        let entered = self.entered.borrow();
+        if let Some((statement, _)) = entered.iter().rev().find(|(_, names)| names.contains(name)) {
+            return self
+                .statements
+                .get(statement)
+                .and_then(|scope| scope.get(name))
+                .and_then(Option::as_ref);
+        }
         self.locals
             .iter()
             .rev()
             .find_map(|scope| scope.get(name))
             .and_then(Option::as_ref)
+    }
+
+    /// Judges what `value` denotes where it is used ([`denotation`]): the term
+    /// it names through its blocks and locals, read in the scope of the
+    /// statements it lies in, whose names are what the walk bound them as.
+    /// A statement the walk has not reached yet binds its names to nothing
+    /// known.
+    fn denoted<T>(&self, value: &DescriptorTerm, judge: impl FnOnce(&DescriptorTerm) -> T) -> T {
+        let denoted = denotation(value);
+        let depth = self.entered.borrow().len();
+        self.entered
+            .borrow_mut()
+            .extend(
+                denoted
+                    .statements
+                    .iter()
+                    .filter_map(|statement| match statement {
+                        DescriptorTerm::Let { key, pattern, .. } => {
+                            Some((key.clone(), pattern_names(pattern)))
+                        }
+                        _ => None,
+                    }),
+            );
+        let judged = judge(denoted.term);
+        self.entered.borrow_mut().truncate(depth);
+        judged
     }
 
     /// Records that the collection the sentence builds at `built`, through a
@@ -1152,7 +1220,7 @@ impl<'a> Walker<'a> {
             && let Some(scope) = self.locals.last_mut()
         {
             let roots = root_names(pattern);
-            let value = spelling(value);
+            let value = spelling(denotation(value).term);
             for (name, slot) in scope.iter_mut().filter(|(_, slot)| slot.is_none()) {
                 *slot = Some(Local::Untyped(if roots.contains(name.as_str()) {
                     format!("`{name}` is bound to `{value}`, and {reason}")
@@ -1174,12 +1242,12 @@ impl<'a> Walker<'a> {
         walked
     }
 
-    /// The key of the collection the sentence builds that `value` is, when no
-    /// declaration types it: the value itself (a collection operation or
-    /// brackets), or a local that names one. A local bound to it is typed by
-    /// the positions it stands at ([`Self::built_uses`]).
+    /// The key of the collection the sentence builds that `value` denotes
+    /// ([`Self::denoted`]), when no declaration types it: a collection
+    /// operation or brackets, or a local that names one. A local bound to it
+    /// is typed by the positions it stands at ([`Self::built_uses`]).
     fn built_value(&self, value: &DescriptorTerm) -> Option<ProvenanceKey> {
-        match value {
+        self.denoted(value, |value| match value {
             DescriptorTerm::Variable { name, .. } if self.is_local(name) => {
                 match self.local(name)? {
                     Local::Built(key) => Some(key.clone()),
@@ -1190,7 +1258,7 @@ impl<'a> Walker<'a> {
                 Some(term_key(value).clone())
             }
             _ => None,
-        }
+        })
     }
 
     /// What a local is known to be at a typed position: the typed collection
@@ -1210,9 +1278,14 @@ impl<'a> Walker<'a> {
     /// Why a value is a collection whose elements nothing declares, when it
     /// is one wherever it is written: a binder or local matched as one, a
     /// production's untyped result, a projection, or an operation that
-    /// carries or reads such a collection. A collection the sentence builds
-    /// is typed by the position it is written at, so it is not one here.
+    /// carries or reads such a collection, judged of the term `term` denotes
+    /// ([`Self::denoted`]). A collection the sentence builds is typed by the
+    /// position it is written at, so it is not one here.
     fn untyped_reason(&self, term: &DescriptorTerm) -> Option<String> {
+        self.denoted(term, |term| self.untyped_term(term))
+    }
+
+    fn untyped_term(&self, term: &DescriptorTerm) -> Option<String> {
         if self.typed_source(term).is_some() {
             return None;
         }
@@ -1373,6 +1446,7 @@ impl<'a> Walker<'a> {
             // A local pattern matches the value it is written over, so its parts are that
             // value's parts: at a typed collection, its keys, values and elements.
             DescriptorTerm::Let {
+                key,
                 pattern,
                 value,
                 body,
@@ -1380,16 +1454,22 @@ impl<'a> Walker<'a> {
             } => {
                 // A collection the sentence builds, named by the local, stands where the local
                 // is used: at the meet of those positions' types, as it would if written there
-                // (the first pass finds them, [`Self::built_uses`]).
-                let used = if self.binding || subject {
+                // (the binding passes find them, [`Self::built_uses`]). Only the check types
+                // the local there: a binding pass may find more of them.
+                let used = if subject {
                     None
                 } else {
                     self.built_value(value)
                         .and_then(|key| self.built_uses.get(&key).cloned())
                 };
                 self.walk(value, used.as_ref(), subject)?;
-                let matched = used.or_else(|| self.typed_source(value));
+                let matched = used
+                    .filter(|_| !self.binding)
+                    .or_else(|| self.typed_source(value));
                 self.local_pattern(pattern, value, matched.as_ref())?;
+                if let Some(scope) = self.locals.last() {
+                    self.statements.insert(key.clone(), scope.clone());
+                }
                 self.walk(body, at, subject)?;
                 self.locals.pop();
             }
@@ -1654,7 +1734,7 @@ impl<'a> Walker<'a> {
         {
             return Some(reading);
         }
-        method.reading(built_domain(receiver)?)
+        method.reading(built_domain(denotation(receiver).term)?)
     }
 
     /// A production's application: its result checked at the position when
@@ -1857,9 +1937,13 @@ impl<'a> Walker<'a> {
     }
 
     /// The type and position of a term that is known to be a typed
-    /// collection: a binder matched at a typed position, or an operation on
-    /// one.
+    /// collection, judged of the term it denotes ([`Self::denoted`]): a
+    /// binder matched at a typed position, or an operation on one.
     fn typed_source(&self, term: &DescriptorTerm) -> Option<(SortType, Position)> {
+        self.denoted(term, |term| self.typed_term(term))
+    }
+
+    fn typed_term(&self, term: &DescriptorTerm) -> Option<(SortType, Position)> {
         match term {
             DescriptorTerm::Variable { name, .. } if self.is_local(name) => {
                 self.local_type(name).cloned()
