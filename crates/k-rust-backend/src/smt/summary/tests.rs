@@ -106,6 +106,8 @@ fn equation(lhs: &str, rhs: &str, guard: Option<&str>, attrs: &str) -> String {
                 vec!["SortInt"]
             }
             "pair" => vec!["SortInt", "SortInt"],
+            "pick" => vec!["SortFlags"],
+            "pickOf" => vec!["SortInt", "SortFlags"],
             other => panic!("fixture signature for {other}"),
         };
         if symbol.name.starts_with("opTable") {
@@ -2319,6 +2321,126 @@ fn a_function_dividing_by_a_nonzero_literal_equals_its_body() {
             "{call}"
         );
     }
+}
+
+fn flag_rows() -> String {
+    let declarations = r#"
+      sort SortFlags{} []
+      symbol fl{}(SortBool{},SortBool{}) : SortFlags{} [constructor{}(),functional{}()]
+      symbol pick{}(SortFlags{}) : SortInt{} [function{}(),total{}()]
+      symbol pickOf{}(SortInt{},SortFlags{}) : SortInt{} [function{}(),total{}()]
+    "#;
+    let f = "F:SortFlags{}";
+    [
+        declarations.to_owned(),
+        equation(
+            "pick{}(fl{}(B:SortBool{},C:SortBool{}))",
+            "bit{}(C:SortBool{})",
+            Some("B:SortBool{}"),
+            "",
+        ),
+        equation(
+            "pick{}(fl{}(B:SortBool{},C:SortBool{}))",
+            &int(2),
+            Some("not{}(B:SortBool{})"),
+            "",
+        ),
+        equation(
+            &format!("pickOf{{}}(X:SortInt{{}},{f})"),
+            &format!("plus{{}}(X:SortInt{{}},pick{{}}({f}))"),
+            Some(&format!("lt{{}}(pick{{}}({f}),{})", int(2))),
+            "",
+        ),
+        equation(
+            &format!("pickOf{{}}(X:SortInt{{}},{f})"),
+            "X:SortInt{}",
+            Some(&format!("not{{}}(lt{{}}(pick{{}}({f}),{}))", int(2))),
+            "",
+        ),
+    ]
+    .join("\n")
+}
+
+/// A function of a free constructor's application is specialized at the application's shape
+/// when its scalar fields are not literals: `pick(fl(X, Y))` stands for every instance, whose
+/// fields are its parameters, and its guards on the fields form the partition. A function whose
+/// guard calls another at its own argument (`pickOf`, guarded by `pick(F) < 2`) is specialized
+/// the same way, with the inner
+/// call's summary as a dependency, and a field that is a scalar term other than a variable is a
+/// parameter too. A static argument holding a variable of the constructor's own sort has no shape
+/// below it and is refused.
+#[test]
+fn a_constructor_argument_with_scalar_fields_is_specialized_at_its_shape() {
+    let d = definition(&[bit_rows(), flag_rows()].join("\n"));
+    let admit = |call: &str| Catalog::new(&d).admit(&term(&d, call)).unwrap();
+    let summary = admit("pick{}(fl{}(X:SortBool{},Y:SortBool{}))").unwrap();
+    assert_eq!(summary.parameters.len(), 2);
+    for (x, y, expected) in [
+        (true, true, 1),
+        (true, false, 0),
+        (false, true, 2),
+        (false, false, 2),
+    ] {
+        assert_eq!(
+            crate::builtin::read_int(&evaluate(
+                &d,
+                &summary,
+                vec![term(&d, &boolv(x)), term(&d, &boolv(y))]
+            ))
+            .unwrap(),
+            expected.into(),
+            "pick(fl({x}, {y}))"
+        );
+    }
+    let outer = admit("pickOf{}(Z:SortInt{},fl{}(not{}(X:SortBool{}),Y:SortBool{}))").unwrap();
+    assert_eq!(outer.parameters.len(), 3);
+    assert!(!outer.dependencies.is_empty());
+    assert_eq!(admit("pick{}(F:SortFlags{})"), Err(Rejected::Unsupported));
+}
+
+/// The solver reads an application at a constructor shape through the shape's summary, with the
+/// call's fields as the parameters: `pick(fl(X, Y))` equals its rows spelled as a conditional, and
+/// a wrong spelling is not proved.
+#[cfg(feature = "z3")]
+#[test]
+fn an_application_at_a_constructor_shape_equals_its_rows() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = definition(
+        &[
+            bit_rows(),
+            flag_rows(),
+            r#"hooked-symbol select{}(SortBool{},SortInt{},SortInt{}) : SortInt{}
+                 [function{}(),total{}(),hook{}("KEQUAL.ite"),smt-hook{}("ite")]"#
+                .to_owned(),
+        ]
+        .join("\n"),
+    );
+    let solver = Z3Solver::new(&d).unwrap();
+    let equal = |left: &str, right: &str| {
+        solver.check_predicates(
+            &[],
+            &Substitution::new(),
+            &[Predicate::Equals(term(&d, left), term(&d, right))],
+        )
+    };
+    let call = "pick{}(fl{}(X:SortBool{},Y:SortBool{}))";
+    let rows = format!(
+        "select{{}}(X:SortBool{{}},select{{}}(Y:SortBool{{}},{one},{zero}),{two})",
+        one = int(1),
+        zero = int(0),
+        two = int(2)
+    );
+    assert_eq!(equal(call, &rows), Ok(Ok(Validity::Valid)));
+    let wrong = format!(
+        "select{{}}(Y:SortBool{{}},select{{}}(X:SortBool{{}},{one},{zero}),{two})",
+        one = int(1),
+        zero = int(0),
+        two = int(2)
+    );
+    assert_eq!(equal(call, &wrong), Ok(Ok(Validity::Contingent)));
 }
 
 /// Two applications of branching total functions are decided equal by their summaries where

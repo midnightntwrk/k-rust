@@ -1147,11 +1147,9 @@ impl TranslationState {
             let TermKind::Application { arguments, .. } = term.kind() else {
                 unreachable!()
             };
-            let arguments = arguments
+            let arguments = summary::parameter_arguments(arguments)
                 .iter()
-                .zip(&reading.summary.key.static_arguments)
-                .filter(|(_, static_argument)| static_argument.is_none())
-                .map(|(argument, _)| self.translate_term(argument))
+                .map(|argument| self.translate_term(argument))
                 .collect::<Result<Vec<_>, _>>()?;
             self.approximate(reading.exactness);
             let value = if arguments.is_empty() {
