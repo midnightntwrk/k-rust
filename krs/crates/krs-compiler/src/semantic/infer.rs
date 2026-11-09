@@ -164,6 +164,18 @@ pub(super) struct LocalBinders {
     /// The identity and sort of each name bound by the enclosing `let`
     /// statements while lowering, innermost last.
     let_scopes: Vec<BTreeMap<String, (SemanticId, SemanticSortRef)>>,
+    /// The names, by their scope in [`Self::let_names`], that the enclosing
+    /// `let` statements bind to a value with no sort of its own
+    /// ([`StructuredTermBuilder::sorted_by_position`]), each with the key of
+    /// the `let` whose value it names: a name bound to another such name
+    /// names that one's value.
+    positioned: BTreeMap<(usize, String), ProvenanceKey>,
+    /// The sorts the uses of each such value's names stand at, by its `let`
+    /// key.
+    positioned_uses: BTreeMap<ProvenanceKey, BTreeSet<SemanticSortRef>>,
+    /// The sort each such value is inferred and lowered at, by its `let` key:
+    /// the one its uses meet at, or its ascription.
+    value_sorts: BTreeMap<ProvenanceKey, SemanticSortRef>,
 }
 
 /// Whether a record may leave fields out, and why: a pattern's omitted
@@ -595,9 +607,15 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<(), DescriptorLoweringError> {
         match term {
             // A name an enclosing `let` binds is local (KF-032): its sort is
-            // checked when it is lowered.
+            // checked when it is lowered. A name of a value with no sort of its
+            // own gives it the sort it stands at ([`Self::use_positioned`]).
             DescriptorTerm::Variable { name, .. }
-                if !self.is_inferring_local(name) && self.is_let_local(name) => {}
+                if !self.is_inferring_local(name) && self.is_let_local(name) =>
+            {
+                if let Some(expected) = expected_sort {
+                    self.use_positioned(name, expected);
+                }
+            }
             DescriptorTerm::Variable { key, name, .. } => {
                 if !self.binding_names.contains(name) && !self.is_inferring_local(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
@@ -1102,7 +1120,8 @@ impl StructuredTermBuilder<'_> {
                 sorts.insert(name.clone(), Some(sort.clone()));
             }
         }
-        self.infer(value, None, false)?;
+        let registered = self.infer_let_value(key, pattern, ascribed.as_ref(), value)?;
+        let deferred = registered.as_ref().is_some_and(|(_, root)| root == key);
         // A name the pattern binds whole has its value's sort, as far as it
         // is known before the body (a later pass knows more), so that an
         // operator or a method whose operand it is chooses as its value
@@ -1119,9 +1138,167 @@ impl StructuredTermBuilder<'_> {
             .collect();
         self.locals.let_sorts.insert(key.clone(), sorts);
         self.locals.let_names.push(known);
+        let scope = self.locals.let_names.len() - 1;
+        if let Some((name, root)) = &registered {
+            self.locals
+                .positioned
+                .insert((scope, name.clone()), root.clone());
+        }
         let inferred = self.infer(body, expected_sort, false);
+        if let Some((name, _)) = &registered {
+            self.locals.positioned.remove(&(scope, name.clone()));
+        }
         self.locals.let_names.pop();
-        inferred
+        inferred?;
+        if deferred && let Some((name, _)) = &registered {
+            let sort = self.positioned_sort(key, name, value)?;
+            self.locals.value_sorts.insert(key.clone(), sort.clone());
+            self.infer(value, Some(&sort), false)?;
+        }
+        Ok(())
+    }
+
+    /// Infers a `let` statement's value, unless its sort comes from its local's uses: a local
+    /// names its value, so a value with no sort of its own (list brackets,
+    /// [`Self::sorted_by_position`]) stands where the local does. It is read at its ascription,
+    /// or else at the sort its local's uses meet at, known once the body is inferred
+    /// ([`Self::positioned_sort`]). The name such a value is bound to, with its root: the `let`
+    /// whose value it names, its own (`key`, whose value is then inferred after the body), or
+    /// the one a local it is bound to names.
+    fn infer_let_value(
+        &mut self,
+        key: &ProvenanceKey,
+        pattern: &DescriptorTerm,
+        ascribed: Option<&SemanticSortRef>,
+        value: &DescriptorTerm,
+    ) -> Result<Option<(String, ProvenanceKey)>, DescriptorLoweringError> {
+        let bound = match pattern {
+            DescriptorTerm::Variable { name, .. } if self.sorted_by_position(value) => {
+                Some(name.clone())
+            }
+            _ => None,
+        };
+        match (bound, ascribed) {
+            (Some(_), Some(ascribed)) => {
+                self.locals
+                    .value_sorts
+                    .insert(key.clone(), ascribed.clone());
+                self.infer(value, Some(ascribed), false)?;
+                Ok(None)
+            }
+            (Some(name), None) => {
+                let named = match value {
+                    DescriptorTerm::Variable { name, .. } => self.positioned_let(name),
+                    _ => None,
+                };
+                if named.is_some() {
+                    self.infer(value, None, false)?;
+                }
+                Ok(Some((name, named.unwrap_or_else(|| key.clone()))))
+            }
+            (None, _) => {
+                self.infer(value, None, false)?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Whether `value` has no sort of its own, so that the position it is read at decides what
+    /// it denotes: list brackets, which denote the list their position's sort is (a cons list's
+    /// constructors or the builtin `List`'s items); a local bound to such a value; or a block
+    /// whose result is one.
+    fn sorted_by_position(&self, value: &DescriptorTerm) -> bool {
+        match value {
+            DescriptorTerm::Application { reference, .. } => {
+                matches!(
+                    reference.application,
+                    DescriptorApplicationRef::ListNotation(_)
+                )
+            }
+            DescriptorTerm::Variable { name, .. } => self.positioned_let(name).is_some(),
+            DescriptorTerm::Let {
+                pattern,
+                sort,
+                value,
+                body,
+                ..
+            } => match (pattern.as_ref(), body.as_ref()) {
+                // The block's result is the name its statement binds: its value's.
+                (
+                    DescriptorTerm::Variable { name: bound, .. },
+                    DescriptorTerm::Variable { name: result, .. },
+                ) if bound == result => sort.is_none() && self.sorted_by_position(value),
+                (_, DescriptorTerm::Variable { name: result, .. })
+                    if pattern_binds(pattern, result) =>
+                {
+                    false
+                }
+                _ => self.sorted_by_position(body),
+            },
+            _ => false,
+        }
+    }
+
+    /// The key of the `let` whose value with no sort of its own the local `name` names, when
+    /// the innermost enclosing `let` that binds `name` binds it to one.
+    fn positioned_let(&self, name: &str) -> Option<ProvenanceKey> {
+        let (scope, _) = (self.locals.let_names.iter().enumerate().rev())
+            .find(|(_, names)| names.contains_key(name))?;
+        self.locals
+            .positioned
+            .get(&(scope, name.to_owned()))
+            .cloned()
+    }
+
+    /// Records that a use of the local `name` stands at `expected`, when it names a value with
+    /// no sort of its own: that value stands there too.
+    fn use_positioned(&mut self, name: &str, expected: &SemanticSortRef) {
+        if let Some(root) = self.positioned_let(name) {
+            self.locals
+                .positioned_uses
+                .entry(root)
+                .or_default()
+                .insert(expected.clone());
+        }
+    }
+
+    /// The sort the value of `let name = value;` (the `let` at `key`), which has no sort of its
+    /// own, is read at: the one sort its local's uses stand at together, as a name written at
+    /// several positions has the sort they share.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DescriptorLoweringError::InvalidListNotation`] when no use stands at a sort,
+    /// or the uses share no single sort.
+    fn positioned_sort(
+        &mut self,
+        key: &ProvenanceKey,
+        name: &str,
+        value: &DescriptorTerm,
+    ) -> Result<SemanticSortRef, DescriptorLoweringError> {
+        let uses = self.locals.positioned_uses.remove(key).unwrap_or_default();
+        if uses.is_empty() {
+            return Err(self.invalid_list_notation(
+                Self::term_key(value),
+                format!(
+                    "`{name}` is bound to list brackets, which denote the list of the sort they are read at, but no use of `{name}` stands where a sort is declared, so they name no list; use `{name}` where a constructor field, a cell, a function parameter, or a result declares the builtin `List` or a cons-list sort, or ascribe it (`let {name}: List = ..`)"
+                ),
+            ));
+        }
+        if let [sort] = most_specific_common_descendants(&uses, self.sort_parents).as_slice() {
+            return Ok(sort.clone());
+        }
+        let sorts = uses
+            .iter()
+            .map(|sort| format!("`{}`", super::overload::sort_name(sort)))
+            .collect::<Vec<_>>()
+            .join(" and at ");
+        Err(self.invalid_list_notation(
+            Self::term_key(value),
+            format!(
+                "`{name}` is bound to list brackets, which denote the list of the sort they are read at, and `{name}` is used at {sorts}, which share no one sort, so the brackets name no one list; bind a list for each position"
+            ),
+        ))
     }
 
     /// Lowers one `let` statement with fresh identities for the pattern's
@@ -1136,7 +1313,9 @@ impl StructuredTermBuilder<'_> {
         body: &DescriptorTerm,
         expected_sort: Option<&SemanticSortRef>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        let value = self.lower(value, None, false)?;
+        // A value with no sort of its own is read at the sort inference gave it.
+        let read_at = self.locals.value_sorts.get(key).cloned();
+        let value = self.lower(value, read_at.as_ref(), false)?;
         let ascribed = sort.map(|sort| semantic_sort_ref(&sort.sort));
         let sorts = self.locals.let_sorts.get(key).cloned().unwrap_or_default();
         let mut occurrences = Vec::new();
@@ -4265,6 +4444,13 @@ fn names_its_list_by_position(pattern: &DescriptorTerm) -> bool {
         DescriptorTerm::Application { reference, .. }
             if matches!(reference.application, DescriptorApplicationRef::ListNotation(_))
     )
+}
+
+/// Whether a local pattern binds `name`.
+fn pattern_binds(pattern: &DescriptorTerm, name: &str) -> bool {
+    let mut occurrences = Vec::new();
+    pattern_names(pattern, &mut occurrences);
+    occurrences.iter().any(|(bound, _)| bound == name)
 }
 
 /// The authored macro of a sort test, for messages.

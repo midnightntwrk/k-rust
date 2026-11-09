@@ -5,6 +5,7 @@
 //! emitted K, which erases element types, is the K of the same rules over
 //! untyped cells.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1183,6 +1184,433 @@ fn a_collection_the_sentence_builds_keeps_its_typing_through_a_local() {
             ),
         )
     "#]].assert_debug_eq(&(outcomes, carried));
+}
+
+/// A configuration with list cells of three kinds (a typed and a bare builtin `List`, a cons
+/// list), and constructors whose fields declare lists, `KItem` and `K`.
+const BRACKETS: &str = r#"
+use k::builtin::{Id, Int, KSequence, List, list};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: KResult;
+    impl Value for Int;
+    WordStack: KItem;
+}
+
+#[k::constructors(sort = WordStack, result = KResult)]
+#[k::cons_list]
+#[k::precedence((StackEmpty, StackCons))]
+pub enum Stack {
+    #[k::syntax(".WordStack")]
+    StackEmpty(),
+    #[k::syntax("{head} : {tail}")]
+    StackCons { head: Int, tail: WordStack },
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Go, Put, Hold, HoldV, Both, Twice, Item, Code, Mixed))]
+pub enum StmtSyntax {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("put {name} {s}")]
+    Put { name: Id, s: Stmt },
+    #[k::syntax("hold {l}")]
+    Hold { l: List },
+    #[k::syntax("holdv {l}")]
+    HoldV { l: List<Value> },
+    #[k::syntax("both {l} {w}")]
+    Both { l: List, w: WordStack },
+    #[k::syntax("twice {a} {v}")]
+    Twice { a: List<Int>, v: List<Value> },
+    #[k::syntax("item {x}")]
+    Item { x: KItem },
+    #[k::syntax("code {c}")]
+    Code { c: KSequence },
+    #[k::syntax("mixed {x} {l}")]
+    Mixed { x: KItem, l: List },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List<Value>,
+    #[k::cell]
+    pub bare: List,
+    #[k::cell]
+    pub words: WordStack,
+    #[k::cell]
+    pub gas: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            bare: list::empty(),
+            words: WORDS,
+            gas: 0,
+        }
+    }
+}
+"#;
+
+/// Brackets denote the list of the sort they are read at, and a local names its value, so
+/// brackets bound by a local are read at the sort its uses stand at, as the same brackets
+/// written there are: a builtin `List` (typed or bare) or a cons list, through one local or
+/// two, on every route a `let` reaches (a readable result, a `cells!` result, a claim, an
+/// initializer), and the accepted forms run to the same configuration. Uses at several
+/// sorts give the brackets the one sort those share (`List` beside `KItem`); uses at sorts
+/// no list shares, a local no use sorts, and a use at a sort that is no list are refused, the
+/// last as the brackets written there are.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of spellings, each with its verdict."
+)]
+fn brackets_bound_by_a_local_are_the_list_of_its_uses() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |cell: &str, value: &str| {
+        rules(&format!(
+            "probe: {{ k: [Go(), ..], {cell}: _ }} => {{ k: [..], {cell}: {value} }};"
+        ))
+    };
+    let item = |value: &str| {
+        rules(&format!(
+            "probe: {{ k: [HoldV([v, ..]), ..] }} => {{ k: [{value}, ..] }};"
+        ))
+    };
+    let cells = |value: &str| {
+        format!(
+            "#[k::rule]\npub fn probe(\n    k::cells! {{ k: k::configuration::KCell(StmtSyntax::Go(), tail @ ..), words: k::configuration::Cell(_), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), words: k::configuration::Cell({value}), ..state }}\n}}\n"
+        )
+    };
+    let claim = |value: &str| {
+        format!(
+            "k::claims! {{\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    probe: {{ k: [Go()], words: _ }} => {{ k: [], words: {value} }};\n}}\n"
+        )
+    };
+    let local = |value: &str| format!("{{ let b = {value}; b }}");
+    let second = |value: &str| format!("{{ let b = {value}; let c = b; c }}");
+    // (name, library, words' initializer, the cell `krs run go` reads).
+    let mut forms = Vec::<(String, String, String, Option<&str>)>::new();
+    let empty = "Stack::StackEmpty()".to_owned();
+    for (cell, value) in [
+        ("stack", "[1, 2]"),
+        ("bare", "[1, 2]"),
+        ("words", "[1, 2]"),
+        ("words", "[]"),
+    ] {
+        for (spelling, written) in [
+            ("direct", value.to_owned()),
+            ("local", local(value)),
+            ("second-local", second(value)),
+        ] {
+            forms.push((
+                format!("{cell}-{value}-{spelling}"),
+                readable(cell, &written),
+                empty.clone(),
+                Some(cell),
+            ));
+        }
+    }
+    let spellings = |name: &str, direct: &str, written: &str| {
+        [
+            (format!("{name}-direct"), direct.to_owned()),
+            (format!("{name}-local"), written.to_owned()),
+        ]
+    };
+    for (name, written) in spellings("cells", "[1, 2]", &local("[1, 2]")) {
+        forms.push((name, cells(&written), empty.clone(), Some("words")));
+    }
+    for (name, written) in spellings("claim", "[1, 2]", &local("[1, 2]")) {
+        forms.push((name, claim(&written), empty.clone(), None));
+    }
+    for (name, written) in spellings("init", "[1, 2]", &local("[1, 2]")) {
+        forms.push((name, String::new(), written, Some("words")));
+    }
+    let neighbours = [
+        // An element that fits the list it is read as, through the local as directly.
+        (
+            "element-direct",
+            readable("stack", "[1, s]").replace("Go()", "Put(_, s)"),
+        ),
+        (
+            "element-local",
+            readable("stack", &local("[1, s]")).replace("Go()", "Put(_, s)"),
+        ),
+        // Two element types: the binder takes the narrower, as written twice directly.
+        ("element-types-direct", item("Twice([v], [v])")),
+        ("element-types-local", item("{ let b = [v]; Twice(b, b) }")),
+        // `List` beside `KItem`: the list, which is a `KItem`.
+        ("list-and-item", item("{ let b = [1]; Mixed(b, b) }")),
+        // A `KItem` or `K` position alone is no list, as for the brackets written there.
+        ("item-direct", item("Item([1])")),
+        ("item-local", item("{ let b = [1]; Item(b) }")),
+        ("sequence-direct", item("Code([1])")),
+        ("sequence-local", item("{ let b = [1]; Code(b) }")),
+        // A builtin `List` and a cons list: no one list.
+        ("two-lists", item("{ let b = [1, 2]; Both(b, b) }")),
+        // No use where a sort is declared.
+        ("unused", readable("gas", "{ let b = [1, 2]; 3 }")),
+        ("index", readable("gas", "{ let b = [1, 2]; b[0] }")),
+        // Inside a built value, at an ascription, in a block.
+        (
+            "concat-direct",
+            readable("bare", "list::concat([1, 2], [3])"),
+        ),
+        (
+            "concat-local",
+            readable("bare", "{ let b = [1, 2]; list::concat(b, [3]) }"),
+        ),
+        ("ascribed", readable("bare", "{ let b: List = [1, 2]; b }")),
+        (
+            "ascribed-other",
+            readable("words", "{ let b: List = [1, 2]; b }"),
+        ),
+        (
+            "block",
+            readable("bare", "{ let b = { let n = 1; [n, 2] }; b }"),
+        ),
+    ];
+    for (name, library) in neighbours {
+        forms.push((name.to_owned(), library, empty.clone(), None));
+    }
+    let mut outcomes = Vec::new();
+    for (name, library, words, cell) in forms {
+        let source = format!("{}{library}", BRACKETS.replace("WORDS", &words));
+        let manifest = package(
+            temporary.path(),
+            &name.replace(['[', ']', ',', ' '], "_"),
+            &source,
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        if !success {
+            let (headline, marked) = diagnostics(&stderr)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| panic!("{name}: {stderr}"));
+            outcomes.push((name, format!("{headline} at `{marked}`")));
+            continue;
+        }
+        let output = manifest.with_file_name("emitted");
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{name}: {stderr}");
+        let read = |file: &str| {
+            krs_test_support::without_source_comments(
+                &fs::read_to_string(output.join(file)).unwrap_or_default(),
+            )
+        };
+        let mut verdict = if library.is_empty() {
+            let definition = read("definition.k");
+            let start = definition.find("<words>").unwrap();
+            let end = definition[start..].find("</words>").unwrap() + start;
+            format!("accepted: {}", &definition[start..end + "</words>".len()])
+        } else if library.contains("k::claims!") {
+            // A claim's block is lifted into a function whose one equation is the block.
+            let spec = read("spec.k");
+            let start = spec.find("claim").unwrap();
+            let claim = spec[start..]
+                .lines()
+                .skip(1)
+                .take_while(|line| !line.trim().is_empty());
+            let lifted = read("definition.k")
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("rule krsLocal_"))
+                .map(|line| line.split(" [label(").next().unwrap().to_owned())
+                .collect::<Vec<_>>();
+            format!(
+                "accepted: {}{}",
+                claim.map(str::trim).collect::<Vec<_>>().join(" "),
+                lifted.iter().fold(String::new(), |mut out, rule| {
+                    write!(out, "; {rule}").unwrap();
+                    out
+                })
+            )
+        } else {
+            format!("accepted: {}", rule(&read("definition.k"), "probe"))
+        };
+        if let Some(cell) = cell {
+            let program = manifest.with_file_name("program.txt");
+            fs::write(&program, "go").unwrap();
+            let (_, stdout, stderr) = krs(
+                target.path(),
+                &manifest,
+                "run",
+                &[program.to_str().unwrap()],
+            );
+            let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+            let open = format!("<{cell}> ");
+            let start = flat
+                .find(&open)
+                .unwrap_or_else(|| panic!("{name}: no <{cell}>:\n{stdout}\n{stderr}"))
+                + open.len();
+            let end = start + flat[start..].find(&format!(" </{cell}>")).unwrap();
+            write!(
+                verdict,
+                "; runs to <{cell}> {} </{cell}>",
+                &flat[start..end]
+            )
+            .unwrap();
+        }
+        outcomes.push((name, verdict));
+    }
+    expect_test::expect![[r#"
+        [
+            (
+                "stack-[1, 2]-direct",
+                "accepted: <k> go => .K ... </k> <stack> _ => ListItem(1) ListItem(2) </stack> endmodule; runs to <stack> ListItem ( 1 ) ListItem ( 2 ) </stack>",
+            ),
+            (
+                "stack-[1, 2]-local",
+                "accepted: <k> go => .K ... </k> <stack> _ => ( #let B:List = ListItem(1) ListItem(2) #in B:List ) </stack> endmodule; runs to <stack> ListItem ( 1 ) ListItem ( 2 ) </stack>",
+            ),
+            (
+                "stack-[1, 2]-second-local",
+                "accepted: <k> go => .K ... </k> <stack> _ => ( #let B:List = ListItem(1) ListItem(2) #in ( #let C:List = B:List #in C:List ) ) </stack> endmodule; runs to <stack> ListItem ( 1 ) ListItem ( 2 ) </stack>",
+            ),
+            (
+                "bare-[1, 2]-direct",
+                "accepted: <k> go => .K ... </k> <bare> _ => ListItem(1) ListItem(2) </bare> endmodule; runs to <bare> ListItem ( 1 ) ListItem ( 2 ) </bare>",
+            ),
+            (
+                "bare-[1, 2]-local",
+                "accepted: <k> go => .K ... </k> <bare> _ => ( #let B:List = ListItem(1) ListItem(2) #in B:List ) </bare> endmodule; runs to <bare> ListItem ( 1 ) ListItem ( 2 ) </bare>",
+            ),
+            (
+                "bare-[1, 2]-second-local",
+                "accepted: <k> go => .K ... </k> <bare> _ => ( #let B:List = ListItem(1) ListItem(2) #in ( #let C:List = B:List #in C:List ) ) </bare> endmodule; runs to <bare> ListItem ( 1 ) ListItem ( 2 ) </bare>",
+            ),
+            (
+                "words-[1, 2]-direct",
+                "accepted: <k> go => .K ... </k> <words> _ => 1 : 2 : . WordStack </words> endmodule; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "words-[1, 2]-local",
+                "accepted: <k> go => .K ... </k> <words> _ => ( #let B:WordStack = 1 : 2 : . WordStack #in B:WordStack ) </words> endmodule; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "words-[1, 2]-second-local",
+                "accepted: <k> go => .K ... </k> <words> _ => ( #let B:WordStack = 1 : 2 : . WordStack #in ( #let C:WordStack = B:WordStack #in C:WordStack ) ) </words> endmodule; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "words-[]-direct",
+                "accepted: <k> go => .K ... </k> <words> _ => . WordStack </words> endmodule; runs to <words> .WordStack </words>",
+            ),
+            (
+                "words-[]-local",
+                "accepted: <k> go => .K ... </k> <words> _ => ( #let B:WordStack = . WordStack #in B:WordStack ) </words> endmodule; runs to <words> .WordStack </words>",
+            ),
+            (
+                "words-[]-second-local",
+                "accepted: <k> go => .K ... </k> <words> _ => ( #let B:WordStack = . WordStack #in ( #let C:WordStack = B:WordStack #in C:WordStack ) ) </words> endmodule; runs to <words> .WordStack </words>",
+            ),
+            (
+                "cells-direct",
+                "accepted: <k> go ~> Tail:K => .K ~> Tail:K </k> <words> _ => 1 : 2 : . WordStack </words> endmodule; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "cells-local",
+                "accepted: <k> go ~> Tail:K => .K ~> Tail:K </k> <words> _ => ( #let B:WordStack = 1 : 2 : . WordStack #in B:WordStack ) </words> endmodule; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "claim-direct",
+                "accepted: <k> go => .K </k> <words> _ => 1 : 2 : . WordStack </words> endmodule",
+            ),
+            (
+                "claim-local",
+                "accepted: <k> go => .K </k> <words> _ => krsLocal_e28842afa37a9a0306ce89f7 ( ) </words> endmodule; rule krsLocal_e28842afa37a9a0306ce89f7 ( ) => ( #let B:WordStack = 1 : 2 : . WordStack #in B:WordStack )",
+            ),
+            (
+                "init-direct",
+                "accepted: <words> 1 : 2 : . WordStack </words>; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "init-local",
+                "accepted: <words> ( #let B:WordStack = 1 : 2 : . WordStack #in B:WordStack ):WordStack </words>; runs to <words> 1 : 2 : .WordStack </words>",
+            ),
+            (
+                "element-direct",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+            ),
+            (
+                "element-local",
+                "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+            ),
+            (
+                "element-types-direct",
+                "accepted: <k> holdv ListItem(V:Int) _ => twice ListItem(V:Int) ListItem(V:Int) ... </k> endmodule",
+            ),
+            (
+                "element-types-local",
+                "accepted: <k> holdv ListItem(V:Int) _ => ( #let B:List = ListItem(V:Int) #in twice B:List B:List ) ... </k> endmodule",
+            ),
+            (
+                "list-and-item",
+                "accepted: <k> holdv ListItem(V:Value) _ => ( #let B:List = ListItem(1) #in mixed B:List B:List ) ... </k> endmodule",
+            ),
+            (
+                "item-direct",
+                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `KItem`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum at `1]`",
+            ),
+            (
+                "item-local",
+                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `KItem`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum at `1]`",
+            ),
+            (
+                "sequence-direct",
+                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum at `1]`",
+            ),
+            (
+                "sequence-local",
+                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum at `1]`",
+            ),
+            (
+                "two-lists",
+                "error[krs::analysis::invalid-list-notation]: `b` is bound to list brackets, which denote the list of the sort they are read at, and `b` is used at `WordStack` and at `List`, which share no one sort, so the brackets name no one list; bind a list for each position at `1, 2]`",
+            ),
+            (
+                "unused",
+                "error[krs::analysis::invalid-list-notation]: `b` is bound to list brackets, which denote the list of the sort they are read at, but no use of `b` stands where a sort is declared, so they name no list; use `b` where a constructor field, a cell, a function parameter, or a result declares the builtin `List` or a cons-list sort, or ascribe it (`let b: List = ..`) at `1, 2]`",
+            ),
+            (
+                "index",
+                "error[krs::analysis::invalid-list-notation]: `b` is bound to list brackets, which denote the list of the sort they are read at, but no use of `b` stands where a sort is declared, so they name no list; use `b` where a constructor field, a cell, a function parameter, or a result declares the builtin `List` or a cons-list sort, or ascribe it (`let b: List = ..`) at `1, 2]`",
+            ),
+            (
+                "concat-direct",
+                "accepted: <k> go => .K ... </k> <bare> _ => ListItem(1) ListItem(2) ListItem(3) </bare> endmodule",
+            ),
+            (
+                "concat-local",
+                "accepted: <k> go => .K ... </k> <bare> _ => ( #let B:List = ListItem(1) ListItem(2) #in B:List ListItem(3) ) </bare> endmodule",
+            ),
+            (
+                "ascribed",
+                "accepted: <k> go => .K ... </k> <bare> _ => ( #let B:List = ListItem(1) ListItem(2) #in B:List ) </bare> endmodule",
+            ),
+            (
+                "ascribed-other",
+                "error[krs::analysis::invalid-let]: `b` is bound by a `let` or `ml::exists` at sort `List`, which is not admissible at sort `WordStack` at `b`",
+            ),
+            (
+                "block",
+                "accepted: <k> go => .K ... </k> <bare> _ => ( #let B:List = ( #let N:Int = 1 #in ListItem(N:Int) ListItem(2) ) #in B:List ) </bare> endmodule",
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
 }
 
 /// A reading operation whose operand the sentence builds is checked
