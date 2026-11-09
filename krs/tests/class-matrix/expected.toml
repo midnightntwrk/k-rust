@@ -7193,6 +7193,13 @@ match = 'cells/g3-d/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, aqueue:
 class = "instance-child-multiplicity"
 at = "spelling"
 
+# CHILDREN: g4-c's subject names the group child's `*` collection as g3-d's does, a limit whatever
+# its result writes; the result's `..j` is the one update of an instance `ajob`'s list labels
+[[refuse]]
+match = 'cells/g4-c/kinds/account/\{ k::fragment![crate::Acct \{ aqueue: Aqueue \{ ajob: [Ajob \{ apay: x\, ..j \}\, ..jobs] \}\, ..me \}]\, ..instances0 \}'
+class = "instance-child-multiplicity"
+at = "spelling"
+
 # TRI-B2: a `cells!` fragment's child is read as a term, so a result's anonymous `..` there keeps
 # no rest, the limit its readable twins already meet (S5-F2's message half)
 [[refuse]]
@@ -17287,8 +17294,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 
 [accept."cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
 k = """
