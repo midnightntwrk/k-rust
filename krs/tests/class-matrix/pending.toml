@@ -739,22 +739,6 @@ deviation = "krs::analysis::invalid-record-update @ spelling"
 # S5.0g item 3a: the compiled sweep's reds (shard `sweep`), each owned by the finding whose `what` covers its
 # pattern (the progress log's "Part (b), item 3a" lists the patterns and their kinds).
 
-["sweep/claim/subject/job/[x, r @ ..]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/written/job/[x, r @ ..]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/subject/job/[x, r @ ..]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/written/job/[x, r @ ..]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
 ["sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"

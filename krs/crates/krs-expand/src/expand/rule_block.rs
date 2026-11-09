@@ -967,12 +967,7 @@ fn readable_state_wire(
                 .collect::<crate::Result<Vec<_>>>();
             context.braced = enclosing;
             let front = front?;
-            let rest = match list.rest() {
-                StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
-                _ => krs_ir::ProtocolRuleFrame::Anonymous {
-                    key: ledger.define(list.rest_key())?,
-                },
-            };
+            let rest = instances_rest(ledger, list)?;
             let enclosing = ::core::mem::replace(&mut context.braced, braced);
             let back = list
                 .back()
@@ -1140,7 +1135,7 @@ fn alternative_instances(
     state: &krs_syntax::StateTerm,
     records: (AlternativeChildren, AlternativeChildren),
 ) -> crate::Result<Option<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>>> {
-    use krs_syntax::{StateMacroRemainder, StateTerm};
+    use krs_syntax::StateTerm;
     let StateTerm::Instances(list) = state else {
         return Ok(None);
     };
@@ -1207,12 +1202,7 @@ fn alternative_instances(
     };
     let front = instances(list.front(), front_records)?;
     let back = instances(list.back(), back_records)?;
-    let rest = match list.rest() {
-        StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
-        _ => krs_ir::ProtocolRuleFrame::Anonymous {
-            key: ledger.define(list.rest_key())?,
-        },
-    };
+    let rest = instances_rest(ledger, list)?;
     Ok(Some(krs_ir::ProtocolRuleStateTerm::Instances(
         krs_ir::ProtocolRuleInstances {
             delimiter: krs_ir::InstanceDelimiter::Bracket,
@@ -1221,6 +1211,29 @@ fn alternative_instances(
             back,
         },
     )))
+}
+
+/// A readable instance list's rest, keyed at the rest: `..`, a pattern's `name @ ..` binding the
+/// instances the list leaves unnamed, or a result's `..name` putting them back.
+fn instances_rest(
+    ledger: &KeyLedger<'_>,
+    list: &krs_syntax::InstanceList,
+) -> crate::Result<krs_ir::ProtocolRuleFrame> {
+    use krs_syntax::StateMacroRemainder;
+    Ok(match list.rest() {
+        StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
+        StateMacroRemainder::Anonymous(_) => krs_ir::ProtocolRuleFrame::Anonymous {
+            key: ledger.define(list.rest_key())?,
+        },
+        StateMacroRemainder::Bind { binding, .. } => krs_ir::ProtocolRuleFrame::Bind {
+            key: ledger.define(list.rest_key())?,
+            binding: binding.unraw().to_string(),
+        },
+        StateMacroRemainder::Reuse { binding, .. } => krs_ir::ProtocolRuleFrame::Reuse {
+            key: ledger.define(list.rest_key())?,
+            binding: binding.unraw().to_string(),
+        },
+    })
 }
 
 /// Every term of a readable clause's left side, which one match matches

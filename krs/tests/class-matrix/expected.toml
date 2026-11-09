@@ -184,6 +184,11 @@ code = "krs::analysis::collection-entry"
 doc = "a result entry over a `*` collection the subject does not match (`acct: { Gm { ma: x, mb: y } }`, `job: [x]`), which replaces every instance the collection holds, whatever it holds: not supported yet; the rule matches the instances it replaces in its pattern instead"
 advice = "none"
 
+[class.collection-rest-dropped]
+code = "krs::analysis::collection-entry"
+doc = "a pattern that names a collection's other instances (`job: [x, r @ ..]`) and a result that does not put them back with `..r` (`job: []`), which removes them: not supported yet; the Semantic IR's collection clause frames the other instances or holds none"
+advice = "none"
+
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
 doc = "a `*` collection written without its instance list, the spellings of its examples, where the entry's inside passes form and kind against the instance group (P3c, with P3's reason at every depth: otherwise the inside's own refusal is named, S5.0g pattern review P-R5); or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names, other than the leading Map collections of its path, whose one instance the rule matches as a rule for the instance's group does (IC-5; a function context and a context alias judge those too): name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
@@ -7202,6 +7207,11 @@ at = "spelling"
 
 # TRI-C2: constructs the principles admit and the product refuses as not supported yet, each a
 # limit class (`[limit]` below)
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/[x\, r @ ..]'
+class = "collection-rest-dropped"
+at = "entry"
+
 [[refuse]]
 match = 'sweep/{claim,readable}/overwrite/acct/\{ Gm \{ ma: x\, mb: y \} \}'
 class = "collection-overwrite"
@@ -14552,6 +14562,18 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/claim/subject/job/[x, r @ ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+.Bag ...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/job/[x]"]
 k = """
@@ -14962,8 +14984,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/claim/written/job/[x, r @ ..]"]
 
 [accept."sweep/claim/written/job/[x]"]
 k = """
@@ -16522,6 +16542,18 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/readable/subject/job/[x, r @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+.Bag ...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/job/[x]"]
 k = """
@@ -16932,8 +16964,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."sweep/readable/written/job/[x, r @ ..]"]
 
 [accept."sweep/readable/written/job/[x]"]
 k = """
@@ -17870,6 +17900,11 @@ principle = "C-lim: a map read has no result side until M3; an instance record's
 code = "krs::analysis::collection-entry"
 docs = "A collection's overwrite replaces every instance it holds"
 findings = ["S5-A1"]
+
+[limit.collection-rest-dropped]
+code = "krs::analysis::collection-entry"
+message = "not supported yet: the pattern binds the other instances of the collection"
+findings = ["S5-Q2"]
 
 [limit.computation-brackets-per-rule]
 code = "krs::analysis::invalid-list-notation"

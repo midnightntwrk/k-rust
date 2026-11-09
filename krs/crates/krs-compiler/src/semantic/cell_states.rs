@@ -574,6 +574,17 @@ pub(super) fn lower_instances_clause(
     let subject_open = !matches!(before.rest, ProtocolRuleFrame::Exact);
     if let Some(after) = after {
         let result_open = !matches!(after.rest, ProtocolRuleFrame::Exact);
+        // A rest the pattern names, `r @ ..`, binds the other instances, so a result that does
+        // not put them back removes them: a meaning, which the Semantic IR's collection clause,
+        // whose other instances are framed or none, cannot state yet.
+        if let (ProtocolRuleFrame::Bind { binding, .. }, false) = (&before.rest, result_open) {
+            return Err(entry_error(
+                result_key.unwrap_or(&cell.key),
+                format!(
+                    "not supported yet: the pattern binds the other instances of the collection `{name}` to `{binding}` (`{binding} @ ..`), and a result that does not put them back with `..{binding}` removes them, which a rule does not state yet"
+                ),
+            ));
+        }
         if subject_open != result_open {
             return Err(entry_error(
                 result_key.unwrap_or(&cell.key),

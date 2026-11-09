@@ -852,3 +852,108 @@ pub fn add(
         assert!(expanded.contains(record), "no `{record}` in {expanded}");
     }
 }
+
+/// A List collection of jobs, and the commands the named-rest cases match.
+const JOBS: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Pop, Peek, Drop))]
+pub enum Cmd {
+    #[k::syntax("pop")]
+    Pop(),
+    #[k::syntax("peek")]
+    Peek(),
+    #[k::syntax("drop")]
+    Drop(),
+}
+
+#[k::cell]
+pub struct Job {
+    #[k::cell]
+    pub payload: Int,
+}
+
+#[k::cell]
+pub struct Queue {
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub job: Job,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub queue: Queue,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            queue: Queue { job: Job { payload: 0 } },
+        }
+    }
+}
+"#;
+
+/// A List collection's other instances may be named, as a list's rest is (S5-Q2): `rest @ ..`
+/// in a readable pattern binds them, `..rest` in its result puts them back, and both mean what
+/// the anonymous `..` on both sides means; a whole instance `x` beside a named rest reads as
+/// `x @ Job { .. }`. A result that does not put a named rest back would remove those instances,
+/// which is not supported yet.
+#[test]
+fn a_list_collection_rest_may_be_named() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let named = package_over(
+        temporary.path(),
+        "rest-named",
+        JOBS,
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n    pop: { k: [Pop(), ..], job: [Job { payload: p, .. }, rest @ ..] } => { k: [..], job: [..rest] };\n    peek: { k: [Peek(), ..], job: [x, rest @ ..] } => { k: [..] };\n}\n",
+    );
+    let anonymous = package_over(
+        temporary.path(),
+        "rest-anonymous",
+        JOBS,
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n    pop: { k: [Pop(), ..], job: [Job { payload: p, .. }, ..] } => { k: [..], job: [..] };\n    peek: { k: [Peek(), ..], job: [x, ..] } => { k: [..] };\n}\n",
+    );
+    let flat = |k: &str| {
+        let k = k.split_whitespace().collect::<Vec<_>>().join(" ");
+        k[k.find("module ").unwrap()..]
+            .replace("rest-named/", "")
+            .replace("rest-anonymous/", "")
+    };
+    let named_k = flat(&emitted_k(target.path(), &named));
+    let anonymous_k = flat(&emitted_k(target.path(), &anonymous));
+    assert!(
+        named_k.contains("(<job> <payload> P:Int </payload> ... </job> => .Bag) ..."),
+        "{named_k}"
+    );
+    assert_eq!(named_k, anonymous_k);
+    let expanded = expanded(target.path(), &named)
+        .split_whitespace()
+        .collect::<String>();
+    assert!(expanded.contains("rest@..]"), "{expanded}");
+    assert!(expanded.contains("[..rest]"), "{expanded}");
+    let dropped = package_over(
+        temporary.path(),
+        "rest-dropped",
+        JOBS,
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n    drop: { k: [Drop(), ..], job: [x, rest @ ..] } => { k: [..], job: [] };\n}\n",
+    );
+    let errors = check_errors(target.path(), &dropped);
+    assert!(
+        errors.iter().any(|error| error.starts_with("error[krs::analysis::collection-entry]: not supported yet: the pattern binds the other instances of the collection `job` to `rest`")),
+        "{errors:#?}"
+    );
+}

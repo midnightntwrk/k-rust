@@ -89,9 +89,8 @@ claim	result, unmatched	* List of G	[x]	limited: collection-overwrite (sweep/cla
 claim	result, unmatched	? leaf Map	{ y -> x, .. }	excepted: C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, judged by kind and pairing (on the `?` Map leaf its advice `Some({ y -> x, .. })` is refused again by that limitation, so the limitation is named first, P-R5) (sweep/claim/overwrite/omap/{ y -> x, .. })
 claim	result, unmatched	leaf Map	{ y -> x, .. }	excepted: C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result over an unmatched map as the frame write `Cell(k::map![k -> v, ..])` with a rest the subject never wrote (`rest-mismatch`) (claim/overwrite/kinds/env/{ y -> x, .. })
 claim	subject	* List of G	[.., x]	excepted: C-lim: a List collection's back instance kept in place is not lowered (cell_states.rs lower_instances_clause): here the subject's value `x` binds the back instance (P2, P6; Q2) and the result leaves the cell out, so it is kept; the product creates or removes instances at the back, and reads and updates them at the front (sweep/claim/subject/job/[.., x])
-claim	subject	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/claim/subject/job/[x, r @ ..])
 claim	subject	computation	[x]	limited: computation-brackets-per-rule (sweep/claim/subject/prog/[x])
-claim	subject, written	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/claim/written/job/[x, r @ ..])
+claim	subject, written	* List of G	[x, r @ ..]	limited: collection-rest-dropped (sweep/claim/written/job/[x, r @ ..])
 claim	subject, written	computation	[x, ..]	limited: computation-brackets-per-rule (sweep/claim/written/prog/[x, ..])
 claim	subject, written	computation	[x]	limited: computation-brackets-per-rule (sweep/claim/written/prog/[x])
 claim	subject, written	leaf Map	{ y -> x, .. }	unbuilt: no result entry of the form writes this cell beside the subject's entry and is admitted (`outcome` admits none of the written candidates over it): the case would refuse its result, not its subject
@@ -269,9 +268,8 @@ readable	result, unmatched	* List of G	[x]	limited: collection-overwrite (sweep/
 readable	result, unmatched	? leaf Map	{ y -> x, .. }	excepted: C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, judged by kind and pairing (on the `?` Map leaf its advice `Some({ y -> x, .. })` is refused again by that limitation, so the limitation is named first, P-R5) (sweep/readable/overwrite/omap/{ y -> x, .. })
 readable	result, unmatched	leaf Map	{ y -> x, .. }	excepted: C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result over an unmatched map as the frame write `Cell(k::map![k -> v, ..])` with a rest the subject never wrote (`rest-mismatch`) (readable/overwrite/kinds/env/{ y -> x, .. })
 readable	subject	* List of G	[.., x]	excepted: C-lim: a List collection's back instance kept in place is not lowered (cell_states.rs lower_instances_clause): here the subject's value `x` binds the back instance (P2, P6; Q2) and the result leaves the cell out, so it is kept; the product creates or removes instances at the back, and reads and updates them at the front (sweep/readable/subject/job/[.., x])
-readable	subject	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/readable/subject/job/[x, r @ ..])
 readable	subject	computation	[x]	limited: computation-brackets-per-rule (sweep/readable/subject/prog/[x])
-readable	subject, written	* List of G	[x, r @ ..]	red: S5-Q2 (sweep/readable/written/job/[x, r @ ..])
+readable	subject, written	* List of G	[x, r @ ..]	limited: collection-rest-dropped (sweep/readable/written/job/[x, r @ ..])
 readable	subject, written	computation	[x, ..]	limited: computation-brackets-per-rule (sweep/readable/written/prog/[x, ..])
 readable	subject, written	computation	[x]	limited: computation-brackets-per-rule (sweep/readable/written/prog/[x])
 readable	subject, written	leaf Map	{ y -> x, .. }	unbuilt: no result entry of the form writes this cell beside the subject's entry and is admitted (`outcome` admits none of the written candidates over it): the case would refuse its result, not its subject

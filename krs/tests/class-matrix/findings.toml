@@ -74,11 +74,6 @@ owner = "S5"
 kind = "bug"
 what = "an instance record naming a `?` child (`acounter: Some(y)`, `acounter: None`) or a group child's `*` collection (`aqueue: Aqueue { ajob: [..] }`) has a meaning (P1, P2; the orchestrator's G3 ruling) and no lowering: the limit instance-child-multiplicity (TRI-B2). TRI-L: the macros carry such a child as its presence and the collector says the limit at the child once the sentence's entries are admitted, so the principles of the same entry answer first (`absence-test-without-creation`, g3-b and the g6 contexts; `record-update-base`, g1-f; `record-remainder-in-cells-term`, `cells!` g1-a); a `Some(..)` or `None` inside a group record an instance child writes, or in a List collection's bracket reading, is a term rustc reads, so the macros say the limit there, and the compiler's instance-child and group-child checks say it by the declaration. Open: a `cells!` update `..j` of a `*` grandchild's instance an instance record labels is refused `invalid-record-update` (`cells!` g4-c)"
 
-["S5-Q2"]
-owner = "S5"
-kind = "feature"
-what = "a readable List collection's brackets name no rest: `job: [x, r @ ..]`, its front instance `x @ Gl { .. }` with the other instances bound to `r` (decision Q2, admitted), reads as a list's elements and is refused as no list (`invalid-list-notation`), as `[x @ Gl { .. }, r @ ..]` is; the readable route reads a collection's `..` anonymous only (TRI-L2: `job: [x, ..]` and `acct: { x, .. }` are lowered as `x @ Decl { .. }`)"
-
 ["S5-U1"]
 owner = "S5"
 kind = "diagnostic"

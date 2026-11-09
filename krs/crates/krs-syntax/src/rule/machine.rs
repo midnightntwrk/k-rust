@@ -419,16 +419,14 @@ fn parse_readable_instances_reading(
     let mut back = Vec::new();
     let mut rest = None;
     for item in top_level_items(group.stream()) {
-        if is_dots(&item) {
+        if let Some(remainder) = readable_instances_rest(&item, context)? {
             if rest.is_some() {
                 return Err(readable_error(
                     item.span(),
                     "a collection entry has at most one `..`",
                 ));
             }
-            rest = Some(StateMacroRemainder::Anonymous(TokenRange::for_tokens(
-                &item,
-            )?));
+            rest = Some(remainder);
             continue;
         }
         let parsed = match InstanceItem::whole(&item, context)? {
@@ -457,6 +455,63 @@ fn parse_readable_instances_reading(
         rest.unwrap_or(StateMacroRemainder::Exact),
         back,
     ))
+}
+
+/// Whether the bracketed value `group` names its rest, `name @ ..`.
+fn names_rest(group: &proc_macro2::Group) -> bool {
+    top_level_items(group.stream()).iter().any(|item| {
+        matches!(
+            readable_instances_rest(item, StateMacroContext::Pattern),
+            Ok(Some(StateMacroRemainder::Bind { .. }))
+        )
+    })
+}
+
+/// The rest of a readable instance list that the item `tokens` is, in `context`: `..`, the
+/// instances the list leaves unnamed; in a pattern `name @ ..`, those instances bound to `name`;
+/// in a result `..name`, the instances bound to `name` put back. These are list brackets' rests
+/// ([`crate::list_notation`]), and a `cells!` instance list's. `None` for any other item.
+fn readable_instances_rest(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<StateMacroRemainder>, ParseError> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let range = || TokenRange::for_tokens(tokens);
+    let dots = |first: &proc_macro2::Punct, second: &proc_macro2::Punct| {
+        first.as_char() == '.' && second.as_char() == '.'
+    };
+    Ok(match (trees.as_slice(), context) {
+        ([TokenTree::Punct(first), TokenTree::Punct(second)], _) if dots(first, second) => {
+            Some(StateMacroRemainder::Anonymous(range()?))
+        }
+        (
+            [
+                TokenTree::Ident(binding),
+                TokenTree::Punct(at),
+                TokenTree::Punct(first),
+                TokenTree::Punct(second),
+            ],
+            StateMacroContext::Pattern,
+        ) if at.as_char() == '@' && dots(first, second) => {
+            validate_authored_binder(&binding.to_string(), binding.span())?;
+            Some(StateMacroRemainder::Bind {
+                binding: binding.clone(),
+                range: range()?,
+            })
+        }
+        (
+            [
+                TokenTree::Punct(first),
+                TokenTree::Punct(second),
+                TokenTree::Ident(binding),
+            ],
+            StateMacroContext::Expression,
+        ) if dots(first, second) => Some(StateMacroRemainder::Reuse {
+            binding: binding.clone(),
+            range: range()?,
+        }),
+        _ => None,
+    })
 }
 
 fn parse_readable_instance(
@@ -1784,13 +1839,13 @@ fn read_machine_readings(
             (false, false) => unreadable.push((cell, group)),
         }
         if readings.collection() && readings.elements {
-            elements_or_instances.push(cell.clone());
+            elements_or_instances.push((names_rest(group), cell.clone()));
         }
         if whole
             && readings.instances == InstanceReading::Whole
             && (readings.computation || readings.elements)
         {
-            whole_instances.push(cell.clone());
+            whole_instances.push((names_rest(group), cell.clone()));
         }
         // Any value but instances only that is not read as the computation
         // cell is read as a list's elements, or reports why it is none.
@@ -1800,6 +1855,19 @@ fn read_machine_readings(
             lists.push(cell.clone());
         }
     }
+    // A value whose instance list names its rest (`[x, r @ ..]`) offers its List reading after
+    // every value whose rest is anonymous: one clause carries one such reading, and the named
+    // rest reads as instances only since the List collection's rest is named as a list's is.
+    elements_or_instances.sort_by_key(|(named, _)| *named);
+    whole_instances.sort_by_key(|(named, _)| *named);
+    let elements_or_instances = elements_or_instances
+        .into_iter()
+        .map(|(_, cell)| cell)
+        .collect::<Vec<_>>();
+    let whole_instances = whole_instances
+        .into_iter()
+        .map(|(_, cell)| cell)
+        .collect::<Vec<_>>();
     let read = |computation: Option<&Ident>, lists: &[Ident]| {
         let (subject, result) = read_brackets(
             subject_cells,

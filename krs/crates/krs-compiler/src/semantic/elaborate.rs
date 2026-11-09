@@ -328,6 +328,20 @@ impl Names {
         name
     }
 
+    /// A frame the author named, `name @ ..`, which the rule binds as written.
+    fn named_frame(
+        &mut self,
+        name: &str,
+        kind: ProtocolRuleBindingKind<DescriptorSortReference>,
+    ) -> String {
+        self.reserved.insert(name.to_owned());
+        self.frames.push(ProtocolRuleBinding {
+            name: name.to_owned(),
+            kind,
+        });
+        name.to_owned()
+    }
+
     /// A head `_` of a `for Sort` clause, which matches any one item of that sort: a wildcard
     /// declared at it. `cells!` source writes no sorted `_`, so the binding takes the reserved
     /// wildcard id a lowered `_` bears, unique among the rule's ids (the `cells!` lowering
@@ -1130,12 +1144,8 @@ fn instances(
     ProtocolRuleInstances<DescriptorTerm>,
     Option<ProtocolRuleInstances<DescriptorTerm>>,
 )> {
-    let rest = (!matches!(before.rest, ProtocolRuleFrame::Exact)).then(|| {
-        names.frame(
-            &format!("instances{ordinal}"),
-            ProtocolRuleBindingKind::InstancesFrame,
-        )
-    });
+    let authored_rest = matches!(before.rest, ProtocolRuleFrame::Bind { .. });
+    let rest = instances_rest(&before.rest, ordinal, names);
     // Each labelled subject instance's tails, by child, which the result instance updating it
     // reuses.
     let mut tails = BTreeMap::new();
@@ -1202,6 +1212,9 @@ fn instances(
             .collect::<Elaborated<Vec<_>>>()?;
         let rest = match (&instances.rest, &rest) {
             (ProtocolRuleFrame::Exact, _) => ProtocolRuleFrame::Exact,
+            // A named rest is written as the author wrote it on each side, `r @ ..` and `..r`;
+            // a result's `..` after it keeps no unnamed rest, which the lowering refuses.
+            (frame, _) if authored_rest => frame.clone(),
             (
                 ProtocolRuleFrame::Anonymous { key }
                 | ProtocolRuleFrame::Bind { key, .. }
@@ -1241,6 +1254,21 @@ fn instances(
 /// The tail of an open instance child `(label, field)`: a pattern's `..` binds a fresh one, kept
 /// under its instance's label, and a result's `..` reuses the tail of the same child of the
 /// instance it updates, the one `label` names.
+/// The name the subject's instance rest `rest` is bound under: the author's (`r @ ..`), else a
+/// name of the elaboration's, which the result's `..` keeps; none for an exact list.
+fn instances_rest(rest: &ProtocolRuleFrame, ordinal: usize, names: &mut Names) -> Option<String> {
+    match rest {
+        ProtocolRuleFrame::Exact => None,
+        ProtocolRuleFrame::Bind { binding, .. } => {
+            Some(names.named_frame(binding, ProtocolRuleBindingKind::InstancesFrame))
+        }
+        _ => Some(names.frame(
+            &format!("instances{ordinal}"),
+            ProtocolRuleBindingKind::InstancesFrame,
+        )),
+    }
+}
+
 fn instance_tail(
     names: &mut Names,
     tails: &mut BTreeMap<(String, String), String>,
