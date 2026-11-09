@@ -61,7 +61,7 @@
   },
   "mutation-testing-coverage": {
     "inputs": "7209368962a5901f416029a0bcf022c9bfce6276ad759b03a3e9788445a11a34",
-    "output": "d67da4c821d7e4ad948ce43a3f70e6170c3542254ebd440abafe449fe1ef3be2"
+    "output": "bc418a43f3a3da1b1d0aa869d71c090aea4a3992898bff8f73fa84c1a3079aa1"
   },
   "mutation-testing-emit-check": {
     "inputs": "8a35e9dfee6bba611f0b73dce3628a5835f9b7ca1c402fea6a68c4315e028c32",

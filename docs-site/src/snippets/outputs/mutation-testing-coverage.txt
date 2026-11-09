@@ -12,6 +12,10 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
   "computed": 0,
   "covered": 4,
   "failed_arguments": [],
+  "invariant_runs": {
+    "cached": 0,
+    "run": 0
+  },
   "mismatches": 0,
   "needless_arguments": [],
   "open": 0,
