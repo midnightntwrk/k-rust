@@ -516,3 +516,166 @@ fn operators_whose_operands_choose_no_one_domain_are_errors() {
     "#]]
     .assert_debug_eq(&errors);
 }
+
+/// A machine with a leaf, an optional (`?`) cell, a Map cell and a Map collection (`*`) of
+/// instances, for the cell entries [`ENTRY_RULES`] write.
+const ENTRIES: &str = r#"
+use k::builtin::{Int, KSequence, Map, int, map};
+use k::KResult;
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Go, Inc, Pay))]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("inc")]
+    Inc(),
+    #[k::syntax("pay")]
+    Pay(),
+}
+
+#[k::cell]
+pub struct Account {
+    #[k::cell(name = "acctID")]
+    pub id: Int,
+    #[k::cell]
+    pub balance: Int,
+}
+
+#[k::cell]
+pub struct Accounts {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub account: Account,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell(multiplicity = "?")]
+    pub counter: Option<Int>,
+    #[k::cell]
+    pub mem: Map<Int, Int>,
+    #[k::cell(nested)]
+    pub accounts: Accounts,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            pc: 0,
+            counter: k::absent!(0),
+            mem: map::empty(),
+            accounts: Accounts { account: Account { id: 0, balance: 0 } },
+        }
+    }
+}
+"#;
+
+/// A readable rule block over [`ENTRIES`] holding `rules`.
+fn entry_rules(rules: &str) -> String {
+    format!("{ENTRIES}k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    {rules}\n}}\n")
+}
+
+/// The `error` lines of `krs check` on a package that must be refused.
+fn check_errors(target: &Path, manifest: &Path) -> String {
+    let (success, _, stderr) = krs(target, manifest, "check", &[]);
+    assert!(!success, "krs check unexpectedly passed:\n{stderr}");
+    stderr
+        .lines()
+        .filter(|line| line.starts_with("error"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Operator notation is a spelling of the term its named function's application is, so a cell
+/// entry whose value is written with it gets its twin's verdict on every kind of cell: the same
+/// K where both are admitted (a leaf, a `?` cell's presence, an instance's child), and the same
+/// refusal where the entry's kind refuses what it is written as (a `?` cell's whole result,
+/// which names no presence; a presence on a leaf or a Map cell; a collection's whole entry,
+/// which names no instance). Before RDRA item 2 the entry reader
+/// left an operator's value unread, so the table skipped it and `counter: x + 1` was refused by
+/// the macro's carried pairing (`rust-syntax`) where `counter: int::add(x, 1)` was the table's
+/// `optional-presence` (AUDIT-R P7).
+#[test]
+fn an_operator_value_in_a_cell_entry_has_its_named_twin_s_verdict() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let spell = |template: &str, operators: bool| {
+        [("{SUM}", "x + 1", "int::add(x, 1)")].iter().fold(
+            template.to_owned(),
+            |text, (slot, operator, call)| {
+                text.replace(slot, if operators { operator } else { call })
+            },
+        )
+    };
+    let admitted = "go: { k: [Go(), ..], pc: x } => { k: [..], pc: {SUM} };
+    inc: { k: [Inc(), ..], counter: Some(x) } => { k: [..], counter: Some({SUM}) };
+    pay: { k: [Pay(), ..], account: { me @ Account { balance: x, .. }, .. } } => { k: [..], account: { Account { balance: {SUM}, ..me }, .. } };";
+    let [operator_k, call_k] = [true, false].map(|operators| {
+        let manifest = package(
+            temporary.path(),
+            &format!("entries-admitted-{operators}"),
+            &entry_rules(&spell(admitted, operators)),
+        );
+        let output = temporary.path().join(format!("emitted-{operators}"));
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "operators: {operators}: {stderr}");
+        krs_test_support::without_source_comments(
+            &fs::read_to_string(output.join("definition.k")).unwrap(),
+        )
+    });
+    assert_eq!(operator_k, call_k);
+    let refused = [
+        (
+            "optional",
+            "go: { k: [Go(), ..], counter: Some(x) } => { k: [..], counter: {SUM} };",
+            "krs::analysis::optional-presence",
+        ),
+        (
+            "leaf-presence",
+            "go: { k: [Go(), ..], pc: x } => { k: [..], pc: Some({SUM}) };",
+            "krs::analysis::optional-presence",
+        ),
+        (
+            "map-presence",
+            "go: { k: [Go(), ..], pc: x, mem: _ } => { k: [..], mem: Some({SUM}) };",
+            "krs::analysis::optional-presence",
+        ),
+        (
+            "collection",
+            "go: { k: [Go(), ..], pc: x, account: { .. } } => { k: [..], account: {SUM} };",
+            "krs::analysis::collection-entry",
+        ),
+    ];
+    for (label, rule, code) in refused {
+        let [operator, call] = [true, false].map(|operators| {
+            let manifest = package(
+                temporary.path(),
+                &format!("entries-{label}-{operators}"),
+                &entry_rules(&spell(rule, operators)),
+            );
+            check_errors(target.path(), &manifest)
+        });
+        assert_eq!(operator, call, "{label}: one verdict for both spellings");
+        assert!(
+            operator.starts_with(&format!("error[{code}]: ")),
+            "{label}: {operator}"
+        );
+    }
+}

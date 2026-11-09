@@ -222,15 +222,11 @@ impl<'a> EntryReading<'a> {
         Ok((key, self.content(input, true)?))
     }
 
-    /// A whole entry's value, or the content of its presence: in an initializer, a value that
-    /// is no entry (`a + b`, a `let` block) is the term it builds, as inside an entry
-    /// ([`Self::inner`]), so that its marks, or their absence, are still judged against the cell.
+    /// A whole entry's value, or the content of its presence: a value that is no entry (`a + b`,
+    /// a `let` block) is the term it denotes, as inside an entry ([`Self::term`]), so that its
+    /// marks, or their absence, are still judged against the cell.
     fn content(self, input: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
-        if self.form == EntryForm::Initializer {
-            self.inner(input)
-        } else {
-            self.parse(input, head)
-        }
+        self.term(input, head)
     }
 
     /// One entry; `head` is whether it stands at the entry's head (below presence and
@@ -321,7 +317,7 @@ impl<'a> EntryReading<'a> {
                 Ok(EntrySpelling::Present(Box::new(inner)))
             }
             "Cell" if self.form == EntryForm::Cells => {
-                let inner = self.parse(content, false)?;
+                let inner = self.term(content, false)?;
                 content.parse::<Option<Token![,]>>()?;
                 if !content.is_empty() {
                     return Err(content.error("`Cell(..)` holds one value"));
@@ -400,23 +396,41 @@ impl<'a> EntryReading<'a> {
     }
 
     /// A value inside an entry, followed by a `,` or by nothing: an item, an argument or a
-    /// record field's value, and in an initializer also the entry's whole value or its presence's
-    /// content ([`Self::content`]). Inside an initializer every such value is a term the
-    /// initializer builds, so one that is no entry (an operator's application, `0 + 1`) is read
-    /// as an application whose arguments are not read: the marks around it are still the entry's
-    /// to judge, and what it holds is the term's.
+    /// record field's value ([`Self::term`]).
     fn inner(self, input: ParseStream<'_>) -> syn::Result<EntrySpelling> {
-        if self.form != EntryForm::Initializer {
-            return self.parse(input, false);
-        }
+        self.term(input, false)
+    }
+
+    /// A value followed by a `,`, a `->` or by nothing, read as an entry where it is one, and
+    /// otherwise as the term it is: operator notation (`x + 1`), a method call, a negation are
+    /// spellings of a term, as `int::add(x, 1)` is, so one that is no entry is read as an
+    /// application whose arguments are not read. The marks around it are still the entry's to
+    /// judge, on every form alike, and what it holds is the term's.
+    ///
+    /// An initializer builds every value it holds, so whatever its reading cannot read there is
+    /// a term. Where a pattern may stand (every other form), a value the reading starts as an
+    /// entry and cannot finish breaks that entry's shape rule (`Some(x, y)`, a second rest), which
+    /// is no term, and `|` at a pattern's level joins alternatives and `..` is a rest: a value
+    /// holding one stays unread.
+    fn term(self, input: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
         let ahead = input.fork();
-        if let Ok(spelling) = self.parse(&ahead, false)
-            && (ahead.is_empty() || ahead.peek(Token![,]))
-        {
-            input.advance_to(&ahead);
-            return Ok(spelling);
+        match self.parse(&ahead, head) {
+            Ok(spelling) if ahead.is_empty() || ahead.peek(Token![,]) || ahead.peek(Token![->]) => {
+                input.advance_to(&ahead);
+                return Ok(spelling);
+            }
+            Err(error) if self.form != EntryForm::Initializer && starts_entry(input) => {
+                return Err(error);
+            }
+            _ => {}
         }
-        input.parse::<syn::Expr>()?;
+        let expression = input.parse::<syn::Expr>()?;
+        if self.form != EntryForm::Initializer && !denotes_term(&expression) {
+            return Err(syn::Error::new_spanned(
+                &expression,
+                "alternatives or a rest are no term",
+            ));
+        }
         Ok(EntrySpelling::Call(Vec::new()))
     }
 
@@ -462,9 +476,14 @@ impl<'a> EntryReading<'a> {
                 }
                 rest = Some(found);
             } else {
-                let key = self.parse(content, false)?;
+                // The key ends at the `->`, which the expression grammar would read as `-`.
+                let mut key = TokenStream::new();
+                while !content.is_empty() && !content.peek(Token![->]) {
+                    key.extend([content.parse::<proc_macro2::TokenTree>()?]);
+                }
+                let key = (|input: ParseStream<'_>| self.term(input, false)).parse2(key)?;
                 content.parse::<Token![->]>()?;
-                entries.push((key, self.parse(content, false)?));
+                entries.push((key, self.term(content, false)?));
             }
             if content.is_empty() {
                 break;
@@ -538,6 +557,32 @@ impl<'a> EntryReading<'a> {
         }
         Ok(EntryRecord { head, fields, tail })
     }
+}
+
+/// Whether `input` starts as an entry the reading knows: `_`, a name or a path, brackets,
+/// braces, or a literal.
+fn starts_entry(input: ParseStream<'_>) -> bool {
+    input.peek(Token![_])
+        || input.peek(Ident::peek_any)
+        || input.peek(Token![::])
+        || input.peek(syn::token::Bracket)
+        || input.peek(syn::token::Brace)
+        || input.peek(Lit)
+        || (input.peek(Token![-]) && input.peek2(Lit))
+}
+
+/// Whether `expression`, read where a pattern may stand, is a term: no alternatives at a
+/// pattern's level ([`crate::recover::holds_alternatives`]) and no rest (`..`) outside a macro.
+fn denotes_term(expression: &syn::Expr) -> bool {
+    struct Rest(bool);
+    impl<'ast> syn::visit::Visit<'ast> for Rest {
+        fn visit_expr_range(&mut self, _: &'ast syn::ExprRange) {
+            self.0 = true;
+        }
+    }
+    let mut rest = Rest(false);
+    syn::visit::Visit::visit_expr(&mut rest, expression);
+    !rest.0 && !crate::recover::holds_alternatives(expression)
 }
 
 /// One field of a `cells!` payload as a `cells!` [`EntryReading`] reads it.
@@ -952,10 +997,16 @@ mod cells_fields_tests {
             ))))
         );
         assert!(matches!(fields[1].spelling, Some(EntrySpelling::Cell(_))));
-        // A term with an operator is no entry the reading knows: nothing judges it, but its
-        // frame, whose rest is paired with the subject's.
-        assert_eq!(fields[2].spelling, None);
-        assert!(fields[2].anonymous_rest);
+        // A term with an operator is a term, as its named function's application is: the
+        // computation's items and its rest are read, and the rest is paired by the spelling.
+        assert_eq!(
+            fields[2].spelling,
+            Some(EntrySpelling::KCell(super::EntrySeq {
+                items: vec![EntrySpelling::Call(Vec::new())],
+                rest: Some((super::EntryRest::Anonymous, super::RestPlace::Back)),
+            }))
+        );
+        assert!(!fields[2].anonymous_rest);
         assert!(!fields[0].anonymous_rest);
         let rest = |value: &str| super::anonymous_kcell_rest(&value.parse().expect("lexes"));
         assert!(rest("k::configuration::KCell(x + 1, ..,)"));
@@ -1047,6 +1098,82 @@ mod cells_fields_tests {
             fields[0].spelling.as_ref().expect("read"),
         );
         assert_eq!(located.len(), 3);
+    }
+
+    /// Operator notation is a spelling of the term its function's application is, so on every
+    /// form a value written with it is read where its named twin is, a term of some sort, and
+    /// the entry around it is judged alike (RDRA item 2, AUDIT-R P7). Where a pattern may stand,
+    /// alternatives and a rest are no term and stay unread.
+    #[test]
+    fn an_operator_value_is_a_term_on_every_form() {
+        let term = || EntrySpelling::Call(Vec::new());
+        for form in [
+            super::EntryForm::Readable,
+            super::EntryForm::Claim,
+            super::EntryForm::Cells,
+            super::EntryForm::Initializer,
+        ] {
+            let read = |text: &str| {
+                super::EntryReading::new(form, &[])
+                    .value(text.parse().expect("lexes"))
+                    .ok()
+            };
+            assert_eq!(read("x + 1"), Some(term()), "{form:?}");
+            assert_eq!(
+                read("Some(x + 1)"),
+                Some(EntrySpelling::Present(Box::new(term()))),
+                "{form:?}"
+            );
+            assert_eq!(
+                read("Rec { a: x.len(), b: y }"),
+                Some(EntrySpelling::Record(super::EntryRecord {
+                    head: "Rec".to_owned(),
+                    fields: vec![
+                        ("a".to_owned(), term()),
+                        ("b".to_owned(), EntrySpelling::Binder("y".to_owned())),
+                    ],
+                    tail: super::RecordTail::Exact,
+                })),
+                "{form:?}"
+            );
+            let Some(EntrySpelling::MapLiteral(map)) = read("k::map![x + 1 -> y * 2, z -> w]")
+            else {
+                panic!("{form:?}: a map literal");
+            };
+            assert_eq!(
+                map.entries,
+                [
+                    (term(), term()),
+                    (
+                        EntrySpelling::Binder("z".to_owned()),
+                        EntrySpelling::Binder("w".to_owned())
+                    )
+                ],
+                "{form:?}"
+            );
+            if form != super::EntryForm::Initializer {
+                assert_eq!(read("x | 1"), None, "{form:?}");
+                assert_eq!(read("Some(1 | 2)"), None, "{form:?}");
+            }
+        }
+        let cells = |text: &str| {
+            super::EntryReading::new(super::EntryForm::Cells, &[])
+                .value(text.parse().expect("lexes"))
+                .ok()
+        };
+        assert_eq!(
+            cells("k::configuration::Cell(x + 1)"),
+            Some(EntrySpelling::Cell(Box::new(term())))
+        );
+        assert_eq!(cells("k::configuration::Cell(..)"), None);
+        let Some(EntrySpelling::Brackets(seq)) =
+            super::EntryReading::new(super::EntryForm::Readable, &[])
+                .value("[x + 1, ..]".parse().expect("lexes"))
+                .ok()
+        else {
+            panic!("brackets");
+        };
+        assert_eq!(seq.items, [term()]);
     }
 
     #[test]
