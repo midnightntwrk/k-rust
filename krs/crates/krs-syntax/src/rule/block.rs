@@ -379,6 +379,9 @@ pub struct RuleClause {
     /// (M3), which the collector raises once the subject's entries are admitted by the cells'
     /// kinds, before the result's ([`Self::subject_refusal`]).
     pub(super) subject_refusal: Option<Box<crate::SyntaxError>>,
+    /// A cell-record clause's refusal of the first part of an entry whose fault waits for the
+    /// judgement of the whole it is in ([`Self::part_refusal`]).
+    pub(super) part_refusal: Option<Box<crate::SyntaxError>>,
 }
 
 /// The computation cell a cell-record clause names: its field in the
@@ -1025,6 +1028,17 @@ impl RuleClause {
         self.subject_refusal.as_deref()
     }
 
+    /// The refusal of a cell-record clause's first entry part, in source order, whose fault
+    /// waits for the judgement of the whole entry ([`crate::state_macro::PartFaults`]): a record
+    /// child written as a `?` cell's presence, at any depth, which no record names yet. The
+    /// clause reads the record without it, keeping the names a subject's presence binds, so the
+    /// caller raises it once the entry has been judged whole: by the cells' kinds, the pairing,
+    /// and the payload's terms, where a record the table admits as a term is judged.
+    #[must_use]
+    pub fn part_refusal(&self) -> Option<&crate::SyntaxError> {
+        self.part_refusal.as_deref()
+    }
+
     /// Returns the complete authored clause range, including attributes and
     /// the terminating semicolon.
     #[must_use]
@@ -1615,6 +1629,7 @@ impl RuleBlock {
                 records: None,
                 pairing_refusal: None,
                 subject_refusal: None,
+                part_refusal: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);

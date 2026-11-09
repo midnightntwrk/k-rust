@@ -18,6 +18,7 @@ use super::pattern::{
 };
 use crate::parse::{KrsSyntax as _, ParseError, validate_authored_binder};
 use crate::path::{is_plain_path, parametric_collection_error};
+use crate::state_macro::{PartFaults, RecordPresences};
 use crate::{
     InstanceField, InstanceItem, InstanceList, InstanceListDelimiter, InstanceRest,
     StateMacroContext, StateMacroRemainder, StateTerm, TermExpression, TermTree, TokenRange,
@@ -616,10 +617,8 @@ fn parse_readable_instance(
                 "an instance record names each child once",
             ));
         }
-        fields.push(InstanceField::new(
-            name.clone(),
-            parse_readable_child(name, value, context, braced)?,
-        ));
+        let state = parse_readable_child(name, value.clone(), context, braced)?;
+        fields.push(InstanceField::read(name.clone(), state, &value, context));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest)?)
 }
@@ -800,6 +799,7 @@ fn shorthand_pattern(cell: &Ident) -> Result<Pat, ParseError> {
 fn parse_machine_pattern_record(
     input: ParseStream<'_>,
     sentence: ReadableSentence,
+    faults: &PartFaults,
 ) -> Result<Vec<(Ident, MachinePatternCell)>, ParseError> {
     let content = input.call(|input| {
         let content;
@@ -848,9 +848,14 @@ fn parse_machine_pattern_record(
                 let (entries, rest) = parse_machine_map_pattern(&content)?;
                 MachinePatternCell::MapItems(entries, rest)
             }
-        } else if let Some(error) = record_child_entry(&content, true) {
+        } else if let Some(presences) = value_presences(&content, StateMacroContext::Pattern) {
             skip_value(&content)?;
-            MachinePatternCell::Refused(Box::new(error))
+            presences.carry(faults)?;
+            crate::parse::structured_with(
+                presences.read,
+                read_pattern_record,
+                crate::SyntaxError::from,
+            )?
         } else if let Some(record) = readable_record(&content, StateMacroContext::Pattern)? {
             MachinePatternCell::State(Box::new(StateTerm::Record(Box::new(record))))
         } else {
@@ -1000,6 +1005,7 @@ fn parse_machine_result_record(
     input: ParseStream<'_>,
     states: &[(Ident, StateFamily)],
     present: &[Ident],
+    faults: &PartFaults,
 ) -> Result<Vec<(Ident, MachineResultCell)>, ParseError> {
     let content = input.call(|input| {
         let content;
@@ -1110,9 +1116,17 @@ fn parse_machine_result_record(
             MachineResultCell::Bracket(content.parse()?)
         } else if let Some(instances) = braced_instances(&content)? {
             MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
-        } else if let Some(error) = record_child_entry(&content, false) {
+        } else if let Some(error) = record_child_entry(&content) {
             skip_value(&content)?;
             MachineResultCell::Refused(Box::new(error))
+        } else if let Some(presences) = value_presences(&content, StateMacroContext::Expression) {
+            skip_value(&content)?;
+            presences.carry(faults)?;
+            crate::parse::structured_with(
+                presences.read,
+                read_result_record,
+                crate::SyntaxError::from,
+            )?
         } else if let Some(record) = readable_record(&content, StateMacroContext::Expression)? {
             MachineResultCell::State(Box::new(StateTerm::Record(Box::new(record))))
         } else {
@@ -1130,15 +1144,13 @@ fn parse_machine_result_record(
     Ok(cells)
 }
 
-/// The refusal a readable record value `Group { .. }` carries when one of its children is
-/// spelled as an entry that no reading writes: a `?` cell's `Some(..)` or `None` (no term, and
-/// in a group record the `?` child's entry, which a group record does not name yet), or a map
-/// read `{ k -> v, .. }` in a result, a pattern where a value is built (`map-read-in-result`). The
+/// The refusal a readable result's record value `Group { .. }` carries when one of its children
+/// is a map read `{ k -> v, .. }`, a pattern where a value is built (`map-read-in-result`). The
 /// collector judges the authored spelling first, by the child's declared kind (ruling R4), so
 /// the cell is neither read nor written and the refusal is carried
-/// ([`read_with_pairing_deferred`]). A map child otherwise is the child's map entry, which
-/// [`readable_record`] reads. `None` for every other value.
-fn record_child_entry(content: ParseStream<'_>, pattern: bool) -> Option<crate::SyntaxError> {
+/// ([`read_with_pairing_deferred`]). A map child otherwise, and every map child of a subject, is
+/// the child's map entry, which [`readable_record`] reads. `None` for every other value.
+fn record_child_entry(content: ParseStream<'_>) -> Option<crate::SyntaxError> {
     let fork = content.fork();
     let mut value = Vec::new();
     while !fork.is_empty() && !fork.peek(Token![,]) {
@@ -1155,51 +1167,76 @@ fn record_child_entry(content: ParseStream<'_>, pattern: bool) -> Option<crate::
     }
     top_level_items(body.stream()).into_iter().find_map(|item| {
         let trees = item.into_iter().collect::<Vec<_>>();
-        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = trees.as_slice()
+        let [
+            TokenTree::Ident(child),
+            TokenTree::Punct(colon),
+            TokenTree::Group(map),
+        ] = trees.as_slice()
         else {
             return None;
         };
-        if colon.as_char() != ':' {
+        if colon.as_char() != ':'
+            || map.delimiter() != proc_macro2::Delimiter::Brace
+            || !contains_top_level_arrow(map)
+            || !top_level_items(map.stream()).last().is_some_and(is_dots)
+        {
             return None;
         }
-        let child = child.unraw().to_string();
-        let (kind, span) = match value {
-            [TokenTree::Group(map)]
-                if map.delimiter() == proc_macro2::Delimiter::Brace
-                    && contains_top_level_arrow(map) =>
-            {
-                // A map read in a pattern and an exact map anywhere are the child's entry, which
-                // the record's reading as a group record of entries reads ([`readable_record`]).
-                let read = top_level_items(map.stream()).last().is_some_and(is_dots);
-                if pattern || !read {
-                    return None;
-                }
-                let kind = crate::SyntaxErrorKind::RustSyntax(
-                    crate::cell_entries::Refusal::MapReadInResult.reason(
-                        crate::cell_entry::EntryForm::Readable,
-                        &child,
-                        &crate::cell_entries::EntryKind::default(),
-                        None,
-                    ),
-                );
-                (kind, map.span())
-            }
-            [TokenTree::Ident(head), TokenTree::Group(inside)]
-                if head == "Some" && inside.delimiter() == proc_macro2::Delimiter::Parenthesis =>
-            {
-                (
-                    crate::state_macro::record_child_presence(&child, true),
-                    head.span(),
-                )
-            }
-            [TokenTree::Ident(head)] if head == "None" => (
-                crate::state_macro::record_child_presence(&child, false),
-                head.span(),
-            ),
-            _ => return None,
-        };
-        Some(crate::SyntaxError::new(kind, span))
+        let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
+            crate::cell_entry::EntryForm::Readable,
+            &child.unraw().to_string(),
+            &crate::cell_entries::EntryKind::default(),
+            None,
+        );
+        Some(crate::SyntaxError::new(
+            crate::SyntaxErrorKind::RustSyntax(reason),
+            map.span(),
+        ))
     })
+}
+
+/// The presences a readable record value's children write, at any depth, where the value is a
+/// record ([`RecordPresences`]): the value is read without them, and its first presence's
+/// refusal waits for the judgement of the entry ([`PartFaults`]).
+fn value_presences(
+    content: ParseStream<'_>,
+    reading: StateMacroContext,
+) -> Option<RecordPresences> {
+    let fork = content.fork();
+    let mut value = TokenStream::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.extend([fork.parse::<TokenTree>().ok()?]);
+    }
+    RecordPresences::of(&value, reading)
+}
+
+/// A subject's record value read without its presences ([`value_presences`]): a group record of
+/// entries where a child is a map entry ([`readable_record`]), else a term pattern.
+fn read_pattern_record(content: ParseStream<'_>) -> Result<MachinePatternCell, ParseError> {
+    if let Some(record) = readable_record(content, StateMacroContext::Pattern)? {
+        return Ok(MachinePatternCell::State(Box::new(StateTerm::Record(
+            Box::new(record),
+        ))));
+    }
+    let (pattern, signs) = parse_pattern_with_signs(content)?;
+    let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
+    Ok(MachinePatternCell::Term {
+        pattern: Box::new(pattern),
+        tree: Box::new(tree),
+    })
+}
+
+/// A result's record value read without its presences ([`value_presences`]): a group record of
+/// entries where a child is a map entry ([`readable_record`]), else a term.
+fn read_result_record(content: ParseStream<'_>) -> Result<MachineResultCell, ParseError> {
+    if let Some(record) = readable_record(content, StateMacroContext::Expression)? {
+        return Ok(MachineResultCell::State(Box::new(StateTerm::Record(
+            Box::new(record),
+        ))));
+    }
+    Ok(MachineResultCell::Term(Box::new(
+        content.call(crate::term::parse_term_expression)?,
+    )))
 }
 
 /// The group record of entries a readable record value `Group { .. }` is when one of its
@@ -1394,7 +1431,10 @@ pub(super) fn parse_machine_clause(
 ) -> Result<RuleClause, ParseError> {
     readable_form_step(input, sentence)?;
     let pattern_record: TokenTree = input.fork().parse()?;
-    let subject_cells = parse_machine_pattern_record(input, sentence)?;
+    // A part of an entry whose fault waits for the judgement of the whole, on each side.
+    let subject_faults = PartFaults::new(StateMacroContext::Pattern);
+    let result_faults = PartFaults::new(StateMacroContext::Expression);
+    let subject_cells = parse_machine_pattern_record(input, sentence, &subject_faults)?;
     if subject_cells.is_empty() {
         return Err(syn::Error::new(
             pattern_record.span(),
@@ -1423,7 +1463,7 @@ pub(super) fn parse_machine_clause(
         })
         .collect::<Vec<_>>();
     let present = item_less_presences(&pattern_record);
-    let result_cells = parse_machine_result_record(input, &states, &present)?;
+    let result_cells = parse_machine_result_record(input, &states, &present, &result_faults)?;
     let subject_cells = with_overwritten_cells(subject_cells, &result_cells)?;
     let mut layout = RuleClauseLayout {
         label: TokenRange::for_tokens(name)?,
@@ -1485,7 +1525,12 @@ pub(super) fn parse_machine_clause(
         source_range: TokenRange::new(clause_start, semicolon.span),
         defer_pairing: false,
     };
-    read_with_pairing_deferred(&clause, &subject_cells, &result_cells)
+    let mut read = read_with_pairing_deferred(&clause, &subject_cells, &result_cells)?;
+    read.part_refusal = subject_faults
+        .first()
+        .or_else(|| result_faults.first())
+        .map(Box::new);
+    Ok(read)
 }
 
 /// Reads a cell-record clause, and where no reading of its values pairs each cell's subject
@@ -3020,6 +3065,7 @@ fn assemble_machine_clause(
         records: Some((record_tokens(pattern_record), record_tokens(result_record))),
         pairing_refusal,
         subject_refusal,
+        part_refusal: None,
     };
     clause.check_existentials()?;
     Ok(clause)

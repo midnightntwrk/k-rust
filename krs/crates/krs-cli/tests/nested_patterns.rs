@@ -1359,3 +1359,267 @@ fn a_head_wildcard_matches_only_its_clauses_sort() {
     expect_test::expect!["<k> marked ~> .K </k>"]
         .assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
+
+/// Groups with `?` children: `O` beside its plain `on`, `W` holding `Gw` (a `?` child one level
+/// down), `Core` holding a `?` group, and the plain leaf `stack`.
+const PRESENCES: &str = r#"
+use k::builtin::{Int, KSequence, List, list};
+use k::{KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Go, Hold))]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("hold({s})")]
+    Hold { s: Int },
+}
+
+#[k::cell]
+pub struct O {
+    #[k::cell(multiplicity = "?")]
+    pub oo: Option<Int>,
+    #[k::cell(multiplicity = "?")]
+    pub op: Option<Int>,
+    #[k::cell]
+    pub on: Int,
+}
+
+#[k::cell]
+pub struct Gw {
+    #[k::cell(multiplicity = "?")]
+    pub wo: Option<Int>,
+    #[k::cell]
+    pub wa: Int,
+}
+
+#[k::cell]
+pub struct W {
+    #[k::cell(nested)]
+    pub wg: Gw,
+    #[k::cell]
+    pub wn: Int,
+}
+
+#[k::cell]
+pub struct Fpu {
+    #[k::cell]
+    pub fx: Int,
+}
+
+#[k::cell]
+pub struct Core {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell(multiplicity = "?", nested)]
+    pub fpu: Option<Fpu>,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell(nested)]
+    pub ocell: O,
+    #[k::cell(nested)]
+    pub wcell: W,
+    #[k::cell(nested)]
+    pub core: Core,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            ocell: O { oo: k::absent!(0), op: k::absent!(0), on: 0 },
+            wcell: W { wg: Gw { wo: k::absent!(0), wa: 0 }, wn: 0 },
+            core: Core { pc: 0, fpu: k::absent!(Fpu { fx: 0 }) },
+        }
+    }
+}
+"#;
+
+/// The readable rule `{ subject } => { result }` over [`PRESENCES`].
+fn readable_presence(subject: &str, result: &str) -> String {
+    format!(
+        "{PRESENCES}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [Go(), ..], {subject} }} => {{ k: [{result}..] }};\n}}\n"
+    )
+}
+
+/// The readable rule writing `result` over [`PRESENCES`].
+fn readable_written(result: &str) -> String {
+    format!(
+        "{PRESENCES}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [Go(), ..] }} => {{ k: [..], {result} }};\n}}\n"
+    )
+}
+
+/// The `cells!` rule matching `subject` over [`PRESENCES`], whose result puts `x` first when
+/// `reads`.
+fn cells_presence(subject: &str, reads: bool) -> String {
+    let (parameter, item) = if reads {
+        ("x: Term<Int>, ", "x, ")
+    } else {
+        ("", "")
+    };
+    format!(
+        "{PRESENCES}#[k::rule(label = \"go\")]\nfn go({parameter}k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {subject}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell({item}..tail), ..state }}\n}}\n"
+    )
+}
+
+/// The `cells!` rule writing `result` over [`PRESENCES`].
+fn cells_written(result: &str) -> String {
+    format!(
+        "{PRESENCES}#[k::rule(label = \"go\")]\nfn go(k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
+    )
+}
+
+/// The witnesses [`a_group_records_presence_child_waits_for_its_entry_on_every_route`] checks: a
+/// name, a library, and the spelling its refusal starts at.
+fn presence_witnesses() -> Vec<(&'static str, String, &'static str)> {
+    vec![
+        (
+            "p2b-readable",
+            readable_presence("ocell: O { oo: Some(x), .. }", "x, "),
+            "Some(x)",
+        ),
+        (
+            "p2a-cells",
+            cells_presence("ocell: k::fragment![crate::O { oo: Some(x), .. }]", true),
+            "Some(x)",
+        ),
+        (
+            "p2c-readable",
+            readable_presence("ocell: O { oo: Some(x), .. }", ""),
+            "Some(x)",
+        ),
+        (
+            "p2c-cells",
+            cells_presence("ocell: k::fragment![crate::O { oo: Some(_), .. }]", false),
+            "Some(_)",
+        ),
+        (
+            "second-subject-readable",
+            readable_presence("ocell: O { oo: Some(x), op: None, .. }", "x, "),
+            "None",
+        ),
+        (
+            "second-subject-cells",
+            cells_presence(
+                "ocell: k::fragment![crate::O { oo: Some(x), op: None, .. }]",
+                true,
+            ),
+            "None",
+        ),
+        (
+            "p1b-readable",
+            readable_written("ocell: O { oo: Some(1), op: None, on: 0 }"),
+            "Some(1)",
+        ),
+        (
+            "p1b-cells",
+            cells_written("ocell: k::fragment![crate::O { oo: Some(1), op: None, on: 0 }]"),
+            "Some(1)",
+        ),
+        (
+            "depth-2-subject-readable",
+            readable_presence("wcell: W { wg: Gw { wo: Some(x), .. }, .. }", "x, "),
+            "Some(x)",
+        ),
+        (
+            "depth-2-subject-cells",
+            cells_presence(
+                "wcell: k::fragment![crate::W { wg: k::fragment![crate::Gw { wo: Some(x), .. }], .. }]",
+                true,
+            ),
+            "Some(x)",
+        ),
+        (
+            "depth-2-result-readable",
+            readable_written("wcell: W { wg: Gw { wo: Some(1), wa: 0 }, wn: 0 }"),
+            "Some(1)",
+        ),
+        (
+            "depth-2-result-cells",
+            cells_written(
+                "wcell: k::fragment![crate::W { wg: k::fragment![crate::Gw { wo: Some(1), wa: 0 }], wn: 0 }]",
+            ),
+            "Some(1)",
+        ),
+        (
+            "leaf-readable",
+            readable_presence("stack: Core { fpu: Some(_), .. }", ""),
+            "Some(_)",
+        ),
+        (
+            "leaf-cells",
+            cells_presence(
+                "stack: k::fragment![crate::Core { fpu: Some(_), .. }]",
+                false,
+            ),
+            "k::fragment![crate::Core",
+        ),
+    ]
+}
+
+/// A group record's `?` child written `Some(..)` or `None`, at a configuration position, is that
+/// child's presence, an entry no record names yet (`collection-entry`): a fault of a part, which
+/// waits for the judgement of the whole entry. So it is one class on both routes and both sides,
+/// with any number of such children and at any depth: the limit where the entries are admitted
+/// (P2a-c), a principle first where one refuses the whole (the result writes an optional cell its
+/// subject does not match, P1b; the subject's `None` is not created), and a subject's presence
+/// keeps the names it binds for the result that reads them (P2b). On a leaf a `cells!` fragment
+/// meets the leaf's refusal, its wrapper (`cell-wrapper`), before the limit. The readable record
+/// on a leaf still meets the limit: the table reads that record as a term of the leaf, which the
+/// compiler's sort inference refuses only after the collector raised it (RDRB, open).
+#[test]
+fn a_group_records_presence_child_waits_for_its_entry_on_every_route() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = presence_witnesses();
+    let mut outcomes = Vec::new();
+    for (name, source, at) in &cases {
+        let manifest = library_package(temporary.path(), &format!("presence-{name}"), source);
+        let error = first_error(target.path(), &manifest);
+        let (headline, location) = error.split_once(" @ ").expect("refused");
+        let class = headline.split(']').next().unwrap_or(headline);
+        let library = fs::read_to_string(manifest.with_file_name("src/lib.rs")).unwrap();
+        let (line, column) = location.split_once(':').unwrap();
+        let line: usize = line.parse().unwrap();
+        let column: usize = column.parse().unwrap();
+        let written = &library.lines().nth(line - 1).unwrap()[column - 1..];
+        assert!(
+            written.starts_with(at),
+            "{name}: at `{at}`, found `{written}`:\n{error}"
+        );
+        outcomes.push(format!("{name}: {class}]"));
+    }
+    expect_test::expect![[r#"
+        [
+            "p2b-readable: error[krs::analysis::collection-entry]",
+            "p2a-cells: error[krs::analysis::collection-entry]",
+            "p2c-readable: error[krs::analysis::collection-entry]",
+            "p2c-cells: error[krs::analysis::collection-entry]",
+            "second-subject-readable: error[krs::analysis::optional-presence]",
+            "second-subject-cells: error[krs::analysis::optional-presence]",
+            "p1b-readable: error[krs::analysis::optional-presence]",
+            "p1b-cells: error[krs::analysis::optional-presence]",
+            "depth-2-subject-readable: error[krs::analysis::collection-entry]",
+            "depth-2-subject-cells: error[krs::analysis::collection-entry]",
+            "depth-2-result-readable: error[krs::analysis::optional-presence]",
+            "depth-2-result-cells: error[krs::analysis::optional-presence]",
+            "leaf-readable: error[krs::analysis::collection-entry]",
+            "leaf-cells: error[krs::analysis::cell-wrapper]",
+        ]
+    "#]]
+    .assert_debug_eq(&outcomes);
+}

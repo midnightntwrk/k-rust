@@ -245,7 +245,9 @@ impl KSequence {
     /// declaration's, which this parser does not know. So the parser keeps such an entry, its
     /// items in order before the tail, for the caller that judges the entry against its cell
     /// first, which asks this once the entries are admitted, or at once where it judges none
-    /// ([`crate::StateRuleItem::misplaced_tail`]).
+    /// ([`crate::StateRuleItem::misplaced_tail`]). The item is a part of the entry, so its fault
+    /// waits for the whole ([`PartFaults`]); it binds nothing the sequence does not still read,
+    /// so it waits on either side.
     #[must_use]
     pub const fn misplaced_tail(&self) -> Option<&SyntaxError> {
         self.misplaced_tail.as_ref()
@@ -901,6 +903,9 @@ pub struct InstanceField {
     name: Ident,
     value: StateTerm,
     name_key: Option<ProvenanceKey>,
+    /// The first child of a record the child's value writes, at any depth, that writes a `?`
+    /// cell's presence ([`Self::record_multiplicity_limit`]).
+    presence: Option<Box<Presence>>,
 }
 
 impl InstanceField {
@@ -909,6 +914,27 @@ impl InstanceField {
             name,
             value,
             name_key: None,
+            presence: None,
+        }
+    }
+
+    /// The child `name` whose value `tokens` are read as `value`, with the presence a record in
+    /// them writes ([`RecordPresences`]).
+    pub(crate) fn read(
+        name: Ident,
+        value: StateTerm,
+        tokens: &TokenStream,
+        context: StateMacroContext,
+    ) -> Self {
+        let presence = match &value {
+            StateTerm::Term(_) | StateTerm::Group(_) => RecordPresences::of(tokens, context)
+                .and_then(|presences| presences.found.into_iter().next())
+                .map(Box::new),
+            _ => None,
+        };
+        Self {
+            presence,
+            ..Self::new(name, value)
         }
     }
 
@@ -965,18 +991,16 @@ impl InstanceField {
     #[must_use]
     pub fn record_multiplicity_limit(&self) -> Option<SyntaxError> {
         use syn::ext::IdentExt;
-        let (StateTerm::Term(term) | StateTerm::Group(term)) = &self.value else {
-            return None;
-        };
-        let (cell, written, span) = record_presence(term.tree())?;
+        let presence = self.presence.as_deref()?;
         let reason = format!(
-            "the cell `{}`, inside the instance child `{}`, holds {written}: {INSTANCE_CHILD_MULTIPLICITY}",
-            cell.unraw(),
-            self.name.unraw()
+            "the cell `{}`, inside the instance child `{}`, holds {}: {INSTANCE_CHILD_MULTIPLICITY}",
+            presence.child,
+            self.name.unraw(),
+            presence_written(presence.present),
         );
         Some(SyntaxError::new(
             SyntaxErrorKind::InstanceChildMultiplicity { reason },
-            span,
+            presence.span,
         ))
     }
 }
@@ -985,51 +1009,17 @@ impl InstanceField {
 /// a `?` cell's presence or absence inside one instance ([`INSTANCE_CHILD_MULTIPLICITY`]).
 #[must_use]
 pub fn instance_child_multiplicity_reason(child: &str, present: bool) -> String {
-    let written = if present {
-        "`Some(..)`, a `?` cell's presence"
-    } else {
-        "`None`, a `?` cell's absence"
-    };
+    let written = presence_written(present);
     format!("the instance child `{child}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}")
 }
 
-/// What `tree` writes when it is a `?` cell's `Some(..)` or `None`, read by its spelling as a cell
-/// entry's is, with the span of its head.
-fn presence_spelling(tree: &TermTree) -> Option<(&'static str, proc_macro2::Span)> {
-    match tree {
-        TermTree::Application(application)
-            if application.head().is_ident("Some")
-                && application.arguments().positional().is_some() =>
-        {
-            Some((
-                "`Some(..)`, a `?` cell's presence",
-                application.head().span(),
-            ))
-        }
-        TermTree::Reference(path) if path.is_ident("None") => {
-            Some(("`None`, a `?` cell's absence", path.span()))
-        }
-        _ => None,
+/// What a `?` cell's `Some(..)` (`present`) or `None` writes, as a refusal names it.
+const fn presence_written(present: bool) -> &'static str {
+    if present {
+        "`Some(..)`, a `?` cell's presence"
+    } else {
+        "`None`, a `?` cell's absence"
     }
-}
-
-/// The first field, in reading order, of a record `tree` writes (a record, a `k::fragment!`, or
-/// either under an alias), or of a record nested in one, whose value is a `?` cell's `Some(..)`
-/// or `None` ([`presence_spelling`]): the field's name, what it writes, and where.
-fn record_presence(tree: &TermTree) -> Option<(&syn::Ident, &'static str, proc_macro2::Span)> {
-    let fields = match tree {
-        TermTree::As { pattern, .. } => return record_presence(pattern),
-        TermTree::Application(application) if !application.is_notation() => {
-            application.arguments().named()?
-        }
-        TermTree::Cell(cell) => cell.fields(),
-        _ => return None,
-    };
-    fields.iter().find_map(|field| {
-        presence_spelling(field.value())
-            .map(|(written, span)| (field.name(), written, span))
-            .or_else(|| record_presence(field.value()))
-    })
 }
 
 /// An instance child's tokens that write a `?` cell's state, `Some(content)` or `None`, read by
@@ -1045,17 +1035,25 @@ impl PresenceTokens {
     /// The state `tokens` write, if they are exactly `Some(..)` or `None`.
     pub(crate) fn of(tokens: &TokenStream) -> Result<Option<Self>, SyntaxError> {
         let trees = tokens.clone().into_iter().collect::<Vec<_>>();
-        Ok(match trees.as_slice() {
-            [TokenTree::Ident(ident)] if ident == "None" => {
-                Some(Self::Absent(TokenRange::for_tokens(tokens)?))
-            }
+        Ok(match Self::spelled(&trees) {
+            Some((_, Some(content))) => Some(Self::Present(content)),
+            Some((_, None)) => Some(Self::Absent(TokenRange::for_tokens(tokens)?)),
+            None => None,
+        })
+    }
+
+    /// The one reading of a presence's spelling: where `trees` are exactly `Some(..)` or `None`,
+    /// the head (`Some` or `None`), and the content of `Some(..)`.
+    pub(crate) fn spelled(trees: &[TokenTree]) -> Option<(&Ident, Option<TokenStream>)> {
+        match trees {
+            [TokenTree::Ident(ident)] if ident == "None" => Some((ident, None)),
             [TokenTree::Ident(ident), TokenTree::Group(group)]
                 if ident == "Some" && group.delimiter() == proc_macro2::Delimiter::Parenthesis =>
             {
-                Some(Self::Present(group.stream()))
+                Some((ident, Some(group.stream())))
             }
             _ => None,
-        })
+        }
     }
 }
 
@@ -1454,19 +1452,19 @@ pub struct CellsExpression {
     remainder_key: Option<ProvenanceKey>,
     /// The anchors of the cells' standalone keying.
     anchors: Vec<ProvenanceAnchor>,
-    /// The refusal of the first result entry part left out: a `k::fragment!` child that writes a
-    /// `?` cell's presence ([`fragment_child_presence`]), or an instance record's child whose value
-    /// the term reader refuses ([`ChildFaults`]).
+    /// The refusal of the first entry part whose fault waits for the judgement of the entry
+    /// ([`PartFaults`]): a record child that writes a `?` cell's presence, at any depth
+    /// ([`RecordPresences`]), or a result instance record's child whose value the term reader
+    /// refuses.
     carried: Option<SyntaxError>,
 }
 
 impl CellsExpression {
     /// The refusal of the first entry, in source order, that the parser keeps for the judgement
-    /// of the entries against their cells: a `KCell(..)` sequence that writes an item after its
-    /// tail ([`KSequence::misplaced_tail`]), or a result fragment whose child writes a `?` cell's
-    /// presence, left out of the payload ([`fragment_child_presence`]), or a result instance
-    /// record's child the term reader refuses, also left out ([`ChildFaults`]); `None` where no
-    /// entry does.
+    /// of the entries against their cells: a part's fault, which waits for the whole it is in
+    /// ([`PartFaults`]): a record child that writes a `?` cell's presence ([`RecordPresences`]),
+    /// a result instance record's child the term reader refuses, or a `KCell(..)` sequence's
+    /// item after its tail ([`KSequence::misplaced_tail`]); `None` where no entry does.
     #[must_use]
     pub fn misplaced_tail(&self) -> Option<&SyntaxError> {
         fn within(state: &StateTerm) -> Option<&SyntaxError> {
@@ -2322,116 +2320,207 @@ fn parse_unkeyed_cells(
     )
 }
 
-/// [`parse_entry_value`], where a result fragment whose child writes a `?` cell's presence is read
-/// without that child and its refusal kept in `carried` ([`fragment_child_presence`]), and so is
-/// a result instance record's child whose value the term reader refuses ([`ChildFaults`]).
+/// [`parse_entry_value`], where a record value whose children write a `?` cell's presence is read
+/// without them, or as the names they bind ([`RecordPresences`]), and so is a result instance
+/// record's child whose value the term reader refuses; the first such refusal is kept in
+/// `carried` ([`PartFaults`]).
 fn parse_carried_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
     looks_up: bool,
     carried: &mut Option<SyntaxError>,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
-    let faults = ChildFaults::new(context);
-    let Some((refusal, without)) = fragment_child_presence(input, context) else {
-        let parsed = parse_entry_value(input, context, looks_up, &faults)?;
-        if let Some(fault) = faults.first() {
-            carried.get_or_insert(fault);
-        }
-        return Ok(parsed);
-    };
-    while !input.is_empty() && !input.peek(Token![,]) {
-        input.parse::<TokenTree>().map_err(SyntaxError::from)?;
+    let faults = PartFaults::new(context);
+    let fork = input.fork();
+    let mut value = TokenStream::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.extend([fork.parse::<TokenTree>().map_err(SyntaxError::from)?]);
     }
-    carried.get_or_insert(refusal);
-    let parsed = structured_with(
-        without,
-        |input| parse_entry_value(input, context, looks_up, &faults),
-        |error| state_error("cells", "malformed fragment", error.span()),
-    )?;
+    let parsed = match RecordPresences::of(&value, context) {
+        Some(presences) => {
+            syn::parse::discouraged::Speculative::advance_to(input, &fork);
+            presences.carry(&faults)?;
+            structured_with(
+                presences.read,
+                |input| parse_entry_value(input, context, looks_up, &faults),
+                |error| state_error("cells", "malformed fragment", error.span()),
+            )?
+        }
+        None => parse_entry_value(input, context, looks_up, &faults)?,
+    };
     if let Some(fault) = faults.first() {
         carried.get_or_insert(fault);
     }
     Ok(parsed)
 }
 
-/// Where a result entry's instance records keep the first child whose value the term reader
-/// refuses (`tk: [x, ..]`, a list rest no built term has). An instance record is the outer
-/// construct: whether it denotes an instance at all (its update `..label` names one the subject
-/// matched, its key keeps the instance's) is judged from the authored spelling against the
-/// collection's kind, after which its child's own fault is the next mistake. So the record is
-/// read without that child and the child's refusal is carried until the entries are admitted
-/// ([`CellsExpression::misplaced_tail`]), as a fragment child's presence is
-/// ([`fragment_child_presence`]). A pattern's child is read as written, since leaving it out would
-/// change what the rule matches.
-struct ChildFaults {
-    carries: bool,
+/// The one rule for which faults wait (RDRB): a fault of a part of an entry waits for the
+/// judgement of the whole it is in. A part is a record's child (a group record's or an instance
+/// record's) or an item of a sequence; the whole is the entry, judged against its cell's kind,
+/// each record child against its own cell's kind, and then the sentence's pairing. Which
+/// mistake an author meets first follows what is wrong: a part's fault is only an answer once
+/// the whole it is in is something the part can be wrong inside, and a part's limit (a `?`
+/// child's presence, which no record names yet) never hides a principle that refuses the
+/// whole (a record on a leaf, a presence on a cell that is not optional).
+///
+/// So the reader reads the whole without the faulty part and keeps the part's refusal, which
+/// the collector raises once the whole is judged ([`CellsExpression::misplaced_tail`],
+/// [`crate::RuleClause::part_refusal`]). What the whole needs of the part is kept: every name
+/// the part binds, since the rest of the sentence may read it. In a result a part binds none, so
+/// it is left out; in a pattern it is read as the names it binds (a presence `Some(p)` as `p`,
+/// `None` as `_`). Where the reader cannot read those names (a pattern child the term reader
+/// refuses), leaving the part out would change what the rule matches and unbind its names, so
+/// the fault cannot wait and is the record's at once ([`Self::carry`]).
+pub(crate) struct PartFaults {
+    context: Option<StateMacroContext>,
     first: RefCell<Option<SyntaxError>>,
 }
 
-impl ChildFaults {
-    fn new(context: StateMacroContext) -> Self {
+impl PartFaults {
+    /// The faults of the parts of an entry read in `context`.
+    pub(crate) const fn new(context: StateMacroContext) -> Self {
         Self {
-            carries: context == StateMacroContext::Expression,
+            context: Some(context),
             first: RefCell::new(None),
         }
     }
 
-    /// Faults nowhere: every child's refusal is the record's.
+    /// Faults nowhere: a reader that is itself a part's (the group-record reader of a
+    /// `k::fragment!` with a map child), whose whole is read by another reader.
     const fn none() -> Self {
         Self {
-            carries: false,
+            context: None,
             first: RefCell::new(None),
         }
     }
 
-    /// Keeps `fault` where faults are carried (`Ok(())`), or hands it back.
-    fn carry(&self, fault: SyntaxError) -> Result<(), SyntaxError> {
-        if !self.carries {
+    /// Keeps `fault`, a part's, until the whole is judged (`Ok(())`), or hands it back where it
+    /// cannot wait: `keeps_names` says whether the reader reads the names the part binds.
+    pub(crate) fn carry(&self, fault: SyntaxError, keeps_names: bool) -> Result<(), SyntaxError> {
+        let waits = match self.context {
+            Some(StateMacroContext::Expression) => true,
+            Some(StateMacroContext::Pattern) => keeps_names,
+            None => false,
+        };
+        if !waits {
             return Err(fault);
         }
         self.first.borrow_mut().get_or_insert(fault);
         Ok(())
     }
 
-    fn first(&self) -> Option<SyntaxError> {
+    /// The first fault kept, in source order.
+    pub(crate) fn first(&self) -> Option<SyntaxError> {
         self.first.borrow_mut().take()
     }
 }
 
-/// The refusal of a result entry `k::fragment![Group { .. }]` one of whose children is written
-/// `Some(..)` or `None`, with the entry's tokens without that child; `None` for any other entry
-/// value. At a configuration position a fragment's child is its cell's entry (ruling R4), and a
-/// `?` child's presence is its entry, read by the child's declared kind, which the collector
-/// judges from the authored spelling. The descriptor carries a fragment's children as terms,
-/// where `Some(..)` and `None` are no term (KRS has no `Option` term), so no reading writes such a
-/// child yet, a stated limitation: the fragment is read without it, which the entry's judgement
-/// reads as authored, and the refusal is carried until the entries are admitted
-/// ([`CellsExpression::misplaced_tail`]). A pattern's child is read as written, since leaving it
-/// out would change what the rule matches.
-fn fragment_child_presence(
-    input: ParseStream<'_>,
+/// The children of a record value at a configuration position that write a `?` cell's
+/// presence, `Some(..)` or `None`, at any depth of records, and the value read without them.
+///
+/// At a configuration position (a cell's entry, and each group child of a record there) a
+/// record names cells' entries (ruling R4), so a child written `Some(..)` or `None` is that
+/// child's presence, its entry, read by the child's declared kind, which the collector judges
+/// from the authored spelling: an entry state, and no term (KRS has no `Option` term). The
+/// descriptor carries a record's children as terms, so no reading writes such a child yet, a
+/// stated limitation ([`record_child_presence`]); it is a fault of a part, which waits for the
+/// judgement of the whole ([`PartFaults`]).
+pub(crate) struct RecordPresences {
+    /// Each such child, in source order.
+    found: Vec<Presence>,
+    /// The value's tokens with each such child read as its side keeps it: left out of a result,
+    /// and in a pattern read as the names it binds, `Some(p)` as `p` and `None` as `_`.
+    pub(crate) read: TokenStream,
+}
+
+impl RecordPresences {
+    /// The presences of `value`, read in `context`, where it is a record, `Path { .. }`, a
+    /// `k::fragment![Path { .. }]`, or either under `name @`, and one of its children, or of the
+    /// records its children write, at any depth, is `Some(..)` or `None`; `None` otherwise.
+    pub(crate) fn of(value: &TokenStream, context: StateMacroContext) -> Option<Self> {
+        let mut found = Vec::new();
+        let trees = value.clone().into_iter().collect::<Vec<_>>();
+        let read = record_presences(&trees, context, &mut found)?;
+        (!found.is_empty()).then_some(Self { found, read })
+    }
+
+    /// Keeps the first presence's refusal in `faults`, the limit a group record's child meets
+    /// ([`record_child_presence`]): the part's names are kept, so it waits.
+    pub(crate) fn carry(&self, faults: &PartFaults) -> Result<(), SyntaxError> {
+        match self.found.first() {
+            Some(presence) => faults.carry(
+                SyntaxError::new(
+                    record_child_presence(&presence.child, presence.present),
+                    presence.span,
+                ),
+                true,
+            ),
+            None => Ok(()),
+        }
+    }
+}
+
+/// One record child that writes a `?` cell's presence ([`RecordPresences`]).
+#[derive(Clone, Debug)]
+pub(crate) struct Presence {
+    /// The child's name, unraw.
+    child: String,
+    /// `Some(..)`, or `None`.
+    present: bool,
+    /// The span of its `Some` or `None`.
+    span: Span,
+}
+
+/// [`RecordPresences::of`] over a value's trees: the value read, where it is a record.
+fn record_presences(
+    trees: &[TokenTree],
     context: StateMacroContext,
-) -> Option<(SyntaxError, TokenStream)> {
-    if context != StateMacroContext::Expression {
-        return None;
+    found: &mut Vec<Presence>,
+) -> Option<TokenStream> {
+    if let [TokenTree::Ident(label), TokenTree::Punct(at), pattern @ ..] = trees
+        && at.as_char() == '@'
+    {
+        let mut read = TokenStream::from_iter([
+            TokenTree::Ident(label.clone()),
+            TokenTree::Punct(at.clone()),
+        ]);
+        read.extend(record_presences(pattern, context, found)?);
+        return Some(read);
     }
-    let fork = input.fork();
-    let mut value = Vec::new();
-    while !fork.is_empty() && !fork.peek(Token![,]) {
-        value.push(fork.parse::<TokenTree>().ok()?);
+    let value = trees.iter().cloned().collect::<TokenStream>();
+    if let Some((name, payload)) = qualified_macro_payload(&value) {
+        if name != "fragment" {
+            return None;
+        }
+        let (TokenTree::Group(invocation), head) = trees.split_last()? else {
+            return None;
+        };
+        let payload = payload.into_iter().collect::<Vec<_>>();
+        let mut group = proc_macro2::Group::new(
+            invocation.delimiter(),
+            braced_presences(&payload, context, found)?,
+        );
+        group.set_span(invocation.span());
+        let mut read = head.iter().cloned().collect::<TokenStream>();
+        read.extend([TokenTree::Group(group)]);
+        return Some(read);
     }
-    let (TokenTree::Group(invocation), head) = value.split_last()? else {
-        return None;
-    };
-    let (name, payload) = qualified_macro_payload(&value.iter().cloned().collect())?;
-    if name != "fragment" {
-        return None;
-    }
-    let trees = payload.into_iter().collect::<Vec<_>>();
+    braced_presences(trees, context, found)
+}
+
+/// [`record_presences`] of a record `Path { .. }`'s trees.
+fn braced_presences(
+    trees: &[TokenTree],
+    context: StateMacroContext,
+    found: &mut Vec<Presence>,
+) -> Option<TokenStream> {
     let (TokenTree::Group(body), owner) = trees.split_last()? else {
         return None;
     };
-    if body.delimiter() != Delimiter::Brace {
+    if body.delimiter() != Delimiter::Brace
+        || owner.is_empty()
+        || syn::parse2::<Path>(owner.iter().cloned().collect()).is_err()
+    {
         return None;
     }
     let mut items = vec![Vec::new()];
@@ -2442,63 +2531,76 @@ fn fragment_child_presence(
             items.last_mut()?.push(tree);
         }
     }
-    let (at, refusal) = items.iter().enumerate().find_map(|(at, item)| {
-        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = item.as_slice() else {
-            return None;
-        };
-        if colon.as_char() != ':' {
-            return None;
-        }
-        let (present, span) = match value {
-            [TokenTree::Ident(head), TokenTree::Group(inside)]
-                if head == "Some" && inside.delimiter() == Delimiter::Parenthesis =>
-            {
-                (true, head.span())
-            }
-            [TokenTree::Ident(head)] if head == "None" => (false, head.span()),
-            _ => return None,
-        };
-        let child = syn::ext::IdentExt::unraw(child).to_string();
-        Some((
-            at,
-            SyntaxError::new(record_child_presence(&child, present), span),
-        ))
-    })?;
-    items.remove(at);
     let mut fields = TokenStream::new();
-    for (index, item) in items
-        .into_iter()
-        .filter(|item| !item.is_empty())
-        .enumerate()
-    {
-        if index > 0 {
+    for item in items.into_iter().filter(|item| !item.is_empty()) {
+        let read = match item.as_slice() {
+            [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..]
+                if colon.as_char() == ':' =>
+            {
+                field_presences(child, colon, value, context, found)
+            }
+            _ => Some(item.into_iter().collect()),
+        };
+        let Some(read) = read else {
+            continue;
+        };
+        if !fields.is_empty() {
             fields.extend([TokenTree::Punct(proc_macro2::Punct::new(
                 ',',
                 proc_macro2::Spacing::Alone,
             ))]);
         }
-        fields.extend(item);
+        fields.extend(read);
     }
-    let mut body = proc_macro2::Group::new(Delimiter::Brace, fields);
-    body.set_span(trees.last()?.span());
-    let mut payload = owner.iter().cloned().collect::<TokenStream>();
-    payload.extend([TokenTree::Group(body)]);
-    let mut invocation_group = proc_macro2::Group::new(invocation.delimiter(), payload);
-    invocation_group.set_span(invocation.span());
-    let mut without = head.iter().cloned().collect::<TokenStream>();
-    without.extend([TokenTree::Group(invocation_group)]);
-    Some((refusal, without))
+    let mut group = proc_macro2::Group::new(Delimiter::Brace, fields);
+    group.set_span(body.span());
+    let mut read = owner.iter().cloned().collect::<TokenStream>();
+    read.extend([TokenTree::Group(group)]);
+    Some(read)
+}
+
+/// One record field `child: value` read by [`record_presences`]: `None` where it is a presence
+/// a result leaves out.
+fn field_presences(
+    child: &Ident,
+    colon: &proc_macro2::Punct,
+    value: &[TokenTree],
+    context: StateMacroContext,
+    found: &mut Vec<Presence>,
+) -> Option<TokenStream> {
+    let mut read = TokenStream::from_iter([
+        TokenTree::Ident(child.clone()),
+        TokenTree::Punct(colon.clone()),
+    ]);
+    let Some((head, inside)) = PresenceTokens::spelled(value) else {
+        match record_presences(value, context, found) {
+            Some(nested) => read.extend(nested),
+            None => read.extend(value.iter().cloned()),
+        }
+        return Some(read);
+    };
+    found.push(Presence {
+        child: syn::ext::IdentExt::unraw(child).to_string(),
+        present: inside.is_some(),
+        span: head.span(),
+    });
+    let names = inside.unwrap_or_default();
+    if context == StateMacroContext::Expression {
+        return None;
+    }
+    if names.is_empty() {
+        read.extend([TokenTree::Ident(proc_macro2::Ident::new("_", head.span()))]);
+    } else {
+        read.extend(names);
+    }
+    Some(read)
 }
 
 /// The limit a group record's `?` child written `Some(..)` (`present`) or `None` meets, read as a
 /// readable record's field or a `k::fragment!` child: no term, and in a group record the child's
 /// entry, which a group record does not name yet.
 pub(crate) fn record_child_presence(child: &str, present: bool) -> SyntaxErrorKind {
-    let written = if present {
-        "`Some(..)`, a `?` cell's presence"
-    } else {
-        "`None`, a `?` cell's absence"
-    };
+    let written = presence_written(present);
     SyntaxErrorKind::InstanceChildMultiplicity {
         reason: format!(
             "the record's field `{child}` holds {written}, and no term: KRS has no `Option` term; \
@@ -2514,7 +2616,7 @@ fn parse_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
     looks_up: bool,
-    faults: &ChildFaults,
+    faults: &PartFaults,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
     if let Some(range) = parse_option_none(input)? {
         return Ok((None, StateTerm::Absent(range)));
@@ -2719,7 +2821,7 @@ fn parse_instance_list(
     group: &proc_macro2::Group,
     context: StateMacroContext,
     looks_up: bool,
-    faults: &ChildFaults,
+    faults: &PartFaults,
 ) -> Result<InstanceList, SyntaxError> {
     let delimiter = match group.delimiter() {
         Delimiter::Brace => InstanceListDelimiter::Brace,
@@ -2813,7 +2915,7 @@ fn parse_instance_list_item(
     input: ParseStream<'_>,
     context: StateMacroContext,
     keys: bool,
-    faults: &ChildFaults,
+    faults: &PartFaults,
 ) -> Result<InstanceItem, SyntaxError> {
     let fork = input.fork();
     if let Ok(name) = fork.parse::<TokenTree>()
@@ -2834,7 +2936,7 @@ fn parse_instance_item(
     input: ParseStream<'_>,
     context: StateMacroContext,
     keys: bool,
-    faults: &ChildFaults,
+    faults: &PartFaults,
 ) -> Result<InstanceItem, SyntaxError> {
     let start = input.cursor();
     let label = if input.peek(Ident) && input.peek2(Token![@]) {
@@ -2927,7 +3029,7 @@ fn parse_instance_record(
     body: &proc_macro2::Group,
     context: StateMacroContext,
     keys: bool,
-    faults: &ChildFaults,
+    faults: &PartFaults,
 ) -> Result<(Vec<InstanceField>, InstanceRest), SyntaxError> {
     structured_with(
         body.stream(),
@@ -2989,15 +3091,17 @@ fn parse_instance_record(
                         name.span(),
                     ));
                 }
-                match parse_instance_child(tokens, context, keys) {
+                match parse_instance_child(tokens.clone(), context, keys) {
                     Ok(value) => {
-                        let field = InstanceField::new(name, value);
+                        let field = InstanceField::read(name, value, &tokens, context);
                         if let Some(limit) = field.record_multiplicity_limit() {
                             return Err(limit);
                         }
                         fields.push(field);
                     }
-                    Err(fault) => faults.carry(fault)?,
+                    // The term reader read no names of the child: in a pattern its fault is the
+                    // record's at once.
+                    Err(fault) => faults.carry(fault, false)?,
                 }
                 if input.is_empty() {
                     break;
@@ -3209,7 +3313,7 @@ fn fragment_record(
     if !maps || !crate::path::is_plain_path(&owner) {
         return Ok(None);
     }
-    let (fields, rest) = parse_instance_record(body, context, false, &ChildFaults::none())?;
+    let (fields, rest) = parse_instance_record(body, context, false, &PartFaults::none())?;
     let open = match rest {
         InstanceRest::Exact => None,
         InstanceRest::Open(range) => Some(range),
@@ -3877,5 +3981,79 @@ mod kept_rest {
                 "{tokens}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod presences {
+    use super::{
+        RecordPresences, StateMacroContext, parse_cells_expression_judged_later,
+        parse_cells_pattern_judged_later,
+    };
+    use quote::quote;
+
+    /// Every `?` child's presence of a record is found, at any depth: a result reads the record
+    /// without them, and a pattern reads each as the names it binds.
+    #[test]
+    fn a_records_presences_are_found_at_any_depth_and_read_by_side() {
+        let value = quote!(k::fragment![crate::W {
+            wg: k::fragment![crate::Gw {
+                wo: Some(x),
+                wp: None,
+                ..
+            }],
+            wn: Some(y),
+            ..
+        }]);
+        let pattern = RecordPresences::of(&value, StateMacroContext::Pattern).expect("found");
+        assert_eq!(pattern.found.len(), 3);
+        assert_eq!(
+            pattern.read.to_string(),
+            quote!(k::fragment![crate::W {
+                wg: k::fragment![crate::Gw { wo: x, wp: _, .. }],
+                wn: y,
+                ..
+            }])
+            .to_string()
+        );
+        let result = RecordPresences::of(&value, StateMacroContext::Expression).expect("found");
+        assert_eq!(
+            result.read.to_string(),
+            quote!(k::fragment![crate::W {
+                wg: k::fragment![crate::Gw { .. }],
+                ..
+            }])
+            .to_string()
+        );
+        assert!(RecordPresences::of(&quote!(Some(x)), StateMacroContext::Pattern).is_none());
+        assert!(
+            RecordPresences::of(&quote!(crate::G { a: x }), StateMacroContext::Pattern).is_none()
+        );
+    }
+
+    /// A `cells!` entry's presence children wait for the entries' judgement on either side: the
+    /// payload keeps the first one's refusal, and a subject keeps the names they bind.
+    #[test]
+    fn a_cells_entrys_presence_children_wait_on_either_side() {
+        let subject = parse_cells_pattern_judged_later(
+            quote!(ocell: k::fragment![crate::O { oo: Some(x), op: None, .. }], ..),
+        )
+        .expect("the subject's presences wait");
+        assert!(
+            subject
+                .misplaced_tail()
+                .is_some_and(|refusal| refusal.to_string().contains("field `oo`")),
+            "{:?}",
+            subject.misplaced_tail()
+        );
+        let result = parse_cells_expression_judged_later(
+            quote!(ocell: k::fragment![crate::O { oo: Some(1), op: None, on: 0 }]),
+        )
+        .expect("the result's presences wait");
+        assert!(
+            result
+                .misplaced_tail()
+                .is_some_and(|refusal| refusal.to_string().contains("field `oo`"))
+        );
     }
 }

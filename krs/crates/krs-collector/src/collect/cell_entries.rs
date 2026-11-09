@@ -60,7 +60,8 @@ pub(super) struct ParsedCells<R> {
 /// A refusal the parser leaves until the entries are admitted: a `KCell(..)` entry's item after
 /// its sequence's tail ([`krs_syntax::StateRuleItem::misplaced_tail`]), a result remainder's
 /// ([`krs_syntax::StateRuleItem::reuse_refusal`]), or a readable clause's pairing
-/// ([`krs_syntax::RuleClause::pairing_refusal`]); its kind, the parser's message, and where it is.
+/// ([`krs_syntax::RuleClause::pairing_refusal`]) or entry part's
+/// ([`krs_syntax::RuleClause::part_refusal`]); its kind, the parser's message, and where it is.
 #[derive(Clone, Debug)]
 struct After<R> {
     kind: CollectionErrorKind,
@@ -237,6 +238,12 @@ impl ParsedCells<Coordinates> {
             .chain(
                 clause
                     .pairing_refusal()
+                    .map(|error| After::of(deferred(error), error)),
+            )
+            // A part's fault waits for the whole it is in, which the pairing judges too.
+            .chain(
+                clause
+                    .part_refusal()
                     .map(|error| After::of(deferred(error), error)),
             )
             .collect::<Vec<_>>();
