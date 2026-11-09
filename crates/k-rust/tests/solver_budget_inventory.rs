@@ -6,7 +6,8 @@
 //! k-rust's `Backend` calls them, with the `BackendOptions` it was built with; every `Backend` is
 //! built by a constructor that takes `BackendOptions`. So the mode of every solver answer is
 //! chosen where a `Backend` or a `Z3Solver` is built (the options expression at the call), and
-//! where solver options are made: a function returning them, a `Default` impl, or a constant.
+//! where solver options are made: a function returning them, a `Default` impl, a constant, or a
+//! constructor (a function of an options type's or the solver's impl that returns `Self`).
 //! [`scan`] finds all of these in the non-test sources of the workspace (`crates/`,
 //! `kink/crates/`, `krs/crates/`), by the call or the signature, and the test fails on any site
 //! that is not listed here, on any listed site that is gone, and on any build site whose options
@@ -93,16 +94,17 @@ const BUILDS: &[Build] = &[
         function: "kore_match_disjunction_command",
         options: "options.smt.options()",
     },
-    // The bindings.
+    // The bindings: their options' fields through `BackendOptions::requested` (an explicit
+    // `smtTimeoutMs` asks for the clock), and the compile-and-create calls' defaults.
     Build {
         file: "crates/k-rust-napi/src/lib.rs",
         function: "create_backend_native",
-        options: "smt_budget,",
+        options: "solver",
     },
     Build {
         file: "crates/k-rust-wasm/src/lib.rs",
         function: "create_backend_wasm",
-        options: "smt_budget,",
+        options: "solver",
     },
     Build {
         file: "crates/k-rust-wasm/src/lib.rs",
@@ -170,6 +172,79 @@ const BUILDS: &[Build] = &[
 ];
 
 const PRODUCERS: &[Producer] = &[
+    // The door to the clock: always a clock, and every caller states why (clippy).
+    Producer {
+        file: "crates/k-rust-backend/src/smt/budget.rs",
+        item: "SmtBudget::clock",
+        test: (
+            "crates/k-rust-backend/src/smt/budget.rs",
+            "requested_budgets_are_units_unless_a_clock_alone_is_named",
+        ),
+    },
+    // The door of data: units unless only a timeout is named; every caller states why.
+    Producer {
+        file: "crates/k-rust-backend/src/smt/budget.rs",
+        item: "SmtBudget::requested",
+        test: (
+            "crates/k-rust-backend/src/smt/budget.rs",
+            "requested_budgets_are_units_unless_a_clock_alone_is_named",
+        ),
+    },
+    // The solver's constructors: the default options, or the options they are given.
+    Producer {
+        file: "crates/k-rust-backend/src/smt/z3.rs",
+        item: "Z3Solver::new",
+        test: (THIS, "library_defaults_are_units"),
+    },
+    Producer {
+        file: "crates/k-rust-backend/src/smt/z3.rs",
+        item: "Z3Solver::with_prelude",
+        test: (THIS, "library_defaults_are_units"),
+    },
+    Producer {
+        file: "crates/k-rust-backend/src/smt/z3.rs",
+        item: "Z3Solver::with_options",
+        test: (THIS, "library_defaults_are_units"),
+    },
+    Producer {
+        file: "crates/k-rust-backend/src/smt/z3.rs",
+        item: "Z3Solver::with_options_and_prelude",
+        test: (THIS, "library_defaults_are_units"),
+    },
+    // The wire and the bindings' fields.
+    Producer {
+        file: "crates/k-rust/src/backend/mod.rs",
+        item: "impl TryFrom<WireBackendOptions> for BackendOptions",
+        test: (
+            "crates/k-rust/src/backend/mod.rs",
+            "the_wire_budget_is_units_unless_it_names_a_clock_alone",
+        ),
+    },
+    Producer {
+        file: "crates/k-rust/src/backend/mod.rs",
+        item: "BackendOptions::requested",
+        test: (
+            "crates/k-rust/src/backend/mod.rs",
+            "the_wire_budget_is_units_unless_it_names_a_clock_alone",
+        ),
+    },
+    Producer {
+        file: "crates/k-rust-wasm/src/lib.rs",
+        item: "fn solver",
+        test: (
+            "crates/k-rust-wasm/src/lib.rs",
+            "the_solver_fields_give_units_unless_a_clock_is_asked_for",
+        ),
+    },
+    // The fuzz report's settings.
+    Producer {
+        file: "crates/k-rust-fuzz/src/spec.rs",
+        item: "impl TryFrom<WireBackendSettings> for BackendSettings",
+        test: (
+            "crates/k-rust-fuzz/src/spec.rs",
+            "backend_settings_default_to_units",
+        ),
+    },
     Producer {
         file: "crates/k-rust-backend/src/smt/budget.rs",
         item: "impl Default for SmtBudget",
@@ -283,6 +358,16 @@ const PRODUCERS: &[Producer] = &[
     },
 ];
 
+/// The types whose constructors (functions of their impl returning `Self`) are producers: the
+/// budget types and the solver.
+const CONSTRUCTED_TYPES: &[&str] = &[
+    "BackendOptions",
+    "Z3Options",
+    "SmtBudget",
+    "BackendSettings",
+    "Z3Solver",
+];
+
 /// The types that carry a solver budget.
 const BUDGET_TYPES: &[&str] = &[
     "BackendOptions",
@@ -371,6 +456,11 @@ fn scan() -> Found {
         r"\bconst ([A-Z_]+): (k_rust::backend::)?({types})\b"
     ))
     .unwrap();
+    let impl_header = regex::Regex::new(
+        r"(?m)^impl(?:<[^>]*>)?\s+(?:([A-Za-z_][\w:]*(?:<[^>]*>)?)\s+for\s+)?(\w+)",
+    )
+    .unwrap();
+    let returns_self = regex::Regex::new(r"(?s)\bfn\s+(\w+)[^;{]*?->[^;{]*\bSelf\b").unwrap();
     let mut builds = Vec::new();
     let mut producers = BTreeSet::new();
     for path in files {
@@ -410,9 +500,41 @@ fn scan() -> Found {
         }
         for found in constant.captures_iter(&text) {
             let line = text[..found.get(0).unwrap().start()].matches('\n').count();
-            if !under_cfg_test(&lines, line) && !text.contains(&format!("impl {}", &found[3])) {
+            if !under_cfg_test(&lines, line) {
                 producers.insert((file.clone(), format!("const {}", &found[1])));
             }
+        }
+        // A constructor of a budget type or of the solver: a function of its impl that returns
+        // `Self`.
+        let headers = impl_header
+            .captures_iter(&text)
+            .map(|found| {
+                (
+                    found.get(0).unwrap().start(),
+                    found.get(1).map(|t| t.as_str().to_owned()),
+                    found[2].to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for found in returns_self.captures_iter(&text) {
+            let start = found.get(0).unwrap().start();
+            let line = text[..start].matches('\n').count();
+            let Some((_, header_trait, header_type)) = headers
+                .iter()
+                .rev()
+                .find(|(position, _, _)| *position < start)
+            else {
+                continue;
+            };
+            if under_cfg_test(&lines, line) || !CONSTRUCTED_TYPES.contains(&header_type.as_str()) {
+                continue;
+            }
+            let item = match header_trait {
+                None => format!("{header_type}::{}", &found[1]),
+                Some(name) if name == "Default" => continue,
+                Some(name) => format!("impl {name} for {header_type}"),
+            };
+            producers.insert((file.clone(), item));
         }
     }
     (builds, producers)

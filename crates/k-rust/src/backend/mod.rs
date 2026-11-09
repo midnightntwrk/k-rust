@@ -302,6 +302,33 @@ impl BackendOptions {
         smt_budget: SmtBudget::DEFAULT,
         smt_retry_limit: 3,
     };
+
+    /// The options a binding's fields ask for (`smtTimeoutMs`, `smtResourceLimit`,
+    /// `smtRetryLimit`), read as the wire reads them: units unless only `smtTimeoutMs` is given,
+    /// which asks for the clock. A binding states in an
+    /// `#[expect(clippy::disallowed_methods, reason = ...)]` that its field asks for the clock.
+    ///
+    /// # Errors
+    ///
+    /// Both bounds given, or `smtResourceLimit` 0.
+    pub fn requested(
+        smt_timeout_ms: Option<u32>,
+        smt_resource_limit: Option<u32>,
+        smt_retry_limit: Option<u32>,
+    ) -> Result<Self, String> {
+        let smt_resource_limit = smt_resource_limit
+            .map(|units| {
+                std::num::NonZeroU32::new(units)
+                    .ok_or_else(|| "smtResourceLimit must be positive".to_owned())
+            })
+            .transpose()?;
+        Self::try_from(WireBackendOptions {
+            smt_timeout_ms,
+            smt_retry_limit,
+            smt_resource_limit,
+        })
+        .map_err(|conflict| format!("smtTimeoutMs and smtResourceLimit: {conflict}"))
+    }
 }
 
 /// The KORE symbol of a compiled configuration's top cell.
@@ -4478,6 +4505,21 @@ mod tests {
         assert!(both.to_string().contains("not both"), "{both}");
         assert!(read(r#"{"smtResourceLimit": 0}"#).is_err());
         assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
+        // The bindings' fields read as the wire's.
+        assert_eq!(
+            BackendOptions::requested(None, None, None),
+            Ok(BackendOptions::DEFAULT)
+        );
+        assert_eq!(
+            BackendOptions::requested(Some(40), None, Some(1)),
+            read(r#"{"smtTimeoutMs": 40, "smtRetryLimit": 1}"#).map_err(|e| e.to_string())
+        );
+        assert_eq!(
+            BackendOptions::requested(None, Some(250_000), None),
+            read(r#"{"smtResourceLimit": 250000}"#).map_err(|e| e.to_string())
+        );
+        assert!(BackendOptions::requested(Some(40), Some(9), None).is_err());
+        assert!(BackendOptions::requested(None, Some(0), None).is_err());
     }
 
     /// The solver record names the mode and its one bound, the retries and, in a build with Z3,

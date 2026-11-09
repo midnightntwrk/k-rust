@@ -249,7 +249,17 @@ export interface BackendCapabilities {
 export interface CreateBackendOptions {
   definitionKore: string
   moduleName: string
+  /**
+   * Bound each solver query by the clock instead of Z3 resource units: this many milliseconds
+   * for its first attempt, doubled on each retry. Answers then depend on the machine's speed and
+   * load. Never with `smtResourceLimit`.
+   */
   smtTimeoutMs?: number
+  /**
+   * The Z3 resource units of each solver query's first attempt, doubled on each retry
+   * (default 370,000): an answer is then a function of the query, the units and the Z3 build.
+   */
+  smtResourceLimit?: number
   smtRetryLimit?: number
 }
 

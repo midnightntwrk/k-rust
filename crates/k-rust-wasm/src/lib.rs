@@ -65,7 +65,25 @@ struct CreateBackendOptions {
     definition_kore: String,
     module_name: String,
     smt_timeout_ms: Option<u32>,
+    smt_resource_limit: Option<u32>,
     smt_retry_limit: Option<u32>,
+}
+
+impl CreateBackendOptions {
+    /// The solver options the fields ask for, as the native binding reads them. This build has
+    /// no solver, so they bound nothing; they are read, and refused when they name both bounds,
+    /// so that one options object means the same in both bindings.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the wasm binding's `smtTimeoutMs` asks for the clock (inert: no solver)"
+    )]
+    fn solver(&self) -> Result<BackendOptions, String> {
+        BackendOptions::requested(
+            self.smt_timeout_ms,
+            self.smt_resource_limit,
+            self.smt_retry_limit,
+        )
+    }
 }
 
 #[derive(Deserialize)]
@@ -262,22 +280,9 @@ impl WasmBackend {
 #[wasm_bindgen(js_name = createBackendWasm)]
 pub fn create_backend_wasm(options: &str) -> Result<WasmBackend, JsError> {
     let options: CreateBackendOptions = serde_json::from_str(options).map_err(js_error)?;
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the wasm binding's `smtTimeoutMs` is still a clock with a 125 ms default (CF-33 unit 5 makes units the default)"
-    )]
-    let smt_budget = k_rust::backend::SmtBudget::clock(options.smt_timeout_ms.unwrap_or(125));
-    let inner = Backend::new(
-        &options.definition_kore,
-        options.module_name,
-        BackendOptions {
-            smt_budget,
-            smt_retry_limit: options
-                .smt_retry_limit
-                .unwrap_or(BackendOptions::DEFAULT.smt_retry_limit),
-        },
-    )
-    .map_err(js_error)?;
+    let solver = options.solver().map_err(|error| JsError::new(&error))?;
+    let inner =
+        Backend::new(&options.definition_kore, options.module_name, solver).map_err(js_error)?;
     Ok(WasmBackend { inner })
 }
 
@@ -642,6 +647,39 @@ mod tests {
             suffix.repeat(depth)
         );
         format!(r#"{{"state":{{"format":"KORE","version":1,"term":{term}}},"maxDepth":0}}"#)
+    }
+
+    /// The options object's solver fields give units when they name none, a clock for
+    /// `smtTimeoutMs` alone, units for `smtResourceLimit` alone, and are refused when they name
+    /// both.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the expected options of `smtTimeoutMs`"
+    )]
+    fn the_solver_fields_give_units_unless_a_clock_is_asked_for() {
+        use k_rust::backend::SmtBudget;
+        let solver = |fields: &str| {
+            serde_json::from_str::<CreateBackendOptions>(&format!(
+                r#"{{"definitionKore": "", "moduleName": "M"{fields}}}"#
+            ))
+            .unwrap()
+            .solver()
+        };
+        assert_eq!(solver(""), Ok(BackendOptions::DEFAULT));
+        assert_eq!(
+            solver(r#", "smtResourceLimit": 9"#).unwrap().smt_budget,
+            SmtBudget::Units(std::num::NonZeroU32::new(9).unwrap())
+        );
+        assert_eq!(
+            solver(r#", "smtTimeoutMs": 40, "smtRetryLimit": 1"#),
+            Ok(BackendOptions {
+                smt_budget: SmtBudget::clock(40),
+                smt_retry_limit: 1,
+            })
+        );
+        assert!(solver(r#", "smtTimeoutMs": 40, "smtResourceLimit": 9"#).is_err());
+        assert!(solver(r#", "smtResourceLimit": 0"#).is_err());
     }
 
     fn test_backend() -> WasmBackend {

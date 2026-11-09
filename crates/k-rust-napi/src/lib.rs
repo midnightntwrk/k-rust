@@ -114,7 +114,11 @@ pub struct NativeCompiledDefinition {
 pub struct NativeCreateBackendOptions {
     pub definition_kore: String,
     pub module_name: String,
+    /// A wall-clock bound of each solver query's first attempt, in milliseconds, in place of
+    /// resource units; never with `smt_resource_limit`.
     pub smt_timeout_ms: Option<u32>,
+    /// The Z3 resource units of each solver query's first attempt (default 370,000).
+    pub smt_resource_limit: Option<u32>,
     pub smt_retry_limit: Option<u32>,
 }
 
@@ -260,20 +264,16 @@ impl NativeBackend {
 pub fn create_backend_native(options: NativeCreateBackendOptions) -> Result<NativeBackend> {
     #[expect(
         clippy::disallowed_methods,
-        reason = "the napi binding's `smtTimeoutMs` is still a clock with a 125 ms default (CF-33 unit 5 makes units the default)"
+        reason = "the napi binding's `smtTimeoutMs` asks for the clock"
     )]
-    let smt_budget = k_rust::backend::SmtBudget::clock(options.smt_timeout_ms.unwrap_or(125));
-    let backend = Backend::new(
-        &options.definition_kore,
-        options.module_name,
-        BackendOptions {
-            smt_budget,
-            smt_retry_limit: options
-                .smt_retry_limit
-                .unwrap_or(BackendOptions::DEFAULT.smt_retry_limit),
-        },
+    let solver = BackendOptions::requested(
+        options.smt_timeout_ms,
+        options.smt_resource_limit,
+        options.smt_retry_limit,
     )
-    .map_err(napi_error)?;
+    .map_err(Error::from_reason)?;
+    let backend =
+        Backend::new(&options.definition_kore, options.module_name, solver).map_err(napi_error)?;
     Ok(NativeBackend {
         inner: Mutex::new(backend),
     })
@@ -288,6 +288,7 @@ pub fn compile_backend_native(options: NativeCompileDefinitionOptions) -> Result
         definition_kore: compiled.definition_kore,
         module_name,
         smt_timeout_ms: None,
+        smt_resource_limit: None,
         smt_retry_limit: None,
     })
 }
