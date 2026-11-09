@@ -1624,6 +1624,53 @@ mod kink_tier {
         );
     }
 
+    /// A function a macro's expansion applies is applied by every program that writes the macro,
+    /// so it is an obligation, though the macro has no equation for the reach of a run to follow:
+    /// the syntax module's `probe(A)` expands to `write(addr(A), 0)`, and `addr` is applied by no
+    /// rule and by the invariant `below-addr`. Its equation stays `unmatched` (no program writes
+    /// `probe`), while the invariant's own equation is `invariant`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_function_a_macro_a_program_writes_applies_is_an_obligation() {
+        const BELOW_ADDR: (&str, &str, &[&str]) = ("below-addr", "belowAddr", &["a", "b"]);
+        let dir = invariant("macro");
+        edit_k(
+            &dir,
+            "               | \"idle\"          [symbol(idle)]\n",
+            "               | \"idle\"          [symbol(idle)]\n               | probe(Int)      \
+             [macro]\n",
+        );
+        edit_k(
+            &dir,
+            "  rule [idle]:",
+            "  syntax Int ::= addr(Int) [function, total, symbol(addr)]\n  rule [addrOf]: addr(A) \
+             => A +Int 8\n  rule probe(A) => write(addr(A), 0)\n  syntax Bool ::= belowAddr(Int, \
+             Int) [function, total, symbol(belowAddr)]\n  rule [below]: belowAddr(A, B) => A \
+             <=Int addr(B)\n  rule [idle]:",
+        );
+        argue_on(
+            &dir,
+            &[BELOW_ADDR],
+            &[(BUMP, "no state has a above b", Some(BELOW_ADDR.0))],
+        );
+        let (document, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        let status = |label: &str| {
+            document["families"]["rules"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| {
+                    item["label"]
+                        .as_str()
+                        .is_some_and(|l| l.ends_with(&format!(".{label}")))
+                })
+                .map(|item| item["status"].clone())
+                .unwrap_or_else(|| panic!("no rule {label}: {document:#}"))
+        };
+        assert_eq!(status("addrOf"), "unmatched", "{document:#}");
+        assert_eq!(status("below"), "invariant", "{document:#}");
+    }
+
     /// One program's evidence of an invariant is read from the memo only under the same
     /// invariant and the same rules: the same invariant observed at more rules (another entry
     /// names it), and another invariant (another function of the same cell), each run again. The

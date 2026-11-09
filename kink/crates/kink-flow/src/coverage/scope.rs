@@ -40,6 +40,11 @@
 //!   every symbol the `configuration` sentences apply;
 //! - of every production a program text can write: the labelled productions of the syntax module
 //!   the loader parses programs in and of every module it imports;
+//! - of every macro such a production declares (`macro`, `macro-rec`, `alias`, `alias-rec`):
+//!   every symbol its rules apply, transitively through the macros those rules apply. A macro is
+//!   expanded before the run into its rule's right-hand side and has no equations, so the reach
+//!   of its label gives nothing, while every program that writes it applies what its expansion
+//!   applies;
 //! - of the front end's functions of an observer that a run's record holds the answers of: the
 //!   `[stop] when` function and the `[observe]` views, components, filters and log elements, as
 //!   the front end names them (kink-campaign `StopOracle::functions`,
@@ -275,6 +280,7 @@ fn run_seeds(spec: &AdmittedSpec, manifest: &FlowManifest) -> Option<BTreeSet<St
             }
         }
     }
+    let mut written = BTreeSet::new();
     for module in imported(source, spec.loaded.syntax_module()) {
         for sentence in &module.local_sentences {
             if let Sentence::Production {
@@ -282,9 +288,11 @@ fn run_seeds(spec: &AdmittedSpec, manifest: &FlowManifest) -> Option<BTreeSet<St
             } = &**sentence
             {
                 seeds.insert(encode_kore_label(label).name);
+                written.insert(label.name.clone());
             }
         }
     }
+    seeds.extend(expansions(source, written));
     if let Some(stop) = &manifest.stop_when.0 {
         seeds.extend(stop.functions()?);
     }
@@ -292,6 +300,91 @@ fn run_seeds(spec: &AdmittedSpec, manifest: &FlowManifest) -> Option<BTreeSet<St
         seeds.extend(observe.functions()?);
     }
     Some(seeds)
+}
+
+/// Every symbol, as a KORE symbol, the rules of the macros of `source` among the labels `written`
+/// apply, and those of every macro such a rule applies, transitively (module documentation,
+/// "Invariant-only functions"). A macro is a production with a macro-like attribute, and its rules
+/// are those whose left-hand side it heads, or that carry such an attribute themselves; each rule
+/// is read whole, its sides and conditions, which only adds seeds.
+fn expansions(source: &Definition, written: BTreeSet<String>) -> BTreeSet<String> {
+    let sentences = || {
+        source
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+    };
+    let macros = sentences()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.has_any(&AttributeKey::MACRO_LIKE) => Some(label.name.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut rules = BTreeMap::<String, Vec<[&Term; 3]>>::new();
+    for sentence in sentences() {
+        if let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } = &**sentence
+            && let Some(head) = rule_head(body)
+            && (macros.contains(head) || attributes.has_any(&AttributeKey::MACRO_LIKE))
+        {
+            rules
+                .entry(head.to_owned())
+                .or_default()
+                .push([body, requires, ensures]);
+        }
+    }
+    let mut seeds = BTreeSet::new();
+    let mut expanded = BTreeSet::new();
+    let mut pending = written
+        .into_iter()
+        .filter(|label| rules.contains_key(label))
+        .collect::<Vec<_>>();
+    while let Some(label) = pending.pop() {
+        if !expanded.insert(label.clone()) {
+            continue;
+        }
+        for term in rules.get(&label).into_iter().flatten().flatten() {
+            term.visit_preorder(&mut |term| {
+                if let Term::Apply { label, .. } | Term::InjectedLabel(label) = term {
+                    seeds.insert(encode_kore_label(label).name);
+                    if rules.contains_key(&label.name) && !expanded.contains(&label.name) {
+                        pending.push(label.name.clone());
+                    }
+                }
+            });
+        }
+    }
+    seeds
+}
+
+/// The label heading the left-hand side of a rule's body: its top rewrite's left side, or the
+/// body itself, through aliases and semantic casts.
+fn rule_head(body: &Term) -> Option<&str> {
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left,
+        body => body,
+    };
+    head(left)
+}
+
+/// The label heading `term`, through an alias and a semantic cast.
+fn head(term: &Term) -> Option<&str> {
+    match term.unannotated() {
+        Term::As { pattern, .. } => head(pattern),
+        Term::Apply { label, arguments } if label.semantic_cast_sort().is_some() => {
+            head(arguments.first()?)
+        }
+        Term::Apply { label, .. } => Some(&label.name),
+        _ => None,
+    }
 }
 
 /// Every symbol `term` applies, as KORE symbols.
