@@ -11449,6 +11449,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."readable/path-d/kinds/id/x"]
+same_k_as = ["cells/path-d/kinds/id/k::configuration::Cell(x)"]
 k = """
 rule [case-TAG]:
 <account>
@@ -11989,6 +11990,7 @@ rule [case-TAG]:
 same_k_as = ["cells/subject/k/k::configuration::KCell(x, ..)"]
 
 [accept."readable/subject/kinds/aenv/x"]
+same_k_as = ["cells/subject/kinds/aenv/k::configuration::Cell(x)"]
 k = """
 rule [case-TAG]:
 <account>
@@ -12001,6 +12003,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable/subject/kinds/apc/x"]
+same_k_as = ["cells/subject/kinds/apc/k::configuration::Cell(x)"]
 k = """
 rule [case-TAG]:
 <account>
@@ -13248,6 +13251,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable/deep-a/kinds/aa/x"]
+same_k_as = ["cells/deep-a/kinds/aa/k::configuration::Cell(x)"]
 k = """
 rule [case-TAG]:
 <account>
@@ -13260,6 +13264,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable/deep-b/kinds/aa/x"]
+same_k_as = ["cells/deep-b/kinds/aa/k::configuration::Cell(x)"]
 k = """
 rule [case-TAG]:
 <account>
