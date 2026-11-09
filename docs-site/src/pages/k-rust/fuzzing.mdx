@@ -525,7 +525,7 @@ With `--no-filter` such candidates reach the confirmation, which refuses them, a
 To compare two ends as different values, the definition must not identify them, and an equation pair that gives one input two results identifies those results, and through them possibly other terms.
 So before any case, each definition's full critical-pair check runs; a finding it reports makes no end of that definition comparable, and the job is `not-comparable`, listing every finding with its `name` and whether it is **genuine** (the check found an input with two results) or undecided.
 
-You can name a finding to read the definition as if it did not hold: `--assume-joined NAME` for one command, `[spec] assume_joined` in `FLOW.toml` for every command. Every verdict then holds for that reading only. A genuine finding is a premise known to be false; the fragment's `premises` list it, flagged.
+You can name an undecided finding to read the definition as if it did not hold: `--assume-joined NAME` for one command, `[spec] assume_joined` in `FLOW.toml` for every command, `NAME` as the document prints it (its kind, its sentences and a digest of the compiled sentences, `root:A,B#D`; no position, so an edit elsewhere leaves it). Every verdict then holds for that reading only. A genuine finding's name is refused (`decided`): its premise would be known to be false.
 Fix a genuine finding in the definition when you can. A pattern job reads no compared end and takes no name.
 
 ## `krust fuzz` on its own
@@ -665,32 +665,22 @@ krust fuzz --campaign go.toml # exit 1
 not comparable: no case can be judged
 baseline critical-pair findings: 1 genuine, 0 undecided
   [genuine] b.k:16:3 and b.k:17:3
-    name: b.k:16:3,b.k:17:3@root
+    name: root:id:<UNIQUE_ID of b.k:16:3>,id:<UNIQUE_ID of b.k:17:3>#<digest>
     instance: at q ( 0 ) both equations apply; its two normal forms: a and bb
 ```
 
 `q(0)` equals both `a` and `bb`, so in every model of the definition `a` and `bb` are equal, and the mutant's end `bb` is no different from the definition's `a`. The refusal is right.
-Naming the finding on each side makes the campaign read both definitions as if the pair joined:
+So is the refusal of the finding's name: `--assume-joined` with it stops the campaign (exit 2) with the reason `decided`, since a genuine pair's premise is known to be false of the definition as written. Fix such a pair in the definition.
 
-```sh
-cd /tmp/fuzz-pq
-krust fuzz --campaign go.toml --assume-joined 'b.k:16:3,b.k:17:3@root' --assume-joined 'm.k:16:3,m.k:17:3@root'
-```
-
-```text
-witness found
-kill: added end (the mutant reaches an end the baseline cannot)
-warning: assume-joined: the verdicts of this campaign hold for the definitions read as if the findings `b.k:16:3,b.k:17:3@root`, `m.k:16:3,m.k:17:3@root` did not hold (each pair joined, each equation agreeing with its hook or applied as written, each precondition met), not for the definitions as written
-```
-
-This kill holds for that reading only; since the pair is genuine, the reading is false of the definition as written. On WebAssembly's `test.md` the check reports two genuine `getOrDefault` pairs (a lookup at index -1 has two results, although no WebAssembly program looks up a negative index) and two undecided ones. A kill under those names holds for the definition read as if they joined: whether that reading serves your purpose is your decision, and the report states it.
+A finding the check cannot decide is another matter. `crates/k-rust-fuzz/tests/data/r4-empty` has `f(_) => a` beside `f(_) => bb` over a sort `S` with no element: no ground input applies `f`, so the pair is undecided. Naming it with `--assume-joined NAME`, `NAME` as the summary prints it, makes the campaign read both definitions as if the pair joined, and a warning states the premise. One name covers both sides: a name is the finding's kind (`root:`), its sentences (each by its K label, here `id:` and its `UNIQUE_ID`, since the rules are unlabelled) and a digest of the compiled sentences (`#` and 32 hexadecimal digits), never a position, so the mutant's edit of another rule leaves it. Label the rules (`rule [f-a]: f(_) => a`) and the name reads `root:RE.f-a,RE.f-b#...`; a reformatting or a line inserted above leaves it, and an edit of either equation refuses it with the new name to review (`changed`).
+A kill under a premise holds for the definition read that way only: whether that reading serves your purpose is your decision, and the report states it. On WebAssembly's `test.md` the check reports two genuine `getOrDefault` pairs (a lookup at index -1 has two results, although no WebAssembly program looks up a negative index), whose names are refused, and two undecided ones.
 
 ### Definitions kink does not admit
 
 On WebAssembly and KEVM, compile the definition and the mutant with `krust kcompile` and write a campaign file over a program of the language.
 
 - A pattern target needs no premise and works as written.
-- A kill, or a rule target with `comparable`, stops `not-comparable` until you name the findings listed, and then holds for that reading only.
+- A kill, or a rule target with `comparable`, stops `not-comparable` until you name the undecided findings listed (a genuine one's name is refused), and then holds for that reading only.
 - Mark every literal, operands included: the WebAssembly kill of a mutant that divides with `divInt` in place of truncating division needed a hole on the dividend, since the two agree on a positive dividend.
 - KEVM's test driver ends naturally only when the test's `post` block matches the final state; otherwise the run gets stuck at its `check`. A test whose expected storage is `0x2a` and whose code stores `CHAINID` is hit only at `CHAINID = 42`; the other cases are `stuck`, and the summary reports the first as an incidental stuck case.
 - A case whose run reads a value k-rust chooses is `unsupported` with `implementation-chosen-value`, and the summary names the hook: a KEVM test storing several slots reads `SET.set2list [order]`.
