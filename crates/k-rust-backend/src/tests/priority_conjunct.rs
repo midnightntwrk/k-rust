@@ -243,14 +243,14 @@ fn one_symbolic_step_branches_once_per_rule_under_its_selecting_condition() {
     let results = one_step_terms(
         &with,
         start,
-        &crate::smt::Z3Solver::resource_bounded(&with).expect("the solver starts"),
+        &crate::smt::Z3Solver::new(&with).expect("the solver starts"),
     );
     assert_eq!(
         results,
         one_step_terms(
             &without,
             start,
-            &crate::smt::Z3Solver::resource_bounded(&without).expect("the solver starts"),
+            &crate::smt::Z3Solver::new(&without).expect("the solver starts"),
         )
     );
     let mut results = results;

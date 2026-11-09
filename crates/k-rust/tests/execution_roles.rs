@@ -83,12 +83,7 @@ impl Compiled {
     }
 
     fn backend(&self, definition: Definition) -> Backend {
-        Backend::from_definition(
-            definition,
-            self.main.clone(),
-            BackendOptions::RESOURCE_BOUNDED,
-        )
-        .unwrap()
+        Backend::from_definition(definition, self.main.clone(), BackendOptions::DEFAULT).unwrap()
     }
 }
 

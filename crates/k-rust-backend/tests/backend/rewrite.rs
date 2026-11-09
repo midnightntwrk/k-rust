@@ -177,7 +177,7 @@ fn bare_variable_can_narrow_to_a_constructor_rule() {
 
     #[cfg(feature = "z3")]
     {
-        let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
         let result =
             rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
         assert!(
@@ -1020,7 +1020,7 @@ fn execution_and_search_halt_instead_of_narrowing_a_variable_free_configuration(
     // only restates the configuration's unknown value. Execution and search end the path as an
     // instantiation outcome instead.
     let definition = ground_narrowing_definition();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     for (subject, rule, missing) in [
         ("state{}(lam{}(three{}()))", "first", 2),
         (
@@ -1106,7 +1106,7 @@ fn execution_still_narrows_a_configuration_with_variables() {
     // A variable makes the configuration a set of states, and narrowing it states which of them
     // the rule applies to: the boundary is variable-freeness, not the application's head.
     let definition = ground_narrowing_definition();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     for (subject, rule) in [
         ("state{}(lam{}(V:SortE{}))", "first"),
         ("sum{}(X:SortE{})", "sum"),
@@ -1196,7 +1196,7 @@ fn concrete_disequality_does_not_invent_an_operand() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
     assert!(matches!(
         rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver),
@@ -2480,7 +2480,7 @@ fn narrows_configuration_variables_from_repeated_rule_variables() {
     };
     let expected_variable = internal_term(&definition, "X:SortTerm{}");
     let expected_value = internal_term(&definition, "arrow{}(Y:SortTerm{}, Z:SortTerm{})");
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } =
@@ -2544,7 +2544,7 @@ fn retains_conditions_from_configuration_function_simplification() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -2684,7 +2684,7 @@ fn solver_refutes_a_rigid_no_evaluators_function_equality() {
 fn retains_unresolved_function_equality_as_a_branch_condition() {
     let definition = unresolved_function_rewrite_definition();
     let term = internal_term(&definition, r#"wrap{}(\dv{SortBool{}}("true"))"#);
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -3262,7 +3262,7 @@ fn z3_proves_or_refutes_symbolic_requires_before_priority_fallback() {
     .expect("definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let variable = Variable::new("Y", Sort::simple("SortInt"));
     let subject = definition
         .admit_unverified(&parse_pattern("wrap{}(Y:SortInt{})").unwrap(), &[])
@@ -3307,7 +3307,7 @@ fn preserves_a_satisfiable_remainder_from_one_symbolic_rule() {
             ) [label{}("negative")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -3349,7 +3349,7 @@ fn stopping_at_a_symbolic_branch_preserves_its_remainder() {
             ) [label{}("negative")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = execute_with_solver(
         &definition,
@@ -3417,7 +3417,7 @@ fn stopping_at_a_branch_expands_remainders_through_lower_priorities() {
             ) [label{}("zero-b"), priority{}("50")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = execute_with_solver(
         &definition,
@@ -3455,7 +3455,7 @@ fn stopping_at_a_branch_expands_remainders_through_lower_priorities() {
 #[test]
 fn cascades_a_remainder_through_every_lower_priority_group() {
     let definition = be08_s1_definition();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let result = execute_with_solver(
         &definition,
         symbolic_subject(&definition),
@@ -3507,7 +3507,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
 #[test]
 fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     let definition = be08_s0_definition();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let result = execute_with_solver(
         &definition,
         symbolic_subject(&definition),
@@ -3565,7 +3565,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
             ) [label{}("lower-stuck"), priority{}("50")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let result = execute_with_solver(
         &definition,
         symbolic_subject(&definition),
@@ -3618,7 +3618,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
             ) [label{}("conditional"), priority{}("10")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let result = execute_with_solver(
         &definition,
         symbolic_subject(&definition),
@@ -4202,7 +4202,7 @@ fn carries_a_symbolic_remainder_to_lower_priority_rules() {
             ) [label{}("fallback"), priority{}("50")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = execute_with_solver(
         &definition,
@@ -4250,7 +4250,7 @@ fn narrows_a_ground_rule_fragment_over_a_symbolic_configuration() {
             ) [label{}("zero")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = symbolic_subject(&definition);
     let mut fresh = FreshCounter::default();
 
@@ -4300,7 +4300,7 @@ fn narrows_a_constructor_pattern_with_fresh_rule_variables() {
             ) [label{}("destructure")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = Pattern {
         term: internal_term(&definition, "narrowWrap{}(X:SortNarrow{})"),
         constraints: Vec::new(),
@@ -4395,7 +4395,7 @@ fn narrows_a_function_pattern_with_a_definedness_condition() {
             ) [label{}("partial-destructure")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = symbolic_subject(&definition);
     let mut fresh = FreshCounter::default();
 
@@ -4477,7 +4477,7 @@ fn branches_only_after_complementary_rules_make_the_remainder_unsatisfiable() {
             ) [label{}("nonnegative")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } = rewrite_step_with_solver(
@@ -13006,7 +13006,7 @@ fn any_mode_passes_only_the_first_rules_remainder_to_later_rules() {
             ) [label{}("fallback")]
             "#,
     );
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let result = execute_with_solver(
         &definition,
         Pattern {
@@ -13113,7 +13113,7 @@ fn sequential_remainders_retain_the_initial_antecedent() {
         term: internal_term(&definition, "wrap{}(Y:SortS{})"),
         constraints: vec![initial_antecedent.clone()],
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13208,7 +13208,7 @@ fn narrows_an_injected_variable_to_a_lesser_overload() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13377,7 +13377,7 @@ fn constrains_configuration_conjunction_operands_when_matching_true() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13414,7 +13414,7 @@ fn negates_kequal_operand_unification_when_matching_false() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13458,7 +13458,7 @@ fn constrains_configuration_kequal_operands_when_matching_true() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13497,7 +13497,7 @@ fn splits_symbolic_if_then_else_during_rewrite_matching() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13532,7 +13532,7 @@ fn splits_symbolic_if_then_else_on_the_rule_side() {
         term: internal_term(&definition, "state{}(chosen{}())"),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) =
@@ -13559,7 +13559,7 @@ fn recursively_splits_nested_symbolic_if_then_else() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13641,7 +13641,7 @@ fn narrows_a_closed_set_pattern_into_an_empty_subject_frame() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13686,7 +13686,7 @@ fn narrows_a_closed_list_pattern_into_an_empty_subject_frame() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -13765,7 +13765,7 @@ fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
         constraints: Vec::new(),
     };
     let mut fresh = FreshCounter::default();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
     let RewriteResult::Branch {
@@ -13896,7 +13896,7 @@ fn rewrites_after_cancelling_common_opaque_set_chunks() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -14009,7 +14009,7 @@ fn narrows_an_open_configuration_map_against_a_closed_rule_map() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -14067,7 +14067,7 @@ fn composes_function_and_collection_unification_before_rewriting() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -14139,7 +14139,7 @@ fn narrows_concrete_rule_map_keys_against_symbolic_configuration_keys() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
@@ -14189,7 +14189,7 @@ fn does_not_rebind_configuration_variables_during_map_matching() {
             entry, requested,
         )))],
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
@@ -14229,7 +14229,7 @@ fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
         constraints: Vec::new(),
     };
     let mut fresh = FreshCounter::default();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
     let RewriteResult::Branch {
@@ -14396,7 +14396,7 @@ fn emits_frame_definedness_on_the_single_entry_path() {
         constraints: Vec::new(),
     };
     let mut fresh = FreshCounter::default();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let RewriteResult::Branch {
         branches,
@@ -14476,7 +14476,7 @@ fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
     .expect("map definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize");
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = Pattern {
         term: internal_term(
             &definition,
@@ -14576,7 +14576,7 @@ fn a_consumed_map_split_by_unification_is_charged_as_the_binding_builds_it() {
     .expect("map definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize");
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = Pattern {
         term: internal_term(
             &definition,
@@ -14658,7 +14658,7 @@ fn a_path_fact_states_the_absence_obligation_of_an_updated_value() {
     .expect("map definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize");
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let fact = Predicate::Ceil(internal_term(
         &definition,
         r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{})"#,
@@ -14800,7 +14800,7 @@ fn absence_update_leaves(
     assume_initial_defined: bool,
 ) -> (Vec<(String, u64, usize)>, usize) {
     let definition = absence_update_definition();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let map = r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{})"#;
     let term = if state == "sOther" {
         format!("sOther{{}}({map}, zero{{}}())")
@@ -14912,7 +14912,7 @@ fn decomposes_false_map_membership_over_known_entries_and_a_remainder() {
         ),
         constraints: Vec::new(),
     };
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } =

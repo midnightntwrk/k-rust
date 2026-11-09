@@ -438,7 +438,7 @@ fn assert_unlisted_axioms_of_kore_are_inert(
 ) -> Tally {
     let mut originals = Vec::new();
     for (input, initial) in initials {
-        let mut backend = Backend::new(kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap();
+        let mut backend = Backend::new(kore, main, BackendOptions::DEFAULT).unwrap();
         for strategy in STRATEGIES {
             let response = backend
                 .execute_kore(request(initial, strategy, true))
@@ -460,7 +460,7 @@ fn assert_unlisted_axioms_of_kore_are_inert(
             });
         }
     }
-    let backend = Backend::new(kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let backend = Backend::new(kore, main, BackendOptions::DEFAULT).unwrap();
     let catalog = backend.rule_catalog(None).unwrap();
     let definition = parse_definition(kore).unwrap();
     let ids = catalog
@@ -493,8 +493,7 @@ fn assert_unlisted_axioms_of_kore_are_inert(
             };
             tally.mutants += 1;
             tally.lowered += usize::from(matches!(mutation, Mutation::Lowered(_)));
-            let Ok(mut backend) = Backend::new(&text, main, BackendOptions::RESOURCE_BOUNDED)
-            else {
+            let Ok(mut backend) = Backend::new(&text, main, BackendOptions::DEFAULT) else {
                 tally.refused += 1;
                 continue;
             };

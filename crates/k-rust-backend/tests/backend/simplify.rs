@@ -2996,8 +2996,7 @@ fn a_lemma_over_set_variables_still_applies_to_a_request() {
 #[test]
 fn a_conditional_lemma_over_set_variables_is_decided_on_the_request_term() {
     let definition = set_variable_definition();
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
     let positive = term(&definition, r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#);
     let predicate = Predicate::Term(term(
         &definition,
@@ -3363,8 +3362,7 @@ fn a_ceil_conjunct_is_discharged_through_a_sibling_equality() {
 #[test]
 fn a_ceil_conjunct_beside_a_sibling_equality_is_not_decided_valid() {
     let definition = sibling_equality_definition();
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
     let half = term(&definition, r#"half{}(\dv{SortInt{}}("1"))"#);
     let conjunction = Predicate::And(
         vec![
@@ -3479,8 +3477,7 @@ fn a_ceil_atom_is_not_discharged_through_a_sibling_equality_by_its_expansion() {
 #[test]
 fn a_ceil_atom_beside_a_sibling_equality_is_not_decided_valid_through_its_smt_reading() {
     let definition = sibling_equality_definition();
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
     let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
     let half = r#"half{}(\dv{SortInt{}}("1"))"#;
     let mut valid = Vec::new();
@@ -3578,8 +3575,7 @@ fn a_ceil_equation_keeps_its_bound_term_obligation_beside_a_sibling_equality() {
 #[test]
 fn a_ceil_equation_beside_a_sibling_equality_is_not_decided_valid_through_its_smt_reading() {
     let definition = conditional_ceil_definition();
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
     let conjunction = Predicate::And(
         vec![
             Predicate::Ceil(term(&definition, r#"hh{}(half{}(\dv{SortInt{}}("1")))"#)),
@@ -3649,8 +3645,7 @@ fn assert_keeps_half_definedness(definition: &BackendDefinition, atom: Predicate
     )
     .unwrap();
     assert_eq!(simplified, [conjunction[1].clone()], "{simplified:?}");
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(definition).expect("Z3 should start");
     let decided = simplify_and_decide_predicate_with_solver(
         definition,
         &Predicate::And(conjunction.into()),
@@ -3746,8 +3741,7 @@ fn a_negated_ceil_is_refuted_through_a_sibling_equality() {
 #[test]
 fn a_ceil_under_a_shadowing_binder_beside_a_sibling_equality_is_not_decided_valid() {
     let definition = conditional_ceil_definition();
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
     let mut conjunction = beside_half_equality(&definition, binder_route(&definition));
     conjunction.push(Predicate::Equals(
         term(&definition, "Y:SortInt{}"),
@@ -3788,8 +3782,7 @@ fn review_route_definition() -> BackendDefinition {
 #[test]
 fn the_review_routes_to_an_equality_alone_are_not_decided_valid() {
     let definition = review_route_definition();
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
     let half = r#"half{}(\dv{SortInt{}}("1"))"#;
     let zero = r#"\dv{SortInt{}}("0")"#;
     let mut valid = Vec::new();
@@ -6333,7 +6326,7 @@ fn z3_disambiguates_symbolic_equation_requires() {
     .expect("definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let input = term(&definition, "f{}(Y:SortInt{})");
     let variable = Term::variable(k_rust_backend::term::Variable::new(
         "Y",
@@ -6742,7 +6735,7 @@ fn standalone_predicate_simplification_uses_smt_for_the_residual() {
         &predicate,
         &[],
         SimplificationOptions::default(),
-        &Z3Solver::resource_bounded(&definition).unwrap(),
+        &Z3Solver::new(&definition).unwrap(),
     )
     .unwrap();
 
@@ -6795,7 +6788,7 @@ fn pattern_simplification_discharges_constraints_valid_under_smt_lemmas() {
     use k_rust_backend::smt::Z3Solver;
 
     let definition = list_size_lemma_definition();
-    let solver = Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = Z3Solver::new(&definition).unwrap();
     let holder = term(&definition, "holder{}(L:SortList{})");
     let simplify_constraint = |source: &str| {
         simplify_pattern_with_solver(
@@ -7004,7 +6997,7 @@ fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
             &predicate,
             &[],
             SimplificationOptions::default(),
-            &Z3Solver::resource_bounded(&definition).unwrap(),
+            &Z3Solver::new(&definition).unwrap(),
         )
     });
     let result = result.expect("an untranslatable predicate is kept, not an error");

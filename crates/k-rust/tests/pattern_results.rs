@@ -152,7 +152,7 @@ fn kore(text: &str) -> Pattern {
 }
 
 fn fresh(definition: &'static str) -> impl Fn() -> Backend {
-    move || Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap()
+    move || Backend::new(definition, "MAIN", BackendOptions::DEFAULT).unwrap()
 }
 
 /// The `Int` domain value `value`.

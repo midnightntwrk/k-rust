@@ -259,8 +259,8 @@ fn every_simple_data_end_exists() {
         execution_rewrite_order,
     )
     .expect("SIMPLE internalizes");
-    let mut backend = Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED)
-        .expect("a backend");
+    let mut backend =
+        Backend::from_internalized(definition, BackendOptions::DEFAULT).expect("a backend");
     let grammar = ProgramGrammar::new(&compiled.frontend_definition).expect("a program grammar");
     let mut data_ends = Vec::new();
     for name in [
@@ -344,8 +344,8 @@ fn simple_s_one_name_spawn_is_not_marked_fresh_association() {
         execution_rewrite_order,
     )
     .expect("SIMPLE internalizes");
-    let mut backend = Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED)
-        .expect("a backend");
+    let mut backend =
+        Backend::from_internalized(definition, BackendOptions::DEFAULT).expect("a backend");
     let grammar = ProgramGrammar::new(&compiled.frontend_definition).expect("a program grammar");
     for (name, rendezvous) in [("join.simple", None), ("rdv.simple", Some("rendezvous 3;"))] {
         let (_, text) = program(name);

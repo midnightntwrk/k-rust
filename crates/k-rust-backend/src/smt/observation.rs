@@ -980,7 +980,7 @@ mod tests {
         checked: Predicate,
     ) -> super::super::Validity {
         use crate::smt::SmtSolver;
-        crate::smt::Z3Solver::resource_bounded(definition)
+        crate::smt::Z3Solver::new(definition)
             .unwrap()
             .check_predicates(known, &Substitution::new(), &[checked])
             .unwrap()
@@ -1000,7 +1000,7 @@ mod tests {
         let definition = self::definition(&source);
         let subject = term(&definition, "M:SortMap{}");
         let ops = definition.map_operations(&subject.sort()).unwrap();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let prelude = SmtPrelude::from_definition(&definition).unwrap();
         let int = Sort::simple("SortInt");
         let stored = ops.collection.key_sort;
@@ -1474,7 +1474,7 @@ mod tests {
                 term(&definition, "V:SortInt{}"),
             );
             assert_eq!(
-                crate::smt::Z3Solver::resource_bounded(&definition)
+                crate::smt::Z3Solver::new(&definition)
                     .unwrap()
                     .check_predicates(&[], &substitution, &[checked])
                     .unwrap()

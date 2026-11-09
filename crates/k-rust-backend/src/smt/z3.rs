@@ -372,9 +372,6 @@ impl Z3Options {
         budget: SmtBudget::DEFAULT,
         retry_limit: 3,
     };
-
-    /// The clock-free options, which are the default's ([`Self::DEFAULT`]).
-    pub const RESOURCE_BOUNDED: Self = Self::DEFAULT;
 }
 
 impl Default for Z3Options {
@@ -549,13 +546,6 @@ impl Z3Solver {
     /// A solver under the default options ([`Z3Options::DEFAULT`]), whose answers do not depend
     /// on the clock.
     pub fn new(definition: &crate::definition::BackendDefinition) -> Result<Self, SmtError> {
-        Self::with_options(definition, Z3Options::DEFAULT)
-    }
-
-    /// A solver under [`Z3Options::DEFAULT`], whose answers do not depend on the clock.
-    pub fn resource_bounded(
-        definition: &crate::definition::BackendDefinition,
-    ) -> Result<Self, SmtError> {
         Self::with_options(definition, Z3Options::DEFAULT)
     }
 
@@ -1416,7 +1406,7 @@ mod tests {
     #[test]
     fn typed_reuse_precedes_preparation_and_survives_script_eviction() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let s = Substitution::new();
         let checked = [Predicate::Term(term(
             &definition,
@@ -1455,7 +1445,7 @@ mod tests {
     #[test]
     fn cached_typed_answers_still_observe_cancellation_and_prelude_failure() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let s = Substitution::new();
         let checked = [Predicate::Term(term(
             &definition,
@@ -1481,7 +1471,7 @@ mod tests {
     fn typed_cache_is_private_to_its_definition_and_evaluation_context() {
         use crate::evaluation::{EvaluationMode, with_evaluation};
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let s = Substitution::new();
         let q = [Predicate::Equals(Term::variable(x()), Term::int(5))];
         assert_eq!(solver.is_sat(&q, &s), Ok(Ok(Satisfiability::Sat)));
@@ -1532,8 +1522,8 @@ mod tests {
             Term::int(1),
         )];
         let s = Substitution::new();
-        let first = Z3Solver::resource_bounded(&first).unwrap();
-        let second = Z3Solver::resource_bounded(&second).unwrap();
+        let first = Z3Solver::new(&first).unwrap();
+        let second = Z3Solver::new(&second).unwrap();
         assert_eq!(
             first.check_predicates(&[], &s, &checked),
             Ok(Ok(Validity::Valid))
@@ -1547,7 +1537,7 @@ mod tests {
     #[test]
     fn quantified_opaque_terms_retain_their_bound_variable_dependence() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         // f(x) = x + 1 is a model; replacing f(x) by a constant would make this false.
         let no_fixed_point = Predicate::Not(Arc::new(Predicate::Exists(
             x(),
@@ -1565,7 +1555,7 @@ mod tests {
     #[test]
     fn quantified_opaque_predicates_can_hold_for_some_values_and_fail_for_others() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         for name in ["X", "Y"] {
             let some_defined = Predicate::Exists(
                 x(),
@@ -1588,7 +1578,7 @@ mod tests {
     #[test]
     fn alpha_equivalent_opaque_predicates_share_an_abstraction_without_capturing_free_variables() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let quantified = |bound: &str, free: &str| {
             Predicate::Exists(
                 Variable::new(bound, Sort::simple("SortInt")),
@@ -1619,7 +1609,7 @@ mod tests {
     #[test]
     fn nested_shadowing_restores_the_enclosing_and_free_variable_scopes() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let equals = |value: &str| {
             Predicate::Equals(
                 Term::variable(x()),
@@ -1659,7 +1649,7 @@ mod tests {
     #[test]
     fn model_from_an_uninterpreted_function_is_unknown() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let bitwise = term(
             &definition,
             r#"bitwise{}(X:SortInt{}, \dv{SortInt{}}("1"))"#,
@@ -1703,7 +1693,7 @@ mod tests {
     #[test]
     fn model_with_an_uninterpreted_quantifier_sort_is_unknown() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let variable = Variable::new("A", Sort::simple("SortS"));
         let predicate = Predicate::Forall(
             variable.clone(),
@@ -1724,7 +1714,7 @@ mod tests {
     #[test]
     fn quantified_abstractions_follow_binder_order_and_shadowing() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let nested = |outer: &str, inner: &str| {
             let outer = Variable::new(outer, Sort::simple("SortInt"));
             let inner = Variable::new(inner, Sort::simple("SortInt"));
@@ -1757,7 +1747,7 @@ mod tests {
     #[test]
     fn proves_and_refutes_predicates_under_a_substitution() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
             &definition,
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
@@ -1812,7 +1802,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
 
         for size in ["abstractSize", "translatedSize"] {
             let checked = [Predicate::Term(term(
@@ -1830,7 +1820,7 @@ mod tests {
     #[test]
     fn distinguishes_unsatisfiable_and_inconsistent_constraints() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let x_term = term(&definition, "X:SortInt{}");
         let five = term(&definition, r#"\dv{SortInt{}}("5")"#);
         let six = term(&definition, r#"\dv{SortInt{}}("6")"#);
@@ -1859,7 +1849,7 @@ mod tests {
     #[test]
     fn validity_filters_ground_truth_unrelated_to_the_checked_variables() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
             &definition,
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
@@ -1917,7 +1907,7 @@ mod tests {
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
 
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 0);
         assert_eq!(
             cause(solver.is_sat(&[], &Substitution::new())),
@@ -1965,7 +1955,7 @@ mod tests {
     #[test]
     fn sat_first_proves_prelude_consistency_without_an_extra_solve() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 0);
         assert_eq!(
             solver.is_sat(&[], &Substitution::new()),
@@ -1988,7 +1978,7 @@ mod tests {
     #[test]
     fn concurrent_unsat_answers_check_the_prelude_once() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         std::thread::scope(|scope| {
             for _ in 0..8 {
                 let solver = solver.clone();
@@ -2006,7 +1996,7 @@ mod tests {
     #[test]
     fn unknown_query_does_not_assert_prelude_consistency() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         assert_eq!(
             cause(solver.confirm_answer(Satisfiability::Unknown("query timed out".into()))),
             Ok(Satisfiability::Unknown("query timed out".into()))
@@ -2022,7 +2012,7 @@ mod tests {
     #[test]
     fn an_unknown_prelude_failure_is_sticky() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let failure = PreludeFailure::Unknown("prelude timed out".into());
         *solver.prelude_state.lock().unwrap() = PreludeState::Failed(failure.clone());
         assert_eq!(solver.prelude_failure(), Some(failure.clone()));
@@ -2209,7 +2199,7 @@ mod tests {
     #[test]
     fn a_query_z3_rejects_answers_nothing_and_is_not_cached() {
         let definition = unreadable_hook_definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let bogus = [Predicate::Term(term(
             &definition,
             r#"bogus{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
@@ -2255,7 +2245,7 @@ mod tests {
     #[test]
     fn a_rejected_model_query_checks_the_prelude_first() {
         let definition = unreadable_hook_definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let bogus = [Predicate::Term(term(
             &definition,
             r#"bogus{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
@@ -2303,7 +2293,7 @@ mod tests {
     )]
     fn a_rejected_script_the_translation_wrote_by_itself_is_a_defect_of_k_rust() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let undeclared = Term::variable(Variable::new("U", Sort::simple("SortUndeclared")));
         assert!(every_query_is_rejected(
             &solver,
@@ -2332,14 +2322,14 @@ mod tests {
             "MAIN",
         )
         .expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&clashing).unwrap();
+        let solver = Z3Solver::new(&clashing).unwrap();
         assert!(every_query_is_rejected(&solver, &x_is_one()), "smtlib");
 
         let definition = definition();
         let solver = with_prelude(&definition, "(declare-const SMT-1 Int)").unwrap();
         assert!(every_query_is_rejected(&solver, &x_is_one()), "prelude");
 
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let not_a_literal = [Predicate::Equals(
             Term::variable(x()),
             Term::raw_domain_value(Sort::simple("SortInt"), "one"),
@@ -2362,7 +2352,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         assert_eq!(
             solver
                 .prelude
@@ -2405,7 +2395,7 @@ mod tests {
     #[test]
     fn a_query_posed_after_the_step_deadline_stops_without_running() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let controller = StepTimeoutController::new(StepTimeoutOptions {
             manual: Some(Duration::ZERO),
             moving_average: false,
@@ -2433,7 +2423,7 @@ mod tests {
     #[test]
     fn extracts_arbitrary_precision_integer_and_boolean_models() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let integer = Variable::new("X", Sort::simple("SortInt"));
         let boolean = Variable::new("B", Sort::simple("SortBool"));
         let expected_integer = "-99999999999999999999999999999999999999";
@@ -2483,7 +2473,7 @@ mod tests {
             Predicate::Equals(Term::variable(boolean.clone()), Term::bool(true)),
         ];
         let model = |definition: &BackendDefinition| {
-            let solver = Z3Solver::resource_bounded(definition).unwrap();
+            let solver = Z3Solver::new(definition).unwrap();
             let ModelResult::Sat(model) = cause(solver.get_model(&ModelQuery::for_solver_tests(
                 &predicates,
                 &Substitution::new(),
@@ -2519,7 +2509,7 @@ mod tests {
     #[test]
     fn model_results_distinguish_empty_unsatisfiable_and_untranslated_inputs() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
 
         assert_eq!(
             solver.get_model(&ModelQuery::for_solver_tests(&[], &Substitution::new())),
@@ -2559,7 +2549,7 @@ mod tests {
     #[test]
     fn reuses_conclusive_exact_scripts() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
         let x_term = Term::variable(x());
         let one = Term::raw_domain_value(Sort::simple("SortInt"), "1");
@@ -2591,7 +2581,7 @@ mod tests {
     #[test]
     fn does_not_conflate_distinct_scripts() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
         let x_term = Term::variable(x());
         let equals = |value| {
@@ -2622,7 +2612,7 @@ mod tests {
     #[test]
     fn a_cancelled_query_stops_before_the_cache_and_z3() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let predicates = [Predicate::Equals(
             Term::variable(x()),
             Term::raw_domain_value(Sort::simple("SortInt"), "1"),
@@ -2694,7 +2684,7 @@ mod tests {
         assert_send_sync::<Z3Solver>();
 
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let predicates = [Predicate::Equals(
             Term::variable(x()),
             Term::raw_domain_value(Sort::simple("SortInt"), "1"),
@@ -2719,7 +2709,7 @@ mod tests {
     #[test]
     fn validity_subqueries_reuse_only_exact_scripts() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
             &definition,
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
@@ -2866,7 +2856,7 @@ mod tests {
     #[test]
     fn contingent_validity_uses_two_uncached_solver_queries() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
             &definition,
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
@@ -2903,7 +2893,7 @@ mod tests {
     #[test]
     fn refuted_validity_uses_positive_then_base() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
             &definition,
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
@@ -2926,7 +2916,7 @@ mod tests {
     #[test]
     fn already_cancelled_validity_does_not_reach_z3_or_cache() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
             &definition,
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
@@ -2957,7 +2947,7 @@ mod tests {
     #[test]
     fn cached_satisfiability_does_not_replace_model_check() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let predicates = [Predicate::Equals(
             Term::variable(x()),
             Term::raw_domain_value(Sort::simple("SortInt"), "7"),
@@ -3047,7 +3037,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
         let less = |left: &str, right: &str| {
             Predicate::Term(term(&definition, &format!("lt{{}}({left}, {right})")))
@@ -3301,7 +3291,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let atom = |source: &str| Predicate::Term(term(&definition, source));
         let two = r#"\dv{SortInt{}}("2")"#;
         let zero = r#"\dv{SortInt{}}("0")"#;
@@ -3374,7 +3364,7 @@ mod tests {
     #[test]
     fn states_power_facts_the_integer_power_satisfies_at_the_window_boundary() {
         let definition = power_definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let dv = |value: &BigInt| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
         let equals = |left: &str, right: &str| {
             Predicate::Equals(term(&definition, left), term(&definition, right))
@@ -3433,7 +3423,7 @@ mod tests {
     #[test]
     fn states_no_power_fact_under_a_binder_through_a_shared_let() {
         let definition = power_definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let two = r#"\dv{SortInt{}}("2")"#;
         let one = r#"\dv{SortInt{}}("1")"#;
         let four = r#"\dv{SortInt{}}("4")"#;
@@ -3498,7 +3488,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let ceil = |source: &str| Predicate::Ceil(term(&definition, source));
         let dv = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
         for (checked, expected) in [
@@ -3540,7 +3530,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let half = |argument: &str| term(&definition, &format!("half{{}}({argument})"));
         let one = r#"\dv{SortInt{}}("1")"#;
         let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
@@ -3598,7 +3588,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let int = |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortInt"), value);
         let three = Predicate::Equals(term(&definition, "half{}(X:SortInt{})"), int("3"));
         assert_eq!(
@@ -3649,7 +3639,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let boolean =
             |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
         let b = Variable::new("B", Sort::simple("SortBool"));
@@ -3700,7 +3690,7 @@ mod tests {
     #[test]
     fn an_integer_term_conjunction_is_defined_where_its_sides_are_equal() {
         let definition = definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let int = |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortInt"), value);
         let variable =
             |name: &str| crate::term::Term::variable(Variable::new(name, Sort::simple("SortInt")));
@@ -3784,7 +3774,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let foo =
             |name: &str| crate::term::Term::variable(Variable::new(name, Sort::simple("SortFoo")));
         let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
@@ -3858,7 +3848,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let boolean =
             |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
         let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
@@ -3962,7 +3952,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let boolean =
             |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
         let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
@@ -4039,7 +4029,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let int = crate::term::Sort::simple("SortInt");
         let x = crate::term::Variable::new("X", int);
         let y = crate::term::Variable::new("Y", int);
@@ -4096,7 +4086,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let int = crate::term::Sort::simple("SortInt");
         let v = |name: &str| crate::term::Variable::new(name, int);
         let t = |source: &str| term(&definition, source);
@@ -4232,7 +4222,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let dv = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
         let conditional = |dividend: i64, divisor: i64| {
             term(
@@ -4318,7 +4308,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let defined = Predicate::Ceil(term(&definition, "divInt{}(X:SortInt{}, Y:SortInt{})"));
         let nonzero = Predicate::Term(term(
             &definition,
@@ -4559,7 +4549,7 @@ mod tests {
         let mut expected = vec![id("g-zero"), id("h-zero")];
         expected.sort();
         assert_eq!(dropped, expected);
-        let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+        let solver = Z3Solver::new(&definition).expect("Z3 should start");
         let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
         let at = |symbol: &str, argument: &str| {
             Predicate::Equals(
@@ -4663,7 +4653,7 @@ mod tests {
     #[test]
     fn hooks_over_uninterpreted_sorts_leave_the_int_facts_decidable() {
         let definition = uninterpreted_sort_hook_definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let fact = |source: &str| Predicate::Term(term(&definition, source));
         let above = |bound: &str| {
             fact(&format!(
@@ -4712,7 +4702,7 @@ mod tests {
     #[test]
     fn an_int_over_a_machine_integer_has_no_model_as_a_k_valuation() {
         let definition = uninterpreted_sort_hook_definition();
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let negative = Predicate::Term(term(
             &definition,
             r#"ltInt{}(mint2Unsigned{}(int2MInt{}(X:SortInt{})), \dv{SortInt{}}("0"))"#,

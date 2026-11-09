@@ -60,12 +60,7 @@ fn compile_source(file: &str, source: &str, main: &str) -> String {
 
 /// A fresh backend over the shared definition, so no test observes another's backend state.
 fn backend() -> Backend {
-    Backend::new(
-        &definition_kore(),
-        "COVER",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap()
+    Backend::new(&definition_kore(), "COVER", BackendOptions::DEFAULT).unwrap()
 }
 
 fn top(program: &str) -> String {
@@ -318,7 +313,7 @@ fn the_sets_do_not_depend_on_observation_or_request_history() {
 
     // A backend whose default module is another one builds `COVER` on the first request that
     // names it, discharging its rules' definedness then; the run's sets are the same.
-    let mut lazy = Backend::new(&definition_kore(), "K", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut lazy = Backend::new(&definition_kore(), "K", BackendOptions::DEFAULT).unwrap();
     let in_module = || ExecuteRequest {
         module_name: Some("COVER".to_owned()),
         ..request(&program, ResultModalityOutput::PathSet)
@@ -328,7 +323,7 @@ fn the_sets_do_not_depend_on_observation_or_request_history() {
     assert_eq!(built, expected, "the request that builds the module");
     assert_eq!(reused, expected, "a later request");
     let rv = seq("rv", -1);
-    let mut lazy = Backend::new(&definition_kore(), "K", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut lazy = Backend::new(&definition_kore(), "K", BackendOptions::DEFAULT).unwrap();
     let built = lazy
         .execute_kore(ExecuteRequest {
             module_name: Some("COVER".to_owned()),
@@ -431,12 +426,7 @@ mod offered {
     }
 
     fn backend() -> Backend {
-        Backend::new(
-            &definition_kore(),
-            "OFFER",
-            BackendOptions::RESOURCE_BOUNDED,
-        )
-        .unwrap()
+        Backend::new(&definition_kore(), "OFFER", BackendOptions::DEFAULT).unwrap()
     }
 
     fn catalog(backend: &Backend) -> Vec<(String, String)> {
@@ -1027,7 +1017,7 @@ mod probes {
         main: &str,
         initial: &str,
     ) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>) {
-        let mut backend = Backend::new(kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap();
+        let mut backend = Backend::new(kore, main, BackendOptions::DEFAULT).unwrap();
         let catalog = super::catalog(&backend);
         let module = format!("{main}.");
         let mut answers = [ExecutionStrategy::All, ExecutionStrategy::Any].map(|strategy| {
@@ -1169,12 +1159,7 @@ endmodule
     }
 
     fn backend() -> Backend {
-        Backend::new(
-            &definition_kore(),
-            "COUNT",
-            BackendOptions::RESOURCE_BOUNDED,
-        )
-        .unwrap()
+        Backend::new(&definition_kore(), "COUNT", BackendOptions::DEFAULT).unwrap()
     }
 
     fn state(n: i64) -> String {
@@ -1389,7 +1374,7 @@ endmodule
     #[test]
     fn no_equation_of_a_discarded_operand_is_applied_or_begun() {
         let kore = compile_source("leak.k", LEAK, "LEAK");
-        let mut backend = Backend::new(&kore, "LEAK", BackendOptions::RESOURCE_BOUNDED).unwrap();
+        let mut backend = Backend::new(&kore, "LEAK", BackendOptions::DEFAULT).unwrap();
         let catalog = catalog(&backend);
         let loop_id = &catalog
             .iter()

@@ -1207,7 +1207,7 @@ fn spinning_claims(temporary: &Path) -> PathBuf {
 fn without_z3_build(solver: &Value) -> Value {
     let mut solver = solver.clone();
     let build = solver.as_object_mut().unwrap().remove("z3");
-    let linked = krs_exec::SolverReport::of(krs_exec::BackendOptions::RESOURCE_BOUNDED).z3;
+    let linked = krs_exec::SolverReport::of(krs_exec::BackendOptions::DEFAULT).z3;
     assert_eq!(
         build,
         linked

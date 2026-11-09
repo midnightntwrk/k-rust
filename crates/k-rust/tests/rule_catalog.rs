@@ -62,12 +62,7 @@ fn backend() -> Backend {
     let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
     let syntax = k_rust::kore::parser::parse_definition(&compiled.definition_kore).unwrap();
     let module = syntax.modules.last().unwrap().name.as_str();
-    Backend::new(
-        &compiled.definition_kore,
-        module,
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap()
+    Backend::new(&compiled.definition_kore, module, BackendOptions::DEFAULT).unwrap()
 }
 
 #[test]
@@ -245,7 +240,7 @@ fn an_undecided_condition_of_an_unnamed_equation_names_its_catalog_entry() {
              org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
              org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,20)")]
     endmodule []"#;
-    let mut backend = Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(definition, "MAIN", BackendOptions::DEFAULT).unwrap();
     let catalog = backend.rule_catalog(None).unwrap();
     let state = parse_pattern("c{}(f{}(a{}()), g{}(a{}()))").unwrap();
     let leaves = backend
@@ -304,7 +299,7 @@ fn an_undecided_condition_of_an_unnamed_unlocated_equation_names_its_catalog_ent
             g{}(X:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
             [simplification{}()]
     endmodule []"#;
-    let mut backend = Backend::new(definition, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(definition, "MAIN", BackendOptions::DEFAULT).unwrap();
     let catalog = backend.rule_catalog(None).unwrap();
     let state = parse_pattern("c{}(f{}(a{}()), g{}(a{}()))").unwrap();
     let leaves = backend

@@ -1332,18 +1332,12 @@ impl Semantics {
         sources: Option<SourceText>,
         timings: &mut Timings,
     ) -> Result<Self, ExecError> {
-        Self::from_stage_with_solver(
-            definition,
-            stage,
-            sources,
-            BackendOptions::RESOURCE_BOUNDED,
-            timings,
-        )
+        Self::from_stage_with_solver(definition, stage, sources, BackendOptions::DEFAULT, timings)
     }
 
     /// [`Self::from_stage`] with the solver options `solver` for every backend of the semantics,
     /// the definition's and each author spec module's: [`Self::from_stage`] gives them
-    /// [`BackendOptions::RESOURCE_BOUNDED`], under which whether a query is decided does not depend
+    /// [`BackendOptions::DEFAULT`], under which whether a query is decided does not depend
     /// on the machine's speed or load.
     ///
     /// # Errors

@@ -66,7 +66,7 @@ const MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 /// bound each attempt by Z3's own resource units, which no load changes, and a whole run of this
 /// corpus counts about a thousand, far within the first attempt's 370,000; so every query is
 /// decided on its first attempt and the count is the queries' own.
-const SOLVER_OPTIONS: BackendOptions = BackendOptions::RESOURCE_BOUNDED;
+const SOLVER_OPTIONS: BackendOptions = BackendOptions::DEFAULT;
 
 /// The KORE of `source` and its configuration for `program` at sort `sort`.
 fn compile_in(source: &str, main: &str, sort: &str, program: &str) -> (String, Pattern) {
@@ -533,8 +533,7 @@ fn measure_offered_cost() {
             for offered in [false, true] {
                 let (kore, main, initial) = (kore.clone(), main.clone(), initial.clone());
                 let (result, counters) = counted(move || {
-                    let mut backend =
-                        Backend::new(&kore, &main, BackendOptions::RESOURCE_BOUNDED).unwrap();
+                    let mut backend = Backend::new(&kore, &main, BackendOptions::DEFAULT).unwrap();
                     backend
                         .execute_kore(ExecuteRequest {
                             strategy,

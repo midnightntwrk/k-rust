@@ -759,7 +759,7 @@ mod tests {
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let mut printed = ProveOutput::new(
             TermOutput::JsonLines,
-            krs_exec::SolverReport::of(krs_exec::BackendOptions::RESOURCE_BOUNDED),
+            krs_exec::SolverReport::of(krs_exec::BackendOptions::DEFAULT),
             &mut stdout,
             &mut stderr,
         );
@@ -781,7 +781,7 @@ mod tests {
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let mut printed = ProveOutput::new(
             TermOutput::Json,
-            krs_exec::SolverReport::of(krs_exec::BackendOptions::RESOURCE_BOUNDED),
+            krs_exec::SolverReport::of(krs_exec::BackendOptions::DEFAULT),
             &mut stdout,
             &mut stderr,
         );

@@ -301,7 +301,7 @@ mod tests {
         assert!(plan(&d, &[Predicate::Not(Arc::new(check.clone()))]).is_none());
         let bound = Variable::new("X", Sort::simple("SortMap"));
         assert!(plan(&d, &[Predicate::Exists(bound, Arc::new(check.clone()))]).is_none());
-        let solver = Z3Solver::resource_bounded(&d).unwrap();
+        let solver = Z3Solver::new(&d).unwrap();
         let before = k_rust_kore::measure::snapshot();
         assert_eq!(
             solver.check_predicates(&[expected], &Substitution::new(), &[check]),
@@ -326,7 +326,7 @@ mod tests {
         assert!(goals.contains(&Predicate::Ceil(left.clone())));
         assert!(goals.contains(&Predicate::Ceil(right.clone())));
         let equal = equality(&d, "X:SortInt{}", "Y:SortInt{}");
-        let solver = Z3Solver::resource_bounded(&d).unwrap();
+        let solver = Z3Solver::new(&d).unwrap();
         assert_eq!(
             solver.check_predicates(
                 &[
@@ -361,11 +361,9 @@ mod tests {
             "context{}(M:SortMap{},\\dv{SortInt{}}(\"2\"))",
         );
         assert_eq!(
-            Z3Solver::resource_bounded(&d).unwrap().check_predicates(
-                &[],
-                &Substitution::new(),
-                &[check]
-            ),
+            Z3Solver::new(&d)
+                .unwrap()
+                .check_predicates(&[], &Substitution::new(), &[check]),
             Ok(Ok(Validity::Contingent))
         );
         let check = equality(
@@ -374,11 +372,9 @@ mod tests {
             "put{}(put{}(M:SortMap{},inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"2\")),inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"4\"))),inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"1\")),inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"3\")))",
         );
         assert_eq!(
-            Z3Solver::resource_bounded(&d).unwrap().check_predicates(
-                &[],
-                &Substitution::new(),
-                &[check]
-            ),
+            Z3Solver::new(&d)
+                .unwrap()
+                .check_predicates(&[], &Substitution::new(), &[check]),
             Ok(Ok(Validity::Valid))
         );
     }

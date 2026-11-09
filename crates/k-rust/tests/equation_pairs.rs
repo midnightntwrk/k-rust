@@ -77,7 +77,7 @@ endmodule
 "#
     );
     let kore = compile(&source, "PAIRS");
-    let mut backend = Backend::new(&kore, "PAIRS", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "PAIRS", BackendOptions::DEFAULT).unwrap();
     backend.select_definition(None).unwrap()
 }
 
@@ -703,7 +703,7 @@ fn the_domains_equations_at_hooked_symbols_agree_with_their_hooks() {
 endmodule
 "#;
     let kore = compile(source, "ALL-DOMAINS");
-    let mut backend = Backend::new(&kore, "ALL-DOMAINS", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "ALL-DOMAINS", BackendOptions::DEFAULT).unwrap();
     let definition = backend.select_definition(None).unwrap();
     let all = definition.value_claims_in_scope(CheckScope::All);
     let counts = all.counts();

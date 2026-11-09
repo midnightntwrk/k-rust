@@ -5540,8 +5540,7 @@ mod tests {
     fn queued_remainders_follow_normal_search_selection() {
         let definition = conditional_remainder_definition();
         let initial = pattern(&definition, "initial{}(X:SortInt{})");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         for search_type in [SearchType::Star, SearchType::Plus, SearchType::Final] {
             let options = SearchOptions {
@@ -5589,8 +5588,7 @@ mod tests {
     fn a_remainder_popped_after_a_deeper_state_is_deduplicated() {
         let definition = rejoining_remainders_definition();
         let initial = pattern(&definition, "initial{}(X:SortInt{})");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let before = measure::snapshot();
         let graph = search_graph_with_solver(
             &definition,
@@ -6907,8 +6905,7 @@ mod tests {
     #[test]
     fn a_target_constraint_undefined_on_the_state_does_not_match() {
         let definition = partial_target_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let target = target_bounded_by_successor(
             &definition,
             r#"pair{}(A:SortInt{}, B:SortInt{})"#,
@@ -6941,8 +6938,7 @@ mod tests {
     #[test]
     fn a_state_whose_term_defines_the_target_constraint_matches() {
         let definition = partial_target_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let target = target_bounded_by_successor(
             &definition,
             r#"pair{}(A:SortInt{}, B:SortInt{})"#,
@@ -6993,8 +6989,7 @@ mod tests {
     #[test]
     fn a_state_whose_term_defines_the_target_constraint_matches_under_shared_names() {
         let definition = partial_target_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let target = target_bounded_by_successor(
             &definition,
             r#"pair{}(X:SortInt{}, Y:SortInt{})"#,
@@ -7111,8 +7106,7 @@ mod tests {
     #[test]
     fn a_state_with_unsaturated_equalities_matches_with_a_solver() {
         let definition = partial_target_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let (target, subject) = unsaturated_partial_subject(&definition);
 
         let matches = match_disjunction_with_solver(
@@ -7191,8 +7185,7 @@ mod tests {
     #[test]
     fn a_target_equation_does_not_make_a_rewritten_state_fact_known_with_a_solver() {
         let definition = partial_target_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         assert_the_divisor_cannot_be_zero(&definition, true, Some(&solver));
     }
 
@@ -7207,8 +7200,7 @@ mod tests {
     #[test]
     fn a_target_equation_refuted_by_the_state_term_definedness_does_not_match_with_a_solver() {
         let definition = partial_target_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         assert_the_divisor_cannot_be_zero(&definition, false, Some(&solver));
     }
 

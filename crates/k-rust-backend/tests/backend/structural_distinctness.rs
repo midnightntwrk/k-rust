@@ -681,7 +681,6 @@ fn collision_implications_are_not_valid_without_a_solver() {
 #[test]
 fn collision_implications_are_not_valid_with_z3() {
     let definition = internalized(DISJOINT_COLLECTIONS);
-    let solver =
-        k_rust_backend::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
     check_collision_implications(&definition, &solver);
 }

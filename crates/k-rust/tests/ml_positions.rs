@@ -865,11 +865,8 @@ fn observe_unguarded(
     } else {
         "P"
     };
-    let mut backend = match Backend::new(
-        &artifacts.definition_kore,
-        main,
-        BackendOptions::RESOURCE_BOUNDED,
-    ) {
+    let mut backend = match Backend::new(&artifacts.definition_kore, main, BackendOptions::DEFAULT)
+    {
         Ok(backend) => backend,
         Err(error) => return Outcome::BackendRefused(error.to_string()),
     };

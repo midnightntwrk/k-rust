@@ -132,8 +132,7 @@ fn compiled() -> &'static Compiled {
 }
 
 fn backend() -> Backend {
-    Backend::new(&compiled().kore, MAIN, BackendOptions::RESOURCE_BOUNDED)
-        .expect("the backend loads")
+    Backend::new(&compiled().kore, MAIN, BackendOptions::DEFAULT).expect("the backend loads")
 }
 
 /// How a request is made.

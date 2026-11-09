@@ -340,7 +340,7 @@ fn the_backend_is_built_on_the_rewrite_order_route() {
     // The route that takes the rewrite order is the one krun takes.
     definition.internalize(&syntax).unwrap();
     definition
-        .backend(k_rust::backend::BackendOptions::RESOURCE_BOUNDED)
+        .backend(k_rust::backend::BackendOptions::DEFAULT)
         .unwrap();
 }
 
@@ -354,7 +354,7 @@ fn the_initial_term_is_the_same_on_a_reused_backend() {
     let mut assembler = definition.assembler(&grammar);
     let sort = pgm();
     let mut backend = definition
-        .backend(k_rust::backend::BackendOptions::RESOURCE_BOUNDED)
+        .backend(k_rust::backend::BackendOptions::DEFAULT)
         .unwrap();
     for program in [IMP_SUM, IMP_SHORT] {
         let initial = assembler
@@ -688,8 +688,7 @@ mod cli {
             definition.internalize(&syntax).unwrap(),
             &initial,
             |definition, term| {
-                let mut backend =
-                    Backend::from_internalized(definition, BackendOptions::RESOURCE_BOUNDED)?;
+                let mut backend = Backend::from_internalized(definition, BackendOptions::DEFAULT)?;
                 run(&mut backend, term, depth)
             },
         )
@@ -728,9 +727,7 @@ mod cli {
             execution_rewrite_order: &artifact.execution_rewrite_order,
             definition_kore: &artifact.definition_kore,
         };
-        let mut reused = definition
-            .backend(BackendOptions::RESOURCE_BOUNDED)
-            .unwrap();
+        let mut reused = definition.backend(BackendOptions::DEFAULT).unwrap();
         for case in cases {
             for depth in [Some(0), None] {
                 let krun = krun(&compiled, &root, case, depth);

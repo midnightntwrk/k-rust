@@ -293,7 +293,7 @@ fn symbolic_stuck_ground_instances_no_solver() {
 fn symbolic_stuck_ground_instances_z3() {
     for priority in [40, 60] {
         let definition = definition(priority);
-        let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
         check_profile("Z3", &definition, &solver);
     }
 }
@@ -347,7 +347,7 @@ endmodule []"#,
 #[test]
 fn simplified_remainder_reselects_a_changed_k_head() {
     let definition = k_head_definition();
-    let solver = k_rust_backend::smt::Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let initial = Pattern {
         term: internal_term(
             &definition,

@@ -35,7 +35,7 @@ module LOOP
 endmodule []"#;
 
 fn backend() -> Backend {
-    Backend::new(LOOP, "LOOP", BackendOptions::RESOURCE_BOUNDED).unwrap()
+    Backend::new(LOOP, "LOOP", BackendOptions::DEFAULT).unwrap()
 }
 
 fn start() -> Pattern {
@@ -102,8 +102,7 @@ fn an_operation_cancelled_before_it_starts_does_not_run() {
 fn a_backend_constructed_in_a_cancelled_scope_reports_the_cancellation() {
     let token = CancellationToken::new();
     token.cancel();
-    let Err(error) = token.scope(|| Backend::new(LOOP, "LOOP", BackendOptions::RESOURCE_BOUNDED))
-    else {
+    let Err(error) = token.scope(|| Backend::new(LOOP, "LOOP", BackendOptions::DEFAULT)) else {
         panic!("a backend constructed under a cancelled token was returned");
     };
     assert_cancelled(&error);
@@ -201,7 +200,7 @@ endmodule []"#;
 /// states left unexplored.
 #[test]
 fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
-    let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::DEFAULT).unwrap();
     let request = ProveRequest {
         max_counterexamples: 2,
         ..ProveRequest::default()
@@ -237,7 +236,7 @@ fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
 /// would fire the watchdog at every delay and fail.
 #[test]
 fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
-    let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::DEFAULT).unwrap();
     for delay in [100, 400, 1_600, 6_400] {
         match with_watchdog_reporting(Duration::from_millis(delay), || {
             backend.prove_kore(ProveRequest::default())

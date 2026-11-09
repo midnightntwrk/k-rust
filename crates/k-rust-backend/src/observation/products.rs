@@ -487,7 +487,7 @@ mod tests {
         #[cfg(feature = "z3")]
         {
             use crate::smt::{SmtSolver, Validity, Z3Solver};
-            let solver = Z3Solver::resource_bounded(&definition).unwrap();
+            let solver = Z3Solver::new(&definition).unwrap();
             let checked = [
                 crate::rule::Predicate::Equals(original, rebuilt),
                 crate::rule::Predicate::Ceil(term(&definition, "first{}(P:SortPair{})")),
@@ -535,7 +535,7 @@ mod tests {
                     rebuilt,
                 )];
                 assert_ne!(
-                    Z3Solver::resource_bounded(&definition)
+                    Z3Solver::new(&definition)
                         .unwrap()
                         .check_predicates(&[], &crate::substitution::Substitution::new(), &checked)
                         .unwrap()
@@ -595,7 +595,7 @@ mod tests {
             term(&definition, "context{}(Q:SortPair{})"),
         )];
         assert_eq!(
-            Z3Solver::resource_bounded(&definition)
+            Z3Solver::new(&definition)
                 .unwrap()
                 .check_predicates(&known, &Substitution::new(), &checked)
                 .unwrap()
@@ -613,7 +613,7 @@ mod tests {
             .into(),
         );
         assert_eq!(
-            Z3Solver::resource_bounded(&definition)
+            Z3Solver::new(&definition)
                 .unwrap()
                 .check_predicates(&[], &Substitution::new(), &[single_scope])
                 .unwrap()
@@ -632,7 +632,7 @@ mod tests {
             Term::int(1),
         )];
         assert_eq!(
-            Z3Solver::resource_bounded(&definition)
+            Z3Solver::new(&definition)
                 .unwrap()
                 .check_predicates(&concrete_alias, &Substitution::new(), &concrete_read)
                 .unwrap()
@@ -662,7 +662,7 @@ mod tests {
           axiom{R} \implies{R}(\top{R}(),\equals{SortInt{},R}(helper{}(tag1{}(),X:SortInt{}),\and{SortInt{}}(X:SortInt{},\top{SortInt{}}()))) [simplification{}()]
         endmodule"#);
         let definition = load(&text);
-        let solver = Z3Solver::resource_bounded(&definition).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
         let alias = Predicate::Equals(
             term(&definition, "T:SortTag{}"),
             term(&definition, "tag0{}()"),

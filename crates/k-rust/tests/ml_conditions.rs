@@ -350,7 +350,7 @@ fn run_states(sentences: &str, n: i64) -> Vec<(String, String, String)> {
 
 /// The leaves of go(n) of the compiled definition `kore` (see [`run_states`]).
 fn run_kore_states(kore: &str, n: i64) -> Vec<(String, String, String)> {
-    let mut backend = Backend::new(kore, "P", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(kore, "P", BackendOptions::DEFAULT).unwrap();
     let state = parse_pattern(&format!(
         "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lblgo{{}}({})), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
         int(&n.to_string()),
@@ -1097,7 +1097,7 @@ fn run_with_flag(sentences: &str, n: i64, flag: i64) -> Vec<(String, String)> {
         CompilationBackend::Rust,
     )
     .definition_kore;
-    let mut backend = Backend::new(&kore, "P", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "P", BackendOptions::DEFAULT).unwrap();
     let state = parse_pattern(&format!(
         "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lblgo{{}}({})), dotk{{}}())), Lbl'-LT-'flag'-GT-'{{}}({}), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
         int(&n.to_string()),
@@ -1424,7 +1424,7 @@ fn prove(rules: &str, claims: &str, claim: &str) -> String {
 
 /// The verdict of proving the claim labelled `claim` of the compiled specification `kore`.
 fn prove_kore(kore: &str, claim: &str) -> String {
-    let mut backend = Backend::new(kore, "P-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(kore, "P-SPEC", BackendOptions::DEFAULT).unwrap();
     backend
         .prove_kore(ProveRequest {
             claim: Some(format!("P-SPEC.{claim}")),

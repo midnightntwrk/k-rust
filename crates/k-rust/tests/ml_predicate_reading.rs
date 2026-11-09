@@ -145,8 +145,8 @@ fn refusal(kore: &str) -> DefinitionError {
     match BackendDefinition::internalize(&syntax, MAIN) {
         Err(error) => error,
         Ok(_) => {
-            let mut backend = Backend::new(kore, MAIN, BackendOptions::RESOURCE_BOUNDED)
-                .expect("the definition loads");
+            let mut backend =
+                Backend::new(kore, MAIN, BackendOptions::DEFAULT).expect("the definition loads");
             panic!(
                 "the definition loads; go(1) gives {:?}, run(1) gives {:?}, pair(3, sa) gives {:?}, \
                  test(true) gives {:?}, test(false) gives {:?}",
@@ -265,7 +265,7 @@ fn assert_reads_term_as_predicate_in(rule: &str, kore: &str) {
             .contains("whose operand is a matching-logic connective over terms"),
         "{error}"
     );
-    let facade = Backend::new(kore, MAIN, BackendOptions::RESOURCE_BOUNDED)
+    let facade = Backend::new(kore, MAIN, BackendOptions::DEFAULT)
         .err()
         .expect("the facade refuses the definition");
     assert!(facade.message().contains("MLP.p"), "{facade}");
@@ -510,7 +510,7 @@ fn predicate_conditions_load_and_answer_as_written() {
     let mut wrong = Vec::new();
     for (rule, extra, runs) in &cases {
         let kore = compile(&source(rule, extra));
-        let mut backend = Backend::new(&kore, MAIN, BackendOptions::RESOURCE_BOUNDED)
+        let mut backend = Backend::new(&kore, MAIN, BackendOptions::DEFAULT)
             .unwrap_or_else(|error| panic!("{rule} loads: {error}"));
         for (argument, expected) in runs {
             let leaves = leaves(&mut backend, "go", *argument);
@@ -592,7 +592,7 @@ fn a_claim_whose_equality_has_a_connective_operand_is_refused() {
     );
     let kore =
         spec("  claim [s]: <k> go(X) => done(X) ... </k> requires (X ==Int 1) #Or (X ==Int 2)");
-    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::RESOURCE_BOUNDED)
+    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::DEFAULT)
         .unwrap_or_else(|error| panic!("the spec loads: {error}"));
     let read = backend.prove_kore(ProveRequest {
         claim: Some("MLP-SPEC.s".into()),
@@ -656,7 +656,7 @@ fn a_claim_with_a_refused_predicate_is_refused_alone() {
         literal,
         r#"\or{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#,
     );
-    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::RESOURCE_BOUNDED)
+    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::DEFAULT)
         .unwrap_or_else(|error| panic!("the spec loads: {error}"));
     let mut wrong = Vec::new();
     for (claim, reason) in [
@@ -701,8 +701,7 @@ fn configuration_of(program: &str) -> String {
 #[test]
 fn a_simplify_request_with_no_term_reads_no_term_as_a_predicate() {
     let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
-    let mut backend =
-        Backend::new(&kore, MAIN, BackendOptions::RESOURCE_BOUNDED).expect("it loads");
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::DEFAULT).expect("it loads");
     let simplify = |backend: &mut Backend, pattern: &str| {
         backend.simplify_kore(
             None,
@@ -736,8 +735,7 @@ fn a_simplify_request_with_no_term_reads_no_term_as_a_predicate() {
 #[test]
 fn a_simplified_predicate_reads_back_as_the_same_predicate() {
     let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
-    let mut backend =
-        Backend::new(&kore, MAIN, BackendOptions::RESOURCE_BOUNDED).expect("it loads");
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::DEFAULT).expect("it loads");
     let simplify = |backend: &mut Backend, pattern: &KorePattern| {
         backend.simplify_kore(None, pattern, Admission::Verified)
     };
@@ -778,8 +776,7 @@ fn a_simplified_predicate_reads_back_as_the_same_predicate() {
 #[test]
 fn an_implication_request_reads_its_predicates_as_written() {
     let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
-    let mut backend =
-        Backend::new(&kore, MAIN, BackendOptions::RESOURCE_BOUNDED).expect("it loads");
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::DEFAULT).expect("it loads");
     let eq = |value: i64| {
         format!(
             "Lbl'UndsEqlsEqls'Int'Unds'{{}}(VarX:SortInt{{}}, \\dv{{SortInt{{}}}}(\"{value}\"))"

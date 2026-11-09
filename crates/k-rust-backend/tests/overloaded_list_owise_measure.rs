@@ -41,7 +41,7 @@ fn measured<T>(work: impl FnOnce() -> T) -> (T, Snapshot) {
 #[test]
 fn ground_nil_cons_case_selection_does_not_branch_or_query_smt() {
     let definition = definition_in(OVERLOADED_LIST_OWISE, "OVERLOADED-LIST-OWISE");
-    let solver = Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = Z3Solver::new(&definition).unwrap();
     let initial = pattern(
         &definition,
         "state{}(getMatchingAux{}(inj{SortBottoms{}, SortExps{}}(dotBottoms{}()), vals{}(one{}(), inj{SortBottoms{}, SortVals{}}(dotBottoms{}()))))",

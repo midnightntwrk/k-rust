@@ -1627,11 +1627,11 @@ fn stop_criterion(
 }
 
 /// The solver options `--smt-resource-limit`, `--smt-clock-ms` and `--smt-retries` give: krs's
-/// resource-bounded default ([`krs_exec::BackendOptions::RESOURCE_BOUNDED`]) with each given one
+/// resource-bounded default ([`krs_exec::BackendOptions::DEFAULT`]) with each given one
 /// in place. `--smt-clock-ms` selects the clock mode, so it and `--smt-resource-limit`, which
 /// bounds the resource mode, are not given together.
 fn solver(exec: &ExecOptions) -> Result<krs_exec::BackendOptions, UsageError> {
-    let mut solver = krs_exec::BackendOptions::RESOURCE_BOUNDED;
+    let mut solver = krs_exec::BackendOptions::DEFAULT;
     #[expect(
         clippy::disallowed_methods,
         reason = "krs's `--smt-clock-ms` asks for the clock"
@@ -3529,7 +3529,7 @@ mod tests {
                 coverage: true,
                 output: TermOutput::Json,
                 color: ColorChoice::Auto,
-                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                solver: krs_exec::BackendOptions::DEFAULT,
                 view_budget: DEFAULT_VIEW_BUDGET,
             })
         );
@@ -3559,7 +3559,7 @@ mod tests {
                 trace: false,
                 output: TermOutput::Pretty,
                 color: ColorChoice::Never,
-                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                solver: krs_exec::BackendOptions::DEFAULT,
                 view_budget: DEFAULT_VIEW_BUDGET,
             })
         );
@@ -3581,7 +3581,7 @@ mod tests {
                 output: TermOutput::Kore,
                 color: ColorChoice::Auto,
                 worker: false,
-                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                solver: krs_exec::BackendOptions::DEFAULT,
                 claim_timeout: None,
             })
         );
@@ -3594,7 +3594,7 @@ mod tests {
                 output: TermOutput::Pretty,
                 color: ColorChoice::Auto,
                 worker: false,
-                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                solver: krs_exec::BackendOptions::DEFAULT,
                 claim_timeout: None,
             })
         );
@@ -3819,10 +3819,7 @@ mod tests {
             args.extend(extra);
             run(&args).0.command
         };
-        assert_eq!(
-            parsed("run", &[]).solver(),
-            BackendOptions::RESOURCE_BOUNDED
-        );
+        assert_eq!(parsed("run", &[]).solver(), BackendOptions::DEFAULT);
         assert_eq!(
             parsed(
                 "search",
@@ -4055,7 +4052,7 @@ mod tests {
                 jobs: None,
                 name: None,
                 output: CasesOutput::Human,
-                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                solver: krs_exec::BackendOptions::DEFAULT,
                 view_budget: DEFAULT_VIEW_BUDGET,
             }
         );
@@ -4329,7 +4326,7 @@ mod tests {
                 views: std::collections::BTreeMap::new(),
                 observer: None,
                 output: CompareOutput::Human,
-                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                solver: krs_exec::BackendOptions::DEFAULT,
                 view_budget: DEFAULT_VIEW_BUDGET,
             }
         );

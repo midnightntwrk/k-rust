@@ -269,7 +269,7 @@ impl Command {
 
     /// The solver options of the backends the command builds: what `run`, `search` and `prove`
     /// were given (`--smt-resource-limit`, `--smt-clock-ms`, `--smt-retries`), and krs's default,
-    /// [`krs_exec::BackendOptions::RESOURCE_BOUNDED`], for every other command.
+    /// [`krs_exec::BackendOptions::DEFAULT`], for every other command.
     #[must_use]
     pub const fn solver(&self) -> krs_exec::BackendOptions {
         match self {
@@ -278,7 +278,7 @@ impl Command {
             Self::Prove(request) => request.solver,
             Self::Cases(request) => request.solver,
             Self::Compare(request) => request.solver,
-            _ => krs_exec::BackendOptions::RESOURCE_BOUNDED,
+            _ => krs_exec::BackendOptions::DEFAULT,
         }
     }
 

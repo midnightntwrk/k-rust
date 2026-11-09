@@ -3882,12 +3882,9 @@ module TEST
   sort SortK{} []
   symbol value{}() : SortK{} [constructor{}()]
 endmodule []"#;
-        let mut backend = super::super::Backend::new(
-            definition,
-            "TEST",
-            super::super::BackendOptions::RESOURCE_BOUNDED,
-        )
-        .unwrap();
+        let mut backend =
+            super::super::Backend::new(definition, "TEST", super::super::BackendOptions::DEFAULT)
+                .unwrap();
         let pattern = backend
             .internalize_executable(
                 None,

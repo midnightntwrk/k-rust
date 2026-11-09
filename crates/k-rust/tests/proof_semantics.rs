@@ -67,7 +67,7 @@ fn compile(source: &str, spec: &str, definition: &str) -> String {
 
 /// The prover's result for the claim `claim` (a label or `#index`) of `spec`.
 fn prove(kore: &str, spec: &str, claim: &str, request: ProveRequest) -> KoreProofResult {
-    prove_with(kore, spec, claim, request, BackendOptions::RESOURCE_BOUNDED)
+    prove_with(kore, spec, claim, request, BackendOptions::DEFAULT)
 }
 
 fn prove_with(
@@ -1214,8 +1214,7 @@ endmodule
 "#;
     let kore = compile(SOURCE, "ORD-SPEC", "ORD");
     let statuses = with_evaluation(EvaluationMode::Execution, || {
-        let mut backend =
-            Backend::new(&kore, "ORD-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+        let mut backend = Backend::new(&kore, "ORD-SPEC", BackendOptions::DEFAULT).unwrap();
         ["ORD-SPEC.text-order", "ORD-SPEC.some-list"].map(|claim| {
             backend
                 .prove_kore(ProveRequest {
@@ -2677,7 +2676,7 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
         matrix_source()
     );
     let kore = compile(&source, "FU42-SPEC", "FU42-SOLVER");
-    let mut backend = Backend::new(&kore, "FU42-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "FU42-SPEC", BackendOptions::DEFAULT).unwrap();
     let top = format!("\\top{{{TOP}}}()");
     let not_zero = format!(
         "\\not{{{TOP}}}(\\equals{{SortInt{{}}, {TOP}}}(VarN:SortInt{{}}, \\dv{{SortInt{{}}}}(\"0\")))"
@@ -2881,7 +2880,7 @@ module DISJ-SPEC
 endmodule
 "#;
     let kore = compile(source, "DISJ-SPEC", "DEFPROBE");
-    let mut backend = Backend::new(&kore, "DISJ-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "DISJ-SPEC", BackendOptions::DEFAULT).unwrap();
     let selector = "DISJ-SPEC.disj";
     let error = backend
         .prove_kore(ProveRequest {
@@ -3014,8 +3013,7 @@ fn defprobe_backend() -> (Backend, String) {
         "DEFPROBE-SPEC",
         "DEFPROBE",
     );
-    let mut backend =
-        Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::DEFAULT).unwrap();
     let name = backend.add_module(&module, false).unwrap();
     (backend, name)
 }
@@ -3140,12 +3138,8 @@ fn a_claim_whose_constraints_have_no_explicit_form_is_refused_alone() {
         "DEFPROBE-REFUSED-SPEC",
         "DEFPROBE",
     );
-    let mut backend = Backend::new(
-        &kore,
-        "DEFPROBE-REFUSED-SPEC",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap();
+    let mut backend =
+        Backend::new(&kore, "DEFPROBE-REFUSED-SPEC", BackendOptions::DEFAULT).unwrap();
     let proven = backend
         .prove_kore(ProveRequest {
             claim: Some("DEFPROBE-REFUSED-SPEC.cposctl".into()),
@@ -3182,8 +3176,7 @@ fn a_claim_with_an_equality_reading_a_term_as_a_predicate_is_refused() {
         "DEFPROBE-SPEC",
         "DEFPROBE",
     );
-    let mut backend =
-        Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::DEFAULT).unwrap();
     let module = backend
         .add_module(
             &format!(
@@ -3523,7 +3516,7 @@ endmodule
     let parsed = parse_definition(&kore).expect("definition.kore parses");
     let definition = BackendDefinition::internalize(&parsed, "DOMAIN-GRID-SPEC")
         .expect("definition.kore internalizes");
-    let solver = Z3Solver::resource_bounded(&definition).expect("Z3 starts");
+    let solver = Z3Solver::new(&definition).expect("Z3 starts");
     let term = |text: &str| {
         definition
             .admit_unverified(&parse_pattern(text).expect("pattern parses"), &[])
@@ -3702,12 +3695,8 @@ fn literal_equation_rows_apply_only_when_the_complete_condition_is_established()
         "LITERAL-CONDITIONS-SPEC",
         "LITERAL-CONDITIONS",
     );
-    let mut backend = Backend::new(
-        &kore,
-        "LITERAL-CONDITIONS-SPEC",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap();
+    let mut backend =
+        Backend::new(&kore, "LITERAL-CONDITIONS-SPEC", BackendOptions::DEFAULT).unwrap();
     for (label, proven) in [
         ("true-row", true),
         ("false-row", true),
@@ -3754,12 +3743,8 @@ fn scalar_equalities_compose_through_pure_functions_injections_and_symbolic_writ
         "CONTEXTUAL-EQUALITY-SPEC",
         "CONTEXTUAL-EQUALITY",
     );
-    let mut backend = Backend::new(
-        &kore,
-        "CONTEXTUAL-EQUALITY-SPEC",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap();
+    let mut backend =
+        Backend::new(&kore, "CONTEXTUAL-EQUALITY-SPEC", BackendOptions::DEFAULT).unwrap();
     for (label, proven) in [
         ("opaque", true),
         ("named", true),
@@ -3881,12 +3866,7 @@ module PROOF-EVIDENCE-SPEC
 endmodule
 "#;
     let kore = compile(source, "PROOF-EVIDENCE-SPEC", "PROOF-EVIDENCE");
-    let mut backend = Backend::new(
-        &kore,
-        "PROOF-EVIDENCE-SPEC",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap();
+    let mut backend = Backend::new(&kore, "PROOF-EVIDENCE-SPEC", BackendOptions::DEFAULT).unwrap();
     let request = ProveRequest {
         claim: Some("PROOF-EVIDENCE-SPEC.empty".into()),
         allow_vacuous: true,

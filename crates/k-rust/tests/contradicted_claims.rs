@@ -54,7 +54,7 @@ endmodule
 
 fn definition() -> std::sync::Arc<BackendDefinition> {
     let kore = compile(CLAIMS, "CLAIMS");
-    let mut backend = Backend::new(&kore, "CLAIMS", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(&kore, "CLAIMS", BackendOptions::DEFAULT).unwrap();
     backend.select_definition(None).unwrap()
 }
 
@@ -232,7 +232,7 @@ endmodule
 
     /// [`backend`] for main module `main`.
     pub(super) fn backend_in(kore: &str, main: &str) -> Backend {
-        Backend::new(kore, main, BackendOptions::RESOURCE_BOUNDED).unwrap()
+        Backend::new(kore, main, BackendOptions::DEFAULT).unwrap()
     }
 
     /// One record as a consumer reads it: the claim, the contradicted symbol's K label, the
@@ -2346,7 +2346,7 @@ mod checks_off {
     /// counter equal). The clock-free options bound each attempt by Z3's own resource units, which
     /// no load changes, and a run here counts about a thousand, far within the first attempt's
     /// 370,000; so every query is decided on its first attempt and the count is the queries' own.
-    const SOLVER_OPTIONS: BackendOptions = BackendOptions::RESOURCE_BOUNDED;
+    const SOLVER_OPTIONS: BackendOptions = BackendOptions::DEFAULT;
 
     /// The backend of `kore` with main module `main`, under [`SOLVER_OPTIONS`].
     fn backend_in(kore: &str, main: &str) -> Backend {

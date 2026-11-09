@@ -606,7 +606,7 @@ impl RpcService {
     #[cfg(test)]
     pub(super) fn new(session: BackendSession) -> Self {
         Self::with_backend(
-            Backend::from_session(session, BackendOptions::RESOURCE_BOUNDED, None)
+            Backend::from_session(session, BackendOptions::DEFAULT, None)
                 .expect("test backend should initialize"),
         )
     }
@@ -3464,12 +3464,7 @@ endmodule
         .unwrap();
         let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
         RpcService::with_backend(
-            Backend::new(
-                &compiled.definition_kore,
-                "HZ",
-                BackendOptions::RESOURCE_BOUNDED,
-            )
-            .unwrap(),
+            Backend::new(&compiled.definition_kore, "HZ", BackendOptions::DEFAULT).unwrap(),
         )
     }
 
@@ -3531,7 +3526,7 @@ endmodule
                 ) [label{}("cd")]
             endmodule []"#;
         let mut service = RpcService::with_backend(
-            k_rust::backend::Backend::new(CHAIN, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap(),
+            k_rust::backend::Backend::new(CHAIN, "MAIN", BackendOptions::DEFAULT).unwrap(),
         );
         let state = encode_kore(&parse_pattern("a{}()").unwrap()).unwrap();
         let rules = json!(["ab", "bc", "cd"]);
@@ -3598,12 +3593,7 @@ endmodule
         .unwrap();
         let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
         RpcService::with_backend(
-            Backend::new(
-                &compiled.definition_kore,
-                "ORDREQ",
-                BackendOptions::RESOURCE_BOUNDED,
-            )
-            .unwrap(),
+            Backend::new(&compiled.definition_kore, "ORDREQ", BackendOptions::DEFAULT).unwrap(),
         )
     }
 
@@ -3680,12 +3670,7 @@ endmodule
         .unwrap();
         let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
         RpcService::with_backend(
-            Backend::new(
-                &compiled.definition_kore,
-                "MIXED",
-                BackendOptions::RESOURCE_BOUNDED,
-            )
-            .unwrap(),
+            Backend::new(&compiled.definition_kore, "MIXED", BackendOptions::DEFAULT).unwrap(),
         )
     }
 
@@ -5040,7 +5025,7 @@ endmodule
         )
         .unwrap();
         let mut service = RpcService::with_backend(
-            Backend::from_definition(syntax, "MAIN", BackendOptions::RESOURCE_BOUNDED)
+            Backend::from_definition(syntax, "MAIN", BackendOptions::DEFAULT)
                 .expect("an unused SMT prelude does not affect initialization"),
         );
         let zero_query = request(
@@ -5177,7 +5162,7 @@ endmodule
             Backend::from_definition(
                 parse_definition(STUCK_UNDER_AN_INCONSISTENT_PRELUDE).unwrap(),
                 "MAIN",
-                BackendOptions::RESOURCE_BOUNDED,
+                BackendOptions::DEFAULT,
             )
             .expect("an unused SMT prelude does not affect initialization")
         };

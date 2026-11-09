@@ -287,7 +287,7 @@ fn a_match_pattern_variable_is_its_own_variable_and_a_free_map_key_is_refused() 
     let kore = compile_loaded_definition(&load("P", source), CompileOptions::default())
         .unwrap_or_else(|error| panic!("{:?}", rendered(&error.diagnostics)))
         .definition_kore;
-    let mut backend = Backend::new(&kore, "P", BackendOptions::RESOURCE_BOUNDED)
+    let mut backend = Backend::new(&kore, "P", BackendOptions::DEFAULT)
         .unwrap_or_else(|error| panic!("Backend::new: {error}"));
     let go = "Lblgo'LParUndsRParUnds'P'Unds'KItem'Unds'Int{}";
     let initial = parse_pattern(&format!(

@@ -281,7 +281,7 @@ fn a_traced_query_answers_as_untraced_and_replays_to_its_answers() {
 fn a_rejected_script_is_recorded() {
     let scratch = Scratch::new("rejected");
     let script = "(assert (> undeclared 0))";
-    let solver = Z3Solver::resource_bounded(&definition()).unwrap();
+    let solver = Z3Solver::new(&definition()).unwrap();
     with_directory(Some(&scratch.0), false, || {
         assert!(matches!(solver.solve_uncached(script), Ok(Err(_))));
     });

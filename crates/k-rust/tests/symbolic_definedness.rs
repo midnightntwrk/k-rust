@@ -128,12 +128,7 @@ fn backend() -> Backend {
 }
 
 fn backend_over(definition_kore: &str) -> Backend {
-    Backend::new(
-        definition_kore,
-        "DEFPROBE",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap()
+    Backend::new(definition_kore, "DEFPROBE", BackendOptions::DEFAULT).unwrap()
 }
 
 fn compile(source: &str) -> String {
@@ -1977,8 +1972,7 @@ mod claim_constraints {
     #[test]
     fn a_claim_is_proven_only_where_its_constraints_meaning_makes_it_hold() {
         let kore = compile();
-        let mut backend =
-            Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::RESOURCE_BOUNDED).unwrap();
+        let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::DEFAULT).unwrap();
         let mut statuses = Vec::new();
         for claim in [
             "cpos", "cposctl", "cneg", "cnoteq", "cnegml", "cmeq", "crhs", "crhsatom", "cens",

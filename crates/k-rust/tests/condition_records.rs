@@ -102,7 +102,7 @@ impl Definition {
     }
 
     fn backend(&self) -> Backend {
-        Backend::new(&self.kore, self.main, BackendOptions::RESOURCE_BOUNDED).unwrap()
+        Backend::new(&self.kore, self.main, BackendOptions::DEFAULT).unwrap()
     }
 
     fn request(&self, program: &str, conditions: Option<ConditionCollection>) -> ExecuteRequest {

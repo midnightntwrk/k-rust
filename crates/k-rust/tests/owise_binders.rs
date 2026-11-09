@@ -600,7 +600,7 @@ fn check(shape: &Shape) -> Vec<String> {
     if shape.position == Position::Argument {
         return problems;
     }
-    let backend = Backend::new(&kore, "P", BackendOptions::RESOURCE_BOUNDED);
+    let backend = Backend::new(&kore, "P", BackendOptions::DEFAULT);
     match (shape.position, backend) {
         (Position::Argument, _) => unreachable!("an argument shape is not loaded"),
         (Position::Condition, Err(error)) => {

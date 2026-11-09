@@ -265,7 +265,7 @@ fn a_set_aside_equation_whose_requires_is_refuted_lets_the_owise_equation_apply(
             ),
         ],
     );
-    let solver = Z3Solver::resource_bounded(&definition).unwrap();
+    let solver = Z3Solver::new(&definition).unwrap();
     let subject = internal_term(&definition, "g{}(VarN:SortInt{})");
     let below = |bound: i64| {
         let syntax = parse_pattern(&format!(

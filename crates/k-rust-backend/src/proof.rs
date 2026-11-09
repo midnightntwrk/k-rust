@@ -3329,8 +3329,7 @@ mod tests {
     #[test]
     fn a_claim_requires_over_a_partial_term_leaves_its_undefined_instances() {
         let definition = partial_claim_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let claim = partial_claim(
             &definition,
             r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#,
@@ -3381,8 +3380,7 @@ mod tests {
     #[test]
     fn a_claim_on_a_subject_whose_term_defines_the_partial_term_leaves_no_remainder() {
         let definition = partial_claim_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let claim = partial_claim(
             &definition,
             r#"pair{}(X:SortInt{}, Z:SortInt{})"#,
@@ -3744,8 +3742,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -3867,8 +3864,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -3929,8 +3925,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -3990,8 +3985,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -4453,8 +4447,7 @@ mod tests {
     #[cfg(feature = "z3")]
     fn a_refuted_binding_of_a_variable_state_leaves_the_whole_state_uncovered_under_z3() {
         let definition = variable_state_definition();
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         assert_a_refuted_binding_leaves_the_whole_state_uncovered(&solver);
     }
 
@@ -4502,8 +4495,7 @@ mod tests {
         .expect("remainder implication probe should parse");
         let definition = BackendDefinition::internalize(&syntax, "MAIN")
             .expect("remainder implication probe should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -4898,8 +4890,7 @@ mod tests {
         .expect("disjunctive contingent destination probe should parse");
         let definition = BackendDefinition::internalize(&syntax, "MAIN")
             .expect("disjunctive contingent destination probe should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -5157,8 +5148,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         // The step's result `X |-> "new" Y |-> "old" REST` is undefined where `X` is a key of the
         // antecedent's map: the claim fails there, and holds on every other instance.
@@ -8099,8 +8089,7 @@ mod tests {
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
         let result = prove_claim(
             &definition,
@@ -8305,8 +8294,7 @@ mod tests {
             for reverse_claims in [false, true] {
                 let definition =
                     overlapping_claim_remainder_definition(mode, reverse_claims, true, true, true);
-                let solver = crate::smt::Z3Solver::resource_bounded(&definition)
-                    .expect("Z3 should initialize");
+                let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
                 let result = prove_claim(
                     &definition,
                     claim_with_label(&definition, "main"),
@@ -8392,8 +8380,7 @@ mod tests {
             for reverse_claims in [false, true] {
                 let definition =
                     overlapping_claim_remainder_definition(mode, reverse_claims, true, true, true);
-                let solver = crate::smt::Z3Solver::resource_bounded(&definition)
-                    .expect("Z3 should initialize");
+                let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
                 let mut claim = claim_with_label(&definition, "ab").clone();
                 claim.attributes.trusted = false;
                 let result =
@@ -8422,8 +8409,7 @@ mod tests {
     fn overlapping_claim_remainders_require_complement_coverage_and_semantic_progress() {
         for mode in [ReachabilityMode::OnePath, ReachabilityMode::AllPath] {
             let without_d = overlapping_claim_remainder_definition(mode, false, true, false, true);
-            let solver =
-                crate::smt::Z3Solver::resource_bounded(&without_d).expect("Z3 should initialize");
+            let solver = crate::smt::Z3Solver::new(&without_d).expect("Z3 should initialize");
             let result = prove_claim(
                 &without_d,
                 claim_with_label(&without_d, "main"),
@@ -8452,8 +8438,8 @@ mod tests {
 
             let without_progress =
                 overlapping_claim_remainder_definition(mode, false, false, true, false);
-            let solver = crate::smt::Z3Solver::resource_bounded(&without_progress)
-                .expect("Z3 should initialize");
+            let solver =
+                crate::smt::Z3Solver::new(&without_progress).expect("Z3 should initialize");
             let result = prove_claim(
                 &without_progress,
                 claim_with_label(&without_progress, "main"),
@@ -8673,10 +8659,9 @@ mod tests {
             match solver {
                 None => prove(&NoSolver),
                 #[cfg(feature = "z3")]
-                Some(_) => prove(
-                    &crate::smt::Z3Solver::resource_bounded(&definition)
-                        .expect("Z3 should initialize"),
-                ),
+                Some(_) => {
+                    prove(&crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize"))
+                }
                 #[cfg(not(feature = "z3"))]
                 Some(_) => unreachable!("Z3 runs only with the z3 feature"),
             }

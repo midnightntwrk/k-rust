@@ -214,12 +214,8 @@ fn assert_each_case_listed(position: Position) {
         .unwrap_or_else(|error| panic!("{position:?}: compile: {error}"));
     let frontend = loaded.into_definition();
     let grammar = ProgramGrammar::new(&frontend).unwrap();
-    let mut backend = Backend::new(
-        &artifacts.definition_kore,
-        "MAIN",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap();
+    let mut backend =
+        Backend::new(&artifacts.definition_kore, "MAIN", BackendOptions::DEFAULT).unwrap();
     for (index, (hook, application)) in CASES.iter().enumerate() {
         let mut assembler = ConfigurationAssembler::new(
             &grammar,
@@ -383,12 +379,8 @@ endmodule
         .unwrap_or_else(|error| panic!("compile: {error}"));
     let frontend = loaded.into_definition();
     let grammar = ProgramGrammar::new(&frontend).unwrap();
-    let mut backend = Backend::new(
-        &artifacts.definition_kore,
-        "MAIN",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap();
+    let mut backend =
+        Backend::new(&artifacts.definition_kore, "MAIN", BackendOptions::DEFAULT).unwrap();
     for (program, listed) in [("go(1)", None), ("get(0)", Some("IO.getc"))] {
         let mut assembler = ConfigurationAssembler::new(
             &grammar,

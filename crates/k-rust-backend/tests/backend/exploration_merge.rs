@@ -883,7 +883,7 @@ fn a_refuted_remainder_below_a_merged_state_names_the_witness_paths_producing_ru
     let syntax = parse_definition(source).expect("definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-    let solver = Z3Solver::resource_bounded(&definition).expect("the solver starts");
+    let solver = Z3Solver::new(&definition).expect("the solver starts");
     let leaves = |function: &str, modality| {
         let initial = pattern(
             &definition,

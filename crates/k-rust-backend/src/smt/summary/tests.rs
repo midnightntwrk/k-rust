@@ -843,7 +843,7 @@ fn constructor_valued_tables_are_summaries_with_constructor_leaves() {
 fn independent_constructor_tables_agree_where_their_rows_agree() {
     use crate::smt::{SmtSolver, Validity, Z3Solver};
     let d = definition(&op_tables());
-    let solver = Z3Solver::resource_bounded(&d).unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
     let agree = Predicate::Equals(
         term(&d, "opTable{}(X:SortInt{})"),
         term(&d, "opTable2{}(X:SortInt{})"),
@@ -1161,7 +1161,7 @@ fn scalar_function_parameters_are_local_under_nested_quantifiers() {
     assert!(!q.base().contains("declare-const"), "{}", q.base());
     assert!(q.base().contains("define-fun"));
     assert_eq!(
-        Z3Solver::resource_bounded(&d).unwrap().check_predicates(
+        Z3Solver::new(&d).unwrap().check_predicates(
             &[],
             &crate::substitution::Substitution::new(),
             &[p]
@@ -1183,23 +1183,19 @@ fn native_models_and_mutants_read_the_actual_finite_source() {
         )
     };
     assert_eq!(
-        Z3Solver::resource_bounded(&baseline)
-            .unwrap()
-            .check_predicates(
-                &[],
-                &crate::substitution::Substitution::new(),
-                &[claim(&baseline)]
-            ),
+        Z3Solver::new(&baseline).unwrap().check_predicates(
+            &[],
+            &crate::substitution::Substitution::new(),
+            &[claim(&baseline)]
+        ),
         Ok(Ok(Validity::Valid))
     );
     assert_eq!(
-        Z3Solver::resource_bounded(&changed)
-            .unwrap()
-            .check_predicates(
-                &[],
-                &crate::substitution::Substitution::new(),
-                &[claim(&changed)]
-            ),
+        Z3Solver::new(&changed).unwrap().check_predicates(
+            &[],
+            &crate::substitution::Substitution::new(),
+            &[claim(&changed)]
+        ),
         Ok(Ok(Validity::Refuted))
     );
 }
@@ -1262,7 +1258,7 @@ fn shared_word_variants_compose_with_independent_arithmetic_under_native_default
         assert!(q.model_mappings().is_none());
         let counters = k_rust_kore::measure::snapshot();
         let started = std::time::Instant::now();
-        let result = Z3Solver::resource_bounded(&d).unwrap().check_predicates(
+        let result = Z3Solver::new(&d).unwrap().check_predicates(
             &known,
             &crate::substitution::Substitution::new(),
             &[claim],
@@ -1358,7 +1354,7 @@ fn distinct_argument_dependency_diamonds_share_integer_and_word_definitions() {
     let mut known = range(&d, "X", 256);
     known.push(claim);
     assert_eq!(
-        Z3Solver::resource_bounded(&d)
+        Z3Solver::new(&d)
             .unwrap()
             .is_sat(&known, &crate::substitution::Substitution::new()),
         Ok(Ok(Satisfiability::Sat))
@@ -1379,7 +1375,7 @@ fn actual_model_queries_preserve_exact_helper_and_opaque_fallback_boundaries() {
     };
     let d = definition(&bit_rows());
     let predicate = Predicate::Equals(term(&d, "bit{}(B:SortBool{})"), term(&d, &int(1)));
-    let result = model_of(&d, &predicate, &Z3Solver::resource_bounded(&d).unwrap())
+    let result = model_of(&d, &predicate, &Z3Solver::new(&d).unwrap())
         .unwrap()
         .unwrap();
     let ModelResult::Sat(values) = result else {
@@ -1405,7 +1401,7 @@ fn actual_model_queries_preserve_exact_helper_and_opaque_fallback_boundaries() {
     let result = model_of(
         &d,
         &Predicate::And(predicates.into()),
-        &Z3Solver::resource_bounded(&d).unwrap(),
+        &Z3Solver::new(&d).unwrap(),
     )
     .unwrap()
     .unwrap();
@@ -1441,7 +1437,7 @@ fn exact_range_profiles_are_query_local_and_source_ownership_outlives_the_loader
     assert_eq!(q.base().matches("(define-fun SMT-WORD-").count(), 2);
     let solver = {
         let d = definition(&bit_rows());
-        Z3Solver::resource_bounded(&d).unwrap()
+        Z3Solver::new(&d).unwrap()
     };
     let claim = Predicate::Equals(
         term(
@@ -1552,7 +1548,7 @@ fn compiled_foldiboy_shared_emission_uses_original_helper_bodies() {
     predicates.extend(checked);
     let started = std::time::Instant::now();
     assert_eq!(
-        Z3Solver::resource_bounded(&d)
+        Z3Solver::new(&d)
             .unwrap()
             .is_sat(&predicates, &crate::substitution::Substitution::new()),
         Ok(Ok(Satisfiability::Sat))
@@ -1681,7 +1677,7 @@ fn partial_helper_domains_follow_the_selected_source_branch_and_keep_every_call_
     };
     let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
         .unwrap();
-    let solver = Z3Solver::resource_bounded(&d).unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
     let call = |head: &str, b: bool, x: i64, y: i64| {
         term(
             &d,
@@ -1745,7 +1741,7 @@ fn total_helper_declarations_keep_totality_and_an_opaque_value_outside_the_sourc
     };
     let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
         .unwrap();
-    let solver = Z3Solver::resource_bounded(&d).unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
     let call = term(
         &d,
         &format!("totalChoose{{}}({},{},{})", boolv(true), int(6), int(0)),
@@ -1801,7 +1797,7 @@ fn a_summary_over_a_hooked_partial_operation_has_exact_models() {
     };
     let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
         .unwrap();
-    let solver = Z3Solver::resource_bounded(&d).unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
     let b = Variable::new("B", Sort::simple("SortBool"));
     let y = Variable::new("Y", Sort::simple("SortInt"));
     let call = "choose{}(B:SortBool{},X:SortInt{},Y:SortInt{})";
@@ -1865,7 +1861,7 @@ fn partial_helper_mutations_and_explicit_domain_rows_keep_their_actual_source_me
     );
     for (source, expected, defined_at_zero) in [(&baseline, 3, false), (&changed, 2, true)] {
         let d = BackendDefinition::internalize(&parse_definition(source).unwrap(), "MAIN").unwrap();
-        let solver = Z3Solver::resource_bounded(&d).unwrap();
+        let solver = Z3Solver::new(&d).unwrap();
         let value = term(
             &d,
             &format!("choose{{}}({},{},{})", boolv(true), int(6), int(2)),
@@ -1977,7 +1973,7 @@ fn a_source_decided_nullary_partial_domain_needs_no_empty_boolean_application() 
     "#,
     );
     assert_eq!(
-        Z3Solver::resource_bounded(&d).unwrap().check_predicates(
+        Z3Solver::new(&d).unwrap().check_predicates(
             &[],
             &Substitution::new(),
             &[Predicate::Not(Arc::new(Predicate::Ceil(term(
@@ -2041,7 +2037,7 @@ fn a_globally_defined_partial_helper_can_supply_a_total_partition_test() {
             .unwrap()
             .unwrap();
         assert!(summary.domain_total);
-        let solver = Z3Solver::resource_bounded(&d).unwrap();
+        let solver = Z3Solver::new(&d).unwrap();
         for (x, result) in [(-1, 9), (0, 7), (1, 7)] {
             assert_eq!(
                 solver.check_predicates(
@@ -2067,7 +2063,7 @@ fn a_partial_boolean_summary_keeps_false_values_distinct_from_false_domains() {
     };
     let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
         .unwrap();
-    let solver = Z3Solver::resource_bounded(&d).unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
     let defined_false = term(
         &d,
         &format!("chooseBool{{}}({},{},{})", boolv(false), int(6), int(0)),
@@ -2248,7 +2244,7 @@ fn branching_functions_are_equal_exactly_where_their_rows_agree() {
         substitution::Substitution,
     };
     let d = definition(&quotient_partition_rows());
-    let solver = Z3Solver::resource_bounded(&d).unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
     let equal = |left: &str, right: &str| {
         solver.check_predicates(
             &[],

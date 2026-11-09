@@ -72,7 +72,7 @@ pub const K_RUST_REVISION: &str = env!("KINK_K_RUST_VERSION");
 /// the time a run may take is bounded outside the solver (`ExecutionBudget::time`), and a run
 /// that bound stops is never stored.
 pub const BACKEND_OPTIONS: k_rust::backend::BackendOptions =
-    k_rust::backend::BackendOptions::RESOURCE_BOUNDED;
+    k_rust::backend::BackendOptions::DEFAULT;
 
 /// The first attempt's Z3 resource units of [`BACKEND_OPTIONS`] (k-rust's
 /// `DEFAULT_SMT_RESOURCE_LIMIT`, which states how it was calibrated).

@@ -212,8 +212,7 @@ fn an_implication_binder_named_like_an_antecedent_variable_captures_nothing() {
     assert_eq!(status("W", &NoSolver, &definition), control);
     #[cfg(feature = "z3")]
     {
-        let solver =
-            crate::smt::Z3Solver::resource_bounded(&definition).expect("Z3 should initialize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         let control = status("V", &solver, &definition);
         assert_ne!(control, ImplicationStatus::Valid);
         assert_eq!(status("W", &solver, &definition), control);

@@ -148,7 +148,7 @@ fn compile(source: &str, programs: &[&str]) -> (String, Vec<Pattern>) {
 }
 
 fn backend(kore: &str) -> Backend {
-    Backend::new(kore, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap()
+    Backend::new(kore, "MAIN", BackendOptions::DEFAULT).unwrap()
 }
 
 /// One entry as a consumer reads it: the operator, the outcome, the observing rule's label and

@@ -50,12 +50,7 @@ fn definition_kore() -> std::sync::Arc<String> {
 }
 
 fn backend() -> Backend {
-    Backend::new(
-        &definition_kore(),
-        "MATCH",
-        BackendOptions::RESOURCE_BOUNDED,
-    )
-    .unwrap()
+    Backend::new(&definition_kore(), "MATCH", BackendOptions::DEFAULT).unwrap()
 }
 
 fn int(value: i64) -> String {

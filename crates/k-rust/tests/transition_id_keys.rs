@@ -21,7 +21,7 @@ const DEFINITION: &str = r#"[]
 
 #[test]
 fn public_observed_transition_ids_are_ordered_hash_keys() {
-    let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::DEFAULT).unwrap();
     let state = parse_pattern("a{}()").unwrap();
     let result = backend
         .search_observed_kore(ObservedRequest {

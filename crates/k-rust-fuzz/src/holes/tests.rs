@@ -930,8 +930,7 @@ fn the_program_and_definition_files_are_never_modified() {
     assert_eq!(check.check(&built, &values), Ok(()));
     // The swapped values are at the wrong positions.
     assert!(check.check(&built, &[int(11), int(-7)]).is_err());
-    let mut backend =
-        build_backend(&definition, BackendOptions::RESOURCE_BOUNDED).expect("a backend");
+    let mut backend = build_backend(&definition, BackendOptions::DEFAULT).expect("a backend");
     let result = backend
         .execute_kore(ExecuteRequest::new(built))
         .expect("the case executes");
@@ -1053,8 +1052,7 @@ fn a_case_binds_the_streams_as_krun_does_with_an_empty_standard_input() {
     assert!(at("$LIMIT") < at("$IO"), "{text}");
     assert!(at("$IO") < at("$STDIN"), "{text}");
 
-    let mut backend =
-        build_backend(definition, BackendOptions::RESOURCE_BOUNDED).expect("a backend");
+    let mut backend = build_backend(definition, BackendOptions::DEFAULT).expect("a backend");
     let result = backend
         .execute_kore(ExecuteRequest {
             max_depth: Some(0),
@@ -1533,12 +1531,12 @@ fn a_literal_that_is_part_of_a_token_is_refused() {
 #[test]
 fn backends_are_built_on_the_route_the_definition_names() {
     let definition = imp();
-    build_backend(definition, BackendOptions::RESOURCE_BOUNDED).expect("krun's route");
+    build_backend(definition, BackendOptions::DEFAULT).expect("krun's route");
     let from_definition = CompiledDefinition {
         route: BackendRoute::FromDefinition,
         ..definition.clone()
     };
-    build_backend(&from_definition, BackendOptions::RESOURCE_BOUNDED).expect("kink's route");
+    build_backend(&from_definition, BackendOptions::DEFAULT).expect("kink's route");
 }
 
 #[test]

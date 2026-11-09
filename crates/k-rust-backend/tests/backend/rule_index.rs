@@ -890,7 +890,7 @@ fn a_cell_map_rest_steps_like_a_subject_the_index_does_not_key() {
     use super::support::unstopped::rewrite_step_with_solver;
 
     let definition = thread_map_definition();
-    let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = Z3Solver::new(&definition).expect("Z3 should start");
     let labels = |spare: &str| {
         let subject = thread_map_subject(&definition, spare);
         let result =
@@ -994,7 +994,7 @@ fn a_ground_thread_map_steps_by_the_heads_of_its_threads() {
     use super::support::unstopped::rewrite_step_with_solver;
 
     let definition = thread_map_definition();
-    let solver = Z3Solver::resource_bounded(&definition).expect("Z3 should start");
+    let solver = Z3Solver::new(&definition).expect("Z3 should start");
     for heads in THREAD_SHAPES {
         let subject = Pattern {
             term: ground_threads(&definition, heads),

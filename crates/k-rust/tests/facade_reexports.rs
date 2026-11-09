@@ -75,7 +75,7 @@ fn accepts_backend_cause(cause: k_rust::k_rust_backend::stop::StopCause) -> Stop
 
 #[test]
 fn a_host_runs_an_operation_with_facade_names_only() {
-    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::DEFAULT).unwrap();
     let token = CancellationToken::new();
     let module = token
         .scope(|| {
@@ -114,7 +114,7 @@ fn an_execute_cancelled_before_it_starts_reports_the_cancelled_cause() {
     use k_rust::backend::ExecuteRequest;
     use k_rust::kore::parser::parse_pattern;
 
-    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::RESOURCE_BOUNDED).unwrap();
+    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::DEFAULT).unwrap();
     let token = CancellationToken::new();
     token.cancel();
     let request = ExecuteRequest::new(parse_pattern("value{}()").unwrap());
