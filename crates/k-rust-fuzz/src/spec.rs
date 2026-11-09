@@ -509,10 +509,9 @@ pub struct BackendSettings {
 
 impl Default for BackendSettings {
     fn default() -> Self {
-        let defaults = BackendOptions::default();
         Self {
-            smt_timeout_ms: defaults.smt_timeout_ms,
-            smt_retry_limit: defaults.smt_retry_limit,
+            smt_timeout_ms: 125,
+            smt_retry_limit: BackendOptions::DEFAULT.smt_retry_limit,
         }
     }
 }
@@ -520,11 +519,14 @@ impl Default for BackendSettings {
 impl BackendSettings {
     /// The backend options these settings stand for.
     #[must_use]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the fuzz campaign's `smt-timeout-ms` is still a clock with a 125 ms default (CF-33 unit 4 makes units the default)"
+    )]
     pub fn options(self) -> BackendOptions {
         BackendOptions {
-            smt_timeout_ms: self.smt_timeout_ms,
+            smt_budget: k_rust::backend::SmtBudget::clock(self.smt_timeout_ms),
             smt_retry_limit: self.smt_retry_limit,
-            smt_resource_limit: None,
         }
     }
 }

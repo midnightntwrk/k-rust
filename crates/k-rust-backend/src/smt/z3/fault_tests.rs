@@ -306,9 +306,8 @@ fn replay_child() {
         let solver = Z3Solver::with_options(
             &d,
             Z3Options {
-                resource_limit: NonZeroU32::new(limit),
+                budget: SmtBudget::Units(std::num::NonZeroU32::new(limit).unwrap()),
                 retry_limit: retries,
-                ..Z3Options::default()
             },
         )
         .unwrap();

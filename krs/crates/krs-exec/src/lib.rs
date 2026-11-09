@@ -104,7 +104,7 @@ pub use inputs::{
     toml_text_document,
 };
 pub use k_rust::backend::{
-    BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT,
+    BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT, SmtBudget,
 };
 use k_rust::backend::{BackendErrorKind, InProcess, Probe, ProbeDecision, StopCondition, StopSide};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].

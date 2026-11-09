@@ -112,8 +112,11 @@ fn digest_value(domain: &str, value: &Value) -> String {
 /// a function of the query, the units and the build that counts them, so the report's statuses
 /// are a function of the build as much as of `profile`, and a version-6 manifest does not say on
 /// which build they were decided. The member keeps a report independent of kink's executable,
-/// which a dynamically linked Z3 is outside of.
-pub const CAMPAIGN_MANIFEST_VERSION: u64 = 7;
+/// which a dynamically linked Z3 is outside of. Version 8 makes `backend_options.smt_timeout_ms`
+/// null outside clock mode: a budget is either units or a clock (k-rust `SmtBudget`), so exactly
+/// one of `smt_timeout_ms` and `smt_resource_limit` is a number, where version 7 also gave the
+/// unused timeout of a resource-bounded run.
+pub const CAMPAIGN_MANIFEST_VERSION: u64 = 8;
 
 pub fn campaign_manifest(input: &ManifestInput<'_>) -> Result<CampaignManifest, ManifestError> {
     let universe = input
@@ -354,7 +357,7 @@ pub fn campaign_manifest_multi_with_options(
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
         "kink":crate::identity::kink_identity(),
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",
-        "backend_options":{"smt_timeout_ms":backend.smt_timeout_ms,"smt_retry_limit":backend.smt_retry_limit,"smt_resource_limit":backend.smt_resource_limit.map(std::num::NonZeroU32::get)},
+        "backend_options":{"smt_timeout_ms":backend.smt_budget.clock_ms(),"smt_retry_limit":backend.smt_retry_limit,"smt_resource_limit":backend.smt_budget.units().map(std::num::NonZeroU32::get)},
         "budget":{"time_ms":u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX),"max_simplification_iterations":campaign.budget.max_simplification_iterations,"max_depth":campaign.budget.max_depth,"max_breadth":campaign.budget.max_breadth.map(|v| v.get())},
         "budget_mutants":budget.map(BudgetMutants::value),
         "schedule":match input.schedule { ScheduleMode::Full => "full", ScheduleMode::FirstKill => "first-kill" },

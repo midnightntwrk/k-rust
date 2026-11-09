@@ -20,7 +20,7 @@
 
 use std::{num::NonZeroU32, process::ExitCode};
 
-use k_rust_backend::smt::{trace, z3_version};
+use k_rust_backend::smt::{self, trace, z3_version};
 
 fn usage() -> ExitCode {
     eprintln!("usage: smt_replay SCRIPT.smt2 [--rlimit N] [--timeout MS] [--retries R]");
@@ -115,20 +115,27 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    if rlimit.is_some() && timeout.is_some() {
-        eprintln!("--rlimit and --timeout choose different ladders; give one");
-        return usage();
-    }
-    if let Some(rlimit) = rlimit {
-        let Some(rlimit) = NonZeroU32::new(rlimit) else {
+    let rlimit = match rlimit.map(NonZeroU32::new) {
+        Some(None) => {
             eprintln!("--rlimit must be positive");
             return usage();
-        };
-        traced.options.resource_limit = Some(rlimit);
-    }
-    if let Some(timeout) = timeout {
-        traced.options.resource_limit = None;
-        traced.options.timeout_ms = timeout;
+        }
+        Some(Some(rlimit)) => Some(rlimit),
+        None => None,
+    };
+    if rlimit.is_some() || timeout.is_some() {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "`--timeout MS` asks to replay under the clock"
+        )]
+        let budget = smt::SmtBudget::requested(timeout, rlimit);
+        match budget {
+            Ok(budget) => traced.options.budget = budget,
+            Err(_) => {
+                eprintln!("--rlimit and --timeout choose different ladders; give one");
+                return usage();
+            }
+        }
         traced.clocked = true;
     }
     if let Some(retries) = retries {

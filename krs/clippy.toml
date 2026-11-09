@@ -1,2 +1,9 @@
 # KRS writes pretty JSON with serde_json, whose layouts its gates pin byte for byte, so the
 # repository clippy.toml's ban on serde_json's pretty printers stops at krs/.
+
+# k-rust's door to a clocked solver budget applies here as everywhere in the workspace: every
+# place that asks for a clock carries an audited #[expect] (k-rust-backend `smt::budget`, CF-33).
+disallowed-methods = [
+  { path = "k_rust_backend::smt::budget::SmtBudget::clock", reason = "a solver answer is a function of its query (CF-33): bound attempts by Z3 resource units (SmtBudget::Units, SmtBudget::DEFAULT); a place whose answers may depend on the machine's speed and load states why in #[expect(clippy::disallowed_methods, reason = ...)]" },
+  { path = "k_rust_backend::smt::budget::SmtBudget::requested", reason = "data that names a timeout gets a clock (CF-33): the surface that decodes it states in #[expect(clippy::disallowed_methods, reason = ...)] which explicit field or flag asks for the clock" },
+]

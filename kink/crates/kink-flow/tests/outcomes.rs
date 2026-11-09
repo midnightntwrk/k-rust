@@ -1327,12 +1327,16 @@ misunderstanding = "a test mutation"
     /// run reads them.
     #[test]
     #[ignore = "kink"]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a clock-bounded solver is what tier 1 refuses"
+    )]
     fn tier_one_is_off_exactly_for_a_clock_bounded_solver() {
         use kink_flow::search::{TIER1_CLOCK, tier1_refusal};
         use kink_native::execution::SolverProfile;
         let resource = kink_native::BACKEND_OPTIONS;
         let clock = k_rust::backend::BackendOptions {
-            smt_resource_limit: None,
+            smt_budget: k_rust::backend::SmtBudget::clock(125),
             ..resource
         };
         assert_eq!(tier1_refusal(SolverProfile::NoZ3, resource), None);

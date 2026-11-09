@@ -3483,9 +3483,10 @@ fn a_run_that_receives_an_undecided_answer_counts_it() {
         &compiled.kore,
         "SMT-UNKNOWNS",
         BackendOptions {
+            smt_budget: k_rust::backend::SmtBudget::Units(
+                std::num::NonZeroU32::new(150_000).unwrap(),
+            ),
             smt_retry_limit: 0,
-            smt_resource_limit: std::num::NonZeroU32::new(150_000),
-            ..BackendOptions::RESOURCE_BOUNDED
         },
     )
     .unwrap();

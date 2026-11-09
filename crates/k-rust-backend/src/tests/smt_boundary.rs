@@ -4,7 +4,7 @@
 //! The undecided query is a nonlinear one with no solution that Z3 cannot refute: positive
 //! integers `X`, `Y`, `Z` with `X³ + Y³ = Z³`. It has no solution, so no attempt can answer
 //! `Sat`, and refuting it is out of reach of Z3's integer arithmetic, so every attempt, at any of
-//! the millisecond timeouts used here, ends `Unknown`.
+//! the unit budgets and millisecond timeouts used here, ends `Unknown`.
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
@@ -12,7 +12,7 @@ use crate::{
     definition::BackendDefinition,
     model::ModelQuery,
     rule::Predicate,
-    smt::{ModelResult, Satisfiability, SmtSolver, Z3Options, Z3Solver},
+    smt::{ModelResult, Satisfiability, SmtBudget, SmtSolver, Z3Options, Z3Solver},
     stop::{PreludeFailure, Stop, StopCause, Stoppable},
     substitution::Substitution,
     term::{Sort, Term},
@@ -94,27 +94,44 @@ fn doubling(timeout_ms: u32, retry_limit: u32) -> Vec<u32> {
         .collect()
 }
 
+/// The first attempt's units of the undecided queries' clock-free budgets: Z3 spends them on the
+/// cube sum in well under a millisecond.
+const UNDECIDED_UNITS: u32 = 10_000;
+
+/// The limits of the `retry_limit + 1` clock-free attempts of one query from `units`: no clock,
+/// and each retry doubles the last's units.
+fn doubling_units(units: u32, retry_limit: u32) -> Vec<(Option<u32>, u32)> {
+    (0..=retry_limit)
+        .map(|attempt| (None, units << attempt))
+        .collect()
+}
+
+/// Options of `units` resource units for the first attempt and `retry_limit` retries.
+fn units(units: u32, retry_limit: u32) -> Z3Options {
+    Z3Options {
+        budget: SmtBudget::Units(std::num::NonZeroU32::new(units).unwrap()),
+        retry_limit,
+    }
+}
+
 /// The cause of a stopped answer, published so that no stop is dropped armed.
 fn cause<T>(answer: Stoppable<T>) -> Result<T, StopCause> {
     answer.map_err(Stop::into_cause)
 }
 
 /// An `Unknown` answer is a fact about the attempts, not about the query: each of the
-/// `retry_limit + 1` attempts runs with twice the previous timeout, and only the last one's
-/// `Unknown` is the answer. Since a later attempt could still decide the query, the answer is not
+/// `retry_limit + 1` attempts runs with twice the previous bound, and only the last one's
+/// `Unknown` is the answer. Since a larger budget could still decide the query, the answer is not
 /// cached, and since it refutes nothing, it does not make the solver check its prelude (only an
-/// `Unsat` answer needs a consistent prelude to mean anything).
+/// `Unsat` answer needs a consistent prelude to mean anything). The ladder doubles a clock as it
+/// doubles units.
 #[test]
-fn an_undecided_query_is_retried_with_doubled_timeouts_and_answers_unknown_uncached() {
+fn an_undecided_query_is_retried_with_doubled_bounds_and_answers_unknown_uncached() {
     let definition = definition();
     let predicates = undecided(&definition);
     for retry_limit in [0, 1, 2] {
-        let options = Z3Options {
-            timeout_ms: 1,
-            retry_limit,
-            resource_limit: None,
-        };
-        let solver = Z3Solver::with_options(&definition, options).unwrap();
+        let solver =
+            Z3Solver::with_options(&definition, units(UNDECIDED_UNITS, retry_limit)).unwrap();
         for asked in 1..=2 {
             let answer = solver.is_sat(&predicates, &Substitution::new());
             assert!(
@@ -122,13 +139,28 @@ fn an_undecided_query_is_retried_with_doubled_timeouts_and_answers_unknown_uncac
                 "retry limit {retry_limit}: {answer:?}"
             );
             assert_eq!(
-                solver.attempt_timeouts(),
-                doubling(1, retry_limit).repeat(asked),
+                solver.attempt_limits(),
+                doubling_units(UNDECIDED_UNITS, retry_limit).repeat(asked),
                 "retry limit {retry_limit}, asked {asked} times"
             );
         }
         assert_eq!(solver.prelude_failure(), None);
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the clocked ladder doubles its timeout as the clock-free one doubles its units"
+    )]
+    let clocked = Z3Options {
+        budget: SmtBudget::clock(1),
+        retry_limit: 2,
+    };
+    let solver = Z3Solver::with_options(&definition, clocked).unwrap();
+    let answer = solver.is_sat(&predicates, &Substitution::new());
+    assert!(
+        matches!(&answer, Ok(Ok(Satisfiability::Unknown(reason))) if !reason.is_empty()),
+        "{answer:?}"
+    );
+    assert_eq!(solver.attempt_timeouts(), doubling(1, 2));
 }
 
 /// An attempt ends even when Z3's clock does not stop it. Z3 can lose the one cancellation its
@@ -139,6 +171,10 @@ fn an_undecided_query_is_retried_with_doubled_timeouts_and_answers_unknown_uncac
 /// clock stops at all, still end `Unknown`: the query answers within a bounded time, at most a
 /// small multiple of its timeouts.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the backstop of a clocked attempt is what this tests"
+)]
 fn an_attempt_the_clock_does_not_stop_ends_at_its_resource_limit() {
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -147,9 +183,8 @@ fn an_attempt_the_clock_does_not_stop_ends_at_its_resource_limit() {
         let solver = Z3Solver::with_options(
             &definition,
             Z3Options {
-                timeout_ms: 1,
+                budget: SmtBudget::clock(1),
                 retry_limit: 2,
-                resource_limit: None,
             },
         )
         .unwrap()
@@ -169,18 +204,14 @@ fn an_attempt_the_clock_does_not_stop_ends_at_its_resource_limit() {
     assert_eq!(timeouts, doubling(1, 2));
 }
 
-/// In the clock-free mode (`Z3Options::resource_limit`) no attempt carries Z3's timeout: each is
+/// In the clock-free mode (`SmtBudget::Units`) no attempt carries Z3's timeout: each is
 /// bounded by its resource units alone, doubled on each retry, so an undecided query answers
 /// `Unknown` after the same work on any machine, and a decidable one is still decided (here a
 /// model of `X > 0` and `X·X > 3`, and the unsatisfiable `X > 0 ∧ 0 > X`).
 #[test]
 fn the_clock_free_mode_bounds_attempts_by_resource_units_alone() {
     let definition = definition();
-    let options = Z3Options {
-        timeout_ms: 1,
-        retry_limit: 2,
-        resource_limit: std::num::NonZeroU32::new(50_000),
-    };
+    let options = units(50_000, 2);
     let solver = Z3Solver::with_options(&definition, options).unwrap();
     let answer = solver.is_sat(&undecided(&definition), &Substitution::new());
     assert!(
@@ -226,15 +257,7 @@ fn the_clock_free_mode_bounds_attempts_by_resource_units_alone() {
 fn an_undecided_model_query_is_retried_and_answers_unknown() {
     let definition = definition();
     let predicates = undecided(&definition);
-    let solver = Z3Solver::with_options(
-        &definition,
-        Z3Options {
-            timeout_ms: 1,
-            retry_limit: 2,
-            resource_limit: None,
-        },
-    )
-    .unwrap();
+    let solver = Z3Solver::with_options(&definition, units(UNDECIDED_UNITS, 2)).unwrap();
     let answer = solver.get_model(&ModelQuery::for_solver_tests(
         &predicates,
         &Substitution::new(),
@@ -243,7 +266,7 @@ fn an_undecided_model_query_is_retried_and_answers_unknown() {
         matches!(&answer, Ok(Ok(ModelResult::Unknown(reason))) if !reason.is_empty()),
         "{answer:?}"
     );
-    assert_eq!(solver.attempt_timeouts(), doubling(1, 2));
+    assert_eq!(solver.attempt_limits(), doubling_units(UNDECIDED_UNITS, 2));
     assert_eq!(solver.prelude_failure(), None);
 }
 
@@ -254,18 +277,14 @@ fn an_undecided_model_query_is_retried_and_answers_unknown() {
 #[test]
 fn an_undecided_prelude_is_a_failed_prelude_that_stops_every_later_query() {
     let definition = definition();
-    let options = Z3Options {
-        timeout_ms: 1,
-        retry_limit: 3,
-        resource_limit: None,
-    };
+    let options = units(UNDECIDED_UNITS, 3);
     let solver =
         Z3Solver::with_options_and_prelude(&definition, options, Some(UNDECIDED_PRELUDE)).unwrap();
     let failure = match cause(solver.check_prelude()) {
         Err(StopCause::SolverPrelude(failure @ PreludeFailure::Unknown(_))) => failure,
         other => panic!("expected an undecided prelude, found {other:?}"),
     };
-    assert_eq!(solver.attempt_timeouts(), doubling(1, 3));
+    assert_eq!(solver.attempt_limits(), doubling_units(UNDECIDED_UNITS, 3));
     assert_eq!(solver.prelude_failure(), Some(failure.clone()));
 
     let stopped = Err(StopCause::SolverPrelude(failure));
@@ -288,8 +307,8 @@ fn an_undecided_prelude_is_a_failed_prelude_that_stops_every_later_query() {
     );
     assert_eq!(cause(solver.check_prelude()), stopped);
     assert_eq!(
-        solver.attempt_timeouts(),
-        doubling(1, 3),
+        solver.attempt_limits(),
+        doubling_units(UNDECIDED_UNITS, 3),
         "no later query runs Z3"
     );
 }
@@ -303,11 +322,7 @@ fn an_undecided_prelude_is_a_failed_prelude_that_stops_every_later_query() {
 #[test]
 fn an_unsat_answer_under_an_undecided_prelude_stops_instead_of_answering() {
     let definition = definition();
-    let options = Z3Options {
-        timeout_ms: 25,
-        retry_limit: 1,
-        resource_limit: std::num::NonZeroU32::new(50_000),
-    };
+    let options = units(50_000, 1);
     let solver =
         Z3Solver::with_options_and_prelude(&definition, options, Some(UNDECIDED_PRELUDE)).unwrap();
     let answer = cause(solver.is_sat(&refuted(&definition), &Substitution::new()));

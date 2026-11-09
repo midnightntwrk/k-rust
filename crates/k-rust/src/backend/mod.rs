@@ -234,78 +234,77 @@ pub use k_rust_backend::stop::{
 pub use k_rust_backend::term::names::VARIABLE_IDENTITY;
 pub use k_rust_backend::timeout::StepTimeoutMode;
 
-/// The solver options of a [`Backend`]: how long each Z3 check may run and how often an unknown
+/// The solver options of a [`Backend`]: how each Z3 check is bounded and how often an unknown
 /// answer is retried. A build without Z3 reads none of them.
 ///
-/// The default bounds every attempt by the clock, so whether a query is decided depends on the
-/// machine's speed and load; [`Self::RESOURCE_BOUNDED`] bounds it by Z3's own resource units, so
-/// it does not.
+/// The default bounds every attempt by Z3's own resource units ([`SmtBudget::DEFAULT`]), so
+/// whether a query is decided is a function of the query, these options and the Z3 build, never
+/// of the machine's speed or load (docs/compatibility.md, "Determinism and concurrency"). A
+/// clock is only ever asked for: by [`SmtBudget::clock`], or on the wire by `smtTimeoutMs`.
+///
+/// On the wire (camelCase) the budget is `smtResourceLimit` (units, positive) or `smtTimeoutMs`
+/// (the clock), never both; with neither it is the default units. `smtRetryLimit` defaults to 3.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+#[serde(try_from = "WireBackendOptions")]
 pub struct BackendOptions {
-    /// The first attempt's wall-clock timeout in milliseconds, doubled on each retry; unused
-    /// when [`Self::smt_resource_limit`] is set.
-    pub smt_timeout_ms: u32,
+    /// The first attempt's bound, doubled on each retry.
+    pub smt_budget: SmtBudget,
     /// The retries of an unknown answer.
     pub smt_retry_limit: u32,
-    /// The clock-free mode (wire `smtResourceLimit`): each Z3 attempt is bounded by this many Z3
-    /// resource units, doubled on each retry, and by no clock, so whether a query is decided
-    /// does not depend on the machine's speed or load (docs/compatibility.md, "Determinism and
-    /// concurrency"). `None` (the default) bounds attempts by [`Self::smt_timeout_ms`].
-    pub smt_resource_limit: Option<std::num::NonZeroU32>,
+}
+
+/// The wire form of [`BackendOptions`].
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireBackendOptions {
+    #[serde(default)]
+    smt_timeout_ms: Option<u32>,
+    #[serde(default)]
+    smt_retry_limit: Option<u32>,
+    #[serde(default)]
+    smt_resource_limit: Option<std::num::NonZeroU32>,
+}
+
+impl TryFrom<WireBackendOptions> for BackendOptions {
+    type Error = k_rust_backend::smt::BudgetConflict;
+
+    fn try_from(wire: WireBackendOptions) -> Result<Self, Self::Error> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "an explicit `smtTimeoutMs` on the wire asks for the clock"
+        )]
+        let smt_budget = SmtBudget::requested(wire.smt_timeout_ms, wire.smt_resource_limit)?;
+        Ok(Self {
+            smt_budget,
+            smt_retry_limit: wire
+                .smt_retry_limit
+                .unwrap_or(Self::DEFAULT.smt_retry_limit),
+        })
+    }
 }
 
 impl Default for BackendOptions {
     fn default() -> Self {
-        Self {
-            smt_timeout_ms: 125,
-            smt_retry_limit: 3,
-            smt_resource_limit: None,
-        }
+        Self::DEFAULT
     }
 }
 
-/// The Z3 resource units of the first attempt of [`BackendOptions::RESOURCE_BOUNDED`]: about the
-/// work Z3 5.3.3 does in the 125 ms first attempt of the default, clock-bounded options.
-///
-/// Derivation. Z3 counts resource units in its own search, at a rate per millisecond that
-/// depends on the query and the Z3 build. 200 queries whose first 125 ms attempt the clock
-/// stopped, replayed on Z3 4.16.0 at the host's ordinary load (x86_64), counted a median of
-/// about 2,500 units per millisecond, so 125 ms was about 310,000 units on that build. The same
-/// 200 queries replayed for 125 ms on Z3 5.3.3 and 4.16.0 side by side, one after the other per
-/// query, in three rounds at a load of 57 to 70 on 32 CPUs, counted a median of 1.2 times as many
-/// units per millisecond on 5.3.3 (per query p10 0.8, p90 1.9; the round medians 1.18, 1.20 and
-/// 1.23), so 125 ms is about 1.2 x 310,000 = 370,000 units on 5.3.3. Read directly, the loaded
-/// host's 5.3.3 median of 2,230 to 2,330 units per millisecond, scaled by the 4.16.0 slowdown the
-/// same rounds show (1,820 to 1,960 against 2,500), gives 375,000 to 390,000. With the default 3
-/// retries at doubled units the attempts are L, 2L, 4L and 8L, 15 L (about 5.6M units) in all: the
-/// image of the default's 125, 250, 500 and 1000 ms.
-///
-/// The calibration holds for the build it was measured on, not for a version number, and a rate
-/// is not a power to decide. One attempt from a fresh context decides each of those 200 queries
-/// on both builds within 40M units, and 5.3.3 needs a median of 1.6 times the units 4.16.0 needs
-/// (per query p10 0.74, p90 5.2; medians 1.9M and 1.0M), so in the same time it decides fewer of
-/// them: with these options it decides 144 of the 200, where 4.16.0 with 310,000 units decided
-/// 177 to 180. Over all 183 claims of that specification's proofs the two builds, each under its
-/// own calibration, reach the same verdicts (182 proven, 1 failed on a stuck leaf), with 184 of
-/// the 16,001 queries 5.3.3 is asked left undecided against 73 of 15,879 on 4.16.0. In the same
-/// 125 ms Z3 4.12.5 counted a median of 3.3 times the units of 4.16.0. An answer under this
-/// budget is a function of the query, the budget and the build ([`z3_build`]), and what it
-/// decides on another build is known only from runs on that build.
-pub const DEFAULT_SMT_RESOURCE_LIMIT: std::num::NonZeroU32 =
-    std::num::NonZeroU32::new(370_000).expect("the budget is not zero");
+/// The Z3 resource units of the first attempt of the default options; its calibration is
+/// documented where the backend defines it.
+pub use k_rust_backend::smt::DEFAULT_SMT_RESOURCE_LIMIT;
+pub use k_rust_backend::smt::{BudgetConflict, SmtBudget, SmtClock};
 
 impl BackendOptions {
-    /// The clock-free options: the default's 3 retries, each attempt bounded by Z3 resource
-    /// units only, [`DEFAULT_SMT_RESOURCE_LIMIT`] for the first and twice the previous for each
-    /// retry. Whether a query is decided is then a function of the query, these options and the
-    /// Z3 build, never of the machine's speed or load (docs/compatibility.md, "Determinism and
-    /// concurrency"). `smt_timeout_ms` is unused in this mode.
-    pub const RESOURCE_BOUNDED: Self = Self {
-        smt_timeout_ms: 125,
+    /// The default options: [`SmtBudget::DEFAULT`] (each attempt bounded by Z3 resource units
+    /// only, [`DEFAULT_SMT_RESOURCE_LIMIT`] for the first and twice the previous for each retry)
+    /// and 3 retries.
+    pub const DEFAULT: Self = Self {
+        smt_budget: SmtBudget::DEFAULT,
         smt_retry_limit: 3,
-        smt_resource_limit: Some(DEFAULT_SMT_RESOURCE_LIMIT),
     };
+
+    /// The clock-free options, which are the default's ([`Self::DEFAULT`]).
+    pub const RESOURCE_BOUNDED: Self = Self::DEFAULT;
 }
 
 /// The KORE symbol of a compiled configuration's top cell.
@@ -365,7 +364,7 @@ pub fn counter_erased(pattern: &KorePattern) -> std::borrow::Cow<'_, KorePattern
 }
 
 /// The version of the Z3 library this build links, as Z3 reports it, which counts the resource
-/// units of [`BackendOptions::smt_resource_limit`]; `None` in a build without Z3.
+/// units of [`SmtBudget::Units`]; `None` in a build without Z3.
 #[must_use]
 pub fn z3_version() -> Option<&'static str> {
     #[cfg(feature = "z3-inference")]
@@ -381,7 +380,7 @@ pub fn z3_version() -> Option<&'static str> {
 /// The Z3 build this process runs: Z3's version string ([`z3_version`]) and the SHA-256 of the
 /// library file Z3's code comes from.
 ///
-/// Z3 counts the resource units of [`BackendOptions::smt_resource_limit`] in its own search, so
+/// Z3 counts the resource units of [`SmtBudget::Units`] in its own search, so
 /// how many units a query takes is a function of the machine code that searches: two builds of
 /// one version (another compiler, other flags, another architecture) can count differently, and
 /// a version string names no build. The library file names that code, and nothing else: the
@@ -4009,9 +4008,8 @@ impl Backend {
         let module = definition.main_module().to_string();
         if !self.solvers.contains_key(&module) {
             let options = Z3Options {
-                timeout_ms: self.options.smt_timeout_ms,
+                budget: self.options.smt_budget,
                 retry_limit: self.options.smt_retry_limit,
-                resource_limit: self.options.smt_resource_limit,
             };
             let solver = if let Some(prelude) = self.smt_prelude.as_deref() {
                 Z3Solver::with_options_and_prelude(&definition, options, Some(prelude))
@@ -4376,50 +4374,55 @@ mod tests {
         }
     }
 
-    /// The clock-free mode is off by default and read from `smtResourceLimit`, a positive unit
-    /// count (0, Z3's "no limit", is refused rather than read as unbounded).
+    /// The wire's budget is the default units when it names none, a clock when it names only
+    /// `smtTimeoutMs`, those units when it names only `smtResourceLimit` (positive: 0, Z3's "no
+    /// limit", is refused rather than read as unbounded), and refused when it names both.
     #[test]
-    fn the_clock_free_solver_mode_is_opt_in_and_positive() {
-        assert_eq!(BackendOptions::default().smt_resource_limit, None);
-        let options: BackendOptions =
-            serde_json::from_str(r#"{"smtResourceLimit": 250000}"#).unwrap();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the expected budget of the wire's `smtTimeoutMs`"
+    )]
+    fn the_wire_budget_is_units_unless_it_names_a_clock_alone() {
+        let read = |text: &str| serde_json::from_str::<BackendOptions>(text);
+        assert_eq!(read("{}").unwrap(), BackendOptions::DEFAULT);
+        assert_eq!(BackendOptions::default(), BackendOptions::DEFAULT);
         assert_eq!(
-            options.smt_resource_limit,
-            std::num::NonZeroU32::new(250_000)
+            BackendOptions::DEFAULT.smt_budget,
+            SmtBudget::Units(DEFAULT_SMT_RESOURCE_LIMIT)
+        );
+        assert_eq!(BackendOptions::DEFAULT.smt_retry_limit, 3);
+        assert_eq!(
+            read(r#"{"smtResourceLimit": 250000}"#).unwrap(),
+            BackendOptions {
+                smt_budget: SmtBudget::Units(std::num::NonZeroU32::new(250_000).unwrap()),
+                smt_retry_limit: 3,
+            }
         );
         assert_eq!(
-            options.smt_timeout_ms,
-            BackendOptions::default().smt_timeout_ms
+            read(r#"{"smtTimeoutMs": 40, "smtRetryLimit": 1}"#).unwrap(),
+            BackendOptions {
+                smt_budget: SmtBudget::clock(40),
+                smt_retry_limit: 1,
+            }
         );
-        assert!(serde_json::from_str::<BackendOptions>(r#"{"smtResourceLimit": 0}"#).is_err());
+        let both = read(r#"{"smtTimeoutMs": 40, "smtResourceLimit": 250000}"#).unwrap_err();
+        assert!(both.to_string().contains("not both"), "{both}");
+        assert!(read(r#"{"smtResourceLimit": 0}"#).is_err());
         assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
     }
 
-    /// The resource-bounded options keep the default's retries and bound the first attempt by
-    /// the calibrated budget, as the backend crate's own clock-free solver options do; the wire
-    /// default stays clock-bounded.
+    /// The default options are the backend crate's own default solver options.
     #[test]
-    fn resource_bounded_options_keep_the_default_retries() {
-        let bounded = BackendOptions::RESOURCE_BOUNDED;
-        assert_eq!(bounded.smt_resource_limit, Some(DEFAULT_SMT_RESOURCE_LIMIT));
-        assert_eq!(
-            bounded.smt_retry_limit,
-            BackendOptions::default().smt_retry_limit
-        );
+    fn the_default_options_are_the_solvers_default() {
         #[cfg(feature = "z3-inference")]
         assert_eq!(
             Z3Options {
-                timeout_ms: bounded.smt_timeout_ms,
-                retry_limit: bounded.smt_retry_limit,
-                resource_limit: bounded.smt_resource_limit,
+                budget: BackendOptions::DEFAULT.smt_budget,
+                retry_limit: BackendOptions::DEFAULT.smt_retry_limit,
             },
-            Z3Options::RESOURCE_BOUNDED
+            Z3Options::DEFAULT
         );
-        assert_ne!(bounded, BackendOptions::default());
-        assert_eq!(
-            serde_json::from_str::<BackendOptions>("{}").unwrap(),
-            BackendOptions::default()
-        );
+        assert_eq!(BackendOptions::RESOURCE_BOUNDED, BackendOptions::DEFAULT);
     }
 
     /// A Z3 build names its version and the digest of its library file: on Linux whenever Z3 is

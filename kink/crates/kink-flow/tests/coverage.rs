@@ -3362,10 +3362,14 @@ endmodule
 /// whose answers depend on the host's load ([`kink_flow::results::RESULT_CACHE_Z3`]); kink's
 /// own budget is resource-bounded and keeps it on.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a clock-bounded solver is what the store refuses"
+)]
 fn the_result_store_is_off_only_for_a_clock_bounded_solver_under_z3() {
     let resource = kink_native::BACKEND_OPTIONS;
     let clock = k_rust::backend::BackendOptions {
-        smt_resource_limit: None,
+        smt_budget: k_rust::backend::SmtBudget::clock(125),
         ..resource
     };
     let off = |solver| kink_flow::results::result_store(solver).err();

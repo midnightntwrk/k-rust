@@ -140,11 +140,7 @@ fn decoded_leaf_and_step_names_round_trip() {
     let mut backend = Backend::new(
         &side.artifacts().definition_kore,
         "CONFLATE",
-        BackendOptions {
-            smt_timeout_ms: 4000,
-            smt_retry_limit: 2,
-            smt_resource_limit: None,
-        },
+        BackendOptions::DEFAULT,
     )
     .expect("backend");
     let initial = program();

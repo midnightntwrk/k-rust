@@ -971,9 +971,9 @@ impl SolverReport {
     /// The report of the solver options `options` in this process.
     #[must_use]
     pub fn of(options: k_rust::backend::BackendOptions) -> Self {
-        let (mode, units, clock_ms) = match options.smt_resource_limit {
-            Some(units) => ("resource", Some(units.get()), None),
-            None => ("clock", None, Some(options.smt_timeout_ms)),
+        let (mode, units, clock_ms) = match options.smt_budget {
+            k_rust::backend::SmtBudget::Units(units) => ("resource", Some(units.get()), None),
+            k_rust::backend::SmtBudget::Clock(clock) => ("clock", None, Some(clock.timeout_ms())),
         };
         Self {
             clock_ms,

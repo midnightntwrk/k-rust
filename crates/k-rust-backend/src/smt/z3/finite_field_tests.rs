@@ -143,9 +143,8 @@ fn the_backends_script_route_decides_a_prime_field_query() {
     let solver = Z3Solver::with_options(
         &definition(),
         Z3Options {
-            timeout_ms: 125,
+            budget: SmtBudget::Units(std::num::NonZeroU32::new(1_000_000).unwrap()),
             retry_limit: 3,
-            resource_limit: NonZeroU32::new(1_000_000),
         },
     )
     .unwrap();

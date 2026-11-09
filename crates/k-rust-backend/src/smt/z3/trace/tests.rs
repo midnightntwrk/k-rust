@@ -72,9 +72,8 @@ pub(crate) fn of_kind<'a>(records: &'a [Value], kind: &str) -> Vec<&'a Value> {
 
 fn retried() -> Z3Options {
     Z3Options {
-        timeout_ms: 125,
+        budget: SmtBudget::Units(NonZeroU32::new(250_000).unwrap()),
         retry_limit: 2,
-        resource_limit: NonZeroU32::new(250_000),
     }
 }
 
@@ -122,7 +121,7 @@ fn an_attempts_script_is_written_before_its_check_and_recorded_after() {
             options: retried(),
             clocked: true,
         };
-        let limit = ladder.limit(125, 1);
+        let limit = ladder.limit(1);
         let attempt = Attempt::begin(FACTORING_QUERY, &ladder, 1, limit).expect("the trace is on");
         let inflight = scratch
             .files()
@@ -148,7 +147,7 @@ fn an_attempts_script_is_written_before_its_check_and_recorded_after() {
                 &mut None,
                 &ladder,
                 0,
-                ladder.limit(125, 0),
+                ladder.limit(0),
                 false,
             )
             .unwrap();
@@ -172,6 +171,10 @@ fn an_attempts_script_is_written_before_its_check_and_recorded_after() {
 /// keeps its script when asked to, leaves no in-flight script, and answers as it does untraced.
 /// Replaying the kept script runs the same attempts to the same answers and unit counts.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the trace records and replays a clocked ladder as it does a clock-free one"
+)]
 fn a_traced_query_answers_as_untraced_and_replays_to_its_answers() {
     let run = |directory: Option<PathBuf>, options: Z3Options, script: &'static str| {
         std::thread::spawn(move || {
@@ -188,7 +191,7 @@ fn a_traced_query_answers_as_untraced_and_replays_to_its_answers() {
     // A clocked ladder whose clock never ends an attempt: the query decides in under 1,000
     // units, far within a minute, so the traced, untraced and replayed answers compare.
     let clocked = Z3Options {
-        timeout_ms: 60_000,
+        budget: SmtBudget::clock(60_000),
         ..Z3Options::default()
     };
     for (options, script) in [
@@ -257,7 +260,7 @@ fn a_traced_query_answers_as_untraced_and_replays_to_its_answers() {
                 .map(|check| check["result"].as_str().unwrap())
                 .collect::<Vec<_>>()
         );
-        if options.resource_limit.is_some() {
+        if options.budget.is_clock_free() {
             // Clock-free, each attempt's search is a function of the script and the ladder.
             assert_eq!(
                 replayed
@@ -306,4 +309,51 @@ fn plain_and_tampered_scripts() {
     assert!(TracedScript::parse(&text).is_err());
     let text = header(&ladder, &sha256("(assert true)"), None, None) + "(assert true)";
     assert_eq!(TracedScript::parse(&text).unwrap().script, "(assert true)");
+}
+
+/// A header's budget is the default units when it states none, a clock when it states only a
+/// clock, and is refused when it states two; a header written before the `budget` line reads as
+/// it did: units under a `resource_limit` count, the clock of `timeout_ms` under `none`.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the expected budget of a header that states a clock"
+)]
+fn a_headers_budget_is_units_unless_it_states_a_clock() {
+    let script = "(assert true)";
+    let parse = |lines: &str| {
+        TracedScript::parse(&format!(
+            "{HEADER_MAGIC}\n; script_sha256 = {}\n{lines}{HEADER_END}\n{script}",
+            sha256(script)
+        ))
+        .map(|traced| traced.options.budget)
+    };
+    assert_eq!(parse(""), Ok(SmtBudget::DEFAULT));
+    assert_eq!(parse("; budget = clock 40\n"), Ok(SmtBudget::clock(40)));
+    assert_eq!(
+        parse("; budget = units 9\n"),
+        Ok(SmtBudget::Units(NonZeroU32::new(9).unwrap()))
+    );
+    assert!(parse("; budget = units 9\n; budget = clock 40\n").is_err());
+    assert!(parse("; budget = units 9\n; timeout_ms = 40\n").is_err());
+    assert!(parse("; budget = units 0\n").is_err());
+    assert_eq!(
+        parse("; timeout_ms = 125\n; resource_limit = 7\n"),
+        Ok(SmtBudget::Units(NonZeroU32::new(7).unwrap()))
+    );
+    assert_eq!(
+        parse("; timeout_ms = 125\n; resource_limit = none\n"),
+        Ok(SmtBudget::clock(125))
+    );
+    for budget in [SmtBudget::DEFAULT, SmtBudget::clock(3)] {
+        let ladder = Ladder {
+            options: Z3Options {
+                budget,
+                retry_limit: 1,
+            },
+            clocked: true,
+        };
+        let text = header(&ladder, &sha256(script), None, None) + script;
+        assert_eq!(TracedScript::parse(&text).unwrap().options, ladder.options);
+    }
 }

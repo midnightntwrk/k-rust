@@ -16,7 +16,8 @@
 //!   alone outlives the process; the sync also keeps the file across a crash of the machine,
 //!   which a run that exhausts the host's memory can cause.
 //! - `<directory>/<pid>.jsonl` receives one JSON object per line: one per attempt (`"kind":
-//!   "check"`: its script's SHA-256, its index and limits, its answer and Z3's reason for an
+//!   "check"`: its script's SHA-256, its index, its budget's mode (`"budget"`: `units` or
+//!   `clock`) and limits, its answer and Z3's reason for an
 //!   unknown, the resource units it consumed and its wall time), one per query preparation of
 //!   finite summaries (`"kind": "summary_preparation"`: whether the query has a congruence policy
 //!   and how many calls it offers), one per call it offers (`"kind": "summary_admission"`: its
@@ -61,7 +62,8 @@ use sha2::{Digest, Sha256};
 use z3::{SatResult, Solver};
 
 use super::{
-    AttemptLimit, Checked, Ladder, RejectedScript, Z3Options, on_own_context, run_attempt,
+    AttemptLimit, Checked, Ladder, RejectedScript, SmtBudget, Z3Options, on_own_context,
+    run_attempt,
 };
 use crate::{
     smt::summary::Rejected,
@@ -274,8 +276,33 @@ fn sha256(script: &str) -> String {
     text
 }
 
-fn limit_text(limit: Option<NonZeroU32>) -> String {
-    limit.map_or_else(|| "none".into(), |limit| limit.to_string())
+/// A budget as a header states it: `units N` or `clock N` (milliseconds).
+fn budget_text(budget: SmtBudget) -> String {
+    match budget {
+        SmtBudget::Units(units) => format!("units {units}"),
+        SmtBudget::Clock(clock) => format!("clock {}", clock.timeout_ms()),
+    }
+}
+
+/// The budget a header's `budget` line states ([`budget_text`]).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a replay runs the ladder the trace recorded, a clock when the traced query had one"
+)]
+fn parse_budget(value: &str) -> Result<SmtBudget, String> {
+    let number = |text: &str| {
+        text.parse::<u32>()
+            .map_err(|error| format!("header `budget`: {error}"))
+    };
+    match value.split_once(' ') {
+        Some(("units", units)) => Ok(SmtBudget::Units(
+            NonZeroU32::new(number(units)?).ok_or("header `budget`: 0 units")?,
+        )),
+        Some(("clock", ms)) => Ok(SmtBudget::clock(number(ms)?)),
+        _ => Err(format!(
+            "header `budget`: `{value}` is neither `units N` nor `clock N`"
+        )),
+    }
 }
 
 /// The header of a traced script: the Z3 library, the ladder and, for an attempt, which one.
@@ -289,13 +316,8 @@ fn header(
     let _ = writeln!(text, "{HEADER_MAGIC}");
     let _ = writeln!(text, "; z3 = {}", super::z3_version());
     let _ = writeln!(text, "; script_sha256 = {sha}");
-    let _ = writeln!(text, "; timeout_ms = {}", ladder.options.timeout_ms);
+    let _ = writeln!(text, "; budget = {}", budget_text(ladder.options.budget));
     let _ = writeln!(text, "; retry_limit = {}", ladder.options.retry_limit);
-    let _ = writeln!(
-        text,
-        "; resource_limit = {}",
-        limit_text(ladder.options.resource_limit)
-    );
     let _ = writeln!(
         text,
         "; clock = {}",
@@ -403,6 +425,13 @@ impl Attempt {
         fields.insert("script_bytes".into(), json!(script.len()));
         fields.insert("attempt".into(), json!(attempt));
         fields.insert("retry_limit".into(), json!(ladder.options.retry_limit));
+        fields.insert(
+            "budget".into(),
+            json!(match ladder.options.budget {
+                SmtBudget::Units(_) => "units",
+                SmtBudget::Clock(_) => "clock",
+            }),
+        );
         fields.insert("rlimit_param".into(), json!(rlimit));
         fields.insert("timeout_param".into(), json!(timeout));
         Some(Self {
@@ -540,7 +569,8 @@ pub(crate) fn implication(destinations: usize, describe: impl FnOnce() -> Establ
 pub struct TracedScript {
     /// The script, exactly as Z3 read it.
     pub script: String,
-    /// The query's attempt ladder; the default ladder for a script without a header.
+    /// The query's attempt ladder; the default ladder ([`Z3Options::DEFAULT`]) for a script
+    /// without a header, or whose header states no budget.
     pub options: Z3Options,
     /// Whether the clock bounded the attempts.
     pub clocked: bool,
@@ -555,9 +585,15 @@ pub struct TracedScript {
 impl TracedScript {
     /// Read a traced script, or a plain script without a header (one a minimizer wrote, say).
     ///
+    /// A header states its budget on one `budget` line ([`budget_text`]). A header written
+    /// before that line existed states it as `resource_limit` (`none`, or the units) and
+    /// `timeout_ms` (the clock, used only under `resource_limit = none`), and reads as it did.
+    ///
     /// # Errors
     ///
-    /// A malformed header, or a script whose SHA-256 differs from the one its header states.
+    /// A malformed header, a header that states its budget twice (two `budget` lines, or a
+    /// `budget` line with the older keys), or a script whose SHA-256 differs from the one its
+    /// header states.
     pub fn parse(text: &str) -> Result<Self, String> {
         let Some(rest) = text
             .strip_prefix(HEADER_MAGIC)
@@ -581,6 +617,9 @@ impl TracedScript {
             label: None,
         };
         let mut sha = None;
+        let mut budget = None;
+        let mut legacy_timeout = None;
+        let mut legacy_units = None;
         let mut rest = rest;
         loop {
             let Some((line, after)) = rest.split_once('\n') else {
@@ -604,14 +643,19 @@ impl TracedScript {
             match key {
                 "z3" => traced.z3 = Some(value.to_owned()),
                 "script_sha256" => sha = Some(value.to_owned()),
-                "timeout_ms" => traced.options.timeout_ms = number(value)?,
+                "budget" => {
+                    if budget.replace(parse_budget(value)?).is_some() {
+                        return Err("the header states `budget` twice".into());
+                    }
+                }
+                "timeout_ms" => legacy_timeout = Some(number(value)?),
                 "retry_limit" => traced.options.retry_limit = number(value)?,
                 "resource_limit" => {
-                    traced.options.resource_limit = if value == "none" {
+                    legacy_units = Some(if value == "none" {
                         None
                     } else {
                         Some(NonZeroU32::new(number(value)?).ok_or("header `resource_limit`: 0")?)
-                    };
+                    });
                 }
                 "clock" => traced.clocked = value != "off",
                 "attempt" => traced.attempt = Some(number(value)?),
@@ -620,6 +664,14 @@ impl TracedScript {
                 _ => {}
             }
         }
+        traced.options.budget = match (budget, legacy_units, legacy_timeout) {
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
+                return Err("the header states its budget by `budget` and by older keys".into());
+            }
+            (Some(budget), None, None) => budget,
+            (None, Some(Some(units)), _) => SmtBudget::Units(units),
+            (None, Some(None) | None, timeout) => legacy_budget(timeout),
+        };
         traced.script = rest.to_owned();
         if let Some(sha) = sha
             && sha != sha256(&traced.script)
@@ -630,6 +682,20 @@ impl TracedScript {
             ));
         }
         Ok(traced)
+    }
+}
+
+/// The budget of a header written before the `budget` line: the clock of its `timeout_ms` when
+/// it has one, and otherwise the default.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a replay runs the ladder the trace recorded, and a header without `resource_limit` \
+              units recorded a clock"
+)]
+fn legacy_budget(timeout_ms: Option<u32>) -> SmtBudget {
+    match timeout_ms {
+        Some(timeout_ms) => SmtBudget::clock(timeout_ms),
+        None => SmtBudget::DEFAULT,
     }
 }
 
@@ -670,9 +736,8 @@ pub fn replay(
     on_own_context(|| {
         let mut loaded = None;
         let mut attempts = Vec::new();
-        let mut timeout = options.timeout_ms;
         for attempt in 0..=options.retry_limit {
-            let limit = ladder.limit(timeout, attempt);
+            let limit = ladder.limit(attempt);
             let attempted = run_attempt(script, &mut loaded, &ladder, attempt, limit, true)
                 .map_err(|rejected| rejected.message)?;
             let checked = &attempted.checked;
@@ -691,7 +756,6 @@ pub fn replay(
             if decided_or_faulted {
                 break;
             }
-            timeout = timeout.saturating_mul(2);
         }
         Ok(attempts)
     })

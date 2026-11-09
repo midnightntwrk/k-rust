@@ -76,7 +76,7 @@
 //! ([`model_values`]), and a hole the model leaves free keeps its value (a model that gives no
 //! symbolic hole a value is a failed run, not the blocked case again).
 //!
-//! Both backends use the clock-free solver mode (`BackendOptions::smt_resource_limit`): each
+//! Both backends use the clock-free solver mode (`SmtBudget::Units`): each
 //! decision of the run gets [`SOLVE_RUN_RESOURCE_UNITS`] Z3 resource units with
 //! [`SOLVE_RUN_RETRIES`] retries at doubled units, and an undecided one is handled as the backend
 //! handles any undecided answer (an indeterminate step, or both sides kept); each model query
@@ -135,7 +135,7 @@ use std::{
 use k_rust::{
     backend::{
         Backend, BackendOptions, CancellationToken, CancelledResultOutput, ExecuteRequest,
-        ExecutionLeaf, ExecutionStrategy, HaltReasonOutput, ResultModalityOutput,
+        ExecutionLeaf, ExecutionStrategy, HaltReasonOutput, ResultModalityOutput, SmtBudget,
         simplification::model_substitution,
     },
     k_rust_backend::{
@@ -870,9 +870,10 @@ impl SolveProposer {
             None => BackendSource::Compiled(self.builder.definition()),
         };
         let clock_free = |units: u32, retries: u32| BackendOptions {
+            smt_budget: SmtBudget::Units(
+                NonZeroU32::new(units).expect("a solve budget is positive"),
+            ),
             smt_retry_limit: retries,
-            smt_resource_limit: NonZeroU32::new(units),
-            ..self.options.backend.options()
         };
         let input = RunInput {
             source,

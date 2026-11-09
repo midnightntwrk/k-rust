@@ -1632,19 +1632,14 @@ fn stop_criterion(
 /// bounds the resource mode, are not given together.
 fn solver(exec: &ExecOptions) -> Result<krs_exec::BackendOptions, UsageError> {
     let mut solver = krs_exec::BackendOptions::RESOURCE_BOUNDED;
-    match (exec.smt_resource_limit, exec.smt_clock_ms) {
-        (Some(_), Some(_)) => {
-            return Err(usage(
-                "--smt-resource-limit and --smt-clock-ms select different solver modes; give one",
-            ));
-        }
-        (Some(units), None) => solver.smt_resource_limit = Some(units),
-        (None, Some(ms)) => {
-            solver.smt_resource_limit = None;
-            solver.smt_timeout_ms = ms;
-        }
-        (None, None) => {}
-    }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "krs's `--smt-clock-ms` asks for the clock"
+    )]
+    let budget = krs_exec::SmtBudget::requested(exec.smt_clock_ms, exec.smt_resource_limit);
+    solver.smt_budget = budget.map_err(|_| {
+        usage("--smt-resource-limit and --smt-clock-ms select different solver modes; give one")
+    })?;
     if let Some(retries) = exec.smt_retries {
         solver.smt_retry_limit = retries;
     }
@@ -1652,9 +1647,9 @@ fn solver(exec: &ExecOptions) -> Result<krs_exec::BackendOptions, UsageError> {
     // that the backend saturates: a retry past the largest bound would repeat it instead of
     // doubling it, which is not the ladder these options state, so the last attempt's bound must
     // fit.
-    let (first, unit, flag) = match solver.smt_resource_limit {
-        Some(units) => (units.get(), "units", "--smt-resource-limit"),
-        None => (solver.smt_timeout_ms, "ms", "--smt-clock-ms"),
+    let (first, unit, flag) = match solver.smt_budget {
+        krs_exec::SmtBudget::Units(units) => (units.get(), "units", "--smt-resource-limit"),
+        krs_exec::SmtBudget::Clock(clock) => (clock.timeout_ms(), "ms", "--smt-clock-ms"),
     };
     let retries = solver.smt_retry_limit;
     if retries > 32 || u64::from(first) << retries > u64::from(u32::MAX) {
@@ -3835,9 +3830,8 @@ mod tests {
             )
             .solver(),
             BackendOptions {
-                smt_resource_limit: std::num::NonZeroU32::new(5000),
+                smt_budget: krs_exec::SmtBudget::Units(std::num::NonZeroU32::new(5000).unwrap()),
                 smt_retry_limit: 0,
-                ..BackendOptions::RESOURCE_BOUNDED
             }
         );
         let Command::Prove(prove) = parsed(
@@ -3846,14 +3840,15 @@ mod tests {
         ) else {
             panic!("krs prove parses as a prove command");
         };
-        assert_eq!(
-            prove.solver,
-            BackendOptions {
-                smt_timeout_ms: 250,
-                smt_retry_limit: 3,
-                smt_resource_limit: None,
-            }
-        );
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "`--smt-clock-ms 250` asks for the clock"
+        )]
+        let clocked = BackendOptions {
+            smt_budget: krs_exec::SmtBudget::clock(250),
+            smt_retry_limit: 3,
+        };
+        assert_eq!(prove.solver, clocked);
         assert_eq!(
             prove.claim_timeout,
             Some(std::time::Duration::from_millis(1500))

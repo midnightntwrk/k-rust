@@ -177,23 +177,16 @@ fn measured<T>(work: impl FnOnce() -> T) -> (T, Snapshot) {
     (result, snapshot().delta(&before))
 }
 
-/// A Z3 solver whose checks the clock never cuts off.
+/// A Z3 solver whose checks the clock never cuts off: the default, clock-free one.
 ///
 /// The SMT counters these tests pin must be a function of the queries. Under a wall-clock
 /// timeout, a check the scheduler delays is cut off and retried: the cut-off attempt's work is
 /// added to `smt.rlimit_count` without another solver run, and a check cut off on its last retry
-/// answers unknown, which changes the rules that apply. `u32::MAX` is Z3's default for the
-/// parameter, under which no check is cut off.
+/// answers unknown, which changes the rules that apply. Under resource units no check is cut off
+/// by the clock, and every query these tests ask is decided by its first attempt.
 #[cfg(feature = "z3")]
 fn unclocked_solver(definition: &BackendDefinition) -> k_rust_backend::smt::Z3Solver {
-    k_rust_backend::smt::Z3Solver::with_options(
-        definition,
-        k_rust_backend::smt::Z3Options {
-            timeout_ms: u32::MAX,
-            ..k_rust_backend::smt::Z3Options::default()
-        },
-    )
-    .unwrap()
+    k_rust_backend::smt::Z3Solver::new(definition).unwrap()
 }
 
 #[cfg(feature = "z3")]

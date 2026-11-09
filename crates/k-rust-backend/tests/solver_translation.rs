@@ -36,7 +36,9 @@ use k_rust_backend::{
     model::model_of,
     rule::Predicate,
     simplify::{SimplificationOptions, simplify_predicate_with_solver},
-    smt::{ModelResult, NoSolver, Satisfiability, SmtSolver, Validity, Z3Options, Z3Solver},
+    smt::{
+        ModelResult, NoSolver, Satisfiability, SmtBudget, SmtSolver, Validity, Z3Options, Z3Solver,
+    },
     substitution::Substitution,
     term::{Term, TermKind},
 };
@@ -662,6 +664,10 @@ fn unbounded_power_cases() -> Vec<(&'static str, Case)> {
 /// own and the test waits for each with a timeout, so a regression fails here, naming the query,
 /// instead of hanging the test binary (the stuck Z3 thread ends with the failing process).
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the queries must return under the clock as well as under units"
+)]
 fn the_symbolic_power_queries_k19_found_return_under_either_bound() {
     /// The wait for one query, far above its measured time and below a hang's.
     const POWER_QUERY_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(30);
@@ -677,17 +683,15 @@ fn the_symbolic_power_queries_k19_found_return_under_either_bound() {
             (
                 "the wall clock",
                 Z3Options {
-                    timeout_ms: 100,
+                    budget: SmtBudget::clock(100),
                     retry_limit: 0,
-                    resource_limit: None,
                 },
             ),
             (
                 "resource units",
                 Z3Options {
-                    timeout_ms: 100,
+                    budget: SmtBudget::Units(NonZeroU32::new(500_000).unwrap()),
                     retry_limit: 1,
-                    resource_limit: NonZeroU32::new(500_000),
                 },
             ),
         ];

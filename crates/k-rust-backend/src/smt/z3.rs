@@ -81,7 +81,6 @@ mod finite_field_tests;
 pub mod trace;
 mod typed_cache;
 
-use std::num::NonZeroU32;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::CStr,
@@ -102,8 +101,8 @@ use z3::{
 };
 
 use super::{
-    APPROXIMATE_MODEL_REASON, ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver,
-    TranslatedQuery, Validity,
+    APPROXIMATE_MODEL_REASON, ModelResult, Satisfiability, SmtBudget, SmtError, SmtPrelude,
+    SmtSolver, TranslatedQuery, Validity,
 };
 use crate::{
     model::ModelQuery,
@@ -252,8 +251,8 @@ enum Unanswered {
 /// Z3 records the exception's text only when no event cancelled the check: it keeps the reason
 /// of the event that did (`timeout` for its timer, `interrupted`) over the exception's
 /// (`check_sat_result::set_reason_unknown`). So under a clock, an internal error met after the
-/// timer fired reads as a timeout, and is retried as one; under [`Z3Options::resource_limit`]
-/// alone, which cancels through no event, it reads as itself.
+/// timer fired reads as a timeout, and is retried as one; under [`SmtBudget::Units`], which
+/// cancels through no event, it reads as itself.
 fn internal_error(reason: &str) -> bool {
     matches!(
         reason,
@@ -354,51 +353,38 @@ fn on_own_context<R: Send + Sync>(query: impl FnOnce() -> R + Send + Sync) -> R 
 /// mutex provides `Sync`, though the payload is only ever moved.
 struct Unwound(Mutex<Box<dyn std::any::Any + Send>>);
 
-/// How long each Z3 check of a query may run, and how often an unknown answer is retried.
+/// How each Z3 check of a query is bounded, and how often an unknown answer is retried.
+///
+/// The default is [`SmtBudget::DEFAULT`] units and 3 retries, so an answer under it is a function
+/// of the query, these options and the Z3 build, never of the machine's speed or load; a clock is
+/// only ever asked for ([`SmtBudget::clock`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Z3Options {
-    /// The first attempt's wall-clock timeout, doubled on each retry; unused under
-    /// [`Self::resource_limit`].
-    pub timeout_ms: u32,
+    /// The first attempt's bound, doubled on each retry.
+    pub budget: SmtBudget,
     /// The retries of an unknown answer.
     pub retry_limit: u32,
-    /// The clock-free mode: when set, each attempt is bounded by this many Z3 resource units
-    /// (`rlimit`), doubled on each retry, and by no wall-clock timeout. Z3 counts these units in
-    /// its own search, and every query runs on a Z3 context of its own, so its answer (sat, unsat
-    /// or unknown) does not depend on the machine's speed or load nor on any other Z3 work in
-    /// the process: it is a function of the query, these options and the Z3 version. `None`
-    /// (the default) bounds attempts by [`Self::timeout_ms`], with a resource limit only as a
-    /// backstop ([`RESOURCE_UNITS_PER_MS`]).
-    pub resource_limit: Option<NonZeroU32>,
+}
+
+impl Z3Options {
+    /// The default options: [`SmtBudget::DEFAULT`] and 3 retries.
+    pub const DEFAULT: Self = Self {
+        budget: SmtBudget::DEFAULT,
+        retry_limit: 3,
+    };
+
+    /// The clock-free options, which are the default's ([`Self::DEFAULT`]).
+    pub const RESOURCE_BOUNDED: Self = Self::DEFAULT;
 }
 
 impl Default for Z3Options {
     fn default() -> Self {
-        Self {
-            timeout_ms: 125,
-            retry_limit: 3,
-            resource_limit: None,
-        }
+        Self::DEFAULT
     }
 }
 
-impl Z3Options {
-    /// The clock-free options: the default's 3 retries, each attempt bounded by Z3 resource
-    /// units only, 370,000 for the first and twice the previous for each retry (the budget of
-    /// k-rust's `BackendOptions::RESOURCE_BOUNDED`, whose `DEFAULT_SMT_RESOURCE_LIMIT` states its
-    /// calibration: about the work Z3 5.3.3 does in the default's first 125 ms). An answer under
-    /// them is a function of the query, these options and the Z3 build, never of the machine's
-    /// speed or load, so these are the options of every test that asks Z3 a question
-    /// ([`Z3Solver::resource_bounded`]). [`Self::timeout_ms`] is unused under them.
-    pub const RESOURCE_BOUNDED: Self = Self {
-        timeout_ms: 125,
-        retry_limit: 3,
-        resource_limit: Some(NonZeroU32::new(370_000).expect("the budget is not zero")),
-    };
-}
-
 /// The version of the Z3 library this build links, as Z3 reports it (`Z3_get_full_version`):
-/// the resource units of [`Z3Options::resource_limit`] are counted by this version's search.
+/// the resource units of [`SmtBudget::Units`] are counted by this version's search.
 #[must_use]
 pub fn z3_version() -> &'static str {
     z3::full_version()
@@ -407,7 +393,8 @@ pub fn z3_version() -> &'static str {
 /// One attempt's wall-clock timeout (`None`: no clock) and resource limit (0: none).
 pub(crate) type AttemptLimit = (Option<u32>, u32);
 
-/// A query's attempt ladder: its options, and whether Z3's clock bounds its attempts.
+/// A query's attempt ladder: its options, and whether Z3's clock bounds the attempts of a
+/// clocked budget (only a test turns it off, to model a cancellation Z3 loses).
 #[derive(Clone, Copy, Debug)]
 struct Ladder {
     options: Z3Options,
@@ -415,16 +402,17 @@ struct Ladder {
 }
 
 impl Ladder {
-    /// The limits of the attempt numbered `attempt` (0 first) whose clocked timeout is
-    /// `timeout`: the timeout and its resource limit, or under [`Z3Options::resource_limit`]
-    /// that limit doubled per retry and no timeout.
-    fn limit(&self, timeout: u32, attempt: u32) -> AttemptLimit {
-        match self.options.resource_limit {
-            Some(units) => {
-                let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
-                (None, units.get().saturating_mul(scale))
+    /// The limits of the attempt numbered `attempt` (0 first): under [`SmtBudget::Units`] the
+    /// units doubled per retry and no timeout; under [`SmtBudget::Clock`] the timeout doubled per
+    /// retry, with a resource limit proportional to it as a backstop.
+    fn limit(&self, attempt: u32) -> AttemptLimit {
+        let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
+        match self.options.budget {
+            SmtBudget::Units(units) => (None, units.get().saturating_mul(scale)),
+            SmtBudget::Clock(clock) => {
+                let timeout = clock.timeout_ms().saturating_mul(scale);
+                (self.clocked.then_some(timeout), resource_limit(timeout))
             }
-            None => (self.clocked.then_some(timeout), resource_limit(timeout)),
         }
     }
 }
@@ -454,7 +442,8 @@ pub struct Z3Solver {
     prelude_signal: PreludeSignal,
     #[cfg(test)]
     uncached_solve_count: Arc<AtomicUsize>,
-    /// The timeout of every Z3 check this solver (and its clones) ran, in order.
+    /// The clock's timeout of every Z3 check this solver (and its clones) ran under a clocked
+    /// budget, in order.
     #[cfg(test)]
     attempt_timeouts: Arc<Mutex<Vec<u32>>>,
     /// Whether attempts run without Z3's wall-clock timeout, the state of a check whose timer's
@@ -557,17 +546,17 @@ impl SolverResultCache {
 }
 
 impl Z3Solver {
-    /// A solver under the default options, which the clock bounds: whether a query is decided
-    /// then depends on the machine's speed and load ([`Self::resource_bounded`] does not).
+    /// A solver under the default options ([`Z3Options::DEFAULT`]), whose answers do not depend
+    /// on the clock.
     pub fn new(definition: &crate::definition::BackendDefinition) -> Result<Self, SmtError> {
-        Self::with_options(definition, Z3Options::default())
+        Self::with_options(definition, Z3Options::DEFAULT)
     }
 
-    /// A solver under [`Z3Options::RESOURCE_BOUNDED`], whose answers do not depend on the clock.
+    /// A solver under [`Z3Options::DEFAULT`], whose answers do not depend on the clock.
     pub fn resource_bounded(
         definition: &crate::definition::BackendDefinition,
     ) -> Result<Self, SmtError> {
-        Self::with_options(definition, Z3Options::RESOURCE_BOUNDED)
+        Self::with_options(definition, Z3Options::DEFAULT)
     }
 
     pub fn with_options(
@@ -577,11 +566,12 @@ impl Z3Solver {
         Self::with_options_and_prelude(definition, options, None)
     }
 
+    /// A solver with `prelude` under the default options ([`Z3Options::DEFAULT`]).
     pub fn with_prelude(
         definition: &crate::definition::BackendDefinition,
         prelude: &str,
     ) -> Result<Self, SmtError> {
-        Self::with_options_and_prelude(definition, Z3Options::default(), Some(prelude))
+        Self::with_options_and_prelude(definition, Z3Options::DEFAULT, Some(prelude))
     }
 
     pub fn with_options_and_prelude(
@@ -651,13 +641,16 @@ impl Z3Solver {
         }
     }
 
-    /// The limits of the attempt numbered `attempt` (0 first) with the given timeout
-    /// ([`Ladder::limit`]); a test build records them.
-    fn attempt_limit(&self, ladder: &Ladder, timeout: u32, attempt: u32) -> AttemptLimit {
-        let limit = ladder.limit(timeout, attempt);
+    /// The limits of the attempt numbered `attempt` (0 first) ([`Ladder::limit`]); a test build
+    /// records them.
+    fn attempt_limit(&self, ladder: &Ladder, attempt: u32) -> AttemptLimit {
+        let limit = ladder.limit(attempt);
         #[cfg(test)]
         {
-            self.record_attempt(timeout);
+            if let SmtBudget::Clock(clock) = ladder.options.budget {
+                let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
+                self.record_attempt(clock.timeout_ms().saturating_mul(scale));
+            }
             self.attempt_limits
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -675,7 +668,8 @@ impl Z3Solver {
             .clone()
     }
 
-    /// The timeouts of the Z3 checks run so far, in order, one per attempt.
+    /// The clock's timeouts of the Z3 checks run so far under a clocked budget, in order, one per
+    /// attempt, whether or not Z3's clock bounded them ([`Self::without_clock`]).
     #[cfg(test)]
     pub(crate) fn attempt_timeouts(&self) -> Vec<u32> {
         self.attempt_timeouts
@@ -856,10 +850,9 @@ impl Z3Solver {
         on_own_context(|| {
             let ladder = self.ladder();
             let mut loaded = None;
-            let mut timeout = self.options.timeout_ms;
             for attempt in 0..=self.options.retry_limit {
                 stop::check()?;
-                let limit = self.attempt_limit(&ladder, timeout, attempt);
+                let limit = self.attempt_limit(&ladder, attempt);
                 let attempted =
                     match run_attempt(script, &mut loaded, &ladder, attempt, limit, false) {
                         Ok(attempted) => attempted,
@@ -876,7 +869,6 @@ impl Z3Solver {
                         if attempt == self.options.retry_limit {
                             return Ok(Ok(Satisfiability::Unknown(reason)));
                         }
-                        timeout = timeout.saturating_mul(2);
                     }
                 }
             }
@@ -921,11 +913,10 @@ impl Z3Solver {
         let outcome = on_own_context(|| {
             let ladder = self.ladder();
             let mut loaded = None;
-            let mut timeout = self.options.timeout_ms;
             for attempt in 0..=self.options.retry_limit {
                 stop::check()?;
                 measure::bump(Counter::SmtSolverRuns);
-                let limit = self.attempt_limit(&ladder, timeout, attempt);
+                let limit = self.attempt_limit(&ladder, attempt);
                 // Held until the attempt's model is read: Z3 works on the attempt's context until
                 // then.
                 let attempted =
@@ -954,7 +945,6 @@ impl Z3Solver {
                         if attempt == self.options.retry_limit {
                             return Ok(Ok(ModelAttempt::Unknown(reason)));
                         }
-                        timeout = timeout.saturating_mul(2);
                     }
                 }
             }
@@ -1347,10 +1337,10 @@ impl SmtSolver for Z3Solver {
         Some(&self.prelude_signal)
     }
 
-    /// Under [`Z3Options::resource_limit`] no attempt carries a wall-clock timeout, and an
-    /// `Unknown` is a function of the query, the options and the Z3 version.
+    /// Under [`SmtBudget::Units`] no attempt carries a wall-clock timeout, and an `Unknown` is a
+    /// function of the query, the options and the Z3 build.
     fn undecided_answers_reproducible(&self) -> bool {
-        self.options.resource_limit.is_some()
+        self.options.budget.is_clock_free()
     }
 }
 
@@ -1358,6 +1348,8 @@ impl SmtSolver for Z3Solver {
 #[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use std::num::NonZeroU32;
 
     use super::*;
     use crate::{
@@ -1375,10 +1367,10 @@ mod tests {
 
     const INCONSISTENT: StopCause = StopCause::SolverPrelude(PreludeFailure::Inconsistent);
 
-    /// A solver with `prelude` under [`Z3Options::RESOURCE_BOUNDED`], whose answers do not depend
-    /// on the clock.
+    /// A solver with `prelude` under [`Z3Options::DEFAULT`], whose answers do not depend on the
+    /// clock.
     fn with_prelude(definition: &BackendDefinition, prelude: &str) -> Result<Z3Solver, SmtError> {
-        Z3Solver::with_options_and_prelude(definition, Z3Options::RESOURCE_BOUNDED, Some(prelude))
+        Z3Solver::with_prelude(definition, prelude)
     }
 
     /// An attempt's resource limit grows with its timeout, saturates at Z3's largest limit
@@ -4783,9 +4775,8 @@ mod tests {
     /// [`PATH_SENSITIVE_QUERY`] consumes (under 1,000 units), so that only the path decides the
     /// answer.
     const PATH_SENSITIVE_OPTIONS: Z3Options = Z3Options {
-        timeout_ms: 125,
+        budget: SmtBudget::Units(NonZeroU32::new(20_000).expect("not zero")),
         retry_limit: 0,
-        resource_limit: NonZeroU32::new(20_000),
     };
 
     /// A nonlinear integer query Z3 does not decide within [`PATH_SENSITIVE_OPTIONS`]: one such
@@ -4817,7 +4808,7 @@ mod tests {
                 let mut parameters = Params::new();
                 parameters.set_u32(
                     "rlimit",
-                    PATH_SENSITIVE_OPTIONS.resource_limit.unwrap().get(),
+                    PATH_SENSITIVE_OPTIONS.budget.units().unwrap().get(),
                 );
                 solver.set_params(&parameters);
                 solver.from_string(script);
@@ -4944,9 +4935,8 @@ mod tests {
     #[test]
     fn a_retry_starts_from_the_querys_earlier_attempts() {
         let options = |resource_limit: u32, retry_limit: u32| Z3Options {
-            timeout_ms: 125,
+            budget: SmtBudget::Units(NonZeroU32::new(resource_limit).unwrap()),
             retry_limit,
-            resource_limit: NonZeroU32::new(resource_limit),
         };
         let run = |options: Z3Options, unrelated: bool| {
             std::thread::spawn(move || {
@@ -4979,9 +4969,8 @@ mod tests {
         let solver = Z3Solver::with_options(
             &definition(),
             Z3Options {
-                timeout_ms: 125,
+                budget: SmtBudget::Units(NonZeroU32::new(100).unwrap()),
                 retry_limit: 2,
-                resource_limit: NonZeroU32::new(100),
             },
         )
         .unwrap();

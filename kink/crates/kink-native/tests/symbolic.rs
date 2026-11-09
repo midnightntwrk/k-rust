@@ -42,14 +42,10 @@ fn by_profile<T>(no_z3: T, z3: T) -> T {
     if cfg!(feature = "z3") { z3 } else { no_z3 }
 }
 
-/// SMT options for every backend in this file. k-rust's default 125 ms timeout makes a Z3
-/// `unknown` depend on load (README R4); 4 s doubled twice (up to 28 s per query) keeps the
-/// small fixture queries decided. A no-Z3 backend ignores them.
-const BACKEND_OPTIONS: BackendOptions = BackendOptions {
-    smt_timeout_ms: 4000,
-    smt_retry_limit: 2,
-    smt_resource_limit: None,
-};
+/// SMT options for every backend in this file: k-rust's default, resource-bounded options, under
+/// which a Z3 `unknown` does not depend on load (README R4) and the small fixture queries are
+/// decided. A no-Z3 backend ignores them.
+const BACKEND_OPTIONS: BackendOptions = BackendOptions::DEFAULT;
 
 fn backend(kore: &str, module: &str) -> Backend {
     Backend::new(kore, module, BACKEND_OPTIONS).expect("backend")

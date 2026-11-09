@@ -38,7 +38,7 @@ use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::backend::search::*;
 use k_rust::{
     backend::{
-        Backend, BackendError, BackendOptions,
+        Backend, BackendError, BackendOptions, SmtBudget,
         execution::{BackendRunOptions, SearchRunOptions},
         proving::{ClaimFilter, SavedProofs, filter_claims},
         simplification::model_substitution,
@@ -86,7 +86,7 @@ use k_rust_backend::{
     rewrite::ExecutionMode,
     search::SearchType,
     simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
-    smt::{ModelResult, Z3Options},
+    smt::ModelResult,
     stop::{PreludeFailure, StopCause},
     term::Sort as BackendSort,
     transition::DescriptorTranscriptEntry,
@@ -714,11 +714,14 @@ struct SmtArgs {
 }
 
 impl SmtArgs {
-    fn options(self) -> Z3Options {
-        Z3Options {
-            timeout_ms: self.timeout.get(),
-            retry_limit: self.retry_limit,
-            resource_limit: None,
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "krust's `--smt-timeout` is still a clock with a 125 ms default (CF-33 unit 3 makes units the default)"
+    )]
+    fn options(self) -> BackendOptions {
+        BackendOptions {
+            smt_budget: SmtBudget::clock(self.timeout.get()),
+            smt_retry_limit: self.retry_limit,
         }
     }
 }
@@ -1314,7 +1317,7 @@ struct KrunOptions {
     search: Option<SearchRunOptions>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
-    smt: Z3Options,
+    smt: BackendOptions,
     timings: Option<PathBuf>,
     trace: Option<PathBuf>,
     trace_aggregate: Option<PathBuf>,
@@ -1374,7 +1377,7 @@ struct KproveOptions {
     graph_search: ProofSearchOrder,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
-    smt: Z3Options,
+    smt: BackendOptions,
     load_only: bool,
     timings: Option<PathBuf>,
     trace: Option<PathBuf>,
@@ -2772,14 +2775,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             let execute_phase =
                 tracing::info_span!("phase", name = tracing::field::display("execute")).entered();
             let started = Instant::now();
-            let mut backend = Backend::from_internalized(
-                backend,
-                BackendOptions {
-                    smt_timeout_ms: options.smt.timeout_ms,
-                    smt_retry_limit: options.smt.retry_limit,
-                    smt_resource_limit: None,
-                },
-            )?;
+            let mut backend = Backend::from_internalized(backend, options.smt)?;
             let output = backend.run_cli(
                 None,
                 vec![term.pattern],
@@ -2922,11 +2918,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
         .then(|| options.module.clone())
         .or_else(|| definition.modules.last().map(|module| module.name.clone()))
         .ok_or_else(|| io::Error::other("KORE definition has no modules"))?;
-    let backend_options = BackendOptions {
-        smt_timeout_ms: options.smt.options().timeout_ms,
-        smt_retry_limit: options.smt.options().retry_limit,
-        smt_resource_limit: None,
-    };
+    let backend_options = options.smt.options();
     let mut backend = Backend::from_definition(definition, construction_module, backend_options)?;
     for path in &options.added_modules {
         let source = fs::read_to_string(path)?;
@@ -3009,15 +3001,7 @@ fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = Backend::from_definition(
-        definition,
-        options.module,
-        BackendOptions {
-            smt_timeout_ms: options.smt.timeout.get(),
-            smt_retry_limit: options.smt.retry_limit,
-            smt_resource_limit: None,
-        },
-    )?;
+    let backend = Backend::from_definition(definition, options.module, options.smt.options())?;
     rpc::serve(backend, (options.host.as_str(), options.port))
 }
 
@@ -3032,15 +3016,7 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let mut backend = Backend::from_definition(
-        definition,
-        &options.module,
-        BackendOptions {
-            smt_timeout_ms: options.smt.options().timeout_ms,
-            smt_retry_limit: options.smt.options().retry_limit,
-            smt_resource_limit: None,
-        },
-    )?;
+    let mut backend = Backend::from_definition(definition, &options.module, options.smt.options())?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
     let output = backend.simplify_kore(None, &syntax, Admission::Verified)?;
     write_kore_result(&output, options.output.as_deref())
@@ -3057,15 +3033,7 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let mut backend = Backend::from_definition(
-        definition,
-        &options.module,
-        BackendOptions {
-            smt_timeout_ms: options.smt.options().timeout_ms,
-            smt_retry_limit: options.smt.options().retry_limit,
-            smt_resource_limit: None,
-        },
-    )?;
+    let mut backend = Backend::from_definition(definition, &options.module, options.smt.options())?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
     let model = backend.model_for(None, &syntax, Admission::Verified)?;
     let output = model_output(model.0, model.1.as_ref())?;
@@ -3134,15 +3102,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let mut backend = Backend::from_definition(
-        definition,
-        &options.module,
-        BackendOptions {
-            smt_timeout_ms: options.smt.options().timeout_ms,
-            smt_retry_limit: options.smt.options().retry_limit,
-            smt_resource_limit: None,
-        },
-    )?;
+    let mut backend = Backend::from_definition(definition, &options.module, options.smt.options())?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
     let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
     let (verdict, result_sort) = backend.implies_kore(
@@ -3759,16 +3719,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let saved_ids = saved_proofs.proven_ids(spec_module, &reusable);
     let mut proven_ids = saved_ids.clone();
     let circularities = kept.iter().collect::<Vec<_>>();
-    let mut backend = Backend::from_internalized_with_prelude(
-        definition,
-        BackendOptions {
-            smt_timeout_ms: options.smt.timeout_ms,
-            smt_retry_limit: options.smt.retry_limit,
-            smt_resource_limit: None,
-        },
-        smt_prelude,
-    )
-    .map_err(|error| kprove_solver_error(error.into()))?;
+    let mut backend = Backend::from_internalized_with_prelude(definition, options.smt, smt_prelude)
+        .map_err(|error| kprove_solver_error(error.into()))?;
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     drop(setup_phase);
@@ -4250,7 +4202,7 @@ mod tests {
             SimplificationOptions, simplify_and_decide_predicate_with_solver,
             simplify_pattern_with_solver,
         },
-        smt::Z3Solver,
+        smt::{Z3Options, Z3Solver},
         substitution::Substitution,
         term::{
             FunctionType, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
@@ -4264,7 +4216,7 @@ mod tests {
         definition: &BackendDefinition,
         syntax: &KorePattern,
     ) -> Result<KorePattern, Box<dyn Error>> {
-        simplify_kore_pattern_with_options(definition, syntax, Z3Options::RESOURCE_BOUNDED)
+        simplify_kore_pattern_with_options(definition, syntax, Z3Options::DEFAULT)
     }
 
     #[cfg(test)]
@@ -4931,7 +4883,15 @@ mod tests {
         assert!(options.search.is_none());
         assert_eq!(options.step_timeout, Some(Duration::from_millis(250)));
         assert!(options.moving_average_timeout);
-        assert_eq!(options.smt, Z3Options::default());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "krust's default is still the 125 ms clock (CF-33 unit 3 makes it units)"
+        )]
+        let default = BackendOptions {
+            smt_budget: SmtBudget::clock(125),
+            smt_retry_limit: 3,
+        };
+        assert_eq!(options.smt, default);
     }
 
     fn parse_krun_pattern_options(extra: &[&str]) -> Result<KrunOptions, clap::Error> {
@@ -6039,14 +5999,15 @@ mod tests {
         assert_eq!(options.module, "MAIN");
         assert_eq!(options.port, 31_337);
         assert_eq!(options.host, "0.0.0.0");
-        assert_eq!(
-            options.smt.options(),
-            Z3Options {
-                timeout_ms: 1,
-                retry_limit: 5,
-                resource_limit: None,
-            }
-        );
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "`--smt-timeout 1` asks for the clock"
+        )]
+        let clocked = BackendOptions {
+            smt_budget: SmtBudget::clock(1),
+            smt_retry_limit: 5,
+        };
+        assert_eq!(options.smt.options(), clocked);
     }
 
     #[test]
@@ -6276,7 +6237,15 @@ mod tests {
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
         assert_eq!(options.step_timeout, Some(Duration::from_secs(9)));
         assert!(options.moving_average_timeout);
-        assert_eq!(options.smt, Z3Options::default());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "krust's default is still the 125 ms clock (CF-33 unit 3 makes it units)"
+        )]
+        let default = BackendOptions {
+            smt_budget: SmtBudget::clock(125),
+            smt_retry_limit: 3,
+        };
+        assert_eq!(options.smt, default);
     }
 
     #[test]

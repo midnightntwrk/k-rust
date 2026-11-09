@@ -3944,9 +3944,10 @@ endmodule
 #[test]
 fn bounded_word_values_compose_with_independent_arithmetic_claims() {
     const OPTIONS: BackendOptions = BackendOptions {
+        smt_budget: k_rust::backend::SmtBudget::Units(
+            std::num::NonZeroU32::new(12_000_000).expect("not zero"),
+        ),
         smt_retry_limit: 0,
-        smt_resource_limit: std::num::NonZeroU32::new(12_000_000),
-        ..BackendOptions::RESOURCE_BOUNDED
     };
     let mut source = String::from(
         r#"

@@ -38,6 +38,7 @@ mod query;
 #[cfg(feature = "z3")]
 mod z3;
 
+pub mod budget;
 mod functional;
 mod literal;
 mod observation;
@@ -50,6 +51,7 @@ mod summary;
 #[cfg(feature = "z3")]
 use query::TranslatedQuery;
 
+pub use budget::{BudgetConflict, DEFAULT_SMT_RESOURCE_LIMIT, SmtBudget, SmtClock};
 #[cfg(feature = "z3")]
 pub use z3::{Z3Options, Z3Solver, trace, z3_version};
 
@@ -3730,8 +3732,8 @@ pub trait SmtSolver {
 
     /// Whether an undecided answer of this solver is, as a decided one is, a function of the
     /// query and the build: true only where every bound on an attempt counts the solver's own
-    /// work, not time (`z3::Z3Options::resource_limit`). By default an `Unknown` may be a
-    /// timeout, which depends on the machine's speed and load. A solver that forwards its
+    /// work, not time (`SmtBudget::Units`). Under a clock an `Unknown` may be a timeout, which
+    /// depends on the machine's speed and load. A solver that forwards its
     /// queries to another forwards this too.
     fn undecided_answers_reproducible(&self) -> bool {
         false

@@ -1,6 +1,14 @@
-# kink's Clippy configuration: none, as before the merge into k-rust. Clippy reads the nearest
-# clippy.toml above a crate's manifest, so this file keeps k-rust's root clippy.toml (its
-# disallowed serde_json pretty printers and its interior-mutability exemption) from applying to
-# kink's crates, whose lints are written in each crate's Cargo.toml. Adopting k-rust's
-# configuration, like its pedantic lints, is a separate cleanup: kink-flow's report is written
-# with serde_json::to_string_pretty, and a change of its layout would change the report's bytes.
+# kink's Clippy configuration: none, as before the merge into k-rust, but the solver budget's
+# door below. Clippy reads the nearest clippy.toml above a crate's manifest, so this file keeps
+# k-rust's root clippy.toml (its disallowed serde_json pretty printers and its
+# interior-mutability exemption) from applying to kink's crates, whose lints are written in each
+# crate's Cargo.toml. Adopting k-rust's configuration, like its pedantic lints, is a separate
+# cleanup: kink-flow's report is written with serde_json::to_string_pretty, and a change of its
+# layout would change the report's bytes.
+
+# The one exception: k-rust's door to a clocked solver budget, which every crate of the workspace
+# reaches only through an audited #[expect] (k-rust-backend `smt::budget`, CF-33).
+disallowed-methods = [
+  { path = "k_rust_backend::smt::budget::SmtBudget::clock", reason = "a solver answer is a function of its query (CF-33): bound attempts by Z3 resource units (SmtBudget::Units, SmtBudget::DEFAULT); a place whose answers may depend on the machine's speed and load states why in #[expect(clippy::disallowed_methods, reason = ...)]" },
+  { path = "k_rust_backend::smt::budget::SmtBudget::requested", reason = "data that names a timeout gets a clock (CF-33): the surface that decodes it states in #[expect(clippy::disallowed_methods, reason = ...)] which explicit field or flag asks for the clock" },
+]

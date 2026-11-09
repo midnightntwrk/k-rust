@@ -251,7 +251,7 @@ pub fn tier1_refusal(
 ) -> Option<&'static str> {
     match profile {
         SolverProfile::NoZ3 => None,
-        SolverProfile::Z3 if solver.smt_resource_limit.is_none() => Some(TIER1_CLOCK),
+        SolverProfile::Z3 if !solver.smt_budget.is_clock_free() => Some(TIER1_CLOCK),
         SolverProfile::Z3 => kink_native::solver_named().err(),
     }
 }

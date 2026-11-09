@@ -37,7 +37,7 @@ use std::{
 use k_rust_backend::{
     definition::BackendDefinition,
     rule::Predicate,
-    smt::{Z3Options, Z3Solver},
+    smt::{SmtBudget, Z3Options, Z3Solver},
     substitution::Substitution,
     term::{Term, TermKind, Variable},
 };
@@ -1361,7 +1361,7 @@ pub fn configured_runner(prefix: &str) -> (TestRunner, u32, Option<u64>) {
 }
 
 /// A Z3 check bounded by resource units alone, with no retry (`{prefix}_RESOURCE_LIMIT`, default
-/// the first attempt of `Z3Options::RESOURCE_BOUNDED`), and a bound on Z3's own memory
+/// the first attempt of `Z3Options::DEFAULT`), and a bound on Z3's own memory
 /// (`memory_max_size`, megabytes): both make an answer `Unknown`, which is counted and refutes
 /// nothing, so they bound the test's cost without weakening any check. Neither is a clock, so
 /// which cases are decided is a function of the cases and the Z3 build, not of the machine's
@@ -1374,16 +1374,15 @@ pub fn configured_runner(prefix: &str) -> (TestRunner, u32, Option<u64>) {
 /// power with a symbolic exponent as Z3's own.
 pub fn solver(definition: &BackendDefinition, prefix: &str) -> Z3Solver {
     z3::set_global_param("memory_max_size", "256");
-    let resource_limit = std::env::var(format!("{prefix}_RESOURCE_LIMIT"))
+    let budget = std::env::var(format!("{prefix}_RESOURCE_LIMIT"))
         .ok()
         .and_then(|value| value.parse().ok())
-        .or(Z3Options::RESOURCE_BOUNDED.resource_limit);
+        .map_or(SmtBudget::DEFAULT, SmtBudget::Units);
     Z3Solver::with_options(
         definition,
         Z3Options {
+            budget,
             retry_limit: 0,
-            resource_limit,
-            ..Z3Options::RESOURCE_BOUNDED
         },
     )
     .expect("the solver loads the definition, its smt-lemma included")

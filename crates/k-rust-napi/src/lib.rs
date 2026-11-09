@@ -258,14 +258,19 @@ impl NativeBackend {
 /// Create a persistent backend from an already compiled textual KORE definition.
 #[napi]
 pub fn create_backend_native(options: NativeCreateBackendOptions) -> Result<NativeBackend> {
-    let defaults = BackendOptions::default();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the napi binding's `smtTimeoutMs` is still a clock with a 125 ms default (CF-33 unit 5 makes units the default)"
+    )]
+    let smt_budget = k_rust::backend::SmtBudget::clock(options.smt_timeout_ms.unwrap_or(125));
     let backend = Backend::new(
         &options.definition_kore,
         options.module_name,
         BackendOptions {
-            smt_timeout_ms: options.smt_timeout_ms.unwrap_or(defaults.smt_timeout_ms),
-            smt_retry_limit: options.smt_retry_limit.unwrap_or(defaults.smt_retry_limit),
-            smt_resource_limit: None,
+            smt_budget,
+            smt_retry_limit: options
+                .smt_retry_limit
+                .unwrap_or(BackendOptions::DEFAULT.smt_retry_limit),
         },
     )
     .map_err(napi_error)?;

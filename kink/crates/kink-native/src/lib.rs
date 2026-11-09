@@ -82,7 +82,7 @@ pub const SMT_RESOURCE_LIMIT: std::num::NonZeroU32 = k_rust::backend::DEFAULT_SM
 #[must_use]
 pub const fn backend_options(units: std::num::NonZeroU32) -> k_rust::backend::BackendOptions {
     k_rust::backend::BackendOptions {
-        smt_resource_limit: Some(units),
+        smt_budget: k_rust::backend::SmtBudget::Units(units),
         ..BACKEND_OPTIONS
     }
 }
@@ -102,7 +102,7 @@ pub fn solver_value(options: k_rust::backend::BackendOptions) -> Option<serde_js
         return None;
     }
     Some(serde_json::json!({
-        "resource_limit": options.smt_resource_limit.map(std::num::NonZeroU32::get),
+        "resource_limit": options.smt_budget.units().map(std::num::NonZeroU32::get),
         "retries": options.smt_retry_limit,
         "z3": z3_build_value(),
     }))
@@ -161,11 +161,11 @@ pub fn solver_named() -> Result<(), &'static str> {
 /// Whether every solver answer of a backend built with `options` is a function of the question,
 /// the budget and the Z3 build, which [`solver_value`] names: always under the no-Z3 profile,
 /// where no solver is asked; under the Z3 profile when `options` bound every attempt by Z3
-/// resource units (`smt_resource_limit`), since whether such an attempt answers is then a
+/// resource units (`SmtBudget::Units`), since whether such an attempt answers is then a
 /// function of the question, the units and the build (k-rust `docs/compatibility.md`,
 /// "Execute", clock-free solver mode), never of the host's load or of other solver work in the
 /// process.
-/// Not when the clock bounds the attempts (`smt_resource_limit` `None`): an answer then depends
+/// Not when the clock bounds the attempts (`SmtBudget::Clock`): an answer then depends
 /// on the host's load, which no key can name. A store of answers kink computed reads and writes
 /// only where this holds (and [`solver_named`] does): then a stored answer is the answer the
 /// same question gets again, however many of its solver answers were undecided.
@@ -174,20 +174,24 @@ pub const fn solver_answers_keyed(options: k_rust::backend::BackendOptions) -> b
     matches!(
         execution::SolverProfile::BUILD,
         execution::SolverProfile::NoZ3
-    ) || options.smt_resource_limit.is_some()
+    ) || options.smt_budget.is_clock_free()
 }
 
 #[cfg(test)]
 mod tests {
     /// kink's own options are keyed under both profiles; clock-bounded options only without Z3.
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "clocked options are what kink refuses to key"
+    )]
     fn answers_are_keyed_under_resource_bounds_or_without_z3() {
         assert!(super::solver_answers_keyed(super::BACKEND_OPTIONS));
         assert!(super::solver_answers_keyed(super::backend_options(
             std::num::NonZeroU32::MIN
         )));
         let clock = k_rust::backend::BackendOptions {
-            smt_resource_limit: None,
+            smt_budget: k_rust::backend::SmtBudget::clock(125),
             ..super::BACKEND_OPTIONS
         };
         assert_eq!(
