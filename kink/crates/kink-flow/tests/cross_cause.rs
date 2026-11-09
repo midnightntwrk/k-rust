@@ -41,6 +41,7 @@ fn only_cause(manifest: &Path, mutations: &Path) -> String {
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,

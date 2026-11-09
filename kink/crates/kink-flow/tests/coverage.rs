@@ -848,7 +848,7 @@ mod kink_tier {
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
         assert!(
             verdicts.contains(
-                "\n[rules]\nopen = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n  \
+                "\n[coverage.rules]\nopen = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n  \
                  \"rule:GUARDS.high\",\n]\n"
             ),
             "{verdicts}"
@@ -857,7 +857,10 @@ mod kink_tier {
             verdicts.contains("\"requirement:GUARDS.wake:held\""),
             "{verdicts}"
         );
-        assert!(verdicts.contains("\n[flips]\nrun = false\n"), "{verdicts}");
+        assert!(
+            verdicts.contains("\n[coverage.flips]\nrun = false\n"),
+            "{verdicts}"
+        );
         assert!(!verdicts.contains("irq"), "no program list: {verdicts}");
         // The text rendering lists the targets in the document's order.
         let text = kink_flow::coverage::text(&document).unwrap();

@@ -80,6 +80,7 @@ fn search_with(manifest: &Path, schedule: kink_campaign::ScheduleMode) -> Value 
         &FlowManifest::read(manifest).unwrap(),
         &MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap(),
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,

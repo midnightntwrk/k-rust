@@ -253,6 +253,7 @@ mod kink_tier {
             &manifest,
             &list,
             &RunOptions {
+                legacy_lock: None,
                 only: Vec::new(),
                 cache: None,
                 compile_workers: Some(1),

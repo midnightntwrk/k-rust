@@ -67,6 +67,7 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
             compile_workers: None,

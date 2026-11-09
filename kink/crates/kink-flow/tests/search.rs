@@ -2,7 +2,7 @@
 //!
 //! Every test pins statuses and killer ids. Each verdict is the status kink-campaign's
 //! runner derives; the tests only read the run document, the lock and the result records. Every
-//! library run here uses the lock `verdicts.lock` beside the manifest (`--lock`), tier 2 of the
+//! library run here uses the lock `kink.lock` beside the manifest (`--lock`), tier 2 of the
 //! search: a test that pins the warm cost of a killer deletes tier 1 (`outcomes/`) first, so that
 //! the recorded killer, not a cached outcome, decides the calls.
 
@@ -79,6 +79,7 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
             compile_workers: None,
@@ -202,7 +203,7 @@ fn cache_of(manifest: &Path) -> PathBuf {
 
 /// The lock every library run of this binary uses.
 fn killers_file(manifest: &Path) -> PathBuf {
-    manifest.with_file_name("verdicts.lock")
+    manifest.with_file_name("kink.lock")
 }
 
 /// Delete tier 1 of the outcome cache, so that the next run's calls come from the lock.

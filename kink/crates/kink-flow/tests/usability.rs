@@ -74,6 +74,7 @@ fn search(manifest: &Path, mutations: &Path) -> Value {
         &flow,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,
@@ -916,6 +917,7 @@ text = 'h(opaque(1), 2)'
             &flow,
             &list,
             &RunOptions {
+                legacy_lock: None,
                 only: vec!["countdown-escapes".into()],
                 cache: None,
                 compile_workers: None,
@@ -940,6 +942,7 @@ text = 'h(opaque(1), 2)'
             &flow,
             &MutationList::read(&invalid).unwrap(),
             &RunOptions {
+                legacy_lock: None,
                 only: Vec::new(),
                 cache: None,
                 compile_workers: None,

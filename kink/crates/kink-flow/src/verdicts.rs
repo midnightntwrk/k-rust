@@ -1,58 +1,61 @@
 //! The verdicts of a `coverage` or `run` document as deterministic TOML (`--output verdicts`):
 //! what the corpus and the specification decide, and nothing that depends on the host, the build,
-//! the cache or the order the work was done in. It is the format of recorded outputs and, without
-//! `killed_by`, of a corpus's `verdicts.lock` ([`lock_text`], [`crate::lock`]), which `run --lock`
-//! writes, and of its `coverage.lock`, which `coverage --lock` writes, so that a change of a
-//! verdict shows in review and an unchanged corpus renders the same bytes.
+//! the cache or the order the work was done in. A rendering is the corpus record's header and the
+//! command's section ([`crate::lock`]): it is the format of recorded outputs and, without
+//! `killed_by`, of the section of `kink.lock` its command writes (`run --lock`, `coverage
+//! --lock`; [`lock_section`], [`lock_text`]), so that a change of a verdict shows in review and
+//! an unchanged corpus renders the same bytes.
 //!
 //! ```toml
-//! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).
-//! # As a lock (`coverage --lock FILE`; krs keeps <corpus>/coverage.lock) the next run tries each
+//! # kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
 //! # ...
 //! schema = "kink-flow-verdicts"
+//!
+//! [coverage]
+//! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
+//! # ...
 //! version = 24
-//! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
 //! krs_annotation = 10
 //!
-//! [spec]
+//! [coverage.spec]
 //! outcome = "admitted"
 //!
-//! [settings]
+//! [coverage.settings]
 //! depth = 1
 //! mcdc = [
 //! ]
 //!
 //! # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
 //! # ...
-//! [rules]
+//! [coverage.rules]
 //! open = [
 //!   "rule:crate::plus_succ",
 //! ]
 //! argued = [
 //! ]
 //!
-//! [requirements]
+//! [coverage.requirements]
 //! open = [
 //! ]
 //! argued = [
 //!   { id = "requirement:crate::wake:held", standing = "text" },
 //! ]
 //!
-//! [syntax]
+//! [coverage.syntax]
 //! open = [
 //! ]
 //! argued = [
 //! ]
 //!
-//! # Each [[flip]] is a condition flip: a mutant kink generates from the definition by negating
+//! # Each [[coverage.flip]] is a condition flip: a mutant kink generates from the definition by
 //! # ...
-//! [flips]
+//! [coverage.flips]
 //! run = true
 //!
-//! [[flip]]
+//! [[coverage.flip]]
 //! id = "flip--dispatch+wake--H"
 //! negates = "self.halted"
 //! rules = [
@@ -62,7 +65,7 @@
 //! status = "distinguished"
 //! killer = "irq"
 //!
-//! [[flip]]
+//! [[coverage.flip]]
 //! id = "flip--halted+wake--I"
 //! negates = "self.irq"
 //! rules = [
@@ -73,13 +76,16 @@
 //! standing = "text"
 //! ```
 //!
-//! A rendering says what it is without the README: it opens with a comment naming the command
-//! whose verdicts it holds and what that command does with it as a lock ([`RUN_PREAMBLE`],
-//! [`COVERAGE_PREAMBLE`]), and a comment before its families and before its rows says what an
-//! entry and each status word is ([`MUTATIONS_LEGEND`], [`FAMILIES_LEGEND`], [`FLIPS_LEGEND`]).
-//! Each comment is a constant of the rendering's version, so it moves no line of a lock.
+//! A rendering says what it is without the README: the record's header opens with a comment
+//! saying what the file is and who writes each section ([`RECORD_PREAMBLE`]), the section with
+//! one naming the command whose verdicts it holds and what that command does with it as a lock
+//! ([`RUN_PREAMBLE`], [`COVERAGE_PREAMBLE`]), and a comment before its families and before its
+//! rows says what an entry and each status word is ([`MUTATIONS_LEGEND`], [`FAMILIES_LEGEND`],
+//! [`FLIPS_LEGEND`]). Each comment is a constant of the rendering's version, so it moves no line
+//! of a lock. The record's header holds nothing else but `schema` ([`record_header`]); every
+//! value below is the section's, under its `[run]` or `[coverage]` table.
 //!
-//! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
+//! The section names its `version` and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
 //! class, a status and a cell can move between `killed`, `unknown` and `survived` with the solver's
 //! answers, so a diff of two renderings across profiles shows why. Under the Z3 profile it also
 //! names the Z3 build the answers came from (the document's `z3`): `z3_version`, Z3's own version
@@ -132,16 +138,16 @@
 //! killer is the recorded one (the coverage lock's) while it kills, else the first killing
 //! program in the search's order, a function of the inputs and the record, as a run's is. A
 //! `run` document
-//! gives each mutation it judged (`[[mutation]]`, in list order) its status, a killed mutation's
+//! gives each mutation it judged (`[[run.mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
 //! corpus order), a survivor that rests on a horizon its `horizon` (each program whose
 //! observation channels agreed only up to its baseline's horizon, with each channel, the number
 //! of elements agreed on and why the channel opened there, `opening`: a function of the result
 //! key, not of the host), and, when a corpus error stopped it, the mutation and the reason under
-//! `[stopped]` (the mutations after it have no status). A refused specification has its `stage`
-//! and `reason` under `[spec]`, a refused mutation list its `outcome` under `[mutation_list]` (a
-//! run document of a list that does not decode has no `[spec]`), and a refused lock its `outcome`
-//! under `[lock]`, with no case or mutation. A mutation its author must fix before it is
+//! `[run.stopped]` (the mutations after it have no status). A refused specification has its
+//! `stage` and `reason` under `[run.spec]` (`[coverage.spec]`), a refused mutation list its
+//! `outcome` under `[run.mutation_list]` (a run document of a list that does not decode has no
+//! `[run.spec]`), and a refused lock its `outcome` under `[run.lock]` (`[coverage.lock]`), with no case or mutation. A mutation its author must fix before it is
 //! judged, `invalid-mutation` or `not-admitted`, has its `reason` too, as a refused specification
 //! has: the reason is a function of the specification and the mutation alone (the resolution,
 //! the mutant's compile, its consistency, its stop), so it is the refusal's verdict, and a lock
@@ -237,41 +243,53 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// kind, sentences and digest (`root:A,B#D`, KINK-FINDING-NAMES), where 22 named them by
 /// generated-K positions, so that a lock whose arguments name findings shows a new version; a lock
 /// whose standings assume nothing differs in its `version` line only.
-/// 24 since a rendering says what it is without the README (FB48-NAMES): it opens with a comment
-/// naming the command whose verdicts it holds and what that command does with it as a lock, and
-/// a comment before its rows says what a row and each status is; a coverage rendering gives each
-/// argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued
-/// flip's `standing` on its row), where `[arguments]` repeated the ids, gives each flip the
-/// condition it negates or the bit it toggles and the rules it edits, and no longer writes
-/// `[settings] tiers`, which `[flips] run` states. Under `--locked` a lock of another version is
-/// refused, naming the command that rewrites it ([`crate::lock`]).
+/// 24 since a rendering is the corpus record's header and its command's section (FB48-NAMES,
+/// FB48-ONE-LOCK): the header is a comment saying what the file is and `schema`; the section,
+/// `[run]` or `[coverage]`, states its own `version`, `profile`, Z3 build and `krs_annotation`,
+/// opens with a comment naming the command whose verdicts it holds and what that command does with
+/// it as a lock, holds the command's tables under its own (`[run.spec]`, `[[run.mutation]]`,
+/// `[coverage.rules]`, `[[coverage.flip]]`), and writes a comment before its rows saying what a
+/// row and each status is, where 23 wrote one command's rendering at the top of its file with a
+/// `document`; a coverage section gives each argued item once, in its family's `argued`, with its
+/// standing (`{ id, standing }`; an argued flip's `standing` on its row), where `[arguments]`
+/// repeated the ids, gives each flip the condition it negates or the bit it toggles and the rules
+/// it edits, and no longer writes `[settings] tiers`, which `[coverage.flips] run` states. Under
+/// `--locked` a section of another version, or a lock before 24, is refused, naming the command
+/// that rewrites it ([`crate::lock`]).
 pub const VERDICTS_VERSION: u64 = 24;
 
-/// The comment a `run` rendering opens with: the command whose verdicts these are, and what each
-/// command does with them as a lock, so that a reader of `verdicts.lock` needs no README to tell
-/// what wrote it.
+/// The comment a record opens with, before its `schema`: what the file is, which section each
+/// command keeps, and that a command touches only its own, so that a reader of `kink.lock` needs
+/// no README to tell what wrote it.
+pub const RECORD_PREAMBLE: &[&str] = &[
+    "kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and",
+    "[coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command",
+    "reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.",
+];
+
+/// The comment after `[run]`: the command whose verdicts the section holds, and what the command
+/// does with it as a lock.
 pub const RUN_PREAMBLE: &[&str] = &[
-    "The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation list.",
-    "As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries each",
-    "`killer` first, a run without --locked rewrites it, and `run --locked` checks it is current.",
+    "The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries",
+    "each `killer` first, a run without --locked rewrites this section, and `run --locked` checks",
+    "that it is current.",
 ];
 
-/// The comment a `coverage` rendering opens with ([`RUN_PREAMBLE`]'s, for `coverage.lock`).
+/// The comment after `[coverage]` ([`RUN_PREAMBLE`]'s, for `coverage`).
 pub const COVERAGE_PREAMBLE: &[&str] = &[
-    "The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).",
-    "As a lock (`coverage --lock FILE`; krs keeps <corpus>/coverage.lock) the next run tries each",
-    "flip's `killer` first, a run without --locked rewrites it, and `coverage --locked` checks it",
-    "is current.",
+    "The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the",
+    "next run tries each flip's `killer` first, a run without --locked rewrites this section, and",
+    "`coverage --locked` checks that it is current.",
 ];
 
-/// The comment before a run rendering's first `[[mutation]]`: what a row is and what each status
+/// The comment before a run section's first `[[run.mutation]]`: what a row is and what each status
 /// says.
 pub const MUTATIONS_LEGEND: &[&str] = &[
-    "Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a program's",
-    "result differs on the mutant; `killer` names it), survived (every program agreed; `horizon`,",
-    "those that agreed only up to an observation horizon), equivalent or unkillable (no program",
-    "can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation or",
-    "not-admitted (its author must fix it; `reason` says why).",
+    "Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a",
+    "program's result differs on the mutant; `killer` names it), survived (every program agreed;",
+    "`horizon`, those that agreed only up to an observation horizon), equivalent or unkillable (no",
+    "program can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation",
+    "or not-admitted (its author must fix it; `reason` says why).",
 ];
 
 /// The comment before a coverage rendering's first family: what `open`, `argued` and
@@ -283,11 +301,11 @@ pub const FAMILIES_LEGEND: &[&str] = &[
     "unchecked: a check did not decide); `undecided`, those the records cannot decide.",
 ];
 
-/// The comment before `[flips]` where the flips ran: what a `[[flip]]` is and what each status
+/// The comment before `[coverage.flips]` where the flips ran: what a `[[coverage.flip]]` is and what each status
 /// says.
 pub const FLIPS_LEGEND: &[&str] = &[
-    "Each [[flip]] is a condition flip: a mutant kink generates from the definition by negating",
-    "one condition (`negates`, as the source writes it) or toggling one bit of an encoding",
+    "Each [[coverage.flip]] is a condition flip: a mutant kink generates from the definition by",
+    "negating one condition (`negates`, as the source writes it) or toggling one bit of an encoding",
     "(`toggles`) in the `rules` it lists, and runs as `run` runs a mutation. Its status:",
     "distinguished (a program's result differs on it; `killer` names it), undistinguished (every",
     "comparable program agreed), unreached (no program reaches the condition), argued (an",
@@ -295,7 +313,7 @@ pub const FLIPS_LEGEND: &[&str] = &[
     "apart), refused (the flipped definition is not admitted; `reason`), unknown (no verdict).",
 ];
 
-/// The comment before `[flips]` where they did not run.
+/// The comment before `[coverage.flips]` where they did not run.
 pub const FLIPS_NOT_RUN: &[&str] =
     &["No condition flip ran: the front end derives none, or `--tier 1` runs none."];
 
@@ -307,46 +325,76 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
     render(document, true)
 }
 
-/// The text of a `verdicts.lock` (`run --lock`, [`crate::lock`]): the rendering of a run document
-/// without `killed_by`, so that a first-kill and a full run of the same inputs write the same
-/// bytes, and for a first-kill run `run --output verdicts`, `report --output verdicts` and the lock
-/// are the same bytes. The text of a `coverage.lock` (`coverage --lock`) is the rendering of a
-/// coverage document, which has no `killed_by`: `coverage --output verdicts` and the lock are the
-/// same bytes. The error names what the document is when it is neither.
+/// The text of a lock that holds only `document`'s section: the rendering without `killed_by`
+/// (a run's), so that a first-kill and a full run of the same inputs write the same bytes, and for
+/// a first-kill run `run --output verdicts` and `report --output verdicts` are the bytes of a lock
+/// only `run` has written; `coverage --output verdicts` those of a lock only `coverage` has. The
+/// error names what the document is when it is neither.
 pub fn lock_text(document: &Value) -> Result<String, String> {
+    lock_section(document).map(|section| format!("{}\n{section}", record_header()))
+}
+
+/// The section of a lock that `document`'s command keeps (`[run]`, `[coverage]` and its
+/// sub-tables, [`crate::lock`]): its part of [`lock_text`] after the record's header, from its
+/// `[run]` or `[coverage]` line, ending with one newline. The error names what the document is
+/// when it is neither a run nor a coverage document.
+pub fn lock_section(document: &Value) -> Result<String, String> {
     let schema = &document["schema"];
     if schema != crate::report::RUN_SCHEMA && schema != crate::coverage::COVERAGE_SCHEMA {
         return Err("a lock is the rendering of a run or coverage document".to_owned());
     }
-    render(document, false)
+    let kind = section_name(document)?;
+    Ok(section(document, kind, false))
+}
+
+/// The header of a record, before its first section: [`RECORD_PREAMBLE`] and `schema`. It holds
+/// only what is the same for every section by construction: each section states its own version,
+/// solver profile, Z3 build and specification, since each command writes its section at its own
+/// time, on the build it runs on, and keeps the other section as it is.
+#[must_use]
+pub fn record_header() -> String {
+    let mut text = String::new();
+    comment(&mut text, RECORD_PREAMBLE);
+    line(&mut text, "schema", &string(VERDICTS_SCHEMA));
+    text
 }
 
 fn render(document: &Value, killed_by: bool) -> Result<String, String> {
-    let kind = match document["schema"].as_str() {
-        Some(crate::coverage::COVERAGE_SCHEMA) => "coverage",
-        Some(crate::report::RUN_SCHEMA) => "run",
-        Some(crate::report::MISSING_SCHEMA) => {
-            return Err(match document["outcome"].as_str() {
-                Some(outcome) => format!(
-                    "{outcome} run report {}: {}",
-                    document["path"].as_str().unwrap_or("?"),
-                    document["detail"].as_str().unwrap_or("no detail")
-                ),
-                // The manifest, or what a front end needs before it, was refused.
-                None => format!(
-                    "no run report is read: {}",
-                    refusal_details(document).join("; ")
-                ),
-            });
-        }
-        other => {
-            return Err(format!(
-                "--output verdicts renders a coverage or run document, not {}",
-                other.map_or_else(|| "a document with no schema".to_owned(), str::to_owned)
-            ));
-        }
-    };
-    let mut text = String::new();
+    let kind = section_name(document)?;
+    Ok(format!(
+        "{}\n{}",
+        record_header(),
+        section(document, kind, killed_by)
+    ))
+}
+
+/// The section a document renders as (`run`, `coverage`), or why it renders as none.
+fn section_name(document: &Value) -> Result<&'static str, String> {
+    match document["schema"].as_str() {
+        Some(crate::coverage::COVERAGE_SCHEMA) => Ok("coverage"),
+        Some(crate::report::RUN_SCHEMA) => Ok("run"),
+        Some(crate::report::MISSING_SCHEMA) => Err(match document["outcome"].as_str() {
+            Some(outcome) => format!(
+                "{outcome} run report {}: {}",
+                document["path"].as_str().unwrap_or("?"),
+                document["detail"].as_str().unwrap_or("no detail")
+            ),
+            // The manifest, or what a front end needs before it, was refused.
+            None => format!(
+                "no run report is read: {}",
+                refusal_details(document).join("; ")
+            ),
+        }),
+        other => Err(format!(
+            "--output verdicts renders a coverage or run document, not {}",
+            other.map_or_else(|| "a document with no schema".to_owned(), str::to_owned)
+        )),
+    }
+}
+
+/// The section `kind` (`run`, `coverage`) of `document` (module documentation).
+fn section(document: &Value, kind: &str, killed_by: bool) -> String {
+    let mut text = format!("[{kind}]\n");
     comment(
         &mut text,
         if kind == "coverage" {
@@ -355,9 +403,7 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
             RUN_PREAMBLE
         },
     );
-    line(&mut text, "schema", &string(VERDICTS_SCHEMA));
     line(&mut text, "version", &VERDICTS_VERSION.to_string());
-    line(&mut text, "document", &string(kind));
     if let Some(value) = document["profile"].as_str() {
         line(&mut text, "profile", &string(value));
     }
@@ -374,16 +420,16 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     {
         line(&mut text, "krs_annotation", &annotation.to_string());
     }
-    for section in ["spec", "mutation_list", "lock"] {
-        let Some(object) = document[section].as_object() else {
+    for table in ["spec", "mutation_list", "lock"] {
+        let Some(object) = document[table].as_object() else {
             continue;
         };
         // A run's lock is rendered only when it was refused; otherwise it is the run's state,
         // not a verdict.
-        if section == "lock" && object.get("outcome").and_then(Value::as_str) != Some("refused") {
+        if table == "lock" && object.get("outcome").and_then(Value::as_str) != Some("refused") {
             continue;
         }
-        let _ = write!(text, "\n[{section}]\n");
+        let _ = write!(text, "\n[{kind}.{table}]\n");
         for key in ["outcome", "stage", "reason"] {
             if let Some(value) = object.get(key).and_then(Value::as_str) {
                 line(&mut text, key, &string(value));
@@ -396,14 +442,14 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
         mutations(&mut text, document, killed_by);
     }
     if let Some(stopped) = document["stopped"].as_object() {
-        text.push_str("\n[stopped]\n");
+        let _ = write!(text, "\n[{kind}.stopped]\n");
         for key in ["mutation", "reason"] {
             if let Some(value) = stopped.get(key).and_then(Value::as_str) {
                 line(&mut text, key, &string(value));
             }
         }
     }
-    Ok(text)
+    text
 }
 
 /// The texts of a document's refusals and of the stop of its run, which [`verdicts`] leaves out
@@ -474,7 +520,7 @@ fn coverage(text: &mut String, document: &Value) {
     if settings.is_object() {
         // No `tiers`: a lock is written only where both tiers ran, and `[flips] run` says whether
         // tier 2 did.
-        text.push_str("\n[settings]\n");
+        text.push_str("\n[coverage.settings]\n");
         line(text, "depth", &settings["depth"].to_string());
         let mcdc = if settings["mcdc"] == true {
             "true".to_owned()
@@ -516,7 +562,7 @@ fn coverage(text: &mut String, document: &Value) {
             text.push('\n');
         }
         first = false;
-        let _ = writeln!(text, "[{family}]");
+        let _ = writeln!(text, "[coverage.{family}]");
         line(text, "open", &strings(&open));
         // Each argued item once, with the standing its argument rests on.
         let argued = argued
@@ -539,11 +585,11 @@ fn coverage(text: &mut String, document: &Value) {
         let ran = flips["run"].as_bool().unwrap_or(false);
         text.push('\n');
         comment(text, if ran { FLIPS_LEGEND } else { FLIPS_NOT_RUN });
-        text.push_str("[flips]\n");
+        text.push_str("[coverage.flips]\n");
         line(text, "run", &ran.to_string());
     }
     for item in flips["items"].as_array().into_iter().flatten() {
-        text.push_str("\n[[flip]]\n");
+        text.push_str("\n[[coverage.flip]]\n");
         let id = item["id"].as_str().unwrap_or_default();
         line(text, "id", &string(id));
         // What the mutant changes: the condition as the source writes it, and the rules it edits
@@ -663,9 +709,9 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
     }
     for (index, row) in rows.iter().enumerate() {
         text.push_str(if index == 0 {
-            "[[mutation]]\n"
+            "[[run.mutation]]\n"
         } else {
-            "\n[[mutation]]\n"
+            "\n[[run.mutation]]\n"
         });
         line(text, "id", &string(row["id"].as_str().unwrap_or_default()));
         line(

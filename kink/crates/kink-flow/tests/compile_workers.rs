@@ -121,6 +121,7 @@ fn search(dir: &Path, list: &str, workers: usize, schedule: ScheduleMode) -> (Va
         &manifest,
         &mutations,
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: Some(workers),

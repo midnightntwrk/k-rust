@@ -219,6 +219,9 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     for line in crate::lock::stale_lines(&document) {
         eprintln!("kink-flow: {line}");
     }
+    for line in crate::lock::lock_notes(&document) {
+        eprintln!("kink-flow: {line}");
+    }
     // A mutation's expectation the run does not meet, or cannot confirm: one line each.
     for line in crate::report::expectation_lines(&document) {
         eprintln!("kink-flow: {line}");
@@ -1051,6 +1054,33 @@ impl FlowCommand {
             Self::Report { .. } => Verb::Report,
             Self::Query { .. } => Verb::Query,
             Self::Fuzz { .. } => Verb::Fuzz,
+        }
+    }
+
+    /// The lock the command reads and writes (`--lock FILE`), for `run` and `coverage`.
+    #[must_use]
+    pub fn lock(&self) -> Option<&Path> {
+        match self {
+            Self::Coverage { options, .. } => options.lock.as_deref(),
+            Self::Run { options, .. } => options.lock.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Name the old file a front end kept the command's lock in before version 24 (krs's
+    /// `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`), beside the record the command's
+    /// `--lock` names ([`crate::lock::Lock::adopt_legacy`]): read while the record has no section
+    /// for the command, and refused under `--locked` while it is there. A command with no lock, or
+    /// another verb, is left as it is.
+    pub fn set_legacy_lock(&mut self, path: PathBuf) {
+        match self {
+            Self::Coverage { options, .. } if options.lock.is_some() => {
+                options.legacy_lock = Some(path);
+            }
+            Self::Run { options, .. } if options.lock.is_some() => {
+                options.legacy_lock = Some(path);
+            }
+            _ => {}
         }
     }
 

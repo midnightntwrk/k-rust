@@ -118,7 +118,7 @@ fn locked_run(manifest: &Path) -> Value {
 }
 
 fn lock_of(manifest: &Path) -> PathBuf {
-    manifest.with_file_name("verdicts.lock")
+    manifest.with_file_name("kink.lock")
 }
 
 fn row<'d>(document: &'d Value, id: &str) -> &'d Value {
@@ -165,12 +165,13 @@ fn statuses(document: &Value) -> Vec<(String, String)> {
 /// A lock that records `killers` (mutation id, program id) and nothing else.
 fn lock_with(killers: &[(&str, &str)]) -> String {
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = {}\ndocument = \"run\"\n",
+        "{}\n[run]\nversion = {}\n",
+        kink_flow::verdicts::record_header(),
         kink_flow::verdicts::VERDICTS_VERSION
     );
     for (id, killer) in killers {
         text.push_str(&format!(
-            "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
+            "\n[[run.mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
         ));
     }
     text
@@ -217,13 +218,13 @@ fn the_lock_options_parse() {
         )
     };
     let kink_flow::FlowCommand::Run { options, .. } =
-        parse(&["--locked", "--lock", "verdicts.lock"]).unwrap()
+        parse(&["--locked", "--lock", "kink.lock"]).unwrap()
     else {
         panic!("run");
     };
     assert_eq!(
         (options.lock, options.locked),
-        (Some(PathBuf::from("verdicts.lock")), true)
+        (Some(PathBuf::from("kink.lock")), true)
     );
     assert_eq!(
         parse(&["--locked"]).unwrap_err(),
@@ -286,7 +287,15 @@ fn an_unreadable_lock_refuses_the_run() {
         ),
         (
             "schema = \"kink-flow-verdicts\"\ndocument = \"results\"\n",
-            "its document is not \"run\"",
+            "whose document is \"results\", not \"run\"",
+        ),
+        (
+            "schema = \"kink-flow-verdicts\"\nrun = 3\n",
+            "its run is not a table",
+        ),
+        (
+            "schema = \"kink-flow-verdicts\"\n[ run ]\nversion = 24\n",
+            "its run section does not begin with a line `[run]`",
         ),
         (
             &format!("{header}\n[[mutation]]\nid = \"no-mul\"\n\n[[mutation]]\nid = \"no-mul\"\n"),
@@ -316,7 +325,7 @@ fn an_unreadable_lock_refuses_the_run() {
         assert!(document.get("spec").is_none(), "{what}");
         let rendering = verdicts(&document).unwrap();
         assert!(
-            rendering.ends_with("\n[lock]\noutcome = \"refused\"\n"),
+            rendering.ends_with("\n[run.lock]\noutcome = \"refused\"\n"),
             "{rendering}"
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), text);
@@ -367,7 +376,7 @@ fn a_lock_of_another_version_refuses_a_locked_run() {
 #[test]
 fn a_version_5_lock_records_no_killer() {
     let dir = scratch("version-5");
-    let absent = Lock::read(&dir.join("verdicts.lock")).unwrap();
+    let absent = Lock::read(&dir.join("kink.lock")).unwrap();
     assert_eq!((absent.text, absent.rows.len()), (None, 0));
     let path = dir.join("old.lock");
     fs::write(
@@ -768,17 +777,15 @@ mod kink_tier {
             .collect::<Vec<_>>();
         assert_eq!(changed, ["add-becomes-sub", "add-swaps-operands"]);
         assert_eq!(fs::read_to_string(&lock).unwrap(), edited);
-        let output = binary(&manifest, &["--lock", "verdicts.lock", "--locked"]);
+        let output = binary(&manifest, &["--lock", "kink.lock", "--locked"]);
         assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
-            stderr.contains(
-                "verdicts.lock: add-becomes-sub: killer gone -> add (gone: not-in-corpus)"
-            ),
+            stderr.contains("kink.lock: add-becomes-sub: killer gone -> add (gone: not-in-corpus)"),
             "{stderr}"
         );
         assert!(
-            stderr.contains("verdicts.lock: add-swaps-operands: killed -> survived"),
+            stderr.contains("kink.lock: add-swaps-operands: killed -> survived"),
             "{stderr}"
         );
         // The recorded rows under another Z3 build's header: every verdict agrees, and it is
@@ -793,7 +800,7 @@ mod kink_tier {
         );
         assert_ne!(foreign, recorded);
         fs::write(&lock, &foreign).unwrap();
-        let output = binary(&manifest, &["--lock", "verdicts.lock", "--locked"]);
+        let output = binary(&manifest, &["--lock", "kink.lock", "--locked"]);
         assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["version"], 38);
@@ -805,9 +812,9 @@ mod kink_tier {
         let header_changes = &document["lock"]["header_changes"];
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
-            stderr.contains(
-                "verdicts.lock: the header's z3_version differs: recorded \"5.3.3.0 other\", now "
-            ) && stderr.contains("(another Z3 build)"),
+            stderr
+                .contains("kink.lock: [run] z3_version differs: recorded \"5.3.3.0 other\", now ")
+                && stderr.contains("(another Z3 build)"),
             "{stderr}"
         );
         if cfg!(feature = "z3") {
@@ -825,7 +832,7 @@ mod kink_tier {
             );
             assert!(
                 stderr.contains(&format!(
-                    "verdicts.lock: the header's z3_library_sha256 differs: recorded \"{zeros}\", \
+                    "kink.lock: [run] z3_library_sha256 differs: recorded \"{zeros}\", \
                      now \"{digest}\" (another Z3 build)"
                 )),
                 "{stderr}"

@@ -1422,9 +1422,9 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     );
     assert!(
         verdicts.ends_with(
-            "\n[rules]\nopen = [\n]\nargued = [\n]\n\n[requirements]\nopen = [\n]\nargued = [\n]\n\n\
-             [syntax]\nopen = [\n]\nargued = [\n]\n\n# No condition flip ran: the front end derives \
-             none, or `--tier 1` runs none.\n[flips]\nrun = false\n"
+            "\n[coverage.rules]\nopen = [\n]\nargued = [\n]\n\n[coverage.requirements]\nopen = [\n]\nargued = [\n]\n\n\
+             [coverage.syntax]\nopen = [\n]\nargued = [\n]\n\n# No condition flip ran: the front end derives \
+             none, or `--tier 1` runs none.\n[coverage.flips]\nrun = false\n"
         ),
         "{verdicts}"
     );
@@ -1693,7 +1693,7 @@ fn coverage_and_stops_name_rules_as_the_document_does(project: &Project, documen
 fn run_kills_the_story_edits() {
     let project = story();
     project.write("kink/mutations/plus.toml", STORY_MUTATIONS);
-    // A lock of this test's own: the default `kink/verdicts.lock` of the shared project would be
+    // A lock of this test's own: the default `kink/kink.lock` of the shared project would be
     // read by every other test that runs its corpus.
     let lock = ["--lock", "target/locks/story-edits.lock"];
     let ran = project.kink("run", &[&["--full"][..], &lock[..]].concat());
@@ -6542,23 +6542,25 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation \
-         list.\n# As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries \
-         each\n# `killer` first, a run without --locked rewrites it, and `run --locked` checks it is \
-         current.\nschema = \"kink-flow-verdicts\"\nversion = 24\ndocument = \"run\"\nprofile = \
-         \"z3\"\nz3_version = \"{}\"\n",
+        "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) \
+         and\n# [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), \
+         each command\n# reads, checks (--locked) and rewrites only its own section, and keeps the \
+         other as it is.\nschema = \"kink-flow-verdicts\"\n\n[run]\n# The verdicts of kink's \
+         `run` command (`krs kink run`, `kink-flow run`): the next run tries\n# each `killer` \
+         first, a run without --locked rewrites this section, and `run --locked` checks\n# that it \
+         is current.\nversion = 24\nprofile = \"z3\"\nz3_version = \"{}\"\n",
         build.version
     );
     if let Some(digest) = &build.library_sha256 {
         let _ = writeln!(text, "z3_library_sha256 = \"{digest}\"");
     }
-    text.push_str("\n[spec]\noutcome = \"admitted\"\n\n");
+    text.push_str("\n[run.spec]\noutcome = \"admitted\"\n\n");
     text.push_str(
-        "# Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a \
-         program's\n# result differs on the mutant; `killer` names it), survived (every program \
-         agreed; `horizon`,\n# those that agreed only up to an observation horizon), equivalent \
-         or unkillable (no program\n# can tell the mutant apart), timeout, unknown or error (no \
-         verdict), invalid-mutation or\n# not-admitted (its author must fix it; `reason` says \
+        "# Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a\n\
+         # program's result differs on the mutant; `killer` names it), survived (every program \
+         agreed;\n# `horizon`, those that agreed only up to an observation horizon), equivalent or \
+         unkillable (no\n# program can tell the mutant apart), timeout, unknown or error (no \
+         verdict), invalid-mutation\n# or not-admitted (its author must fix it; `reason` says \
          why).\n",
     );
     for (index, (id, killer)) in ["plus/a", "plus/b", "plus/c"]
@@ -6568,7 +6570,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     {
         let _ = write!(
             text,
-            "{}[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n",
+            "{}[[run.mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n",
             if index == 0 { "" } else { "\n" }
         );
     }
@@ -6616,8 +6618,8 @@ fn row_statuses(document: &Value) -> Vec<(String, String)> {
 /// the first-kill run's (`--locked` finds it unchanged). Both runs leave the lock as it was.
 fn assert_full_agrees(project: &Project, corpus: &[&str]) -> Value {
     let lock = corpus.get(1).map_or_else(
-        || "kink/verdicts.lock".to_owned(),
-        |dir| format!("{dir}/verdicts.lock"),
+        || "kink/kink.lock".to_owned(),
+        |dir| format!("{dir}/kink.lock"),
     );
     let before = project.read(&lock);
     let mut first_args = corpus.to_vec();
@@ -6647,7 +6649,7 @@ fn assert_full_agrees(project: &Project, corpus: &[&str]) -> Value {
 fn a_recorded_killer_runs_alone_from_a_fresh_checkout() {
     let project = locked_story("story-plus-lock-fresh");
     let lock = story_lock(["t4", "t4", "t4"]);
-    project.write("kink/verdicts.lock", &lock);
+    project.write("kink/kink.lock", &lock);
     // A checkout commits definition.k beside the lock.
     assert_status(&project.kink("emit", &[]), 0);
     assert!(!project.path().join("kink/.kink-flow").exists());
@@ -6668,8 +6670,8 @@ fn a_recorded_killer_runs_alone_from_a_fresh_checkout() {
         );
     }
     assert_eq!(document["lock"]["status"], "unchanged", "{document:#}");
-    assert_eq!(document["lock"]["path"], "kink/verdicts.lock");
-    assert_eq!(project.read("kink/verdicts.lock"), lock);
+    assert_eq!(document["lock"]["path"], "kink/kink.lock");
+    assert_eq!(project.read("kink/kink.lock"), lock);
     let rendered = project.kink("run", &["--output", "verdicts", "--locked"]);
     assert_status(&rendered, 0);
     assert_eq!(stdout(&rendered), lock);
@@ -6679,7 +6681,7 @@ fn a_recorded_killer_runs_alone_from_a_fresh_checkout() {
     for id in ["plus/a", "plus/b", "plus/c"] {
         assert!(row_calls(&again, id).is_empty(), "{id}: {again:#}");
     }
-    assert_eq!(project.read("kink/verdicts.lock"), lock);
+    assert_eq!(project.read("kink/kink.lock"), lock);
     assert_full_agrees(&project, &[]);
 }
 
@@ -6694,7 +6696,7 @@ fn prepending_a_killing_case_moves_no_killer() {
     let created = project.kink("run", &guide);
     assert_status(&created, 0);
     assert_eq!(json(&created)["lock"]["status"], "created");
-    let lock = project.read("guide/verdicts.lock");
+    let lock = project.read("guide/kink.lock");
     let killers = json(&created)["mutations"]
         .as_array()
         .unwrap()
@@ -6727,7 +6729,7 @@ fn prepending_a_killing_case_moves_no_killer() {
     assert_status(&warm, 0);
     let warm = json(&warm);
     assert_eq!(warm["lock"]["status"], "unchanged", "{warm:#}");
-    assert_eq!(project.read("guide/verdicts.lock"), lock);
+    assert_eq!(project.read("guide/kink.lock"), lock);
     for (id, killer) in &killers {
         assert!(row_calls(&warm, id).is_empty(), "{id}: {warm:#}");
         let row = warm["mutations"]
@@ -6747,7 +6749,7 @@ fn prepending_a_killing_case_moves_no_killer() {
     for (id, killer) in &killers {
         assert_eq!(row_calls(&cold, id), [[killer.clone()]], "{id}: {cold:#}");
     }
-    assert_eq!(project.read("guide/verdicts.lock"), lock);
+    assert_eq!(project.read("guide/kink.lock"), lock);
     // The premise: t0 kills `survivors/one`, so the unchanged lock is the record's choice and not
     // a corpus in which the prepended case kills nothing.
     let full = assert_full_agrees(&project, &guide);
@@ -6772,7 +6774,7 @@ fn a_killer_that_stops_killing_or_leaves_is_replaced() {
         ("story-plus-lock-agrees", "no-longer-kills"),
     ] {
         let project = locked_story(package);
-        project.write("kink/verdicts.lock", story_lock(["t4", "t4", "t4"]));
+        project.write("kink/kink.lock", story_lock(["t4", "t4", "t4"]));
         match how {
             "not-in-corpus" => project.write(
                 "kink/FLOW.toml",
@@ -6839,7 +6841,7 @@ fn a_killer_that_stops_killing_or_leaves_is_replaced() {
             (&Value::from("plus/c"), &Value::from("survived")),
             "{package}"
         );
-        let written = project.read("kink/verdicts.lock");
+        let written = project.read("kink/kink.lock");
         assert_eq!(
             written,
             story_lock(["t2", "t3", "t4"]).replace(
@@ -6852,6 +6854,81 @@ fn a_killer_that_stops_killing_or_leaves_is_replaced() {
     }
 }
 
+/// FB48-ONE-LOCK: a corpus whose killer record is still the `kink/verdicts.lock` an earlier kink
+/// wrote. Under `--locked` the run is refused (exit 2) while the old file is there, naming the
+/// command that moves it; a run without `--locked` reads its killers, so each killed mutation runs
+/// its recorded killer alone, writes them into `kink/kink.lock`'s `[run]` section, says on stderr
+/// to delete the old file and leaves it as it was; `--locked` then asks for the deletion, and
+/// passes once the old file is gone.
+#[test]
+fn an_old_verdicts_lock_is_moved_into_the_corpus_record() {
+    let project = locked_story("story-plus-lock-legacy");
+    assert_status(&project.kink("emit", &[]), 0);
+    let mut old = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n".to_owned();
+    for id in ["plus/a", "plus/b", "plus/c"] {
+        old.push_str(&format!(
+            "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"t4\"\n"
+        ));
+    }
+    project.write("kink/verdicts.lock", &old);
+    let refused = project.kink("run", &["--locked"]);
+    assert_status(&refused, 2);
+    let detail = json(&refused)["lock"]["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        detail.starts_with("kink/verdicts.lock: it is a lock written before version 24")
+            && detail.contains("run `krs kink run")
+            && detail.ends_with(
+                "without --locked once to move its killers into kink/kink.lock, then delete \
+                 kink/verdicts.lock"
+            ),
+        "{detail}"
+    );
+    assert!(!project.path().join("kink/kink.lock").exists());
+
+    let ran = project.kink("run", &[]);
+    assert_status(&ran, 0);
+    let document = json(&ran);
+    for row in document["mutations"].as_array().unwrap() {
+        let id = row["id"].as_str().unwrap();
+        assert_eq!(row_calls(&document, id), [["t4"]], "{id}");
+        assert_eq!(row["killer_source"], "record", "{id}");
+    }
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    assert_eq!(
+        document["lock"]["legacy"],
+        json!({"path": "kink/verdicts.lock", "status": "migrated", "moved": true})
+    );
+    assert!(
+        stderr(&ran).contains(
+            "krs kink: kink/verdicts.lock: its killers are now in kink/kink.lock's [run] \
+             section; delete kink/verdicts.lock"
+        ),
+        "{}",
+        stderr(&ran)
+    );
+    assert_eq!(
+        project.read("kink/kink.lock"),
+        story_lock(["t4", "t4", "t4"])
+    );
+    assert_eq!(project.read("kink/verdicts.lock"), old);
+
+    let superseded = project.kink("run", &["--locked"]);
+    assert_status(&superseded, 2);
+    assert!(
+        json(&superseded)["lock"]["detail"]
+            .as_str()
+            .unwrap()
+            .ends_with("[run] section now keeps; delete kink/verdicts.lock"),
+        "{:#}",
+        json(&superseded)
+    );
+    std::fs::remove_file(project.path().join("kink/verdicts.lock")).unwrap();
+    assert_status(&project.kink("run", &["--locked"]), 0);
+}
+
 /// The front end's lock: `--locked` with no lock file is a finding (exit 1) and creates nothing;
 /// a run of another list (`--mutations`) uses no lock and writes none beside either corpus.
 #[test]
@@ -6862,17 +6939,17 @@ fn locked_without_a_lock_is_a_finding_and_mutations_use_no_lock() {
     assert_status(&locked, 1);
     assert_eq!(json(&locked)["lock"]["status"], "stale");
     assert!(
-        stderr(&locked).contains("kink/verdicts.lock: the header differs"),
+        stderr(&locked).contains("kink/kink.lock: the [run] section's header differs"),
         "{}",
         stderr(&locked)
     );
-    assert!(!project.path().join("kink/verdicts.lock").exists());
+    assert!(!project.path().join("kink/kink.lock").exists());
     let other = project.kink("run", &["--mutations", "guide/mutations"]);
     assert_status(&other, 0);
     assert_eq!(json(&other)["lock"], Value::Null);
     for corpus in ["kink", "guide"] {
         assert!(
-            !project.path().join(corpus).join("verdicts.lock").exists(),
+            !project.path().join(corpus).join("kink.lock").exists(),
             "{corpus}"
         );
     }

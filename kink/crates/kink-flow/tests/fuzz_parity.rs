@@ -170,6 +170,7 @@ fn kink_run(dir: &Path, only: &str) -> Value {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let list = MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
     let options = RunOptions {
+        legacy_lock: None,
         only: vec![only.to_owned()],
         cache: Some(dir.join("cache")),
         compile_workers: None,

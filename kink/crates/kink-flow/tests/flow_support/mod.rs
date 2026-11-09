@@ -76,6 +76,7 @@ pub fn corpus_run(manifest: &Path, mutations: &Path) -> (Value, bool) {
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,
@@ -154,34 +155,39 @@ pub fn z3_member() -> Option<Value> {
     })
 }
 
-/// The lines a verdicts rendering of a `document` (`run` or `coverage`) opens with: the comment
-/// naming the command whose verdicts it holds, then `schema`, `version` and `document`, before
+/// The lines a verdicts rendering of a `document` (`run` or `coverage`) opens with: the record's
+/// header (its comment and `schema`), then the command's section's `[run]` or `[coverage]` line,
+/// the comment naming the command whose verdicts it holds, and `version`, before
 /// [`solver_lines`].
 pub fn heading(document: &str) -> String {
     let comment = match document {
         "run" => {
-            "# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation list.\n\
-             # As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries each\n\
-             # `killer` first, a run without --locked rewrites it, and `run --locked` checks it is current.\n"
+            "# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries\n\
+             # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks\n\
+             # that it is current.\n"
         }
         "coverage" => {
-            "# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).\n\
-             # As a lock (`coverage --lock FILE`; krs keeps <corpus>/coverage.lock) the next run tries each\n\
-             # flip's `killer` first, a run without --locked rewrites it, and `coverage --locked` checks it\n\
-             # is current.\n"
+            "# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the\n\
+             # next run tries each flip's `killer` first, a run without --locked rewrites this section, and\n\
+             # `coverage --locked` checks that it is current.\n"
         }
         other => panic!("no rendering of a {other} document"),
     };
-    format!("{comment}schema = \"kink-flow-verdicts\"\nversion = 24\ndocument = \"{document}\"\n")
+    format!(
+        "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and\n\
+         # [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command\n\
+         # reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.\n\
+         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 24\n"
+    )
 }
 
-/// The comment a run rendering writes before its first `[[mutation]]`.
+/// The comment a run section writes before its first `[[run.mutation]]`.
 pub const MUTATIONS_LEGEND: &str = "\
-# Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a program's
-# result differs on the mutant; `killer` names it), survived (every program agreed; `horizon`,
-# those that agreed only up to an observation horizon), equivalent or unkillable (no program
-# can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation or
-# not-admitted (its author must fix it; `reason` says why).
+# Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a
+# program's result differs on the mutant; `killer` names it), survived (every program agreed;
+# `horizon`, those that agreed only up to an observation horizon), equivalent or unkillable (no
+# program can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation
+# or not-admitted (its author must fix it; `reason` says why).
 ";
 
 /// The lines a verdicts rendering of this build writes for its solver, after `document`:

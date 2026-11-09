@@ -1,6 +1,32 @@
-//! The killer record, `verdicts.lock` (`run --lock FILE`): one recorded killer per killed
-//! mutation, kept while it still kills; and the coverage lock, `coverage.lock` (`coverage --lock
-//! FILE`), one recorded killer per distinguished flip by the same rule ([`LockKind`]).
+//! The corpus record, `kink.lock` (`run --lock FILE`, `coverage --lock FILE`): one file, one
+//! section per command. `[run]` holds the killer record, one recorded killer per killed mutation,
+//! kept while it still kills; `[coverage]` holds the coverage lock, one recorded killer per
+//! distinguished flip by the same rule, with each family's open and argued obligations
+//! ([`LockKind`]).
+//!
+//! Each command owns its section. It reads only its own, compares only its own under `--locked`,
+//! and rewrites only its own, keeping the other section's text byte for byte, so that
+//! `coverage --locked` is unaffected by a stale `[run]`, and the reverse. A file with no section
+//! for a command records nothing for it: a first `coverage` after only `run`s is no error.
+//!
+//! The header, before the first section, holds only what is the same for every section by
+//! construction: the comment that says what the file is, and `schema`. Every value a verdict
+//! depends on, the rendering's `version`, the solver `profile`, the Z3 build and the
+//! specification's admission, is in each section: each command writes its section at its own
+//! time, on the build it runs on, and keeps the other as it is, so a value said once would be
+//! wrong for the section the last command did not write, and a `run` on another Z3 build would
+//! make `coverage --locked` stale for a change `coverage` did not make.
+//!
+//! A section is the lines from its `[run]` or `[coverage]` line to the next such line (or the end
+//! of the file), trailing blank lines aside: it is the command's verdicts rendering after the
+//! record's header ([`crate::verdicts::lock_section`]), so a file only one command has written is
+//! that command's `--output verdicts` (for `run`, without `killed_by`).
+//!
+//! A command writes its section by a read-modify-write under an exclusive lock of the file's
+//! directory: it reads the file again, keeps the other section's text, writes the whole file to a
+//! temporary name in the directory and renames it over the file ([`Store::write_text`]), then
+//! releases the lock. Two commands that write at once each find the other's section in the file
+//! they rewrite, so neither loses it; a reader never sees a part-written file.
 //!
 //! The record is an input. A run reads one fact from it: for each mutation id, the program id it
 //! names as killer, which the search tries first ([`crate::search`], tier 2). Every status still
@@ -8,43 +34,37 @@
 //! hand-edited or stale record can change which program is tried first, and so the cost and the
 //! reported killer, but never a status.
 //!
-//! The record is also an output: after a run that judged every mutation of its list it is
-//! rewritten ([`Lock::settle`]), so it states the verdicts of the current inputs. Its text is the
-//! run's verdicts rendering without `killed_by` ([`crate::verdicts::lock_text`]), so a first-kill
-//! run and a full run write the same bytes, and each killed mutation's `killer` is a function of
-//! the record before the run and of the inputs (the corpus, the definition, the mutation list, the
-//! budget, the solver profile and kink's build), never of the cache, the host's clock (while no
-//! `budget.time_ms` bound fires) or the order work was done in.
+//! The record is also an output: after a run that judged every mutation of its list its section
+//! is rewritten ([`Lock::settle`]), so it states the verdicts of the current inputs. Its text is
+//! the run's verdicts rendering without `killed_by`, so a first-kill run and a full run write the
+//! same bytes, and each killed mutation's `killer` is a function of the record before the run and
+//! of the inputs (the corpus, the definition, the mutation list, the budget, the solver profile
+//! and kink's build), never of the cache, the host's clock (while no `budget.time_ms` bound
+//! fires) or the order work was done in.
 //!
-//! Reading tolerates any version: `schema` must be `kink-flow-verdicts` and `document` must be
-//! `run`; each `[[mutation]]` must have a string `id` and may have a string `killer`, and its
-//! `status` and `reason`, when they are strings, are read only to report what changed. A version-5
-//! lock has no `killer` lines, so it records no killer. A file that is not TOML, has another
-//! schema or document, or repeats an id does not decode, and the run is refused ([`Lock::read`]).
-//! Under `--locked` a lock of another version is refused too, naming the command that rewrites it
-//! ([`Lock::refuse_other_version`]): another version writes other bytes for the same verdicts, so
-//! the check could only fail, and a command without `--locked` reads its killers and rewrites it.
+//! Reading tolerates any version: `schema` must be `kink-flow-verdicts`, the command's section,
+//! where there is one, must be a table and begin with its own `[run]` or `[coverage]` line, and
+//! each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string
+//! `killer`; its `status` and `reason`, when they are strings, are read only to report what
+//! changed. A file that is not TOML, has another schema, or repeats an id does not decode, and the
+//! command is refused ([`Lock::read`]).
 //!
-//! # The coverage lock
+//! A lock written before version 24 is one command's rendering at the top of its file
+//! (`document = "run"` or `"coverage"`, the rows `[[mutation]]` or `[[flip]]`, a coverage lock's
+//! standings under `[arguments]` and its argued ids bare). It is still read, as the section of the
+//! command it names: a command without `--locked` keeps its killers and rewrites the file in the
+//! current layout, which then holds that command's section alone, as the old file held nothing
+//! else. A file of the other command's is refused, since rewriting it would lose that command's
+//! record. A front end that kept the two commands' locks in their own files names the old file
+//! beside the record ([`Lock::adopt_legacy`]): while the record has no section for the command,
+//! its killers are read from the old file, and the next write moves them into the record.
 //!
-//! A coverage lock is the same record over a `coverage` document ([`LockKind::Coverage`]): its
-//! text is the coverage verdicts rendering, `document` is `coverage`, and its rows are the flips
-//! (`[[flip]]`), each with its `id`, the condition it negates (or the bit it toggles) and the rules
-//! it edits, `status`, a refused flip's `reason`, a distinguished flip's `killer` and an argued
-//! flip's `standing`. A flip's killer is a mutation's killer under another name: the flip's mutant
-//! is run by the kill search `run` makes ([`crate::search`]), keyed by the flip's id, so the
-//! recorded killer is tried first and kept while it still kills, else the first killing program
-//! in the search's order. The rendering also lists each family's open and argued obligations
-//! (`[rules] open`, `[rules] argued`, ...), each argued one with its standing (`{ id, standing }`),
-//! which are read only to report what changed, as a row's status is: a standing that moves
-//! changes the text, so `--locked` finds the lock stale, and the lock's state names the item
-//! (`argument_changes`). A lock written before version 24 gave the standings in `[arguments]`
-//! (one `"<id>" = "<standing>"` line per item) and listed bare ids: both are still read.
-//! Its header is what comes before the first family: the comments that name the command and say
-//! what a family lists, the schema, version, profile and build lines, the specification and the
-//! settings.
+//! Under `--locked` a lock whose section is of another version is refused, naming the command
+//! that rewrites it ([`Lock::refuse_other_version`]): another version writes other bytes for the
+//! same verdicts, so the check could only fail, and a command without `--locked` reads its killers
+//! and rewrites it. So is an old file a front end names, while it is there.
 
-use crate::verdicts::{VERDICTS_SCHEMA, lock_text};
+use crate::verdicts::{VERDICTS_SCHEMA, lock_section, record_header};
 use kink_corpus::Store;
 use serde_json::{Value, json};
 use std::{
@@ -53,27 +73,35 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The record's file name in a corpus directory, the path the krs front end gives
-/// `run --lock` (kink-flow itself has no default path).
-pub const LOCK_FILE: &str = "verdicts.lock";
+/// The record's file name in a corpus directory, the path the krs front end gives `run --lock`
+/// and `coverage --lock` (kink-flow itself has no default path): kink's record of the corpus,
+/// named for the tool, as `Cargo.lock` is for Cargo, since it holds every command's section.
+pub const LOCK_FILE: &str = "kink.lock";
 
-/// The coverage lock's file name in a corpus directory, the path the krs front end gives
-/// `coverage --lock` (kink-flow itself has no default path).
-pub const COVERAGE_LOCK_FILE: &str = "coverage.lock";
+/// The file a corpus directory kept `run`'s killer record in before version 24, which the krs
+/// front end names beside [`LOCK_FILE`] ([`Lock::adopt_legacy`]).
+pub const LEGACY_RUN_LOCK_FILE: &str = "verdicts.lock";
 
-/// Which document a lock records: a run's verdicts (`verdicts.lock`), one row per mutation, or a
-/// coverage command's (`coverage.lock`), one row per flip (module documentation).
+/// The file a corpus directory kept the coverage lock in before version 24.
+pub const LEGACY_COVERAGE_LOCK_FILE: &str = "coverage.lock";
+
+/// Which command's section of the record a lock is: a run's verdicts (`[run]`), one row per
+/// mutation, or a coverage command's (`[coverage]`), one row per flip (module documentation).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LockKind {
-    /// `run --lock`: `document = "run"`, `[[mutation]]` rows.
+    /// `run --lock`: `[run]`, `[[run.mutation]]` rows.
     #[default]
     Run,
-    /// `coverage --lock`: `document = "coverage"`, `[[flip]]` rows.
+    /// `coverage --lock`: `[coverage]`, `[[coverage.flip]]` rows.
     Coverage,
 }
 
+/// The sections of a record, in the order a record writes them.
+const SECTIONS: [LockKind; 2] = [LockKind::Run, LockKind::Coverage];
+
 impl LockKind {
-    /// The `document` a lock of this kind names.
+    /// The command, and the name of its section (`run`, `coverage`); a lock before version 24
+    /// named it as its `document`.
     #[must_use]
     pub const fn document(self) -> &'static str {
         match self {
@@ -82,7 +110,7 @@ impl LockKind {
         }
     }
 
-    /// The name of a row's table (`[[mutation]]`, `[[flip]]`).
+    /// The name of a row's table inside the section (`mutation`, `flip`).
     #[must_use]
     pub const fn row(self) -> &'static str {
         match self {
@@ -91,12 +119,20 @@ impl LockKind {
         }
     }
 
-    /// The file name a corpus directory keeps a lock of this kind under.
+    /// The old file a corpus directory kept this command's lock in before version 24.
     #[must_use]
-    pub const fn file(self) -> &'static str {
+    pub const fn legacy_file(self) -> &'static str {
         match self {
-            Self::Run => LOCK_FILE,
-            Self::Coverage => COVERAGE_LOCK_FILE,
+            Self::Run => LEGACY_RUN_LOCK_FILE,
+            Self::Coverage => LEGACY_COVERAGE_LOCK_FILE,
+        }
+    }
+
+    /// The section's first line (`[run]`, `[coverage]`).
+    fn heading(self) -> &'static str {
+        match self {
+            Self::Run => "[run]",
+            Self::Coverage => "[coverage]",
         }
     }
 
@@ -141,36 +177,55 @@ impl LockKind {
     }
 }
 
-/// What a lock decodes to: each row's recorded facts, in the file's order.
+/// What a lock decodes to: the command's section's recorded facts, each row in the file's order.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Lock {
-    /// What the lock records.
+    /// The command whose section this is.
     pub kind: LockKind,
-    /// The path the run reads and writes.
+    /// The path the command reads and writes.
     pub path: PathBuf,
     /// The file's text; `None` when the file is absent.
     pub text: Option<String>,
+    /// The command's section's text, from its `[run]` or `[coverage]` line, ending with one
+    /// newline; `None` when the file has none (it is absent, only the other command wrote it, or
+    /// it is a lock before version 24).
+    pub section: Option<String>,
+    /// The line of the file, counted from 1, that `section` starts at.
+    pub section_line: u64,
     /// The rows, in the file's order.
     pub rows: Vec<LockRow>,
-    /// The file's header: each key outside its rows (a section's as `section.key`, a coverage
-    /// lock's family sections left out) with its value, read only to name what changed
+    /// The section's header: each key outside its rows (a sub-table's as `table.key`, a coverage
+    /// section's families left out) with its value, read only to name what changed
     /// ([`header_values`]).
     pub header: BTreeMap<String, Value>,
-    /// A coverage lock's open obligations by family (`[rules] open`, ...), read only to report
-    /// what changed; empty for a run's.
+    /// A coverage section's open obligations by family (`[coverage.rules] open`, ...), read only
+    /// to report what changed; empty for a run's.
     pub open: BTreeMap<String, Vec<String>>,
-    /// A coverage lock's argued obligations by family (`[rules] argued`, ...: each entry's `id`,
-    /// or the bare id a lock before version 24 writes), read only to report what changed; empty
-    /// for a run's and for a lock written before arguments were rendered.
+    /// A coverage section's argued obligations by family (each entry's `id`, or the bare id a
+    /// lock before version 24 writes), read only to report what changed; empty for a run's and for
+    /// a lock written before arguments were rendered.
     pub argued: BTreeMap<String, Vec<String>>,
-    /// A coverage lock's standing of each argued item (an `argued` entry's `standing`, an argued
-    /// flip's; `[arguments]` before version 24), by id, read only to report what changed; empty
-    /// for a run's and for a lock written before standings were rendered. A value that is not a
-    /// string is left out, as an `open` that is not an array of ids is.
+    /// A coverage section's standing of each argued item (an `argued` entry's `standing`, an
+    /// argued flip's; `[arguments]` before version 24), by id, read only to report what changed;
+    /// empty for a run's and for a lock written before standings were rendered. A value that is
+    /// not a string is left out, as an `open` that is not an array of ids is.
     pub arguments: BTreeMap<String, String>,
+    /// The old file a front end kept this command's lock in, where it is still there
+    /// ([`Lock::adopt_legacy`]).
+    pub legacy: Option<Legacy>,
 }
 
-/// One `[[mutation]]` of a lock.
+/// An old file a front end kept a command's lock in before version 24, still beside the record.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Legacy {
+    /// Its path.
+    pub path: PathBuf,
+    /// Whether the record had no section for the command, so the recorded facts were read from
+    /// it, and the next write moves them into the record.
+    pub migrated: bool,
+}
+
+/// One row of a lock's section (`[[run.mutation]]`, `[[coverage.flip]]`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LockRow {
     pub id: String,
@@ -194,7 +249,7 @@ pub struct Settle<'a> {
     pub stopped: bool,
 }
 
-/// The section of a coverage lock written before version 24 that gave each argued item's
+/// The table of a coverage lock written before version 24 that gave each argued item's
 /// standing, one `"<id>" = "<standing>"` line per item; read only to report what changed, and
 /// left out of the header.
 const LEGACY_ARGUMENTS: &str = "arguments";
@@ -202,14 +257,25 @@ const LEGACY_ARGUMENTS: &str = "arguments";
 /// The next step of a lock that does not decode.
 const REFUSED_NEXT: &str = "resolve the file, or delete it to start from the search's killers";
 
+/// How [`Lock::write_section`] left the file.
+enum Outcome {
+    /// The file already held the text it would write.
+    Unchanged,
+    /// The file had no section for the command (or was absent), and now has one.
+    Created,
+    /// The command's section was replaced.
+    Replaced,
+}
+
 impl Lock {
-    /// Read the run lock (`verdicts.lock`) at `path` ([`Lock::read_kind`]).
+    /// Read the run's section of the record at `path` ([`Lock::read_kind`]).
     pub fn read(path: &Path) -> Result<Self, String> {
         Self::read_kind(path, LockKind::Run)
     }
 
-    /// Read the lock of `kind` at `path`: an absent file is an empty lock; a file that does not
-    /// decode is the refusal's detail (module documentation).
+    /// Read `kind`'s section of the record at `path`: an absent file, or one with no such
+    /// section, is an empty lock; a file that does not decode is the refusal's detail (module
+    /// documentation).
     pub fn read_kind(path: &Path, kind: LockKind) -> Result<Self, String> {
         let refused = |what: String| format!("{}: {what}; {REFUSED_NEXT}", path.display());
         let text = match fs::read_to_string(path) {
@@ -226,8 +292,30 @@ impl Lock {
         Self::decode(path, text, kind)
     }
 
-    /// The lock of `kind` at `path` whose file's text is `text`; a text that does not decode is
-    /// the refusal's detail ([`Lock::read_kind`]).
+    /// Read `kind`'s section of the record at `path` for a command: [`Lock::read_kind`], the old
+    /// file `legacy` a front end kept the command's lock in ([`Lock::adopt_legacy`]), and under
+    /// `--locked` ([`Lock::refuse_other_version`], [`Lock::refuse_legacy`]) the refusals that name
+    /// `command`, the front end's spelling of the verb, as the command that rewrites the file.
+    pub fn read_for(
+        path: &Path,
+        kind: LockKind,
+        legacy: Option<&Path>,
+        locked: bool,
+        command: &str,
+    ) -> Result<Self, String> {
+        let mut lock = Self::read_kind(path, kind)?;
+        if let Some(legacy) = legacy {
+            lock.adopt_legacy(legacy)?;
+        }
+        if locked {
+            lock.refuse_legacy(command)?;
+            lock.refuse_other_version(command)?;
+        }
+        Ok(lock)
+    }
+
+    /// The lock `text` of the file at `path` decodes to, for `kind`'s section; a text that does
+    /// not decode is the refusal's detail ([`Lock::read_kind`]).
     fn decode(path: &Path, text: String, kind: LockKind) -> Result<Self, String> {
         let refused = |what: String| format!("{}: {what}; {REFUSED_NEXT}", path.display());
         let table: toml::Table = text
@@ -236,19 +324,41 @@ impl Lock {
         if table.get("schema").and_then(toml::Value::as_str) != Some(VERDICTS_SCHEMA) {
             return Err(refused(format!("its schema is not {VERDICTS_SCHEMA:?}")));
         }
-        let document = kind.document();
-        if table.get("document").and_then(toml::Value::as_str) != Some(document) {
-            return Err(refused(match kind {
-                LockKind::Run => {
-                    "its document is not \"run\": a lock is the verdicts of a run".to_owned()
+        let name = kind.document();
+        // A lock before version 24 is one command's rendering at the top of its file.
+        let empty = toml::Table::new();
+        let (source, section, section_line) = match table.get("document") {
+            Some(document) if document.as_str() == Some(name) => (&table, None, 0),
+            Some(document) => {
+                return Err(refused(format!(
+                    "it is a lock written before version 24 whose document is {document}, not \
+                     {name:?}: the file holds another command's record, which a {name} would \
+                     overwrite; give --lock this command's own file"
+                )));
+            }
+            None => {
+                let source = match table.get(name) {
+                    None => &empty,
+                    Some(toml::Value::Table(section)) => section,
+                    Some(_) => return Err(refused(format!("its {name} is not a table"))),
+                };
+                let found = sections(&text)
+                    .into_iter()
+                    .find(|(found, _, _)| *found == kind);
+                match found {
+                    Some((_, line, slice)) => (source, Some(trimmed(slice)), line),
+                    None if table.contains_key(name) => {
+                        return Err(refused(format!(
+                            "its {name} section does not begin with a line `{}`",
+                            kind.heading()
+                        )));
+                    }
+                    None => (source, None, 0),
                 }
-                LockKind::Coverage => "its document is not \"coverage\": a coverage lock is the \
-                                       verdicts of a coverage command"
-                    .to_owned(),
-            }));
-        }
+            }
+        };
         let noun = kind.row();
-        let listed_rows = match table.get(noun) {
+        let listed_rows = match source.get(noun) {
             None => &[][..],
             Some(toml::Value::Array(rows)) => rows.as_slice(),
             Some(_) => return Err(refused(format!("its {noun} is not an array of tables"))),
@@ -282,7 +392,7 @@ impl Lock {
                 reason: string("reason"),
             });
         }
-        // A coverage lock's open and argued obligations: each family section's `open` and
+        // A coverage section's open and argued obligations: each family table's `open` and
         // `argued`, when it is an array of ids; read only to report what changed. An `argued`
         // entry is `{ id, standing }`; a lock written before version 24 lists bare ids.
         let entry_id = |entry: &toml::Value| {
@@ -291,14 +401,14 @@ impl Lock {
                 .or_else(|| entry.get("id")?.as_str())
                 .map(str::to_owned)
         };
-        let sections = || {
-            table
+        let families = || {
+            source
                 .iter()
                 .filter(|(family, _)| crate::coverage::FAMILIES.contains(&family.as_str()))
         };
         let listed = |key: &str| match kind {
             LockKind::Run => BTreeMap::new(),
-            LockKind::Coverage => sections()
+            LockKind::Coverage => families()
                 .filter_map(|(family, section)| {
                     let ids = section.get(key)?.as_array()?;
                     let ids = ids.iter().map(entry_id).collect::<Option<Vec<_>>>()?;
@@ -318,11 +428,11 @@ impl Lock {
                         entry.get("standing")?.as_str()?.to_owned(),
                     ))
                 };
-                let entries = sections()
+                let entries = families()
                     .filter_map(|(_, section)| section.get("argued")?.as_array())
                     .flatten()
                     .chain(listed_rows);
-                let legacy = table
+                let legacy = source
                     .get(LEGACY_ARGUMENTS)
                     .and_then(toml::Value::as_table)
                     .into_iter()
@@ -335,23 +445,85 @@ impl Lock {
             kind,
             path: path.to_path_buf(),
             text: Some(text),
+            section,
+            section_line,
             rows,
-            header: header_values(&table, kind),
+            header: header_values(source, kind),
             open: listed("open"),
             argued: listed("argued"),
             arguments,
+            legacy: None,
         })
     }
 
-    /// Refuse a lock `--locked` cannot find current whatever the command decides: a file whose
-    /// `version` is not the rendering's ([`crate::verdicts::VERDICTS_VERSION`]), or that names
-    /// none. The rendering of another version writes other bytes for the same verdicts, so the
-    /// comparison would only say so after a whole run; the refusal says it before admission, and
-    /// names the command that rewrites the file, `command` (the front end's spelling of the verb)
-    /// without `--locked`. A command without `--locked` reads such a lock for its killers and
-    /// rewrites it. An absent file is no refusal: it is stale.
+    /// Whether the file records anything for the command: a section, or a lock before version 24
+    /// of the command (an old file's, read by [`Lock::adopt_legacy`], included).
+    fn records(&self) -> bool {
+        self.section.is_some() || !self.header.is_empty() || !self.rows.is_empty()
+    }
+
+    /// Note the old file `legacy` a front end kept the command's lock in before version 24, where
+    /// it is still there: while the record has no section for the command, its recorded facts
+    /// (killers, statuses, obligations, the header) are read from it, so a migration loses no
+    /// killer, and the next write moves them into the record ([`Legacy::migrated`]). An old file
+    /// that does not decode refuses the command, as the record would. Nothing is deleted: the
+    /// document's `lock.legacy` says to delete it ([`lock_notes`]).
+    pub fn adopt_legacy(&mut self, legacy: &Path) -> Result<(), String> {
+        if !legacy.exists() {
+            return Ok(());
+        }
+        let migrated = !self.records();
+        if migrated {
+            let old = Self::read_kind(legacy, self.kind)?;
+            self.rows = old.rows;
+            self.header = old.header;
+            self.open = old.open;
+            self.argued = old.argued;
+            self.arguments = old.arguments;
+        }
+        self.legacy = Some(Legacy {
+            path: legacy.to_path_buf(),
+            migrated,
+        });
+        Ok(())
+    }
+
+    /// Refuse, under `--locked`, an old file a front end kept the command's lock in, while it is
+    /// there: the committed record is not the file `--locked` would compare, so the check cannot
+    /// say the corpus's lock is current. While the record has no section for the command, the
+    /// detail names `command` without `--locked` as the command that moves the old file's killers
+    /// into it; once it has one, it says to delete the old file.
+    pub fn refuse_legacy(&self, command: &str) -> Result<(), String> {
+        let Some(legacy) = &self.legacy else {
+            return Ok(());
+        };
+        let (old, record) = (legacy.path.display(), self.path.display());
+        let section = self.kind.heading();
+        Err(if legacy.migrated {
+            format!(
+                "{old}: it is a lock written before version 24, which {record} replaces with \
+                 one {section} section per command, so --locked cannot find the corpus's lock \
+                 current; run `{command}` without --locked once to move its killers into \
+                 {record}, then delete {old}"
+            )
+        } else {
+            format!(
+                "{old}: it is a lock written before version 24, whose verdicts {record}'s \
+                 {section} section now keeps; delete {old}"
+            )
+        })
+    }
+
+    /// Refuse a lock `--locked` cannot find current whatever the command decides: a section (or
+    /// a lock before version 24) whose `version` is not the rendering's
+    /// ([`crate::verdicts::VERDICTS_VERSION`]), or that names none. The rendering of another
+    /// version writes other bytes for the same verdicts, so the comparison would only say so
+    /// after a whole run; the refusal says it before admission, and names the command that
+    /// rewrites the section, `command` (the front end's spelling of the verb) without
+    /// `--locked`. A command without `--locked` reads such a lock for its killers and rewrites
+    /// it. A file with no section for the command is no refusal: it is stale.
     pub fn refuse_other_version(&self, command: &str) -> Result<(), String> {
-        if self.text.is_none() {
+        if !self.records() {
             return Ok(());
         }
         let current = crate::verdicts::VERDICTS_VERSION;
@@ -360,9 +532,15 @@ impl Lock {
             Some(version) => format!("is recorded at version {version} of the verdicts rendering"),
             None => "names no version of the verdicts rendering".to_owned(),
         };
+        let what = if self.section.is_some() {
+            format!("its {} section", self.kind.heading())
+        } else {
+            "it".to_owned()
+        };
         Err(format!(
-            "{}: it {recorded}, and this build writes version {current}, so --locked cannot find it \
-             current; run `{command}` without --locked once to rewrite it, and review its diff",
+            "{}: {what} {recorded}, and this build writes version {current}, so --locked cannot \
+             find it current; run `{command}` without --locked once to rewrite it, and review \
+             its diff",
             self.path.display()
         ))
     }
@@ -386,26 +564,43 @@ impl Lock {
     /// The run document's `lock` when nothing was compared or written, for `reason`.
     #[must_use]
     pub fn not_written(&self, reason: &str) -> Value {
-        not_written(&self.path, reason)
+        let mut value = not_written(&self.path, reason);
+        self.with_legacy(&mut value, false);
+        value
     }
 
-    /// Settle the lock after a run whose document is `document`: compare the rendering the run
-    /// would write with the file, and write it after a run that judged every mutation of its list
-    /// in search mode without `--locked`. The value is the document's `lock`: `{path, status,
-    /// reason, header, header_changes, changes, difference}` (README, "The killer record"), with
-    /// `detail` when a write failed; the flag is false when it did.
+    /// `value` with `legacy`, `{path, status}`, where the command was given an old file that is
+    /// still there: `migrated` where its killers were read and `moved` says the write moved them
+    /// into the record, `superseded` where the record already has the command's section.
+    fn with_legacy(&self, value: &mut Value, moved: bool) {
+        if let Some(legacy) = &self.legacy {
+            value["legacy"] = json!({
+                "path": legacy.path.display().to_string(),
+                "status": if legacy.migrated { "migrated" } else { "superseded" },
+                "moved": legacy.migrated && moved,
+            });
+        }
+    }
+
+    /// Settle the command's section after a run whose document is `document`: compare the
+    /// section the run would write with the file's, and write it after a run that judged every
+    /// mutation of its list in search mode without `--locked`. The value is the document's
+    /// `lock`: `{path, status, reason, header, header_changes, changes, difference}` (README,
+    /// "The corpus record"), with `detail` when a write failed, and `legacy` where the command was
+    /// given an old file; the flag is false when a write failed.
     ///
-    /// Under `--locked` a lock that differs from the rendering only in its header is `stale`,
-    /// like one whose rows differ. In particular a lock recorded on another Z3 build (its
+    /// Under `--locked` a section that differs from the rendering only in its header is `stale`,
+    /// like one whose rows differ. In particular a section recorded on another Z3 build (its
     /// `z3_version` or `z3_library_sha256`) is a finding even when every row agrees. Under the Z3
     /// profile a verdict is a function of the inputs and of the solver build, so the build is part
-    /// of the instrument the lock was measured with, as the profile is. `--locked` asks whether
-    /// this run, on this instrument, writes the committed lock. A run on another build cannot
+    /// of the instrument the section was measured with, as the profile is. `--locked` asks whether
+    /// this run, on this instrument, writes the committed section. A run on another build cannot
     /// confirm that, because rows that agree on today's corpus do not make two builds
     /// interchangeable for the next edit. Passing it would leave the repository's lock naming a
     /// build no check ran on, so a later moved row would be blamed on the corpus while the header
     /// misnamed the solver. When every row agrees the fix is a header-only rewrite (a run
-    /// without `--locked`), which review sees as exactly that.
+    /// without `--locked`), which review sees as exactly that. The other command's section is
+    /// neither compared nor written.
     #[must_use]
     pub fn settle(&self, store: &Store, document: &Value, run: Settle<'_>) -> (Value, bool) {
         let path = self.path.display().to_string();
@@ -414,21 +609,29 @@ impl Lock {
             let reason = if refused { "refused" } else { "stopped" };
             return (self.not_written(reason), true);
         }
-        let text = match lock_text(document) {
-            Ok(text) if LockKind::of(document) == self.kind => text,
+        let section = match lock_section(document) {
+            Ok(section) if LockKind::of(document) == self.kind => section,
             _ => return (self.not_written("refused"), true),
         };
         let kind = self.kind;
-        let header = self
+        // The record's header is the file's: a file whose header is not the one a write gives
+        // differs in its header, as one with no section for the command does.
+        let file_header = self
             .text
             .as_deref()
-            .is_none_or(|old| head(kind, old) != head(kind, &text));
-        let header_changes = self.header_changes(&text);
+            .is_some_and(|text| split(text).0.trim_end_matches('\n') == record_header().trim_end());
+        let header = !file_header
+            || self
+                .section
+                .as_deref()
+                .is_none_or(|old| head(kind, old) != head(kind, &section));
+        let header_changes = self.header_changes(&section);
         let changes = self.changes(document, run.only);
         // Under `--only` the rows it did not select may differ from the file's: only the selected
-        // rows and the header are compared, so no first difference of the whole file is named.
+        // rows and the header are compared, so no first difference of the whole section is
+        // named.
         let difference = if run.only.is_empty() {
-            self.difference(&text)
+            self.difference(&section)
         } else {
             Value::Null
         };
@@ -454,53 +657,131 @@ impl Lock {
         };
         if run.locked {
             let differs = if run.only.is_empty() {
-                self.text.as_deref() != Some(text.as_str())
+                !file_header || self.section.as_deref() != Some(section.as_str())
             } else {
                 header || !changes.is_empty()
             };
             let status = if differs { "stale" } else { "unchanged" };
-            return (value(status, Some("locked"), header, changes), true);
+            let mut locked = value(status, Some("locked"), header, changes);
+            self.with_legacy(&mut locked, false);
+            return (locked, true);
         }
+        let not_written = |reason: &str, changes: Vec<Value>| {
+            let mut skipped = value("not-written", Some(reason), header, changes);
+            self.with_legacy(&mut skipped, false);
+            (skipped, true)
+        };
         if run.verify {
-            return (value("not-written", Some("verify"), header, changes), true);
+            return not_written("verify", changes);
         }
         if !run.only.is_empty() {
-            return (value("not-written", Some("only"), header, changes), true);
+            return not_written("only", changes);
         }
-        if self.text.as_deref() == Some(text.as_str()) {
-            return (value("unchanged", None, header, changes), true);
-        }
-        let status = if self.text.is_some() {
-            "written"
-        } else {
-            "created"
-        };
-        match store.write_text(&self.path, &text) {
-            Ok(()) => (value(status, None, header, changes), true),
+        match self.write_section(store, &section) {
+            Ok(written) => {
+                let status = match written {
+                    Outcome::Unchanged => "unchanged",
+                    Outcome::Created => "created",
+                    Outcome::Replaced => "written",
+                };
+                let mut done = value(status, None, header, changes);
+                self.with_legacy(&mut done, true);
+                (done, true)
+            }
             Err(e) => {
                 let mut failed = value("not-written", Some("write-failed"), header, changes);
                 failed["detail"] = json!(format!("cannot write {path}: {e}"));
+                self.with_legacy(&mut failed, false);
                 (failed, false)
             }
         }
     }
 
-    /// Where the file first differs from `text`, the rendering the run would write:
-    /// `{kind, line, recorded, now}`, `line` counted from 1 in the file; null when the file is
-    /// absent or equal. `kind` is `order` when the two hold the same rows in another order: then
-    /// `line` is the file's line of the `id` of its first row out of the rendering's order,
-    /// `recorded` that line and `now` the `id` line of the row the rendering puts there, whatever
-    /// else (a comment, spacing) differs before it. Otherwise `kind` is `text` (a comment,
-    /// spacing, or a key the rendering does not write, beside what the header and the row changes
-    /// say), and `line` is the first line in which the two differ, `recorded` and `now` that line
-    /// of each (null past its end).
-    fn difference(&self, text: &str) -> Value {
-        let Some(old) = self.text.as_deref() else {
+    /// Write `section` as the command's section of the record: under an exclusive lock of the
+    /// file's directory, read the file again, keep the other command's section as its text is
+    /// (trailing blank lines aside), and publish the record's header and the sections by rename
+    /// ([`Store::write_text`]); nothing when the file already holds that text. A file that no
+    /// longer decodes as a record the command may write is not overwritten.
+    fn write_section(&self, store: &Store, section: &str) -> Result<Outcome, String> {
+        let directory = match self.path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        let guard = fs::File::open(&directory).map_err(|e| e.to_string())?;
+        guard
+            .lock()
+            .map_err(|e| format!("cannot lock {}: {e}", directory.display()))?;
+        let fresh = match fs::read_to_string(&self.path) {
+            Ok(text) => Some(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.to_string()),
+        };
+        // Another command may have written the file since it was read: what it holds now is
+        // what this write keeps, and it must still be a record this command may write.
+        let current = match &fresh {
+            Some(text) => Some(Self::decode(&self.path, text.clone(), self.kind)?),
+            None => None,
+        };
+        let kept = fresh.as_deref().map_or_else(Vec::new, |text| {
+            sections(text)
+                .into_iter()
+                .filter(|(found, _, _)| *found != self.kind)
+                .map(|(found, _, slice)| (found, trimmed(slice)))
+                .collect()
+        });
+        let mut text = record_header();
+        for kind in SECTIONS {
+            let part = if kind == self.kind {
+                Some(section.to_owned())
+            } else {
+                kept.iter()
+                    .find(|(found, _)| *found == kind)
+                    .map(|(_, slice)| slice.clone())
+            };
+            if let Some(part) = part {
+                text.push('\n');
+                text.push_str(&part);
+            }
+        }
+        if fresh.as_deref() == Some(text.as_str()) {
+            return Ok(Outcome::Unchanged);
+        }
+        // The record must read back with the section written and the other kept.
+        Self::decode(&self.path, text.clone(), self.kind)?;
+        store
+            .write_text(&self.path, &text)
+            .map_err(|e| e.to_string())?;
+        drop(guard);
+        Ok(
+            if current
+                .as_ref()
+                .is_some_and(|current| current.section.is_some())
+            {
+                Outcome::Replaced
+            } else {
+                Outcome::Created
+            },
+        )
+    }
+
+    /// Where the command's section first differs from `section`, the section the run would
+    /// write: `{kind, line, recorded, now}`, `line` counted from 1 in the file; null when the file
+    /// has no section for the command, or an equal one. `kind` is `order` when the two hold the
+    /// same rows in another order: then `line` is the file's line of the `id` of its first row out
+    /// of the rendering's order, `recorded` that line and `now` the `id` line of the row the
+    /// rendering puts there, whatever else (a comment, spacing) differs before it. Otherwise
+    /// `kind` is `text` (a comment, spacing, or a key the rendering does not write, beside what
+    /// the header and the row changes say), and `line` is the first line in which the two differ,
+    /// `recorded` and `now` that line of each (null past its end).
+    fn difference(&self, section: &str) -> Value {
+        let Some(old) = self.section.as_deref() else {
             return Value::Null;
         };
-        if old == text {
+        if old == section {
             return Value::Null;
         }
+        let offset = self.section_line.saturating_sub(1);
         let ids = |rows: &mut dyn Iterator<Item = String>| {
             let mut ids = rows.collect::<Vec<_>>();
             let order = ids.clone();
@@ -508,19 +789,19 @@ impl Lock {
             (order, ids)
         };
         let (old_order, old_set) = ids(&mut self.rows.iter().map(|row| row.id.clone()));
-        let rendered = Lock::read_text(text, self.kind);
+        let rendered = Lock::read_text(section, self.kind);
         let (new_order, new_set) = ids(&mut rendered.into_iter());
         if old_order != new_order && old_set == new_set {
-            let row = self.kind.row();
-            let (old_ids, new_ids) = (id_lines(old, row), id_lines(text, row));
+            let (old_ids, new_ids) = (id_lines(old, self.kind), id_lines(section, self.kind));
             let first = old_order.iter().zip(&new_order).position(|(a, b)| a != b);
             if let Some(((line, recorded), (_, now))) =
                 first.and_then(|at| old_ids.get(at).zip(new_ids.get(at)))
             {
-                return json!({"kind": "order", "line": line, "recorded": recorded, "now": now});
+                return json!({"kind": "order", "line": line + offset, "recorded": recorded,
+                              "now": now});
             }
         }
-        let (mut recorded, mut now) = (old.split('\n'), text.split('\n'));
+        let (mut recorded, mut now) = (old.split('\n'), section.split('\n'));
         let mut line = 1_u64;
         let (recorded, now) = loop {
             match (recorded.next(), now.next()) {
@@ -528,24 +809,27 @@ impl Lock {
                 (a, b) => break (a, b),
             }
         };
-        json!({"kind": "text", "line": line, "recorded": recorded, "now": now})
+        json!({"kind": "text", "line": line + offset, "recorded": recorded, "now": now})
     }
 
-    /// Each key of the header whose value differs between the file and `text`, the rendering the
-    /// run would write: `{key, recorded, now}`, either side null where that side has no such key,
-    /// in the order of the rendering's lines, then the keys only the file has, in key order. Empty
-    /// when the file is absent (there is no recorded header to compare) or the headers' values are
-    /// equal (they may still differ in a comment or spacing, which `header` and `difference`
-    /// show).
-    fn header_changes(&self, text: &str) -> Vec<Value> {
-        if self.text.is_none() {
+    /// Each key of the section's header whose value differs between the file and `section`, the
+    /// section the run would write: `{key, recorded, now}`, either side null where that side has
+    /// no such key, in the order of the section's lines, then the keys only the file has, in key
+    /// order. Empty when the file records nothing for the command (there is no recorded header to
+    /// compare) or the headers' values are equal (they may still differ in a comment or spacing,
+    /// which `header` and `difference` show).
+    fn header_changes(&self, section: &str) -> Vec<Value> {
+        if !self.records() {
             return Vec::new();
         }
-        let now = text
+        let name = self.kind.document();
+        let now = section
             .parse::<toml::Table>()
+            .ok()
+            .and_then(|table| table.get(name).and_then(toml::Value::as_table).cloned())
             .map(|table| header_values(&table, self.kind))
             .unwrap_or_default();
-        let mut keys = header_key_order(text);
+        let mut keys = header_key_order(section, name);
         keys.retain(|key| now.contains_key(key));
         keys.extend(
             self.header
@@ -561,14 +845,16 @@ impl Lock {
             .collect()
     }
 
-    /// The row ids (mutations, flips) of the rendering `text` of a lock of `kind`, in its order;
-    /// none for a text that does not decode, which a rendering always does.
+    /// The row ids (mutations, flips) of the section `text` of a lock of `kind` (or of a record
+    /// holding it), in its order; none for a text that does not decode, which a rendering always
+    /// does.
     fn read_text(text: &str, kind: LockKind) -> Vec<String> {
         let Ok(table) = text.parse::<toml::Table>() else {
             return Vec::new();
         };
         table
-            .get(kind.row())
+            .get(kind.document())
+            .and_then(|section| section.get(kind.row()))
             .and_then(toml::Value::as_array)
             .into_iter()
             .flatten()
@@ -617,7 +903,6 @@ impl Lock {
         }
         changes
     }
-
     /// Each obligation of a coverage lock whose state differs between the lock and `document`:
     /// `{family, obligation, recorded, now}`, each side `"open"` or `"argued"` where that side
     /// lists it so and null where it lists it neither way (it is covered, or no longer an
@@ -711,11 +996,11 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
     })
 }
 
-/// The header of a decoded lock or rendering of `kind`: each key outside its rows (`[[mutation]]`,
-/// `[[flip]]`) and, for a coverage lock, outside its family sections (`[rules]`, ...; [`head`])
-/// and its `[arguments]`,
-/// a section's keys as `section.key`, with its value as JSON (a string, an integer or a boolean
-/// as itself, any other value as its TOML text).
+/// The header of a decoded section of `kind` (or of a lock before version 24, its whole file):
+/// each key outside its rows (`mutation`, `flip`), the `schema` and `document` of a lock before
+/// version 24, and, for a coverage section, its family tables (`rules`, ...; [`head`]) and an old
+/// lock's `[arguments]`, a sub-table's keys as `table.key`, with its value as JSON (a string, an
+/// integer or a boolean as itself, any other value as its TOML text).
 fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value> {
     let json = |value: &toml::Value| match value {
         toml::Value::String(text) => json!(text),
@@ -726,7 +1011,7 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
     let mut header = BTreeMap::new();
     for (key, value) in table {
         match value {
-            _ if key == kind.row() => {}
+            _ if key == kind.row() || key == "schema" || key == "document" => {}
             toml::Value::Table(_)
                 if kind == LockKind::Coverage
                     && (crate::coverage::FAMILIES.contains(&key.as_str())
@@ -744,41 +1029,50 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
     header
 }
 
-/// The header keys of a rendering's text, in the order of its lines, as [`header_values`]
-/// names them: a key before any table, or `section.key` in a `[section]`; none in a
-/// `[[mutation]]` row, none from a comment, and none from the continuation lines of a multi-line
-/// array (a value, a string or an inline table, or its closing `]`), which belong to the key that
-/// opened it, nor from a line whose key is quoted (an `[arguments]` line of a lock written before
-/// version 24, whose key is an item id): the rendering quotes no header key, so such a line is no
-/// header line, and [`header_values`] leaves its section out.
-fn header_key_order(text: &str) -> Vec<String> {
+/// The header keys of the section `text` of the command `name`, in the order of its lines, as
+/// [`header_values`] names them: a key of `[<name>]`, or `table.key` in a `[<name>.table]`; none
+/// in a row (`[[<name>.mutation]]`), none from a comment, and none from the continuation lines of
+/// a multi-line array (a value, a string or an inline table, or its closing `]`), which belong to
+/// the key that opened it, nor from a line whose key is quoted (an `[arguments]` line of a lock
+/// written before version 24, whose key is an item id): the rendering quotes no header key, so
+/// such a line is no header line, and [`header_values`] leaves its table out.
+fn header_key_order(text: &str, name: &str) -> Vec<String> {
     let mut keys = Vec::new();
-    let mut section: Option<&str> = Some("");
+    let mut table: Option<String> = None;
     for line in text.split('\n') {
         let trimmed = line.trim();
         if trimmed.starts_with(['"', '{', ']', '#']) {
             continue;
         }
         if trimmed.starts_with("[[") {
-            section = None;
-        } else if let Some(name) = trimmed.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
-            section = Some(name.trim());
-        } else if let (Some(section), Some((key, _))) = (section, trimmed.split_once('=')) {
+            table = None;
+        } else if let Some(heading) = trimmed.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            let heading = heading.trim();
+            table = if heading == name {
+                Some(String::new())
+            } else {
+                heading
+                    .strip_prefix(name)
+                    .and_then(|rest| rest.strip_prefix('.'))
+                    .map(str::to_owned)
+            };
+        } else if let (Some(table), Some((key, _))) = (&table, trimmed.split_once('=')) {
             let key = key.trim();
-            keys.push(if section.is_empty() {
+            keys.push(if table.is_empty() {
                 key.to_owned()
             } else {
-                format!("{section}.{key}")
+                format!("{table}.{key}")
             });
         }
     }
     keys
 }
 
-/// The `id` line of each `[[<row>]]` row of a lock's text (`[[mutation]]`, `[[flip]]`), in order,
-/// with its line number counted from 1: the first line of the row's table that sets `id`.
-fn id_lines<'t>(text: &'t str, row: &str) -> Vec<(u64, &'t str)> {
-    let table = format!("[[{row}]]");
+/// The `id` line of each row of `kind`'s section `text` (`[[run.mutation]]`, `[[coverage.flip]]`),
+/// in order, with its line number counted from 1 in `text`: the first line of the row's table
+/// that sets `id`.
+fn id_lines(text: &str, kind: LockKind) -> Vec<(u64, &str)> {
+    let table = format!("[[{}.{}]]", kind.document(), kind.row());
     let mut lines = Vec::new();
     let mut in_row = false;
     for (number, line) in (1_u64..).zip(text.split('\n')) {
@@ -797,24 +1091,70 @@ fn id_lines<'t>(text: &'t str, row: &str) -> Vec<(u64, &'t str)> {
     lines
 }
 
-/// The header of a rendering of a lock of `kind`: a run's lines before its first `[[mutation]]`
-/// (the header and the `[spec]` section), a coverage document's before its first family section
-/// or `[[flip]]` (the header, the `[spec]` and the `[settings]`).
+/// The header of a section of `kind`: a run section's lines before its first `[[run.mutation]]`
+/// (the version, profile and build lines and `[run.spec]`, with the comments before the rows), a
+/// coverage section's before its first family table or `[[coverage.flip]]` (the version, profile,
+/// build and `krs_annotation` lines, `[coverage.spec]` and `[coverage.settings]`).
 fn head(kind: LockKind, text: &str) -> &str {
     let end = match kind {
-        LockKind::Run => text.find("\n[[mutation]]"),
+        LockKind::Run => text.find("\n[[run.mutation]]"),
         LockKind::Coverage => text.match_indices("\n[").map(|(at, _)| at).find(|&at| {
             let line = text[at + 1..].lines().next().unwrap_or_default();
-            line == "[[flip]]"
-                || line == "[arguments]"
+            line == "[[coverage.flip]]"
                 || crate::coverage::FAMILIES.iter().any(|family| {
-                    line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) == Some(family)
+                    line.strip_prefix("[coverage.")
+                        .and_then(|l| l.strip_suffix(']'))
+                        == Some(family)
                 })
         }),
     };
     end.map_or(text, |end| &text[..end])
 }
 
+/// A record's text split at its sections: the header, the text before the first section, and
+/// each section ([`sections`]).
+fn split(text: &str) -> (&str, Vec<(LockKind, u64, &str)>) {
+    let sections = sections(text);
+    let end = sections
+        .first()
+        .map_or(text.len(), |(_, _, slice)| offset_of(text, slice));
+    (&text[..end], sections)
+}
+
+/// The byte offset of `slice`, a part of `text`, in `text`.
+fn offset_of(text: &str, slice: &str) -> usize {
+    slice.as_ptr() as usize - text.as_ptr() as usize
+}
+
+/// Each section of a record's text, in the file's order: the command, the line it starts at
+/// (counted from 1), and its text, from its `[run]` or `[coverage]` line to the next such line or
+/// the end of the file. A lock before version 24 has none.
+fn sections(text: &str) -> Vec<(LockKind, u64, &str)> {
+    let mut starts = Vec::new();
+    let mut at = 0;
+    for (number, line) in (1_u64..).zip(text.split('\n')) {
+        if let Some(kind) = SECTIONS.into_iter().find(|kind| line == kind.heading()) {
+            starts.push((kind, number, at));
+        }
+        at += line.len() + 1;
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(index, &(kind, number, start))| {
+            let end = starts
+                .get(index + 1)
+                .map_or(text.len(), |&(_, _, next)| next);
+            (kind, number, &text[start..end.min(text.len())])
+        })
+        .collect()
+}
+
+/// A section's text without its trailing blank lines, ending with one newline: the bytes a
+/// record keeps of it, the blank line before the next section being the record's.
+fn trimmed(slice: &str) -> String {
+    format!("{}\n", slice.trim_end_matches('\n'))
+}
 /// The run document's `lock` of a lock that does not decode: `{path, outcome: "refused",
 /// detail}`.
 #[must_use]
@@ -824,15 +1164,15 @@ pub fn refused_value(path: &Path, detail: &str) -> Value {
 
 /// One line per change of a run document whose lock is `stale` (`--locked` found that the run
 /// would change it), as `kink-flow` prints them on stderr: one per header key whose value differs
-/// (`lock.header_changes`: `` verdicts.lock: the header's z3_library_sha256 differs: recorded
+/// (`lock.header_changes`: `` kink.lock: [run] z3_library_sha256 differs: recorded
 /// "7ca2…", now "1f0e…" (another Z3 build) ``), or one saying that the header differs when no
 /// value does (the file is absent, or a comment or spacing differs); then one per row,
-/// `verdicts.lock: plus/a: killer t4 -> t2 (t4: not-in-corpus)`, `verdicts.lock: plus/c:
+/// `kink.lock: plus/a: killer t4 -> t2 (t4: not-in-corpus)`, `kink.lock: plus/c:
 /// killed -> survived`, and for a coverage lock one per obligation whose openness differs
-/// (`lock.open_changes`: `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements:
-/// requirement:x:held is no longer open`, `coverage.lock: rules: rule:x is argued (was open)`)
+/// (`lock.open_changes`: `kink.lock: rules: rule:x is open`, `kink.lock: requirements:
+/// requirement:x:held is no longer open`, `kink.lock: rules: rule:x is argued (was open)`)
 /// and one per argued item whose standing differs where no such line names it
-/// (`lock.argument_changes`: `coverage.lock: rule:x: standing text -> unchecked`) before them;
+/// (`lock.argument_changes`: `kink.lock: rule:x: standing text -> unchecked`) before them;
 /// when neither the header nor any obligation nor any standing nor any row's verdict differs,
 /// one line naming the first difference
 /// (`lock.difference`: the rows' order, or a line of text); empty otherwise.
@@ -843,7 +1183,8 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
         return Vec::new();
     }
     let kind = LockKind::of(document);
-    let path = lock["path"].as_str().unwrap_or(kind.file());
+    let path = lock["path"].as_str().unwrap_or(LOCK_FILE);
+    let section = kind.heading();
     let mut lines = Vec::new();
     if lock["header"] == true {
         let header_changes = lock["header_changes"]
@@ -855,8 +1196,9 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 LockKind::Coverage => "its first family",
             };
             lines.push(format!(
-                "{path}: the header differs (the file is absent, or a comment or spacing before \
-                 {first} differs)"
+                "{path}: the {section} section's header differs (the file has no {section} \
+                 section, or the record's header, or a comment or spacing before {first}, \
+                 differs)"
             ));
         }
         for change in header_changes {
@@ -876,7 +1218,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 _ => "",
             };
             lines.push(format!(
-                "{path}: the header's {key} differs: recorded {}, now {}{why}",
+                "{path}: {section} {key} differs: recorded {}, now {}{why}",
                 side(&change["recorded"]),
                 side(&change["now"])
             ));
@@ -999,149 +1341,340 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
     lines
 }
 
+/// One line per note on the lock of `document` that is no finding, as `kink-flow` prints them on
+/// stderr whatever the lock's status: where the command was given an old file a front end kept
+/// its lock in before version 24 (`lock.legacy`), that its killers were moved into the record
+/// (`kink/verdicts.lock: its killers are now in kink/kink.lock's [run] section; delete
+/// kink/verdicts.lock`), that they were read but not moved, or that the record already keeps
+/// them. kink-flow deletes no file.
+#[must_use]
+pub fn lock_notes(document: &Value) -> Vec<String> {
+    let lock = &document["lock"];
+    let legacy = &lock["legacy"];
+    let Some(old) = legacy["path"].as_str() else {
+        return Vec::new();
+    };
+    let path = lock["path"].as_str().unwrap_or(LOCK_FILE);
+    let section = LockKind::of(document).heading();
+    vec![match (legacy["status"].as_str(), legacy["moved"] == true) {
+        (Some("migrated"), true) => {
+            format!("{old}: its killers are now in {path}'s {section} section; delete {old}")
+        }
+        (Some("migrated"), false) => format!(
+            "{old}: its killers were read, and the run that rewrites {path} moves them into its \
+             {section} section; then delete {old}"
+        ),
+        _ => format!("{old}: {path}'s {section} section keeps its verdicts now; delete {old}"),
+    }]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::verdicts::lock_text;
 
-    const AB: &str = "schema = \"kink-flow-verdicts\"\nversion = 6\ndocument = \"run\"\n\n\
-                      [[mutation]]\nid = \"a\"\nstatus = \"survived\"\n\n\
-                      [[mutation]]\nid = \"b\"\nstatus = \"survived\"\n";
-
-    fn lock(text: &str) -> Lock {
-        lock_of(text, LockKind::Run)
+    /// A run document judging `rows` (`(id, status, killer)`), admitted, under `profile`.
+    fn run_document(rows: &[(&str, &str, Option<&str>)]) -> Value {
+        json!({
+            "schema": crate::report::RUN_SCHEMA,
+            "profile": "no-z3",
+            "spec": {"outcome": "admitted"},
+            "mutations": rows
+                .iter()
+                .map(|(id, status, killer)| json!({"id": id, "status": status, "killer": killer}))
+                .collect::<Vec<_>>(),
+        })
     }
 
-    fn lock_of(text: &str, kind: LockKind) -> Lock {
-        let path = PathBuf::from(kind.file());
-        let rows = Lock::read_text(text, kind)
-            .into_iter()
-            .map(|id| LockRow {
-                id,
-                ..LockRow::default()
+    /// A coverage document arguing `argued` (`(id, standing)`) and leaving `open` open, of a
+    /// front end that derives no flips.
+    fn coverage_document(argued: &[(&str, &str)], open: &[&str]) -> Value {
+        let mut items = argued
+            .iter()
+            .map(|(id, standing)| {
+                json!({"id": id, "status": "argued", "argument_check": {"standing": standing}})
             })
-            .collect();
-        Lock {
-            kind,
-            path,
-            text: Some(text.to_owned()),
-            rows,
-            header: header_values(&text.parse().unwrap(), kind),
-            open: BTreeMap::new(),
-            argued: BTreeMap::new(),
-            arguments: BTreeMap::new(),
-        }
+            .collect::<Vec<_>>();
+        items.extend(open.iter().map(
+            |id| json!({"id": id, "status": "matched", "obligation": true, "covered": false}),
+        ));
+        json!({
+            "schema": crate::coverage::COVERAGE_SCHEMA,
+            "profile": "no-z3",
+            "spec": {"outcome": "admitted"},
+            "settings": {"tiers": [1], "depth": 1, "mcdc": []},
+            "families": {
+                "rules": {"items": items},
+                "requirements": {"items": []},
+                "syntax": {"items": []},
+                "flips": {"run": false},
+            },
+        })
     }
 
-    /// A lock whose rows are the rendering's in another order differs from it with kind `order`,
-    /// at its first reordered row's `id` line, a comment before it included; one that differs
-    /// only in its text with kind `text`, at the first line that differs; an equal or absent one
-    /// has no difference.
+    /// A fresh directory of this test process.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("kink-flow-lock-unit-{}", std::process::id()))
+            .join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    const LOCKED: Settle<'static> = Settle {
+        locked: true,
+        verify: false,
+        only: &[],
+        stopped: false,
+    };
+
+    const WRITE: Settle<'static> = Settle {
+        locked: false,
+        verify: false,
+        only: &[],
+        stopped: false,
+    };
+
+    /// `kind`'s section of `text`, as a file at `kink.lock` decodes it.
+    fn decoded(text: &str, kind: LockKind) -> Lock {
+        Lock::decode(Path::new(LOCK_FILE), text.to_owned(), kind).unwrap()
+    }
+
+    /// A record is its header and one section per command that wrote it: a command's rendering
+    /// is the record holding its section alone, which starts at its `[run]` or `[coverage]`
+    /// line; the record's header holds the comment and `schema` only, and every value a verdict
+    /// depends on (version, profile) is in the section.
+    #[test]
+    fn a_record_is_its_header_and_one_section_per_command() {
+        let run = lock_text(&run_document(&[("a", "killed", Some("t1"))])).unwrap();
+        let header = record_header();
+        assert!(run.starts_with(&format!("{header}\n[run]\n# ")), "{run}");
+        assert!(!header.contains("version"), "{header}");
+        assert!(
+            run.contains(
+                "\nversion = 24\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
+            ),
+            "{run}"
+        );
+        assert!(
+            run.ends_with("[[run.mutation]]\nid = \"a\"\nstatus = \"killed\"\nkiller = \"t1\"\n"),
+            "{run}"
+        );
+        let (head_text, found) = split(&run);
+        assert_eq!(head_text, format!("{header}\n"));
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].0, found[0].1), (LockKind::Run, 6));
+        let lock = decoded(&run, LockKind::Run);
+        assert_eq!(lock.section.as_deref(), Some(&run[header.len() + 1..]));
+        assert_eq!(
+            lock.killers(),
+            BTreeMap::from([("a".to_owned(), "t1".to_owned())])
+        );
+        assert_eq!(lock.header["version"], 24);
+        // The other command finds no section of its own: it records nothing, and is no error.
+        let coverage = decoded(&run, LockKind::Coverage);
+        assert_eq!(
+            (coverage.section.as_deref(), coverage.rows.len()),
+            (None, 0)
+        );
+        assert!(!coverage.records());
+    }
+
+    /// Each command rewrites only its own section and keeps the other's text byte for byte
+    /// (trailing blank lines aside), in the record's order `[run]`, `[coverage]`; `--locked`
+    /// compares only the command's own section, so a stale `[run]` leaves `coverage --locked`
+    /// unchanged, and the reverse.
+    #[test]
+    fn each_command_keeps_and_checks_only_its_own_section() {
+        let dir = scratch("own-section");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let coverage = coverage_document(&[("rule:a", "text")], &["rule:b"]);
+        let read = |kind| Lock::read_kind(&path, kind).unwrap();
+        let (value, ok) = read(LockKind::Coverage).settle(&store, &coverage, WRITE);
+        assert!(ok);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let only_coverage = fs::read_to_string(&path).unwrap();
+        assert_eq!(only_coverage, lock_text(&coverage).unwrap());
+
+        let run = run_document(&[("m", "killed", Some("t1"))]);
+        let (value, _) = read(LockKind::Run).settle(&store, &run, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let both = fs::read_to_string(&path).unwrap();
+        let run_section = lock_section(&run).unwrap();
+        let coverage_section = lock_section(&coverage).unwrap();
+        assert_eq!(
+            both,
+            format!("{}\n{run_section}\n{coverage_section}", record_header())
+        );
+
+        // A stale `[run]`: `coverage --locked` is unchanged, `run --locked` is stale.
+        let moved = run_document(&[("m", "survived", None)]);
+        let (value, _) = read(LockKind::Coverage).settle(&store, &coverage, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        let (value, _) = read(LockKind::Run).settle(&store, &moved, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["header"], false, "{value:#}");
+        assert_eq!(
+            value["difference"]["line"],
+            u64::try_from(
+                both.lines()
+                    .position(|l| l == "status = \"killed\"")
+                    .unwrap()
+                    + 1
+            )
+            .unwrap()
+        );
+
+        // `run` rewrites its section; the coverage section's bytes are as they were, a hand
+        // comment in it included, and its trailing blank lines are the record's.
+        let commented =
+            both.replace("[coverage.rules]\n", "[coverage.rules]\n# kept by hand\n") + "\n\n";
+        fs::write(&path, &commented).unwrap();
+        let (value, _) = read(LockKind::Run).settle(&store, &moved, WRITE);
+        assert_eq!(value["status"], "written", "{value:#}");
+        let rewritten = fs::read_to_string(&path).unwrap();
+        let kept = trimmed(sections(&commented)[1].2);
+        assert!(kept.contains("# kept by hand\n"));
+        assert_eq!(
+            rewritten,
+            format!(
+                "{}\n{}\n{kept}",
+                record_header(),
+                lock_section(&moved).unwrap()
+            )
+        );
+        // `coverage --locked` now finds its own hand comment, and nothing of `[run]`.
+        let (value, _) = read(LockKind::Coverage).settle(&store, &coverage, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["changes"], json!([]), "{value:#}");
+        let (value, _) = read(LockKind::Run).settle(&store, &moved, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        // Writing what the file holds writes nothing.
+        let (value, _) = read(LockKind::Run).settle(&store, &moved, WRITE);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), rewritten);
+    }
+
+    /// Two commands writing their sections at once never lose one: each write reads the file
+    /// again under the directory's lock and keeps the other section the file then holds.
+    #[test]
+    fn concurrent_writes_of_the_two_sections_lose_neither() {
+        let dir = scratch("concurrent");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let runs = (0..24)
+            .map(|n| run_document(&[("m", "killed", Some(&*format!("t{n}")))]))
+            .collect::<Vec<_>>();
+        let coverages = (0..24)
+            .map(|n| coverage_document(&[], &[&*format!("rule:{n}")]))
+            .collect::<Vec<_>>();
+        std::thread::scope(|scope| {
+            for (kind, documents) in [(LockKind::Run, &runs), (LockKind::Coverage, &coverages)] {
+                let (path, store) = (&path, &store);
+                scope.spawn(move || {
+                    for document in documents {
+                        let lock = Lock::read_kind(path, kind).unwrap();
+                        let (value, ok) = lock.settle(store, document, WRITE);
+                        assert!(ok, "{value:#}");
+                    }
+                });
+            }
+        });
+        let last = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            last,
+            format!(
+                "{}\n{}\n{}",
+                record_header(),
+                lock_section(runs.last().unwrap()).unwrap(),
+                lock_section(coverages.last().unwrap()).unwrap()
+            )
+        );
+    }
+
+    /// A section whose rows are the rendering's in another order differs from it with kind
+    /// `order`, at its first reordered row's `id` line in the file, a comment before it
+    /// included; one that differs only in its text with kind `text`, at the first line that
+    /// differs; an equal or absent section has no difference.
     #[test]
     fn the_first_difference_names_a_reordering_or_a_line() {
-        let ba = AB
+        let ab = run_document(&[("a", "survived", None), ("b", "survived", None)]);
+        let rendered = lock_section(&ab).unwrap();
+        let text = lock_text(&ab).unwrap();
+        let ba = text
             .replace("id = \"a\"", "id = \"x\"")
             .replace("id = \"b\"", "id = \"a\"")
             .replace("id = \"x\"", "id = \"b\"");
+        let line = |text: &str, wanted: &str| {
+            u64::try_from(text.split('\n').position(|l| l == wanted).unwrap() + 1).unwrap()
+        };
         assert_eq!(
-            lock(&ba).difference(AB),
-            json!({"kind": "order", "line": 6, "recorded": "id = \"b\"", "now": "id = \"a\""})
+            decoded(&ba, LockKind::Run).difference(&rendered),
+            json!({"kind": "order", "line": line(&ba, "id = \"b\""), "recorded": "id = \"b\"",
+                   "now": "id = \"a\""})
         );
-        let commented = format!("# kept by hand\n{AB}");
+        let commented = text.replace("[run.spec]\n", "[run.spec]\n# kept by hand\n");
         assert_eq!(
-            lock(&commented).difference(AB),
-            json!({
-                "kind": "text",
-                "line": 1,
-                "recorded": "# kept by hand",
-                "now": "schema = \"kink-flow-verdicts\"",
-            })
+            decoded(&commented, LockKind::Run).difference(&rendered),
+            json!({"kind": "text", "line": line(&commented, "# kept by hand"),
+                   "recorded": "# kept by hand", "now": "outcome = \"admitted\""})
         );
-        // A hand comment before reordered rows: the order is what a run changes, and the line
-        // named is the first reordered row's, not the comment's.
-        let commented_ba = format!("# kept by hand\n{ba}");
+        // A hand comment before reordered rows: the order is what a run changes.
+        let commented_ba = ba.replace("[run.spec]\n", "[run.spec]\n# kept by hand\n");
         assert_eq!(
-            lock(&commented_ba).difference(AB),
-            json!({"kind": "order", "line": 7, "recorded": "id = \"b\"", "now": "id = \"a\""})
+            decoded(&commented_ba, LockKind::Run).difference(&rendered)["kind"],
+            "order"
         );
-        assert_eq!(lock(AB).difference(AB), Value::Null);
-        assert_eq!(Lock::default().difference(AB), Value::Null);
+        assert_eq!(
+            decoded(&text, LockKind::Run).difference(&rendered),
+            Value::Null
+        );
+        assert_eq!(Lock::default().difference(&rendered), Value::Null);
     }
 
-    /// A coverage lock whose arrays have one value per line, as the rendering writes them
-    /// ([`crate::verdicts`]), reads as the same lock with each array on one line: the same head,
-    /// header values and header key order (a value holding `=` names no key), the same rows and
-    /// row `id` lines (at their own line numbers), and a reordering of its rows is named as one,
-    /// at the first reordered row's `id` line.
+    /// The header keys of a section are named relative to it, in its line order, and no comment,
+    /// row, continuation line or family names one.
     #[test]
-    fn a_multi_line_lock_reads_as_its_one_line_form() {
-        let one_line = |items: &[&str]| format!("[{}]", items.join(", "));
-        let multi_line = |items: &[&str]| {
-            crate::verdicts::list(
-                &items
-                    .iter()
-                    .map(|&item| item.to_owned())
-                    .collect::<Vec<_>>(),
-            )
-        };
-        let render = |array: &dyn Fn(&[&str]) -> String, first: &str, second: &str| {
-            format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
-                 [settings]\ntiers = [1, 2]\ndepth = 1\nmcdc = {}\n\n[rules]\nopen = {}\n\
-                 argued = {}\n\n[syntax]\nopen = {}\nargued = {}\n\n[flips]\nrun = true\n\n\
-                 [[flip]]\nid = \"{first}\"\nstatus = \"undistinguished\"\nhorizon = {}\n\n\
-                 [[flip]]\nid = \"{second}\"\nstatus = \"argued\"\n",
-                array(&["\"GUARDS.wake\""]),
-                array(&["\"rule:GUARDS.wake\"", "\"rule:GUARDS.high\""]),
-                array(&[]),
-                array(&["\"syntax:crate::decode_ld:r=2\""]),
-                array(&[]),
-                array(&[
-                    "{ program = \"run\", channel = \"clock\", elements = 16, opening = \"bound\" }"
-                ]),
-            )
-        };
-        let (one, multi) = (render(&one_line, "a", "b"), render(&multi_line, "a", "b"));
-        assert!(
-            multi.contains("\n[rules]\nopen = [\n  \"rule:GUARDS.wake\",\n"),
-            "{multi}"
-        );
-        assert!(multi.contains("\nargued = [\n]\n"), "{multi}");
-        let kind = LockKind::Coverage;
-        let table = |text: &str| text.parse::<toml::Table>().unwrap();
-        assert_eq!(table(&multi), table(&one));
-        assert_eq!(table(head(kind, &multi)), table(head(kind, &one)));
-        assert!(head(kind, &multi).ends_with("mcdc = [\n  \"GUARDS.wake\",\n]\n"));
+    fn a_sections_header_keys_are_its_own() {
+        let coverage =
+            lock_section(&coverage_document(&[("rule:a", "text")], &["rule:b"])).unwrap();
         assert_eq!(
-            header_values(&table(&multi), kind),
-            header_values(&table(&one), kind)
+            header_key_order(&coverage, "coverage"),
+            [
+                "version",
+                "profile",
+                "spec.outcome",
+                "settings.depth",
+                "settings.mcdc",
+                "rules.open",
+                "rules.argued",
+                "requirements.open",
+                "requirements.argued",
+                "syntax.open",
+                "syntax.argued",
+                "flips.run",
+            ]
         );
-        assert_eq!(header_key_order(&multi), header_key_order(&one));
-        let lines = |text: &str| {
-            id_lines(text, kind.row())
-                .into_iter()
-                .map(|(_, line)| line.to_owned())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(lines(&multi), lines(&one));
-        for (number, line) in id_lines(&multi, kind.row()) {
-            assert_eq!(
-                multi.split('\n').nth(usize::try_from(number).unwrap() - 1),
-                Some(line)
-            );
-        }
-        assert_eq!(Lock::read_text(&multi, kind), Lock::read_text(&one, kind));
-        assert_eq!(lock_of(&multi, kind).difference(&multi), Value::Null);
-        for (array, now) in [
-            (&one_line as &dyn Fn(&[&str]) -> String, &one),
-            (&multi_line, &multi),
-        ] {
-            let reordered = render(array, "b", "a");
-            let (line, _) = id_lines(&reordered, kind.row())[0];
-            assert_eq!(
-                lock_of(&reordered, kind).difference(now),
-                json!({"kind": "order", "line": line, "recorded": "id = \"b\"", "now": "id = \"a\""})
-            );
-        }
+        let lock = decoded(
+            &format!("{}\n{coverage}", record_header()),
+            LockKind::Coverage,
+        );
+        assert_eq!(
+            lock.header.keys().collect::<Vec<_>>(),
+            [
+                "profile",
+                "settings.depth",
+                "settings.mcdc",
+                "spec.outcome",
+                "version"
+            ]
+        );
+        assert_eq!(lock.argued["rules"], ["rule:a"]);
+        assert_eq!(lock.open["rules"], ["rule:b"]);
+        assert_eq!(lock.arguments["rule:a"], "text");
+        assert!(!head(LockKind::Coverage, &coverage).contains("rule:"));
     }
 
     /// `stale_lines` names the first difference only when neither the header nor a row's verdict
@@ -1152,67 +1685,67 @@ mod tests {
             json!({
                 "mutations": [],
                 "lock": {
-                    "path": "verdicts.lock",
+                    "path": "kink.lock",
                     "status": "stale",
                     "header": header,
                     "changes": changes,
-                    "difference": {"kind": "order", "line": 6, "recorded": "id = \"b\"", "now": "id = \"a\""},
+                    "difference": {"kind": "order", "line": 9, "recorded": "id = \"b\"", "now": "id = \"a\""},
                 },
             })
         };
         assert_eq!(
             stale_lines(&document(false, json!([]))),
             [
-                "verdicts.lock: its rows are in another order than the mutation list's (first at \
-                 line 6: recorded `id = \"b\"`, now `id = \"a\"`); a run writes them in the list's \
+                "kink.lock: its rows are in another order than the mutation list's (first at \
+                 line 9: recorded `id = \"b\"`, now `id = \"a\"`); a run writes them in the list's \
                  order"
             ]
         );
         let changed = json!([{"mutation": "a", "recorded": null, "now": {"status": "survived"}}]);
         assert_eq!(
             stale_lines(&document(false, changed)),
-            ["verdicts.lock: a: added, survived"]
+            ["kink.lock: a: added, survived"]
         );
         assert_eq!(
             stale_lines(&document(true, json!([]))),
             [
-                "verdicts.lock: the header differs (the file is absent, or a comment or spacing \
-                 before its first mutation differs)"
+                "kink.lock: the [run] section's header differs (the file has no [run] section, \
+                 or the record's header, or a comment or spacing before its first mutation, \
+                 differs)"
             ]
         );
     }
 
-    /// A lock recorded on another Z3 build differs from the rendering in the header's values
-    /// only: `header_changes` names each key whose value differs, in the rendering's line order,
+    /// A section recorded on another Z3 build differs from the rendering in its header's values
+    /// only: `header_changes` names each key whose value differs, in the section's line order,
     /// and `stale_lines` names each with why it matters; a key only one side has is null on the
     /// other.
     #[test]
     fn a_lock_of_another_z3_build_names_the_build_lines() {
-        let header = |build: &str| {
-            format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 10\ndocument = \"run\"\nprofile = \
-                 \"z3\"\nz3_version = \"5.3.3.0\"\n{build}\n[spec]\noutcome = \"admitted\"\n\n\
-                 [[mutation]]\nid = \"a\"\nstatus = \"survived\"\n"
-            )
+        let document = |build: Value| {
+            let mut document = run_document(&[("a", "survived", None)]);
+            document["profile"] = json!("z3");
+            document["z3"] = build;
+            document
         };
-        let now = header("z3_library_sha256 = \"bbbb\"\n");
-        let recorded = lock(&header("z3_library_sha256 = \"aaaa\"\n"));
-        let changes = recorded.header_changes(&now);
+        let now = document(json!({"version": "5.3.3.0", "library_sha256": "bbbb"}));
+        let section = lock_section(&now).unwrap();
+        let recorded = |build: Value| decoded(&lock_text(&document(build)).unwrap(), LockKind::Run);
+        let other = recorded(json!({"version": "5.3.3.0", "library_sha256": "aaaa"}));
+        let changes = other.header_changes(&section);
         assert_eq!(
             changes,
             [json!({"key": "z3_library_sha256", "recorded": "aaaa", "now": "bbbb"})]
         );
         // A build that could not name its library has no digest line.
         assert_eq!(
-            lock(&header("")).header_changes(&now),
+            recorded(json!({"version": "5.3.3.0"})).header_changes(&section),
             [json!({"key": "z3_library_sha256", "recorded": null, "now": "bbbb"})]
         );
-        // The portable rendering of the same verdicts: another profile and no build lines.
-        let portable = "schema = \"kink-flow-verdicts\"\nversion = 10\ndocument = \"run\"\nprofile = \
-                        \"no-z3\"\n\n[spec]\noutcome = \"admitted\"\n\n[[mutation]]\nid = \"a\"\n\
-                        status = \"survived\"\n";
+        let mut portable = run_document(&[("a", "survived", None)]);
+        portable["profile"] = json!("no-z3");
         assert_eq!(
-            recorded.header_changes(portable),
+            other.header_changes(&lock_section(&portable).unwrap()),
             [
                 json!({"key": "profile", "recorded": "z3", "now": "no-z3"}),
                 json!({"key": "z3_library_sha256", "recorded": "aaaa", "now": null}),
@@ -1220,121 +1753,55 @@ mod tests {
             ]
         );
         assert_eq!(
-            recorded.header_changes(&recorded.text.clone().unwrap()),
+            other.header_changes(other.section.as_deref().unwrap()),
             [] as [Value; 0]
         );
-        assert_eq!(Lock::default().header_changes(&now), [] as [Value; 0]);
-        let document = json!({
-            "mutations": [],
-            "lock": {
-                "path": "verdicts.lock",
-                "status": "stale",
-                "header": true,
-                "header_changes": changes,
-                "changes": [],
-                "difference": {"kind": "text", "line": 6, "recorded": "z3_library_sha256 = \"aaaa\"", "now": "z3_library_sha256 = \"bbbb\""},
-            },
+        assert_eq!(Lock::default().header_changes(&section), [] as [Value; 0]);
+        let mut stale = now.clone();
+        stale["lock"] = json!({
+            "path": "kink.lock",
+            "status": "stale",
+            "header": true,
+            "header_changes": changes,
+            "changes": [],
+            "difference": {"kind": "text", "line": 9, "recorded": "z3_library_sha256 = \"aaaa\"", "now": "z3_library_sha256 = \"bbbb\""},
         });
         assert_eq!(
-            stale_lines(&document),
+            stale_lines(&stale),
             [
-                "verdicts.lock: the header's z3_library_sha256 differs: recorded \"aaaa\", now \
-                 \"bbbb\" (another Z3 build)"
+                "kink.lock: [run] z3_library_sha256 differs: recorded \"aaaa\", now \"bbbb\" \
+                 (another Z3 build)"
             ]
         );
     }
 
-    /// A coverage lock reads `[arguments]` as each argued item's standing, outside its header:
-    /// the lines, whose keys are quoted item ids, give no header key and are no part of the head.
-    /// A standing that moves makes a `--locked` run stale, with no header change: the lock's
-    /// state names the item (`argument_changes`) and the line (`difference`), and `stale_lines`
-    /// names the move. An argument added with its item names the item once, by the obligation's
-    /// change.
+    /// A coverage section gives each argued item once, in its family's `argued` with its
+    /// standing: a standing that moves makes a `--locked` run stale, with no header change, the
+    /// lock's state naming the item (`argument_changes`) and the line (`difference`), and
+    /// `stale_lines` the move. An argument removed is named once, by its obligation's change.
     #[test]
     fn a_moved_standing_makes_the_lock_stale_and_names_its_line() {
-        let document = |argued: &[(&str, &str)], open: &[&str]| {
-            let mut items = argued
-                .iter()
-                .map(|(id, standing)| {
-                    json!({"id": id, "status": "argued", "argument_check": {"standing": standing}})
-                })
-                .collect::<Vec<_>>();
-            items.extend(open.iter().map(
-                |id| json!({"id": id, "status": "matched", "obligation": true, "covered": false}),
-            ));
-            json!({
-                "schema": crate::coverage::COVERAGE_SCHEMA,
-                "spec": {"outcome": "admitted"},
-                "settings": {"tiers": [1], "depth": 1, "mcdc": []},
-                "families": {
-                    "rules": {"items": items},
-                    "requirements": {"items": []},
-                    "syntax": {"items": []},
-                    "flips": {"run": false},
-                },
-            })
-        };
-        let text = |document: &Value| lock_text(document).unwrap();
-        let recorded = document(&[("rule:a", "text"), ("rule:b", "text")], &[]);
-        let recorded_text = text(&recorded);
+        let recorded = coverage_document(&[("rule:a", "text"), ("rule:b", "text")], &[]);
+        let recorded_text = lock_text(&recorded).unwrap();
         let entry =
             |id: &str, standing: &str| format!("  {{ id = \"{id}\", standing = \"{standing}\" }},");
         assert!(
             recorded_text.contains(&format!(
-                "\n[rules]\nopen = [\n]\nargued = [\n{}\n{}\n]\n",
+                "\n[coverage.rules]\nopen = [\n]\nargued = [\n{}\n{}\n]\n",
                 entry("rule:a", "text"),
                 entry("rule:b", "text")
             )),
             "{recorded_text}"
         );
-        assert!(!recorded_text.contains("[arguments]"), "{recorded_text}");
-        let kind = LockKind::Coverage;
-        let lock =
-            Lock::decode(Path::new(COVERAGE_LOCK_FILE), recorded_text.clone(), kind).unwrap();
-        assert_eq!(
-            lock.arguments,
-            BTreeMap::from([
-                ("rule:a".to_owned(), "text".to_owned()),
-                ("rule:b".to_owned(), "text".to_owned()),
-            ])
-        );
-        assert_eq!(
-            lock.argued,
-            BTreeMap::from([
-                (
-                    "rules".to_owned(),
-                    vec!["rule:a".to_owned(), "rule:b".to_owned()]
-                ),
-                ("requirements".to_owned(), Vec::new()),
-                ("syntax".to_owned(), Vec::new()),
-            ])
-        );
-        assert!(
-            lock.header.keys().all(|key| !key.starts_with("rules")),
-            "{:?}",
-            lock.header
-        );
-        assert!(
-            header_key_order(&recorded_text)
-                .iter()
-                .all(|key| !key.contains('#') && !key.contains("rule:")),
-            "{recorded_text}"
-        );
-        assert!(!head(kind, &recorded_text).contains("rule:a"));
-
+        assert!(!recorded_text.contains("arguments"), "{recorded_text}");
+        let lock = decoded(&recorded_text, LockKind::Coverage);
         let store = Store::new("/nonexistent");
-        let locked = Settle {
-            locked: true,
-            verify: false,
-            only: &[],
-            stopped: false,
-        };
-        let (same, _) = lock.settle(&store, &recorded, locked);
+        let (same, _) = lock.settle(&store, &recorded, LOCKED);
         assert_eq!(same["status"], "unchanged", "{same:#}");
         assert_eq!(same["argument_changes"], json!([]));
 
-        let moved = document(&[("rule:a", "text"), ("rule:b", "unchecked")], &[]);
-        let (stale, _) = lock.settle(&store, &moved, locked);
+        let moved = coverage_document(&[("rule:a", "text"), ("rule:b", "unchecked")], &[]);
+        let (stale, _) = lock.settle(&store, &moved, LOCKED);
         assert_eq!(
             (&stale["status"], &stale["header"], &stale["header_changes"]),
             (&json!("stale"), &json!(false), &json!([])),
@@ -1358,42 +1825,37 @@ mod tests {
         with_lock["lock"] = stale;
         assert_eq!(
             stale_lines(&with_lock),
-            ["coverage.lock: rule:b: standing text -> unchecked"]
+            ["kink.lock: rule:b: standing text -> unchecked"]
         );
 
-        // An argument removed: its item's obligation names it, and its standing's line is not
-        // named again.
-        let reopened = document(&[("rule:a", "text")], &["rule:b"]);
-        let (stale, _) = lock.settle(&store, &reopened, locked);
-        assert_eq!(
-            stale["argument_changes"],
-            json!([{"obligation": "rule:b", "recorded": "text", "now": null}])
-        );
+        let reopened = coverage_document(&[("rule:a", "text")], &["rule:b"]);
+        let (stale, _) = lock.settle(&store, &reopened, LOCKED);
         let mut with_lock = reopened.clone();
         with_lock["lock"] = stale;
         assert_eq!(
             stale_lines(&with_lock),
-            ["coverage.lock: rules: rule:b is open (was argued)"]
+            ["kink.lock: rules: rule:b is open (was argued)"]
         );
 
         // A standing removed by hand, the item still argued: the standing's change names it.
         let edited = recorded_text.replace(&entry("rule:b", "text"), "  { id = \"rule:b\" },");
-        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), edited, kind).unwrap();
-        let (stale, _) = lock.settle(&store, &recorded, locked);
+        let lock = decoded(&edited, LockKind::Coverage);
+        let (stale, _) = lock.settle(&store, &recorded, LOCKED);
         let mut with_lock = recorded.clone();
         with_lock["lock"] = stale;
         assert_eq!(
             stale_lines(&with_lock),
-            ["coverage.lock: rule:b: standing none -> text"]
+            ["kink.lock: rule:b: standing none -> text"]
         );
     }
 
-    /// A coverage lock written before version 24 (bare `argued` ids, the standings under
-    /// `[arguments]`, `[settings] tiers`) still decodes: its argued ids and standings are read
-    /// and `[arguments]` is no part of its header, so a command without `--locked` reads its
-    /// killers and rewrites it. Under `--locked` it is refused, naming the command that rewrites
-    /// it, as a lock that names no version is; a lock of the current version and an absent one
-    /// are not.
+    /// A coverage lock written before version 24 (one command's rendering at the top of its
+    /// file: `document`, bare `argued` ids, the standings under `[arguments]`, `[[flip]]`) still
+    /// decodes as the coverage section: its rows, argued ids and standings are read, and
+    /// `[arguments]` is no part of its header. Under `--locked` it is refused, naming the command
+    /// that rewrites it, as a lock that names no version is; a current section and an absent file
+    /// are not. Read for `run`, the file is another command's record, which a run would
+    /// overwrite: refused.
     #[test]
     fn a_lock_of_another_version_is_read_and_refused_under_locked() {
         let old = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
@@ -1403,7 +1865,8 @@ mod tests {
                    [flips]\nrun = true\n\n[[flip]]\nid = \"flip--a+b--X\"\nstatus = \"argued\"\n\n\
                    [[flip]]\nid = \"flip--a+b--Y\"\nstatus = \"distinguished\"\nkiller = \"t1\"\n";
         let kind = LockKind::Coverage;
-        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), old.to_owned(), kind).unwrap();
+        let lock = decoded(old, kind);
+        assert_eq!(lock.section, None);
         assert_eq!(
             lock.argued,
             BTreeMap::from([("rules".to_owned(), vec!["rule:a".to_owned()])])
@@ -1420,32 +1883,121 @@ mod tests {
             BTreeMap::from([("flip--a+b--Y".to_owned(), "t1".to_owned())])
         );
         assert!(
-            lock.header.keys().all(|key| !key.starts_with("arguments")),
+            lock.header
+                .keys()
+                .all(|key| !key.starts_with("arguments") && key != "schema" && key != "document"),
             "{:?}",
             lock.header
         );
-        assert!(!head(kind, old).contains("[arguments]"));
         let command = "krs kink coverage --package p --definition main";
         assert_eq!(
             lock.refuse_other_version(command).unwrap_err(),
-            "coverage.lock: it is recorded at version 23 of the verdicts rendering, and this \
-             build writes version 24, so --locked cannot find it current; run `krs kink coverage \
+            "kink.lock: it is recorded at version 23 of the verdicts rendering, and this build \
+             writes version 24, so --locked cannot find it current; run `krs kink coverage \
              --package p --definition main` without --locked once to rewrite it, and review its \
              diff"
         );
-        let unversioned = old.replace("version = 23\n", "");
-        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), unversioned, kind).unwrap();
+        let unversioned = decoded(&old.replace("version = 23\n", ""), kind);
         assert!(
-            lock.refuse_other_version(command)
+            unversioned
+                .refuse_other_version(command)
                 .unwrap_err()
                 .contains("it names no version of the verdicts rendering"),
         );
-        let current = old.replace(
-            "version = 23\n",
-            &format!("version = {}\n", crate::verdicts::VERDICTS_VERSION),
+        let current = lock_text(&coverage_document(&[], &[])).unwrap();
+        assert_eq!(
+            decoded(&current, kind).refuse_other_version(command),
+            Ok(())
         );
-        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), current, kind).unwrap();
-        assert_eq!(lock.refuse_other_version(command), Ok(()));
+        let other_version = current.replace("\nversion = 24\n", "\nversion = 25\n");
+        assert!(
+            decoded(&other_version, kind)
+                .refuse_other_version(command)
+                .unwrap_err()
+                .starts_with("kink.lock: its [coverage] section is recorded at version 25"),
+        );
         assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
+        let refused = Lock::decode(Path::new(LOCK_FILE), old.to_owned(), LockKind::Run);
+        assert!(
+            refused
+                .unwrap_err()
+                .contains("whose document is \"coverage\", not \"run\""),
+        );
+    }
+
+    /// An old file a front end kept the command's lock in: while the record has no section of
+    /// the command, its killers are read (`migrated`), and the write moves them into the record,
+    /// with a note to delete the old file, which is left as it is; once the record has the
+    /// section, the old file is `superseded`. Under `--locked` it refuses the command while it is
+    /// there, naming the command that moves it, or saying to delete it.
+    #[test]
+    fn an_old_lock_file_is_migrated_and_refused_under_locked() {
+        let dir = scratch("legacy");
+        let path = dir.join(LOCK_FILE);
+        let old = dir.join(LEGACY_RUN_LOCK_FILE);
+        let old_text = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n\n\
+                        [[mutation]]\nid = \"m\"\nstatus = \"killed\"\nkiller = \"t9\"\n";
+        fs::write(&old, old_text).unwrap();
+        let command = "krs kink run --package p --definition main";
+        let read = |locked| Lock::read_for(&path, LockKind::Run, Some(&old), locked, command);
+        assert_eq!(
+            read(true).unwrap_err(),
+            format!(
+                "{}: it is a lock written before version 24, which {} replaces with one [run] \
+                 section per command, so --locked cannot find the corpus's lock current; run \
+                 `{command}` without --locked once to move its killers into {}, then delete {}",
+                old.display(),
+                path.display(),
+                path.display(),
+                old.display()
+            )
+        );
+        let lock = read(false).unwrap();
+        assert_eq!(lock.killers()["m"], "t9");
+        assert_eq!(
+            lock.legacy,
+            Some(Legacy {
+                path: old.clone(),
+                migrated: true
+            })
+        );
+        let document = run_document(&[("m", "killed", Some("t9"))]);
+        let (value, _) = lock.settle(&Store::new(&dir), &document, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        assert_eq!(value["changes"], json!([]), "{value:#}");
+        assert_eq!(
+            value["legacy"],
+            json!({"path": old.display().to_string(), "status": "migrated", "moved": true})
+        );
+        let mut with_lock = document.clone();
+        with_lock["lock"] = value;
+        assert_eq!(
+            lock_notes(&with_lock),
+            [format!(
+                "{}: its killers are now in {}'s [run] section; delete {}",
+                old.display(),
+                path.display(),
+                old.display()
+            )]
+        );
+        assert_eq!(fs::read_to_string(&old).unwrap(), old_text);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            lock_text(&document).unwrap()
+        );
+
+        // The record has the section now: the old file is superseded, and refused under
+        // `--locked` until it is deleted.
+        let lock = read(false).unwrap();
+        assert_eq!(
+            lock.legacy.as_ref().map(|legacy| legacy.migrated),
+            Some(false)
+        );
+        assert!(read(true).unwrap_err().ends_with(&format!(
+            "[run] section now keeps; delete {}",
+            old.display()
+        )),);
+        fs::remove_file(&old).unwrap();
+        assert!(read(true).unwrap().legacy.is_none());
     }
 }

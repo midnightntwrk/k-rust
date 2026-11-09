@@ -402,7 +402,7 @@ mod kink_tier {
         // The verdicts rendering lists them as argued, not open.
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
         let section = verdicts
-            .split("[rule_windows]")
+            .split("[coverage.rule_windows]")
             .nth(1)
             .unwrap_or_else(|| panic!("{verdicts}"));
         let items = |key: &str| {

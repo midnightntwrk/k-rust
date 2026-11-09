@@ -227,7 +227,7 @@ mod kink_tier {
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
         assert!(
             verdicts.contains(&format!(
-                "[syntax]\nopen = [\n  \"{none_id}\",\n  \"{note_id}\",\n  \"{pop_id}\",\n]\n"
+                "[coverage.syntax]\nopen = [\n  \"{none_id}\",\n  \"{note_id}\",\n  \"{pop_id}\",\n]\n"
             )),
             "{verdicts}"
         );

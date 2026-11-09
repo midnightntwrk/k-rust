@@ -557,7 +557,7 @@ fn a_refused_run_document_names_its_schedule() {
             let printed = String::from_utf8(output.stdout).unwrap();
             assert!(
                 printed.starts_with(&format!(
-                    "{}{solver}\n[{section}]\noutcome = \"refused\"\n",
+                    "{}{solver}\n[run.{section}]\noutcome = \"refused\"\n",
                     flow_support::heading("run")
                 )),
                 "{printed}"
@@ -1006,7 +1006,7 @@ mod kink_tier {
             "MUTATIONS-one.toml",
             "add-becomes-sub",
         );
-        let lock = dir.join("verdicts.lock");
+        let lock = dir.join("kink.lock");
         let two = subset_manifest(&dir, "FLOW-two.toml", &["nested", "inline"]);
         let three = subset_manifest(&dir, "FLOW-three.toml", &["add", "nested", "inline"]);
         let killer = |manifest: &Path, schedule, lock: Option<&Path>| {
@@ -1047,7 +1047,7 @@ mod kink_tier {
         // Cold, with the same lock: the recorded killer runs alone and kills.
         let cold = fixture("calc", "history-cold");
         let cold_three = subset_manifest(&cold, "FLOW-three.toml", &["add", "nested", "inline"]);
-        let cold_lock = cold.join("verdicts.lock");
+        let cold_lock = cold.join("kink.lock");
         fs::write(&cold_lock, &recorded).unwrap();
         let (first, _, calls) = killer(&cold_three, ScheduleMode::FirstKill, Some(&cold_lock));
         assert_eq!(first, "nested");
@@ -1372,15 +1372,16 @@ mod kink_tier {
         );
         assert!(
             full_cold.contains(
-                "\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \
+                "\n[[run.mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \
                  \"add\"\nkilled_by = [\n  \"add\",\n  \"nested\",\n  \"inline\",\n]\n"
             ),
             "{full_cold}"
         );
         // A survivor has no `killed_by` line.
         assert!(
-            full_cold
-                .ends_with("\n[[mutation]]\nid = \"add-swaps-operands\"\nstatus = \"survived\"\n"),
+            full_cold.ends_with(
+                "\n[[run.mutation]]\nid = \"add-swaps-operands\"\nstatus = \"survived\"\n"
+            ),
             "{full_cold}"
         );
         assert!(

@@ -88,6 +88,7 @@ fn search(manifest: &Path, mutations: &Path) -> Value {
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,

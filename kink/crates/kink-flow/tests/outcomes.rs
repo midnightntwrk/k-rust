@@ -4,7 +4,7 @@
 //!
 //! Every status here is checked against a cold run (a fresh cache) of the same files: a
 //! cached outcome or a recorded killer may change the calls and the killer, never a status.
-//! Each run here uses the lock `verdicts.lock` beside the manifest, which a copied cold run
+//! Each run here uses the lock `kink.lock` beside the manifest, which a copied cold run
 //! starts with as that run would have written it. The tests read the run document, `outcomes/`
 //! and the lock, and edit them by hand only to forge what a corrupted or hostile cache, or a
 //! hand-edited lock, would hold.
@@ -130,6 +130,7 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
             compile_workers: None,
@@ -144,7 +145,7 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
 
 /// The lock every run of this binary uses: `verdicts.lock` beside the manifest.
 fn lock_of(manifest: &Path) -> PathBuf {
-    manifest.with_file_name("verdicts.lock")
+    manifest.with_file_name("kink.lock")
 }
 
 fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {

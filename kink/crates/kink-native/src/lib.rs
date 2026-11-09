@@ -117,7 +117,7 @@ pub fn solver_value(options: k_rust::backend::BackendOptions) -> Option<serde_js
 /// units and the machine code that counts them, so this object is part of what any answer kink
 /// computes depends on. The keys of every store take it inside [`solver_value`], and kink-flow's
 /// `results` and `run` documents carry it as `z3`, which their verdicts rendering and a
-/// `verdicts.lock` name, so that a verdict that moves with the Z3 build shows why. The version
+/// `kink.lock` section names, so that a verdict that moves with the Z3 build shows why. The version
 /// string is the reader's name for the build and names a release, not a build (two builds of one
 /// release can count units differently); the digest names the build.
 #[must_use]

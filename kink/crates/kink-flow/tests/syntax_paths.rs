@@ -168,7 +168,7 @@ mod kink_tier {
             obligations
         );
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
-        assert!(verdicts.contains("[syntax_paths]"), "{verdicts}");
+        assert!(verdicts.contains("[coverage.syntax_paths]"), "{verdicts}");
         let text = kink_flow::coverage::text(&document).unwrap();
         assert!(text.contains("syntax_paths: 3 of 15 reached"), "{text}");
 

@@ -551,7 +551,7 @@ mod kink_tier {
         assert!(!detail.contains(WAKE), "{detail}");
         assert!(refused["families"].is_null(), "{refused:#}");
         assert!(verdicts(&refused).unwrap().contains(
-            "\n[spec]\noutcome = \"refused\"\nstage = \"coverage\"\nreason = \"argued-stale\"\n"
+            "\n[coverage.spec]\noutcome = \"refused\"\nstage = \"coverage\"\nreason = \"argued-stale\"\n"
         ));
 
         argue(
@@ -659,7 +659,7 @@ mod kink_tier {
         let (baseline, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_YES, "{baseline:#}");
         let list = flips(&baseline, false);
-        let lock = dir.join("coverage.lock");
+        let lock = dir.join("kink.lock");
         let path = lock.to_str().unwrap();
         let run = |locked: bool| {
             let mut options = vec!["--lock", path];
@@ -680,7 +680,7 @@ mod kink_tier {
             "{recorded}"
         );
         assert!(
-            recorded.contains(&format!("\n[rules]\nopen = [\n  \"{WAKE}\",\n")),
+            recorded.contains(&format!("\n[coverage.rules]\nopen = [\n  \"{WAKE}\",\n")),
             "{recorded}"
         );
         assert!(
@@ -716,7 +716,7 @@ mod kink_tier {
         let rewritten = fs::read_to_string(&lock).unwrap();
         assert!(
             rewritten.contains(&format!(
-                "\n[rules]\nopen = [\n  \"rule:GUARDS.halted\",\n  \"rule:GUARDS.high\",\n]\n\
+                "\n[coverage.rules]\nopen = [\n  \"rule:GUARDS.halted\",\n  \"rule:GUARDS.high\",\n]\n\
                  argued = [\n  {{ id = \"{WAKE}\", standing = \"text\" }},\n]\n"
             )),
             "{rewritten}"
@@ -724,7 +724,7 @@ mod kink_tier {
         // Each argued item once, with its standing: no `[arguments]` repeats the ids.
         assert!(
             rewritten.contains(&format!(
-                "\n[[flip]]\nid = \"{I}\"\nnegates = \"I\"\nrules = [\n  \"{WAKE}\",\n  \
+                "\n[[coverage.flip]]\nid = \"{I}\"\nnegates = \"I\"\nrules = [\n  \"{WAKE}\",\n  \
                  \"rule:GUARDS.halted\",\n]\nstatus = \"argued\"\nstanding = \"text\"\n"
             )),
             "{rewritten}"
@@ -1818,7 +1818,7 @@ mod kink_tier {
     #[ignore = "kink"]
     fn each_argued_item_states_its_standing_and_the_lock_records_it() {
         let dir = invariant("standing");
-        let lock = dir.join("coverage.lock");
+        let lock = dir.join("kink.lock");
         let path = lock.to_str().unwrap();
         let run = |locked: bool| {
             let mut options = vec!["--lock", path];

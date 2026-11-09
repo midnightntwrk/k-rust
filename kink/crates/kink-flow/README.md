@@ -20,7 +20,7 @@ the mutations directory, anchors by a suffix of a label's components and the req
 the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
 the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below),
 the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below),
-the killer record, a `verdicts.lock` that `run --lock` reads and rewrites, one recorded killer per killed mutation, kept while it still kills ("The killer record" below), and the coverage lock, a `coverage.lock` that `coverage --lock` keeps by the same rule for the condition flips ("The coverage lock" below),
+the corpus record, a `kink.lock` with one section per command that `run --lock` and `coverage --lock` read and rewrite, each its own: `[run]`, one recorded killer per killed mutation, kept while it still kills, and `[coverage]`, the same for the condition flips with each family's open and argued obligations ("The corpus record" below),
 and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
@@ -562,7 +562,7 @@ The command replaces `results`, whose program rows and rule rows it holds: two d
 The flips come from a front end that derives them from the definition's source and judges each (`FrontEnd::derived`, "Front ends"); kink-flow's own command line reads K alone, so it derives none, and its flips family says so.
 A document states only the tiers it computed: `settings.tiers` is `[1, 2]` where the flips ran, else `[1]`.
 `--depth N` computes depth N in place of `[coverage] depth`, to explore another depth without editing the manifest; `settings.depth` is the depth computed.
-`--lock FILE` and `--locked` keep the coverage lock ("The coverage lock").
+`--lock FILE` and `--locked` keep the `[coverage]` section of the corpus record, the coverage lock ("The corpus record").
 `--output text` prints a summary for a reader: the covered, argued and open counts, one line per family with covered / obligations and the measure, the programs that count for nothing with their causes, each argued item with its argument, each needless argument, and one line per open target with its position, its pattern and its fuzz job; its wording may change with no coverage changing, so it is no lock.
 `--output verdicts` is the lock format ("Verdicts").
 
@@ -807,7 +807,7 @@ Each obligation is an item `{id, operator, text, atom, occurrences, sentences, s
 
 | Status | Counted | Meaning |
 | --- | --- | --- |
-| `distinguished` | yes, covered | the kill search killed the mutant; `killer` is the coverage lock's recorded killer while it still kills, else the first killing program in the search's order ("The coverage lock") |
+| `distinguished` | yes, covered | the kill search killed the mutant; `killer` is the coverage lock's recorded killer while it still kills, else the first killing program in the search's order ("The corpus record") |
 | `undistinguished` | yes, open | the search ran the mutant on every comparable program, and none told it apart |
 | `unreached` | yes, open | no comparable program reached an occurrence in the scope (below): deduced, with no mutant run |
 | `unknown` | yes, open | the search gave no verdict (kink's `unknown` or `timeout`, or an error), with kink's reason where one holds for the whole search, and each executed program's cause (`causes`, `[{program, cause}]`, in the search's order; empty for every other status) |
@@ -1025,69 +1025,13 @@ The verdicts rendering lists each family's argued ids beside its open ones, each
 The sorts keep what the right side and the condition told the parse about the variables, which a pattern without them would not know, so the pattern matches what the rule's left-hand side matches; a pattern denotes its left side, and a variable only on a right side is refused there, so the right sides are left out.
 It is `null` for every other target, where the rule's text cannot be read, and for a sentence a front end matched through templates (`krs.templates`), whose K left-hand side is a bare variable.
 
-### The coverage lock (`--lock`)
-
-`coverage --lock FILE` names the coverage lock, conventionally `coverage.lock`: one recorded killer per distinguished flip, kept while it still kills.
-kink-flow has no default path; the krs front end gives `<corpus>/coverage.lock` unless the command names a lock.
-It is the killer record ("The killer record" under `run`) over the flips: a flip's mutant is run by `run`'s kill search under the flip's id, so the record is read for one fact, each flip's recorded killer, which the search tries first, and a flip's killer follows the killer rule.
-It is the recorded killer while it names a comparable program that still kills the mutant, else the first killing program in the search's order, the programs whose coverage witnesses the edit first, then the rest, each in `FLOW.toml`'s order.
-Each flip says which held (`recorded_killer` and `killer_change`, as a run's row does); a flip decided with no run, `unreached` or `refused`, keeps no killer, and a killer recorded for it is `not-run`.
-No status is read from the lock: a hand-edited or stale lock can change which program is tried first, and so the cost and the reported killer, never a status.
-
-The file is the coverage verdicts rendering ("Verdicts"), the bytes `coverage --output verdicts` prints.
-It says what it is without this README: it opens with a comment naming the command whose verdicts it holds (`coverage`) and what that command does with it as a lock, and a comment before the families and before `[flips]` says what each list, entry and status word is.
-Then come its header (the schema, the version, the solver profile and, under Z3, the Z3 build, `krs_annotation`, the specification and the settings), each family's open and argued obligations, each argued one with the standing its argument rests on, and each flip with what it changes, its status, a refused flip's reason, a distinguished flip's killer and an argued flip's standing:
-
-```toml
-[requirements]
-open = [
-]
-argued = [
-  { id = "requirement:crate::wake:held", standing = "checked-on-runs" },
-]
-
-[[flip]]
-id = "flip--latch_1+latch_2--IntEqual"
-negates = "self.a == self.b"     # the condition, as the source writes it; `toggles` for a bit of an encoding
-rules = [                        # the rules the mutant edits, by their ids in the rules family
-  "rule:crate::latch_1",
-  "rule:crate::latch_2",
-]
-status = "distinguished"
-killer = "irq"
-```
-
-A flip is a mutant kink generates, not one a mutation list states: its id is the front end's (`flip--<rules>--<atom>`, `bitflip--<rules>--bit<k>`, more than three rules written as the first and the number of the others), which keys its recorded killer and the `[[coverage.argued]]` entry that argues it, so it stays as it is; `negates` (or `toggles`) and `rules` resolve it without the coverage document, and are functions of the definition, as the id is.
-It moves only when an obligation opens or closes, an argument is added or removed or its standing moves, a flip's status moves or its killer stops killing, or the definition's text of a flipped condition changes; a case that covers nothing new leaves it as it is.
-Each family's `open`, `argued` and `undecided` list one entry per line ("Verdicts"), so a case that closes obligations removes exactly their lines from the lock's diff, and an argument added moves one line from `open` to `argued`.
-The argued ids belong in it: an argued obligation leaves the open ones with no program covering it, and a lock that listed only the open ones would record that change as a gap a program closed.
-The standings belong in it too, each beside its id, so that an argued item is named in one place: a lock that did not record them would show an argument resting on its text alone the same as one a check decided, and a lost check would move no line.
-It has no `[settings] tiers`: the lock is written only after a run of both tiers, and `[flips] run` says whether the flips ran.
-Reading tolerates any version: `schema` must be `kink-flow-verdicts` and `document` must be `coverage`; each `[[flip]]` must have a string `id` and may have a string `killer`, and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
-A lock written before version 24 lists bare argued ids and gives the standings under `[arguments]` (one `"<id>" = "<standing>"` line per item); both are still read, so a run without `--locked` keeps its killers and rewrites it in the current layout.
-
-**When it is written.** `coverage` writes it (atomically) after a run with the manifest's own settings that judged every flip: both tiers, the manifest's depth, an admitted specification, and no corpus error that stopped the search; the document's `lock.status` is `created`, `written` or `unchanged`.
-Otherwise the file is left as it was (`not-written`, with `reason` `tier-1`, `depth`, `verify`, `stopped`, `refused` or `write-failed`): a run of other settings computes another document, which the lock does not describe.
-Those runs still read it, so the recorded killers are tried first.
-A front end that derives no flips (kink-flow's own) has a complete run without them: its lock lists the families' open obligations and `[flips] run = false`.
-
-**`--locked`.** With `--locked` the command writes nothing and compares the lock it would write with the file's bytes; an absent file counts as different.
-A difference is a finding, exit 1 (`lock.status` `stale`), and `kink-flow` prints one line per change on stderr: `coverage.lock: flip--a: killer t4 -> t2 (t4: not-in-corpus)`, `coverage.lock: flip--b: unreached -> distinguished`, `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements: requirement:x:held is no longer open`, `coverage.lock: rules: rule:y is argued (was open)`, `coverage.lock: rule:z: standing text -> unchecked` (a standing that moved, where no other line names its item), and one line when the header differs.
-`lock.changes` lists each flip whose `(status, killer, reason)` differs, `{flip, recorded, now}`; `lock.open_changes` each obligation whose state differs, `{family, obligation, recorded, now}` (`"open"`, `"argued"`, or null where that side lists it neither way); `lock.argument_changes` each argued item whose standing differs, `{obligation, recorded, now}` (null where that side has no line for it); `lock.header` whether the lines before the first family differ, `lock.header_changes` each header value that differs, and `lock.difference` the first line that differs, as under `run`.
-A lock recorded on another Z3 build is stale even when every flip and obligation agrees, for the reason a run's is ("The killer record"): its header names the build the verdicts were measured with, and `--locked` asks whether this build writes the committed lock.
-`--locked` asks whether a run with the manifest's own settings writes the committed lock, so it is a usage error beside `--tier 1` or `--depth`, which run other settings.
-A lock that does not decode refuses the command before admission, exit 2, `lock: {path, outcome: "refused", detail}`, and no program or family; the rendering has `[lock]` with `outcome = "refused"`.
-Under `--locked` so does a lock of another version of the rendering, or one that names none, as under `run` ("The killer record"), its detail naming the command that rewrites it.
-
-A corpus commits `coverage.lock` beside `verdicts.lock`, and a CI runs `coverage --locked` (`krs kink coverage --locked`).
-
 ### The document
 
 `{schema: "kink-flow-coverage", version: 16, k_rust_revision, profile, result_schema_version, spec, settings, programs, families, targets, summary, mismatches, baseline_runs, data, result, lock, stop?, observe?}`.
 Version 1 replaces the results document (its last version 11): the program rows and the rules' rows are as they were, the rules' rows now items of the rules family, in sentence order.
 Version 2 builds the syntax family, where version 1 had `null`.
 Version 3 runs the flips family where a front end derives the flips: `settings.tiers` `[1, 2]`, the family's items, counts, measure and search, its targets, and `summary.per_family.flips`.
-Version 4 adds `lock` (null without `--lock`; else `{path, status, reason, header, header_changes, changes, open_changes, difference}`, or `{path, outcome: "refused", detail}`; "The coverage lock"), each flip's `recorded_killer` and `killer_change`, and `settings.depth` as the depth computed (`--depth`, else `[coverage] depth`).
+Version 4 adds `lock` (null without `--lock`; else `{path, status, reason, header, header_changes, changes, open_changes, difference}`, or `{path, outcome: "refused", detail}`; "The corpus record"), each flip's `recorded_killer` and `killer_change`, and `settings.depth` as the depth computed (`--depth`, else `[coverage] depth`).
 Version 5 adds `observe` for a corpus with `[observe]`, each program row's `observations` and the class `comparable-prefix` ("What a run observes").
 Version 6 reads `[[coverage.argued]]` ("Argued obligations"): `settings.argued`, an argued item's status `argued` with its `argument` and `unargued_status`, a needless argument's `argument` and `argument_needless`, each family's `argued` and `counts.argued`, and the summary's `covered` and `needless_arguments`.
 Version 7 names why each horizon's channel opened ("What a run observes"): a program row's `observations.horizon` is `{<channel>: {elements, opening}}` and each open channel's `open` has `opening`, each flip has `horizon` (an undistinguished flip's agreements up to a horizon, null otherwise), and a prefix program none of whose channels kept an element within its budget or closed by a cycle is `unknown`; a program row's channel can be `closed` by `cycle`.
@@ -1261,7 +1205,7 @@ kink/mutations/sub-borrow.toml   [[mutation]] id = "lt" ...   -> mutation sub-bo
 Every regular file directly in the directory whose name ends in `.toml` and does not start with `.` is read, in byte order of the names; subdirectories and other files are not.
 A mutation's id is qualified by its file's stem, `<stem>/<id>`, so that ids are unique across files (a stem holds no `/`) and agents adding mutations to separate files never conflict; `--only` and `--kill` take the qualified id.
 An error names the file (`add-carry.toml: mutation "ge".edit[0]: ...`).
-The id names the row and the lock's record of the mutation ("The killer record"): a mutation resolves and is cached the same under either id, and a renamed id is a new row of the lock.
+The id names the row and the lock's record of the mutation ("The corpus record"): a mutation resolves and is cached the same under either id, and a renamed id is a new row of the lock.
 
 ### Markdown sources: the K view
 
@@ -1375,7 +1319,7 @@ The lines depend on the corpus and the cache alone, never on time, and stdout is
 4. **Outcome cache, tier 1.** Each program of O may have a cached outcome for this mutation: `killed` (a proved difference), `agree`, or `unknown` (since CF-33d: an inconclusive outcome that is a function of its key, step 8).
    A cached outcome is used only when its key is exactly the current one (see "The cache directory" below) and the program's
    current result record has the baseline run digest the outcome was compared with.
-   The cached outcomes decide with no compile and no run when they decide the killer the row must name ("The killer record": the recorded killer k while it kills, else the first killing program in C).
+   The cached outcomes decide with no compile and no run when they decide the killer the row must name ("The corpus record": the recorded killer k while it kills, else the first killing program in C).
    A cached kill of k decides: the killer is k. If k is a program of O with no cached outcome, they do not decide: k must run (step 5).
    Otherwise (no record, a record naming no program of O, or a k whose cached outcome is not a kill) they decide when every program of O has a cached outcome (with no cached kill, the status is the fold of the cached outcomes: `survived`, or `unknown` when one of them is),
    or when C is known from the compiled edit the outcome file keeps and every program before the first cached kill in C has a cached outcome (that kill is the killer, and the row lists that prefix, the kill and k's cached outcome),
@@ -1404,7 +1348,7 @@ The lines depend on the corpus and the cache alone, never on time, and stdout is
    Its record keeps the live entry's `cause`, so a cached unknown says why as the live one did, and whether the program is undecided by open applications of an edited function (`open_application`, below), so a row's `reason` `open-application` is the same whether its unknowns ran live or were read from the cache.
    Never cached: a timeout, an error or incomparable slot, every failed run (the watchdog's clock, an infrastructure failure, a host exclusion such as a stack stop, a load stack stop or an allowance refusal, an exclusion of the definition or the run, whose row's `reason` the live call gives, and, conservatively, an `indeterminate` or `resource-limit` failure, which the runner does not produce), an unknown of a run whose judgement kink could not make for a reason that need not be the run's (kink-campaign `RunNotes::unjudged`: the backend refused the decider, a pattern judgement, the definition's facts or the pair's judgement of ends, through a refused stack segment, solver initialization or prelude, which can be the host's doing, or a definition's full check ran out of native stack, so it admits no end as data), a skipped run, and every outcome of a call whose mutant failed as a whole.
    Every solver query of the kill search, the mutants' runs included, is bounded by `budget.smt_resource_limit`, the units the context names.
-   The run document is written after every mutation (a corpus error included), so an interrupted run keeps its finished work, and the outcomes it cached make the next run's canonical decisions cheap; the lock is settled once, at the end ("The killer record").
+   The run document is written after every mutation (a corpus error included), so an interrupted run keeps its finished work, and the outcomes it cached make the next run's canonical decisions cheap; the lock is settled once, at the end ("The corpus record").
 
 **The full matrix (`--full`).** The steps above are the first-kill search, which stops at the first killing program: right for finding whether a mutation survives and naming one killer, but it leaves the other cells unrun.
 `--full` runs every comparable program on every selected mutation, in corpus order, under kink-campaign's full schedule (kink-corpus's `schedule = "full"`), so that the document holds the whole kill matrix:
@@ -1412,109 +1356,19 @@ The lines depend on the corpus and the cache alone, never on time, and stdout is
 - Tier 1 (step 4) decides with no call only when every program of O has a cached outcome: a cached `killed` outcome does not decide a full row, which needs every cell. The cached outcomes, kills and agreements alike, are not run again, and the mutant runs once on all the others, in corpus order.
 - No one-program call is made for the recorded killer (step 5): every program with no cached outcome runs in the one call anyway.
 - The status (step 6) is kink-campaign's fold under the full schedule over the cached outcomes and the call's, with the same `outcome-conflict` and `infrastructure` rules (step 7), except that a cached kill does not decide alone: a cached kill next to a mutant that no longer compiles is an `outcome-conflict` too (its next step is `run --full --verify`), and an infrastructure failure leaves the cached kills out of the row as it leaves the agreements; outcomes are cached as in step 8, so a full run caches every cacheable cell.
-- Each row carries `killed_by`, every killing program in corpus order, cached or live; `killer` is the recorded killer when it is among them, else the first of them in C (the first-kill row's killer: "The killer record"), so it is not always the first of `killed_by`; `killer_source` is `outcome-cache` when that cell was cached and `search` otherwise; `executed` lists every program of O in corpus order; the document carries the per-program `matrix` (below, "The report").
+- Each row carries `killed_by`, every killing program in corpus order, cached or live; `killer` is the recorded killer when it is among them, else the first of them in C (the first-kill row's killer: "The corpus record"), so it is not always the first of `killed_by`; `killer_source` is `outcome-cache` when that cell was cached and `search` otherwise; `executed` lists every program of O in corpus order; the document carries the per-program `matrix` (below, "The report").
 
 A full row's status is the first-kill row's: both are the same fold over the same per-program outcomes, in which a kill ranks above every inconclusive outcome, and under first-kill the fold only reads fewer of the outcomes below a kill.
 A cached outcome is the outcome of one executed test, and the schedule decides only whether a test is executed, never what an executed test's request, sides or slots are; a program's outcome does not depend on which programs ran before it in the call (step 3).
 So an outcome does not depend on the schedule, the tier-1 context does not name one, and the outcomes a first-kill run cached serve a full run and the reverse: a full run after a first-kill run calls, per mutation, exactly the programs that have no cached outcome.
 `killed_by` is a function of the specification, the corpus, the mutation and the budget (no `budget.time_ms` bound firing; under Z3 the budget names the solver's units and build), complete over the comparable programs: one absent from it agreed or was undecided, and the matrix's `undecided` names the latter.
-The killer is a function of the lock and of the same inputs under both schedules ("The killer record"), so a first-kill run and a full run name the same killer and write the same lock.
+The killer is a function of the lock and of the same inputs under both schedules ("The corpus record"), so a first-kill run and a full run name the same killer and write the same lock.
 A first-kill row's `killed_by` is null, not a one-element list, because first-kill establishes one killer, not every one.
 `run --verify --full` runs the cold call over every comparable program under the full schedule, so every cached outcome is compared with a live cell, and the status the cache would have given is the fold of every cached outcome with the live outcomes of the others (no killed-outcome shortcut).
 
-### The killer record (`--lock`)
+### The killer record, compile workers and memos
 
-`run --lock FILE` names the killer record, conventionally `verdicts.lock`: one recorded killer per killed mutation, kept while it still kills.
-kink-flow has no default path, since one corpus is routinely run with several mutation lists, whose rows would overwrite each other in one file; the krs front end gives `<corpus>/verdicts.lock` when the run reads the corpus's own mutation list.
-A library run (`RunOptions::default()`, `fuzz`'s confirmation) has no lock and writes nothing outside the cache.
-
-**What it is.** The record is an input: a run reads one fact from it, for each mutation id the program id it names as killer, which the search tries first (step 5).
-Every status still comes from runs or cached outcomes; no status, cell or key is read from the record, so a hand-edited or stale record can change which program is tried first, and so the cost and the reported killer, but never a status (kink's `trust.md`).
-It is also an output: after a complete run it is rewritten, so it states the verdicts of the current inputs.
-The lock is created when absent, as `Cargo.lock` is: it holds the killers the next run starts from, and a run that discarded them would repeat the search.
-
-**The killer rule.** Let k be the record's killer of a mutation and C the search order (step 3: the witnessing programs first, then the rest, each in `FLOW.toml`'s order).
-1. If k names a program of O and k kills the mutant (a cached kill, or its live run distinguishes), the killer is k.
-2. Otherwise, if the status is `killed`, the killer is the first program in C that kills.
-3. Otherwise there is no killer.
-
-The row says which held: `recorded_killer` and `killer_change` ("The report").
-C is the search's order, not bare `FLOW.toml` order: the search already runs the witnesses first, and bare corpus order would make the canonical search run programs that never reached an edited rule before the first one that did.
-Both are functions of the inputs: the witness set is computed from the compiled edit and the result records' coverage, keyed facts, by the one predicate the live call and tier 1 share; when an edit is not site-local, C is exactly `FLOW.toml`'s order.
-So each killer is a function of the record before the run, the corpus, the definition, the mutation list, the budget, the solver profile and kink's build, never of the cache, the host's clock (while no `budget.time_ms` bound fires) or the order work was done in: a cold run, a warm run, any `--compile-workers` and `--no-memo` give the same killer and the same lock bytes.
-Rule 1 reads k's outcome, which is the same live or cached under a key that names every input; rule 2 reads the outcomes of the programs of C up to the first kill, each independent of the other programs of its call (step 3).
-A recorded killer that times out is replaced, because its kill is not proved (`no-longer-kills`).
-First-kill and `--full` write the same lock: their statuses are equal ("The full matrix"), and both choose k when k's cell is a kill, else the first kill in C, from the same per-program outcomes.
-
-**The file.** The lock is the run's verdicts rendering without `killed_by` ("Verdicts"; `kink_flow::verdicts::lock_text`):
-
-```toml
-# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation list.
-# As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries each
-# `killer` first, a run without --locked rewrites it, and `run --locked` checks it is current.
-schema = "kink-flow-verdicts"
-version = 24
-document = "run"
-profile = "no-z3"
-
-[spec]
-outcome = "admitted"
-
-# Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a program's
-# result differs on the mutant; `killer` names it), survived (every program agreed; `horizon`,
-# those that agreed only up to an observation horizon), equivalent or unkillable (no program
-# can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation or
-# not-admitted (its author must fix it; `reason` says why).
-[[mutation]]
-id = "add-becomes-sub"
-status = "killed"
-killer = "add"
-
-[[mutation]]
-id = "add-swaps-operands"
-status = "survived"
-```
-
-The comments say what the file is to a reader who has not read this README: the first names the command that wrote it and what it does with it, the second what a row and each status is.
-Each is a constant of the rendering's version, so it moves no line of a lock between runs.
-There is one `killer` per `killed` mutation and none on any other status, in the list's order.
-It has no `killed_by` (a full run must write the first-kill run's lock), no program digest (a renamed case is a corpus edit the diff should show) and no `schedule` (its content does not depend on it).
-Reading tolerates any version: `schema` must be `kink-flow-verdicts` and `document` must be `run`; each `[[mutation]]` must have a string `id` and may have a string `killer`, and nothing else decides anything (its `status` and `reason` are read only to report what changed).
-A version-5 lock has no `killer` lines, so it records no killer.
-Under `--locked` a lock of another version (`version` is not this build's, or absent) is refused before admission, exit 2, with the detail `verdicts.lock: it is recorded at version 23 of the verdicts rendering, and this build writes version 24, so --locked cannot find it current; run `krs kink run --package p --definition main` without --locked once to rewrite it, and review its diff` (the command as the front end spells it).
-Another version writes other bytes for the same verdicts, so the comparison could only find it stale, after a whole run; a run without `--locked` reads its killers and rewrites it, and its diff shows what the new version changed beside any moved verdict.
-
-**When it is written.** `run` writes the lock (atomically: temporary name, fsync, rename) when a lock is in use, the run is in search mode, it judged every mutation of the list (no `--only`, no corpus error stopped it, the specification was admitted) and `--locked` is not given; the run document's `lock.status` is `created`, `written` or `unchanged`.
-Otherwise the file is left as it was (`not-written`, with `reason` `only`, `verify`, `stopped`, `refused` or `write-failed`): a partial write under `--only` would mix rows judged against the current inputs with rows that were not.
-`--only` and `--verify` still read it, so the recorded killers are tried first.
-A run whose manifest or mutation list does not decode reads no lock and leaves it unwritten (`lock.reason` `refused`).
-An interrupted run loses no work: the outcomes cached after each mutation make the next run's canonical decisions cheap and reproducible.
-
-**`--locked`.** With `--locked` the run leaves the lock unwritten (the cache is written as in any run) and compares the lock it would write with the file's bytes (under `--only`, the selected rows and the header); an absent file counts as different, as Cargo's `--locked` does.
-A difference is a finding, exit 1 (`lock.status` `stale`), as a `--verify` mismatch is: a lock is a stored record, and the run had to be asked to know the live value, so this is not the refusal (2) that comes before anything is asked.
-`kink-flow` prints one line per change on stderr: `verdicts.lock: add-becomes-sub: killer nested -> add (nested: not-in-corpus)`, `verdicts.lock: add-swaps-operands: killed -> survived`.
-No separate check command exists: answering it is a run, and `--locked` is that run.
-`lock.changes` lists each mutation whose `(status, killer, reason)` differs, `{mutation, recorded, now}` (either side null for a row only the other has), and `lock.header` whether the lines before the first mutation differ (the profile, the Z3 build, a comment; a lock of another version is refused before the run, above).
-`lock.header_changes` names each header key whose value differs, `{key, recorded, now}` (a section's key as `spec.outcome`; either side null where that side has no such key), in the rendering's line order and then the keys only the file has; it is empty when the file is absent or only a comment or spacing differs.
-`kink-flow` prints one line per such key on stderr: `` verdicts.lock: the header's z3_library_sha256 differs: recorded "7ca2…", now "1f0e…" (another Z3 build) ``.
-`lock.difference` names where the file first differs from the rendering, `{kind, line, recorded, now}` (`line` counted from 1 in the file), null when they are equal, absent or compared under `--only`.
-`kind` is `order` when the file holds the same rows in another order: `line` is then the file's line of the `id` of its first row out of the rendering's order, `recorded` that line and `now` the `id` line of the row the rendering puts there, whatever comment or spacing differs before it, since the order is what a run changes.
-`kind` is `text` otherwise: `line` is the first line in which the two differ, and `recorded` and `now` each side's text of that line, null past its end.
-A file that differs neither in its header nor in a row's verdict (rows in another order, a comment, spacing, a key the rendering does not write) is still stale, and `kink-flow` prints that first difference on stderr: `` verdicts.lock: its rows are in another order than the mutation list's (first at line 9: recorded `id = "b"`, now `id = "a"`); a run writes them in the list's order ``.
-
-**A lock that does not decode.** The lock is read after the manifest and the list decode, before admission.
-One that is not TOML (merge-conflict markers included), has another schema or document, repeats an id or has a `killer` that is not a string refuses the run, as a list that does not decode does: exit 2, no row, `lock: {path, outcome: "refused", detail}`, and in the rendering a `[lock]` section with `outcome = "refused"`.
-The next step is to resolve the file, or delete it to start from the search's killers; a run then regenerates it.
-
-**Profiles and Z3 builds.** The lock names the `profile`; a lock written under one profile is read under the other only as killers to try.
-A killer that kills under Z3 and is undecided without it is `no-longer-kills`: the search finds another killer or the status moves to `unknown`, and the rewritten lock shows `profile` and the moved rows (under `--locked`, a finding).
-Under Z3 an outcome is also a function of the Z3 build, since whether a resource-bounded query is decided depends on the machine code that counts its units, so under the Z3 profile the lock also names the build (`z3_version`, `z3_library_sha256`; "Verdicts").
-A lock recorded on another Z3 build is read like one of another profile: its killers are tried first, and a killer the build no longer proves is `no-longer-kills`, which the row's `killer_change` and the rewritten header both show.
-Under `--locked` such a lock is stale even when every row agrees (exit 1, its `header_changes` naming the build lines).
-The solver build is part of the instrument a lock was measured with, as the profile is, and `--locked` asks whether this run, on this instrument, writes the committed lock.
-A run on another build cannot confirm that, since rows that agree on the current corpus do not make two builds interchangeable for the next edit.
-Passing it would leave the repository's lock naming a build no check ran on, and a row that later moves would be blamed on the corpus while the header misnamed the solver.
-When every row agrees the fix is a header-only rewrite, a run without `--locked`, which review sees as exactly that; a project whose CI links another Z3 build than its developers do records the lock on the CI's build.
+`--lock FILE` names the corpus record, whose `[run]` section is the killer record: one recorded killer per killed mutation, kept while it still kills, which the search tries first ("The corpus record", which states the killer rule, when the section is written and what `--locked` compares).
 
 **What it costs.** With a lock, a killed mutation whose cached outcomes are gone (a fresh checkout, a specification edit) costs one cell, its recorded killer's run; a survivor costs every program, with or without a lock.
 Adding a case runs, warm, only the new case for each survivor and nothing for a killed mutation, whose recorded killer still kills; with the full rendering as the lock, every mutation would run the new case.
@@ -1561,7 +1415,7 @@ Every distinguishing cell computes its `difference` and every `killed` outcome s
 Warm, every cacheable cell is cached, so a later first-kill run is decided by tier 1 for every killed mutation, and a full run calls only for a mutation with a cell that is not cacheable, compiling it again. Before CF-33d a work-bound `unknown` was not cacheable: imp had 136 of 147 cells cached (against 40 after a first-kill run), and a warm full run called the 6 mutations with a work-bound `unknown` cell again, 10.4 s; it now answers them from the cache.
 After a first-kill run, a full run calls once per killed mutation, over the programs with no cached outcome.
 
-**The killer record.** With a lock ("The killer record"), a killed mutation with no valid cached outcome costs one cell, its recorded killer's run, and a survivor costs every program with no cached outcome, as without one.
+**The killer record.** With a lock ("The corpus record"), a killed mutation with no valid cached outcome costs one cell, its recorded killer's run, and a survivor costs every program with no cached outcome, as without one.
 So a case added to a corpus of M mutations, S of them survivors, costs S runs warm (each survivor runs the new case) and none for a killed mutation, whose cached kill or recorded killer decides; and a fresh checkout with a lock and no cache costs one cell per killed mutation and every program per survivor.
 
 **Trust.** With identical inputs, a cached proved difference stands without being re-run in this command.
@@ -1696,7 +1550,7 @@ Besides `results/` and `report.json` (the last run's document, also written when
 - `patterns/<execution digest>/<pattern digest>/<program digest>.json`, the cached answers of `query` (flow F-18, "Checking a pattern" below). `run` neither reads nor writes them.
 
 Every file is written atomically; deleting any of them, or the whole directory, is always safe.
-The `killers/` directory of F-05 and the `hints.json` of F-14 are no longer read or written and can be deleted: the killer record (`--lock`, "The killer record"), a file of the corpus outside the cache, replaces them.
+The `killers/` directory of F-05 and the `hints.json` of F-14 are no longer read or written and can be deleted: the killer record (`--lock`, "The corpus record"), a file of the corpus outside the cache, replaces them.
 
 Exit status ("Exit status"): 0 when every selected mutation got its verdict (survivors included);
 1 when `--verify` found a mismatch, or `--locked` found that the run would change its lock;
@@ -1710,7 +1564,7 @@ The document is the same whatever the status: the exit status is how a script or
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
 `{schema: "kink-flow-run", version: 31, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, result, stopped, outcome_cache, mismatches, baseline_runs, schedule, matrix, untargeted_rules, data, lock}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `coverage` and `query` documents; null in the run and `coverage` documents when the specification is refused, absent from a refused `query` document) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
-Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`, version 13 (CF-02) adds `spec.exclusion`, version 14 adds `result` and the slot name `cells`, version 15 (CF-03) takes the short-circuit reading out of `spec.exclusion` (each run of a definition whose analysis flags a rule is judged by its own list of readings) and adds `short_circuit_readings`, the readings that excluded a run, to program rows and executed entries, version 16 (CF-23) adds `schedule`, `matrix` and each row's `killed_by`, version 17 reads each row's `reaching` from the compiled mutant (step 3), or from the outcome file's copy of it on a row tier 1 decided, `[]` on a `no-comparable-program` row and otherwise `null` on a row with neither, and lists each call's `programs` in the order the call ran them, version 18 (CF-40c2) names each row's `reaching` `witnesses` and the status `invalid` `not-admitted`, so that each coverage predicate and each status has one name in every kink-flow document ("Coverage predicates"), and version 19 witnesses a rewrite rule edit that is not confined to its right-hand side or `ensures` (its left-hand side, an attribute, a deletion) by `matched` instead of `applied` (step 3), so a row's `witnesses` and each call's program order can name more programs for the same mutation, version 20 adds `stop` (absent without `[stop]`), each end's `halt` under a stop, each survivor's `stop_hides_edit`, and the reason `stop-unresolved` ("Where a run ends"), version 21 names each `difference`'s format and makes it a front end's evidence where a front end renders one ("Kill evidence"), and version 22 adds the programs of named cases (`<path>#<name>`) and a case's `expectation` in its program row, with the refusals `typed-expectation` and `expectation-value` ("Expectations"), version 23 (CF-33c) adds `decider_smt_unknowns`, the undecided solver answers of kink's own questions about the run beside k-rust's `smt_unknowns`, to every program row and to an executed entry where it is not zero, with the outcome cache on under the Z3 profile where the solver is resource-bounded, version 24 (CF-33d) lets an executed entry from the outcome cache (`cached: true`) be an `unknown` with its `cause` and the cached run's undecided-answer counts, and names each side's `cause`, `smt_unknowns` and `decider_smt_unknowns` in a program's `mismatches` entry, version 25 lets `result` name cells inside `?` and `*` cells, each compared or left out in every instance, and a narrowing's `compared` name the key of each Map that encloses a named cell ("Which cells are compared"), version 26 reads an alias of an edited axiom's left-hand side as the pattern it names (step 3), so a row's `witnesses` can name fewer programs for the same mutation, and adds each row's `witnesses_global`, and version 27 names in a cause the open application of an edited function that a stuck leaf, an undefined step or a stop's end holds, as it did an indeterminate leaf's, with its arguments, gives a row the reason `open-application`, names each side's `open_application` in a program's `mismatches` entry, and gives a `run --verify` row the reason `run` gives its cold call, and adds the reason `open-application` (below), version 28 adds the `weakening` kind `valid-condition` and the `equivalent` row with reason `valid-condition` of a mutation whose every edited equation keeps its axiom, version 29 adds the killer record ("The killer record"): `lock`, each row's `recorded_killer` and `killer_change`, the `killer_source` `record` in place of `hint`, a killer that follows the record under both schedules, and no `order` (the search order is fixed) nor `stale_killer`, version 30 adds `[stop] when` ("Where a run ends"): `stop.when`, the condition's identity, the cause `stop-condition` of an `unknown` program whose run's condition was undecided or had no value at an arrival, the reason `stop-condition-incompatible` of a `not-admitted` mutant, and a survivor's `stop_hides_edit` read under a condition from the comparable programs' coverage. Version 31 names in `lock.difference` the first line in which a compared lock differs from the rendering, and gives a run refused before its lock is read (a manifest or a mutation list that does not decode) the `lock` it left unwritten, and gives an `equivalent` row an empty `removed_claims`.
+Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`, version 13 (CF-02) adds `spec.exclusion`, version 14 adds `result` and the slot name `cells`, version 15 (CF-03) takes the short-circuit reading out of `spec.exclusion` (each run of a definition whose analysis flags a rule is judged by its own list of readings) and adds `short_circuit_readings`, the readings that excluded a run, to program rows and executed entries, version 16 (CF-23) adds `schedule`, `matrix` and each row's `killed_by`, version 17 reads each row's `reaching` from the compiled mutant (step 3), or from the outcome file's copy of it on a row tier 1 decided, `[]` on a `no-comparable-program` row and otherwise `null` on a row with neither, and lists each call's `programs` in the order the call ran them, version 18 (CF-40c2) names each row's `reaching` `witnesses` and the status `invalid` `not-admitted`, so that each coverage predicate and each status has one name in every kink-flow document ("Coverage predicates"), and version 19 witnesses a rewrite rule edit that is not confined to its right-hand side or `ensures` (its left-hand side, an attribute, a deletion) by `matched` instead of `applied` (step 3), so a row's `witnesses` and each call's program order can name more programs for the same mutation, version 20 adds `stop` (absent without `[stop]`), each end's `halt` under a stop, each survivor's `stop_hides_edit`, and the reason `stop-unresolved` ("Where a run ends"), version 21 names each `difference`'s format and makes it a front end's evidence where a front end renders one ("Kill evidence"), and version 22 adds the programs of named cases (`<path>#<name>`) and a case's `expectation` in its program row, with the refusals `typed-expectation` and `expectation-value` ("Expectations"), version 23 (CF-33c) adds `decider_smt_unknowns`, the undecided solver answers of kink's own questions about the run beside k-rust's `smt_unknowns`, to every program row and to an executed entry where it is not zero, with the outcome cache on under the Z3 profile where the solver is resource-bounded, version 24 (CF-33d) lets an executed entry from the outcome cache (`cached: true`) be an `unknown` with its `cause` and the cached run's undecided-answer counts, and names each side's `cause`, `smt_unknowns` and `decider_smt_unknowns` in a program's `mismatches` entry, version 25 lets `result` name cells inside `?` and `*` cells, each compared or left out in every instance, and a narrowing's `compared` name the key of each Map that encloses a named cell ("Which cells are compared"), version 26 reads an alias of an edited axiom's left-hand side as the pattern it names (step 3), so a row's `witnesses` can name fewer programs for the same mutation, and adds each row's `witnesses_global`, and version 27 names in a cause the open application of an edited function that a stuck leaf, an undefined step or a stop's end holds, as it did an indeterminate leaf's, with its arguments, gives a row the reason `open-application`, names each side's `open_application` in a program's `mismatches` entry, and gives a `run --verify` row the reason `run` gives its cold call, and adds the reason `open-application` (below), version 28 adds the `weakening` kind `valid-condition` and the `equivalent` row with reason `valid-condition` of a mutation whose every edited equation keeps its axiom, version 29 adds the killer record ("The corpus record"): `lock`, each row's `recorded_killer` and `killer_change`, the `killer_source` `record` in place of `hint`, a killer that follows the record under both schedules, and no `order` (the search order is fixed) nor `stale_killer`, version 30 adds `[stop] when` ("Where a run ends"): `stop.when`, the condition's identity, the cause `stop-condition` of an `unknown` program whose run's condition was undecided or had no value at an arrival, the reason `stop-condition-incompatible` of a `not-admitted` mutant, and a survivor's `stop_hides_edit` read under a condition from the comparable programs' coverage. Version 31 names in `lock.difference` the first line in which a compared lock differs from the rendering, and gives a run refused before its lock is read (a manifest or a mutation list that does not decode) the `lock` it left unwritten, and gives an `equivalent` row an empty `removed_claims`.
 Version 32 adds `z3` under the Z3 profile, the Z3 build the verdicts were decided on, and `lock.header_changes`, each header key whose value differs from the compared lock's.
 Version 33 adds `[observe]` ("What a run observes"): `observe`, each program row's `observations` and the class `comparable-prefix`, the slot `observations` of an executed entry with its `position`, `horizon` or `cause`, kink's observation evidence of a kill only the channels decided, a survivor's `horizon`, and the reasons `point-unresolved` and `observation-incompatible` of a `not-admitted` mutant and `observation-capture:<program id>` of an `error`.
 Version 34 names why each horizon's channel opened: a horizon is `{elements, opening}` in the slot `observations` and a survivor's `horizon`, a program row's `observations` gives each open channel's `opening`, a survivor's action asks to raise the bound only where some horizon's opening is `bound` or `cycle`, and a prefix program none of whose channels kept an element within its budget or closed by a cycle is `unknown`; and it names the cycle closure: a channel's `closed` can be `cycle`, and an element of kink's observation evidence `cycle`.
@@ -1735,7 +1589,7 @@ Version 38 (KINK-FINDING-NAMES) names each finding of `data` and of a `baseline-
 | `stopped` | `null`, or `{mutation, reason}` of the corpus error that stopped the run. |
 | `outcome_cache` | `{context_sha256, enabled, verify, reason, mutations_from_cache, programs_from_cache, records_written}`: tier 1's context (null when disabled), whether it decided statuses, whether this is `run --verify`, why not, the mutations decided with no call, the cached program outcomes used, and the records written (one per program, also when the recorded killer ran in two calls). |
 | `z3` | Under the Z3 profile, `{version, library_sha256}`: the Z3 build the document's verdicts were decided on (k-rust's `z3_build`; `library_sha256` null when the build cannot name its library); absent under the no-Z3 profile. The verdicts rendering names it ("Verdicts"). Since version 32. |
-| `lock` | Null without `--lock`; else `{path, status, reason, header, header_changes, changes, difference}` ("The killer record"), or `{path, outcome: "refused", detail}` for a lock that does not decode. A run refused before the lock is read (its manifest or its mutation list does not decode) has `{path, status: "not-written", reason: "refused", ...}`, as a run whose specification is refused. |
+| `lock` | Null without `--lock`; else `{path, status, reason, header, header_changes, changes, difference}` ("The corpus record"), or `{path, outcome: "refused", detail}` for a lock that does not decode. A run refused before the lock is read (its manifest or its mutation list does not decode) has `{path, status: "not-written", reason: "refused", ...}`, as a run whose specification is refused. |
 | `mismatches` | `run --verify`'s differences `{mutation, program, cached, live}`; empty otherwise. A program's entry gives each side's `outcome`, `mutant_run_sha256`, `cause`, `smt_unknowns` and `decider_smt_unknowns` (the last three since version 24) and `open_application` (version 27), all compared. |
 | `baseline_runs` | `{live, reused, diagnostic}`: the baseline runs this command made live (the result update's and the calls'), at most one per program, the baseline requests of its calls answered by one of them, and the diagnostic runs of refused baselines that did not stop on time; null when the specification is refused. Outside every digest and key. |
 | `schedule` | `first-kill`, or `full` for `run --full`; present on every run document, a refused one included (a manifest or a mutation list that does not decode). |
@@ -1755,7 +1609,7 @@ A mutation row is `{id, note, expect, expectation, digest, identity, removed_cla
 | `status`, `reason` | The status (see the run section) and the runner's or the flow's reason. |
 | `expect`, `expectation` | The mutation's `expect` (`survive`, `kill` or null), and null without it, else its check against `status` ("`MUTATIONS.toml`"): `{verdict, detail}`, `verdict` `met`, `unmet` or `inconclusive`, `detail` what the row shows against the claim (`expected to survive, killed by add`, every program of `killed_by` under `--full`; `expected to be killed, survived`; the undecided programs and their causes of a `timeout` or `unknown` row) or that a met control is vacuous, or met only within what the runs observed (a survival resting on a `horizon` or on `stop_hides_edit`, whose row keeps its action), null otherwise; both front ends print `mutation ID: DETAIL` on stderr for each unmet or inconclusive one. Since version 37. |
 | `killed_by` | Under `--full`, on every row a fold decided, every killing program in `FLOW.toml`'s order, cached or live (`[]` unless the status is `killed`; version 15). Null under first-kill, which establishes one killer ("The full matrix"), and on every row no fold decided (`invalid-mutation`, `unkillable`, a corpus error, `outcome-mismatch`, `resolution-mismatch`). |
-| `killer`, `killer_source`, `killer_from_cache` | The killer of a `killed` mutation under both schedules: the recorded killer while it kills, else the first killing program in C ("The killer record"); where the kill came from: `outcome-cache` (tier 1; under `--full`, the killer's cell was cached), `record` (the recorded killer's one-program call; never under `--full`) or `search` (the canonical call); `killer_from_cache` is true for `outcome-cache` only. Null, null and false otherwise. |
+| `killer`, `killer_source`, `killer_from_cache` | The killer of a `killed` mutation under both schedules: the recorded killer while it kills, else the first killing program in C ("The corpus record"); where the kill came from: `outcome-cache` (tier 1; under `--full`, the killer's cell was cached), `record` (the recorded killer's one-program call; never under `--full`) or `search` (the canonical call); `killer_from_cache` is true for `outcome-cache` only. Null, null and false otherwise. |
 | `recorded_killer`, `killer_change` | The lock's killer of the mutation, or null (always null without `--lock`), and why `killer` is not it: null when they are equal, else `no-record` (no recorded killer, and the mutation is killed), `not-in-corpus` (the recorded id is no `[[program]]`), `not-comparable` (its class is not comparable; `unusable_killer` says why), `no-longer-kills` (it ran, live or cached, and did not distinguish; its `executed` entry gives the outcome) or `not-run` (no program ran it: the status was decided before any run, as for `invalid-mutation`, `unkillable`, `baseline-findings` or a mutant that failed as a whole). |
 | `unusable_killer` | `{program, class, cause, source}` when a cached kill (`source` `outcome-cache`) or the lock's record (`record`) names a program of the corpus that is not comparable now; else null. |
 | `witnesses_global` | Whether the mutant's compiled edit is not site-local (step 3: an equation's left-hand side or attribute, a removed or inserted equation, a declaration, ...), so that `witnesses` is every program whatever its coverage reaches: a changed pattern can match terms no baseline run tried (version 26). Null when `witnesses` is null and on a `no-comparable-program` row, whose O is empty; `false` on a row whose site-local edit no program witnesses (`witnesses: []`). |
@@ -1820,42 +1674,225 @@ the mutant's definition ...`; for a pattern slot, a binding not definition-indep
 decisions read not definition-independent under the other side's; a state value without ends to judge is said so), and the first node of
 the end, in pre-order, that fails its own test there, as a refused baseline's cause names it (see `coverage`); no leaf census follows it.
 
+## The corpus record: `--lock FILE`
+
+`run --lock FILE` and `coverage --lock FILE` name the corpus record, conventionally `kink.lock`: one file, one section per command.
+`[run]` is the killer record, one recorded killer per killed mutation, kept while it still kills; `[coverage]` is the coverage lock, one recorded killer per distinguished flip by the same rule, with each family's open and argued obligations.
+kink-flow has no default path, since one corpus is routinely run with several mutation lists, whose rows would overwrite each other in one section; the krs front end gives `<corpus>/kink.lock` to a run of the corpus's own mutation list and to `coverage`, unless the command names a lock.
+The name is the tool's, as `Cargo.lock` is Cargo's: the file holds every command's section, so it is named for none of them, and a new name lets a front end tell the two files an earlier kink kept apart ("Old files" below).
+A library run (`RunOptions::default()`, `fuzz`'s confirmation) has no lock and writes nothing outside the cache.
+
+```toml
+# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
+# [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command
+# reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.
+schema = "kink-flow-verdicts"
+
+[run]
+# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
+# each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
+# that it is current.
+version = 24
+profile = "z3"
+z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
+z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
+
+[run.spec]
+outcome = "admitted"
+
+# Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a
+# ...
+[[run.mutation]]
+id = "add-becomes-sub"
+status = "killed"
+killer = "add"
+
+[[run.mutation]]
+id = "add-swaps-operands"
+status = "survived"
+
+[coverage]
+# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
+# ...
+version = 24
+profile = "z3"
+z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
+z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
+krs_annotation = 10
+
+[coverage.spec]
+outcome = "admitted"
+
+[coverage.settings]
+depth = 1
+mcdc = [
+]
+
+# Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
+# ...
+[coverage.rules]
+open = [
+]
+argued = [
+  { id = "rule:crate::wake", standing = "checked-on-runs" },
+]
+
+# Each [[coverage.flip]] is a condition flip: a mutant kink generates from the definition by
+# ...
+[coverage.flips]
+run = true
+
+[[coverage.flip]]
+id = "flip--latch_1+latch_2--IntEqual"
+negates = "self.a == self.b"     # the condition, as the source writes it; `toggles` for a bit of an encoding
+rules = [                        # the rules the mutant edits, by their ids in the rules family
+  "rule:crate::latch_1",
+  "rule:crate::latch_2",
+]
+status = "distinguished"
+killer = "irq"
+```
+
+The comments say what the file is to a reader who has not read this README: the first what the record is and who writes each section, the one after each section's line which command keeps it and what it does with it, and the one before a section's rows and families what each entry, list and status word is.
+Each is a constant of the rendering's version, so it moves no line between runs.
+
+**What a section is.** A section is the lines from its `[run]` or `[coverage]` line to the next such line or the end of the file, trailing blank lines aside: the command's verdicts rendering after the record's header ("Verdicts"; `kink_flow::verdicts::lock_section`), its tables under the command's (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`).
+So a record only one command has written is that command's `--output verdicts` (for `run`, without `killed_by`), and the record is the format of recorded outputs too.
+
+**Ownership.** Each command reads only its own section, compares only its own under `--locked`, and rewrites only its own, keeping the other section's text byte for byte, a hand comment in it included.
+So `coverage --locked` is unaffected by a stale `[run]`, and the reverse.
+A file with no section for a command records nothing for it: a first `coverage` after only `run`s is no error, and its section is `created`.
+
+**The header.** The header, before the first section, holds only what is the same for every section by construction: the comment that says what the file is, and `schema`.
+Every value a verdict depends on is in each section: the rendering's `version`, the solver `profile`, the Z3 build (`z3_version`, `z3_library_sha256`), `krs_annotation` and the specification's admission (`[run.spec]`, `[coverage.spec]`).
+They could be said once only if both sections were always written together, on one build; they are not.
+Each command writes its section at its own time, on the build it runs on, and keeps the other as it is, so a value said once would be wrong for the section the last command did not write.
+And under `--locked` a `run` on another Z3 build would move the shared line, so `coverage --locked` would be stale for a change no `coverage` made, which ownership rules out.
+Each command checks the values its own section states, against its own run: two sections that agree state them twice, which is the price of each staying true of the command that wrote it.
+
+**Writing.** A command writes its section by a read-modify-write under an exclusive lock of the file's directory (`flock` on the directory, `std::fs::File::lock`): it reads the file again, keeps the other section's text as the file now holds it, writes the record's header and both sections to a temporary name in the directory, flushes it and renames it over the file, then releases the lock.
+Two commands that write at once each find the other's section in the file they rewrite, so neither loses it, and a reader never sees a part-written file (`lock.rs`, `concurrent_writes_of_the_two_sections_lose_neither`).
+A file that no longer decodes as a record the command may write is not overwritten (`lock.status` `not-written`, `reason` `write-failed`).
+The record is created when absent, as `Cargo.lock` is: it holds the killers the next run starts from, and a run that discarded them would repeat the search.
+
+**What it is.** The record is an input: a command reads one fact from its section, for each mutation (or flip) id the program id it names as killer, which the search tries first ("`kink-flow run`", step 5; a flip's mutant is run by `run`'s kill search under the flip's id).
+Every status still comes from runs or cached outcomes; no status, cell or key is read from the record, so a hand-edited or stale record can change which program is tried first, and so the cost and the reported killer, but never a status (kink's `trust.md`).
+It is also an output: after a complete run the command's section is rewritten, so it states the verdicts of the current inputs.
+
+**The killer rule.** Let k be the section's killer of a mutation and C the search order (step 3: the witnessing programs first, then the rest, each in `FLOW.toml`'s order).
+1. If k names a program of O and k kills the mutant (a cached kill, or its live run distinguishes), the killer is k.
+2. Otherwise, if the status is `killed`, the killer is the first program in C that kills.
+3. Otherwise there is no killer.
+
+The row says which held: `recorded_killer` and `killer_change` ("The report"); a flip decided with no run, `unreached` or `refused`, keeps no killer, and a killer recorded for it is `not-run`.
+C is the search's order, not bare `FLOW.toml` order: the search already runs the witnesses first, and bare corpus order would make the canonical search run programs that never reached an edited rule before the first one that did.
+Both are functions of the inputs: the witness set is computed from the compiled edit and the result records' coverage, keyed facts, by the one predicate the live call and tier 1 share; when an edit is not site-local, C is exactly `FLOW.toml`'s order.
+So each killer is a function of the section before the run, the corpus, the definition, the mutation list, the budget, the solver profile and kink's build, never of the cache, the host's clock (while no `budget.time_ms` bound fires) or the order work was done in: a cold run, a warm run, any `--compile-workers` and `--no-memo` give the same killer and the same section bytes.
+Rule 1 reads k's outcome, which is the same live or cached under a key that names every input; rule 2 reads the outcomes of the programs of C up to the first kill, each independent of the other programs of its call (step 3).
+A recorded killer that times out is replaced, because its kill is not proved (`no-longer-kills`).
+First-kill and `--full` write the same section: their statuses are equal ("The full matrix"), and both choose k when k's cell is a kill, else the first kill in C, from the same per-program outcomes.
+
+**The `[run]` section.** There is one `killer` per `killed` mutation and none on any other status, in the list's order.
+It has no `killed_by` (a full run must write the first-kill run's section), no program digest (a renamed case is a corpus edit the diff should show) and no `schedule` (its content does not depend on it).
+`run` writes it when a lock is in use, the run is in search mode, it judged every mutation of the list (no `--only`, no corpus error stopped it, the specification was admitted) and `--locked` is not given; the run document's `lock.status` is `created`, `written` or `unchanged`.
+Otherwise it is left as it was (`not-written`, with `reason` `only`, `verify`, `stopped`, `refused` or `write-failed`): a partial write under `--only` would mix rows judged against the current inputs with rows that were not.
+`--only` and `--verify` still read it, so the recorded killers are tried first.
+A run whose manifest or mutation list does not decode reads no lock and leaves it unwritten (`lock.reason` `refused`).
+An interrupted run loses no work: the outcomes cached after each mutation make the next run's canonical decisions cheap and reproducible.
+
+**The `[coverage]` section.** It gives each family's open and argued obligations, each argued one with the standing its argument rests on (`{ id, standing }`), and each flip with what it changes, its status, a refused flip's reason, a distinguished flip's killer and an argued flip's standing.
+A flip is a mutant kink generates, not one a mutation list states: its id is the front end's (`flip--<rules>--<atom>`, `bitflip--<rules>--bit<k>`, more than three rules written as the first and the number of the others), which keys its recorded killer and the `[[coverage.argued]]` entry that argues it, so it stays as it is; `negates` (or `toggles`) and `rules` resolve it without the coverage document, and are functions of the definition, as the id is.
+It moves only when an obligation opens or closes, an argument is added or removed or its standing moves, a flip's status moves or its killer stops killing, or the definition's text of a flipped condition changes; a case that covers nothing new leaves it as it is.
+Each family's `open`, `argued` and `undecided` list one entry per line ("Verdicts"), so a case that closes obligations removes exactly their lines from the diff, and an argument added moves one line from `open` to `argued`.
+The argued ids belong in it: an argued obligation leaves the open ones with no program covering it, and a section that listed only the open ones would record that change as a gap a program closed.
+The standings belong in it too, each beside its id, so that an argued item is named in one place: a section that did not record them would show an argument resting on its text alone the same as one a check decided, and a lost check would move no line.
+It has no `[coverage.settings] tiers`: the section is written only after a run of both tiers, and `[coverage.flips] run` says whether the flips ran.
+`coverage` writes it (atomically, as above) after a run with the manifest's own settings that judged every flip: both tiers, the manifest's depth, an admitted specification, and no corpus error that stopped the search.
+Otherwise it is left as it was (`not-written`, with `reason` `tier-1`, `depth`, `verify`, `stopped`, `refused` or `write-failed`): a run of other settings computes another document, which the section does not describe; those runs still read it, so the recorded killers are tried first.
+A front end that derives no flips (kink-flow's own) has a complete run without them: its section lists the families' open obligations and `[coverage.flips] run = false`.
+`--locked` asks whether a run with the manifest's own settings writes the committed section, so it is a usage error beside `--tier 1` or `--depth`, which run other settings.
+
+**Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]` or `[coverage]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`; and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
+A version-5 lock has no `killer` lines, so it records no killer.
+
+**`--locked`.** With `--locked` the command leaves the file unwritten (the cache is written as in any run) and compares the section it would write with the file's (under `run --only`, the selected rows and the section's header), and the record's header with the one a write gives; a file with no section for the command counts as different, as Cargo's `--locked` counts an absent file.
+A difference is a finding, exit 1 (`lock.status` `stale`), as a `--verify` mismatch is: a lock is a stored record, and the command had to be asked to know the live value, so this is not the refusal (2) that comes before anything is asked.
+No separate check command exists: answering it is a run, and `--locked` is that run.
+`kink-flow` prints one line per change on stderr: `kink.lock: add-becomes-sub: killer nested -> add (nested: not-in-corpus)`, `kink.lock: add-swaps-operands: killed -> survived`, `kink.lock: flip--b: unreached -> distinguished`, `kink.lock: rules: rule:x is open`, `kink.lock: requirements: requirement:x:held is no longer open`, `kink.lock: rules: rule:y is argued (was open)`, `kink.lock: rule:z: standing text -> unchecked` (a standing that moved, where no other line names its item), and one line per section header key that differs, `` kink.lock: [run] z3_library_sha256 differs: recorded "7ca2…", now "1f0e…" (another Z3 build) ``, or one line when the header differs in no value (the file has no section of the command, or the record's header, or a comment or spacing before the first row or family, differs).
+`lock.changes` lists each row whose `(status, killer, reason)` differs, `{mutation, recorded, now}` (`{flip, ...}` for a flip; either side null for a row only the other has); `lock.open_changes` each obligation whose state differs, `{family, obligation, recorded, now}` (`"open"`, `"argued"`, or null where that side lists it neither way); `lock.argument_changes` each argued item whose standing differs, `{obligation, recorded, now}` (null where that side has none).
+`lock.header` says whether the record's header or the section's lines before its first row or family differ; `lock.header_changes` names each section header key whose value differs, `{key, recorded, now}` (a sub-table's key as `spec.outcome`; either side null where that side has no such key), in the section's line order and then the keys only the file has; it is empty when the file records nothing for the command or only a comment or spacing differs.
+`lock.difference` names where the file's section first differs from the one the command would write, `{kind, line, recorded, now}` (`line` counted from 1 in the file), null when they are equal, when the file has no section of the command, or under `--only`.
+`kind` is `order` when the section holds the same rows in another order: `line` is then the file's line of the `id` of its first row out of the rendering's order, `recorded` that line and `now` the `id` line of the row the rendering puts there, whatever comment or spacing differs before it, since the order is what a run changes.
+`kind` is `text` otherwise: `line` is the first line in which the two differ, and `recorded` and `now` each side's text of that line, null past its end.
+A section that differs neither in its header nor in a row's verdict (rows in another order, a comment, spacing, a key the rendering does not write) is still stale, and `kink-flow` prints that first difference on stderr: `` kink.lock: its rows are in another order than the mutation list's (first at line 9: recorded `id = "b"`, now `id = "a"`); a run writes them in the list's order ``.
+
+**A record that does not decode.** The record is read after the manifest (and a run's list) decode, before admission.
+One that is not TOML (merge-conflict markers included), has another schema, has a section of the command that is no table or does not begin with its own line, repeats an id or has a `killer` that is not a string refuses the command: exit 2, no row or family, `lock: {path, outcome: "refused", detail}`, and in the rendering a `[run.lock]` or `[coverage.lock]` table with `outcome = "refused"`.
+The next step is to resolve the file, or delete it to start from the search's killers; a run then regenerates it.
+
+**Other versions.** Under `--locked` a section of another version (its `version` is not this build's, or absent) is refused before admission, exit 2, with the detail `kink.lock: its [run] section is recorded at version 23 of the verdicts rendering, and this build writes version 24, so --locked cannot find it current; run `krs kink run --package p --definition main` without --locked once to rewrite it, and review its diff` (the command as the front end spells it).
+Another version writes other bytes for the same verdicts, so the comparison could only find it stale, after a whole run; a run without `--locked` reads its killers and rewrites its section, and the diff shows what the new version changed beside any moved verdict.
+
+**Old files.** Before version 24 each command kept its own file, the command's rendering at its top (`document = "run"` or `"coverage"`, the rows `[[mutation]]` or `[[flip]]`, the standings under `[arguments]`), which the krs front end named `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
+A file of that layout given as `--lock FILE` is read as the section of the command it names: a command without `--locked` keeps its killers and rewrites the file in the current layout, which then holds that command's section alone, as the old file held nothing else; under `--locked` it is refused as a section of another version is.
+A file of the other command's is refused, since writing it would lose that command's record.
+A front end that kept the two files names the old one beside the record (`FlowCommand::set_legacy_lock`; the krs front end does for a command that keeps `<corpus>/kink.lock` by default, while the old file is there).
+While the record has no section for the command, the command reads the old file's recorded facts (killers, statuses, obligations, the section header), so a migration loses no killer, and its write moves them into the record; `lock.legacy` is `{path, status: "migrated", moved}`, and stderr says `kink/verdicts.lock: its killers are now in kink/kink.lock's [run] section; delete kink/verdicts.lock`.
+Once the record has the section, the old file is `superseded`, and stderr says to delete it.
+Under `--locked` the command is refused while the old file is there, since the committed record is not the file the check would compare: `kink/verdicts.lock: it is a lock written before version 24, which kink/kink.lock replaces with one [run] section per command, so --locked cannot find the corpus's lock current; run `krs kink run ...` without --locked once to move its killers into kink/kink.lock, then delete kink/verdicts.lock`, and, once the record has the section, `... whose verdicts kink/kink.lock's [run] section now keeps; delete kink/verdicts.lock`.
+kink-flow deletes no file.
+
+**Profiles and Z3 builds.** Each section names the `profile`; a section written under one profile is read under the other only as killers to try.
+A killer that kills under Z3 and is undecided without it is `no-longer-kills`: the search finds another killer or the status moves to `unknown`, and the rewritten section shows `profile` and the moved rows (under `--locked`, a finding).
+Under Z3 an outcome is also a function of the Z3 build, since whether a resource-bounded query is decided depends on the machine code that counts its units, so under the Z3 profile each section also names the build (`z3_version`, `z3_library_sha256`; "Verdicts").
+A section recorded on another Z3 build is read like one of another profile: its killers are tried first, and a killer the build no longer proves is `no-longer-kills`, which the row's `killer_change` and the rewritten section header both show.
+Under `--locked` such a section is stale even when every row agrees (exit 1, its `header_changes` naming the build lines).
+The solver build is part of the instrument a section was measured with, as the profile is, and `--locked` asks whether this run, on this instrument, writes the committed section.
+A run on another build cannot confirm that, since rows that agree on the current corpus do not make two builds interchangeable for the next edit.
+Passing it would leave the repository's record naming a build no check ran on, and a row that later moves would be blamed on the corpus while the header misnamed the solver.
+When every row agrees the fix is a header-only rewrite, a run without `--locked`, which review sees as exactly that; a project whose CI links another Z3 build than its developers do records the sections on the CI's build.
+
+A corpus commits `kink.lock`, and a CI runs `run --locked` and `coverage --locked` (`krs kink run --locked`, `krs kink coverage --locked`).
+
 ## Verdicts: `--output verdicts`
 
 `coverage` and `run` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status; `report --output verdicts` renders the stored run document.
 It holds what the specification, the corpus and the budget decide and nothing that depends on the host, kink's own build identity, the cache or the order the work was done in (it names the solver: the build's solver profile and, under Z3, the Z3 build, below),
 so an unchanged corpus renders the same bytes on a cold and on a warm cache.
-It is the format of recorded outputs and, without `killed_by`, of the `verdicts.lock` `run --lock` writes ("The killer record"), and of the `coverage.lock` `coverage --lock` writes ("The coverage lock"), so that a moved verdict shows in review.
+It is the record's header and the command's section ("The corpus record"): the format of recorded outputs and, without `killed_by`, of the section `run --lock` writes, and of the one `coverage --lock` writes, so that a moved verdict shows in review; a record only one command has written is that command's rendering.
 
 ```toml
-# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).
-# ...                         (the comment naming the command, and what it does with the file as a lock)
+# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
+# ...                         (the record's comment)
 schema = "kink-flow-verdicts"
+
+[coverage]                    # or [run]: the command's section
+# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
+# ...                         (the comment naming the command, and what it does with its section as a lock)
 version = 24
-document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
 krs_annotation = 10           # coverage: a document the KRS front end annotated, its krs.version
 
-[spec]
-outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below
+[coverage.spec]
+outcome = "admitted" # a refused specification adds its stage and reason, and nothing below
 
-[settings]                    # coverage: [coverage]'s values (no tiers: [flips] run says whether tier 2 ran)
+[coverage.settings]           # coverage: [coverage]'s values (no tiers: [coverage.flips] run says whether tier 2 ran)
 depth = 1
 mcdc = [                      # or the names, one per line, or true
 ]
 
 # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
 # ...                         (the comment saying what each list and standing is)
-[rules]                       # coverage: each family's open and argued obligations, by id, in item order
+[coverage.rules]              # coverage: each family's open and argued obligations, by id, in item order
 open = [
   "rule:calc.k:23",
 ]
 argued = [                    # an empty array too opens and closes on lines of its own
 ]
 
-[requirements]
+[coverage.requirements]
 open = [
 ]
 argued = [                    # [[coverage.argued]] items, each with the standing its argument rests on; its text is not rendered
@@ -1865,31 +1902,31 @@ undecided = [                 # only where a family has undecided items, which o
   "requirement:CALC.div:B:mcdc",
 ]
 
-[syntax]
+[coverage.syntax]
 open = [
 ]
 argued = [
 ]
 
-[rule_windows]                # coverage at a depth above 1 only: every open window, on the frontier or not
+[coverage.rule_windows]       # coverage at a depth above 1 only: every open window, on the frontier or not
 open = [
   "window:CALC.seq,CALC.div",
 ]
 argued = [
 ]
 
-[syntax_paths]                # coverage at a depth above 1 only: every open path and joint field value
+[coverage.syntax_paths]       # coverage at a depth above 1 only: every open path and joint field value
 open = [
 ]
 argued = [
 ]
 
-# Each [[flip]] is a condition flip: a mutant kink generates from the definition by negating
+# Each [[coverage.flip]] is a condition flip: a mutant kink generates from the definition by
 # ...                         (the comment saying what a flip and each status is; where none ran, that none did)
-[flips]                       # coverage: whether the flips family ran
+[coverage.flips]              # coverage: whether the flips family ran
 run = true
 
-[[flip]]                      # coverage: each flip, where they ran, in item order
+[[coverage.flip]]             # coverage: each flip, where they ran, in item order
 id = "flip--dispatch+run+wake+halted--H"
 negates = "H"                 # the condition as the source writes it; a bit flip's is `toggles = "bit 6 of argument 1"`
 rules = [                     # the rules the mutant edits, by their ids in the rules family
@@ -1901,7 +1938,7 @@ rules = [                     # the rules the mutant edits, by their ids in the 
 status = "distinguished"
 killer = "irq"                # the recorded killer while it kills, else the first in the search's order
 
-[[flip]]
+[[coverage.flip]]
 id = "flip--refused"
 negates = "matches!(x)"
 rules = [
@@ -1909,7 +1946,7 @@ rules = [
 status = "refused"
 reason = "not-judged"         # a refused flip's reason
 
-[[flip]]
+[[coverage.flip]]
 id = "flip--halted+wake--I"
 negates = "I"
 rules = [
@@ -1919,9 +1956,9 @@ rules = [
 status = "argued"             # an argued flip
 standing = "text"             # its argument's standing
 
-# Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a program's
+# Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a
 # ...                         (run: the comment saying what a row and each status is)
-[[mutation]]                  # run: each mutation it judged, in list order
+[[run.mutation]]              # run: each mutation it judged, in list order
 id = "add-becomes-sub"
 status = "killed"
 killer = "add"                # the recorded killer while it kills, else the first in the search's order
@@ -1931,12 +1968,12 @@ killed_by = [                 # run --full only: every killer, in FLOW.toml's or
   "inline",
 ]
 
-[[mutation]]
+[[run.mutation]]
 id = "renamed-anchor"
 status = "invalid-mutation"   # or "not-admitted": a mutation its author must fix
 reason = "unknown-label"      # its reason, a function of the specification and the mutation
 
-[[mutation]]
+[[run.mutation]]
 id = "stall-longer"
 status = "survived"
 horizon = [                   # [observe]: agreed only up to it, one program and channel per line
@@ -1944,7 +1981,7 @@ horizon = [                   # [observe]: agreed only up to it, one program and
 ]
 ```
 
-The comments say what the rendering is to a reader who has not read this README: the first names the command whose verdicts it holds and what that command does with it as a lock (`run --lock`, `coverage --lock`), and one before a run's first `[[mutation]]`, a coverage rendering's first family and its `[flips]` says what each entry, list and status word is.
+The comments say what the rendering is to a reader who has not read this README: the record's says what the file is and who writes each section, the section's names the command whose verdicts it holds and what that command does with it as a lock (`run --lock`, `coverage --lock`), and one before a run's first `[[run.mutation]]`, a coverage section's first family and its `[coverage.flips]` says what each entry, list and status word is.
 Each is a constant of the rendering's version, so it moves no line of a lock between runs.
 
 Every array of strings or inline tables the rendering writes (`open`, `argued`, `undecided`, `mcdc`, a flip's `rules`, `horizon`, `killed_by`) has one value per line, with a trailing comma, from its key's line to a `]` on its own line, an empty array included.
@@ -1952,20 +1989,20 @@ A lock is reviewed as a diff, and in this layout the diff of a set that changed 
 The values keep their order (item order, list order, `FLOW.toml`'s order), so a case that closes a gap removes lines and moves none.
 An `argued` entry is an inline table, `{ id, standing }`, so that each argued item is written once, with what its argument rests on: a standing that moves changes that item's line alone.
 
-A run document of a mutation list that does not decode has no `[spec]` but `[mutation_list]` with `outcome = "refused"`, and one of a lock that does not decode has `[lock]` with `outcome = "refused"`;
-a run that a corpus error stopped ends with `[stopped]`, the mutation and the reason (the mutations after it have no status).
+A run document of a mutation list that does not decode has no `[run.spec]` but `[run.mutation_list]` with `outcome = "refused"`, and one of a lock that does not decode has `[run.lock]` (`[coverage.lock]`) with `outcome = "refused"`;
+a run that a corpus error stopped ends with `[run.stopped]`, the mutation and the reason (the mutations after it have no status).
 An `invalid-mutation` or `not-admitted` mutation, which its author must fix before it is judged, has its `reason`, as a refused specification has: the reason is a function of the specification and the mutation alone (the resolution, the mutant's compile, its consistency, its stop), so it is the refusal's verdict, and a lock shows which refusal moved.
 A refusal's or a stop's text is not part of the rendering, since it explains a refusal rather than records a verdict: `kink-flow` prints it on stderr (`kink_flow::verdicts::refusal_details`), one line per refused specification or list, per mutation its author must fix (`mutation <id>: <status> <reason>: <detail>`), and for a stop.
 
 A coverage rendering lists ids, which name a rule by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line` ("The document" under `coverage`); it lists no program and no count, so it moves only when a gap opens or closes or a flip's status or killer moves, and a case that covers nothing new renders the same bytes.
-Where the flips ran, each is listed (`[[flip]]`) with the condition it negates as the source writes it (`negates`, the flip item's `text`; `toggles` for a bit of an encoding), the rules it edits by their ids in the rules family (`rules`), its status, a refused flip's reason, a distinguished flip's killer, which follows the killer rule over the coverage lock ("The coverage lock"), and an argued flip's `standing`.
+Where the flips ran, each is listed (`[[coverage.flip]]`) with the condition it negates as the source writes it (`negates`, the flip item's `text`; `toggles` for a bit of an encoding), the rules it edits by their ids in the rules family (`rules`), its status, a refused flip's reason, a distinguished flip's killer, which follows the killer rule over the coverage lock ("The corpus record"), and an argued flip's `standing`.
 A family with undecided obligations lists them as `undecided`, which `open` leaves out ("Unique-cause MC/DC"): a pair the records cannot decide is another verdict than one no program shows, so a lock moves when one becomes the other.
 The KRS front end's annotation has a version of its own (the document's `krs.version`), which the header renders as `krs_annotation`, because the spelling of an item follows it: from version 2 an item is spelled as a stop reads it (`crate::plus_zero`, `lang::step`), and a document with no version named it as the `// KRS` line does (`plus_zero`); version 3 adds `stop.krs.when`, the stop condition as the corpus wrote it, and spells items as version 2 does; version 4 named a `results` document's guard nodes by KRS construct, and version 5 annotates the `coverage` document that replaced it, whose item ids spell items as version 2 does.
 Two renderings of the same verdicts under different annotation versions differ in that line and in the rule names only.
 A run rendering names no rule, so it has no `krs_annotation` line, which could only move a lock without any verdict moving.
 The reason of every status but a refusal is left out: the reason of `unknown` is the first exclusion in run order.
 A status does not depend on the order or the cache while no `budget.time_ms` bound fires ("Cost model"); a `timeout` depends on the host by its nature.
-A killed mutation's `killer` follows the killer rule under both schedules ("The killer record"): a function of the lock and the inputs, so a warm run renders the bytes a cold one does.
+A killed mutation's `killer` follows the killer rule under both schedules ("The corpus record"): a function of the lock and the inputs, so a warm run renders the bytes a cold one does.
 A full run's `killed_by` is such a function too ("The full matrix"), so a first-kill and a full rendering state the same facts apart from the `killed_by` lines, and a full rendering of a run with no kill is byte-equal to the first-kill rendering.
 For a first-kill run, `run --output verdicts`, `report --output verdicts` and the lock are the same bytes.
 The `profile` line is there because the two profiles decide solver questions differently (without Z3 none is decided, and under Z3 within `budget.smt_resource_limit` on the Z3 build), so a class, a status and a cell can differ between them, and a diff of two renderings across profiles shows why.
@@ -1994,8 +2031,8 @@ Version 20 writes every array of strings or inline tables with one value per lin
 Version 21 (FB-39) gives a coverage rendering `[arguments]`, each argued item's standing ("Argued obligations"), so that a lock records what each argument rests on and a standing that moves makes it stale; a coverage lock recorded at version 20 differs from a version 21 rendering of the same coverage in its `version` line and the new section only, and a run rendering in its `version` line only.
 Version 22 (FB-39) renders coverage document version 19: an invariant-only equation is no obligation ("Families"), so a lock whose open lists and flips move for that reason shows a new version, not a corpus change; an `[arguments]` line names the assumed findings its standing rests on (`"<id>" = "<standing>, assuming joined <name>, ..."`); and an item whose invariant is not shown to be a function is `unchecked`. A run rendering differs from version 21's in its `version` line only.
 Version 23 (KINK-FINDING-NAMES) renders coverage document version 20: an `[arguments]` line names the assumed findings a standing rests on by kind, sentences and digest, so a lock whose arguments assume findings shows a new version; every other lock differs in its `version` line only.
-Version 24 (FB48-NAMES) says what a rendering is without this README: it opens with a comment naming the command whose verdicts it holds and what that command does with it as a lock, and a comment before its rows and families says what each entry and status word is; a coverage rendering gives each argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued flip's `standing` on its row), where version 23 listed the ids there and repeated them as the keys of `[arguments]`; it gives each flip the condition it negates or the bit it toggles and the rules it edits, and it no longer writes `[settings] tiers`, which `[flips] run` states.
-Under `--locked` a lock of another version is refused, naming the command that rewrites it ("The killer record"), so a lock recorded at version 23 is rewritten by one run without `--locked`, whose diff shows the new layout beside any moved verdict.
+Version 24 (FB48-NAMES, FB48-ONE-LOCK) is the corpus record's: the rendering is the record's header (a comment saying what the file is, and `schema`) and the command's section, `[run]` or `[coverage]`, which states its own `version`, `profile`, Z3 build and `krs_annotation` and holds the command's tables (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, ...), where version 23 wrote one command's rendering at the top of its file with `document`; each section opens with a comment naming the command whose verdicts it holds and what that command does with it as a lock, and a comment before its rows and families says what each entry and status word is; a coverage section gives each argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued flip's `standing` on its row), where version 23 listed the ids there and repeated them as the keys of `[arguments]`; it gives each flip the condition it negates or the bit it toggles and the rules it edits, and it no longer writes `[settings] tiers`, which `[coverage.flips] run` states.
+Under `--locked` a section of another version, or a lock before version 24, is refused, naming the command that rewrites it ("The corpus record"), so a lock recorded at version 23 is rewritten by one run without `--locked`, whose diff shows the new layout beside any moved verdict.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 

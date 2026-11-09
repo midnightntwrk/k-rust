@@ -141,7 +141,7 @@ The cold run's peak memory comes from the mutants that loop until `time_ms` (6.8
 A rebuilt `kink-flow` starts a new outcome context (the cache key includes the executable's digest),
 so the first run after a rebuild runs every baseline again, since the result key names the build too,
 and searches each mutation again up to its first kill: these runs keep no killer record.
-With `run --lock verdicts.lock` it would re-prove each killed mutation with one call over its recorded killer (kink-flow README, "The killer record").
+With `run --lock kink.lock` it would re-prove each killed mutation with one call over its recorded killer (kink-flow README, "The corpus record").
 The tables above that name a last killer or a hint were measured with the hint store, which the killer record replaced.
 
 ## The full matrix (`--full`)

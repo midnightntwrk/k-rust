@@ -163,6 +163,7 @@ fn search(dir: &Path) -> (Value, bool) {
         &manifest,
         &list,
         &RunOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,

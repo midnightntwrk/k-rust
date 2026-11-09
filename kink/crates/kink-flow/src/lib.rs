@@ -10,8 +10,8 @@
 //! `report` command ([`report`]). F-14 adds the outcome cache: tier 1, the proved outcome of a
 //! mutation on a program under an exact key ([`outcomes`]), and tier 2, killer hints that
 //! survived specification edits, since replaced by the killer record ([`lock`]: one recorded
-//! killer per killed mutation, kept while it still kills, in a `verdicts.lock` the run reads and
-//! rewrites). F-12 runs each
+//! killer per killed mutation, kept while it still kills, in the `[run]` section of the corpus
+//! record, `kink.lock`, which the run reads and rewrites). F-12 runs each
 //! program's baseline at most once per command; F-13 names the oracle slots of the report,
 //! records timings and leaf censuses and lists the rules no mutation targets. F-18 adds the per-input pattern checks: `PATTERNS.toml`, the
 //! lowering of a K pattern and its evaluation by k-rust's search ([`pattern`]), and the `query`
@@ -126,7 +126,7 @@ pub fn k_rust_revision() -> String {
 /// stores or renders a solver-dependent verdict as reproducible, every solver answer is a
 /// function of the query, its units and the machine code that counts them. A class, a status
 /// and a recorded killer are therefore functions of the Z3 build as much as of the `profile`, and
-/// the document names both, so that its verdicts rendering and a `verdicts.lock` name the build
+/// the document names both, so that its verdicts rendering and a `kink.lock` section name the build
 /// they were decided on ([`crate::verdicts`]). A `check`, `query` or `fuzz` document's answers ask
 /// the same solver, so it names the build for the same reason; `report`'s document names the
 /// build of the process that looked for the run document, which it prints only when that

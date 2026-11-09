@@ -231,13 +231,13 @@ fn the_coverage_lock_options_parse() {
         )
     };
     let FlowCommand::Coverage { options, .. } =
-        parse(&["--locked", "--lock", "coverage.lock"]).unwrap()
+        parse(&["--locked", "--lock", "kink.lock"]).unwrap()
     else {
         panic!("coverage");
     };
     assert_eq!(
         (options.lock, options.locked, options.depth),
-        (Some(PathBuf::from("coverage.lock")), true, None)
+        (Some(PathBuf::from("kink.lock")), true, None)
     );
     let FlowCommand::Coverage { options, .. } = parse(&["--depth", "2", "--lock", "c"]).unwrap()
     else {
@@ -274,13 +274,13 @@ fn the_coverage_lock_options_parse() {
 #[test]
 fn an_undecodable_coverage_lock_refuses_the_command() {
     let dir = guards("undecodable");
-    let lock = dir.join("coverage.lock");
+    let lock = dir.join("kink.lock");
     let flip = "[[flip]]\nid = \"f\"\nstatus = \"unreached\"\n";
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
             "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n".to_owned(),
-            "its document is not \"coverage\"",
+            "whose document is \"run\", not \"coverage\"",
         ),
         (
             format!(
@@ -303,7 +303,7 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
         assert!(document.get("programs").is_none(), "{document:#}");
         let rendering = verdicts(&document).unwrap();
         assert!(
-            rendering.ends_with("\n[lock]\noutcome = \"refused\"\n"),
+            rendering.ends_with("\n[coverage.lock]\noutcome = \"refused\"\n"),
             "{rendering}"
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), text);
@@ -316,7 +316,7 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
 #[test]
 fn a_coverage_lock_of_another_version_is_refused_under_locked() {
     let dir = guards("other-version");
-    let lock = dir.join("coverage.lock");
+    let lock = dir.join("kink.lock");
     let text = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
                 [arguments]\n\"rule:GUARDS.wake\" = \"text\"\n";
     fs::write(&lock, text).unwrap();
@@ -524,27 +524,30 @@ mod kink_tier {
             .collect::<String>();
         assert!(
             verdicts.ends_with(&format!(
-                "\n{legend}[flips]\nrun = true\n\
-                 \n[[flip]]\nid = \"flip--dispatch+run+wake+halted--H\"\nnegates = \"H\"\n\
+                "\n{legend}[coverage.flips]\nrun = true\n\
+                 \n[[coverage.flip]]\nid = \"flip--dispatch+run+wake+halted--H\"\nnegates = \"H\"\n\
                  rules = [\n  \"rule:GUARDS.dispatch\",\n  \"rule:GUARDS.run\",\n  \
                  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
                  status = \"distinguished\"\nkiller = \"irq\"\n\
-                 \n[[flip]]\nid = \"flip--halted+wake--I\"\nnegates = \"I\"\n\
+                 \n[[coverage.flip]]\nid = \"flip--halted+wake--I\"\nnegates = \"I\"\n\
                  rules = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
                  status = \"unreached\"\n\
-                 \n[[flip]]\nid = \"flip--halted+wake--I-unplaced\"\nnegates = \"I\"\n\
+                 \n[[coverage.flip]]\nid = \"flip--halted+wake--I-unplaced\"\nnegates = \"I\"\n\
                  rules = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
                  status = \"undistinguished\"\n\
-                 \n[[flip]]\nid = \"flip--high+low--A\"\nnegates = \"A <Int 32768\"\n\
+                 \n[[coverage.flip]]\nid = \"flip--high+low--A\"\nnegates = \"A <Int 32768\"\n\
                  rules = [\n  \"rule:GUARDS.low\",\n  \"rule:GUARDS.high\",\n]\n\
                  status = \"undistinguished\"\n\
-                 \n[[flip]]\nid = \"flip--refused\"\nnegates = \"matches!(x)\"\nrules = [\n]\n\
+                 \n[[coverage.flip]]\nid = \"flip--refused\"\nnegates = \"matches!(x)\"\nrules = [\n]\n\
                  status = \"refused\"\nreason = \"not-judged\"\n"
             )),
             "{verdicts}"
         );
         // A lock is written only where both tiers ran, which `[flips] run` states: no `tiers`.
-        assert!(verdicts.contains("\n[settings]\ndepth = 1\n"), "{verdicts}");
+        assert!(
+            verdicts.contains("\n[coverage.settings]\ndepth = 1\n"),
+            "{verdicts}"
+        );
         // A second command decides every flip from the outcome cache, with the same statuses.
         let (again, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{again:#}");
@@ -630,7 +633,10 @@ mod kink_tier {
         assert_eq!(outcome_files(&dir), 0);
         assert!(document["summary"]["per_family"].get("flips").is_none());
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
-        assert!(verdicts.ends_with("\n[flips]\nrun = false\n"), "{verdicts}");
+        assert!(
+            verdicts.ends_with("\n[coverage.flips]\nrun = false\n"),
+            "{verdicts}"
+        );
         assert_eq!(
             rules["families"]["flips"]["reason"],
             kink_flow::flips::DERIVES_NONE
@@ -802,14 +808,14 @@ mod kink_tier {
         }
     }
 
-    /// `text` with the `[[flip]]` row of `id` given `key = "value"` in place of its own (or
+    /// `text` with the `[[coverage.flip]]` row of `id` given `key = "value"` in place of its own (or
     /// added after its status).
     fn with_row_key(text: &str, id: &str, key: &str, value: &str) -> String {
         let start = text
-            .find(&format!("\n[[flip]]\nid = \"{id}\"\n"))
+            .find(&format!("\n[[coverage.flip]]\nid = \"{id}\"\n"))
             .unwrap_or_else(|| panic!("no row {id}: {text}"));
         let end = text[start + 1..]
-            .find("\n[[flip]]")
+            .find("\n[[coverage.flip]]")
             .map_or(text.len(), |at| start + 1 + at);
         let mut row = text[start..end]
             .lines()
@@ -831,7 +837,7 @@ mod kink_tier {
         let dir = guards("killer");
         let rules = baseline(&dir);
         let list = h_and_i(&rules);
-        let lock = dir.join("coverage.lock");
+        let lock = dir.join("kink.lock");
         let options = ["--lock", lock.to_str().unwrap()];
         let run = || {
             let (document, status) = coverage(&dir, &options, Derived::Flips(&list));
@@ -852,7 +858,7 @@ mod kink_tier {
         assert_eq!(recorded, verdicts(&first).unwrap());
         assert!(
             recorded.contains(&format!(
-                "\n[[flip]]\nid = \"{H}\"\nnegates = \"H\"\nrules = [\n  \"rule:GUARDS.dispatch\",\n  \
+                "\n[[coverage.flip]]\nid = \"{H}\"\nnegates = \"H\"\nrules = [\n  \"rule:GUARDS.dispatch\",\n  \
                  \"rule:GUARDS.run\",\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
                  status = \"distinguished\"\nkiller = \"irq\"\n"
             )),
@@ -919,7 +925,7 @@ mod kink_tier {
         let dir = guards("partial");
         let rules = baseline(&dir);
         let list = h_and_i(&rules);
-        let lock = dir.join("coverage.lock");
+        let lock = dir.join("kink.lock");
         let run = |extra: &[&str]| {
             let mut options = vec!["--lock", lock.to_str().unwrap()];
             options.extend_from_slice(extra);
@@ -983,7 +989,7 @@ mod kink_tier {
         let dir = guards("locked");
         let rules = baseline(&dir);
         let list = h_and_i(&rules);
-        let lock = dir.join("coverage.lock");
+        let lock = dir.join("kink.lock");
         let path = lock.to_str().unwrap();
         let run = |locked: bool| {
             let mut options = vec!["--lock", path];
@@ -1011,8 +1017,8 @@ mod kink_tier {
         let edited = with_row_key(&recorded, H, "killer", "gone");
         let edited = with_row_key(&edited, I, "status", "distinguished");
         let edited = edited.replacen(
-            "\n[rules]\nopen = [\n",
-            "\n[rules]\nopen = [\n  \"rule:gone\",\n",
+            "\n[coverage.rules]\nopen = [\n",
+            "\n[coverage.rules]\nopen = [\n  \"rule:gone\",\n",
             1,
         );
         assert!(edited.contains("\"rule:gone\""), "{edited}");
@@ -1068,7 +1074,7 @@ mod kink_tier {
         assert_eq!(lines.len(), 1, "{lines:#?}");
         assert!(
             lines[0].starts_with(&format!(
-                "{path}: the header's z3_library_sha256 differs: recorded \"another-build\", now "
+                "{path}: [coverage] z3_library_sha256 differs: recorded \"another-build\", now "
             )) && lines[0].ends_with(" (another Z3 build)"),
             "{lines:#?}"
         );
@@ -1078,13 +1084,7 @@ mod kink_tier {
         // so the recorded flips would be removed.
         fs::write(&lock, &recorded).unwrap();
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_kink-flow"))
-            .args([
-                "coverage",
-                "FLOW.toml",
-                "--lock",
-                "coverage.lock",
-                "--locked",
-            ])
+            .args(["coverage", "FLOW.toml", "--lock", "kink.lock", "--locked"])
             .current_dir(&dir)
             .output()
             .unwrap();
@@ -1092,7 +1092,7 @@ mod kink_tier {
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
             stderr.contains(&format!(
-                "kink-flow: coverage.lock: {H}: removed, was distinguished"
+                "kink-flow: kink.lock: {H}: removed, was distinguished"
             )),
             "{stderr}"
         );

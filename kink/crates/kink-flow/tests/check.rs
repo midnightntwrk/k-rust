@@ -1854,6 +1854,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
                 &manifest,
                 &list,
                 &kink_flow::search::RunOptions {
+                    legacy_lock: None,
                     only: Vec::new(),
                     cache: None,
                     compile_workers: Some(1),

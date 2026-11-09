@@ -331,10 +331,14 @@ pub struct RunOptions {
     /// comparable program in corpus order, so that each row holds every cell of the kill matrix
     /// (module documentation).
     pub schedule: ScheduleMode,
-    /// The killer record (`--lock FILE`, [`crate::lock`]): read before admission, its killers
-    /// tried first, and rewritten after a run that judged every mutation of the list. `None`: no
-    /// record, and nothing is written outside the cache.
+    /// The corpus record (`--lock FILE`, [`crate::lock`]): its `[run]` section read before
+    /// admission, its killers tried first, and rewritten after a run that judged every mutation of
+    /// the list. `None`: no record, and nothing is written outside the cache.
     pub lock: Option<PathBuf>,
+    /// The old file a front end kept the run's killer record in before version 24 (krs's
+    /// `<corpus>/verdicts.lock`), read while the record has no `[run]` section and refused under
+    /// `--locked` while it is there ([`Lock::adopt_legacy`]); no command-line option sets it.
+    pub legacy_lock: Option<PathBuf>,
     /// `--locked`: compare the lock the run would write with the file and leave the lock
     /// unwritten (the cache is written as in any run); a difference is a finding (exit 1).
     pub locked: bool,
@@ -351,6 +355,7 @@ impl Default for RunOptions {
             memo: MemoUse::default(),
             schedule: ScheduleMode::FirstKill,
             lock: None,
+            legacy_lock: None,
             locked: false,
         }
     }
@@ -2679,13 +2684,16 @@ pub fn run_front(
     };
     // The killer record is an input: read after the manifest and the list decode, before
     // admission; one that does not decode refuses the run, as a list that does not decode does,
-    // and so, under `--locked`, does one of another version of the rendering.
+    // and so, under `--locked`, does one of another version of the rendering, or an old file the
+    // front end kept the record in.
     let read = |path: &Path| {
-        let lock = Lock::read(path)?;
-        if options.locked {
-            lock.refuse_other_version(&front.spelling.verb(Verb::Run))?;
-        }
-        Ok::<_, String>(lock)
+        Lock::read_for(
+            path,
+            crate::lock::LockKind::Run,
+            options.legacy_lock.as_deref(),
+            options.locked,
+            &front.spelling.verb(Verb::Run),
+        )
     };
     let lock = match options.lock.as_deref().map(read).transpose() {
         Ok(lock) => lock,

@@ -568,6 +568,7 @@ fn search(manifest: &Path) -> Value {
         &FlowManifest::read(manifest).unwrap(),
         &MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap(),
         &SearchOptions {
+            legacy_lock: None,
             only: Vec::new(),
             cache: None,
             compile_workers: None,

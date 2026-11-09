@@ -92,6 +92,7 @@ fn search_in(dir: &std::path::Path, depth: usize, rounds: usize) -> Vec<Vec<Valu
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let mutations = MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
     let options = RunOptions {
+        legacy_lock: None,
         only: Vec::new(),
         cache: None,
         compile_workers: None,

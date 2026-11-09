@@ -862,7 +862,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // Version 6 names the solver profile, and no schedule; version 8 the Z3 build under Z3.
     assert!(
         cold.starts_with(&format!(
-            "{}{}\n[spec]\noutcome = \"admitted\"\n",
+            "{}{}\n[run.spec]\noutcome = \"admitted\"\n",
             flow_support::heading("run"),
             flow_support::solver_lines()
         )),
@@ -872,19 +872,19 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // no `killed_by`, which first-kill does not establish.
     assert!(!cold.contains("killed_by"), "{cold}");
     assert!(
-        cold.contains("\n[[mutation]]\nid = \"add-swaps-operands\"\nstatus = \"survived\"\n"),
+        cold.contains("\n[[run.mutation]]\nid = \"add-swaps-operands\"\nstatus = \"survived\"\n"),
         "{cold}"
     );
     assert!(
         cold.contains(
-            "\n[[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \"add\"\n"
+            "\n[[run.mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \"add\"\n"
         ),
         "{cold}"
     );
     // calc's authored rules all fire; its corpus never heats a right operand.
     assert!(
         cold_coverage.contains(
-            "\n[rules]\nopen = [\n  \"rule:mul:heat:2\",\n  \"rule:add:heat:2\",\n  \
+            "\n[coverage.rules]\nopen = [\n  \"rule:mul:heat:2\",\n  \"rule:add:heat:2\",\n  \
              \"rule:sub:heat:2\",\n]\n"
         ),
         "{cold_coverage}"
@@ -943,7 +943,7 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     assert_eq!(
         verdicts(&unnamed).unwrap(),
         format!(
-            "{}profile = \"z3\"\nz3_version = \"5.3.3.0\"\n\n[spec]\noutcome = \"admitted\"\n",
+            "{}profile = \"z3\"\nz3_version = \"5.3.3.0\"\n\n[run.spec]\noutcome = \"admitted\"\n",
             flow_support::heading("run")
         )
     );
@@ -984,7 +984,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "{}{}\n[mutation_list]\noutcome = \"refused\"\n",
+            "{}{}\n[run.mutation_list]\noutcome = \"refused\"\n",
             flow_support::heading("run"),
             flow_support::solver_lines()
         )
@@ -1007,7 +1007,7 @@ fn the_command_line_prints_verdicts() {
     let printed = String::from_utf8(output.stdout).unwrap();
     assert!(
         printed.ends_with(
-            "[spec]\noutcome = \"refused\"\nstage = \"manifest\"\nreason = \"invalid-manifest\"\n"
+            "[coverage.spec]\noutcome = \"refused\"\nstage = \"manifest\"\nreason = \"invalid-manifest\"\n"
         ),
         "{printed}"
     );
@@ -1030,7 +1030,7 @@ fn the_command_line_prints_verdicts() {
     assert!(
         verdicts(&stopped)
             .unwrap()
-            .ends_with("\n[stopped]\nmutation = \"b\"\nreason = \"baseline-mismatch:add\"\n")
+            .ends_with("\n[run.stopped]\nmutation = \"b\"\nreason = \"baseline-mismatch:add\"\n")
     );
     assert_eq!(
         refusal_details(&stopped),
@@ -1050,9 +1050,9 @@ fn the_command_line_prints_verdicts() {
     let rendered = verdicts(&refused).unwrap();
     assert!(
         rendered.ends_with(
-            "\n[[mutation]]\nid = \"a\"\nstatus = \"invalid-mutation\"\nreason = \
-             \"unknown-label\"\n\n[[mutation]]\nid = \"b\"\nstatus = \"not-admitted\"\nreason = \
-             \"inconsistent-mutant\"\n\n[[mutation]]\nid = \"c\"\nstatus = \"unknown\"\n"
+            "\n[[run.mutation]]\nid = \"a\"\nstatus = \"invalid-mutation\"\nreason = \
+             \"unknown-label\"\n\n[[run.mutation]]\nid = \"b\"\nstatus = \"not-admitted\"\nreason = \
+             \"inconsistent-mutant\"\n\n[[run.mutation]]\nid = \"c\"\nstatus = \"unknown\"\n"
         ),
         "{rendered}"
     );

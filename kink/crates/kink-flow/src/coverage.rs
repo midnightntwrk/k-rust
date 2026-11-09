@@ -561,6 +561,11 @@ pub struct CoverageOptions {
     /// flip's recorded killer and rewritten after a run with the manifest's own settings
     /// ([`command`]).
     pub lock: Option<PathBuf>,
+    /// The old file a front end kept the coverage lock in before version 24 (krs's
+    /// `<corpus>/coverage.lock`), read while the record has no `[coverage]` section and refused
+    /// under `--locked` while it is there ([`Lock::adopt_legacy`]); no command-line option sets
+    /// it.
+    pub legacy_lock: Option<PathBuf>,
     /// `--locked`: compare the run with its lock, and leave the lock unwritten.
     pub locked: bool,
 }
@@ -593,14 +598,16 @@ pub fn command(
     options: &CoverageOptions,
     front: &FrontEnd<'_>,
 ) -> (Value, bool) {
-    // Under `--locked`, a lock of another version of the rendering is refused as one that does
-    // not decode is ([`Lock::refuse_other_version`]).
+    // Under `--locked`, a lock of another version of the rendering, or an old file the front end
+    // kept the lock in, is refused as one that does not decode is ([`Lock::read_for`]).
     let read = |path: &Path| {
-        let lock = Lock::read_kind(path, LockKind::Coverage)?;
-        if options.locked {
-            lock.refuse_other_version(&front.spelling.verb(crate::Verb::Coverage))?;
-        }
-        Ok::<_, String>(lock)
+        Lock::read_for(
+            path,
+            LockKind::Coverage,
+            options.legacy_lock.as_deref(),
+            options.locked,
+            &front.spelling.verb(crate::Verb::Coverage),
+        )
     };
     let lock = match options.lock.as_deref().map(read).transpose() {
         Ok(lock) => lock,

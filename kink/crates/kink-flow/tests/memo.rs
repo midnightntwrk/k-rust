@@ -153,6 +153,7 @@ fn search_only(
         &manifest,
         &mutations,
         &RunOptions {
+            legacy_lock: None,
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
             compile_workers: Some(1),

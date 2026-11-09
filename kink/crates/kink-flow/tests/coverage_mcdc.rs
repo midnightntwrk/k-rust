@@ -319,7 +319,7 @@ mod kink_tier {
         );
         let open = rendering
             .lines()
-            .skip_while(|line| *line != "[requirements]")
+            .skip_while(|line| *line != "[coverage.requirements]")
             .skip(1)
             .take_while(|line| *line != "]")
             .collect::<Vec<_>>();
@@ -377,9 +377,9 @@ mod kink_tier {
         );
         assert_eq!(family["argued"], 1);
         assert!(
-            verdicts(&after)
-                .unwrap()
-                .contains(&format!("argued = [\n  \"{BIG_LOW}\",\n]\n")),
+            verdicts(&after).unwrap().contains(&format!(
+                "argued = [\n  {{ id = \"{BIG_LOW}\", standing = \"text\" }},\n]\n"
+            )),
             "{}",
             verdicts(&after).unwrap()
         );
