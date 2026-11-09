@@ -559,3 +559,46 @@ fn literals_are_keyed_across_the_initializer_terms() {
         ]
     );
 }
+
+#[test]
+fn an_entry_that_names_its_rust_wrapper_carries_no_spelling_to_judge() {
+    // `Cell::new(..)` and `KCell::new(..)` are the Rust form of the value's kind, which rustc
+    // checks against the field's type; every other entry, a group record of inferred values
+    // included, is read for the table to judge by its cell's kind.
+    let initializer = krs_syntax::InitializerFunction::parse_source(
+        "pub fn init(pgm: Stmt) -> Self { Self { \
+         k: k::configuration::KCell::new(k::k![pgm]), \
+         frame: Frame { ret: k::configuration::Cell::new(0) }, \
+         pc: 0, \
+         counter: Some(0), \
+         shelf: Shelf { bag: Obj { key: 0 } } \
+         } }",
+    )
+    .unwrap();
+    let fields = initializer.entry_fields().unwrap();
+    let read = fields
+        .iter()
+        .map(|field| {
+            (
+                field.key.get_ident().unwrap().to_string(),
+                field.spelling.is_some(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        read,
+        [
+            ("k".to_owned(), false),
+            ("frame".to_owned(), false),
+            ("pc".to_owned(), true),
+            ("counter".to_owned(), true),
+            ("shelf".to_owned(), true),
+        ]
+    );
+    assert!(
+        fields
+            .iter()
+            .filter(|field| field.spelling.is_none())
+            .all(|field| field.located.is_empty())
+    );
+}

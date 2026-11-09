@@ -326,3 +326,76 @@ fn brackets_inside_an_optional_list_s_presence_are_its_list() {
         assert!(success, "{cell}: {value}: {stderr}");
     }
 }
+
+#[test]
+fn a_value_of_another_kind_than_its_cell_is_the_table_s_refusal_at_the_value() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // The cell, its value, and the class's code. An initializer's value is its cell's whole
+    // initial content, of the cell's declared kind, so the table answers a value of another kind
+    // at the value, and rustc says nothing of it.
+    let cases = [
+        // cell-wrapper: a term on the computation cell, a computation on a leaf.
+        ("k", "0", "krs::analysis::cell-wrapper"),
+        ("pc", "k::k![0]", "krs::analysis::cell-wrapper"),
+        // optional-without-presence, presence-on-plain-cell; a value that is no entry has its
+        // marks judged too.
+        ("counter", "0", "krs::analysis::optional-presence"),
+        ("counter", "0 + 1", "krs::analysis::optional-presence"),
+        ("pc", "Some(0)", "krs::analysis::optional-presence"),
+        ("pc", "k::absent!(0)", "krs::analysis::optional-presence"),
+        // map-notation-at-non-map.
+        ("pc", "k::map![0 -> 1]", "krs::analysis::invalid-term"),
+        // content-sort: a term on a group, a group record on a leaf, another group's record.
+        ("shelf", "0", "krs::analysis::invalid-term"),
+        ("pc", "Obj { key: 0 }", "krs::analysis::invalid-term"),
+        ("shelf", "Obj { key: 0 }", "krs::analysis::invalid-term"),
+    ];
+    for (index, (cell, value, code)) in cases.into_iter().enumerate() {
+        let name = format!("kinds-kind-{index}");
+        let library = kinds_initializer(cell, value);
+        let manifest = package(temporary.path(), &name, &library);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{cell}: {value}: {stderr}");
+        let errors = stderr
+            .lines()
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{cell}: {value}: {stderr}");
+        assert!(
+            errors[0].starts_with(&format!("error[{code}]")),
+            "{cell}: {value}: {stderr}"
+        );
+        let value_at = library.find(&format!("{cell}: {value}")).unwrap() + cell.len() + 2;
+        let location = location_at(&library, value_at);
+        assert!(
+            stderr.contains(&location),
+            "{cell}: {value}: {location}: {stderr}"
+        );
+        for internal in ["E0308", "E0063", "invalid-configuration", "__krs", "__Krs"] {
+            assert!(!stderr.contains(internal), "{cell}: {value}: {stderr}");
+        }
+    }
+}
+
+#[test]
+fn a_value_of_its_cell_s_kind_is_admitted_however_it_is_written() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // A term with an operator, inside its presence or not, and a value written with its Rust
+    // wrapper, which rustc checks against the field's type.
+    for (index, (cell, value)) in [
+        ("pc", "0 + 1"),
+        ("counter", "Some(0 + 1)"),
+        ("pc", "k::configuration::Cell::new(0)"),
+        ("k", "k::configuration::KCell::new(k::k![pgm])"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("kinds-kind-admitted-{index}");
+        let manifest = package(temporary.path(), &name, &kinds_initializer(cell, value));
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(success, "{cell}: {value}: {stderr}");
+    }
+}

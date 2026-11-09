@@ -208,7 +208,7 @@ impl<'a> EntryReading<'a> {
     ///
     /// As [`Self::value`].
     pub fn parse_value(self, input: ParseStream<'_>) -> syn::Result<EntrySpelling> {
-        self.parse(input, true)
+        self.content(input, true)
     }
 
     /// [`Self::field`] over a parse stream.
@@ -219,7 +219,18 @@ impl<'a> EntryReading<'a> {
     pub fn parse_field(self, input: ParseStream<'_>) -> syn::Result<(Path, EntrySpelling)> {
         let key = input.call(Path::parse_mod_style)?;
         input.parse::<Token![:]>()?;
-        Ok((key, self.parse(input, true)?))
+        Ok((key, self.content(input, true)?))
+    }
+
+    /// A whole entry's value, or the content of its presence: in an initializer, a value that
+    /// is no entry (`a + b`, a `let` block) is the term it builds, as inside an entry
+    /// ([`Self::inner`]), so that its marks, or their absence, are still judged against the cell.
+    fn content(self, input: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
+        if self.form == EntryForm::Initializer {
+            self.inner(input)
+        } else {
+            self.parse(input, head)
+        }
     }
 
     /// One entry; `head` is whether it stands at the entry's head (below presence and
@@ -303,7 +314,7 @@ impl<'a> EntryReading<'a> {
     fn call(self, name: &str, content: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
         match name {
             "Some" => {
-                let inner = self.parse(content, head)?;
+                let inner = self.content(content, head)?;
                 if !content.is_empty() {
                     return Err(content.error("`Some(..)` holds one entry"));
                 }
@@ -360,7 +371,7 @@ impl<'a> EntryReading<'a> {
                 Ok(EntrySpelling::Fragment(self.record(head, &fields)?))
             }
             "absent" => Ok(EntrySpelling::Absent(Box::new(
-                self.parse(&content, false)?,
+                self.content(&content, false)?,
             ))),
             _ => {
                 content.parse::<TokenStream>()?;
@@ -389,7 +400,8 @@ impl<'a> EntryReading<'a> {
     }
 
     /// A value inside an entry, followed by a `,` or by nothing: an item, an argument or a
-    /// record field's value. Inside an initializer's entry every such value is a term the
+    /// record field's value, and in an initializer also the entry's whole value or its presence's
+    /// content ([`Self::content`]). Inside an initializer every such value is a term the
     /// initializer builds, so one that is no entry (an operator's application, `0 + 1`) is read
     /// as an application whose arguments are not read: the marks around it are still the entry's
     /// to judge, and what it holds is the term's.
@@ -981,8 +993,9 @@ mod cells_fields_tests {
     }
 
     #[test]
-    fn an_initializer_s_inner_value_that_is_no_entry_is_a_term_and_its_shorthand_its_variable() {
-        let tokens = "pc: [0 + 1, x], shelf: Shelf { n: 0 + 1, bag: [f(0 + 1)] }, pgm, k: 0 + 1"
+    fn an_initializer_s_value_that_is_no_entry_is_a_term_and_its_shorthand_its_variable() {
+        let tokens = "pc: [0 + 1, x], shelf: Shelf { n: 0 + 1, bag: [f(0 + 1)] }, pgm, k: 0 + 1, \
+                      counter: Some(0 + 1), olist: k::absent!({ let y = pgm; y })"
             .parse()
             .expect("lexes");
         let variables = ["pgm".to_owned()];
@@ -1018,8 +1031,17 @@ mod cells_fields_tests {
             fields[2].spelling,
             Some(EntrySpelling::ConfigVar("pgm".to_owned()))
         );
-        // At the entry's head an operator is still no entry: its cell's wrapper is its own.
-        assert_eq!(fields[3].spelling, None);
+        // At the entry's head, and inside its presence, a value that is no entry is a term too:
+        // its marks, or their absence, are judged against its cell's kind.
+        assert_eq!(fields[3].spelling, Some(term()));
+        assert_eq!(
+            fields[4].spelling,
+            Some(EntrySpelling::Present(Box::new(term())))
+        );
+        assert_eq!(
+            fields[5].spelling,
+            Some(EntrySpelling::Absent(Box::new(term())))
+        );
         let located = super::located_spellings(
             &"[0 + 1, x]".parse().expect("lexes"),
             fields[0].spelling.as_ref().expect("read"),

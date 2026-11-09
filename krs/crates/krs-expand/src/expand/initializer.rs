@@ -250,10 +250,22 @@ fn inject_initializer_cell_list(
                 "initializer field disappeared during wrapper injection",
             ));
         };
-        // `Some(value)` of an optional cell: the value takes the wrapper
-        // (KF-023, R7). `k::absent!(template)` is checked as the
-        // `Some(template)` it would be present, so its template has the
-        // field's type.
+        // An initializer's value is its cell's whole initial content, of the cell's declared
+        // kind, which the collector judges the value against (its presence, its sequence or
+        // map notation, a group record's children): rustc sees one stand-in of whichever type
+        // the field declares, so it judges nothing of the kind first. The wire's key functions
+        // still name each cell and child.
+        if !cell.names_wrapper() {
+            field.expr = cell_stand_in(cell, facade, bindings);
+            if field.colon_token.is_none() {
+                field.colon_token = Some(syn::token::Colon::default());
+            }
+            continue;
+        }
+        // A value that names its Rust wrapper (`Cell::new(..)`, `KCell::new(..)`) is handed
+        // to rustc as written. `Some(value)` of an optional cell: the value takes the wrapper
+        // (KF-023, R7). `k::absent!(template)` is checked as the `Some(template)` it would be
+        // present, so its template has the field's type.
         if let (Some(absent), syn::Expr::Macro(_)) = (cell.absent(), &field.expr) {
             // rustc reports a template of another type at the invocation.
             let span = absent.span();
@@ -303,7 +315,7 @@ fn inject_initializer_value(
             neutral: true,
             ..
         } => {
-            *expression = initializer_value_stand_in(value, facade, bindings);
+            *expression = initializer_value_stand_in(&[value], facade, bindings);
         }
         InitializerCellContent::Leaf {
             value,
@@ -314,7 +326,7 @@ fn inject_initializer_value(
             // The wrapper stands for the value the author wrote, so rustc
             // reports a value whose kind is not the cell's (a `k!` sequence
             // in a leaf cell) at that value.
-            let value = initializer_value_stand_in(value, facade, bindings);
+            let value = initializer_value_stand_in(&[value], facade, bindings);
             let wrapper = if *computation {
                 quote!(#facade::configuration::KCell::new)
             } else {
@@ -335,7 +347,7 @@ fn inject_initializer_value(
             if let syn::Expr::Call(call) = expression
                 && let Some(argument) = call.args.first_mut()
             {
-                *argument = initializer_value_stand_in(value, facade, bindings);
+                *argument = initializer_value_stand_in(&[value], facade, bindings);
             }
         }
         InitializerCellContent::Nested { children, .. } => {
@@ -352,6 +364,25 @@ fn inject_initializer_value(
     Ok(())
 }
 
+/// What rustc sees of a cell's whole value, at any depth, in the re-emitted method: the
+/// stand-in of [`initializer_value_stand_in`] after a use of each configuration variable any of
+/// its leaves reads.
+fn cell_stand_in(cell: &FixedCellInitializer, facade: &Path, bindings: &[Ident]) -> syn::Expr {
+    fn values<'a>(cell: &'a FixedCellInitializer, out: &mut Vec<&'a StateTerm>) {
+        match cell.content() {
+            InitializerCellContent::Leaf { value, .. } => out.push(value),
+            InitializerCellContent::Nested { children, .. } => {
+                for child in children {
+                    values(child, out);
+                }
+            }
+        }
+    }
+    let mut leaves = Vec::new();
+    values(cell, &mut leaves);
+    initializer_value_stand_in(&leaves, facade, bindings)
+}
+
 /// What rustc sees of a leaf cell's value in the re-emitted method.
 ///
 /// Every value is a KRS term (a configuration variable, literal, constructor,
@@ -362,10 +393,14 @@ fn inject_initializer_value(
 /// variable it names, at the authored token: the term the payload carries uses
 /// them. A configuration variable denotes the value given at startup, which
 /// any number of cells may start from, so each use borrows it and none moves it.
-fn initializer_value_stand_in(value: &StateTerm, facade: &Path, bindings: &[Ident]) -> syn::Expr {
-    let uses = value
-        .terms()
-        .into_iter()
+fn initializer_value_stand_in(
+    values: &[&StateTerm],
+    facade: &Path,
+    bindings: &[Ident],
+) -> syn::Expr {
+    let uses = values
+        .iter()
+        .flat_map(|value| value.terms())
         .flat_map(TermExpression::nodes)
         .filter_map(|node| match node {
             TermNode::Reference(path) if is_bound_ident_path(path, bindings) => Some(path),

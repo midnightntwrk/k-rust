@@ -44,128 +44,6 @@
 # (see the header); the count is the reds each pended when
 # scripts/krs-class-collapse-pending.py last wrote this section.
 
-# B2, diagnostic: 168 reds
-
-# init: 12
-[[family]]
-match = 'init/counter/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),k::k![0],k::k![],k::k![pgm],k::map![0 -> 1],k::map![],k::map![pgm -> 1\, 0 -> 2],list::empty()}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 10
-[[family]]
-match = 'init/frame/{0,Job \{ payload: 0 \},Some(0),k::absent!(0),k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),k::map![0 -> 1],k::map![],k::map![pgm -> 1\, 0 -> 2],list::empty()}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 12
-[[family]]
-match = 'init/job/{0,Frame \{ ret: 0 \},Some(0),k::absent!(0),k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),k::k![0],k::k![],k::k![pgm],k::map![0 -> 1],k::map![],k::map![pgm -> 1\, 0 -> 2]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 10
-[[family]]
-match = 'init/k/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},Some(0),k::absent!(0),k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),k::map![0 -> 1],k::map![],k::map![pgm -> 1\, 0 -> 2]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 6
-[[family]]
-match = 'init/kinds/code/{0,Cmd::Go(),G \{ a: 0\, b: 0 \},Some(0),k::absent!(0),k::map![0 -> 1]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 6
-[[family]]
-match = 'init/kinds/frame/{0,Cmd::Go(),Some(0),k::absent!(0),k::k![pgm],pgm}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 4
-[[family]]
-match = 'init/kinds/ogroup/{0,Cmd::Go(),O \{ oa: 0 \},k::k![pgm]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 6
-[[family]]
-match = 'init/kinds/prog/{0,Cmd::Go(),G \{ a: 0\, b: 0 \},Some(0),k::absent!(0),pgm}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 8
-[[family]]
-match = 'init/kinds/{account,bag,code,counter,job,ogroup,olist,omap}/pgm'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 18
-[[family]]
-match = 'init/kinds/{account,bag,job}/{0,Cmd::Go(),Some(0),k::absent!(0),k::k![pgm],k::map![0 -> 1]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 6
-[[family]]
-match = 'init/kinds/{counter,frame,ogroup,olist,omap,prog}/k::map![0 -> 1]'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 12
-[[family]]
-match = 'init/kinds/{counter,olist,omap}/{0,Cmd::Go(),G \{ a: 0\, b: 0 \},k::k![pgm]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 20
-[[family]]
-match = 'init/kinds/{env,pc,seq,set,stack}/{G \{ a: 0\, b: 0 \},Some(0),k::absent!(0),k::k![pgm]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 2
-[[family]]
-match = 'init/{counter,frame}/pgm'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 12
-[[family]]
-match = 'init/{env,frame,pc,stack}/{k::k![0],k::k![],k::k![pgm]}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 12
-[[family]]
-match = 'init/{env,pc,stack}/{Frame \{ ret: 0 \},Job \{ payload: 0 \},Some(0),k::absent!(0)}'
-finding = "B2"
-kind = "diagnostic"
-
-# init: 4
-[[family]]
-match = 'init/{job,k}/{list::empty(),pgm}'
-finding = "B2"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/init/init/i05-pcell/P \{ pjs: 0 \}'
-finding = "B2"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/init/init/ogroup/{Some(0),k::absent!(0)}'
-finding = "B2"
-kind = "diagnostic"
-
-# sweep: 5
-[[family]]
-match = 'sweep/init/init/{env,pc,seq,set,stack}/G \{ a: 0 \}'
-finding = "B2"
-kind = "diagnostic"
-
 # NT-2-26, diagnostic: 1 reds
 # terms: 1
 [[family]]
@@ -216,7 +94,7 @@ match = 'k8/terms/readable/map-key/or-branch/{!(x < 1),Cmd::Go,Cmd::Go(),Cmd::Ho
 finding = "S0-14"
 kind = "k8"
 
-# S0-9, diagnostic: 200 reds
+# S0-9, diagnostic: 178 reds
 
 # sweep: 1
 [[family]]
@@ -230,69 +108,15 @@ match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, .
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 2
-[[family]]
-match = 'sweep/init/init/acct/{Gm \{ ma: 0 \},k::map![0 -> 1\, ..env]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/init/init/bag/{Gs \{ sa: 0 \},k::map![0 -> 1\, ..env]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/init/init/i04-pcell/P \{ pjs: Some(Jp \{ pp: 0 \}) \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/init/init/i08-ocell/O \{ oo: 0\, on: 0 \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/init/init/i10-acc/A \{ al: [0] \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/init/init/job/{Gl \{ la: 0 \},k::map![0 -> 1\, ..env]}'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep: 4
 [[family]]
-match = 'sweep/init/init/ogroup/{Gp \{ pa: 0 \},Gp \{ pa: 0\, ..base \},Gp \{ pa: 0\, pb: 0 \},k::map![0 -> 1\, ..env]}'
+match = 'sweep/init/init/{counter,olist,omap,prog}/G \{ a: 0\, ..base \}'
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 2
+# sweep: 1
 [[family]]
-match = 'sweep/init/init/olist/{G \{ a: 0\, ..base \},k::map![0 -> 1\, ..env]}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/init/init/{counter,frame,omap,prog}/k::map![0 -> 1\, ..env]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 6
-[[family]]
-match = 'sweep/init/init/{counter,omap,prog}/{G \{ a: 0 \},G \{ a: 0\, ..base \}}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/init/init/{frame,olist}/G \{ a: 0 \}'
+match = 'sweep/init/init/ogroup/Gp \{ pa: 0\, ..base \}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -382,18 +206,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 
 # NT-6: the collection literals and the calls they denote, printed in a `for Stmt` result's `let` or
 # `k::matches!`.
-
-# B2: an initializer value of the wrong kind or sort is rustc E0308 at the entry's value (its inferred wrapper is spanned there), not a KRS error
-# The value's kind (a cell wrapper, map notation, presence, a group or instance record, a leaf
-# value) must be judged against the cell's declared kind, which the `#[k::init]` macro cannot see
-# and only the collector knows: S5's, with S0-9's other cell-entry spellings.
-# NT-17: `k::absent!(t)` on a plain cell is checked as the `Some(t)` it expands to, so an author who
-# wrote no `Option` reads "expected `T`, found `Option<..>`". The expansion could word it in KRS's
-# terms without seeing the field's type: expand to a facade fn generic in its result, bounded by a
-# trait only `Option<T>` implements and marked `#[diagnostic::on_unimplemented]`, so rustc infers
-# the field's type and says "`k::absent!` starts an optional (`?`) cell absent; `T` is not an
-# `Option`". That is rustc's E0277, still not `presence-on-plain-cell`, so the six
-# `init/*/k::absent!(0)` entries stay pending for S5 either way; only the wording would move.
 
 # B3: `Some(..)`/`None` in a readable result on a cell that is not optional is `krs::expand::not-a-declaration` at the spelling (rustc resolves it to `Option`'s variant), not the presence rule
 # `Some(..)`/`None` written as a result entry is presence, decided against the cell's declared kind

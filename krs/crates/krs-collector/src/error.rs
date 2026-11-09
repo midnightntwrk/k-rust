@@ -125,6 +125,9 @@ pub enum CollectionErrorKind {
     /// the table admits and no lowering writes yet
     /// ([`krs_syntax::cell_entries::instance_child_presence`]).
     InstanceChildMultiplicity,
+    /// An initializer value the table admits by its marks whose sort is not below its cell's: a
+    /// term on a group cell, a group record on a leaf, a record of another group.
+    InitializerContentSort,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -303,6 +306,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::CollectionOverwrite
             | CollectionErrorKind::InstanceChildMultiplicity => codes::analysis::COLLECTION_ENTRY,
             CollectionErrorKind::FixedCellsOnly => codes::expand::CELL_COLLECTION_PLACEMENT,
+            CollectionErrorKind::InitializerContentSort => codes::analysis::INVALID_TERM,
         };
         let diagnostic = Diagnostic::error(
             code,

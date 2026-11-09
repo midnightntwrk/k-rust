@@ -162,6 +162,11 @@ struct PendingDescriptor {
     host: HostDescriptor,
     id: StableItemId,
     context_index: usize,
+    /// A fixed configuration's initializer that disagrees with its declaration, located: kept
+    /// until the initializer's entries are judged by the cells' declared kinds, since a value of
+    /// the wrong kind is the author's mistake, which the entry's class answers, and only a
+    /// disagreement the judged entries leave is the expander's.
+    deferred: Option<CollectionError>,
 }
 
 /// A collected bundle, and the warnings its collection reports: the lints of admitted entries
@@ -347,9 +352,19 @@ fn collect_pending_descriptors(
         // locating its error needs; a descriptor of a package outside the selection is no part
         // of the definition, so that error comes first whatever the descriptor's shape.
         // A payload that disagrees with its anchors is the expander's failure, not the
-        // author's: both come from one expansion.
-        let failure = host
-            .validate_state_ownership()
+        // author's: both come from one expansion. One disagreement is kept instead: a fixed
+        // initializer's cell whose shape is not its declaration's, since the macro writes the
+        // shape its value's spelling has, which may be of another kind than the cell's; the
+        // initializer's entries are judged by the declared kinds first (`deferred`).
+        let ownership = host.validate_state_ownership();
+        let deferrable = matches!(
+            ownership,
+            Err(krs_ir::StateTransportError::InitializerDeclarationMismatch { .. })
+        ) && matches!(
+            host.payload,
+            krs_ir::HostDescriptorPayload::FixedConfiguration(_)
+        );
+        let failure = ownership
             .map_err(|error| {
                 (
                     CollectionErrorKind::InvalidConfiguration,
@@ -366,13 +381,18 @@ fn collect_pending_descriptors(
                     )
                 })
             });
+        let mut deferred = None;
         if let Err((kind, message, at)) = failure {
             let error = CollectionError::new(kind, message);
             let error = match at {
                 Some(key) => error.with_reference_key(key),
                 None => error,
             };
-            return Err(locate_at_host(error, &host, &id, context_index, contexts));
+            let error = locate_at_host(error, &host, &id, context_index, contexts);
+            if !deferrable {
+                return Err(error);
+            }
+            deferred = Some(error);
         }
         if !ids.insert(id.clone()) {
             return Err(CollectionError::new(
@@ -384,6 +404,7 @@ fn collect_pending_descriptors(
             host,
             id,
             context_index,
+            deferred,
         });
     }
     Ok(pending)
@@ -453,9 +474,9 @@ fn resolution_tables(
     source_cache: &mut BTreeMap<(usize, String), source::SourceDocument>,
 ) -> Result<ResolutionTables, CollectionError> {
     pending.sort_by(|left, right| left.id.cmp(&right.id));
-    // A configuration's initializer entries the declared kinds leave undecided are judged from
-    // its authored fields; a source that does not reparse is the configuration's resolution's
-    // to report.
+    // A configuration's initializer entries are judged by the declared kinds from its authored
+    // fields; a source that does not reparse is the configuration's resolution's to report. A
+    // disagreement host validation kept is raised once the judged entries leave it.
     let mut admit = |pending: &[PendingDescriptor], index: usize| {
         let descriptor = &pending[index];
         let authored = materialize_descriptor_provenance(
@@ -468,7 +489,11 @@ fn resolution_tables(
         )
         .ok()
         .and_then(|(.., cells)| cells);
-        resolve::admit_neutral_leaves(pending, index, builtins, authored.as_ref())
+        let judged = resolve::admit_initializer(pending, index, builtins, authored.as_ref())?;
+        match &descriptor.deferred {
+            Some(error) => Err(error.clone()),
+            None => Ok(judged),
+        }
     };
     let dropped = resolve::decide_neutral_leaves(pending, builtins, &mut admit).map_err(
         |(index, key, error)| match key {

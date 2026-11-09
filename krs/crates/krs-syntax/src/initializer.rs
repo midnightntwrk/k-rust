@@ -322,6 +322,22 @@ impl FixedCellInitializer {
         self.absent.as_ref()
     }
 
+    /// Whether the cell, or a cell inside it, names its Rust wrapper (`Cell::new(..)`,
+    /// `KCell::new(..)`): the author spelled the Rust form of the value's kind, which rustc
+    /// checks against the field's type, so the macro hands rustc that value as written.
+    #[must_use]
+    pub fn names_wrapper(&self) -> bool {
+        match &self.content {
+            InitializerCellContent::Leaf {
+                inferred_constructor,
+                ..
+            } => !inferred_constructor,
+            InitializerCellContent::Nested { children, .. } => {
+                children.iter().any(Self::names_wrapper)
+            }
+        }
+    }
+
     /// Whether a readable plain expression caused its leaf constructor to be inferred.
     #[must_use]
     pub const fn has_inferred_constructor(&self) -> bool {
@@ -579,8 +595,26 @@ impl InitializerFunction {
     #[must_use]
     pub fn entry_fields(&self) -> Option<Vec<crate::cell_entry::CellsField>> {
         let variables = self.variable_names();
-        crate::cell_entry::EntryReading::new(crate::cell_entry::EntryForm::Initializer, &variables)
-            .fields(&self.body.fields.to_token_stream())
+        let mut fields = crate::cell_entry::EntryReading::new(
+            crate::cell_entry::EntryForm::Initializer,
+            &variables,
+        )
+        .fields(&self.body.fields.to_token_stream())?;
+        // An entry that names its Rust wrapper is rustc's to check ([`FixedCellInitializer::
+        // names_wrapper`]), so it carries no spelling to judge.
+        for field in &mut fields {
+            if self.cells.iter().any(|cell| {
+                cell.names_wrapper()
+                    && field
+                        .key
+                        .get_ident()
+                        .is_some_and(|key| key.unraw() == cell.name().unraw())
+            }) {
+                field.spelling = None;
+                field.located.clear();
+            }
+        }
+        Some(fields)
     }
 
     /// The names the configuration variables bind, in authored parameter order.

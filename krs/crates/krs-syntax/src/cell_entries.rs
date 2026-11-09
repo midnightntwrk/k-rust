@@ -354,7 +354,12 @@ impl Refusal {
                 "the entry of the cell `{cell}` holds a map literal with an anonymous `..`, which names no map here: the literal is not the cell's content, so there is no map whose other entries the `..` could stand for"
             ),
             Self::PresenceOnPlainCell => format!(
-                "the cell `{cell}` holds {holds} and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `{cell}` has none of"
+                "the cell `{cell}` holds {holds} and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: {} are the presence of an optional cell, which `{cell}` has none of",
+                if form == EntryForm::Initializer {
+                    "`Some(..)` and `k::absent!(..)`"
+                } else {
+                    "`Some(..)` and `None`"
+                }
             ),
             Self::BracketReading => format!(
                 "the cell `{cell}` holds {holds}, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"
@@ -382,7 +387,7 @@ impl Refusal {
             ),
             Self::MapNotationAtNonMap => format!(
                 "the cell `{cell}` holds {holds}, not a map: map notation ({}) denotes the entries of a cell whose sort is the builtin `Map`",
-                if form == EntryForm::Cells {
+                if matches!(form, EntryForm::Cells | EntryForm::Initializer) {
                     "`k::map![..]`"
                 } else {
                     "`{ k -> v, .. }`, `map![..]`"
@@ -390,11 +395,20 @@ impl Refusal {
             ),
             Self::CellWrapper => format!(
                 "the cell `{cell}` holds {holds}, and the entry's wrapper is not that content's: {}",
-                if form == EntryForm::Cells {
-                    "`KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one"
-                } else {
-                    "a computation's entry is its items in brackets, read from the front, and a value alone is no computation"
+                match form {
+                    EntryForm::Cells => {
+                        "`KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one"
+                    }
+                    EntryForm::Initializer => {
+                        "a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation"
+                    }
+                    EntryForm::Readable | EntryForm::Claim => {
+                        "a computation's entry is its items in brackets, read from the front, and a value alone is no computation"
+                    }
                 }
+            ),
+            Self::OptionalWithoutPresence if form == EntryForm::Initializer => format!(
+                "the cell `{cell}` is optional (`multiplicity = \"?\"`), so its initial value states whether it starts there: `Some(..)` holds its content when it does, and `k::absent!(..)` the template of the cell when it does not"
             ),
             Self::OptionalWithoutPresence => format!(
                 "the cell `{cell}` is optional (`multiplicity = \"?\"`), so its entry states whether it is there: `Some(..)` holds its content when it is, and `None` stands for its absence"

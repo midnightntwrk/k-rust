@@ -162,7 +162,10 @@ doc = "an entry whose wrapper is not its cell's, the spellings of its examples: 
 examples = ["readable ; subject ; - ; computation ; x ; -", "cells ; subject ; - ; leaf Int ; x ; -", "cells ; subject ; - ; leaf Int ; k::configuration::KCell(x, ..) ; -", "cells ; subject ; - ; * List of G ; k::configuration::Cell(x) ; -", "cells ; subject ; - ; ? leaf Int ; k::configuration::KCell(x, ..) ; -", "init ; init ; - ; computation ; 0 ; -"]
 # A `cells!` refusal advises the spelling of the cell's own kind, its marks outermost first (P2):
 # `Cell(..)`, `KCell(..)`, `Some(..)`, instance records in brackets or braces, a group's record.
-advice = ["cells/subject/pc/k::configuration::Cell(x)", "cells/result/counter/Some(k::configuration::Cell(x))", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }", "sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }])"]
+# An initializer's refusal advises the initializer's spellings: `k::k![..]` for the computation
+# (an initializer's value is complete, so no rest), a group's record, and for a collection one
+# instance's template, each group's record by its name.
+advice = ["cells/subject/pc/k::configuration::Cell(x)", "cells/result/counter/Some(k::configuration::Cell(x))", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }", "sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }])", "init/k/k::k![pgm]", "init/frame/Frame { ret: 0 }", "init/job/Job { payload: 0 }", "init/kinds/bag/Obj { key: 0 }", "init/kinds/ogroup/Some(O { oa: 0 })", "init/kinds/account/Acct { id: 0, aprog: k::k![], acode: k::k![], apc: 0, astack: list::empty(), aseq: IntList::IntsEmpty(), aenv: k::map![], aset: set::empty(), aframe: Ag { aa: 0 }, acounter: k::absent!(0), aolist: k::absent!(list::empty()), aomap: k::absent!(k::map![]), aogroup: k::absent!(Ao { aoa: 0 }), aqueue: Aqueue { ajob: Ajob { apay: 0 } }, ashelf: Ashelf { abag: Aobj { akey: 0 } }, abank: Abank { aacct: Aacct { aid: 0 } } }"]
 
 [class.claim-only-term]
 code = "krs::expand::claim-only-term"

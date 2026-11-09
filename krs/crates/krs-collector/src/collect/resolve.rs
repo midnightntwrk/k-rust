@@ -421,9 +421,9 @@ pub(super) type HostCellKinds = Vec<(StableItemId, Vec<(String, CellKind)>)>;
 /// its computation does not read, by configuration.
 pub(super) type DroppedKeys = HashMap<StableItemId, BTreeSet<krs_ir::ProvenanceKey>>;
 
-/// The entry-admission table's judgement of a configuration's initializer entries its cells'
-/// kinds leave undecided ([`admit_neutral_leaves`]), given the configuration's index in the
-/// descriptors: whether it judged them, or its refusal.
+/// The entry-admission table's judgement of a configuration's initializer entries
+/// ([`admit_initializer`]), given the configuration's index in the descriptors: whether it
+/// judged them, or its refusal.
 pub(super) type Admission<'a> =
     dyn FnMut(&[PendingDescriptor], usize) -> Result<bool, CollectionError> + 'a;
 
@@ -433,12 +433,15 @@ pub(super) type Admission<'a> =
 /// on a `List` or cons-list leaf (P2/P3: brackets are the computation's or the list's mark, read
 /// by the declared kind).
 ///
-/// A leaf the cell's own kind does not decide so (one below a presence or an instances layer, or
-/// of a kind brackets do not mark) is the entry-admission table's to judge, against the entry's
-/// spelling (`admit`, given the configuration's index in `pending`): a refusal is the author's
-/// answer; an admitted entry's brackets are the mark of the content below the presence or the
-/// instances (`Some([..])` on an optional list), and are decided by that content. `admit` answers
-/// whether it judged the entries; a configuration it did not judge keeps its leaves neutral.
+/// Every configuration's entries are the entry-admission table's to judge, against the
+/// entries' spellings (`admit`, given the configuration's index in `pending`): an initializer's
+/// value is its cell's whole initial content, of the cell's declared kind, and the macro, which
+/// does not know that kind, checks none of it. A refusal is the author's answer. A leaf the
+/// cell's own kind does not decide (one below a presence or an instances layer, or of a kind
+/// brackets do not mark) is decided once the table admits its entry: its brackets are the mark
+/// of the content below the presence or the instances (`Some([..])` on an optional list).
+/// `admit` answers whether it judged the entries; a configuration it did not judge keeps its
+/// leaves neutral.
 ///
 /// Then main: the main configuration variable is the one the computation reads. A candidate
 /// marks each variable a neutral leaf reads when nothing else decides main; the rule `k!`
@@ -482,9 +485,9 @@ pub(super) fn decide_neutral_leaves(
             continue;
         };
         decide_leaves(&mut initializer.cells, &kinds, &mut computations, false);
-        if holds_neutral_leaf(&initializer.cells)
-            && admit(pending, index).map_err(|error| (index, None, error))?
+        if admit(pending, index).map_err(|error| (index, None, error))?
             && let Some(initializer) = configuration_initializer(&mut pending[index])
+            && holds_neutral_leaf(&initializer.cells)
         {
             decide_leaves(&mut initializer.cells, &kinds, &mut computations, true);
         }
@@ -548,17 +551,18 @@ pub(super) fn decide_neutral_leaves(
     Ok(dropped)
 }
 
-/// Judges, by the entry-admission table, the initializer entries of the configuration
-/// `pending[index]` that hold a leaf the cell's own kind did not decide
-/// ([`super::cell_entries::judge_initializer`]): each against its declared cell, from the
-/// initializer's authored fields. Answers whether it judged them: an initializer whose source or
-/// declaration does not resolve here is left as it is, for the configuration's resolution to
-/// report.
+/// Judges, by the entry-admission table, every initializer entry of the configuration
+/// `pending[index]` ([`super::cell_entries::judge_initializer`]): each against its declared
+/// cell, from the initializer's authored fields. Then, the entries admitted, the sort step for
+/// what the wire's shape says of a value ([`initializer_shape`]). Answers whether it judged them:
+/// an initializer whose source or declaration does not resolve here is left as it is, for the
+/// configuration's resolution to report.
 ///
 /// # Errors
 ///
-/// The table's refusal of the first such entry, located at what it refuses.
-pub(super) fn admit_neutral_leaves(
+/// The table's refusal of the first refused entry, located at what it refuses; else the first
+/// value whose shape is another cell's than its own.
+pub(super) fn admit_initializer(
     pending: &[PendingDescriptor],
     index: usize,
     builtins: Option<&HostBuiltinRegistry>,
@@ -584,11 +588,10 @@ pub(super) fn admit_neutral_leaves(
     else {
         return Ok(false);
     };
-    let neutral = configuration
+    let entries = configuration
         .initializer
         .cells
         .iter()
-        .filter(|cell| holds_neutral_leaf(std::slice::from_ref(cell)))
         .filter_map(|cell| {
             let identity = cell_fields.get(&cell.field.cell.resolve())?;
             let target = cells.iter().find(|target| &target.identity == identity)?;
@@ -602,8 +605,101 @@ pub(super) fn admit_neutral_leaves(
             ))
         })
         .collect::<Vec<_>>();
-    super::cell_entries::judge_initializer(&neutral, &configuration_groups(&cells), authored)?;
+    super::cell_entries::judge_initializer(&entries, &configuration_groups(&cells), authored)?;
+    let declared = pending
+        .iter()
+        .filter_map(|descriptor| match &descriptor.host.payload {
+            HostDescriptorPayload::Cell(declaration) => Some(declaration.as_ref()),
+            HostDescriptorPayload::FixedConfiguration(configuration) => {
+                Some(&configuration.declaration)
+            }
+            _ => None,
+        })
+        .flat_map(|declaration| &declaration.fields)
+        .map(|field| (field.reference.cell.resolve(), field))
+        .collect::<HashMap<_, _>>();
+    if let Some((path, reason)) = initializer_shape(&configuration.initializer.cells, &declared) {
+        return Err(super::cell_entries::initializer_content_sort(
+            authored, &path, reason,
+        ));
+    }
     Ok(true)
+}
+
+/// The first cell of `cells`, at any depth, whose wire shape is not its declaration's, by the
+/// names of the cells down to it and the reason; `None` where every shape is its cell's.
+///
+/// Once the table has admitted every entry by its marks, a value's shape against its cell is the
+/// lattice's step: a term's sort is no group's, a group record's sort is its group's, and a
+/// record of one group is not below another's cell. So a term on a group cell, a group record on
+/// a leaf and a record of another group are the content-sort mistake, which the wire shows where
+/// the macro wrote the shape the value's spelling has. A neutral leaf states no shape, and a cell
+/// whose declaration does not resolve here is the configuration's resolution's to report.
+fn initializer_shape(
+    cells: &[krs_ir::HostInitializerCell],
+    declared: &HashMap<(TypeId, TypeId), &krs_ir::HostCellField>,
+) -> Option<(Vec<String>, ShapeMismatch)> {
+    use krs_ir::{ProtocolCellContent, ProtocolInitializerCellContent};
+    for cell in cells {
+        let Some(field) = declared.get(&cell.field.cell.resolve()) else {
+            continue;
+        };
+        let name = field.rust_field.clone();
+        let mismatch = match (&cell.content, &field.content) {
+            (
+                ProtocolInitializerCellContent::Leaf { .. },
+                ProtocolCellContent::Nested { declaration },
+            ) => Some(ShapeMismatch::TermOnGroup {
+                group: last_segment(&declaration.declaration.authored_path),
+            }),
+            (
+                ProtocolInitializerCellContent::Nested { declaration, .. },
+                ProtocolCellContent::Leaf { .. },
+            ) => Some(ShapeMismatch::RecordOnLeaf {
+                record: last_segment(&declaration.declaration.authored_path),
+            }),
+            (
+                ProtocolInitializerCellContent::Nested {
+                    declaration: written,
+                    children,
+                },
+                ProtocolCellContent::Nested { declaration },
+            ) => {
+                if written.declaration.key.resolve() != declaration.declaration.key.resolve() {
+                    Some(ShapeMismatch::RecordOfAnotherGroup {
+                        record: last_segment(&written.declaration.authored_path),
+                        group: last_segment(&declaration.declaration.authored_path),
+                    })
+                } else if let Some((mut path, reason)) = initializer_shape(children, declared) {
+                    path.insert(0, name.clone());
+                    return Some((path, reason));
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(mismatch) = mismatch {
+            return Some((vec![name], mismatch));
+        }
+    }
+    None
+}
+
+/// How an initializer value's shape is not its cell's ([`initializer_shape`]).
+#[derive(Clone, Debug)]
+pub(super) enum ShapeMismatch {
+    /// A term on a group cell of this struct.
+    TermOnGroup { group: String },
+    /// A record of this group struct on a leaf cell.
+    RecordOnLeaf { record: String },
+    /// A record of the group struct `record` on a group cell of the struct `group`.
+    RecordOfAnotherGroup { record: String, group: String },
+}
+
+/// The last segment of an authored Rust path.
+fn last_segment(path: &str) -> String {
+    path.rsplit("::").next().unwrap_or(path).trim().to_owned()
 }
 
 /// The initializer of `descriptor`, where it is a fixed configuration.

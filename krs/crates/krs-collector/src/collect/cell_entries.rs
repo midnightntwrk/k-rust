@@ -491,14 +491,15 @@ fn subject_limit<T, U>(
     }
 }
 
-/// Judges the entries of an initializer that hold a value its cell's kind alone could not decide
-/// (a bracketed value on a cell that is neither the computation nor a list leaf), each against
-/// its cell: `cells` gives each such cell, its kind and its leaf's sort. Where the table admits
-/// such an entry, its brackets are the mark of the kind below its presence or instances (an
-/// optional list's `Some([..])`, a template's list), which the caller then decides; where it
-/// refuses one, the refusal is the author's answer, at what it refuses. The initializer's other
-/// entries are not judged here: their values state their own wrappers. An entry whose value the
-/// reader does not read is left undecided.
+/// Judges the entries of an initializer, each against its cell: `cells` gives each cell, its
+/// kind and its leaf's sort. An initializer's value is its cell's whole initial content, of the
+/// cell's declared kind, and the macro, which does not know that kind, checks none of it, so the
+/// table answers every entry here: where it refuses one, the refusal is the author's answer, at
+/// what it refuses. Where it admits an entry with brackets on a cell the kind alone does not
+/// decide, they are the mark of the kind below its presence or instances (an optional list's
+/// `Some([..])`, a template's list), which the caller then decides. An entry whose value the
+/// reader does not read (one that names a Rust wrapper, `Cell::new(..)`, which rustc checks) is
+/// not judged.
 ///
 /// # Errors
 ///
@@ -554,6 +555,70 @@ pub(super) fn judge_initializer(
             groups,
         )
     })
+}
+
+/// The content-sort refusal of an initializer value the table admits by its marks but whose
+/// sort is not below its cell's ([`super::resolve::ShapeMismatch`]): at the value of the cell
+/// `path` names, the top-level entry's name, then each group child's below it.
+pub(super) fn initializer_content_sort(
+    authored: &LocatedCells,
+    path: &[String],
+    mismatch: super::resolve::ShapeMismatch,
+) -> CollectionError {
+    use super::resolve::ShapeMismatch;
+    let cell = path.last().map_or("", |name| unraw(name));
+    let detail = match mismatch {
+        ShapeMismatch::TermOnGroup { group } => format!(
+            "the cell `{cell}` holds a `{group}` group, and the initializer gives it a term, whose sort is no group's: a group's initial content is the record of its children, `{group} {{ .. }}`"
+        ),
+        ShapeMismatch::RecordOnLeaf { record } => format!(
+            "the initializer gives `{cell}` a `{record}` record, a group's content, whose sort is not below the cell's: `{cell}` holds a term of its declared sort"
+        ),
+        ShapeMismatch::RecordOfAnotherGroup { record, group } => format!(
+            "the cell `{cell}` holds a `{group}` group, and the initializer gives it a `{record}` record, another group's content, whose sort is not below the cell's"
+        ),
+    };
+    let error = CollectionError::new(CollectionErrorKind::InitializerContentSort, detail);
+    let range = path.split_first().and_then(|(top, children)| {
+        let field = authored
+            .subject
+            .iter()
+            .find(|field| unraw(&field.name) == unraw(top))?;
+        let Some(spelling) = &field.spelling else {
+            return field.range.clone();
+        };
+        let mut at = Vec::new();
+        let mut spelling = spelling;
+        for child in children {
+            while let EntrySpelling::Present(inner) | EntrySpelling::Absent(inner) = spelling {
+                at.push(0);
+                spelling = inner;
+            }
+            let EntrySpelling::Record(record) = spelling else {
+                return field.range.clone();
+            };
+            let Some((step, (_, value))) = record
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| unraw(name) == unraw(child))
+            else {
+                return field.range.clone();
+            };
+            at.push(step);
+            spelling = value;
+        }
+        field
+            .located
+            .iter()
+            .find(|(located, _)| *located == at)
+            .map(|(_, range)| range.clone())
+            .or_else(|| field.range.clone())
+    });
+    match range {
+        Some(range) => error.with_source_range(range),
+        None => error,
+    }
 }
 
 /// The refusal of an admitted result entry over a collection the subject does not match (Q1's
@@ -1333,6 +1398,11 @@ fn advice(
             "write its entry as its instances, `{}`",
             spelled(form, own)
         )),
+        // An initializer gives an absent cell its template, `None` none (`none-in-initializer`).
+        Refusal::OptionalWithoutPresence if side == EntrySide::Initializer => Some(
+            "write its value inside `Some(..)`, or inside `k::absent!(..)` for a cell that starts absent"
+                .to_owned(),
+        ),
         Refusal::OptionalWithoutPresence => {
             Some("write its entry inside `Some(..)`, or as `None` for its absence".to_owned())
         }
@@ -1584,12 +1654,16 @@ fn spelled(form: EntryForm, layers: &[Layer]) -> String {
         }
         (EntryForm::Cells, Some((Layer::Leaf(_), _))) => "k::configuration::Cell(..)".to_owned(),
         (EntryForm::Cells, Some((Layer::Group(_), _)) | None) => "k::fragment![..]".to_owned(),
+        // An initializer's value for a collection is one instance's template.
+        (EntryForm::Initializer, Some((Layer::Instances(_), inner))) => spelled(form, inner),
         (_, Some((Layer::Instances(Order::List), inner))) => {
             format!("[{} {{ .. }}, ..]", group(inner))
         }
         (_, Some((Layer::Instances(Order::Set | Order::Map), inner))) => {
             format!("{{ {} {{ .. }}, .. }}", group(inner))
         }
+        // An initializer's computation lists every item: it keeps no rest.
+        (EntryForm::Initializer, Some((Layer::Computation, _))) => "k::k![x]".to_owned(),
         (_, Some((Layer::Computation, _))) => "[x, ..]".to_owned(),
         (_, Some((Layer::Leaf(_), _))) => "x".to_owned(),
         (_, Some((Layer::Group(group), _))) => format!("{} {{ .. }}", group.name),
