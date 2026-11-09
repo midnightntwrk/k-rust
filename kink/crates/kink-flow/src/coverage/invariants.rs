@@ -42,23 +42,27 @@
 //!
 //! # The function
 //!
-//! The connection simplifies the invariant's application and the evidence evaluates it, each with
-//! the backend's choice of matching: of a priority group's equations, and of the binding a
-//! collection pattern takes. Both answers are the invariant's only where its equations define a
-//! function, one value at each input whichever choice is made. That is what the baseline's full
-//! critical-pair check shows ([`kink_native::data::DataFacts`]): where every critical pair joins
-//! and the check is complete, the equations have `M+` as a model (under A1+, as a kill reads the
-//! definition), in which the invariant has one value at each input. Only the pairs of equations
-//! the invariant's evaluation can use bear on it, the equations of every symbol its function
-//! reaches ([`super::scope::Scope::closure`], kink-native `consistency::EquationReach`), so
+//! The connection simplifies its question, the invariant's application and the item's valuation,
+//! the rule's guard functions included, and the evidence evaluates the invariant's application,
+//! each with the backend's choice of matching: of a priority group's equations, and of the
+//! binding a collection pattern takes. Both answers are the definition's only where the equations
+//! they use define functions, one value at each input whichever choice is made. That is what the
+//! baseline's full critical-pair check shows ([`kink_native::data::DataFacts`]): where every
+//! critical pair joins and the check is complete, the equations have `M+` as a model (under A1+,
+//! as a kill reads the definition), in which each function has one value at each input. Only the
+//! pairs of equations the checks can use bear on an item, the equations of every symbol its
+//! connection question applies (kink-native [`kink_native::invariant::question_symbols`], the
+//! invariant's function among them, which is all the evidence applies) and of every symbol those
+//! reach ([`super::scope::Scope::closure_of`], kink-native `consistency::EquationReach`), so
 //! [`function_check`] reads the findings involving those (`DataFacts::findings_at`): none, the
-//! function is `shown`; each assumed by a `[spec] assume_joined` name, `assumed`, the premise
-//! the standing then rests on; one no name assumes, or an incomplete check, `not-shown`, and
-//! every argued item naming the invariant is `unchecked` with the findings named and the
+//! item's functions are `shown`; each assumed by a `[spec] assume_joined` name, `assumed`, the
+//! premise the standing then rests on; one no name assumes, or an incomplete check, `not-shown`,
+//! and the item is `unchecked` with the reason naming each function whose reach holds such a
+//! finding, and the findings. For the invariant's own function the reason also gives the
 //! canonical form, the violation (`F((K |-> _) _, E) => false requires P(E, K)` beside
 //! `F(_, _) => true [owise]`), whose `false` reads no binding the pattern chose and so joins by
-//! the check's syntactic rule. A refutation reads the invariant at one choice too, so an
-//! invariant not shown to be a function refutes nothing.
+//! the check's syntactic rule. A refutation reads the functions at one choice too, so an item
+//! whose functions are not shown to be functions refutes nothing.
 //!
 //! # The cache
 //!
@@ -79,7 +83,7 @@
 //! connection reports the axiom and the valuation, not a model.
 
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use k_rust::backend::{Backend, BackendError};
@@ -95,7 +99,7 @@ use kink_campaign::CellLayout;
 use kink_corpus::admission::AdmissionRefusal;
 use kink_native::invariant::{
     Connection, Invariant as Asked, Undecided, Valuation, combined as combined_rules,
-    rule_connections,
+    question_symbols, rule_connections,
 };
 use serde_json::{Map, Value, json};
 
@@ -112,77 +116,125 @@ pub const CONNECTION_FAILS: &str = "fails";
 /// The status of a connection neither shown to hold nor to fail.
 pub const CONNECTION_UNDECIDED: &str = "undecided";
 
-/// The status of an invariant's function whose equations, and those of every function they
-/// reach, have no finding of the baseline's critical-pair check, a complete one.
+/// The status of an argued item's functions, its connection question's and so its invariant's,
+/// whose equations, and those of every function they reach, have no finding of the baseline's
+/// critical-pair check, a complete one.
 pub const FUNCTION_SHOWN: &str = "shown";
-/// The status of an invariant's function whose reach has findings, each assumed by a
-/// `[spec] assume_joined` name: the function rests on those premises.
+/// The status of an argued item's functions whose reach has findings, each assumed by a
+/// `[spec] assume_joined` name: the functions rest on those premises.
 pub const FUNCTION_ASSUMED: &str = "assumed";
-/// The status of an invariant's function not shown to be one: a finding of its reach no name
-/// assumes, an incomplete check, or a definition the backend could not select.
+/// The status of an argued item's functions not shown to be functions: a finding of their reach
+/// no name assumes, an incomplete check, or a definition the backend could not select.
 pub const FUNCTION_NOT_SHOWN: &str = "not-shown";
 
-/// Whether the invariant whose function is `symbol` is shown to be a function (module
-/// documentation, "The function"): `{status, findings, reason}`, `findings` every finding of
-/// the baseline's full critical-pair check `data` that involves an equation of a symbol in
-/// `closure`, the reach of `symbol` (`None` where it could not be read), the assumed ones
-/// marked, and `reason`, for a function not shown to be one, why, with the canonical form
-/// (kink-flow README, "Argued obligations").
+/// Whether an argued item's checks rest on functions (module documentation, "The function"):
+/// `{status, findings, reason}`, `findings` every finding of the baseline's full critical-pair
+/// check `data` that involves an equation of a symbol `closure` gives for `seeds`, the symbols the
+/// item's connection question applies, the invariant's function `symbol` among them (`None` where
+/// the reach could not be read), the assumed ones marked, and `reason`, for an item not shown to
+/// rest on functions, why: each function of `seeds` whose own reach holds a finding no name
+/// assumes, the findings, and for the invariant's function the canonical form (kink-flow
+/// README, "Argued obligations").
 pub(super) fn function_check(
     symbol: &str,
-    closure: Option<&std::collections::BTreeSet<String>>,
+    seeds: &BTreeSet<String>,
+    closure: impl Fn(&BTreeSet<String>) -> Option<BTreeSet<String>>,
     data: &kink_native::data::DataFacts,
 ) -> Value {
     let label = kink_native::data::label(symbol);
-    let not_shown = |why: String| {
+    let presupposed = "with the backend's choice of matching, which presupposes that its \
+                       equations give one value at each input";
+    let invariant_not_shown = |why: String| {
         format!(
             "the invariant's function `{label}` is not shown to be a function: {why}; the \
-             connection and the evidence evaluate it with the backend's choice of matching, \
-             which presupposes that its equations give one value at each input. Write a \
-             for-all invariant as its violation, an equation giving `false` where some binding \
-             breaks it and an `owise` equation giving `true` (kink-flow README, \"Argued \
-             obligations\"), or name the finding in `[spec] assume_joined`, a premise of its own"
+             connection and the evidence evaluate it {presupposed}. Write a for-all invariant \
+             as its violation, an equation giving `false` where some binding breaks it and an \
+             `owise` equation giving `true` (kink-flow README, \"Argued obligations\"), or name \
+             the finding in `[spec] assume_joined`, a premise of its own"
         )
     };
-    let Some(closure) = closure else {
+    let Some(reach) = closure(seeds) else {
         return json!({
             "status": FUNCTION_NOT_SHOWN,
             "findings": [],
-            "reason": not_shown(
+            "reason": invariant_not_shown(
                 "the equations it reaches cannot be read, since the backend's definition could \
                  not be selected"
                     .to_owned()
             ),
         });
     };
-    let findings = data.findings_at(closure);
+    let findings = data.findings_at(&reach);
     let values = findings
         .iter()
         .map(kink_native::data::NamedFinding::value)
         .collect::<Vec<_>>();
-    let unassumed = findings
-        .iter()
-        .filter(|finding| !finding.assumed)
-        .map(|finding| {
-            finding.name.as_ref().map_or_else(
-                || finding.description.clone(),
-                |name| format!("{} (name `{name}`)", finding.description),
-            )
-        })
-        .collect::<Vec<_>>();
+    let described = |findings: &[kink_native::data::NamedFinding]| {
+        findings
+            .iter()
+            .filter(|finding| !finding.assumed)
+            .map(|finding| {
+                finding.name.as_ref().map_or_else(
+                    || finding.description.clone(),
+                    |name| format!("{} (name `{name}`)", finding.description),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let unassumed = described(&findings);
     let (status, reason) = if !unassumed.is_empty() {
-        (
-            FUNCTION_NOT_SHOWN,
-            Some(not_shown(format!(
-                "the baseline's critical-pair check has a finding no `[spec] assume_joined` name \
-                 assumes at an equation it evaluates: {}",
-                unassumed.join("; ")
-            ))),
-        )
+        // Each symbol of the question whose own reach holds an unassumed finding, the
+        // invariant's function first, then each other one with a finding the invariant's reach
+        // does not hold (a finding every head reads, at an equation indexed at no symbol, is
+        // the invariant's).
+        let unassumed_at = |seed: &String| {
+            closure(&BTreeSet::from([seed.clone()]))
+                .map(|reach| described(&data.findings_at(&reach)))
+                .unwrap_or_default()
+        };
+        let own = unassumed_at(&symbol.to_owned());
+        let others = seeds
+            .iter()
+            .filter(|seed| seed.as_str() != symbol)
+            .filter_map(|seed| {
+                let found = unassumed_at(seed)
+                    .into_iter()
+                    .filter(|finding| !own.contains(finding))
+                    .collect::<Vec<_>>();
+                (!found.is_empty()).then(|| (kink_native::data::label(seed), found))
+            })
+            .collect::<Vec<_>>();
+        let finding_at = |found: &[String]| {
+            format!(
+                "the baseline's critical-pair check has a finding no `[spec] assume_joined` \
+                 name assumes at an equation it evaluates: {}",
+                found.join("; ")
+            )
+        };
+        let mut reasons = Vec::new();
+        if !own.is_empty() {
+            reasons.push(invariant_not_shown(finding_at(&own)));
+        }
+        for (function, found) in &others {
+            reasons.push(format!(
+                "the function `{function}`, which the connection evaluates beside the \
+                 invariant's function `{label}`, is not shown to be a function: {}; the \
+                 connection evaluates it {presupposed}. Name the finding in `[spec] \
+                 assume_joined`, a premise of its own, or write the function so that its \
+                 equations join",
+                finding_at(found)
+            ));
+        }
+        if reasons.is_empty() {
+            // The reach of the seeds is the union of each seed's, so one of them holds the
+            // finding; this keeps a reason should that change.
+            reasons.push(invariant_not_shown(finding_at(&unassumed)));
+        }
+        (FUNCTION_NOT_SHOWN, Some(reasons.join("; and ")))
     } else if let Some(incomplete) = data.incomplete() {
         (
             FUNCTION_NOT_SHOWN,
-            Some(not_shown(format!(
+            Some(invariant_not_shown(format!(
                 "the baseline's critical-pair check is incomplete ({incomplete})"
             ))),
         )
@@ -586,12 +638,20 @@ struct Question {
     facts: Result<Vec<(String, Fact)>, Unread>,
 }
 
+/// What [`connections`] gives: each argued item's check by id, `{invariant, connection}`, and the
+/// symbols each item's connection questions apply ([`kink_native::invariant::question_symbols`],
+/// the invariant's function among them; that function alone where no question was built).
+pub(super) struct Connections {
+    pub(super) checks: Value,
+    pub(super) symbols: BTreeMap<String, BTreeSet<String>>,
+}
+
 /// The connection of each argued item of the derived document `probe` whose entry names an
 /// invariant of `resolved` (module documentation, "The connection"), by item id:
 /// `{invariant, connection: {status, axioms, reason, model, cached, smt_unknown}}`, asked on
 /// `backend` and kept in the cache directory `cache` under the execution digest `execution`
-/// (`verify`: no record read or written). An item a program covers, or that is no obligation, is
-/// argued by no entry and asks nothing.
+/// (`verify`: no record read or written), with the symbols each item's questions apply. An item
+/// a program covers, or that is no obligation, is argued by no entry and asks nothing.
 ///
 /// # Errors
 ///
@@ -611,7 +671,7 @@ pub(super) fn connections(
     execution: &ExecutionDigest,
     cache: &Path,
     verify: bool,
-) -> Result<Value, AdmissionRefusal> {
+) -> Result<Connections, AdmissionRefusal> {
     let mut questions = Vec::new();
     for entry in &manifest.coverage.argued {
         let Some(invariant) = &entry.invariant else {
@@ -634,13 +694,24 @@ pub(super) fn connections(
         });
     }
     if questions.is_empty() {
-        return Ok(json!({}));
+        return Ok(Connections {
+            checks: json!({}),
+            symbols: BTreeMap::new(),
+        });
     }
+    // Where no question is built, the invariant's function alone, all the evidence applies.
+    let own = |question: &Question| {
+        resolved
+            .get(&question.invariant)
+            .map(|(invariant, _)| BTreeSet::from([invariant.symbol.clone()]))
+            .unwrap_or_default()
+    };
     let build = kink_campaign::kink_build().ok().filter(|_| !verify);
     let store = kink_corpus::Store::new(cache.to_path_buf());
     let execution = execution.value();
     let ask = |definition: &BackendDefinition, solver: &dyn SmtSolver| {
         let mut checks = Map::new();
+        let mut symbols = BTreeMap::new();
         let mut refused = Vec::new();
         let mut internal = Vec::new();
         for question in &questions {
@@ -662,7 +733,15 @@ pub(super) fn connections(
                 Ok(facts) => {
                     let mut answers = Vec::new();
                     let mut unread = None;
+                    let mut applied = own(question);
                     for (axiom, fact) in facts {
+                        match question_symbols(definition, axiom, fact.valuation(), Some(asked)) {
+                            Ok(found) => applied.extend(found),
+                            Err(refusal) => {
+                                unread = Some(format!("at the axiom {axiom}: {refusal}"));
+                                break;
+                            }
+                        }
                         let key = build.map(|build| {
                             memo::connection_key(
                                 &execution,
@@ -717,15 +796,19 @@ pub(super) fn connections(
                         ));
                         continue;
                     }
+                    symbols.insert(question.item.clone(), applied);
                     combined(&question.invariant, &answers)
                 }
             };
+            symbols
+                .entry(question.item.clone())
+                .or_insert_with(|| own(question));
             checks.insert(
                 question.item.clone(),
                 json!({"invariant": question.invariant, "connection": connection}),
             );
         }
-        Ok::<_, BackendError>((checks, refused, internal))
+        Ok::<_, BackendError>(((checks, symbols), refused, internal))
     };
     match backend.with_solver(None, ask) {
         Ok((_, _, internal)) if !internal.is_empty() => Err(AdmissionRefusal {
@@ -745,22 +828,31 @@ pub(super) fn connections(
                 refused.join("; ")
             ),
         }),
-        Ok((checks, _, _)) => Ok(Value::Object(checks)),
+        Ok(((checks, symbols), _, _)) => Ok(Connections {
+            checks: Value::Object(checks),
+            symbols,
+        }),
         // The backend asked nothing: every connection is undecided, with its cause.
-        Err(error) => Ok(Value::Object(
-            questions
+        Err(error) => Ok(Connections {
+            checks: Value::Object(
+                questions
+                    .iter()
+                    .map(|question| {
+                        (
+                            question.item.clone(),
+                            json!({
+                                "invariant": question.invariant,
+                                "connection": undecided(&format!("the backend asked nothing: {error}")),
+                            }),
+                        )
+                    })
+                    .collect(),
+            ),
+            symbols: questions
                 .iter()
-                .map(|question| {
-                    (
-                        question.item.clone(),
-                        json!({
-                            "invariant": question.invariant,
-                            "connection": undecided(&format!("the backend asked nothing: {error}")),
-                        }),
-                    )
-                })
+                .map(|question| (question.item.clone(), own(question)))
                 .collect(),
-        )),
+        }),
     }
 }
 

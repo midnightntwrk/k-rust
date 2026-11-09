@@ -865,11 +865,12 @@ pub fn coverage_front(
                     &cache,
                     options.verify,
                 )
-                .map(|checks| (resolved, checks))
+                .map(|connections| (resolved, connections))
             },
         );
         match checked {
-            Ok((resolved, mut checks)) => {
+            Ok((resolved, connections)) => {
+                let mut checks = connections.checks;
                 // The evidence of each invariant on the corpus's runs (`evidence`).
                 let found = evidence::evidence(
                     probe,
@@ -889,27 +890,30 @@ pub fn coverage_front(
                 for (id, value) in found.items {
                     checks[id.as_str()]["evidence"] = value;
                 }
-                // Whether each invariant is shown to be a function, which both checks presuppose
+                // Whether each item's checks rest on functions, which both checks presuppose
                 // (`invariants`, "The function").
-                let functions = resolved
-                    .iter()
-                    .map(|(name, (invariant, _))| {
-                        let closure = scope.closure(&invariant.symbol);
-                        let check = invariants::function_check(
-                            &invariant.symbol,
-                            closure.as_ref(),
-                            &spec.data,
-                        );
-                        (name.clone(), check)
-                    })
-                    .collect::<BTreeMap<_, _>>();
-                for check in checks.as_object_mut().into_iter().flat_map(Map::values_mut) {
-                    if let Some(function) = check["invariant"]
+                for (id, check) in checks
+                    .as_object_mut()
+                    .into_iter()
+                    .flat_map(|checks| checks.iter_mut())
+                {
+                    let Some((invariant, _)) = check["invariant"]
                         .as_str()
-                        .and_then(|name| functions.get(name))
-                    {
-                        check["function"] = function.clone();
-                    }
+                        .and_then(|name| resolved.get(name))
+                    else {
+                        continue;
+                    };
+                    let seeds = connections
+                        .symbols
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| BTreeSet::from([invariant.symbol.clone()]));
+                    check["function"] = invariants::function_check(
+                        &invariant.symbol,
+                        &seeds,
+                        |seeds| scope.closure_of(seeds),
+                        &spec.data,
+                    );
                 }
                 document[ARGUMENT_CHECKS] = checks;
                 document[INVARIANT_RUNS] = found.runs;

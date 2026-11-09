@@ -1553,6 +1553,64 @@ mod kink_tier {
         );
     }
 
+    /// An argued standing rests on every function its connection evaluates, not only on the
+    /// invariant's: the connection simplifies the item's valuation too, the rule's guard
+    /// functions included, with the backend's choice of matching. `ordered` is shown to be a
+    /// function, and `rule:bump`'s question applies no other function of the definition, so its
+    /// function is `shown`. `bigBump` steps where `big(a)` holds, and `big`'s two equations
+    /// overlap and disagree for `a` from 6 to 10, a finding of the baseline's critical-pair
+    /// check that no name assumes: under the same invariant, `rule:bigBump` is `unchecked`, its
+    /// reason names `big`, and the command exits 3.
+    #[test]
+    #[ignore = "kink"]
+    fn an_argued_standing_rests_on_every_function_its_connection_evaluates() {
+        const BIG_BUMP: &str = "rule:INVARIANT.bigBump";
+        let dir = invariant("guard-function");
+        edit_k(
+            &dir,
+            "  rule [idle]:",
+            "  syntax Bool ::= big(Int) [function, symbol(big)]\n  rule big(A) => A >Int 10\n  \
+             rule big(A) => true requires A >Int 5\n  rule [bigBump]: <k> bump => .K ... </k> <a> \
+             A </a> <b> _ => A </b> requires big(A)\n  rule [idle]:",
+        );
+        argue_on(
+            &dir,
+            &[ORDERED],
+            &[
+                (BUMP, "no state has a above b", Some(ORDERED.0)),
+                (BIG_BUMP, "no state has a above b", Some(ORDERED.0)),
+            ],
+        );
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let bump = &item(&document, "rules", BUMP)["argument_check"];
+        assert_eq!(
+            bump["function"],
+            json!({"status": "shown", "findings": [], "reason": null}),
+            "{bump:#}"
+        );
+        let big = &item(&document, "rules", BIG_BUMP)["argument_check"];
+        assert_eq!(
+            (&big["standing"], &big["function"]["status"]),
+            (&json!("unchecked"), &json!("not-shown")),
+            "{big:#}"
+        );
+        assert!(
+            !big["function"]["findings"].as_array().unwrap().is_empty(),
+            "{big:#}"
+        );
+        let reason = big["reason"].as_str().unwrap();
+        assert!(
+            reason.starts_with(
+                "the function `big`, which the connection evaluates beside the invariant's \
+                 function `ordered`, is not shown to be a function: the baseline's critical-pair \
+                 check has a finding no `[spec] assume_joined` name assumes"
+            ) && !reason.contains("`ordered` is not shown"),
+            "{reason}"
+        );
+        assert_eq!(document["summary"]["failed_arguments"], json!([]));
+    }
+
     /// One program's evidence of an invariant is read from the memo only under the same
     /// invariant and the same rules: the same invariant observed at more rules (another entry
     /// names it), and another invariant (another function of the same cell), each run again. The

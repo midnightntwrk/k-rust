@@ -162,11 +162,11 @@ impl<'m> Scope<'m> {
         }
     }
 
-    /// Every symbol evaluating an application of `symbol` can apply (kink-native
-    /// [`EquationReach::closure`]), `symbol` included; `None` where the input backend's
-    /// definition could not be selected.
-    pub(crate) fn closure(&self, symbol: &str) -> Option<BTreeSet<String>> {
-        Some(self.reach.as_ref()?.closure([symbol.to_owned()]))
+    /// Every symbol evaluating an application of a symbol of `seeds` can apply (kink-native
+    /// [`EquationReach::closure`]), `seeds` included; `None` where the input backend's definition
+    /// could not be selected.
+    pub(crate) fn closure_of(&self, seeds: &BTreeSet<String>) -> Option<BTreeSet<String>> {
+        Some(self.reach.as_ref()?.closure(seeds.iter().cloned()))
     }
 
     /// Why the authored `sentence` at `at` is outside the scope, in the order out-of-scope,

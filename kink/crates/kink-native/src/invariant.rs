@@ -428,6 +428,44 @@ pub fn rule_connections(
     Ok(answers)
 }
 
+/// Every symbol the connection question of `valuation` and `invariant` applies, at each rewrite
+/// rule of `definition` whose `UNIQUE_ID` is `axiom` (module documentation, "The question"): the
+/// invariant's function, the symbols of the left-hand side's cells it is applied to, and those of
+/// the valuation's predicate, the rule's guard functions among them. The decision simplifies that
+/// question and nothing else, so these are the symbols whose equations its answer can rest on.
+///
+/// # Errors
+///
+/// As [`connection`].
+pub fn question_symbols(
+    definition: &BackendDefinition,
+    axiom: &str,
+    valuation: Valuation<'_>,
+    invariant: Option<Invariant<'_>>,
+) -> Result<BTreeSet<String>, Refusal> {
+    let mut symbols = BTreeSet::new();
+    let mut found = false;
+    for rule in definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .filter(|rule| rule.rule.attributes.unique_id == axiom)
+    {
+        found = true;
+        question(definition, &rule.rule, valuation, invariant)?.visit_terms(&mut |term: &Term| {
+            term.visit_symbols(&mut |symbol| {
+                symbols.insert(symbol.name.to_string());
+            });
+        });
+    }
+    if found {
+        Ok(symbols)
+    } else {
+        Err(Refusal::NoRule(axiom.to_owned()))
+    }
+}
+
 /// `F(t₁, …, tₙ) = true ∧ V` for `rule` (module documentation).
 fn question(
     definition: &BackendDefinition,
@@ -1374,6 +1412,41 @@ mod tests {
                     &undecided
                 ),
                 Ok(Connection::Undecided(Undecided::Spent(EVALUATION_POLLS)))
+            );
+        });
+    }
+
+    /// The symbols a connection question applies are the invariant's function, those of the
+    /// cells' terms it is applied to at the left-hand side (here a map pattern and a variable,
+    /// which apply none), and those of the valuation: `readzRom`'s held condition applies
+    /// `inRom` beside the fold, its refuted one too, and the left-hand side's match alone applies
+    /// none of the rule's guard functions.
+    #[test]
+    fn a_question_applies_the_invariant_and_the_valuations_functions() {
+        with_fixture(|definition, _| {
+            let paths = memory();
+            let walk = Invariant {
+                symbol: "LbloutsideRomKeys",
+                cells: &paths,
+            };
+            let rom = axiom(definition, "readzRom");
+            for (valuation, guarded) in [
+                (Valuation::Held, true),
+                (Valuation::Refuted, true),
+                (Valuation::Matches, false),
+            ] {
+                let symbols = super::question_symbols(definition, &rom, valuation, Some(walk))
+                    .expect("the question is built");
+                let mut expected =
+                    std::collections::BTreeSet::from(["LbloutsideRomKeys".to_owned()]);
+                if guarded {
+                    expected.insert("LblinRom".to_owned());
+                }
+                assert_eq!(symbols, expected, "{valuation:?}");
+            }
+            assert_eq!(
+                super::question_symbols(definition, "no-such-id", Valuation::Held, Some(walk)),
+                Err(Refusal::NoRule("no-such-id".to_owned()))
             );
         });
     }
