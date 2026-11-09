@@ -194,6 +194,102 @@ pub(super) fn nested_base() -> BaseText {
     }
 }
 
+/// The K-leaf base up to its case commands: the machine base's sorts and `go`.
+const K_LEAF_BEFORE_COMMANDS: &str = r#"use k::KResult;
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("go")] Go(),
+"#;
+
+/// The K-leaf base's cells: the computation and, beside it, a leaf of sort `KSequence`. Only the
+/// explicit `Cell<KSequence>` declares that leaf (a bare `KSequence` field is the computation), and
+/// a configuration that writes one wrapper writes them all, so `k` is a `KCell`. The leaf holds one
+/// term of sort `KSequence`, as a `KSequence` field does, and is no computation.
+const K_LEAF_AFTER_COMMANDS: &str = r"}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: k::configuration::KCell<KSequence>,
+    #[k::cell]
+    pub saved: k::configuration::Cell<KSequence>,
+}
+
+";
+
+/// The K-leaf base's initializer up to its first field: a configuration variable of sort
+/// `KSequence` beside the program, the one term of that sort an initializer can write.
+const K_LEAF_HEADER: &str = "impl Machine {\n    #[k::init]\n    pub fn init(\n        #[k::config_var(name = \"PGM\", main)] pgm: Stmt,\n        #[k::config_var(name = \"SAVED\")] saved: KSequence,\n    ) -> Self {\n        Self {\n";
+
+/// The K-leaf base's initializer, field by field: the program in the computation and the leaf of
+/// sort K started from its configuration variable.
+const K_LEAF_FIELDS: [(&str, &str); 2] = [("k", "k::k![pgm]"), ("saved", "saved")];
+
+static K_LEAF_INITIALIZER: LazyLock<String> =
+    LazyLock::new(|| base_initializer(K_LEAF_HEADER, &K_LEAF_FIELDS));
+
+pub(super) fn k_leaf_base() -> BaseText {
+    BaseText {
+        before_commands: K_LEAF_BEFORE_COMMANDS,
+        after_commands: K_LEAF_AFTER_COMMANDS,
+        initializer: K_LEAF_INITIALIZER.as_str(),
+        after_initializer: "",
+    }
+}
+
+/// The K-leaf base's cases' values of its leaf of sort K: the computation's notations, which
+/// list a sequence's items (`k::k![..]`, refused `cell-wrapper`; brackets, `bracket-reading`),
+/// and a computation item, which is no term of sort K (`content-sort`). The leaf holds one term
+/// of sort `KSequence`, which no KRS term but a name bound to one writes: the base's own
+/// initializer, `saved: saved`, is the one an initializer has.
+const K_LEAF_VALUES: [&str; 5] = [
+    "k::k![Cmd::Go()]",
+    "k::k![]",
+    "[Cmd::Go()]",
+    "[]",
+    "Cmd::Go()",
+];
+
+/// The K-leaf base's initializer cases: the base's initializer with each of [`K_LEAF_VALUES`] as
+/// the value of its leaf of sort K. Each is refused, so no run starts.
+fn k_leaf(cases: &mut Vec<Case>) {
+    for value in K_LEAF_VALUES {
+        let spec = CaseSpec {
+            family: Family::Init,
+            base: Base::KLeaf,
+            side: Side::Initializer,
+            kind: None,
+            slot: vec!["k-leaf".to_owned()],
+            construct: value.to_owned(),
+        };
+        let mut item = ItemBuilder::new();
+        initializer(
+            &mut item,
+            K_LEAF_HEADER,
+            &K_LEAF_FIELDS,
+            |item, cell, base_value| {
+                if cell == "saved" {
+                    item.entry(cell, value);
+                } else {
+                    item.push(cell).push(": ").push(base_value);
+                }
+            },
+        );
+        let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+        case.k7 = K7::skip(SkipKind::Value, REFUSED_AT_K2);
+        cases.push(case);
+    }
+}
+
 /// The main-cell bases: a computation cell `prog`, not named `k`, and a second one, `code`, in
 /// the group `frame`, with one sentence of each form that names no cell, each rewriting the
 /// configuration's main cell (`krs_ir::select_main_cell`), the `KSequence` cell that holds the
@@ -850,6 +946,7 @@ pub(super) fn initializers(cases: &mut Vec<Case>) {
     cases.push(cell_value(CellKind::KSequence, COMPUTATION_REMAINDER));
     field_order(cases);
     main_cells(cases);
+    k_leaf(cases);
 }
 
 /// The machine's initializer with `value` as the value of `kind`'s cell.

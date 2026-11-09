@@ -399,3 +399,187 @@ fn a_value_of_its_cell_s_kind_is_admitted_however_it_is_written() {
         assert!(success, "{cell}: {value}: {stderr}");
     }
 }
+
+/// A configuration with a leaf of sort `KSequence` beside the computation: only the explicit
+/// `Cell<KSequence>` declares one, and a configuration that writes one wrapper writes them all.
+const K_LEAF: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("bump")]
+    Bump(),
+    #[k::syntax("save")]
+    Save(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: k::configuration::KCell<KSequence>,
+    #[k::cell]
+    pub saved: k::configuration::Cell<KSequence>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "SAVED")] saved: KSequence,
+    ) -> Self {
+        Self { k: k::k![pgm], saved: SAVED }
+    }
+}
+"#;
+
+/// A leaf of sort `KSequence` holds one term of that sort, as a `KSequence` field does, on every
+/// route: a name bound to one writes it (a configuration variable, a subject's binder, a `cells!`
+/// remainder), and the computation's notations, which list a sequence's items, are refused there
+/// for what the leaf holds, not as on the computation: `k::k![..]` in an initializer and
+/// `KCell(..)` in `cells!` are `cell-wrapper`, brackets in an initializer, a readable record, a
+/// claim and inside `Cell(..)` are `invalid-list-notation`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of routes, each with its admitted or refused spelling."
+)]
+fn a_leaf_of_sort_k_is_written_by_a_term_of_that_sort_on_every_route() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |subject: &str, result: &str| {
+        format!(
+            "k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    r: {{ k: [Save(), ..], saved: {subject} }} => {{ k: [..], saved: {result} }};\n}}\n"
+        )
+    };
+    let cells = |subject: &str, result: &str| {
+        format!(
+            "#[k::rule]\npub fn r(\n    k::cells! {{ k: k::configuration::KCell(Cmd::Save(), tail @ ..), saved: {subject}, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), saved: {result}, ..state }}\n}}\n"
+        )
+    };
+    let claim = |subject: &str, result: &str| {
+        format!(
+            "k::claims! {{\n    for Machine;\n    use Cmd::*;\n\n    #[k::claim(all_paths)]\n    c: {{ k: [Save()], saved: {subject} }} => {{ k: [], saved: {result} }};\n}}\n"
+        )
+    };
+    let library =
+        |saved: &str, sentences: &str| format!("{}{sentences}", K_LEAF.replace("SAVED", saved));
+    let admitted = [
+        ("initializer-variable", library("saved", "")),
+        ("readable-binder", library("saved", &readable("s", "s"))),
+        (
+            "cells-remainder",
+            library(
+                "saved",
+                &cells("k::configuration::Cell(_)", "k::configuration::Cell(tail)"),
+            ),
+        ),
+    ];
+    for (name, source) in admitted {
+        let manifest = package(temporary.path(), &format!("k-leaf-{name}"), &source);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(success, "{name}: {stderr}");
+    }
+    let leaf = "a leaf of sort `KSequence` is no computation: it holds one term of that sort";
+    let wrapper = "krs::analysis::cell-wrapper";
+    let brackets = "krs::analysis::invalid-list-notation";
+    let refused = [
+        (
+            "initializer-k",
+            library("k::k![Cmd::Bump()]", ""),
+            wrapper,
+            "k::k![Cmd::Bump()]",
+        ),
+        (
+            "initializer-k-empty",
+            library("k::k![]", ""),
+            wrapper,
+            "k::k![]",
+        ),
+        (
+            "initializer-brackets",
+            library("[Cmd::Bump()]", ""),
+            brackets,
+            "[Cmd::Bump()]",
+        ),
+        (
+            "readable-result",
+            library("saved", &readable("_", "[Bump()]")),
+            brackets,
+            "[Bump()]",
+        ),
+        (
+            "readable-subject",
+            library("saved", &readable("[Bump(), ..]", "[]")),
+            brackets,
+            "[Bump(), ..]",
+        ),
+        (
+            "claim-result",
+            library("saved", &claim("_", "[Bump()]")),
+            brackets,
+            "[Bump()]",
+        ),
+        (
+            "cells-result",
+            library(
+                "saved",
+                &cells(
+                    "k::configuration::Cell(_)",
+                    "k::configuration::KCell(Cmd::Bump())",
+                ),
+            ),
+            wrapper,
+            "k::configuration::KCell(Cmd::Bump())",
+        ),
+        (
+            "cells-subject",
+            library(
+                "saved",
+                &cells(
+                    "k::configuration::KCell(Cmd::Bump(), rest @ ..)",
+                    "k::configuration::Cell(rest)",
+                ),
+            ),
+            wrapper,
+            "k::configuration::KCell(Cmd::Bump(), rest @ ..)",
+        ),
+        (
+            "cells-brackets",
+            library(
+                "saved",
+                &cells(
+                    "k::configuration::Cell(_)",
+                    "k::configuration::Cell([Cmd::Bump()])",
+                ),
+            ),
+            brackets,
+            "[Cmd::Bump()]",
+        ),
+    ];
+    for (name, source, code, at) in refused {
+        let manifest = package(temporary.path(), &format!("k-leaf-{name}"), &source);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{name}: {stderr}");
+        let errors = stderr
+            .lines()
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{name}: {stderr}");
+        assert!(
+            errors[0].starts_with(&format!(
+                "error[{code}]: the cell `saved` holds a leaf of sort `KSequence`"
+            )) && errors[0].contains(leaf)
+                && !errors[0].contains("a value alone"),
+            "{name}: {stderr}"
+        );
+        let location = location_at(&source, source.rfind(at).unwrap());
+        assert!(stderr.contains(&location), "{name}: {location}: {stderr}");
+    }
+}

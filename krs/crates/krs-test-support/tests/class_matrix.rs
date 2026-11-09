@@ -114,10 +114,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
             // the typed `stmt` written after it starts, and the kinds base's 15 stacks × 10
             // initializer marks, and item 3b's 4 named rests and aliases in a value (S5.0's
-            // ruling 4).
+            // ruling 4), and the K-leaf base's 5 values of its leaf of sort `KSequence`.
             (
                 Family::Init,
-                133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1 + 15 * 10 + 4
+                133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1 + 15 * 10 + 4 + 5
             ),
             // (81 positions of depth 1 + 25 positions constructs open) × 51 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
@@ -321,7 +321,7 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
             .collect::<Vec<&Case>>();
         if matches!(
             base,
-            Base::Nested | Base::Initial | Base::MainCell | Base::MainK
+            Base::Nested | Base::Initial | Base::MainCell | Base::MainK | Base::KLeaf
         ) {
             // Its only case is an initializer, rendered alone.
             assert!(shared.is_empty(), "{base:?} has no shared case");

@@ -463,7 +463,8 @@ fn base_entry_case(case: &Case) -> Option<EntryCase> {
         }
         Family::Cells | Family::CellsRun => Some(cells_rule(case, segments[2])),
         Family::Init => match (case.base, segments[1]) {
-            (Base::Machine, "order" | "initial") | (Base::Nested | Base::Initial, _) => None,
+            (Base::Machine, "order" | "initial")
+            | (Base::Nested | Base::Initial | Base::KLeaf, _) => None,
             (Base::Machine, cell) => Some(machine_initializer(case, cell)),
             (Base::Typed, "typed") => Some(typed_initializer(case, segments[2])),
             (Base::MainCell | Base::MainK, _) => Some(main_initializer(case)),

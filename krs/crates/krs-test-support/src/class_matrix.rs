@@ -255,6 +255,10 @@ pub enum Base {
     /// The main-cell base with its top-level computation cell named `k`, which K takes as the
     /// computation cell by its name: its cases place the program in `k` or in `code` beside it.
     MainK,
+    /// The machine base with a leaf of sort `KSequence`, `saved: Cell<KSequence>`, beside the
+    /// computation cell, started from a configuration variable of that sort: its cases are
+    /// initializers that write the leaf in the computation's notations, which it holds none of.
+    KLeaf,
     /// One cell of every stack check 5's domain names, at the record's level, below an optional
     /// group and inside a Map collection's instance (S5.0g, [`kinds`]): readable records, claims,
     /// `cells!` rules and initializers over every pair of the domain's dimensions.
@@ -269,7 +273,7 @@ pub enum Base {
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
@@ -279,6 +283,7 @@ impl Base {
         Self::Run,
         Self::MainCell,
         Self::MainK,
+        Self::KLeaf,
         Self::Kinds,
         Self::Sweep,
         Self::SweepPaths,
@@ -307,6 +312,7 @@ impl Base {
             Self::Run => machine::run_base(),
             Self::MainCell => machine::main_base(),
             Self::MainK => machine::main_k_base(),
+            Self::KLeaf => machine::k_leaf_base(),
             Self::Kinds => kinds::base(),
             Self::Sweep => sweep::base(),
             Self::SweepPaths => sweep::paths::base(),

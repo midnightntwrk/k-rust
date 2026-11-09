@@ -792,6 +792,12 @@ match = 'init/{counter,env,frame,job,pc}/{[0],[],[pgm]}'
 class = "bracket-reading"
 at = "spelling"
 
+# A leaf of sort `KSequence` holds one term of that sort, which no bracket list is.
+[[refuse]]
+match = 'init/k-leaf/{[Cmd::Go()],[]}'
+class = "bracket-reading"
+at = "spelling"
+
 # cell-wrapper
 [[refuse]]
 match = 'cells/result/frame/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x)}'
@@ -830,6 +836,12 @@ at = "entry"
 
 [[refuse]]
 match = 'init/{counter,env,frame,job,pc,stack}/{k::k![0],k::k![],k::k![pgm]}'
+class = "cell-wrapper"
+at = "entry"
+
+# A leaf of sort `KSequence` is no computation, whose items `k::k![..]` lists.
+[[refuse]]
+match = 'init/k-leaf/{k::k![Cmd::Go()],k::k![]}'
 class = "cell-wrapper"
 at = "entry"
 
@@ -918,6 +930,13 @@ at = "spelling"
 
 [[refuse]]
 match = 'init/env/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},list::empty(),pgm}'
+class = "content-sort"
+at = "spelling"
+
+# A computation item is a `Stmt`, which is not below `KSequence`: a leaf of that sort holds no
+# item alone.
+[[refuse]]
+match = 'init/k-leaf/Cmd::Go()'
 class = "content-sort"
 at = "spelling"
 

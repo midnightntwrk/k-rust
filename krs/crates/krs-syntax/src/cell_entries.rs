@@ -362,7 +362,8 @@ impl Refusal {
                 }
             ),
             Self::BracketReading => format!(
-                "the cell `{cell}` holds {holds}, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"
+                "the cell `{cell}` holds {holds}, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's){}",
+                k_leaf(own, sort).map_or_else(String::new, |leaf| format!("; {leaf}"))
             ),
             Self::InstancesOnPlainCell => format!(
                 "the cell `{cell}` holds {holds}, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"
@@ -394,18 +395,29 @@ impl Refusal {
                 }
             ),
             Self::CellWrapper => format!(
-                "the cell `{cell}` holds {holds}, and the entry's wrapper is not that content's: {}",
+                "the cell `{cell}` holds {holds}, and the entry's wrapper is not that content's: {}{}",
                 match form {
                     EntryForm::Cells => {
                         "`KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one"
                     }
-                    EntryForm::Initializer => {
+                    // A value on the computation lacks its items' notation; `k::k![..]` on any
+                    // other cell writes a computation's items where none stand.
+                    EntryForm::Initializer if is_computation(own) => {
                         "a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation"
                     }
+                    EntryForm::Initializer => match own.last() {
+                        Some(Layer::Group(_)) => {
+                            "`k::k![..]` lists a computation's items, which only a computation cell holds, and a group's initial value is its record"
+                        }
+                        _ => {
+                            "`k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort"
+                        }
+                    },
                     EntryForm::Readable | EntryForm::Claim => {
                         "a computation's entry is its items in brackets, read from the front, and a value alone is no computation"
                     }
-                }
+                },
+                k_leaf(own, sort).map_or_else(String::new, |leaf| format!("; {leaf}"))
             ),
             Self::OptionalWithoutPresence if form == EntryForm::Initializer => format!(
                 "the cell `{cell}` is optional (`multiplicity = \"?\"`), so its initial value states whether it starts there: `Some(..)` holds its content when it does, and `k::absent!(..)` the template of the cell when it does not"
@@ -625,6 +637,26 @@ pub fn described(layers: &[Layer], sort: Option<&str>) -> String {
         "a"
     };
     format!("{article} {noun}")
+}
+
+/// Whether a cell of the layers `layers` holds a computation, inside its presence or its
+/// instances.
+fn is_computation(layers: &[Layer]) -> bool {
+    layers
+        .iter()
+        .any(|layer| matches!(layer, Layer::Computation))
+}
+
+/// What a leaf of sort `KSequence` holds, where `layers` and `sort` are one's: one term of that
+/// sort, as a `KSequence` field holds one, and not a computation's items, which only a
+/// computation cell holds. Its sort is the computation's, so a refusal of the computation's
+/// notation on it says that it is none.
+fn k_leaf(layers: &[Layer], sort: Option<&str>) -> Option<&'static str> {
+    (matches!(layers.last(), Some(Layer::Leaf(Notation::Plain)))
+        && sort == Some(krs_ir::BuiltinSort::KSequence.spec().marker_name))
+    .then_some(
+        "a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, and no KRS term lists a sequence's items, so a name bound to such a value writes it",
+    )
 }
 
 /// The content of a cell of the layers `layers`, in words.
@@ -2448,6 +2480,54 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A leaf of sort `KSequence` holds one term of that sort, so the computation's notations on
+    /// it, `k::k![..]` in an initializer, `KCell(..)` in `cells!` and brackets in every form, are
+    /// refused for what the leaf holds, not with the computation's own reason; a leaf of another
+    /// sort is told it is no computation without the K clause, and a value on the computation
+    /// keeps the computation's reason.
+    #[test]
+    fn the_computation_s_notation_on_a_leaf_of_sort_k_is_refused_for_what_the_leaf_holds() {
+        let kind = |layers: Vec<Layer>| super::EntryKind {
+            path: CellKind::default(),
+            own: CellKind { layers },
+        };
+        let leaf = kind(vec![Layer::Leaf(Notation::Plain)]);
+        let clause = "a leaf of sort `KSequence` is no computation: it holds one term of that sort";
+        for (refusal, form) in [
+            (Refusal::CellWrapper, EntryForm::Initializer),
+            (Refusal::CellWrapper, EntryForm::Cells),
+            (Refusal::BracketReading, EntryForm::Initializer),
+            (Refusal::BracketReading, EntryForm::Readable),
+            (Refusal::BracketReading, EntryForm::Claim),
+            (Refusal::BracketReading, EntryForm::Cells),
+        ] {
+            let k = refusal.reason(form, "saved", &leaf, Some("KSequence"));
+            assert!(k.contains(clause), "{refusal:?} in {form:?}: {k}");
+            assert!(!k.contains("a value alone"), "{refusal:?} in {form:?}: {k}");
+            let int = refusal.reason(form, "pc", &leaf, Some("Int"));
+            assert!(
+                !int.contains("is no computation:"),
+                "{refusal:?} in {form:?}: {int}"
+            );
+        }
+        let int = Refusal::CellWrapper.reason(EntryForm::Initializer, "pc", &leaf, Some("Int"));
+        assert!(
+            int.contains("which only a computation cell holds, and a leaf's initial value is one term of its sort")
+                && !int.contains("a value alone"),
+            "{int}"
+        );
+        let computation = Refusal::CellWrapper.reason(
+            EntryForm::Initializer,
+            "k",
+            &kind(vec![Layer::Computation]),
+            None,
+        );
+        assert!(
+            computation.contains("a value alone is no computation"),
+            "{computation}"
+        );
     }
 
     /// The groups a test's configuration declares: those of the stack, and `Frame`.
