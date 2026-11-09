@@ -739,7 +739,7 @@ impl<'a> BaselineRunner<'a> {
             authors: RuleAuthors::of(&spec.compiled),
             session: RefCell::new(
                 BaselineSession::new(&spec.validator)
-                    .assuming(manifest.spec.assume_joined.clone())
+                    .assuming(manifest.assume_joined_k())
                     .with_baseline_data(spec.data.clone())
                     .with_bindings(crate::coverage::binding_collection(spec, manifest))
                     .with_depth(depth),

@@ -103,7 +103,13 @@ use std::{
 /// manifest has them, and each row names its route (`route`: `search` or `stopped-run`); a hit's
 /// witness on the stopped route has `rules` null.
 pub const QUERY_SCHEMA: &str = "kink-flow-query";
-pub const QUERY_VERSION: u64 = 5;
+/// Version 6 names each finding of the full critical-pair check by its kind, sentences and a digest
+/// of its compiled sentences (`root:A,B#D`, k-rust-backend `data_term::names`) where it named it by
+/// generated-K positions, gives each finding its `sentences` (`{part, at}`, `at` information only),
+/// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
+/// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
+/// refused `name-refused` (KINK-FINDING-NAMES).
+pub const QUERY_VERSION: u64 = 6;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a

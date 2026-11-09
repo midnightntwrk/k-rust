@@ -251,9 +251,11 @@
 //!
 //! # Names
 //!
-//! Every finding has a name ([`names::finding_name`]), and a client assumes findings by name
-//! ([`names::names_finding`]): the one renderer every client prints and reads, so a name one
-//! client prints (k-rust-fuzz's `definition-findings`) is a name another reads (kink's
+//! Every finding has a name ([`names::finding_name`]: its kind, its sentences and a digest of
+//! the compiled sentences it is about, `None` for a sentence with no label, id or generated
+//! part), computed once with the findings ([`DataHeads::finding_names`]), and a client assumes
+//! findings by name ([`names::classify`]): the one renderer every client prints and reads, so a
+//! name one client prints (k-rust-fuzz's `definition-findings`) is a name another reads (kink's
 //! `[spec] assume_joined`).
 
 mod instance;
@@ -281,8 +283,12 @@ pub struct DataHeads {
     /// apply to every subject it describes, and per precondition row the definition violates.
     /// When there is one, no term is data.
     findings: Vec<Finding>,
+    /// The name of each of `findings`, in order ([`names::finding_name`]).
+    names: Vec<Option<names::FindingName>>,
     /// The pair findings the client assumed joined ([`BackendDefinition::data_heads_assuming`]).
     assumed: Vec<Finding>,
+    /// The name of each of `assumed`, in order.
+    assumed_names: Vec<Option<names::FindingName>>,
     /// What the full check counted ([`crate::confluence::ValueClaims::counts`]), for a client
     /// that guards the check's completeness.
     counts: crate::confluence::CheckCounts,
@@ -455,6 +461,32 @@ impl DataHeads {
         &self.assumed
     }
 
+    /// The name of each of [`Self::findings`], in order ([`names::finding_name`]).
+    #[must_use]
+    pub fn finding_names(&self) -> &[Option<names::FindingName>] {
+        &self.names
+    }
+
+    /// The name of each of [`Self::assumed`], in order.
+    #[must_use]
+    pub fn assumed_names(&self) -> &[Option<names::FindingName>] {
+        &self.assumed_names
+    }
+
+    /// Every finding with its name, the unassumed first, each with whether it is assumed.
+    pub fn named(&self) -> impl Iterator<Item = (&Finding, Option<&names::FindingName>, bool)> {
+        self.findings
+            .iter()
+            .zip(&self.names)
+            .map(|(finding, name)| (finding, name.as_ref(), false))
+            .chain(
+                self.assumed
+                    .iter()
+                    .zip(&self.assumed_names)
+                    .map(|(finding, name)| (finding, name.as_ref(), true)),
+            )
+    }
+
     /// What the full critical-pair check counted on the whole definition (its
     /// [`CheckCounts`](crate::confluence::CheckCounts)): a client reading the findings as a
     /// report of every pair can check that the check read every executable equation and skipped
@@ -496,54 +528,63 @@ impl BackendDefinition {
         let counts = verdict.counts();
         let witnesses = verdict.witnesses().to_vec();
         let findings = confluence_findings(self, &verdict);
-        if !findings.is_empty() {
-            return DataHeads {
-                heads: BTreeSet::new(),
-                findings,
-                assumed: Vec::new(),
-                counts,
-                witnesses,
-            };
-        }
+        let names = findings
+            .iter()
+            .map(|finding| names::finding_name(self, finding))
+            .collect();
         DataHeads {
-            heads: self.data_head_names(),
+            heads: if findings.is_empty() {
+                self.data_head_names()
+            } else {
+                BTreeSet::new()
+            },
             findings,
+            names,
             assumed: Vec::new(),
+            assumed_names: Vec::new(),
             counts,
             witnesses,
         }
     }
 
     /// `heads` (from [`Self::data_heads`] of this definition), with every finding for which
-    /// `assumed` holds read as resolved (the [module documentation](self), "Assumed pairs"): a
-    /// pair as joining, an equation as agreeing with its hook or applied to every subject it
-    /// describes, a precondition row as met. Such findings move to [`DataHeads::assumed`], and
-    /// when no other finding is left the definition has data, with its data heads. A
-    /// decided finding ([`Finding::is_decided`]) is never moved, whatever `assumed` says.
+    /// `assumed` holds of the finding and its name read as resolved (the [module
+    /// documentation](self), "Assumed pairs"): a pair as joining, an equation as agreeing with
+    /// its hook or applied to every subject it describes, a precondition row as met. Such
+    /// findings move to [`DataHeads::assumed`], and when no other finding is left the definition
+    /// has data, with its data heads. Only an undecided finding ([`names::assumable`]) is ever
+    /// moved, whatever `assumed` says: a decided one is a fact about the definition as written,
+    /// and a genuine one would make the premise known to be false.
     #[must_use]
     pub fn data_heads_assuming(
         &self,
         heads: &DataHeads,
-        mut assumed: impl FnMut(&Finding) -> bool,
+        mut assumed: impl FnMut(&Finding, Option<&names::FindingName>) -> bool,
     ) -> DataHeads {
         let mut kept = Vec::new();
+        let mut kept_names = Vec::new();
         let mut moved = heads.assumed.clone();
-        for finding in &heads.findings {
-            if !finding.is_decided() && assumed(finding) {
+        let mut moved_names = heads.assumed_names.clone();
+        for (finding, name) in heads.findings.iter().zip(&heads.names) {
+            if names::assumable(finding) && assumed(finding, name.as_ref()) {
                 moved.push(finding.clone());
+                moved_names.push(name.clone());
             } else {
                 kept.push(finding.clone());
+                kept_names.push(name.clone());
             }
         }
-        let names = if kept.is_empty() {
+        let head_names = if kept.is_empty() {
             self.data_head_names()
         } else {
             BTreeSet::new()
         };
         DataHeads {
-            heads: names,
+            heads: head_names,
             findings: kept,
+            names: kept_names,
             assumed: moved,
+            assumed_names: moved_names,
             counts: heads.counts,
             witnesses: heads.witnesses.clone(),
         }

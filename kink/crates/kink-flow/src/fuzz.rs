@@ -256,7 +256,14 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// given, a template may give `stop_count`, and its fragment writes it; it embeds k-rust-fuzz
 /// reports of version 11, whose identity records the stop.
 /// `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 15;
+/// 16 names each finding of the full critical-pair check by its kind, sentences and a digest of its
+/// compiled sentences (`root:A,B#D`, k-rust-backend `data_term::names`) where it named it by
+/// generated-K positions, gives each finding its `sentences` (`{part, at}`, `at` information only),
+/// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
+/// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
+/// refused `name-refused` (KINK-FINDING-NAMES); the names it prints and reads (`assumed`,
+/// `findings`, `--assume-joined`) are those names, and it embeds k-rust-fuzz reports of version 12.
+pub const FUZZ_VERSION: u32 = 16;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -1019,7 +1026,19 @@ fn instance(
     })
 }
 
-/// The flow's names and the command line's, sorted and without repeats.
+/// [`assumed_names`] in the K spelling (kink-native `SentenceNames::to_k`): the names the
+/// campaign, the filter and the mutant's facts read.
+fn assumed_names_k(manifest: &FlowManifest, options: &FuzzOptions) -> Vec<String> {
+    assumed_names(manifest, options)
+        .iter()
+        .map(|name| manifest.sentence_names.to_k(name))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// The flow's names and the command line's, in the front end's spelling, sorted and without
+/// repeats.
 fn assumed_names(manifest: &FlowManifest, options: &FuzzOptions) -> Vec<String> {
     manifest
         .spec
@@ -1047,19 +1066,23 @@ fn role_name(role: k_rust_fuzz::report::DefinitionRole) -> &'static str {
     }
 }
 
-fn finding_value(finding: &DefinitionFinding) -> Value {
+/// A finding of the fuzz report, its name (the K spelling) in the front end's spelling
+/// `spelling`.
+fn finding_value(
+    finding: &DefinitionFinding,
+    spelling: &kink_native::data::SentenceNames,
+) -> Value {
     json!({
         "side": role_name(finding.side),
-        "name": finding.name,
+        "name": finding.name.as_deref().map(|name| spelling.spelled(name)),
         "verdict": verdict_name(finding.verdict),
         "assumed": finding.assumed,
         "reason": finding.reason,
     })
 }
 
-/// Whether the report's finding is the one `name` names: equal, or equal after a side prefix
-/// that names its side. (A name may also shorten a file path; such a name matches nothing here,
-/// and its entry lists no finding.)
+/// Whether the report's finding is the one `name` (in the K spelling) names: equal, or equal
+/// after a side prefix that names its side.
 fn names_finding(name: &str, finding: &DefinitionFinding) -> bool {
     let Some(own) = finding.name.as_deref() else {
         return false;
@@ -1084,9 +1107,10 @@ fn assumed_value(
         names
             .iter()
             .map(|name| {
+                let k = manifest.sentence_names.to_k(name);
                 let matched = findings
                     .iter()
-                    .filter(|finding| finding.assumed && names_finding(name, finding))
+                    .filter(|finding| finding.assumed && names_finding(&k, finding))
                     .collect::<Vec<_>>();
                 json!({
                     "name": name,
@@ -2593,7 +2617,7 @@ pub fn fuzz_front(
                 baseline,
                 &spec.compiled,
                 &k_rust::kast::identifier::encode(&manifest.spec.main_module),
-                &assumed_names(manifest, options),
+                &assumed_names_k(manifest, options),
             )
             .with_solver(manifest.budget.backend_options());
             match claim_free_mutant(
@@ -2846,7 +2870,7 @@ pub fn fuzz_front(
             max_work: Some(options.max_work.unwrap_or(DEFAULT_MAX_WORK)),
             safety_limit_ms: Some(budget.time_ms),
             assume_joined: if reads_data {
-                assumed_names(manifest, options)
+                assumed_names_k(manifest, options)
             } else {
                 Vec::new()
             },
@@ -2997,9 +3021,9 @@ pub fn fuzz_front(
                 .iter()
                 .any(|name| !manifest.spec.assume_joined.contains(name));
             if reads_data && added {
-                let names = assumed_names(manifest, options);
+                let names = assumed_names_k(manifest, options);
                 for side in std::iter::once(&mut baseline).chain(mutant_side.as_mut()) {
-                    if let Err(error) = side.recompute_data(&names) {
+                    if let Err(error) = side.recompute_data(&names, &manifest.sentence_names) {
                         return refuse(
                             document,
                             Refusal::new("filter", "filter-unavailable", error),
@@ -3096,7 +3120,7 @@ pub fn fuzz_front(
         report
             .definition_findings
             .iter()
-            .map(finding_value)
+            .map(|finding| finding_value(finding, &manifest.sentence_names))
             .collect(),
     );
     if reads_data {
@@ -3535,7 +3559,10 @@ pub fn fuzz_front(
                 .map(|f| {
                     format!(
                         "{} ({}, {})",
-                        f.name.as_deref().unwrap_or("unnamed"),
+                        f.name.as_deref().map_or_else(
+                            || "unnamed".to_owned(),
+                            |name| { manifest.sentence_names.spelled(name) }
+                        ),
                         role_name(f.side),
                         verdict_name(f.verdict)
                     )

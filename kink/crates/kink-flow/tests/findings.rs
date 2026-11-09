@@ -14,8 +14,13 @@
 //!   a hit stays a hit.
 //! - With every finding named in `[spec] assume_joined` (the names `results` prints, which are
 //!   k-rust-fuzz's names byte for byte: `NAMES` is pinned here and in k-rust-fuzz's
-//!   `tests/kink_names.rs`), each is `killed` again.
-//! - A name that names no finding refuses the specification (stage `assume-joined`).
+//!   `tests/kink_names.rs`), each repro whose findings are all undecided is `killed` again; the
+//!   names of a genuine finding refuse the specification (`decided`: the premise would be known
+//!   to be false).
+//! - A name that names no finding refuses the specification (stage `assume-joined`), as do a
+//!   former position name and a side-prefixed name, each with its reason.
+//! - A line inserted above the named equations moves no name: the specification is admitted and
+//!   the execution digest is the same (KINK-FINDING-NAMES test 12).
 //! - A tier-1 store that says `killed` (as a run before this ticket wrote it) decides nothing.
 //! - `check` fails on each, with and without `--mutations`, naming each finding with what to do
 //!   by its verdict, while its program stays `ok`; with every finding named it passes.
@@ -44,18 +49,19 @@ use std::{
 };
 
 /// The seven repros, each with the names of its findings (k-rust-backend
-/// `data_term::names::finding_name`) and their verdicts. k-rust-fuzz's `tests/kink_names.rs`
-/// pins the same names from the fuzz's `definition-findings`.
+/// `data_term::names::finding_name`: kind, sentences and the digest of the compiled sentences)
+/// and their verdicts. k-rust-fuzz's `tests/kink_names.rs` pins the same names from the fuzz's
+/// `definition-findings` (test 10 of KINK-FINDING-NAMES: one name in both).
 const NAMES: [(&str, &[(&str, &str)]); 7] = [
     (
         "diamond",
         &[
             (
-                r#"overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Vals_Val_Vals\"}_Vals"@root"#,
+                r##"root:overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Vals_Val_Vals\"}_Vals"#f0713f365978b8f0325111d6529de2c1"##,
                 "genuine",
             ),
             (
-                r#"overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Ids_Id2_Ids",overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Vals_Val_Vals"@root"#,
+                r##"root:overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Ids_Id2_Ids",overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Vals_Val_Vals"#18682f3fecc6ab0fe766e46c12bb9d76"##,
                 "genuine",
             ),
         ],
@@ -63,34 +69,61 @@ const NAMES: [(&str, &[(&str, &str)]); 7] = [
     (
         "r3-modov",
         &[
-            ("spec.k:16:3,spec.k:17:3@root", "undecided"),
             (
-                r#"spec.k:17:3,overload:"_,__MO-SYNTAX_Exps_Exp_Exps":"_,__MO-SYNTAX_Ids_Id_Ids"@0"#,
+                r"root:id:23200bd5eccd9cd22c483cd03cf594becd61d0f12c7f0578afe3cd9e504ca3c6,id:28f258802bbbd847568a200c6e03b9d18edb5f3a79ffccbc02cc1043ca09a985#8eecc49eef3961245814e8360ef3d61d",
+                "undecided",
+            ),
+            (
+                r#"inner:id:28f258802bbbd847568a200c6e03b9d18edb5f3a79ffccbc02cc1043ca09a985,overload:"_,__MO-SYNTAX_Exps_Exp_Exps":"_,__MO-SYNTAX_Ids_Id_Ids"@0#3212f1b41e9f9bc0e70e85a5b654cf2d"#,
                 "undecided",
             ),
         ],
     ),
-    ("r3-plainq", &[("spec.k:7:3,spec.k:8:3@root", "genuine")]),
+    (
+        "r3-plainq",
+        &[(
+            r"root:id:6285b82dbb479e5dc14dcefd8e60504a09e6e2a190026465403c16d2b6bc23e2,id:7c934d95ccea860a412974582dd2e4a4228f3cb2b3efeede5193d257222a2ca0#e7d18f5c1aeb100be51c4fa6e7a3aa9f",
+            "genuine",
+        )],
+    ),
     (
         "r3-propagate",
         &[
             (
-                r#"overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Vals_Val_Vals\"}_Vals"@root"#,
+                r##"root:overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Vals_Val_Vals\"}_Vals"#1eda8dccb16025c8b39cf7d96557cc5d"##,
                 "genuine",
             ),
             (
-                r#"overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Ids_Id2_Ids",overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Vals_Val_Vals"@root"#,
+                r##"root:overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Ids_Id2_Ids",overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Vals_Val_Vals"#18b7a02cc24283e5b61b59b4139edd6a"##,
                 "genuine",
             ),
         ],
     ),
-    ("r4-empty", &[("spec.k:9:3,spec.k:10:3@root", "undecided")]),
-    ("r4-hookite", &[("hook:spec.k:8:3", "undecided")]),
+    (
+        "r4-empty",
+        &[(
+            r"root:id:29a09fc3eebc245937e7033fb61caacaddac13a5a6737e02b53341eec6034699,id:3e0249e570bb8f33a168bdf568d46fc3509c6c938da8acea24130992d34423f3#de0660e5005a1f0bce70b9be3852089f",
+            "undecided",
+        )],
+    ),
+    (
+        "r4-hookite",
+        &[(
+            r"hook:id:9a2851fd5b11489fb8c0788cdfc6810987bc0dd0f05c1a432492c859bbb9dcf5#bf49450df8f22ea4186bf244add30498",
+            "undecided",
+        )],
+    ),
     (
         "r4-partnorule",
-        &[("spec.k:9:3,spec.k:10:3@root", "undecided")],
+        &[(
+            r"root:id:29a09fc3eebc245937e7033fb61caacaddac13a5a6737e02b53341eec6034699,id:3e0249e570bb8f33a168bdf568d46fc3509c6c938da8acea24130992d34423f3#de0660e5005a1f0bce70b9be3852089f",
+            "undecided",
+        )],
     ),
 ];
+
+/// r4-empty's one finding (undecided), which a premise can assume.
+const R4_EMPTY: &str = NAMES[4].1[0].0;
 
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -189,7 +222,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
             let dir = repro(name, "check", None);
             let (document, status) = check(&dir.join("FLOW.toml"));
             assert_eq!(status, EXIT_NO, "{name}: {document:#}");
-            assert_eq!(document["version"], 14);
+            assert_eq!(document["version"], 15);
             assert_eq!(document["spec"]["outcome"], "admitted", "{name}");
             assert_eq!(document["programs"][0]["outcome"], "ok", "{name}");
             assert_eq!(document["data"]["has_data"], false, "{name}");
@@ -241,10 +274,21 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
             );
             assert_eq!(listed["spec"]["baseline_findings"], *blocking, "{name}");
 
-            // Every finding named: the baseline has data and check passes.
+            // Every finding named: the baseline has data and check passes, unless a finding is
+            // genuine, whose name is refused.
             let premises = names.iter().map(|(name, _)| *name).collect::<Vec<_>>();
             let dir = repro(name, "check-named", Some(&premises));
             let (document, status) = check(&dir.join("FLOW.toml"));
+            if names.iter().any(|(_, verdict)| *verdict == "genuine") {
+                assert_ne!(status, EXIT_YES, "{name}: {document:#}");
+                assert_eq!(document["spec"]["outcome"], "refused", "{name}");
+                assert_eq!(document["spec"]["stage"], "assume-joined", "{name}");
+                assert_eq!(
+                    document["spec"]["reason"], "decided",
+                    "{name}: {document:#}"
+                );
+                continue;
+            }
             assert_eq!(status, EXIT_YES, "{name}: {document:#}");
             assert!(document["spec"]["baseline_findings"].is_null(), "{name}");
             assert_eq!(document["data"]["has_data"], true, "{name}");
@@ -311,20 +355,31 @@ mod kink_tier {
                 assert_eq!(named(&listed["data"]["findings"]), expected(names));
                 assert_eq!(listed["programs"][0]["unable_to_kill"], "baseline-findings");
 
-                // The names `results` prints, given back as premises, kill again.
+                // The names `results` prints, given back as premises, kill again, unless a
+                // finding is genuine, whose name refuses the specification.
                 let printed = named(&listed["data"]["findings"])
                     .into_iter()
                     .map(|(name, _)| name)
                     .collect::<Vec<_>>();
                 let premises = printed.iter().map(String::as_str).collect::<Vec<_>>();
                 let dir = repro(name, "named", Some(&premises));
+                if names.iter().any(|(_, verdict)| *verdict == "genuine") {
+                    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+                    let (refused, ok) = coverage(&manifest, &CoverageOptions::default());
+                    assert!(!ok, "{name}");
+                    assert_eq!(refused["spec"]["reason"], "decided", "{name}: {refused:#}");
+                    continue;
+                }
                 let (document, ok) = search(&dir);
                 assert!(ok, "{name}: {document:#}");
                 let mutation = row(&document);
                 assert_eq!(mutation["status"], "killed", "{name}: {mutation:#}");
                 assert_eq!(mutation["killer"], "one", "{name}");
                 assert_eq!(document["data"]["has_data"], true, "{name}");
-                assert_eq!(document["data"]["assume_joined"], json!(printed));
+                // The manifest keeps the names sorted.
+                let mut sorted = printed.clone();
+                sorted.sort_unstable();
+                assert_eq!(document["data"]["assume_joined"], json!(sorted));
                 assert!(
                     document["data"]["findings"]
                         .as_array()
@@ -350,7 +405,7 @@ mod kink_tier {
             RunOptions, ScheduleMode, SelectionPolicy, TestCase, run_campaign_multi_with,
         };
         on_stack(|| {
-            let dir = repro("r3-plainq", "runner", None);
+            let dir = repro("r4-empty", "runner", None);
             let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
             let admission = admit(&manifest);
             let spec = admission.spec.as_ref().unwrap();
@@ -384,11 +439,7 @@ mod kink_tier {
                     MutantStatus::Unknown,
                     Some(MutantScopeFailure::BaselineFindings),
                 ),
-                (
-                    vec!["spec.k:7:3,spec.k:8:3@root".to_owned()],
-                    MutantStatus::Killed,
-                    None,
-                ),
+                (vec![R4_EMPTY.to_owned()], MutantStatus::Killed, None),
             ] {
                 let mut session = BaselineSession::new(&spec.validator).assuming(names);
                 let run = run_campaign_multi_with(
@@ -411,48 +462,68 @@ mod kink_tier {
         });
     }
 
-    /// A name that names no finding, or a side-prefixed name (kink's list is about both
-    /// definitions), refuses the specification at stage `assume-joined`.
+    /// A name that names no finding, a side-prefixed name (kink's list is about both
+    /// definitions), a former position name and a name without its digest refuse the
+    /// specification at stage `assume-joined`, each with its reason, and the last two with the
+    /// name of the finding they read as now; a text of neither grammar is refused at decode.
     #[test]
     #[ignore = "kink"]
     fn a_name_that_names_no_finding_refuses_the_specification() {
         on_stack(|| {
-            for (premise, why) in [
-                ("spec.k:1:1,spec.k:2:1@root", "names no finding"),
+            let readable = R4_EMPTY.rsplit_once('#').unwrap().0.to_owned();
+            for (premise, reason, why) in [
                 (
-                    "baseline:spec.k:7:3,spec.k:8:3@root",
-                    "without a side prefix",
+                    "root:x,y#0123456789abcdef0123456789abcdef".to_owned(),
+                    "no-finding",
+                    "names no finding".to_owned(),
                 ),
+                (
+                    format!("baseline:{R4_EMPTY}"),
+                    "no-finding",
+                    "without a side prefix".to_owned(),
+                ),
+                (
+                    "spec.k:9:3,spec.k:10:3@root".to_owned(),
+                    "position-name",
+                    format!("`{R4_EMPTY}`"),
+                ),
+                (readable, "no-digest", format!("`{R4_EMPTY}`")),
             ] {
-                let dir = repro("r3-plainq", "unmatched", Some(&[premise]));
+                let dir = repro("r4-empty", "unmatched", Some(&[premise.as_str()]));
                 let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
                 let (document, ok) = coverage(&manifest, &CoverageOptions::default());
                 assert!(!ok);
                 assert_eq!(document["spec"]["outcome"], "refused", "{document:#}");
                 assert_eq!(document["spec"]["stage"], "assume-joined");
-                assert_eq!(document["spec"]["reason"], "name-refused");
+                assert_eq!(document["spec"]["reason"], reason, "{document:#}");
+                let detail = document["spec"]["detail"].as_str().unwrap();
+                assert!(detail.contains(&why), "{premise}: {detail}");
                 assert!(
-                    document["spec"]["detail"].as_str().unwrap().contains(why),
-                    "{document:#}"
+                    detail.contains(&format!("`{premise}` ({reason})")),
+                    "{detail}"
                 );
             }
+            let dir = repro("r4-empty", "malformed", Some(&["root:a b"]));
+            let error = FlowManifest::read(&dir.join("FLOW.toml")).unwrap_err();
+            assert!(
+                error.to_string().contains("spec.assume_joined[0]")
+                    && error.to_string().contains("malformed"),
+                "{error}"
+            );
         });
     }
 
-    /// The result key names which findings are assumed, not how they are named: a name holds
-    /// source positions, so a line inserted above the named equations refuses the specification
-    /// (the name names no finding any more), and with the name updated to the new positions the
-    /// execution digest is the original's and every record is reused. Without the premise the
-    /// digest differs, since the premise decides which ends are data.
+    /// KINK-FINDING-NAMES tests 1 and 12: the result key names which findings are assumed, and a
+    /// name holds no source position, so a line inserted above the named equations leaves the
+    /// premise applying: the specification is admitted with the same name, the specification
+    /// digest moves with the file while the execution digest is the original's, and every record
+    /// is reused. Without the premise the digest differs, since the premise decides which ends
+    /// are data.
     #[test]
     #[ignore = "kink"]
     fn the_key_names_what_is_assumed_not_how_it_is_named() {
         on_stack(|| {
-            let dir = repro(
-                "r3-plainq",
-                "renamed",
-                Some(&["spec.k:7:3,spec.k:8:3@root"]),
-            );
+            let dir = repro("r4-empty", "renamed", Some(&[R4_EMPTY]));
             let manifest_path = dir.join("FLOW.toml");
             let manifest = FlowManifest::read(&manifest_path).unwrap();
             let (first, ok) = coverage(&manifest, &CoverageOptions::default());
@@ -462,36 +533,27 @@ mod kink_tier {
             let text = fs::read_to_string(&spec).unwrap();
             fs::write(
                 &spec,
-                format!("// a line above the named equations\n{text}"),
+                format!("// a line above the named equations\n\n{text}"),
             )
             .unwrap();
             let (moved, ok) = coverage(&manifest, &CoverageOptions::default());
-            assert!(!ok);
-            assert_eq!(moved["spec"]["stage"], "assume-joined", "{moved:#}");
-            assert_eq!(moved["spec"]["reason"], "name-refused");
+            assert!(ok, "{moved:#}");
+            assert_eq!(
+                named(&moved["data"]["findings"]),
+                [(R4_EMPTY.to_owned(), "undecided".to_owned())]
+            );
+            assert_ne!(moved["spec"]["digest"], first["spec"]["digest"]);
+            assert_eq!(
+                moved["spec"]["execution_digest"],
+                first["spec"]["execution_digest"]
+            );
+            assert_eq!(moved["programs"][0]["cached"], true, "{moved:#}");
+            assert_eq!(moved["programs"][0]["class"], first["programs"][0]["class"]);
+            // Without the premise, another key.
             let flow = fs::read_to_string(&manifest_path).unwrap();
             fs::write(
                 &manifest_path,
-                flow.replace("spec.k:7:3,spec.k:8:3@root", "spec.k:8:3,spec.k:9:3@root"),
-            )
-            .unwrap();
-            let manifest = FlowManifest::read(&manifest_path).unwrap();
-            let (renamed, ok) = coverage(&manifest, &CoverageOptions::default());
-            assert!(ok, "{renamed:#}");
-            assert_ne!(renamed["spec"]["digest"], first["spec"]["digest"]);
-            assert_eq!(
-                renamed["spec"]["execution_digest"],
-                first["spec"]["execution_digest"]
-            );
-            assert_eq!(renamed["programs"][0]["cached"], true, "{renamed:#}");
-            assert_eq!(
-                renamed["programs"][0]["class"],
-                first["programs"][0]["class"]
-            );
-            // Without the premise, another key.
-            fs::write(
-                &manifest_path,
-                flow.replace("assume_joined = [\"spec.k:7:3,spec.k:8:3@root\"]\n", ""),
+                flow.replace(&format!("assume_joined = [{R4_EMPTY:?}]\n"), ""),
             )
             .unwrap();
             let manifest = FlowManifest::read(&manifest_path).unwrap();
@@ -582,11 +644,8 @@ mod kink_tier {
     #[ignore = "kink"]
     fn a_query_no_is_unknown_on_a_baseline_with_findings_and_a_hit_stands() {
         on_stack(|| {
-            for (premises, no) in [
-                (None, "unknown"),
-                (Some(&["spec.k:7:3,spec.k:8:3@root"][..]), "no"),
-            ] {
-                let dir = repro("r3-plainq", "query", premises);
+            for (premises, no) in [(None, "unknown"), (Some(&[R4_EMPTY][..]), "no")] {
+                let dir = repro("r4-empty", "query", premises);
                 fs::write(
                     dir.join("PATTERNS.toml"),
                     "[[pattern]]\nid = \"stores-a\"\npattern = \"<s> a </s>\"\n\n\

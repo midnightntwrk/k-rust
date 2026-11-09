@@ -4,9 +4,13 @@
 //!
 //! The definitions are kink's seven repro flows (`kink/testdata/flow/findings/*/spec.k`, compiled
 //! under the source name `spec.k` as kink loads them), each against its mutation (the flow's one
-//! edit of rule `go`). `NAMES` is pinned here and in kink-flow's `tests/findings.rs`: the fuzz
+//! edit of rule `go`). `FLOWS` is pinned here and in kink-flow's `tests/findings.rs`: the fuzz
 //! refuses each campaign as not comparable with exactly these baseline findings, and with these
-//! names assumed it finds a witness, as kink kills each mutation once the flow names them.
+//! names assumed it finds a witness where every finding is undecided, as kink kills each such
+//! mutation once the flow names them; it refuses the names of a flow with a genuine finding,
+//! which a premise cannot assume (KINK-FINDING-NAMES). The names hold no position: each is the
+//! finding's kind, its sentences (`id:` and the `UNIQUE_ID` of these unlabelled K rules, or a
+//! generated overload axiom's pair) and the digest of its compiled sentences.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -43,11 +47,11 @@ const FLOWS: [Flow; 7] = [
         ("_ => .Ids </s>", "_ => .Vals </s>"),
         &[
             (
-                r#"overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Vals_Val_Vals\"}_Vals"@root"#,
+                r##"root:overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__DIA-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__DIA-SYNTAX_Vals_Val_Vals\"}_Vals"#f0713f365978b8f0325111d6529de2c1"##,
                 FindingVerdict::Genuine,
             ),
             (
-                r#"overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Ids_Id2_Ids",overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Vals_Val_Vals"@root"#,
+                r##"root:overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Ids_Id2_Ids",overload:"_,__DIA-SYNTAX_Exps_Exp_Exps":"_,__DIA-SYNTAX_Vals_Val_Vals"#18682f3fecc6ab0fe766e46c12bb9d76"##,
                 FindingVerdict::Genuine,
             ),
         ],
@@ -57,9 +61,12 @@ const FLOWS: [Flow; 7] = [
         "MO",
         ("_ => a </s>", "_ => bb </s>"),
         &[
-            ("spec.k:16:3,spec.k:17:3@root", FindingVerdict::Undecided),
             (
-                r#"spec.k:17:3,overload:"_,__MO-SYNTAX_Exps_Exp_Exps":"_,__MO-SYNTAX_Ids_Id_Ids"@0"#,
+                r"root:id:23200bd5eccd9cd22c483cd03cf594becd61d0f12c7f0578afe3cd9e504ca3c6,id:28f258802bbbd847568a200c6e03b9d18edb5f3a79ffccbc02cc1043ca09a985#8eecc49eef3961245814e8360ef3d61d",
+                FindingVerdict::Undecided,
+            ),
+            (
+                r#"inner:id:28f258802bbbd847568a200c6e03b9d18edb5f3a79ffccbc02cc1043ca09a985,overload:"_,__MO-SYNTAX_Exps_Exp_Exps":"_,__MO-SYNTAX_Ids_Id_Ids"@0#3212f1b41e9f9bc0e70e85a5b654cf2d"#,
                 FindingVerdict::Undecided,
             ),
         ],
@@ -68,7 +75,10 @@ const FLOWS: [Flow; 7] = [
         "r3-plainq",
         "PQ",
         ("_ => a </s>", "_ => bb </s>"),
-        &[("spec.k:7:3,spec.k:8:3@root", FindingVerdict::Genuine)],
+        &[(
+            r"root:id:6285b82dbb479e5dc14dcefd8e60504a09e6e2a190026465403c16d2b6bc23e2,id:7c934d95ccea860a412974582dd2e4a4228f3cb2b3efeede5193d257222a2ca0#e7d18f5c1aeb100be51c4fa6e7a3aa9f",
+            FindingVerdict::Genuine,
+        )],
     ),
     (
         "r3-propagate",
@@ -76,11 +86,11 @@ const FLOWS: [Flow; 7] = [
         ("_ => a </s>", "_ => bb </s>"),
         &[
             (
-                r#"overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Vals_Val_Vals\"}_Vals"@root"#,
+                r##"root:overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Ids_Id2_Ids\"}_Ids",overload:".List{\"_,__PR-SYNTAX_Exps_Exp_Exps\"}_Exps":".List{\"_,__PR-SYNTAX_Vals_Val_Vals\"}_Vals"#1eda8dccb16025c8b39cf7d96557cc5d"##,
                 FindingVerdict::Genuine,
             ),
             (
-                r#"overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Ids_Id2_Ids",overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Vals_Val_Vals"@root"#,
+                r##"root:overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Ids_Id2_Ids",overload:"_,__PR-SYNTAX_Exps_Exp_Exps":"_,__PR-SYNTAX_Vals_Val_Vals"#18b7a02cc24283e5b61b59b4139edd6a"##,
                 FindingVerdict::Genuine,
             ),
         ],
@@ -89,21 +99,34 @@ const FLOWS: [Flow; 7] = [
         "r4-empty",
         "R4",
         ("_ => a </s>", "_ => bb </s>"),
-        &[("spec.k:9:3,spec.k:10:3@root", FindingVerdict::Undecided)],
+        &[(
+            r"root:id:29a09fc3eebc245937e7033fb61caacaddac13a5a6737e02b53341eec6034699,id:3e0249e570bb8f33a168bdf568d46fc3509c6c938da8acea24130992d34423f3#de0660e5005a1f0bce70b9be3852089f",
+            FindingVerdict::Undecided,
+        )],
     ),
     (
         "r4-hookite",
         "R4",
         ("_ => a </s>", "_ => bb </s>"),
-        &[("hook:spec.k:8:3", FindingVerdict::Undecided)],
+        &[(
+            r"hook:id:9a2851fd5b11489fb8c0788cdfc6810987bc0dd0f05c1a432492c859bbb9dcf5#bf49450df8f22ea4186bf244add30498",
+            FindingVerdict::Undecided,
+        )],
     ),
     (
         "r4-partnorule",
         "R4",
         ("_ => a </s>", "_ => bb </s>"),
-        &[("spec.k:9:3,spec.k:10:3@root", FindingVerdict::Undecided)],
+        &[(
+            r"root:id:29a09fc3eebc245937e7033fb61caacaddac13a5a6737e02b53341eec6034699,id:3e0249e570bb8f33a168bdf568d46fc3509c6c938da8acea24130992d34423f3#de0660e5005a1f0bce70b9be3852089f",
+            FindingVerdict::Undecided,
+        )],
     ),
 ];
+
+/// The name of `kink/testdata/k/kbf/listrow.k`'s precondition row (kink-native `tests/data.rs`
+/// pins it too): an unlabelled rule, so `id:` and its `UNIQUE_ID`.
+const LISTROW_ROW: &str = "precondition:id:bc25e9f808a4bf8adb532e95bbf5555a7d75a50fc54d950b294ff9975cfeb9dd#65ce51470d5cc619971b3c995cffa2ca";
 
 fn source(flow: &str) -> String {
     read(&format!("flow/findings/{flow}/spec.k"))
@@ -238,6 +261,20 @@ fn the_fuzz_names_each_repro_finding_as_kink_does_and_assuming_them_kills() {
 
         let mut assumed = spec(flow, main_module, edit);
         assumed.options.assume_joined = names.iter().map(|(name, _)| (*name).to_owned()).collect();
+        if names
+            .iter()
+            .any(|(_, verdict)| *verdict == FindingVerdict::Genuine)
+        {
+            // A genuine finding's premise would be known to be false: refused (`decided`).
+            let Err(refused) = Campaign::new(assumed) else {
+                panic!("{flow}: a genuine name is refused");
+            };
+            assert!(
+                format!("{refused}").contains("(decided)"),
+                "{flow}: {refused}"
+            );
+            continue;
+        }
         let report = Campaign::new(assumed)
             .expect("valid")
             .run(Budget::Cases(8), None);
@@ -270,12 +307,9 @@ fn the_fuzz_names_a_precondition_row_as_kink_does() {
         .collect::<Vec<_>>();
     assert_eq!(
         baseline,
-        [(
-            "precondition:listrow.k:11:3".to_owned(),
-            FindingVerdict::Decided
-        )]
+        [(LISTROW_ROW.to_owned(), FindingVerdict::Decided)]
     );
     let mut assumed = spec();
-    assumed.options.assume_joined = vec!["precondition:listrow.k:11:3".to_owned()];
+    assumed.options.assume_joined = vec![LISTROW_ROW.to_owned()];
     assert!(Campaign::new(assumed).is_err(), "a decided name is refused");
 }

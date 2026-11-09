@@ -67,9 +67,13 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// reason of a kill job whose mutant the stop does not resolve, and by the keys `count` and
 /// `counts`, which the last run document's `stop` is read by; the narrowed refusals' stages and
 /// reasons are arguments of `Refusal::new`, and the warning `stop-hides-edit` one of `warning(..)`.
+/// Version 16 (KINK-FINDING-NAMES) names every finding by its kind, sentences and digest, where it
+/// named it by generated-K positions, in `findings`, `assumed`, `spec.unnamed_findings` and the
+/// premises, refuses a genuine finding's name, and embeds report version 12; the digest is
+/// version 15's, since the keys are unchanged and the names are computed.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    15,
-    11,
+    16,
+    12,
     2,
     "b57e997d75141191c20919677e86edae752f77be881dc9e018086e922f2ee4f2",
 );

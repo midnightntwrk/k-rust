@@ -457,8 +457,10 @@ fn result_cells_errors_name_the_key() {
 // ---------------------------------------------------------------------------------------
 // CF-40: one schema, two specification declarations.
 
-const KRS_SPEC: &str =
-    "[spec]\nkrs = { definition = \"main\" }\nassume_joined = [\"b\", \"a\", \"b\"]\n";
+/// Two premises, `A` and `B` (`equation:a#D`, `equation:b#D`), written out of order with a repeat.
+const KRS_SPEC: &str = "[spec]\nkrs = { definition = \"main\" }\nassume_joined = [\"equation:b#0123456789abcdef0123456789abcdef\", \"equation:a#0123456789abcdef0123456789abcdef\", \"equation:b#0123456789abcdef0123456789abcdef\"]\n";
+const A: &str = "equation:a#0123456789abcdef0123456789abcdef";
+const B: &str = "equation:b#0123456789abcdef0123456789abcdef";
 
 fn decode_file(text: &str) -> Result<ManifestFile, ManifestError> {
     ManifestFile::decode(text, Path::new("corpus"))
@@ -491,7 +493,7 @@ fn a_krs_spec_decodes_to_its_declaration() {
         file.spec,
         SpecDecl::Krs(KrsSpec {
             definition: "main".into(),
-            assume_joined: vec!["a".into(), "b".into()],
+            assume_joined: vec![A.into(), B.into()],
         })
     );
     assert_eq!(file.directory, PathBuf::from("corpus"));
@@ -560,15 +562,15 @@ fn binding_a_krs_spec_is_decoding_the_spec_written_out() {
         .unwrap();
     let written = decode(&format!(
         "[spec]\nentry = \"definition.k\"\nmain_module = \"PLUS\"\ninclude_dirs = [\".\"]\n\
-         md_selector = \"k\"\nassume_joined = [\"a\", \"b\"]\n{programs}"
+         md_selector = \"k\"\nassume_joined = [{A:?}, {B:?}]\n{programs}"
     ))
     .unwrap();
     assert_eq!(bound, written);
     // The declaration's premises are the corpus's, whatever the front end passes.
     let mut other = emitted();
-    other.assume_joined = vec!["z".into()];
+    other.assume_joined = vec!["equation:z#0123456789abcdef0123456789abcdef".into()];
     let bound = decode_file(KRS_SPEC).unwrap().bind(Some(other)).unwrap();
-    assert_eq!(bound.spec.assume_joined, ["a", "b"]);
+    assert_eq!(bound.spec.assume_joined, [A, B]);
 }
 
 #[test]
@@ -604,4 +606,28 @@ fn a_manifest_error_names_its_key() {
         error.to_string(),
         "spec.krs.definition: differs from --definition"
     );
+}
+
+/// KINK-FINDING-NAMES: a premise that is no finding's name (of either grammar: the former
+/// position names decode, and admission refuses them with what to write) is refused at decode.
+#[test]
+fn a_premise_that_is_no_name_is_refused_at_decode() {
+    for premise in ["root:a b", "nonsense", "root:a,b#0123"] {
+        assert_file_error(
+            &format!("[spec]\nkrs = {{ definition = \"main\" }}\nassume_joined = [{premise:?}]\n"),
+            "spec.assume_joined[0]",
+            "malformed",
+        );
+    }
+    for premise in [
+        "spec.k:7:3,spec.k:8:3@root",
+        "hook:spec.k:8:3",
+        "root:a,b",
+        "baseline:root:a,b#0123456789abcdef0123456789abcdef",
+    ] {
+        decode_file(&format!(
+            "[spec]\nkrs = {{ definition = \"main\" }}\nassume_joined = [{premise:?}]\n"
+        ))
+        .unwrap_or_else(|error| panic!("{premise}: {error}"));
+    }
 }

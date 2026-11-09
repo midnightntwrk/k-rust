@@ -470,7 +470,8 @@ fn the_witness_of_a_refusal_is_the_first_application_that_owes() {
 /// the pair joined reads the definition as if it did; the load's own check withdraws the claims
 /// its taint reaches, and `g` stays no data head under the assumption: an assumed pair can only
 /// make fewer terms data. Without the second equation `g` is a data head, so the withdrawal is the
-/// load's.
+/// load's. KINK-FINDING-NAMES: the pair is genuine (at `g(c)` both apply), so it is never assumed
+/// whatever the client asks; the definition keeps no data head either way.
 #[test]
 fn an_assumed_pair_of_a_plain_heads_equations_leaves_the_head_withdrawn() {
     let source = r#"[]
@@ -501,8 +502,18 @@ endmodule []"#;
         "{:?}",
         heads.findings()
     );
-    let assumed = definition.data_heads_assuming(&heads, |finding| finding.pair().is_some());
-    assert!(assumed.confluent(), "{:?}", assumed.findings());
+    let assumed = definition.data_heads_assuming(&heads, |finding, _| finding.pair().is_some());
+    assert!(
+        heads
+            .findings()
+            .iter()
+            .filter(|finding| finding.pair().is_some())
+            .all(Finding::is_genuine),
+        "{:?}",
+        heads.findings()
+    );
+    assert!(!assumed.confluent(), "{:?}", assumed.findings());
+    assert!(assumed.assumed().is_empty());
     assert_eq!(
         assumed.names().map(ToString::to_string).collect::<Vec<_>>(),
         Vec::<String>::new()

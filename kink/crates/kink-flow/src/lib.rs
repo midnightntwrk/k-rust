@@ -90,6 +90,7 @@ pub use kink_campaign::{
 };
 /// A stop condition a front end states for `[stop] when` ([`FlowManifest::with_stop_when`]).
 pub use kink_campaign::{StopOracle, StopWhen};
+pub use kink_native::data::SentenceNames;
 pub use manifest::{
     Budget, Decoder, FlowManifest, KrsSpec, LogSection, ManifestError, ManifestFile,
     ObserveFunctionsSlot, ObserveSection, PointSection, Program, ResultSection, SpecDecl,

@@ -124,6 +124,12 @@ pub struct FlowManifest {
     /// did ([`Self::is_claim_helper`]): `coverage` gives it the status `claim-helper` and lists
     /// no condition flip that changes it.
     pub claim_helpers: BTreeSet<(String, String)>,
+    /// The front end's spelling of the sentences finding names name (kink-native
+    /// `SentenceNames`): `[spec] assume_joined` is written in it, and every document prints names
+    /// in it. A front end that names sentences its own way sets it
+    /// ([`Self::with_sentence_names`]: the krs front end spells a sentence by the KRS item that
+    /// wrote it); a decoded `FLOW.toml` has none, and names its sentences by their K labels.
+    pub sentence_names: kink_native::data::SentenceNames,
     /// The front end's reading of the syntax family ([`SyntaxSelection`]), which a front end
     /// that knows which sorts its author declared and which variables are template binders sets
     /// ([`Self::with_syntax`]). A decoded `FLOW.toml` has none: kink-flow reads the authored sorts
@@ -220,10 +226,11 @@ pub struct SpecSection {
     pub md_selector: String,
     /// `assume_joined`: the findings of the definition's full critical-pair check the author
     /// names as premises (fz26 KINK-BASELINE-FINDINGS), each by the name k-rust-backend's
-    /// `data_term::names` gives it (the name `coverage` prints and k-rust-fuzz's
-    /// `definition-findings` and `assume-joined` use), sorted and without repeats. Empty by
-    /// default: a definition with a finding then has no data, and every mutation is `unknown`
-    /// (`baseline-findings`).
+    /// `data_term::names` gives it (`kind:SENTENCES#DIGEST`, the name `coverage` prints and
+    /// k-rust-fuzz's `definition-findings` and `assume-joined` use, in the front end's spelling
+    /// [`FlowManifest::sentence_names`]), sorted and without repeats. A text that is no name of
+    /// that grammar is refused at decode. Empty by default: a definition with a finding then has
+    /// no data, and every mutation is `unknown` (`baseline-findings`).
     pub assume_joined: Vec<String>,
 }
 
@@ -820,6 +827,7 @@ impl ManifestFile {
             input_decoder: Decoder::default(),
             end_renderer: Renderer::default(),
             claim_helpers: BTreeSet::new(),
+            sentence_names: kink_native::data::SentenceNames::default(),
             syntax: None,
         })
     }
@@ -984,6 +992,30 @@ impl FlowManifest {
     ) -> Self {
         self.claim_helpers = helpers.into_iter().collect();
         self
+    }
+
+    /// This manifest with `names` as its spelling of finding names' sentences
+    /// ([`Self::sentence_names`]): the front end that names sentences its own way (the krs front
+    /// end) sets it on the manifest it decoded.
+    #[must_use]
+    pub fn with_sentence_names(mut self, names: kink_native::data::SentenceNames) -> Self {
+        self.sentence_names = names;
+        self
+    }
+
+    /// `[spec] assume_joined` in the K spelling (kink-native `SentenceNames::to_k`): the
+    /// premises as the facts and every engine below kink-flow read them.
+    #[must_use]
+    pub fn assume_joined_k(&self) -> Vec<String> {
+        let mut names = self
+            .spec
+            .assume_joined
+            .iter()
+            .map(|name| self.sentence_names.to_k(name))
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
     }
 
     /// Whether the sentence of K module `module` labelled `label` is a claim helper
@@ -1194,7 +1226,23 @@ fn assume_joined(spec: &Table) -> Result<Vec<String>, ManifestError> {
             .iter()
             .enumerate()
             .map(|(i, name)| match name {
-                Value::String(name) if !name.trim().is_empty() => Ok(name.clone()),
+                Value::String(name) if !name.trim().is_empty() => {
+                    // A side prefix is k-rust-fuzz's; admission refuses it with what to write.
+                    let unprefixed = name
+                        .strip_prefix("baseline:")
+                        .or_else(|| name.strip_prefix("mutant:"))
+                        .unwrap_or(name);
+                    match k_rust::k_rust_backend::data_term::names::parse(unprefixed) {
+                        Ok(_) => Ok(name.trim().to_owned()),
+                        Err(why) => Err(ManifestError::new(
+                            format!("spec.assume_joined[{i}]"),
+                            format!(
+                                "malformed: `{name}` is not a finding's name ({why}); a name is \
+                                 `KIND:SENTENCES#DIGEST` as the documents print it"
+                            ),
+                        )),
+                    }
+                }
                 _ => Err(ManifestError::new(
                     format!("spec.assume_joined[{i}]"),
                     "expected a nonempty string, a finding's name",

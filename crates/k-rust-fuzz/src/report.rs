@@ -128,7 +128,12 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// comparable condition `passed-stop`. Under a stop a `cut-point` or `terminal` leaf at it is
 /// an end, so a report's classes are of the truncated system. A report without a stop holds
 /// what version 10 held; a version-10 reader refuses the stop as an unknown field.
-pub const REPORT_VERSION: u32 = 11;
+/// Version 12 (KINK-FINDING-NAMES) names each of `definition-findings` by its kind, sentences and a
+/// digest of its compiled sentences (`root:A,B#D`, k-rust-backend `data_term::names`) where version
+/// 11 named it by written positions; `assume-joined` assumes the findings whose name is byte-equal
+/// to a given one and refuses a genuine one, and the report no longer warns of an assumed genuine
+/// finding. A version-11 name is refused (`position-name`).
+pub const REPORT_VERSION: u32 = 12;
 
 /// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
 pub const LISTED_HOOKS: usize = 8;
@@ -1052,10 +1057,12 @@ pub struct DefinitionFinding {
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,
-    /// The name `assume-joined` takes: `FIRST,SECOND@POSITION` for a pair, `hook:EQUATION` or
-    /// `equation:EQUATION` for a finding about one equation, `precondition:EQUATION` (or
-    /// `precondition:KIND:LABELS`) for a precondition row. `assume-joined` refuses the name of a
-    /// `decided` finding.
+    /// The name `assume-joined` takes (k-rust-backend `data_term::names`): its kind, its
+    /// sentences and a digest of its compiled sentences, `root:A,B#D`, `self:A#D` or
+    /// `inner:A,B@POSITION#D` for a pair, `hook:A#D` or `equation:A#D` for a finding about one
+    /// equation, `precondition:A#D` (or `precondition:KIND:LABELS#D`) for a precondition row.
+    /// `assume-joined` refuses the name of a `decided` or `genuine` finding. `None` for a finding
+    /// about a sentence with no label, `UNIQUE_ID` or generated part.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The equations, each by its written position `FILE:LINE:COLUMN` (else its label, its
@@ -2890,7 +2897,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":11,"identity":{"engine-version":9,"#,
+            r#"{"schema":"krust-fuzz-report","version":12,"identity":{"engine-version":9,"#,
             r#""k-rust-revision":"b322de1ab","fuzz-revision":"0.8.0+src.0","#,
             r#""definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,

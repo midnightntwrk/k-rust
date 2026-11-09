@@ -943,7 +943,7 @@ note = "right-hand side"
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`; version 32
         // names the Z3 build and a compared lock's `header_changes`.
-        assert_eq!(document["version"], 37);
+        assert_eq!(document["version"], 38);
         // Under the Z3 profile the document names the Z3 build its verdicts were decided on,
         // k-rust's; the portable document has no such member.
         let z3 = k_rust::backend::z3_build().filter(|_| cfg!(feature = "z3"));
@@ -1593,7 +1593,8 @@ note = "right-hand side"
     }
 
     /// kink27 R5-WEAKENING fix round 2 (`testdata/flow/weakening/findings`): the baseline's
-    /// equations `k-one` and `k-two` give `k(1)` two values, a finding no `[spec] assume_joined`
+    /// equations `k-one` and `k-two` give `k(X)` two values over a sort with no element (an
+    /// undecided finding, so that a premise can assume it), a finding no `[spec] assume_joined`
     /// names. A narrowing of `h` on it is a weakening, but it is `unknown` with reason
     /// `baseline-findings`, not `unkillable`: the weakening argument reads the baseline's normal
     /// forms as a model, which the unassumed finding puts in doubt, so the baseline-findings
@@ -1621,10 +1622,14 @@ note = "right-hand side"
         assert_eq!(row["calls"], json!([]));
         assert_eq!(row["executed"], json!([]));
         weakened(row);
-        let finding = "findings.k:19:3,findings.k:20:3@root";
         let findings = row["findings"].as_array().unwrap();
         assert_eq!(findings.len(), 1, "{row:#}");
-        assert_eq!(findings[0]["name"], finding);
+        let finding = findings[0]["name"].as_str().unwrap().to_owned();
+        assert!(
+            finding.starts_with("root:WEAKF.k-one,WEAKF.k-two#"),
+            "{finding}"
+        );
+        assert_eq!(findings[0]["verdict"], "undecided");
         assert_eq!(findings[0]["assumed"], false);
         assert_eq!(document["counts"]["unknown"], 1);
         assert_eq!(document["counts"]["unkillable"], 0);

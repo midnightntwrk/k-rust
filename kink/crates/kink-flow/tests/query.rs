@@ -812,7 +812,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 5, "{document:#}");
+    assert_eq!(document["version"], 6, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1469,7 +1469,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 5);
+        assert_eq!(document["version"], 6);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

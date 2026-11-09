@@ -11,7 +11,7 @@ use std::{
 use k_rust::{
     backend::{Backend, CancellationToken, HaltReasonOutput, StopCause},
     k_rust_backend::{
-        data_term::{DataHeads, Finding},
+        data_term::{DataHeads, Finding, names::Refusal},
         definition::BackendDefinition,
     },
     kore::ast::Pattern as KorePattern,
@@ -32,9 +32,8 @@ use crate::{
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{
-        CrashKind, CrashSide, CrashStage, DefinitionRole, FindingVerdict, HoleValue,
-        IncidentalCase, KillKind, NormalEnds, Reaching, ReasonHook, RejectionReason, TargetRule,
-        WitnessSide,
+        CrashKind, CrashSide, CrashStage, DefinitionRole, HoleValue, IncidentalCase, KillKind,
+        NormalEnds, Reaching, ReasonHook, RejectionReason, TargetRule, WitnessSide,
     },
     score,
     spec::{BackendRoute, CampaignSpec, CaseOptions, CompiledDefinition, PathMode, ProgramInput},
@@ -677,8 +676,9 @@ impl LiveCases {
             }
         }
         let mut stated = DefinitionFindings::default();
-        // The finding each name matches on each definition, by its equations' identities.
-        let mut matched: Vec<Vec<(DefinitionRole, Vec<String>, String)>> =
+        // What each name is on each definition it applies on: the findings it assumes there, or
+        // why it is refused.
+        let mut matched: Vec<Vec<(DefinitionRole, Result<(), Refusal>)>> =
             vec![Vec::new(); assume_joined.len()];
         for (role, side) in sides {
             let side_name = match role {
@@ -686,8 +686,12 @@ impl LiveCases {
                 DefinitionRole::Mutant => "mutant",
             };
             let text = side.holes.text.clone();
-            let heads = match side.executor.data_heads() {
-                Ok(heads) => heads,
+            let loaded = side
+                .executor
+                .selected_definition()
+                .and_then(|definition| Ok((definition, side.executor.data_heads()?)));
+            let (definition, heads) = match loaded {
+                Ok(loaded) => loaded,
                 Err(error) => {
                     stated.warnings.push(format!(
                         "definition-not-confluent ({side_name}): the main module does not load: \
@@ -697,7 +701,7 @@ impl LiveCases {
                     continue;
                 }
             };
-            match_assumed(&assume_joined, role, heads, &mut matched)?;
+            match_assumed(&assume_joined, role, heads, &definition, &mut matched);
             if !heads.confluent() {
                 stated.without_data.push(role);
                 stated
@@ -706,20 +710,6 @@ impl LiveCases {
             }
             let names = crate::source_names::SourceNames::of(&side.definition.frontend_definition);
             let entries = crate::findings::report(role, heads, text.as_ref(), &names);
-            // A pair the campaign assumes joined although the check shows it does not join: the
-            // verdicts then hold for a reading its evaluation does not have.
-            for entry in entries
-                .iter()
-                .filter(|entry| entry.assumed && entry.verdict == FindingVerdict::Genuine)
-            {
-                stated.warnings.push(format!(
-                    "assume-joined ({side_name}): `{}` is genuine: {}; the verdicts hold only for \
-                     the definition read as if this pair joined, not \
-                     for the definition as written",
-                    entry.name.as_deref().unwrap_or_default(),
-                    entry.reason
-                ));
-            }
             stated.findings.extend(entries);
         }
         if let Some(warning) = check_assumed(&assume_joined, &matched)? {
@@ -1413,58 +1403,26 @@ impl LiveCases {
     }
 }
 
-/// The findings each name of `assume_joined` matches on the definition `role` with `heads`,
-/// added to `matched` (in the order of `assume_joined`).
-///
-/// # Errors
-///
-/// [`CampaignError::InvalidOptions`] when a name matches a decided finding, which cannot be
-/// assumed, or more than one finding of the definition.
+/// What each name of `assume_joined` that applies on the definition `role` (of `definition`,
+/// with `heads`) is there, added to `matched` (in the order of `assume_joined`): the findings it
+/// assumes, or why it is refused (k-rust-backend `data_term::names::classify`).
 fn match_assumed(
     assume_joined: &[String],
     role: DefinitionRole,
     heads: &DataHeads,
-    matched: &mut [Vec<(DefinitionRole, Vec<String>, String)>],
-) -> Result<(), CampaignError> {
-    let side_name = match role {
-        DefinitionRole::Baseline => "baseline",
-        DefinitionRole::Mutant => "mutant",
-    };
+    definition: &BackendDefinition,
+    matched: &mut [Vec<(DefinitionRole, Result<(), Refusal>)>],
+) {
     for (given, found) in assume_joined.iter().zip(matched) {
         let (prefix, rest) = crate::findings::side_of(given);
         if prefix.is_some_and(|prefix| prefix != role) {
             continue;
         }
-        if let Some((decided, why)) = crate::findings::decided_named(rest, heads) {
-            return Err(CampaignError::InvalidOptions {
-                message: format!(
-                    "assume-joined names `{given}`, which matches `{decided}` of the \
-                     {side_name}, a decided finding that cannot be assumed: {why}; change that \
-                     equation"
-                ),
-            });
-        }
-        let pairs = crate::findings::named_findings(rest, heads);
-        if pairs.len() > 1 {
-            let candidates = pairs
-                .iter()
-                .map(|(_, written)| written.clone())
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Err(CampaignError::InvalidOptions {
-                message: format!(
-                    "assume-joined names `{given}`, which matches more than one finding of the \
-                     {side_name} ({candidates}); give more of each file's path"
-                ),
-            });
-        }
-        found.extend(
-            pairs
-                .into_iter()
-                .map(|(identities, written)| (role, identities, written)),
-        );
+        found.push((
+            role,
+            crate::findings::classify(rest, heads, definition).map(|_| ()),
+        ));
     }
-    Ok(())
 }
 
 /// The warning for a definition (`side_name`) whose check reports findings not assumed joined,
@@ -1494,35 +1452,58 @@ fn not_confluent_warning(side_name: &str, heads: &DataHeads) -> String {
     )
 }
 
-/// The names of `assume_joined` against the pair each matched on each definition (`matched`,
-/// in the same order): refused when one matches no pair, or different equation pairs on the two
-/// definitions; otherwise the warning stating the premise, when there is one.
+/// The names of `assume_joined` against what each is on each definition it applies on
+/// (`matched`, in the same order): refused when it is refused on one definition for a reason that
+/// holds wherever it is read (it is no name of the grammar, a former position name, a name with
+/// no digest, a decided or genuine finding, or ambiguous), or when it assumes nothing on any
+/// definition (its sentences changed, or it names no finding); a name that assumes a finding on
+/// one definition and names none, or one whose sentences changed, on the other applies where it
+/// holds. Otherwise the warning stating the premise, when there is one.
 fn check_assumed(
     assume_joined: &[String],
-    matched: &[Vec<(DefinitionRole, Vec<String>, String)>],
+    matched: &[Vec<(DefinitionRole, Result<(), Refusal>)>],
 ) -> Result<Option<String>, CampaignError> {
-    for (given, found) in assume_joined.iter().zip(matched) {
-        if found.is_empty() {
-            return Err(CampaignError::InvalidOptions {
-                message: format!(
-                    "assume-joined names `{given}`, which matches no unjoined pair, nor any other \
-                     finding, of the definitions' critical-pair checks; name a finding as the \
-                     report's definition-findings name it (FIRST,SECOND@POSITION for a pair, \
-                     hook:EQUATION, equation:EQUATION or precondition:... for the others), \
-                     optionally after `baseline:` or `mutant:`"
-                ),
-            });
+    let refuse = |given: &str, role: DefinitionRole, refusal: &Refusal| {
+        let (_, rest) = crate::findings::side_of(given);
+        CampaignError::InvalidOptions {
+            message: format!(
+                "assume-joined names `{given}`, which the {} refuses ({}): {}",
+                match role {
+                    DefinitionRole::Baseline => "baseline",
+                    DefinitionRole::Mutant => "mutant",
+                },
+                refusal.reason(),
+                refusal.detail(rest)
+            ),
         }
-        if let [(_, first, written_first), (_, second, written_second)] = &found[..]
-            && first != second
-        {
-            return Err(CampaignError::InvalidOptions {
-                message: format!(
-                    "assume-joined names `{given}`, which matches different equation pairs or \
-                     findings on the two definitions (baseline {written_first}, mutant {written_second}); name each \
-                     with `baseline:` or `mutant:` before it"
-                ),
-            });
+    };
+    for (given, found) in assume_joined.iter().zip(matched) {
+        if let Some((role, Err(refusal))) = found.iter().find(|(_, result)| {
+            result.as_ref().is_err_and(|refusal| {
+                !matches!(
+                    refusal,
+                    Refusal::NoFinding | Refusal::Changed { .. } | Refusal::Resolved
+                )
+            })
+        }) {
+            return Err(refuse(given, *role, refusal));
+        }
+        if found.iter().all(|(_, result)| result.is_err()) {
+            return Err(
+                match found
+                    .iter()
+                    .find(|(_, result)| !matches!(result, Err(Refusal::NoFinding)))
+                    .or_else(|| found.first())
+                {
+                    Some((role, Err(refusal))) => refuse(given, *role, refusal),
+                    _ => CampaignError::InvalidOptions {
+                        message: format!(
+                            "assume-joined names `{given}`, which applies on no definition of the \
+                         campaign"
+                        ),
+                    },
+                },
+            );
         }
     }
     Ok((!assume_joined.is_empty()).then(|| {

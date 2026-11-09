@@ -203,19 +203,24 @@ impl FilterSide {
         self.reachable
     }
 
-    /// The side's data facts recomputed under `assume_joined` on its own load (the campaign's
-    /// names, when the command line adds names the flow lacks).
+    /// The side's data facts recomputed under `assume_joined` (in the K spelling) on its own
+    /// load (the campaign's names, when the command line adds names the flow lacks), printing
+    /// names in the front end's spelling `spelling`.
     ///
     /// # Errors
     ///
     /// The backend's refusal to select the side's definition.
-    pub fn recompute_data(&mut self, assume_joined: &[String]) -> Result<(), String> {
+    pub fn recompute_data(
+        &mut self,
+        assume_joined: &[String],
+        spelling: &kink_native::data::SentenceNames,
+    ) -> Result<(), String> {
         let selected = self
             .load
             .backend
             .select_definition(None)
             .map_err(|error| error.to_string())?;
-        self.data = DataFacts::of(&selected, assume_joined);
+        self.data = DataFacts::spelled(&selected, assume_joined, spelling.clone());
         Ok(())
     }
 

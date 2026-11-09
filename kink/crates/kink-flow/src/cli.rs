@@ -2556,7 +2556,13 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// warnings are read from result records, whose classes and coverage baseline runs decided by
 /// asking the solver, and a record is read only under a key that names this build, so they are a
 /// function of the build as much as of `profile`.
-pub const CHECK_VERSION: u64 = 14;
+/// 15 names each finding of the full critical-pair check by its kind, sentences and a digest of its
+/// compiled sentences (`root:A,B#D`, k-rust-backend `data_term::names`) where it named it by
+/// generated-K positions, gives each finding its `sentences` (`{part, at}`, `at` information only),
+/// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
+/// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
+/// refused `name-refused` (KINK-FINDING-NAMES).
+pub const CHECK_VERSION: u64 = 15;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it
@@ -2783,7 +2789,7 @@ const INCOMPLETE_NEXT: &str = "report it: it is a limit of k-rust's checker, and
 /// (kink-native `FindingVerdict`): a name assumes the finding away, so naming it is right only
 /// where the definition is right and the checker could not show it. A decided finding is a fact
 /// about the definition as written and no name assumes it (admission refuses one,
-/// `name-refused`); a genuine one has a ground input with two normal forms, so a name would be a
+/// `decided`); a genuine one has a ground input with two normal forms, so a name would be a
 /// premise known to be false; an undecided one may be a limit of the checker, which the author
 /// reviews; a finding with no name cannot be named at all.
 #[must_use]
@@ -2801,8 +2807,8 @@ pub fn finding_next(finding: &kink_native::data::NamedFinding) -> String {
             .to_owned(),
         FindingVerdict::Genuine => format!(
             "fix the definition: a ground input of this pair has two normal forms, so the pair \
-             does not join; naming `{name}` in [spec] assume_joined makes every verdict hold \
-             only under a premise known to be false"
+             does not join; [spec] assume_joined refuses `{name}` (decided), a premise known to \
+             be false"
         ),
         FindingVerdict::Undecided => format!(
             "review it: if the definition is right here and the checker only could not show it \

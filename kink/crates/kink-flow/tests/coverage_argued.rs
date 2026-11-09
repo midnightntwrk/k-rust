@@ -405,7 +405,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 19);
+        assert_eq!(after["version"], 20);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),
@@ -672,7 +672,7 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{plain:#}");
         let recorded = fs::read_to_string(&lock).unwrap();
         assert_eq!(recorded, verdicts(&plain).unwrap());
-        assert!(recorded.contains("\nversion = 22\n"), "{recorded}");
+        assert!(recorded.contains("\nversion = 23\n"), "{recorded}");
         assert!(
             recorded.contains(&format!("\n[rules]\nopen = [\n  \"{WAKE}\",\n")),
             "{recorded}"
@@ -825,7 +825,7 @@ mod kink_tier {
         );
         let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{document:#}");
-        assert_eq!(document["version"], 19);
+        assert_eq!(document["version"], 20);
         let check = |id: &str| &item(&document, "requirements", id)["argument_check"];
         let walk = check(READZ_ROM_HELD);
         assert_eq!(
@@ -1983,7 +1983,7 @@ mod kink_tier {
             ..DerivedList::default()
         };
         let (document, _) = coverage(&dir, &[], Derived::Flips(&list));
-        assert_eq!(document["version"], 19);
+        assert_eq!(document["version"], 20);
         for id in OUTSIDE_ROM_EQUATIONS {
             let equation = item(&document, "rules", id);
             assert_eq!(equation["status"], "invariant", "{equation:#}");
@@ -2352,20 +2352,34 @@ mod kink_tier {
                 assert_eq!(check["reason"], Value::Null, "{id}: {check:#}");
             }
         }
-        // The definition's only findings are the walk's two self-pairs.
-        let mut names = document["data"]["findings"]
-            .as_array()
-            .unwrap()
+        // The definition's only findings are the walk's two self-pairs, each named `self:` and
+        // its sentence, written at the walk's two equations.
+        let findings = document["data"]["findings"].as_array().unwrap();
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding["name"].as_str().unwrap().starts_with("self:")),
+            "{:#}",
+            document["data"]
+        );
+        let mut at = findings
             .iter()
-            .map(|finding| finding["name"].as_str().unwrap().to_owned())
+            .map(|finding| {
+                let [sentence] = finding["sentences"].as_array().unwrap().as_slice() else {
+                    panic!("one sentence: {finding:#}");
+                };
+                let at = sentence["at"].as_str().unwrap();
+                at.rsplit_once('/').map_or(at, |(_, file)| file).to_owned()
+            })
             .collect::<Vec<_>>();
-        names.sort();
-        let walk = [
+        at.sort();
+        let mut walk = [
             shapes_line(&dir, "rule outsideRomWalk((K:Int |-> _) M, E)"),
             shapes_line(&dir, "rule outsideRomWalk((_ |-> _) M, E)"),
         ]
-        .map(|line| format!("shapes.k:{line}:3,shapes.k:{line}:3@root"));
-        assert_eq!(names, walk, "{:#}", document["data"]);
+        .map(|line| format!("shapes.k:{line}:3"));
+        walk.sort();
+        assert_eq!(at, walk, "{:#}", document["data"]);
         let summary = &document["summary"];
         assert_eq!(
             summary["argued_by_standing"],

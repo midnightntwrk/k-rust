@@ -112,7 +112,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 14);
+    assert_eq!(document["version"], 15);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -769,7 +769,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_UNASKED, "{document:#}");
-    assert_eq!(document["version"], 14);
+    assert_eq!(document["version"], 15);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unmatched-rule warning.
@@ -1028,7 +1028,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 14);
+    assert_eq!(document["version"], 15);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {

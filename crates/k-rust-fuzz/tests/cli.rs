@@ -1250,8 +1250,9 @@ literal = "3"
 
 /// FZ-POLISH: a differential campaign on definitions whose critical-pair checks report a pair
 /// is not comparable at setup: no case runs, the summary leads with why and lists the finding
-/// as genuine with its instance and its name, and `--assume-joined` with those names makes the
-/// cases run under the stated premise.
+/// as genuine with its instance and its name; `--assume-joined` with that name is refused, since
+/// a genuine finding's premise would be known to be false (KINK-FINDING-NAMES), and a name of the
+/// former grammar is refused as such.
 #[test]
 fn a_not_comparable_campaign_says_why_and_assume_joined_runs_it() {
     let program = R3_PLAINQ.program("r3-plainq/go.pgm").text;
@@ -1295,30 +1296,35 @@ literal = "3"
         "{summary}"
     );
     assert!(summary.contains("[genuine]"), "{summary}");
-    assert!(summary.contains("name: b.k:"), "{summary}");
+    assert!(summary.contains("name: root:id:"), "{summary}");
     assert!(!summary.contains("Lbl"), "{summary}");
     let (_, report) = json_run(&directory, &[&base[..], &["--json"]].concat());
-    let names = report
+    let mut names = report
         .definition_findings
         .iter()
         .filter_map(|finding| finding.name.clone())
         .collect::<Vec<_>>();
     assert_eq!(names.len(), 2, "{:?}", report.definition_findings);
-    let mut args = base.to_vec();
-    for name in &names {
-        args.extend(["--assume-joined", name.as_str()]);
-    }
-    args.push("--json");
-    let (status, report) = json_run(&directory, &args);
-    assert_eq!(status, Some(0), "{:?}", report.outcome);
-    assert_eq!(report.identity.options.assume_joined, names);
+    // The pair has one name on both definitions: a name holds no position.
+    names.dedup();
+    assert_eq!(names.len(), 1, "{names:?}");
+    let refused = krust_fuzz(
+        &directory,
+        &[&base[..], &["--assume-joined", names[0].as_str()]].concat(),
+    );
+    assert_eq!(refused.status.code(), Some(2), "{}", text(&refused.stderr));
+    assert!(
+        text(&refused.stderr).contains("(decided)"),
+        "{}",
+        text(&refused.stderr)
+    );
     let refused = krust_fuzz(
         &directory,
         &[&base[..], &["--assume-joined", "b.k:1:1,b.k:2:1@root"]].concat(),
     );
     assert_eq!(refused.status.code(), Some(2), "{}", text(&refused.stderr));
     assert!(
-        text(&refused.stderr).contains("matches no unjoined pair"),
+        text(&refused.stderr).contains("(position-name)"),
         "{}",
         text(&refused.stderr)
     );

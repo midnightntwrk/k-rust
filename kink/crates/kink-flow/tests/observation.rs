@@ -426,7 +426,7 @@ fn a_prefix_program_is_recorded_under_its_declaration() {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let (cold, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{cold:#}");
-    assert_eq!(cold["version"], 19);
+    assert_eq!(cold["version"], 20);
     assert_eq!(cold["observe"], manifest.observe_value().unwrap());
     let program = &cold["programs"][0];
     assert_eq!(program["class"], "comparable-prefix", "{program:#}");
@@ -458,7 +458,7 @@ fn a_prefix_program_is_recorded_under_its_declaration() {
     // `check` names the declaration, and its exit status reads a prefix program as answered.
     let (check, status) = check(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 14);
+    assert_eq!(check["version"], 15);
     assert_eq!(check["observe"], manifest.observe_value().unwrap());
 }
 
@@ -472,7 +472,7 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
     let dir = fixture("run", &[]);
     let manifest = dir.join("FLOW.toml");
     let (document, _) = search(&manifest, RunMode::Search);
-    assert_eq!(document["version"], 37);
+    assert_eq!(document["version"], 38);
     assert_eq!(
         document["observe"],
         FlowManifest::read(&manifest)
@@ -558,7 +558,7 @@ fn mutations_of_the_console_are_judged_by_its_channels() {
 
     // The verdicts rendering says which survivor rests on a horizon.
     let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
-    assert!(verdicts.contains("version = 22"), "{verdicts}");
+    assert!(verdicts.contains("version = 23"), "{verdicts}");
     assert!(
         verdicts.contains(
             "\nhorizon = [\n  { program = \"run\", channel = \"clock\", elements = 16, \
@@ -1071,7 +1071,7 @@ fn query_ignores_the_observations() {
     };
     let (observed, status) = ask("FLOW.toml");
     assert_eq!(status, EXIT_UNANSWERED, "{observed:#}");
-    assert_eq!(observed["version"], 5, "{observed:#}");
+    assert_eq!(observed["version"], 6, "{observed:#}");
     assert_eq!(
         observed["observe"]["ignored"],
         kink_flow::query::OBSERVE_IGNORED,

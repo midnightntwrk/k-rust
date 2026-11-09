@@ -346,7 +346,7 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     let output = project.kink("coverage", &[]);
     assert_status(&output, 0);
     let document = json(&output);
-    assert_eq!(document["krs"]["version"], 9, "{:#}", document["krs"]);
+    assert_eq!(document["krs"]["version"], 10, "{:#}", document["krs"]);
     // krs's front end gives coverage its condition flips: the family ran, and the flip of `irq`
     // across the halted machine's two transitions, which test `halted` first, is unreached on a
     // corpus that never halts, with no mutant run.
@@ -692,7 +692,7 @@ fn coverage_reports_each_guards_outcomes_per_operand() {
     let verdicts = project.kink("coverage", &["--output", "verdicts"]);
     assert_status(&verdicts, 0);
     let verdicts = stdout(&verdicts);
-    assert!(verdicts.contains("krs_annotation = 9"), "{verdicts}");
+    assert!(verdicts.contains("krs_annotation = 10"), "{verdicts}");
     assert!(
         verdicts.contains("\"rule:crate::boundary_wake\""),
         "{verdicts}"
@@ -1386,8 +1386,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     }
     assert_eq!(
         document["krs"],
-        serde_json::json!({"version": 9}),
-        "every rule is named, by version 9 of the annotation"
+        serde_json::json!({"version": 10}),
+        "every rule is named, by version 10 of the annotation"
     );
     // The story's two equations fire and have no condition, and they inspect both constructors
     // of `Nat` (`plus_succ` also builds `s`): nothing is open.
@@ -1417,7 +1417,7 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     let verdicts = stdout(&output);
     // Its header says which annotation version spells the names.
     assert!(
-        verdicts.lines().any(|line| line == "krs_annotation = 9"),
+        verdicts.lines().any(|line| line == "krs_annotation = 10"),
         "{verdicts}"
     );
     assert!(
@@ -1509,7 +1509,7 @@ fn coverage_names_heating_rules_by_the_strict_variant_and_field() {
     let document = json(&output);
     assert_eq!(
         document["krs"],
-        json!({"version": 9}),
+        json!({"version": 10}),
         "{:#}",
         document["krs"]
     );
@@ -3328,7 +3328,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 19);
+    assert_eq!(document["version"], 20);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -3417,7 +3417,7 @@ impl Machine {
         record["krs_observing_rule"]["item"], "crate::sib_div",
         "{record:#}"
     );
-    assert_eq!(document["krs"], serde_json::json!({"version": 9}));
+    assert_eq!(document["krs"], serde_json::json!({"version": 10}));
 }
 
 /// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
@@ -5733,7 +5733,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     let output = project.kink("check", &[]);
     assert_status(&output, 0);
     let check = json(&output);
-    assert_eq!(check["version"], 14, "{check:#}");
+    assert_eq!(check["version"], 15, "{check:#}");
     assert_eq!(results["result_cache"]["enabled"], true, "{results:#}");
     assert_eq!(verdicts(&check), expected, "{check:#}");
 
@@ -6541,7 +6541,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );
@@ -6859,4 +6859,48 @@ fn locked_without_a_lock_is_a_finding_and_mutations_use_no_lock() {
             "{corpus}"
         );
     }
+}
+
+/// KINK-FINDING-NAMES test 9: under krs a finding's name spells each sentence by the KRS item that
+/// wrote it (`crate::plus_zero`, where K labels the sentence `nat--plus_zero`), the spelling in
+/// which `[spec] assume_joined` is written and every refusal names it. krs refuses a package whose
+/// equations overlap with different results, so the story has no finding to name; a premise of
+/// its two equations is refused (`no-finding`: the check has no finding), and the refusal spells
+/// it by the KRS items whichever spelling the corpus wrote, while a former position name is
+/// refused as such.
+#[test]
+fn a_premise_is_spelled_by_the_krs_items_that_wrote_its_sentences() {
+    let project = project_of("krs-cli-kink-names", "NAT", &story_files());
+    let flow = |premise: &str| {
+        STORY_FLOW.replacen(
+            "[spec]\n",
+            &format!("[spec]\nassume_joined = [{premise:?}]\n"),
+            1,
+        )
+    };
+    let digest = "0123456789abcdef0123456789abcdef";
+    let spelled = format!("root:crate::plus_succ,crate::plus_zero#{digest}");
+    for written in [
+        spelled.clone(),
+        format!("root:nat--plus_succ,nat--plus_zero#{digest}"),
+        format!("root:crate::plus_zero,nat--plus_succ#{digest}"),
+    ] {
+        project.write("kink/FLOW.toml", flow(&written));
+        let output = project.kink("check", &[]);
+        let document = json(&output);
+        assert_eq!(document["spec"]["stage"], "assume-joined", "{document:#}");
+        assert_eq!(document["spec"]["reason"], "no-finding", "{document:#}");
+        let detail = document["spec"]["detail"].as_str().unwrap();
+        assert!(
+            detail.starts_with(&format!("`{spelled}` (no-finding)")),
+            "{written}: {detail}"
+        );
+    }
+    project.write(
+        "kink/FLOW.toml",
+        flow("definition.k:30:3,definition.k:32:3@root"),
+    );
+    let output = project.kink("check", &[]);
+    let document = json(&output);
+    assert_eq!(document["spec"]["reason"], "position-name", "{document:#}");
 }

@@ -95,7 +95,11 @@
 //! adds to the `coverage` document's syntax paths family, at a depth above 1, the joint field
 //! values of every `k::bits!` template with several fields ([`super::syntax`], items of kind
 //! `field-values` with `krs.parts`), which a reader of version 8 would count as nothing it
-//! knows.
+//! knows; version 10 spells each sentence of a finding's name (`data.findings[].name` and
+//! `sentences[].part`, `data.assume_joined`, an argued item's standing, a refusal of a
+//! `[spec] assume_joined` name) by the KRS item that wrote it (`root:crate::plus_succ,
+//! crate::plus_zero#D`, kink-flow `FlowManifest::with_sentence_names`), where a reader of version
+//! 9 would read a K label there.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -137,7 +141,7 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// carries as `krs.version` (module documentation). It changes when a reader of the previous
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
-pub(crate) const ANNOTATION_VERSION: u64 = 9;
+pub(crate) const ANNOTATION_VERSION: u64 = 10;
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {

@@ -4,41 +4,34 @@
 //! (`data_term::names`), the one renderer kink's `[spec] assume_joined` reads too, called with
 //! the K label decoder; this module adds the side prefixes.
 //!
-//! A pair is named `FIRST,SECOND@POSITION`: each equation by its written position
-//! `FILE:LINE:COLUMN` with the file's last path component (a compiler-generated overload axiom,
-//! which has none, by `overload:GREATER:LESSER`, the K labels of its overloaded pair, each
-//! quoted with `"` when it holds `,`, `:`, `@`, `"`, `\` or whitespace), and the
-//! position in the first equation's left-hand side, `root` or argument indexes joined by `.`. A
-//! name given to `assume-joined` matches a pair when its position is the pair's and each rule
-//! part names the equation: its written position, or any trailing part of it that starts after
-//! a `/`, its unique id, its label, or its overload part; a root pair is matched in either order.
-//! A name may start with `baseline:` or `mutant:` to apply on that definition only; otherwise it
-//! applies on each definition where it matches, and must match the same equations (by unique
-//! id) on both.
+//! A finding is named by its kind, its sentences and a digest of the compiled sentences it is
+//! about (k-rust-backend `data_term::names`, "The grammar"): `root:A,B#D` for two equations at
+//! the root, `self:A#D` for an equation paired with itself, `inner:A,B@1.0#D` for an inner pair,
+//! `hook:A#D`, `equation:A#D`, `precondition:A#D` or `precondition:KIND:SYMBOL..#D` for the
+//! others, each sentence by its K label (`id:UNIQUE_ID` when it has none, `overload:G:L` or
+//! `witness:...` for a generated one). A name given to `assume-joined` assumes the findings whose
+//! name is byte-equal to it, on each definition where it is one, so it names the same compiled
+//! sentences on both; it may start with `baseline:` or `mutant:` to apply on that definition
+//! only. One `hook:` name covers every hook pair of its equation (one per equation of the hook's
+//! written meaning). A name of the former grammar (`FIRST,SECOND@POSITION` by written
+//! positions) is refused, with the names of the findings at that position now.
 //!
-//! Every other finding that keeps a definition without data has a name too, so that every one
-//! can be assumed: an equation at an evaluated hook that is not shown to agree with the hook
-//! (a hook pair, or an equation at a hook with no written meaning) is `hook:EQUATION`, another
-//! equation the evaluator does not apply to every subject it describes is `equation:EQUATION`,
-//! and a precondition row is `precondition:EQUATION` for the equation it names, else
-//! `precondition:KIND` followed by the K labels it names (`precondition:no-least-common-overload:A:B`).
-//! `EQUATION` is a rule part as above. One `hook:` name covers every hook pair of its equation
-//! (one per equation of the hook's written meaning): assuming it reads the equation as agreeing
-//! with the hook; likewise one `precondition:EQUATION` names every row of that equation.
-//!
-//! A decided finding ([`Finding::is_decided`]) is named too, but its name is refused: a
+//! Only an undecided finding can be assumed: a decided one ([`Finding::is_decided`]: a
 //! precondition row that an equation is headed by a constructor or an injection, or indexed at a
-//! collection or a bare variable (the equation rewrites terms the data judgement reads as free,
-//! so they are not normal forms), or an equation whose right-hand side leaves a variable unbound
-//! (read as written it equates every value of that sort). Each is a fact about the definition
-//! as written that no assumption removes.
+//! collection or a bare variable, or an equation whose right-hand side leaves a variable
+//! unbound) is a fact about the definition as written that no assumption removes, and a genuine
+//! one would make the premise known to be false. Their names are refused.
 
 use std::collections::BTreeSet;
 
 use k_rust::{
     k_rust_backend::{
         confluence::{UnjoinedPair, Violation, ViolationKind},
-        data_term::{DataHeads, Finding, Stuck, names},
+        data_term::{
+            DataHeads, Finding, Stuck,
+            names::{self, FindingName, Refusal, Spelling},
+        },
+        definition::BackendDefinition,
         externalize,
         rule::{Predicate, RewriteRule, RuleOrigin, TermIndex},
         substitution::{Substitution, substitute},
@@ -74,43 +67,10 @@ fn equation(rule: &RewriteRule) -> String {
         .unwrap_or_else(|| rule.attributes.diagnostic_name(label))
 }
 
-/// `position` as a name writes it (k-rust-backend `data_term::names`).
-fn position_text(position: &[usize]) -> String {
-    names::position_text(position)
-}
-
-/// The overload part naming a compiler-generated overload axiom (k-rust-backend
-/// `data_term::names`).
-fn overload_part(rule: &RewriteRule) -> Option<String> {
-    names::overload_part(rule, label)
-}
-
-/// The prefix of the name of a finding about one equation (k-rust-backend `data_term::names`).
-fn equation_prefix(pair: &UnjoinedPair) -> &'static str {
-    names::equation_prefix(pair)
-}
-
-/// The kind of a precondition row as a name writes it (k-rust-backend `data_term::names`).
-fn precondition_kind(kind: &ViolationKind) -> String {
-    names::precondition_kind(kind, label)
-}
-
-/// The name `assume-joined` takes for `pair` (the module documentation; k-rust-backend
-/// `data_term::names`, the renderer kink's `[spec] assume_joined` reads too).
-pub(crate) fn name(pair: &UnjoinedPair) -> Option<String> {
-    names::pair_name(pair, label)
-}
-
-/// The name `assume-joined` takes for `finding` (the module documentation; k-rust-backend
-/// `data_term::names`).
-pub(crate) fn finding_name(finding: &Finding) -> Option<String> {
-    names::finding_name(finding, label)
-}
-
-/// Whether the name `given`, without a side prefix, names `finding` (the module documentation;
-/// k-rust-backend `data_term::names`).
-pub(crate) fn names_finding(given: &str, finding: &Finding) -> bool {
-    names::names_finding(given, finding, label)
+/// `name` as `assume-joined` takes it (k-rust-backend `data_term::names`, the renderer kink's
+/// `[spec] assume_joined` reads too): the K spelling.
+pub(crate) fn name_text(name: &FindingName) -> String {
+    Spelling::k(&label).text(name)
 }
 
 /// The names of `assume_joined` that apply on the definition `side`, side prefixes removed.
@@ -135,39 +95,30 @@ pub(crate) fn side_of(given: &str) -> (Option<DefinitionRole>, &str) {
     }
 }
 
-/// Whether one of `assumed` (side prefixes already removed) names `finding`. A decided finding
-/// ([`Finding::is_decided`]) is never assumed: its name is refused at setup
-/// ([`decided_named`]).
-pub(crate) fn assumed(assumed: &[String], finding: &Finding) -> bool {
-    !finding.is_decided() && assumed.iter().any(|given| names_finding(given, finding))
+/// Whether one of `assumed` (side prefixes already removed) is byte-equal to `name`, read back
+/// (k-rust-backend `data_term::names::canonical`). Only an undecided finding is ever assumed
+/// (`BackendDefinition::data_heads_assuming`).
+pub(crate) fn assumed(assumed: &[String], name: Option<&FindingName>) -> bool {
+    name.is_some_and(|name| {
+        let name = name_text(name);
+        assumed
+            .iter()
+            .any(|given| names::canonical(given).as_deref() == Some(name.as_str()))
+    })
 }
 
-/// The printed name of a decided finding of `heads` that `given` (without a side prefix) names,
-/// with why it cannot be assumed, if any: such a name is refused, since the finding is a fact
-/// about the definition as written.
-pub(crate) fn decided_named(given: &str, heads: &DataHeads) -> Option<(String, String)> {
-    heads
-        .findings()
-        .iter()
-        .filter(|finding| finding.is_decided() && names_finding(given, finding))
-        .find_map(|finding| {
-            let why = match finding {
-                Finding::Equation(pair) => format!(
-                    "an equation whose right-hand side leaves {} unbound by its left-hand side: \
-                     read as written it equates its left-hand side with every value of that \
-                     sort, and the evaluator never applies it, so `applied as written` is no \
-                     premise about the definition",
-                    unbound_variables(pair)
-                ),
-                Finding::Precondition(violation) => format!(
-                    "a precondition row: {}, which the data judgement reads as free, and no \
-                     assumption about the definition as written changes that",
-                    decided_fact(violation)
-                ),
-                Finding::Pair { .. } => return None,
-            };
-            Some((finding_name(finding)?, why))
-        })
+/// Which findings of `heads` (of `definition`) `given`, a name without a side prefix, assumes,
+/// or why it is refused (k-rust-backend `data_term::names::classify`).
+pub(crate) fn classify(
+    given: &str,
+    heads: &DataHeads,
+    definition: &BackendDefinition,
+) -> Result<Vec<usize>, Refusal> {
+    let candidates = heads
+        .named()
+        .map(|(finding, name, _)| names::Candidate { finding, name })
+        .collect::<Vec<_>>();
+    names::classify(given, &candidates, definition, &Spelling::k(&label))
 }
 
 /// The variables an equation's right-hand side or `ensures` leaves unbound by its left-hand
@@ -242,65 +193,6 @@ fn decided_reason(violation: &Violation) -> String {
     )
 }
 
-/// How a pair's equations are identified across definitions: each by its unique id, else its
-/// overload part, else its written position.
-fn identity(rule: &RewriteRule) -> String {
-    rule.attributes
-        .identifier()
-        .map(str::to_owned)
-        .or_else(|| overload_part(rule))
-        .unwrap_or_else(|| equation(rule))
-}
-
-/// The findings `given` (without a side prefix) names among `heads`' findings, assumed or not:
-/// each as its kind and its equations' identities ([`identity`]), with a pair's position, and as
-/// the report writes it. The hook pairs of one equation are one finding: one name assumes them
-/// all.
-pub(crate) fn named_findings(given: &str, heads: &DataHeads) -> BTreeSet<(Vec<String>, String)> {
-    heads
-        .findings()
-        .iter()
-        .chain(heads.assumed())
-        .filter(|finding| names_finding(given, finding))
-        .map(|finding| match finding {
-            Finding::Pair { pair, .. } => {
-                let mut identities = vec![identity(&pair.first), identity(&pair.second)];
-                if pair.position.is_empty() {
-                    // A root pair is symmetric: its equations in either order are one pair.
-                    identities.sort();
-                }
-                identities.push(position_text(&pair.position));
-                (
-                    identities,
-                    format!(
-                        "{},{}@{}",
-                        equation(&pair.first),
-                        equation(&pair.second),
-                        position_text(&pair.position)
-                    ),
-                )
-            }
-            Finding::Equation(pair) => {
-                let prefix = equation_prefix(pair);
-                (
-                    vec![prefix.to_owned(), identity(&pair.first)],
-                    format!("{prefix}:{}", equation(&pair.first)),
-                )
-            }
-            Finding::Precondition(violation) => {
-                let named = match &violation.rule {
-                    Some(rule) => identity(rule),
-                    None => precondition_kind(&violation.kind),
-                };
-                (
-                    vec!["precondition".to_owned(), named.clone()],
-                    format!("precondition:{named}"),
-                )
-            }
-        })
-        .collect()
-}
-
 /// The report entries of `heads`' findings for the definition `side`, the assumed ones marked,
 /// terms written with `text` where it prints them, and each equation's written position with
 /// its source named by `names` ([`relative_position`]).
@@ -311,15 +203,8 @@ pub(crate) fn report(
     names: &SourceNames,
 ) -> Vec<DefinitionFinding> {
     heads
-        .findings()
-        .iter()
-        .map(|finding| entry(side, finding, false, text))
-        .chain(
-            heads
-                .assumed()
-                .iter()
-                .map(|finding| entry(side, finding, true, text)),
-        )
+        .named()
+        .map(|(finding, name, assumed)| entry(side, finding, name, assumed, text))
         .map(|mut entry| {
             for equation in &mut entry.equations {
                 let relative = relative_position(equation, names);
@@ -354,9 +239,11 @@ fn relative_position(position: &str, names: &SourceNames) -> String {
 fn entry(
     side: DefinitionRole,
     finding: &Finding,
+    name: Option<&FindingName>,
     assumed: bool,
     text: Option<&TextSyntax>,
 ) -> DefinitionFinding {
+    let name = name.map(name_text);
     let verdict = if finding.is_genuine() {
         FindingVerdict::Genuine
     } else if finding.is_decided() {
@@ -369,7 +256,7 @@ fn entry(
             side,
             verdict,
             kind: FindingKind::Precondition,
-            name: finding_name(finding),
+            name,
             equations: violation.rule.iter().map(|rule| equation(rule)).collect(),
             position: None,
             reason: if finding.is_decided() {
@@ -387,7 +274,7 @@ fn entry(
             side,
             verdict,
             kind: FindingKind::Equation,
-            name: finding_name(finding),
+            name,
             equations: vec![equation(&pair.first)],
             position: None,
             reason: match &pair.hook {
@@ -408,7 +295,7 @@ fn entry(
             assumed,
         },
         Finding::Pair { pair, instance } => {
-            pair_entry(side, verdict, pair, instance.as_ref(), assumed, text)
+            pair_entry(side, verdict, pair, name, instance.as_ref(), assumed, text)
         }
     }
 }
@@ -629,6 +516,7 @@ fn pair_entry(
     side: DefinitionRole,
     verdict: FindingVerdict,
     pair: &UnjoinedPair,
+    name: Option<String>,
     instance: Option<&k_rust::k_rust_backend::data_term::GroundInstance>,
     assumed: bool,
     text: Option<&TextSyntax>,
@@ -705,9 +593,9 @@ fn pair_entry(
         side,
         verdict,
         kind: FindingKind::Pair,
-        name: name(pair),
+        name,
         equations: vec![equation(&pair.first), equation(&pair.second)],
-        position: Some(position_text(&pair.position)),
+        position: Some(names::position_text(&pair.position)),
         reason: match &instance {
             Some(instance) => genuine_reason(instance),
             None => format!("not shown to join: {}", pair.reason),
@@ -730,7 +618,7 @@ fn pair_entry(
 mod tests {
     use k_rust::{k_rust_backend::definition::BackendDefinition, kore::parser::parse_definition};
 
-    use super::{decided_named, entry, finding_name};
+    use super::{classify, entry, name_text};
     use crate::report::{DefinitionRole, FindingKind, FindingVerdict};
 
     /// INT8 follow-ups (review N4): an equation whose right-hand side leaves `Y` unbound (only
@@ -755,12 +643,11 @@ endmodule{tail}"#
         let definition =
             BackendDefinition::internalize(&syntax, "OVERLOADED-LIST-OWISE").expect("loads");
         let heads = definition.data_heads();
-        let finding = heads
-            .findings()
-            .iter()
-            .find(|finding| finding.is_decided())
+        let (finding, named, _) = heads
+            .named()
+            .find(|(finding, _, _)| finding.is_decided())
             .expect("a decided finding");
-        let report = entry(DefinitionRole::Baseline, finding, false, None);
+        let report = entry(DefinitionRole::Baseline, finding, named, false, None);
         assert_eq!(report.verdict, FindingVerdict::Decided);
         assert_eq!(report.kind, FindingKind::Equation);
         assert!(
@@ -768,12 +655,17 @@ endmodule{tail}"#
             "{}",
             report.reason
         );
-        let name = finding_name(finding).expect("named");
-        // kink-native `tests/data.rs` pins the same name (fz26 KINK-BASELINE-FINDINGS review N4).
-        assert_eq!(name, "equation:any-unbound");
-        let (named, why) = decided_named(&name, &heads).expect("refused");
-        assert_eq!(named, name);
-        assert!(why.contains("leaves `Y` unbound"), "{why}");
+        let name = name_text(named.expect("named"));
+        // kink-native `tests/data.rs` reads the same name (fz26 KINK-BASELINE-FINDINGS review N4).
+        assert!(name.starts_with("equation:any-unbound#"), "{name}");
+        assert_eq!(report.name.as_deref(), Some(name.as_str()));
+        let refusal = classify(&name, &heads, &definition).expect_err("refused");
+        assert_eq!(refusal.reason(), "decided");
+        assert!(
+            refusal.detail(&name).contains("decided finding"),
+            "{}",
+            refusal.detail(&name)
+        );
     }
 
     /// S2B-T3: a genuine pair whose second reduct holds a stuck partial application under a
@@ -809,12 +701,11 @@ endmodule{tail}",
         let definition =
             BackendDefinition::internalize(&syntax, "OVERLOADED-LIST-OWISE").expect("loads");
         let heads = definition.data_heads();
-        let finding = heads
-            .findings()
-            .iter()
-            .find(|finding| finding.is_genuine())
+        let (finding, name, _) = heads
+            .named()
+            .find(|(finding, _, _)| finding.is_genuine())
             .expect("a genuine finding");
-        let report = entry(DefinitionRole::Baseline, finding, false, None);
+        let report = entry(DefinitionRole::Baseline, finding, name, false, None);
         assert_eq!(report.verdict, FindingVerdict::Genuine);
         let instance = report.instance.as_ref().expect("the instance");
         let undefined = usize::from(instance.stuck[0].is_none());
@@ -846,20 +737,38 @@ endmodule{tail}",
             confluence::{Violation, ViolationKind},
             data_term::Finding,
         };
+        const FIXTURE: &str =
+            include_str!("../../k-rust-backend/tests/fixtures/overloaded-list-owise.kore");
+        let definition = BackendDefinition::internalize(
+            &parse_definition(FIXTURE).expect("parses"),
+            "OVERLOADED-LIST-OWISE",
+        )
+        .expect("loads");
         let finding = Finding::Precondition(Violation {
             rule: None,
             kind: ViolationKind::PinnedByInjectiveTotal("Lblenc".into()),
         });
         assert!(!finding.is_decided());
-        let report = entry(DefinitionRole::Baseline, &finding, false, None);
+        let named = k_rust::k_rust_backend::data_term::names::finding_name(&definition, &finding)
+            .expect("named");
+        let report = entry(
+            DefinitionRole::Baseline,
+            &finding,
+            Some(&named),
+            false,
+            None,
+        );
         assert_eq!(report.verdict, FindingVerdict::Undecided);
         assert!(
             report.reason.contains("total and injective"),
             "{}",
             report.reason
         );
-        let name = finding_name(&finding).expect("named");
-        assert_eq!(name, "precondition:pinned-by-injective-total:enc");
-        assert!(super::assumed(std::slice::from_ref(&name), &finding));
+        let name = report.name.expect("named");
+        assert!(
+            name.starts_with("precondition:pinned-by-injective-total:enc#"),
+            "{name}"
+        );
+        assert!(super::assumed(std::slice::from_ref(&name), Some(&named)));
     }
 }

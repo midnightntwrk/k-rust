@@ -1692,7 +1692,7 @@ note = "narrows the pattern to a nonzero second argument"
     #[ignore = "kink"]
     fn a_witness_of_a_mutation_expected_to_survive_under_a_missing_premise_is_no_finding() {
         let dir = scratch("expected-to-survive-premise");
-        flow_support::copy_dir(&flow("findings/r3-plainq"), &dir);
+        flow_support::copy_dir(&flow("findings/r4-empty"), &dir);
         let list = dir.join("MUTATIONS.toml");
         let text = fs::read_to_string(&list).unwrap().replacen(
             "id = \"store-changed\"\n",
@@ -1799,8 +1799,9 @@ note = "narrows the pattern to a nonzero second argument"
 
     /// The seven DATAEND repros: strict comparability makes each campaign `not-comparable`, naming
     /// its findings with their verdicts; with every name assumed on the command line the campaign
-    /// finds a witness, and the fragment lists each premise, genuine ones flagged, with the
-    /// instruction to add it to the flow.
+    /// finds a witness where every finding is undecided, and the fragment lists each premise
+    /// with the instruction to add it to the flow; a repro with a genuine finding is refused
+    /// (`decided`: the premise would be known to be false).
     #[test]
     #[ignore = "kink"]
     fn the_findings_repros_are_not_comparable_until_their_findings_are_named() {
@@ -1840,6 +1841,14 @@ note = "narrows the pattern to a nonzero second argument"
                     ..FuzzOptions::default()
                 },
             );
+            if genuine {
+                assert!(!ok, "{name}: {assumed:#}");
+                assert!(
+                    assumed.to_string().contains("(decided)"),
+                    "{name}: {assumed:#}"
+                );
+                continue;
+            }
             assert!(ok, "{name}: {assumed:#}");
             assert_eq!(assumed["stopped"], Value::Null, "{name}");
             let premises = assumed["program"]["premises"].as_array().unwrap();
@@ -2478,13 +2487,13 @@ endmodule
         assert_eq!(refused[0]["case"], "shrunk", "{attempt:#}");
     }
 
-    /// A premise given on the command line only confirms under the overlay (KF-T4): r3-plainq's
-    /// finding, named with `--assume-joined` and absent from `FLOW.toml`, lets kink's run kill;
-    /// the premise is printed as not in the flow.
+    /// A premise given on the command line only confirms under the overlay (KF-T4): r4-empty's
+    /// finding (undecided; a genuine one's name is refused), named with `--assume-joined` and
+    /// absent from `FLOW.toml`, lets kink's run kill; the premise is printed as not in the flow.
     #[test]
     #[ignore = "kink"]
     fn a_premise_given_on_the_command_line_confirms_under_the_overlay() {
-        let dir = flow("findings/r3-plainq");
+        let dir = flow("findings/r4-empty");
         let (strict, _) = fuzz_kill(
             &dir,
             "MUTATIONS.toml",
@@ -2793,8 +2802,8 @@ endmodule
     #[test]
     #[ignore = "kink"]
     fn a_rule_job_on_a_findings_repro_needs_its_names() {
-        let dir = flow("findings/r3-plainq");
-        let rule = || Job::Rule("spec.k:11".into(), false);
+        let dir = flow("findings/r4-empty");
+        let rule = || Job::Rule("spec.k:13".into(), false);
         let (strict, ok) = run_job(&dir, REPRO_TEMPLATE, "go", rule(), FuzzOptions::default());
         assert!(!ok);
         assert_eq!(strict["stopped"], "not-comparable", "{strict:#}");

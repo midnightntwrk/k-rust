@@ -164,7 +164,7 @@ fn statuses(document: &Value) -> Vec<(String, String)> {
 
 /// A lock that records `killers` (mutation id, program id) and nothing else.
 fn lock_with(killers: &[(&str, &str)]) -> String {
-    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"run\"\n".to_owned();
+    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n".to_owned();
     for (id, killer) in killers {
         text.push_str(&format!(
             "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
@@ -754,7 +754,7 @@ mod kink_tier {
         let output = binary(&manifest, &["--lock", "verdicts.lock", "--locked"]);
         assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["version"], 37);
+        assert_eq!(document["version"], 38);
         assert_eq!(
             (&document["lock"]["status"], &document["lock"]["header"]),
             (&json!("stale"), &json!(true))

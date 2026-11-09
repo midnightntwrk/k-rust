@@ -222,7 +222,7 @@ fn a_head_with_an_overload_equation_of_another_shape_is_not_a_data_head() {
     assert!(!data(&definition, &heads, "fun{}()"));
     // Assuming the shape row met reads the family as lowered, but the head roots an overload
     // equation of another shape, so it is still no data head (DIFF-OVERLOAD-DIAMOND B1).
-    let assumed = definition.data_heads_assuming(&heads, |finding| {
+    let assumed = definition.data_heads_assuming(&heads, |finding, _| {
         matches!(finding, k_rust_backend::data_term::Finding::Precondition(_))
     });
     assert!(!assumed.names().any(|name| name.as_ref() == "exps"));
@@ -275,15 +275,16 @@ fn a_pair_of_function_equations_with_different_results_withdraws_all_data() {
         )),
         "{values:?}"
     );
-    // Assumed joined, the pair no longer withdraws every datum: the definition has data again.
-    let assumed = definition.data_heads_assuming(&heads, |_| true);
-    assert!(assumed.confluent(), "{:?}", assumed.findings());
-    assert_eq!(assumed.assumed().len(), 1);
-    assert!(data(&definition, &assumed, "one{}()"));
+    // A genuine pair is never assumed joined (KINK-FINDING-NAMES: the premise would be known to
+    // be false), whatever the client asks: the definition stays without data.
+    let assumed = definition.data_heads_assuming(&heads, |_, _| true);
+    assert!(!assumed.confluent(), "{:?}", assumed.findings());
+    assert!(assumed.assumed().is_empty());
+    assert!(!data(&definition, &assumed, "one{}()"));
     // Nothing assumed, nothing changes.
     assert!(
         !definition
-            .data_heads_assuming(&heads, |_| false)
+            .data_heads_assuming(&heads, |_, _| false)
             .confluent()
     );
 }
@@ -485,7 +486,7 @@ fn an_equation_with_an_unbound_result_variable_is_decided_and_never_assumed() {
         "{:?}",
         decided[0]
     );
-    let assumed = definition.data_heads_assuming(&heads, |_| true);
+    let assumed = definition.data_heads_assuming(&heads, |_, _| true);
     assert!(!assumed.confluent());
     assert!(
         assumed

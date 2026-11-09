@@ -24,16 +24,26 @@
 //! [`BackendDefinition::data_heads_assuming`] with the author's named premises (kink-flow's
 //! `[spec] assume_joined`). [`data_ends`] is the one function that says which ends of runs on a
 //! definition are data under it, from its own facts: while a finding is left none is, and kink
-//! counts no kill on it. A finding is assumed only by name, as k-rust-fuzz assumes one, through
-//! k-rust-backend's one renderer (`data_term::names`, with the K label decoder [`label`]), so a
-//! name the fuzz prints is a name kink reads. A decided finding ([`Finding::is_decided`]) cannot be
-//! assumed: [`DataFacts::refused_names`] says so, as it says when a name matches no finding or
-//! more than one.
+//! counts no kill on it. A finding is assumed only by its name, as k-rust-fuzz assumes one,
+//! through k-rust-backend's one renderer (`data_term::names`, with the K label decoder
+//! [`label`]), so a name the fuzz prints is a name kink reads. A name is the finding's kind, its
+//! sentences and a digest of the compiled sentences it is about (`kind:SENTENCES#DIGEST`), so it
+//! survives every edit that leaves those sentences alone and names nothing once they change; a
+//! premise assumes the findings whose name is byte-equal to it. Only an undecided finding can be
+//! assumed: [`DataFacts::refused_names`] refuses every other premise with its reason
+//! (`malformed`, `position-name`, `unnamed-sentence`, `no-digest`, `changed`, `no-finding`,
+//! `decided`, `ambiguous`).
+//!
+//! The premises [`DataFacts::of`] takes are in the K spelling, each sentence by its K label. A
+//! front end that spells sentences its own way (KRS by the item that wrote it) gives its spelling
+//! ([`SentenceNames`]): the facts then print names in it, and the front end's premises are mapped
+//! to the K spelling before they are read ([`SentenceNames::to_k`]).
 //!
 //! The mutant's facts are compared with the baseline's ([`DataFacts::differs_outside`]): a finding
 //! of the claim-free mutant outside the heads its edit can change should be the baseline's
 //! (`consistency`: such a pair is normalized with the baseline's equations alone), and kink checks
-//! that, by name and by the unique ids of its equations, instead of arguing it.
+//! that, by name, instead of arguing it. A name holds no position, so a patch that only moves
+//! lines changes none.
 //!
 //! [`CheckScope::All`]: k_rust_backend::confluence::CheckScope::All
 
@@ -43,7 +53,10 @@ use std::sync::Arc;
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::{
     confluence::{ViolationKind, WitnessPass},
-    data_term::{DataHeads, Finding, names},
+    data_term::{
+        DataHeads, Finding,
+        names::{self, FindingName, Spelling},
+    },
     definition::BackendDefinition,
     rule::{Concreteness, ConstraintKind, RewriteRule, TermIndex},
 };
@@ -56,7 +69,11 @@ use serde_json::{Value, json};
 /// component of kink's semantics identity (kink-campaign `identity`, key `data_facts`), so no
 /// store made before kink read these facts (a tier-1 outcome, a pattern answer, a result) is
 /// honoured. Bump it whenever what these facts refuse changes. v1 (fz26 KINK-BASELINE-FINDINGS).
-pub const DATA_FACTS_VERSION: &str = "kink-native/data-facts/v1";
+/// v2 (KINK-FINDING-NAMES): a finding is named by its kind, sentences and a digest of its compiled
+/// sentences, not by its generated-K positions; a premise assumes the findings whose name is
+/// byte-equal to it, a genuine finding is never assumed, and the baseline and a mutant are
+/// compared by these names, so a patch that only moves lines no longer changes them.
+pub const DATA_FACTS_VERSION: &str = "kink-native/data-facts/v2";
 
 /// The K label a KORE symbol name encodes (the name itself when it does not decode): how every
 /// finding name writes a symbol (k-rust-backend `data_term::names`). It is k-rust's
@@ -64,6 +81,75 @@ pub const DATA_FACTS_VERSION: &str = "kink-native/data-facts/v1";
 #[must_use]
 pub fn label(name: &str) -> String {
     k_rust::kast::identifier::label_or_name(name)
+}
+
+/// A front end's spelling of the sentences finding names name (k-rust-backend
+/// `data_term::names`, "The grammar"): its own name for each K label it emitted. KRS spells a
+/// sentence by the item that wrote it (`crate::plus_zero` for the label `nat--plus_zero`). A
+/// spelling given to several labels is dropped for each of them, so the map is one to one and a
+/// name maps back to the K spelling ([`Self::to_k`]). Empty: the K spelling.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SentenceNames {
+    spelled: BTreeMap<String, String>,
+    labels: BTreeMap<String, String>,
+}
+
+impl SentenceNames {
+    /// The spelling `pairs` gives, `(K label, spelling)`, a spelling of several labels dropped.
+    #[must_use]
+    pub fn new(pairs: impl IntoIterator<Item = (String, String)>) -> Self {
+        let mut by_spelling = BTreeMap::<String, BTreeSet<String>>::new();
+        for (label, spelling) in pairs {
+            if label != spelling {
+                by_spelling.entry(spelling).or_default().insert(label);
+            }
+        }
+        let mut names = Self::default();
+        for (spelling, labels) in by_spelling {
+            if let [label] = labels.into_iter().collect::<Vec<_>>().as_slice() {
+                names.spelled.insert(label.clone(), spelling.clone());
+                names.labels.insert(spelling, label.clone());
+            }
+        }
+        names
+    }
+
+    /// Whether it is the K spelling.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.spelled.is_empty()
+    }
+
+    /// The front end's spelling of the K label `label`, if it has one.
+    #[must_use]
+    pub fn spell(&self, label: &str) -> Option<String> {
+        self.spelled.get(label).cloned()
+    }
+
+    /// The K label the front end spells `spelling`, if any.
+    #[must_use]
+    pub fn label(&self, spelling: &str) -> Option<String> {
+        self.labels.get(spelling).cloned()
+    }
+
+    /// `name`, written in the front end's spelling, in the K spelling (unchanged when it is no
+    /// name of the grammar, which is then refused as it stands).
+    #[must_use]
+    pub fn to_k(&self, name: &str) -> String {
+        if self.is_empty() {
+            return name.to_owned();
+        }
+        names::respell(name, &|spelling| self.label(spelling)).unwrap_or_else(|| name.to_owned())
+    }
+
+    /// `name`, written in the K spelling, in the front end's.
+    #[must_use]
+    pub fn spelled(&self, name: &str) -> String {
+        if self.is_empty() {
+            return name.to_owned();
+        }
+        names::respell(name, &|label| self.spell(label)).unwrap_or_else(|| name.to_owned())
+    }
 }
 
 /// What a finding is about the definition (k-rust-backend `data_term`, "Findings: genuine or
@@ -100,34 +186,75 @@ impl FindingVerdict {
     }
 }
 
+/// One sentence of a finding as a document shows it: its part of the name, in the front end's
+/// spelling, and where the generated K writes it (information only: a name holds no position).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct FindingSentence {
+    pub part: String,
+    pub at: Option<String>,
+}
+
 /// One finding of a definition's full check as kink states it.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct NamedFinding {
-    /// Its name (k-rust-backend `data_term::names::finding_name`), which `assume_joined` takes;
-    /// `None` for an equation with neither a position, an overloaded pair, a label nor an id.
+    /// Its name (k-rust-backend `data_term::names`) in the front end's spelling, which
+    /// `assume_joined` takes; `None` for a finding about a sentence with no label, no id and no
+    /// generated part.
     pub name: Option<String>,
     pub verdict: FindingVerdict,
     /// Whether an `assume_joined` name assumes it.
     pub assumed: bool,
     /// One line naming it (k-rust-backend `Finding::describe`).
     pub description: String,
-    /// What identifies it across the baseline and a mutant: its kind, the unique ids of its
-    /// equations (a root pair's sorted) and its position.
+    /// What identifies it across the baseline and a mutant and in the execution digest: its
+    /// name in the K spelling, or, for a finding with no name, `unnamed:` and its description.
     pub identity: String,
+    /// Its sentences, in its name's order.
+    pub sentences: Vec<FindingSentence>,
 }
 
 impl NamedFinding {
-    fn of(finding: &Finding, assumed: bool) -> Self {
+    fn of(
+        finding: &Finding,
+        name: Option<&FindingName>,
+        assumed: bool,
+        spelling: &SentenceNames,
+    ) -> Self {
+        let spell = |label: &str| spelling.spell(label);
+        let spelled = Spelling {
+            symbol: &label,
+            sentence: &spell,
+        };
         Self {
-            name: names::finding_name(finding, label),
+            name: name.map(|name| spelled.text(name)),
             verdict: FindingVerdict::of(finding),
             assumed,
             description: finding.describe(label),
-            identity: identity(finding),
+            identity: identity(finding, name),
+            sentences: name
+                .map(|name| {
+                    name.sentences
+                        .iter()
+                        .map(|sentence| FindingSentence {
+                            part: names::Sentence {
+                                base: match &sentence.sentence.base {
+                                    names::SentenceBase::Overload(greater, lesser) => {
+                                        names::SentenceBase::Overload(label(greater), label(lesser))
+                                    }
+                                    other => other.clone(),
+                                },
+                                alternative: sentence.sentence.alternative,
+                            }
+                            .text(&spell),
+                            at: sentence.at.clone(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 
-    /// `{name, verdict, assumed, description}`.
+    /// `{name, verdict, assumed, description, sentences: [{part, at}]}`.
     #[must_use]
     pub fn value(&self) -> Value {
         json!({
@@ -135,57 +262,32 @@ impl NamedFinding {
             "verdict": self.verdict.name(),
             "assumed": self.assumed,
             "description": self.description,
+            "sentences": self
+                .sentences
+                .iter()
+                .map(|sentence| json!({"part": sentence.part, "at": sentence.at}))
+                .collect::<Vec<_>>(),
         })
     }
 }
 
-/// An equation as a finding's identity names it: its unique id, else its name.
-fn equation_id(rule: &RewriteRule) -> String {
-    rule.attributes
-        .identifier()
-        .map(str::to_owned)
-        .or_else(|| names::rule_part(rule, label))
-        .unwrap_or_else(|| rule.attributes.diagnostic_name(label))
+/// The K-spelled name of a finding, or `unnamed:` and its description for one with no name.
+fn identity(finding: &Finding, name: Option<&FindingName>) -> String {
+    name.map_or_else(
+        || format!("unnamed:{}", finding.describe(label)),
+        |name| Spelling::k(&label).text(name),
+    )
 }
 
-fn identity(finding: &Finding) -> String {
-    match finding {
-        Finding::Pair { pair, .. } => {
-            let mut ids = [equation_id(&pair.first), equation_id(&pair.second)];
-            if pair.position.is_empty() {
-                ids.sort();
-            }
-            format!(
-                "pair:{},{}@{}",
-                ids[0],
-                ids[1],
-                names::position_text(&pair.position)
-            )
-        }
-        Finding::Equation(pair) => {
-            format!(
-                "{}:{}",
-                names::equation_prefix(pair),
-                equation_id(&pair.first)
-            )
-        }
-        Finding::Precondition(violation) => format!(
-            "precondition:{}:{}",
-            names::precondition_kind(&violation.kind, label),
-            violation
-                .rule
-                .as_deref()
-                .map(equation_id)
-                .unwrap_or_default()
-        ),
-    }
-}
-
-/// Why an `assume_joined` name is refused ([`DataFacts::refused_names`]).
+/// Why an `assume_joined` name is refused ([`DataFacts::refused_names`]): the name in the front
+/// end's spelling, the refusal's code and why.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NameRefusal {
     pub name: String,
+    /// `malformed`, `position-name`, `unnamed-sentence`, `no-digest`, `changed`, `no-finding`,
+    /// `decided` or `ambiguous` (k-rust-backend `data_term::names::Refusal`).
     pub reason: String,
+    pub detail: String,
 }
 
 /// One definition's full critical-pair check as kink reads it: k-rust's [`DataHeads`] with the
@@ -195,7 +297,11 @@ pub struct NameRefusal {
 #[derive(Clone, Debug)]
 pub struct DataFacts {
     heads: DataHeads,
+    /// The premises, in the K spelling.
     assume_joined: Vec<String>,
+    spelling: SentenceNames,
+    /// Each premise the definition refuses, in the order of `assume_joined`.
+    refused: Vec<NameRefusal>,
     /// The unique id of each equation of the function theory, with its index.
     index_of: BTreeMap<String, TermIndex>,
     /// The executable equations of the function theory (the check skips `[symbolic]` ones).
@@ -206,18 +312,64 @@ pub struct DataFacts {
 
 impl DataFacts {
     /// The facts of `definition` (the definition a backend selected for the main module, the one
-    /// its runs execute on), every finding that one of `assume_joined` names assumed
-    /// (`data_heads_assuming`; a decided finding never is). The full check costs about as much as
-    /// the definition's load, so a caller computes this once per load.
+    /// its runs execute on), every finding whose name one of `assume_joined` (in the K spelling)
+    /// is assumed (`data_heads_assuming`; only an undecided finding ever is). The full check
+    /// costs about as much as the definition's load, so a caller computes this once per load.
     #[must_use]
     pub fn of(definition: &BackendDefinition, assume_joined: &[String]) -> Self {
+        Self::spelled(definition, assume_joined, SentenceNames::default())
+    }
+
+    /// [`Self::of`], printing names in the front end's spelling `spelling` (the premises are still
+    /// in the K spelling: [`SentenceNames::to_k`]).
+    #[must_use]
+    pub fn spelled(
+        definition: &BackendDefinition,
+        assume_joined: &[String],
+        spelling: SentenceNames,
+    ) -> Self {
         let mut heads = definition.data_heads();
+        let mut refused = Vec::new();
         if !assume_joined.is_empty() {
-            heads = definition.data_heads_assuming(&heads, |finding| {
-                assume_joined
-                    .iter()
-                    .any(|given| names::names_finding(given, finding, label))
+            let premises = assume_joined
+                .iter()
+                .filter_map(|given| names::canonical(given))
+                .collect::<BTreeSet<_>>();
+            let k = Spelling::k(&label);
+            heads = definition.data_heads_assuming(&heads, |_, name| {
+                name.is_some_and(|name| premises.contains(&k.text(name)))
             });
+            let candidates = heads
+                .named()
+                .map(|(finding, name, _)| names::Candidate { finding, name })
+                .collect::<Vec<_>>();
+            let spell = |label: &str| spelling.spell(label);
+            let spelled = Spelling {
+                symbol: &label,
+                sentence: &spell,
+            };
+            for given in assume_joined {
+                let reason = if given.starts_with("baseline:") || given.starts_with("mutant:") {
+                    Some((
+                        "no-finding",
+                        "kink names the baseline's findings without a side prefix (`baseline:` \
+                         and `mutant:` are k-rust-fuzz's): the claim-free mutant's are checked \
+                         equal to the baseline's, and every name applies to both"
+                            .to_owned(),
+                    ))
+                } else {
+                    names::classify(given, &candidates, definition, &spelled)
+                        .err()
+                        .map(|refusal| (refusal.reason(), refusal.detail(given)))
+                };
+                if let Some((reason, detail)) = reason {
+                    refused.push(NameRefusal {
+                        name: spelling.spelled(given),
+                        reason: reason.to_owned(),
+                        detail,
+                    });
+                }
+            }
         }
         let mut index_of = BTreeMap::new();
         let (mut executable_equations, mut root_pairs) = (0, 0);
@@ -234,6 +386,8 @@ impl DataFacts {
         Self {
             heads,
             assume_joined: assume_joined.to_vec(),
+            spelling,
+            refused,
             index_of,
             executable_equations,
             root_pairs,
@@ -246,10 +400,16 @@ impl DataFacts {
         &self.heads
     }
 
-    /// The names the facts were computed with.
+    /// The names the facts were computed with, in the K spelling.
     #[must_use]
     pub fn assume_joined(&self) -> &[String] {
         &self.assume_joined
+    }
+
+    /// The front end's spelling the facts print names in.
+    #[must_use]
+    pub const fn spelling(&self) -> &SentenceNames {
+        &self.spelling
     }
 
     /// The witness equations the full check adopted (k-rust-backend
@@ -316,27 +476,29 @@ impl DataFacts {
             })
     }
 
+    /// Every finding with its name and whether it is assumed, the unassumed first.
+    fn named(&self) -> impl Iterator<Item = (&Finding, Option<&FindingName>, bool)> {
+        self.heads.named()
+    }
+
+    fn stated(&self, finding: &Finding, name: Option<&FindingName>, assumed: bool) -> NamedFinding {
+        NamedFinding::of(finding, name, assumed, &self.spelling)
+    }
+
     /// The findings no name assumes.
     #[must_use]
     pub fn unnamed(&self) -> Vec<NamedFinding> {
-        self.heads
-            .findings()
-            .iter()
-            .map(|finding| NamedFinding::of(finding, false))
+        self.named()
+            .filter(|(_, _, assumed)| !assumed)
+            .map(|(finding, name, assumed)| self.stated(finding, name, assumed))
             .collect()
     }
 
     /// Every finding, the assumed ones marked, in k-rust's order (the unassumed first).
     #[must_use]
     pub fn findings(&self) -> Vec<NamedFinding> {
-        self.unnamed()
-            .into_iter()
-            .chain(
-                self.heads
-                    .assumed()
-                    .iter()
-                    .map(|finding| NamedFinding::of(finding, true)),
-            )
+        self.named()
+            .map(|(finding, name, assumed)| self.stated(finding, name, assumed))
             .collect()
     }
 
@@ -349,127 +511,57 @@ impl DataFacts {
     /// `heads` is closed under the equations' reach (`consistency::EquationReach`).
     #[must_use]
     pub fn findings_at(&self, heads: &BTreeSet<String>) -> Vec<NamedFinding> {
-        let unnamed = self
-            .heads
-            .findings()
-            .iter()
-            .filter(|finding| self.reads(finding, Some(heads)))
-            .map(|finding| NamedFinding::of(finding, false));
-        let assumed = self
-            .heads
-            .assumed()
-            .iter()
-            .filter(|finding| self.reads(finding, Some(heads)))
-            .map(|finding| NamedFinding::of(finding, true));
-        unnamed.chain(assumed).collect()
+        self.named()
+            .filter(|(finding, _, _)| self.reads(finding, Some(heads)))
+            .map(|(finding, name, assumed)| self.stated(finding, name, assumed))
+            .collect()
     }
 
-    /// The names of [`Self::assume_joined`] this definition refuses: a name that matches no
-    /// finding, more than one finding (the hook pairs of one equation are one finding), or a
-    /// decided finding, which is a fact about the definition as written.
+    /// The names of [`Self::assume_joined`] this definition refuses, each with its reason
+    /// (k-rust-backend `data_term::names::classify`): a name must be byte-equal to the name of
+    /// an undecided finding of the definition's full critical-pair check.
     #[must_use]
     pub fn refused_names(&self) -> Vec<NameRefusal> {
-        let all = self
-            .heads
-            .findings()
-            .iter()
-            .chain(self.heads.assumed())
-            .collect::<Vec<_>>();
-        let mut refused = Vec::new();
-        for given in &self.assume_joined {
-            let matched = all
-                .iter()
-                .filter(|finding| names::names_finding(given, finding, label))
-                .collect::<Vec<_>>();
-            let identities = matched
-                .iter()
-                .map(|finding| identity(finding))
-                .collect::<BTreeSet<_>>();
-            let reason = if matched.is_empty()
-                && (given.starts_with("baseline:") || given.starts_with("mutant:"))
-            {
-                Some(
-                    "kink names the baseline's findings without a side prefix (`baseline:` and \
-                     `mutant:` are k-rust-fuzz's): the claim-free mutant's are checked equal to \
-                     the baseline's, and every name applies to both"
-                        .to_owned(),
-                )
-            } else if matched.is_empty() {
-                Some("it names no finding of the definition's full critical-pair check".to_owned())
-            } else if let Some(decided) = matched.iter().find(|finding| finding.is_decided()) {
-                Some(format!(
-                    "it names a decided finding ({}), a fact about the definition as written that \
-                     no premise removes",
-                    decided.describe(label)
-                ))
-            } else if identities.len() > 1 {
-                Some(format!(
-                    "it names {} findings; name one: {}",
-                    identities.len(),
-                    matched
-                        .iter()
-                        .filter_map(|finding| names::finding_name(finding, label))
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                refused.push(NameRefusal {
-                    name: given.clone(),
-                    reason,
-                });
-            }
-        }
-        refused
+        self.refused.clone()
     }
 
     /// Whether the findings outside `checked` (KORE symbol names; `None` for every head, so
     /// every finding is inside) differ between these facts (a claim-free mutant's) and
-    /// `baseline`'s, by identity and name, assumed or not. A finding is inside when kink's
-    /// consistency gate reads it for those heads (`consistency`), with each side's own index of
-    /// its equations. Only for a gate that ran: when it read nothing (it returns early on no
-    /// checked head), compare with [`Self::differs`], since some findings (an equation not indexed
-    /// at a symbol, an `IndexedAt` row, a constructor row without a rule) are read for every set
-    /// of heads, the empty one included.
+    /// `baseline`'s, by name, assumed or not. A finding is inside when kink's consistency gate
+    /// reads it for those heads (`consistency`), with each side's own index of its equations.
+    /// Only for a gate that ran: when it read nothing (it returns early on no checked head),
+    /// compare with [`Self::differs`], since some findings (an equation not indexed at a
+    /// symbol, an `IndexedAt` row, a constructor row without a rule) are read for every set of
+    /// heads, the empty one included.
     #[must_use]
     pub fn differs_outside(&self, baseline: &Self, checked: Option<&BTreeSet<String>>) -> bool {
         self.outside(checked) != baseline.outside(checked)
     }
 
     /// Whether any finding differs between these facts (a claim-free mutant's) and `baseline`'s,
-    /// by identity and name, assumed or not: the comparison when the consistency gate read
-    /// nothing (fz26 KINK-BASELINE-FINDINGS review S1).
+    /// by name, assumed or not: the comparison when the consistency gate read nothing (fz26
+    /// KINK-BASELINE-FINDINGS review S1).
     #[must_use]
     pub fn differs(&self, baseline: &Self) -> bool {
         self.every() != baseline.every()
     }
 
-    /// `(identity, name)` of every finding, sorted, repeats kept.
-    fn every(&self) -> Vec<(String, Option<String>)> {
+    /// The identity ([`NamedFinding::identity`]) of every finding, sorted, repeats kept.
+    fn every(&self) -> Vec<String> {
         let mut every = self
-            .heads
-            .findings()
-            .iter()
-            .chain(self.heads.assumed())
-            .map(|finding| (identity(finding), names::finding_name(finding, label)))
+            .named()
+            .map(|(finding, name, _)| identity(finding, name))
             .collect::<Vec<_>>();
         every.sort();
         every
     }
 
-    /// `(identity, name)` of every finding outside `checked`, sorted, repeats kept.
-    fn outside(&self, checked: Option<&BTreeSet<String>>) -> Vec<(String, Option<String>)> {
+    /// The identity of every finding outside `checked`, sorted, repeats kept.
+    fn outside(&self, checked: Option<&BTreeSet<String>>) -> Vec<String> {
         let mut outside = self
-            .heads
-            .findings()
-            .iter()
-            .chain(self.heads.assumed())
-            .filter(|finding| !self.reads(finding, checked))
-            .map(|finding| (identity(finding), names::finding_name(finding, label)))
+            .named()
+            .filter(|(finding, _, _)| !self.reads(finding, checked))
+            .map(|(finding, name, _)| identity(finding, name))
             .collect::<Vec<_>>();
         outside.sort();
         outside
@@ -507,11 +599,16 @@ impl DataFacts {
         }
     }
 
-    /// `{assume_joined, has_data, incomplete, findings}`: what a document prints.
+    /// `{assume_joined, has_data, incomplete, findings}`: what a document prints, names in the
+    /// front end's spelling.
     #[must_use]
     pub fn value(&self) -> Value {
         json!({
-            "assume_joined": self.assume_joined,
+            "assume_joined": self
+                .assume_joined
+                .iter()
+                .map(|name| self.spelling.spelled(name))
+                .collect::<Vec<_>>(),
             "has_data": self.has_data(),
             "incomplete": self.incomplete(),
             "findings": self.findings().iter().map(NamedFinding::value).collect::<Vec<_>>(),

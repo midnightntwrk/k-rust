@@ -1011,6 +1011,22 @@ fn with_front_end_facts(
         .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone(), observers)))
         .with_input_decoder(decoder)
         .with_claim_helpers(claim_helpers(emitted))
+        .with_sentence_names(sentence_names(emitted))
+}
+
+/// How a finding's name spells each sentence of `emitted` (kink-flow
+/// [`kink_flow::FlowManifest::with_sentence_names`]): by the KRS item that wrote it, spelled as a
+/// stop reads it (`crate::plus_zero`, `lang::step`), where the item wrote that sentence alone; a
+/// sentence with no authored item, or one of several sentences of one item, keeps its K label,
+/// which the emission derives from the item's path. A corpus's `[spec] assume_joined` is written
+/// in this spelling, and every document prints names in it.
+fn sentence_names(emitted: &EmittedDefinition) -> kink_flow::SentenceNames {
+    kink_flow::SentenceNames::new(
+        emitted
+            .rules
+            .iter()
+            .filter_map(|rule| Some((rule.label.clone(), rule.item.clone()?))),
+    )
 }
 
 /// The claim helpers of `emitted`, each by its K module and label, as a manifest's

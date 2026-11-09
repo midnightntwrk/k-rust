@@ -279,12 +279,12 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     for (text, detail) in [
         ("not = toml = at all\n".to_owned(), "is not TOML"),
         (
-            "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"run\"\n".to_owned(),
+            "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n".to_owned(),
             "its document is not \"coverage\"",
         ),
         (
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
                  {flip}\n{flip}"
             ),
             "the flip \"f\" is listed twice",
@@ -887,7 +887,7 @@ mod kink_tier {
         // A lock recording `idle` as `H`'s killer, which a run with the manifest's settings would
         // keep but rewrite (its header and open obligations are a hand's).
         let text = format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"coverage\"\n\n\
+            "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
              [[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"idle\"\n"
         );
         fs::write(&lock, &text).unwrap();
@@ -1110,7 +1110,7 @@ fn a_kill_job_of_a_refused_or_unknown_flip_is_refused() {
     };
     let (document, status) = fuzz("flip--wake--I", Derived::Flips(&list));
     assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{document:#}");
-    assert_eq!(document["version"], 15, "{document:#}");
+    assert_eq!(document["version"], 16, "{document:#}");
     let job = &document["job"];
     assert_eq!(
         (&job["kind"], &job["flip"], &job["status"], &job["outcome"]),

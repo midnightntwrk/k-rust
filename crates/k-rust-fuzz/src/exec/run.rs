@@ -731,13 +731,26 @@ impl Executor {
                 .map_err(|error| error.to_string())?;
             let mut heads = loaded.data_heads();
             if !self.assume_joined.is_empty() {
-                heads = loaded.data_heads_assuming(&heads, |finding| {
-                    crate::findings::assumed(&self.assume_joined, finding)
+                heads = loaded.data_heads_assuming(&heads, |_, name| {
+                    crate::findings::assumed(&self.assume_joined, name)
                 });
             }
             self.data_heads = Some(heads);
         }
         Ok(self.data_heads.as_ref().expect("computed just above"))
+    }
+
+    /// The definition this executor's runs execute on, the one its data heads are of.
+    ///
+    /// # Errors
+    ///
+    /// When the main module does not load.
+    pub(crate) fn selected_definition(
+        &mut self,
+    ) -> Result<std::sync::Arc<k_rust::k_rust_backend::definition::BackendDefinition>, String> {
+        self.backend
+            .select_definition(None)
+            .map_err(|error| error.to_string())
     }
 
     /// Whether this executor's definition has data under the campaign's assumed names

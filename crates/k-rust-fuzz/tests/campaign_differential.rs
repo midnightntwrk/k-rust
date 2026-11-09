@@ -1278,7 +1278,9 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
 
 /// FZ-POLISH review round 3: R3-S1's pair is genuine: at `q(0)` both equations apply and the
 /// input has two normal forms, `a` and `bb`. The finding names both equations by their written
-/// positions (no 64-hex id, no KORE name), and carries the name `assume-joined` takes.
+/// positions (no 64-hex id, no KORE name), and carries the name `assume-joined` takes: its kind,
+/// its sentences and a digest (KINK-FINDING-NAMES), these unlabelled rules each by `id:` and its
+/// `UNIQUE_ID`, the only place a 64-hex id is written.
 #[test]
 fn a_pair_whose_input_has_two_normal_forms_is_genuine() {
     let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
@@ -1313,10 +1315,14 @@ fn a_pair_whose_input_has_two_normal_forms_is_genuine() {
     }
     let name = finding.name.as_deref().expect("a pair's name");
     assert!(
-        name.starts_with("b.k:") && name.ends_with("@root"),
+        name.starts_with("root:id:") && name.contains(",id:"),
         "{name}"
     );
-    assert_readable(&format!("{finding:?}"));
+    let unnamed = k_rust_fuzz::report::DefinitionFinding {
+        name: None,
+        ..finding.clone()
+    };
+    assert_readable(&format!("{unnamed:?}"));
 }
 
 /// No mangled KORE symbol and no 64-hex id in `text`.
@@ -1367,7 +1373,8 @@ fn a_genuine_instance_is_one_where_both_equations_apply() {
 /// FZ-POLISH review S2: R3-PROPAGATE's overload-axiom pairs have reducts that differ only by the
 /// source sorts of injections; their texts are written apart (with the sorts) instead of reading
 /// alike. Review S3: compiler-generated overload axioms are named
-/// (`overload:GREATER:LESSER`), so the pairs can be assumed joined.
+/// (`overload:GREATER:LESSER`). The pairs are genuine, so their names are refused
+/// (KINK-FINDING-NAMES: the premise would be known to be false).
 #[test]
 fn reducts_that_differ_only_by_injection_sorts_are_written_apart_and_named() {
     let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
@@ -1388,73 +1395,75 @@ fn reducts_that_differ_only_by_injection_sorts_are_written_apart_and_named() {
         .collect::<Vec<_>>();
     names.sort();
     names.dedup();
-    let mut spec = spec_on(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm", None);
-    spec.options.assume_joined = names;
-    let assumed = Campaign::new(spec)
-        .expect("valid")
-        .run(Budget::Cases(1), None);
     assert!(
-        assumed
+        report
             .definition_findings
             .iter()
-            .all(|finding| finding.assumed),
+            .all(|finding| finding.verdict == FindingVerdict::Genuine),
         "{:?}",
-        assumed.definition_findings
+        report.definition_findings
     );
+    let mut spec = spec_on(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm", None);
+    spec.options.assume_joined = names;
+    let error = Campaign::new(spec).err().expect("refused").to_string();
+    assert!(error.contains("(decided)"), "{error}");
 }
 
 /// FZ-POLISH review S5: `baseline:` restricts a name to the baseline, so the mutant keeps its
-/// finding; with `mutant:` the baseline's name matches nothing and is refused.
+/// finding, and `mutant:` to the mutant. R4-EMPTY's pair is undecided (a premise can assume it),
+/// and the mutant edits only `go`, so the pair has one name on both definitions
+/// (KINK-FINDING-NAMES: a name holds no position).
 #[test]
 fn a_side_prefix_restricts_an_assumed_pair_to_one_definition() {
-    let names = plainq_pair_names();
-    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    let names = empty_pair_names();
+    assert_eq!(names[0], names[1]);
+    let mut spec = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
     spec.options.assume_joined = vec![format!("baseline:{}", names[0])];
     let report = Campaign::new(spec)
         .expect("valid")
         .run(Budget::Cases(1), None);
     assert_not_comparable(&report, &[DefinitionRole::Mutant]);
-    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    let mut spec = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
     spec.options.assume_joined = vec![format!("mutant:{}", names[0])];
-    assert!(Campaign::new(spec).is_err());
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline]);
 }
 
-/// FZ-POLISH review S5: an unprefixed name applies on each definition where it matches and must
-/// name the same equations on both. `OW.ow1,OW.ow2@root` names `OWISE`'s owise pair on both of
-/// `OWISE` and `OWISE_M` (the same equations): accepted, with a warning that the assumed pair is
-/// genuine. On `OWISE_X` the labels sit on other equations: refused as ambiguous, and accepted
-/// with a side prefix per definition.
+/// FZ-POLISH review S5, KINK-FINDING-NAMES: one name never names two propositions. A name of
+/// labels and a position (`OW.ow1,OW.ow2@root`, the former grammar) is refused as such, whatever
+/// the labels sit on; `OWISE`'s owise pair is genuine, so its name is refused on `OWISE_M` and on
+/// `OWISE_X` (where the labels sit on other equations, so the name is no finding of the mutant)
+/// alike.
 #[test]
 fn an_assumed_name_matching_different_pairs_on_the_two_sides_is_refused() {
-    let labels = "OW.ow1,OW.ow2@root".to_owned();
-    let mut spec = spec_on(&OWISE, &OWISE_M, "owise/go.pgm", None);
-    spec.options.assume_joined = vec![labels.clone()];
-    let run = Campaign::new(spec)
-        .expect("one pair on both sides")
-        .run(Budget::Cases(1), None);
-    assert!(
-        run.warnings.iter().any(|warning| {
-            warning.starts_with("assume-joined (baseline): ") && warning.contains("is genuine")
-        }),
-        "{:?}",
-        run.warnings
-    );
-    let mut spec = spec_on(&OWISE, &OWISE_X, "owise/go.pgm", None);
-    spec.options.assume_joined = vec![labels.clone()];
-    let error = Campaign::new(spec).err().expect("refused");
-    assert!(
-        error.to_string().contains("different equation pairs"),
-        "{error}"
-    );
-    let mut spec = spec_on(&OWISE, &OWISE_X, "owise/go.pgm", None);
-    spec.options.assume_joined = vec![format!("baseline:{labels}"), format!("mutant:{labels}")];
-    assert!(Campaign::new(spec).is_ok());
+    for mutant in [&OWISE_M, &OWISE_X] {
+        let mut spec = spec_on(&OWISE, mutant, "owise/go.pgm", None);
+        spec.options.assume_joined = vec!["OW.ow1,OW.ow2@root".to_owned()];
+        let error = Campaign::new(spec).err().expect("refused").to_string();
+        assert!(error.contains("(position-name)"), "{error}");
+    }
+    let report = r2_report(&OWISE, &OWISE_X, "owise/go.pgm");
+    let names = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.side == DefinitionRole::Baseline)
+        .filter_map(|finding| finding.name.clone())
+        .collect::<Vec<_>>();
+    assert!(!names.is_empty());
+    for mutant in [&OWISE_M, &OWISE_X] {
+        let mut spec = spec_on(&OWISE, mutant, "owise/go.pgm", None);
+        spec.options.assume_joined.clone_from(&names);
+        let error = Campaign::new(spec).err().expect("refused").to_string();
+        assert!(error.contains("(decided)"), "{error}");
+    }
 }
 
-/// The names of R3-PLAINQ's pair in each definition, as the report's findings give them: the
-/// baseline's (in `b.k`), then the mutant's (in `m.k`).
-fn plainq_pair_names() -> Vec<String> {
-    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+/// The names of R4-EMPTY's pair in each definition, as the report's findings give them: the
+/// baseline's, then the mutant's.
+fn empty_pair_names() -> Vec<String> {
+    let report = r2_report(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm");
     [DefinitionRole::Baseline, DefinitionRole::Mutant]
         .into_iter()
         .map(|side| {
@@ -1468,23 +1477,21 @@ fn plainq_pair_names() -> Vec<String> {
         .collect()
 }
 
-/// FZ-POLISH, assume-joined: naming R3-PLAINQ's pair reads both definitions as if it joined, so
-/// their ends are data and the cases run; under that premise the mutant's `bb` against the
-/// baseline's `a` is a kill. The report's identity records the assumption, a warning states
-/// that the verdict holds only under it, and the findings are kept, marked assumed. (The
-/// assumption is false here: the definitions do equate `a` and `bb`. The kill is sound only
-/// relative to it, which is what the warning says.)
+/// FZ-POLISH, assume-joined: naming R4-EMPTY's pair (undecided: no ground input applies `f`)
+/// reads both definitions as if it joined, so their ends are data and the cases run; under that
+/// premise the mutant's `bb` against the baseline's `a` is a kill. The report's identity records
+/// the assumption, a warning states that the verdict holds only under it, and the findings are
+/// kept, marked assumed. (The assumption is false in every model with an element of `S`: the kill
+/// is sound only relative to it, which is what the warning says.) The root pair is read in either
+/// order.
 #[test]
 fn an_assumed_pair_lets_the_cases_run_under_the_stated_premise() {
-    let names = plainq_pair_names();
-    // The baseline's pair alone leaves the mutant without data.
-    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
-    spec.options.assume_joined = vec![names[0].clone()];
-    let report = Campaign::new(spec)
-        .expect("valid")
-        .run(Budget::Cases(8), None);
-    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
-    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    let names = empty_pair_names()
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut spec = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
     spec.options.assume_joined.clone_from(&names);
     let report = Campaign::new(spec)
         .expect("valid")
@@ -1508,16 +1515,21 @@ fn an_assumed_pair_lets_the_cases_run_under_the_stated_premise() {
         "{:?}",
         report.definition_findings
     );
-    // A trailing part of the path names the pair too.
-    let longer = names
+    // The pair's two sentences in the other order name it too.
+    let reversed = names
         .iter()
         .map(|name| {
-            let (first, rest) = name.split_once(',').expect("two equations");
-            format!("r3-plainq/{first},r3-plainq/{rest}")
+            let (readable, digest) = name.rsplit_once('#').expect("a digest");
+            let (first, second) = readable
+                .strip_prefix("root:")
+                .and_then(|pair| pair.split_once(','))
+                .expect("a root pair");
+            format!("root:{second},{first}#{digest}")
         })
         .collect::<Vec<_>>();
-    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
-    spec.options.assume_joined = longer;
+    assert_ne!(reversed, names);
+    let mut spec = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
+    spec.options.assume_joined = reversed;
     let report = Campaign::new(spec)
         .expect("valid")
         .run(Budget::Cases(1), None);
@@ -1528,19 +1540,22 @@ fn an_assumed_pair_lets_the_cases_run_under_the_stated_premise() {
 /// to a campaign that reads no data end.
 #[test]
 fn an_assumed_pair_that_names_no_finding_is_refused() {
-    let mut plainq = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
-    plainq.options.assume_joined = vec!["b.k:1:1,b.k:2:1@root".into()];
-    let error = Campaign::new(plainq).err().expect("refused");
-    assert!(
-        error.to_string().contains("matches no unjoined pair"),
-        "{error}"
-    );
-    let mut plainq = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
-    plainq.options.assume_joined = vec!["not a name".into()];
-    assert!(Campaign::new(plainq).is_err());
+    let mut empty = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
+    empty.options.assume_joined = vec!["root:x,y#0123456789abcdef0123456789abcdef".into()];
+    let error = Campaign::new(empty).err().expect("refused");
+    assert!(error.to_string().contains("(no-finding)"), "{error}");
+    // A name of the former grammar is refused with the names of the findings there now.
+    let mut empty = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
+    empty.options.assume_joined = vec!["b.k:1:1,b.k:2:1@root".into()];
+    let error = Campaign::new(empty).err().expect("refused");
+    assert!(error.to_string().contains("(position-name)"), "{error}");
+    let mut empty = spec_on(&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm", None);
+    empty.options.assume_joined = vec!["not a name".into()];
+    let error = Campaign::new(empty).err().expect("refused");
+    assert!(error.to_string().contains("(malformed)"), "{error}");
     // COIN's definitions have data and no finding.
     let mut coin = spec(&COIN_KILL);
-    coin.options.assume_joined = plainq_pair_names();
+    coin.options.assume_joined = empty_pair_names();
     assert!(Campaign::new(coin).is_err());
 }
 
@@ -1841,13 +1856,13 @@ fn an_equation_that_disagrees_with_its_hook_leaves_the_definition_without_data()
 }
 
 /// Every finding that keeps a definition without data can be assumed, a hook finding too
-/// (INT8). r4-hookite's finding is named `hook:b.k:18:3` on the baseline and `hook:m.k:18:3` on
-/// the mutant: the equation `sel(_, _, Y) => Y` by its written position, as `definition-findings`
-/// prints it. Assumed on the baseline alone, the mutant still has no data. Assumed on both, the
-/// cases run and the anchor kills (`a` against `bb`), but only for the definitions read as if
-/// `sel`'s equation agreed with `KEQUAL.ite`: the premise is in the identity and in a warning,
-/// and the findings are kept, marked assumed. (The premise is false here, as for the assumed
-/// pairs above: the kill holds only relative to it.)
+/// (INT8). r4-hookite's finding is named `hook:` and the equation `sel(_, _, Y) => Y` (by `id:`,
+/// an unlabelled rule), one name on both definitions, since the mutant edits only `go`
+/// (KINK-FINDING-NAMES). Assumed on the baseline alone, the mutant still has no data. Assumed on
+/// both, the cases run and the anchor kills (`a` against `bb`), but only for the definitions read
+/// as if `sel`'s equation agreed with `KEQUAL.ite`: the premise is in the identity and in a
+/// warning, and the findings are kept, marked assumed. (The premise is false here, as for the
+/// assumed pairs above: the kill holds only relative to it.)
 #[test]
 fn an_assumed_hook_finding_lets_the_cases_run_under_the_stated_premise() {
     let report = r2_report(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm");
@@ -1856,20 +1871,15 @@ fn an_assumed_hook_finding_lets_the_cases_run_under_the_stated_premise() {
         .iter()
         .map(|finding| finding.name.clone().expect("every finding is named"))
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        printed.into_iter().collect::<Vec<_>>(),
-        vec!["hook:b.k:18:3".to_owned(), "hook:m.k:18:3".to_owned()]
-    );
+    let [name] = printed.into_iter().collect::<Vec<_>>().try_into().unwrap();
+    assert!(name.starts_with("hook:id:"), "{name}");
     let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
-    spec.options.assume_joined = vec!["hook:b.k:18:3".into()];
+    spec.options.assume_joined = vec![format!("baseline:{name}")];
     let report = Campaign::new(spec)
         .expect("valid")
         .run(Budget::Cases(8), None);
     assert_not_comparable(&report, &[DefinitionRole::Mutant]);
-    let names = vec![
-        "hook:b.k:18:3".to_owned(),
-        "mutant:hook:m.k:18:3".to_owned(),
-    ];
+    let names = vec![name.clone()];
     let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
     spec.options.assume_joined.clone_from(&names);
     let report = Campaign::new(spec)
@@ -1882,7 +1892,7 @@ fn an_assumed_hook_finding_lets_the_cases_run_under_the_stated_premise() {
             .warnings
             .iter()
             .any(|warning| warning.starts_with("assume-joined: ")
-                && warning.contains("`hook:b.k:18:3`")
+                && warning.contains(&format!("`{name}`"))
                 && warning.contains("not for the definitions as written")),
         "{:?}",
         report.warnings
@@ -1896,12 +1906,17 @@ fn an_assumed_hook_finding_lets_the_cases_run_under_the_stated_premise() {
         "{:?}",
         report.definition_findings
     );
-    // A `hook:` name for an equation without a hook finding names nothing, and is refused.
+    // A `hook:` name for an equation without a hook finding names nothing, and is refused, as is
+    // the former position name of the hook finding.
     let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
-    spec.options.assume_joined = vec!["hook:b.k:20:3".into()];
+    spec.options.assume_joined = vec!["hook:x#0123456789abcdef0123456789abcdef".into()];
+    let error = Campaign::new(spec).err().expect("refused").to_string();
+    assert!(error.contains("(no-finding)"), "{error}");
+    let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
+    spec.options.assume_joined = vec!["hook:b.k:18:3".into()];
     let error = Campaign::new(spec).err().expect("refused").to_string();
     assert!(
-        error.contains("matches no unjoined pair, nor any other finding"),
+        error.contains("(position-name)") && error.contains(&format!("`{name}`")),
         "{error}"
     );
 }
@@ -1990,16 +2005,20 @@ fn a_decided_precondition_row_cannot_be_assumed() {
             "{finding:?}"
         );
     }
+    let mut names = report
+        .definition_findings
+        .iter()
+        .filter_map(|finding| finding.name.clone())
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
     let mut spec = spec_on(&LIST_ROW, &LIST_ROW_M, "list-row/go.pgm", None);
-    spec.options.assume_joined = vec![
-        "baseline:precondition:b.k:11:3".into(),
-        "mutant:precondition:m.k:11:3".into(),
-    ];
+    spec.options.assume_joined = names;
     let refused = Campaign::new(spec);
     assert!(refused.is_err(), "accepted: a false kill follows");
     let error = refused.err().expect("refused").to_string();
     assert!(
-        error.contains("cannot be assumed") && error.contains("change that equation"),
+        error.contains("(decided)") && error.contains("no premise removes"),
         "{error}"
     );
 }

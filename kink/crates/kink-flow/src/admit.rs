@@ -11,8 +11,9 @@
 //! reason `stop-unresolved`: each name must be the exact label of a rewrite rule of the
 //! specification, or the observation the stop states is not defined on it), and the definition's
 //! full critical-pair check on that backend (stage `assume-joined`: every name of `[spec]
-//! assume_joined` must name exactly one finding that can be assumed; fz26
-//! KINK-BASELINE-FINDINGS). Then each program is admitted on
+//! assume_joined` must be byte-equal to the name of an undecided finding, kind, sentences and
+//! digest, else it is refused with its reason; fz26 KINK-BASELINE-FINDINGS, KINK-FINDING-NAMES).
+//! Then each program is admitted on
 //! its own: its file is read inside the manifest's directory, its typed inputs are decoded by
 //! the front end's [`InputDecoder`], its configuration is assembled, the concrete-state check and
 //! the input gate run, and its initial configuration must have a value on the baseline. A
@@ -1084,7 +1085,8 @@ fn admit_definition(
         &mut backend,
         &kore,
         &compiled.compile_options().builtin_source_prefixes,
-        &spec.assume_joined,
+        &manifest.assume_joined_k(),
+        &manifest.sentence_names,
     )?;
     // The skeleton of every guarded sentence's condition, read from the definition the input
     // backend selected: what a guard can show, whether or not a program enters it.
@@ -1311,33 +1313,44 @@ fn input_gate_refusal(detail: String) -> AdmissionRefusal {
 /// KORE is `kore`: the definition the backend selected for the main module (selecting it loads
 /// it, so its load counts are final, as kink-campaign's `Runtime::prepare` reads them), its
 /// definition exclusions (kink-native `DefinitionExclusions::of`, with the compile's builtin
-/// source prefixes), its full critical-pair check, and every name of `assume_joined` checked
-/// against it (stage `assume-joined`; kink-native `DataFacts::refused_names`: a name must name
-/// exactly one finding, and not a decided one). A definition exclusion refuses nothing.
+/// source prefixes), its full critical-pair check, and every name of `assume_joined` (in the K
+/// spelling; `spelling` is the front end's, which the facts print) checked against it (stage
+/// `assume-joined`; kink-native `DataFacts::refused_names`: a name must be byte-equal to the name
+/// of an undecided finding). The refusal's reason is the first refused name's code
+/// (`malformed`, `position-name`, `unnamed-sentence`, `no-digest`, `changed`, `no-finding`,
+/// `decided` or `ambiguous`), and its detail gives each refused name with its code and why. A
+/// definition exclusion refuses nothing.
 fn baseline_data(
     backend: &mut Backend,
     kore: &k_rust::kore::ast::Definition,
     builtin_source_prefixes: &[String],
     assume_joined: &[String],
+    spelling: &kink_native::data::SentenceNames,
 ) -> Result<(DataFacts, DefinitionExclusions), AdmissionRefusal> {
     let selected = backend
         .select_definition(None)
         .map_err(|e| input_gate_refusal(e.to_string()))?;
-    let data = DataFacts::of(&selected, assume_joined);
+    let data = DataFacts::spelled(&selected, assume_joined, spelling.clone());
     let refused = data.refused_names();
-    if refused.is_empty() {
-        let exclusions = DefinitionExclusions::of(kore, &selected, builtin_source_prefixes);
-        Ok((data, exclusions))
-    } else {
-        Err(AdmissionRefusal {
+    match refused.first() {
+        None => {
+            let exclusions = DefinitionExclusions::of(kore, &selected, builtin_source_prefixes);
+            Ok((data, exclusions))
+        }
+        Some(first) => Err(AdmissionRefusal {
             stage: "assume-joined".into(),
-            reason: "name-refused".into(),
+            reason: first.reason.clone(),
             detail: refused
                 .iter()
-                .map(|refusal| format!("`{}`: {}", refusal.name, refusal.reason))
+                .map(|refusal| {
+                    format!(
+                        "`{}` ({}): {}",
+                        refusal.name, refusal.reason, refusal.detail
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("; "),
-        })
+        }),
     }
 }
 

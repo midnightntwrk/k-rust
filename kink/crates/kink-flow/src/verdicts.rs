@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 22
+//! version = 23
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -207,7 +207,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// a standing rests on (`"<id>" = "<standing>, assuming joined <name>, ..."`) and an argued
 /// item whose invariant is not shown to be a function is `unchecked`; a run rendering differs in
 /// its `version` line only.
-pub const VERDICTS_VERSION: u64 = 22;
+/// 23 since an `[arguments]` line names the assumed findings a standing rests on by their names of
+/// kind, sentences and digest (`root:A,B#D`, KINK-FINDING-NAMES), where 22 named them by
+/// generated-K positions, so that a lock whose arguments name findings shows a new version; a lock
+/// whose standings assume nothing differs in its `version` line only.
+pub const VERDICTS_VERSION: u64 = 23;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run

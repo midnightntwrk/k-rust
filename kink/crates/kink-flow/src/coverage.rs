@@ -453,7 +453,14 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `argument_check` under an invariant has `function` (`{status, findings, reason}`, status
 /// `shown`, `assumed` or `not-shown`), and an item whose invariant is not shown to be a function
 /// is `unchecked` with that reason, and is not refuted by a failing check.
-pub const COVERAGE_VERSION: u64 = 19;
+/// Version 20 names each finding of the full critical-pair check by its kind, sentences and a
+/// digest of its compiled sentences (`root:A,B#D`, k-rust-backend `data_term::names`) where it
+/// named it by generated-K positions, gives each finding its `sentences` (`{part, at}`, `at`
+/// information only), and refuses a `[spec] assume_joined` name with one of the reasons
+/// `malformed`, `position-name`, `unnamed-sentence`, `no-digest`, `changed`, `no-finding`,
+/// `decided` or `ambiguous` where it refused `name-refused` (KINK-FINDING-NAMES), and an argued
+/// item's standing names the findings it assumes by these names.
+pub const COVERAGE_VERSION: u64 = 20;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";

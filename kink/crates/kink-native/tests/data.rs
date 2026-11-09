@@ -1,9 +1,11 @@
 //! fz26 KINK-BASELINE-FINDINGS: kink-native's data facts (`data`), each definition's full
 //! critical-pair check as kink reads it, on the route kink runs it on.
 //!
-//! - r3-plainq (`testdata/flow/findings/r3-plainq`, `q(_) => a` beside `q(_) => bb`) has one
-//!   genuine finding, so no end is data; naming it makes every end the terminal-value walk admits
-//!   data again, the finding marked assumed.
+//! - r4-empty (`testdata/flow/findings/r4-empty`, `f(_) => a` beside `f(_) => bb` over a sort
+//!   with no element) has one undecided finding, so no end is data; naming it makes every end the
+//!   terminal-value walk admits data again, the finding marked assumed. r3-plainq's pair
+//!   (`q(_) => a` beside `q(_) => bb`) is genuine, so its name is refused (`decided`) and nothing
+//!   becomes data (KINK-FINDING-NAMES: a premise known to be false is refused).
 //! - A name that names no finding, or a decided one, is refused; a decided finding is never
 //!   assumed.
 //! - The mutant comparison reads only the findings outside the checked heads, and every finding
@@ -24,10 +26,9 @@ use kink_native::NativeValidator;
 use kink_native::consistency::loaded_definition;
 use kink_native::data::{DataEnds, DataFacts, FindingVerdict, data_ends};
 
-const PLAINQ_PAIR: &str = "spec.k:7:3,spec.k:8:3@root";
-
-/// The name of `kbf/listrow.k`'s precondition row.
-const LISTROW_ROW: &str = "precondition:listrow.k:11:3";
+/// The name of `kbf/listrow.k`'s precondition row (k-rust-fuzz's `tests/kink_names.rs` pins it
+/// too): an unlabelled rule, so `id:` and its `UNIQUE_ID`.
+const LISTROW_ROW: &str = "precondition:id:bc25e9f808a4bf8adb532e95bbf5555a7d75a50fc54d950b294ff9975cfeb9dd#65ce51470d5cc619971b3c995cffa2ca";
 
 fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
@@ -65,27 +66,43 @@ fn counter_facts() -> DataFacts {
 #[test]
 fn a_finding_leaves_no_end_data_until_it_is_named() {
     on_a_big_stack(|| {
-        let strict = flow_facts("r3-plainq", "PQ", &[]);
+        let strict = flow_facts("r4-empty", "R4", &[]);
         assert_eq!(data_ends(&strict), DataEnds::None);
         let [finding] = strict.unnamed().try_into().unwrap();
-        assert_eq!(finding.name.as_deref(), Some(PLAINQ_PAIR));
-        assert_eq!(finding.verdict, FindingVerdict::Genuine);
+        let name = finding.name.clone().expect("named");
+        assert!(name.starts_with("root:id:"), "{name}");
+        assert_eq!(finding.verdict, FindingVerdict::Undecided);
         assert!(!finding.assumed);
         assert!(strict.refused_names().is_empty());
 
-        let named = flow_facts("r3-plainq", "PQ", &[PLAINQ_PAIR.to_owned()]);
+        let named = flow_facts("r4-empty", "R4", std::slice::from_ref(&name));
         assert!(matches!(data_ends(&named), DataEnds::Admitted(_)));
         assert!(named.unnamed().is_empty());
         let [assumed] = named.findings().try_into().unwrap();
         assert!(assumed.assumed);
         assert_eq!(assumed.identity, finding.identity);
         assert!(named.refused_names().is_empty());
-        assert_eq!(
-            named.value()["assume_joined"],
-            serde_json::json!([PLAINQ_PAIR])
-        );
+        assert_eq!(named.value()["assume_joined"], serde_json::json!([name]));
 
         assert!(matches!(data_ends(&counter_facts()), DataEnds::Admitted(_)));
+    });
+}
+
+/// KINK-FINDING-NAMES (Q5): a genuine pair has a ground input with two normal forms, so a premise
+/// that it joins is known to be false: its name is refused (`decided`) and the finding stays.
+#[test]
+fn a_genuine_finding_is_never_assumed_and_its_name_is_refused() {
+    on_a_big_stack(|| {
+        let strict = flow_facts("r3-plainq", "PQ", &[]);
+        let [finding] = strict.unnamed().try_into().unwrap();
+        assert_eq!(finding.verdict, FindingVerdict::Genuine);
+        let name = finding.name.clone().expect("named");
+        let named = flow_facts("r3-plainq", "PQ", std::slice::from_ref(&name));
+        assert_eq!(data_ends(&named), DataEnds::None);
+        assert!(named.unnamed().contains(&finding));
+        let [refusal] = named.refused_names().try_into().unwrap();
+        assert_eq!(refusal.reason, "decided", "{refusal:?}");
+        assert!(refusal.detail.contains("genuine"), "{refusal:?}");
     });
 }
 
@@ -93,12 +110,13 @@ fn a_finding_leaves_no_end_data_until_it_is_named() {
 fn a_name_that_names_no_finding_is_refused() {
     on_a_big_stack(|| {
         let facts = flow_facts(
-            "r3-plainq",
-            "PQ",
-            &["spec.k:1:1,spec.k:2:1@root".to_owned()],
+            "r4-empty",
+            "R4",
+            &["root:x,y#00000000000000000000000000000000".to_owned()],
         );
         let [refusal] = facts.refused_names().try_into().unwrap();
-        assert!(refusal.reason.contains("names no finding"), "{refusal:?}");
+        assert_eq!(refusal.reason, "no-finding", "{refusal:?}");
+        assert!(refusal.detail.contains("names no finding"), "{refusal:?}");
         assert_eq!(data_ends(&facts), DataEnds::None);
     });
 }
@@ -132,8 +150,8 @@ endmodule{tail}"#
         .find(|finding| finding.verdict == FindingVerdict::Decided)
         .expect("a decided finding");
     let name = decided.name.clone().expect("named");
-    // k-rust-fuzz `findings.rs` pins the same name.
-    assert_eq!(name, "equation:any-unbound");
+    // k-rust-fuzz `findings.rs` reads the same name.
+    assert!(name.starts_with("equation:any-unbound#"), "{name}");
     let named = DataFacts::of(&definition, std::slice::from_ref(&name));
     assert!(
         named.unnamed().contains(&decided),
@@ -141,9 +159,9 @@ endmodule{tail}"#
     );
     let refusals = named.refused_names();
     assert!(
-        refusals
-            .iter()
-            .any(|refusal| refusal.name == name && refusal.reason.contains("decided finding")),
+        refusals.iter().any(|refusal| refusal.name == name
+            && refusal.reason == "decided"
+            && refusal.detail.contains("decided finding")),
         "{refusals:?}"
     );
 }
@@ -171,8 +189,11 @@ fn only_the_findings_outside_the_checked_heads_are_compared() {
         assert_eq!(q.len(), 1, "{q:?}");
         assert!(!plainq.differs_outside(&clean, Some(&q)));
         // Assuming a finding does not hide it from the comparison.
-        let named = flow_facts("r3-plainq", "PQ", &[PLAINQ_PAIR.to_owned()]);
-        assert!(!named.differs_outside(&plainq, Some(&none)));
+        let empty = flow_facts("r4-empty", "R4", &[]);
+        let name = empty.unnamed()[0].name.clone().expect("named");
+        let named = flow_facts("r4-empty", "R4", &[name]);
+        assert!(named.unnamed().is_empty());
+        assert!(!named.differs_outside(&empty, Some(&none)));
         assert!(named.differs_outside(&clean, Some(&none)));
     });
 }
@@ -413,6 +434,11 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// POST-01 renames that branch from `RecoveredLiteral` to `LiteralCandidate`: eligibility is
 /// checked lazily only by term-equation application. The ceil consumers still take the same
 /// unknown branch, and their only changed bytes are the variant name.
+///
+/// KINK-FINDING-NAMES: `data_heads` also computes each finding's name (k-rust-backend
+/// `data_term::names::finding_name`) beside the findings, and builds one `DataHeads` whether or
+/// not there is a finding; the heads it selects (none while a finding is left, else
+/// `data_head_names`) and the findings are unchanged. Only `data_heads` is re-pinned.
 ///
 /// kink27 R1-TRUST (main `d3e259fe1`): `apply_ceil_equation` changed. 6058eb6bb made it
 /// `pub(crate)` (the SMT domain reading, `smt/functional.rs` `domain_plan`, calls it), and four
@@ -729,7 +755,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "data_heads",
-                "cc0a88dda42619c58ee60959289c89bafdf8cca1fd9f91cd5dde8f19932c095f"
+                "55b19db3d1a46d9d8e1b5fdf5a414097b4963eaff7292a4b28b2ebc81120858f"
             ),
             (
                 "data_head_names",
@@ -914,7 +940,10 @@ fn every_finding_is_compared_when_the_gate_read_no_head() {
         assert!(!listrow.differs(&listrow_facts(&[])));
         let named = listrow_facts(&[LISTROW_ROW.to_owned()]);
         let [refusal] = named.refused_names().try_into().unwrap();
-        assert!(refusal.reason.contains("decided finding"), "{refusal:?}");
+        assert_eq!(refusal.reason, "decided", "{refusal:?}");
+        assert!(refusal.detail.contains("decided finding"), "{refusal:?}");
+        // An unlabelled sentence's refusal suggests a label.
+        assert!(refusal.detail.contains("give it a label"), "{refusal:?}");
         assert!(listrow.incomplete().is_none() && clean.incomplete().is_none());
     });
 }
@@ -923,10 +952,13 @@ fn every_finding_is_compared_when_the_gate_read_no_head() {
 #[test]
 fn a_side_prefixed_name_is_refused_as_such() {
     on_a_big_stack(|| {
-        let facts = flow_facts("r3-plainq", "PQ", &[format!("baseline:{PLAINQ_PAIR}")]);
+        let strict = flow_facts("r4-empty", "R4", &[]);
+        let name = strict.unnamed()[0].name.clone().expect("named");
+        let facts = flow_facts("r4-empty", "R4", &[format!("baseline:{name}")]);
         let [refusal] = facts.refused_names().try_into().unwrap();
+        assert_eq!(refusal.reason, "no-finding", "{refusal:?}");
         assert!(
-            refusal.reason.contains("without a side prefix"),
+            refusal.detail.contains("without a side prefix"),
             "{refusal:?}"
         );
     });

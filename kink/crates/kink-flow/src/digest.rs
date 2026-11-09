@@ -283,11 +283,11 @@ fn builtin_prefixes(spec: &AdmittedSpec) -> Vec<String> {
 /// - `definition` is [`definition_value`] of the loaded baseline, which also holds every
 ///   `unobservable` declaration (an attribute, inside a fingerprint) and the syntax definition
 ///   program text is parsed with.
-/// - `assumed` is the sorted identities (kink-native `NamedFinding::identity`: kind, the
-///   equations' `UNIQUE_ID`s, the overlap's position in the term) of the baseline's findings an
-///   `assume_joined` name assumes. The names are not members, since they hold source positions;
-///   a name that matches no finding refuses the specification at admission, before any store is
-///   read.
+/// - `assumed` is the sorted identities (kink-native `NamedFinding::identity`: each finding's
+///   name in the K spelling, its kind, sentences and the digest of its compiled sentences) of the
+///   baseline's findings an `assume_joined` name assumes. A name holds no source position, so a
+///   line inserted above the named equations leaves the member as it was; a name that is not
+///   an undecided finding's refuses the specification at admission, before any store is read.
 /// - `result_cells` is the specification digest's member, with its presence rule.
 ///
 /// The entry, the include directories, the Markdown selector and the file list are not members:

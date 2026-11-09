@@ -257,7 +257,13 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// rests on a horizon or a hidden edit, and the document carries `expectations`, the ids of the
 /// rows whose expectation is met, unmet and inconclusive, and of the mutations stating one that
 /// have no row (`unchecked`).
-pub const RUN_VERSION: u64 = 37;
+/// 38 names each finding of the full critical-pair check by its kind, sentences and a digest of its
+/// compiled sentences (`root:A,B#D`, k-rust-backend `data_term::names`) where it named it by
+/// generated-K positions, gives each finding its `sentences` (`{part, at}`, `at` information only),
+/// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
+/// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
+/// refused `name-refused` (KINK-FINDING-NAMES).
+pub const RUN_VERSION: u64 = 38;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
