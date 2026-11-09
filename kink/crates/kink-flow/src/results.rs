@@ -871,7 +871,8 @@ impl<'a> BaselineRunner<'a> {
     /// The baseline run of `test` with the specification's oracles, as [`Self::run`] makes it,
     /// and the campaign's evidence of it: what the run recorded (its observations included) and
     /// its ends. `Err` says why the campaign gave the run no sides (it refused the baseline, or
-    /// the run failed).
+    /// the run failed), naming what ended the run where this command's live run of it says
+    /// ([`refused_run`]).
     pub(crate) fn evidence_of(&self, mut test: TestCase) -> Result<TestEvidence, String> {
         test.oracles = self.spec.result.oracles();
         let options = CampaignOptions {
@@ -883,7 +884,13 @@ impl<'a> BaselineRunner<'a> {
         };
         let run = self
             .call(std::slice::from_ref(&test), &self.generations, &options)
-            .map_err(|failure| format!("the campaign refused the run: {failure}"))?;
+            .map_err(|failure| {
+                let recording = self.last_call();
+                let live_stop = recording
+                    .baseline_of(&test.id)
+                    .map(|live| live.run.census.stop);
+                refused_run(&failure, live_stop, self.budget.time.as_millis())
+            })?;
         let [evidence] = <[TestEvidence; 1]>::try_from(run.baseline)
             .map_err(|_| "the campaign gave no single baseline run".to_owned())?;
         match evidence.run {
@@ -1711,6 +1718,36 @@ pub fn timeout_cause(
             ""
         }
     )
+}
+
+/// Why the campaign gave a run no evidence, where it refused the run (`failure`): what ended this
+/// command's live run of it (`live_stop`, `None` where none ran) where that is known, and
+/// otherwise the refusal. The campaign's refusal of a baseline that is neither excluded nor
+/// stopped by its condition does not say what failed (`BaselineError`): a run the watchdog
+/// cancelled at `time_ms` is one, and so is a run the execution adapter returned nothing for, and
+/// the live run tells the two apart. A timeout depends on the host's load, so a reader that keeps
+/// what a run read keeps nothing of it.
+pub(crate) fn refused_run(
+    failure: &CampaignFailure,
+    live_stop: Option<RunStop>,
+    time_ms: u128,
+) -> String {
+    if let Some(reason) = failure.stop_condition() {
+        return format!(
+            "the stop condition ([stop] when) gave no answer the run can rest on: {reason}"
+        );
+    }
+    match live_stop {
+        Some(RunStop::Time) => format!(
+            "the watchdog stopped the run at time_ms = {time_ms}, before it ended; a timeout \
+             depends on the host's load"
+        ),
+        Some(RunStop::Failed) => format!(
+            "the execution adapter returned no execution (an adapter or backend failure), and \
+             the campaign refused the run: {failure}"
+        ),
+        Some(RunStop::Finished) | None => format!("the campaign refused the run: {failure}"),
+    }
 }
 
 /// The clause a timeout's cause continues with: a timeout is never cached.
@@ -2801,6 +2838,32 @@ mod tests {
                 host_dependence(class, exclusion, live_stop, diagnostic),
                 expected,
                 "{class:?} {exclusion:?} {live_stop:?} {diagnostic:?}"
+            );
+        }
+    }
+
+    /// A refused run's reason names what ended this command's live run of it: the campaign's
+    /// `BaselineError` says only that admission produced no trustworthy evidence, which a run the
+    /// watchdog cancelled and a run the adapter returned nothing for both give.
+    #[test]
+    fn a_refused_runs_reason_names_what_ended_the_live_run() {
+        let error = kink_campaign::validate_baseline(kink_campaign::BaselineAdmission::Error)
+            .expect_err("an error admission refuses");
+        assert_eq!(
+            refused_run(&error, Some(RunStop::Time), 30_000),
+            "the watchdog stopped the run at time_ms = 30000, before it ended; a timeout depends \
+             on the host's load"
+        );
+        let failed = refused_run(&error, Some(RunStop::Failed), 30_000);
+        assert!(
+            failed.starts_with("the execution adapter returned no execution")
+                && failed.ends_with(&error.to_string()),
+            "{failed}"
+        );
+        for live_stop in [Some(RunStop::Finished), None] {
+            assert_eq!(
+                refused_run(&error, live_stop, 30_000),
+                format!("the campaign refused the run: {error}")
             );
         }
     }

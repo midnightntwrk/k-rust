@@ -36,6 +36,16 @@
 //! comparison: the evidence run is a run of its own, and its record is not the program's result
 //! record.
 //!
+//! The budget's `time_ms` bounds the program's run, not the evidence's reading of it: each
+//! evaluation of `F` is off the run's clock (kink-native `execution::off_the_clock`). It is
+//! bounded by its own simplification budget, and the run's states by its depth, so the run ends
+//! without the watchdog's help, and its states are those of the run the baseline admitted within
+//! `time_ms`. Charging the evaluations to the run would make the evidence of a program the
+//! baseline ran within its bound depend on `F`'s cost on the host. A run the watchdog stops all
+//! the same gives no evidence, and the reason says so, with the evaluations' count and time.
+//! Where every cell holds the term node the previous decided evaluation read, the value is that
+//! evaluation's (the `Evaluator`).
+//!
 //! Only states of real, clean paths count. An element the run's observation record keeps was read
 //! at a real state of a path with no diagnostic (kink-campaign `observation`, "The slot"); a record
 //! of several paths counts only where it is real. A comparable program's run is complete with no
@@ -77,9 +87,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use k_rust::k_rust_backend::definition::BackendDefinition;
-use k_rust::k_rust_backend::rewrite::ProbeState;
+use k_rust::k_rust_backend::rewrite::{CellHandle, ProbeState};
 use k_rust::kore::ast::Pattern;
 use k_rust::kore::printer::Printer;
 use kink_campaign::{
@@ -135,17 +146,22 @@ struct Logged {
 }
 
 /// The value of one evaluation: `true`, `false` with the cells read there as KORE text, or not
-/// known.
+/// known, with why.
+#[derive(Clone)]
 enum Value3 {
     True,
     False(Vec<String>),
-    Undecided,
+    Undecided(String),
 }
 
 #[derive(Default)]
 struct Log {
     requests: usize,
     entries: Vec<Logged>,
+    /// The evaluations of the invariant the run's functions made, and the time they took: an
+    /// element whose cells are the previous evaluation's is not evaluated again ([`Evaluator`]).
+    evaluations: usize,
+    evaluating: Duration,
 }
 
 /// The invariant as the functions of an evidence run's declaration (module documentation, "The
@@ -174,24 +190,46 @@ impl ObservationFunctions for Functions {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .requests += 1;
-        body(&mut Evaluator { functions: self });
+        body(&mut Evaluator {
+            functions: self,
+            last: None,
+        });
         Ok(())
     }
 }
 
-/// The evaluation of one request of an evidence run.
+/// The evaluation of one request of an evidence run. The invariant's value is a function of the
+/// cells it reads, and its evaluation on the proof route with no solver is a function of their
+/// terms; a step that does not rewrite a cell keeps its term node. So where every cell holds the
+/// node the previous decided evaluation read (`last`), the value is that evaluation's, and is not
+/// evaluated again: the points of the rules of one instruction, before which no step rewrote
+/// memory, read one map. An undecided evaluation is not reused: a stop of the run that ended it
+/// says nothing about the cells.
 struct Evaluator<'f> {
     functions: &'f Functions,
+    last: Option<(Vec<CellHandle>, Value3)>,
 }
 
 impl Evaluator<'_> {
-    fn log(&self, class: usize, value: Value3) {
-        self.functions
+    fn log(&self, class: usize, value: Value3, evaluated: Option<Duration>) {
+        let mut log = self
+            .functions
             .log
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entries
-            .push(Logged { class, value });
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(took) = evaluated {
+            log.evaluations += 1;
+            log.evaluating += took;
+        }
+        log.entries.push(Logged { class, value });
+    }
+
+    /// The element of a decided `value`, with its value where `value` is asked.
+    fn element(holds: bool, value: bool) -> Evaluated {
+        Evaluated {
+            digest: element_digest(holds),
+            value: value.then(|| json!(holds)),
+        }
     }
 }
 
@@ -200,59 +238,16 @@ impl ObservationEvaluator for Evaluator<'_> {
         None
     }
 
+    /// The invariant's value at `state`, read off the run's clock: the run's time bound bounds
+    /// the program's run, and each evaluation is bounded by its own simplification budget
+    /// (module documentation, "The runs").
     fn content(
         &mut self,
         class: usize,
         state: &ProbeState<'_>,
         value: bool,
     ) -> Result<Evaluated, String> {
-        let functions = self.functions;
-        let cells = functions
-            .cells
-            .iter()
-            .map(|path| {
-                let path = path.iter().map(String::as_str).collect::<Vec<_>>();
-                state.cell(&path)
-            })
-            .collect::<Option<Vec<_>>>();
-        let answer = match &cells {
-            None => Err("the state holds no cell the invariant reads".to_owned()),
-            Some(cells) => evaluate(
-                &functions.definition,
-                &cells.iter().collect::<Vec<_>>(),
-                Invariant {
-                    symbol: &functions.symbol,
-                    cells: &functions.cells,
-                },
-            ),
-        };
-        match answer {
-            Ok(holds) => {
-                // The cells of the event itself, where it gives `false`.
-                self.log(
-                    class,
-                    if holds {
-                        Value3::True
-                    } else {
-                        Value3::False(
-                            cells
-                                .iter()
-                                .flatten()
-                                .map(|cell| Printer::compact().print_pattern(cell))
-                                .collect(),
-                        )
-                    },
-                );
-                Ok(Evaluated {
-                    digest: element_digest(holds),
-                    value: value.then(|| json!(holds)),
-                })
-            }
-            Err(reason) => {
-                self.log(class, Value3::Undecided);
-                Err(reason)
-            }
-        }
+        kink_native::execution::off_the_clock(|| self.read(class, state, value))
     }
 
     fn elements(&mut self, _: usize, _: &Pattern, _: bool) -> Result<Vec<Evaluated>, String> {
@@ -265,6 +260,76 @@ impl ObservationEvaluator for Evaluator<'_> {
             Printer::compact().print_pattern(item).as_bytes(),
         )
         .as_bytes()
+    }
+}
+
+impl Evaluator<'_> {
+    /// [`ObservationEvaluator::content`], off the run's clock.
+    fn read(
+        &mut self,
+        class: usize,
+        state: &ProbeState<'_>,
+        value: bool,
+    ) -> Result<Evaluated, String> {
+        let functions = self.functions;
+        let paths = functions
+            .cells
+            .iter()
+            .map(|path| path.iter().map(String::as_str).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        let handles = paths
+            .iter()
+            .map(|path| state.cell_handle(path))
+            .collect::<Option<Vec<_>>>();
+        if let (Some(handles), Some((read, logged))) = (&handles, &self.last)
+            && handles.len() == read.len()
+            && handles.iter().zip(read).all(|(now, then)| now.same(then))
+        {
+            let logged = logged.clone();
+            let holds = matches!(logged, Value3::True);
+            self.log(class, logged, None);
+            return Ok(Self::element(holds, value));
+        }
+        let cells = handles
+            .as_ref()
+            .map(|handles| handles.iter().map(CellHandle::kore).collect::<Vec<_>>());
+        let started = Instant::now();
+        let answer = match &cells {
+            None => Err("the state holds no cell the invariant reads".to_owned()),
+            Some(cells) => evaluate(
+                &functions.definition,
+                &cells.iter().collect::<Vec<_>>(),
+                Invariant {
+                    symbol: &functions.symbol,
+                    cells: &functions.cells,
+                },
+            ),
+        };
+        let took = started.elapsed();
+        match answer {
+            Ok(holds) => {
+                // The cells of the event itself, where it gives `false`.
+                let logged = if holds {
+                    Value3::True
+                } else {
+                    Value3::False(
+                        cells
+                            .iter()
+                            .flatten()
+                            .map(|cell| Printer::compact().print_pattern(cell))
+                            .collect(),
+                    )
+                };
+                self.last = handles.map(|handles| (handles, logged.clone()));
+                self.log(class, logged, Some(took));
+                Ok(Self::element(holds, value))
+            }
+            Err(reason) => {
+                self.last = None;
+                self.log(class, Value3::Undecided(reason.clone()), Some(took));
+                Err(reason)
+            }
+        }
     }
 }
 
@@ -523,10 +588,22 @@ fn program_evidence(
         let evidence = match observed {
             Ok(evidence) => evidence,
             Err(reason) => {
+                // How many evaluations of the invariant the run made before it failed, and
+                // their time, off the run's clock: what the reading cost, beside the run's cause.
+                let log = std::mem::take(&mut *log.lock().unwrap_or_else(PoisonError::into_inner));
+                let evaluated = if log.evaluations == 0 {
+                    String::new()
+                } else {
+                    format!(
+                        "; the run evaluated the invariant {} times, for {} ms",
+                        log.evaluations,
+                        crate::results::millis(log.evaluating)
+                    )
+                };
                 programs.push((
                     program.id.clone(),
                     Err(format!(
-                        "the evidence run of the program `{}` failed: {reason}",
+                        "the evidence run of the program `{}` failed: {reason}{evaluated}",
                         program.id
                     )),
                     false,
@@ -669,10 +746,19 @@ fn one_path(
     logged: &Log,
 ) -> Value {
     let no = short(false);
-    for (recorded, channel) in record.channels.iter().zip(channels.iter_mut()) {
+    for (class, (recorded, channel)) in record.channels.iter().zip(channels.iter_mut()).enumerate()
+    {
         channel["steps"] = json!(recorded.elements.len());
         if recorded.elements.iter().any(Option::is_none) {
-            channel["undecided"] = json!("the invariant's value is not known at a state");
+            // Why: the first evaluation of the class the run's functions left undecided.
+            let why = logged.entries.iter().find_map(|entry| match &entry.value {
+                Value3::Undecided(why) if entry.class == class => Some(why.as_str()),
+                _ => None,
+            });
+            channel["undecided"] = json!(why.map_or_else(
+                || "the invariant's value is not known at a state".to_owned(),
+                |why| format!("the invariant's value is not known at a state: {why}")
+            ));
         } else if let ChannelEnd::Open(opened) = &recorded.end
             && !(prefix && opened.opening == Opening::Bound)
         {
@@ -688,7 +774,7 @@ fn one_path(
                 .map(|entry| match entry.value {
                     Value3::True => Some(short(true)),
                     Value3::False(_) => Some(no),
-                    Value3::Undecided => None,
+                    Value3::Undecided(_) => None,
                 });
             log.eq(recorded.elements.iter().copied())
         });

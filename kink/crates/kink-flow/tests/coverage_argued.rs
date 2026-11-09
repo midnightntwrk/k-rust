@@ -1419,6 +1419,64 @@ mod kink_tier {
         );
     }
 
+    /// An invariant whose value is not known at a state of a run leaves that state undecided, and
+    /// the run is still read: `careful` walks the memory as `outsideRom` does, but has no
+    /// equation for a binding at a key from 100 on: it is partial, so after `write(200, 1)` its
+    /// evaluation leaves its definedness as a condition, before the step of `readz` and at the
+    /// end. The evidence is
+    /// `incomplete`, its reason names the state and why its value is not known, and the run is
+    /// neither refused nor failed: the initial state, where the walk is decided, is read too.
+    #[test]
+    #[ignore = "kink"]
+    fn an_invariant_undecided_at_a_state_leaves_its_evidence_incomplete() {
+        const CAREFUL: (&str, &str, &[&str]) = ("careful", "careful", &["memory", "romEnd"]);
+        let dir = invariant("undecided");
+        edit_k(
+            &dir,
+            "  syntax Bool ::= never(Int)",
+            "  syntax Bool ::= careful(Map, Int) [function, symbol(careful)]\n  rule careful(.Map, \
+             _) => true\n  rule careful((K:Int |-> _) M, E) => notBool inRom(E, K) andBool \
+             careful(M, E)\n    requires K <Int 100\n  syntax Bool ::= never(Int)",
+        );
+        with_programs(&dir, &[("high", "write(200, 1) ; read(8)")]);
+        argue_on(
+            &dir,
+            &[CAREFUL],
+            &[(
+                READZ_ROM_HELD,
+                "memory holds no ROM address",
+                Some(CAREFUL.0),
+            )],
+        );
+        let (document, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(
+            document["programs"][1]["class"], "comparable",
+            "{:#}",
+            document["programs"]
+        );
+        let evidence = evidence_of(&document, READZ_ROM_HELD);
+        assert_eq!(evidence["status"], "incomplete", "{evidence:#}");
+        assert_eq!(
+            evidence["programs"],
+            json!(["idle", "high"]),
+            "{evidence:#}"
+        );
+        let reason = evidence["reason"].as_str().unwrap_or_default();
+        assert!(
+            reason.contains(
+                "in the program `high`, before the steps of `INVARIANT.readz`: the invariant's \
+                 value is not known at a state: the evaluation leaves a condition"
+            ) && reason.contains("in the program `high`, at the end 0: ")
+                && !reason.contains("refused")
+                && !reason.contains("failed"),
+            "{evidence:#}"
+        );
+        assert_eq!(
+            item(&document, "requirements", READZ_ROM_HELD)["argument_check"]["standing"],
+            "unchecked"
+        );
+    }
+
     /// One program's evidence of an invariant is read from the memo only under the same
     /// invariant and the same rules: the same invariant observed at more rules (another entry
     /// names it), and another invariant (another function of the same cell), each run again. The

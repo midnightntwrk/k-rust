@@ -11,8 +11,9 @@
 //! stays an observed path set: one leaf per path, each with its own configuration sequence.
 //! Every run carries no trace and collects k-rust's run coverage ([`RunCoverage`]), and a
 //! cancelled run answers an error, so a timed-out run publishes no leaf. A watchdog cancels
-//! execution when the time budget expires; a result run may also carry a work budget
-//! (`max_work`), whose `work-bound` leaf makes the run incomplete.
+//! execution when the time budget expires, which the time a reader of the run spends at its
+//! points off the run's clock does not count against ([`off_the_clock`]); a result run may also
+//! carry a work budget (`max_work`), whose `work-bound` leaf makes the run incomplete.
 //! Each leaf also records whether its state is shown feasible or infeasible, and an
 //! indeterminate leaf its structured cause; the execution records the definition facts the
 //! bridge needs to use them ([`crate::feasibility`]).
@@ -41,16 +42,15 @@
 //! ([`AdaptedExecution::undecided_answers`]).
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     num::{NonZeroU64, NonZeroUsize},
     sync::{
-        Arc,
+        Arc, Condvar, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
-        mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use k_rust::backend::BackendErrorKind;
@@ -2351,6 +2351,105 @@ fn guards_order_free(
     }
 }
 
+/// The clock a run's watchdog reads ([`execute_with_watchdog`]): the time spent off it
+/// ([`off_the_clock`]) is not the run's, and the watchdog waits while work is off it.
+#[derive(Default)]
+struct Clock {
+    state: Mutex<ClockState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct ClockState {
+    /// The run ended: the watchdog stops waiting.
+    finished: bool,
+    /// The work off the clock now: how deep, and since when.
+    off: usize,
+    since: Option<Instant>,
+    /// The time spent off the clock so far, which extends the run's deadline.
+    credited: Duration,
+}
+
+impl Clock {
+    fn lock(&self) -> std::sync::MutexGuard<'_, ClockState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Wait until the run ends (`false`) or its time, `budget` plus the time spent off the clock,
+    /// has passed with no work off it (`true`).
+    fn expires(&self, budget: Duration) -> bool {
+        let start = Instant::now();
+        let mut state = self.lock();
+        loop {
+            if state.finished {
+                return false;
+            }
+            if state.off > 0 {
+                state = self
+                    .changed
+                    .wait(state)
+                    .unwrap_or_else(PoisonError::into_inner);
+                continue;
+            }
+            let deadline = start + budget + state.credited;
+            let now = Instant::now();
+            if now >= deadline {
+                return true;
+            }
+            state = self
+                .changed
+                .wait_timeout(state, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    fn finish(&self) {
+        self.lock().finished = true;
+        self.changed.notify_all();
+    }
+}
+
+thread_local! {
+    /// The clock of the watchdog of the run this thread executes, if any.
+    static CLOCK: RefCell<Option<Arc<Clock>>> = const { RefCell::new(None) };
+}
+
+/// `work`, with the time it takes not counted against the time bound of the run this thread
+/// executes, whose watchdog does not fire while it runs: work a reader of the run does at its
+/// points (an invariant's evaluation, kink-flow's evidence) that is not the run's own. Outside a
+/// watched run, or on a thread other than the run's, it is `work`. Work off the clock is bounded
+/// by its own bounds, never by the run's watchdog; a cancellation that came before it began
+/// still stops it.
+pub fn off_the_clock<R>(work: impl FnOnce() -> R) -> R {
+    struct Resume(Arc<Clock>);
+    impl Drop for Resume {
+        fn drop(&mut self) {
+            let mut state = self.0.lock();
+            state.off -= 1;
+            if state.off == 0
+                && let Some(since) = state.since.take()
+            {
+                state.credited += since.elapsed();
+            }
+            drop(state);
+            self.0.changed.notify_all();
+        }
+    }
+    let Some(clock) = CLOCK.with(|clock| clock.borrow().clone()) else {
+        return work();
+    };
+    {
+        let mut state = clock.lock();
+        if state.off == 0 {
+            state.since = Some(Instant::now());
+        }
+        state.off += 1;
+    }
+    let _resume = Resume(clock);
+    work()
+}
+
 fn execute_with_watchdog(
     backend: &mut Backend,
     state: Pattern,
@@ -2366,20 +2465,36 @@ fn execute_with_watchdog(
         fired.store(true, Ordering::Release);
         token.cancel();
     }
-    let (done, finished) = mpsc::channel::<()>();
+    let clock = Arc::new(Clock::default());
     let watchdog = {
         let token = token.clone();
         let fired = Arc::clone(&fired);
+        let clock = Arc::clone(&clock);
         thread::spawn(move || {
-            if finished.recv_timeout(budget.time) == Err(mpsc::RecvTimeoutError::Timeout) {
+            if clock.expires(budget.time) {
                 fired.store(true, Ordering::Release);
                 token.cancel();
             }
         })
     };
+    // This thread's run is watched by `clock` until it returns, or unwinds.
+    struct Watched {
+        clock: Arc<Clock>,
+        outer: Option<Arc<Clock>>,
+    }
+    impl Drop for Watched {
+        fn drop(&mut self) {
+            CLOCK.with(|current| *current.borrow_mut() = self.outer.take());
+            self.clock.finish();
+        }
+    }
+    let watched = Watched {
+        outer: CLOCK.with(|current| current.replace(Some(Arc::clone(&clock)))),
+        clock,
+    };
     let outcome = token.scope(|| execute(backend, request(state, budget, requested)));
     // Stop the watchdog, then read whether it fired before the run ended.
-    drop(done);
+    drop(watched);
     watchdog.join().expect("watchdog thread does not panic");
     let modality = requested.run.modality;
     let (result, timed_out) = settle(outcome, fired.load(Ordering::Acquire), modality)?;
@@ -2604,6 +2719,38 @@ mod tests {
     use super::*;
 
     use k_rust::kore::ast::Symbol;
+
+    /// A run's watchdog expires once its budget has passed on its clock: the time this thread
+    /// spends off it extends the deadline and never fires it, and time on it does.
+    #[test]
+    fn time_off_a_runs_clock_does_not_expire_its_watchdog() {
+        let budget = Duration::from_millis(500);
+        let longer = Duration::from_millis(1_000);
+        let watch = |clock: &Arc<Clock>| {
+            let clock = Arc::clone(clock);
+            thread::spawn(move || clock.expires(budget))
+        };
+
+        let clock = Arc::new(Clock::default());
+        let watchdog = watch(&clock);
+        let outer = CLOCK.with(|current| current.replace(Some(Arc::clone(&clock))));
+        off_the_clock(|| thread::sleep(longer));
+        CLOCK.with(|current| *current.borrow_mut() = outer);
+        clock.finish();
+        assert!(
+            !watchdog.join().unwrap(),
+            "time off the clock fired the watchdog"
+        );
+        assert!(clock.lock().credited >= longer);
+
+        let clock = Arc::new(Clock::default());
+        let watchdog = watch(&clock);
+        thread::sleep(longer);
+        assert!(watchdog.join().unwrap(), "the budget passed on the clock");
+
+        // Outside a watched run, the work is just done.
+        assert_eq!(off_the_clock(|| 7), 7);
+    }
 
     #[test]
     fn stepped_run_failure_is_reported_as_step_run_failure() {
