@@ -216,13 +216,7 @@ match = 'k8/terms/readable/map-key/or-branch/{!(x < 1),Cmd::Go,Cmd::Go(),Cmd::Ho
 finding = "S0-14"
 kind = "k8"
 
-# S0-9, diagnostic: 208 reds
-
-# sweep: 2
-[[family]]
-match = 'sweep/cells/written/olist/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
-finding = "S0-9"
-kind = "diagnostic"
+# S0-9, diagnostic: 200 reds
 
 # sweep: 1
 [[family]]
@@ -233,12 +227,6 @@ kind = "diagnostic"
 # sweep: 1
 [[family]]
 match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 6
-[[family]]
-match = 'sweep/cells/written/olist/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..]),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::KCell(x\, ..),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
 finding = "S0-9"
 kind = "diagnostic"
 
