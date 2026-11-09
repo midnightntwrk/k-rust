@@ -2231,6 +2231,96 @@ fn a_guard_over_a_quotient_of_a_quotient_is_a_partition_test() {
     assert_eq!(admit("ignore"), Err(Rejected::Partial));
 }
 
+fn literal_divisor_rows() -> String {
+    let declarations = r#"
+      hooked-symbol ne{}(SortInt{},SortInt{}) : SortBool{}
+        [function{}(),total{}(),hook{}("INT.ne"),smt-hook{}("distinct")]
+      hooked-symbol select{}(SortBool{},SortInt{},SortInt{}) : SortInt{}
+        [function{}(),total{}(),hook{}("KEQUAL.ite"),smt-hook{}("ite")]
+      axiom{R} \implies{R}(\top{R}(),\equals{R,R}(
+        \ceil{SortInt{},R}(ediv{}(@I:SortInt{},@D:SortInt{})),
+        \and{R}(\equals{SortBool{},R}(ne{}(@D:SortInt{},\dv{SortInt{}}("0")),\dv{SortBool{}}("true")),
+          \and{R}(\ceil{SortInt{},R}(@I:SortInt{}),\ceil{SortInt{},R}(@D:SortInt{}))))) [simplification{}()]
+    "#;
+    let x = "X:SortInt{}";
+    [
+        declarations.to_owned(),
+        equation(
+            &format!("table{{}}({x})"),
+            &format!("ediv{{}}({x},{})", int(16)),
+            None,
+            "",
+        ),
+        equation(
+            &format!("outer{{}}({x})"),
+            &format!(
+                "select{{}}(lt{{}}({x},{}),{},ediv{{}}({x},{}))",
+                int(0),
+                int(0),
+                int(16)
+            ),
+            None,
+            "",
+        ),
+    ]
+    .join("\n")
+}
+
+/// A body that divides by a nonzero literal is defined on every input. Read as stated, as a
+/// query's preparation reads it, the quotient's ceil condition states `16 =/=Int 0`, `\ceil(X)`
+/// and `\ceil(16)`; builtin hooks decide each true (the `\ceil` of a term without partial symbols
+/// holds), so the domain `table`'s summary states is everywhere, and the literal is no call
+/// whose summary the domain would need. The domain of `outer`, a conditional whose selected
+/// operand divides, is the conditional's over its symbolic test, which hooks do not decide; it
+/// is admitted with that domain.
+#[test]
+fn a_body_dividing_by_a_nonzero_literal_is_defined_everywhere_as_stated() {
+    let d = definition(&literal_divisor_rows());
+    let admit = |head: &str| {
+        crate::definedness::with_stated_ceil_conditions(|| {
+            Catalog::new(&d)
+                .admit(&term(&d, &format!("{head}{{}}(X:SortInt{{}})")))
+                .unwrap()
+        })
+        .unwrap_or_else(|reason| panic!("{head}: {reason:?}"))
+    };
+    assert!(admit("table").domain_total);
+    assert!(admit("outer").declared_total);
+}
+
+/// The solver reads a function whose body divides by a nonzero literal through its summary, so
+/// an application of it is decided equal to its body spelled out, unconditionally and under a
+/// conditional.
+#[cfg(feature = "z3")]
+#[test]
+fn a_function_dividing_by_a_nonzero_literal_equals_its_body() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = definition(&literal_divisor_rows());
+    let solver = Z3Solver::new(&d).unwrap();
+    let x = "X:SortInt{}";
+    let quotient = format!("ediv{{}}({x},{})", int(16));
+    for (call, body) in [
+        (format!("table{{}}({x})"), quotient.clone()),
+        (
+            format!("outer{{}}({x})"),
+            format!("select{{}}(lt{{}}({x},{}),{},{quotient})", int(0), int(0)),
+        ),
+    ] {
+        assert_eq!(
+            solver.check_predicates(
+                &[],
+                &Substitution::new(),
+                &[Predicate::Equals(term(&d, &call), term(&d, &body))],
+            ),
+            Ok(Ok(Validity::Valid)),
+            "{call}"
+        );
+    }
+}
+
 /// Two applications of branching total functions are decided equal by their summaries where
 /// their rows give equal values on every input, though their guards split the inputs
 /// differently, and are not proved equal where they disagree on one guard's region: `magnitude`

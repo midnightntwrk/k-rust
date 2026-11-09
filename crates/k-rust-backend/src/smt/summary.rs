@@ -767,6 +767,23 @@ impl<'d> Catalog<'d> {
                 Ok(obligations) => obligations,
                 Err(_) => return Ok(Err(Rejected::Partial)),
             };
+        // The obligations are read as stated (`with_stated_ceil_conditions`): the ceil condition
+        // of `X /Int 16` keeps the conjuncts `16 =/=Int 0`, `\ceil(X)` and `\ceil(16)`. A
+        // conjunct that builtin hooks alone decide true (`deferred::hooks_establish`: a ground
+        // hook condition; the `\ceil` of a `ceil_free` term, whose definedness walk is empty in
+        // every definition) holds on every input, so dropping it states the same domain, and no
+        // equation is applied. A literal is no call whose summary the domain would need.
+        let mut stated = Vec::with_capacity(obligations.len());
+        for predicate in obligations {
+            if !crate::deferred::hooks_establish(
+                self.definition,
+                std::slice::from_ref(&predicate),
+                &[],
+            )? {
+                stated.push(predicate);
+            }
+        }
+        let obligations = stated;
         let mut pending = obligations.iter().collect::<Vec<_>>();
         while let Some(predicate) = pending.pop() {
             admitted!(self.work());
@@ -779,6 +796,10 @@ impl<'d> Catalog<'d> {
                     admitted!(self.check_body(a, parameters, seen, dependencies, true));
                     admitted!(self.check_body(b, parameters, seen, dependencies, true));
                 }
+                // The `\ceil` of a `ceil_free` term holds on every input, as above, also below a
+                // connective: no call to summarize.
+                Predicate::Ceil(call) | Predicate::Defined(call)
+                    if call.attributes().ceil_free() => {}
                 Predicate::Ceil(call) | Predicate::Defined(call) => {
                     // A dependency's complete decision graph supplies its domain. An
                     // unresolved primitive domain is not evidence of bottom or totality.

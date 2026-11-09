@@ -374,8 +374,9 @@ fn emit(
 ///
 /// Admission reads the definition's ceil conditions as stated
 /// (`crate::definedness::with_stated_ceil_conditions`), as the domain reading does, and decides a
-/// partition test's definedness by builtin hooks alone (`Catalog::check_body`): it applies no
-/// equation of the definition. The query's terms may hold an operand a conditional discards
+/// partition test's definedness (`Catalog::check_body`), and the conjuncts of a body's domain that
+/// hold on every input (`Catalog::body_domain`), by builtin hooks alone: it applies no equation of
+/// the definition. The query's terms may hold an operand a conditional discards
 /// (`crate::deferred`), and the guards of the functions they call may hold an application whose
 /// evaluation does not end; preparing the query must end whatever the equations do.
 pub(in crate::smt) fn prepare(

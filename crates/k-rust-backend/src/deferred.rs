@@ -24,7 +24,8 @@
 //! each partial head, never simplified (`definedness::with_stated_ceil_conditions`), the domains
 //! of the strict children, and the finite summaries of pure, non-recursive functions
 //! (`smt::summary`), whose construction is explicitly bounded, reads ceil conditions as stated
-//! and decides a guard's definedness by builtin hooks alone; where that reading does not reach,
+//! and decides a guard's definedness, and the conjuncts of a body's domain that hold on every
+//! input, by builtin hooks alone; where that reading does not reach,
 //! `\ceil(t)` is an opaque atom. Preparing the query applies no equation of the definition, to
 //! `t` or to the definition's own terms. Each of these steps is bounded by
 //! the size of the atom's subject, by one selection scan per application, or by the summary
