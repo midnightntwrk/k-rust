@@ -51,49 +51,6 @@ match = 'terms/constant/value-root/y @ Cmd::Hold(_)'
 finding = "NT-2-26"
 kind = "diagnostic"
 
-# S0-14, diagnostic: 51 reds
-
-# terms: 23
-[[family]]
-match = 'terms/readable/map-key/as-body/{Size(x),[x\, ..],k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::is!(Int\, x),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],x % 2,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x >> 1,x || true,x.add::<Int>(1),y @ Cmd::Hold(_)}'
-finding = "S0-14"
-kind = "diagnostic"
-
-# terms: 25
-[[family]]
-match = 'terms/readable/map-key/or-branch/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::is!(Int\, x),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),map![x -> 1],x % 2,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x >> 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
-finding = "S0-14"
-kind = "diagnostic"
-
-# terms: 2
-[[family]]
-match = 'terms/readable/map-key/{as-body,or-branch}/x / 2'
-finding = "S0-14"
-kind = "diagnostic"
-
-# S0-14, diagnostic+rust-syntax: 9 reds
-
-
-# S0-14, k8: 19 reds
-
-# terms: 2
-[[family]]
-match = 'k8/terms/readable/map-key/{beside-fresh/x | 1,or-branch/x / 2}'
-finding = "S0-14"
-kind = "k8"
-
-# terms: 12
-[[family]]
-match = 'k8/terms/readable/map-key/as-body/{!(x < 1),-(x + 1),x % 2,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x >> 1,x || true,x.add::<Int>(1)}'
-finding = "S0-14"
-kind = "k8"
-
-# terms: 17
-[[family]]
-match = 'k8/terms/readable/map-key/or-branch/{!(x < 1),Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Wrap::<KItem>(x),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::lexeme!(Word\, "word"),k::matches!(x\, Cmd::Hold(_)),true,x,x && true,x || true,\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
-finding = "S0-14"
-kind = "k8"
-
 # S0-9, diagnostic: 178 reds
 
 # sweep: 1
@@ -145,51 +102,7 @@ kind = "diagnostic"
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
-# K-2, S0-14 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
-["terms/readable/map-key/as-body/!(x < 1)"]
-finding = "S0-14"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/readable/map-key/as-body/-(x + 1)"]
-finding = "S0-14"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/readable/map-key/or-branch/y @ Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["k8/terms/readable/map-key/as-body/x / 2"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/-(x + 1)"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/x % 2"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/x & 1"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/x + 1"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/x << 1"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/x >> 1"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/readable/map-key/or-branch/x.add::<Int>(1)"]
-finding = "S0-14"
-deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
-
+# K-2 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
 ["terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)"]
 finding = "K-2"
 deviation = "krs::analysis::ambiguous-operator @ spelling"
@@ -198,7 +111,6 @@ deviation = "krs::analysis::ambiguous-operator @ spelling"
 finding = "K-2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
 
-# S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
 # NT-3: a readable key beside a name bound nowhere else (`Cmd::Pair { a: HOLE, b: z }`) cannot spell
 # `_`, `@` or alternatives below its root, and reads `x | 1` as the operator.
 
@@ -447,8 +359,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 # `k::rules! { for Stmt; .. }`, then `krs expand`.
 
 # S0-9 (K8): the advice check on cases pending above under S0-9, whose refusal it reads.
-
-# S0-14 (K8): the advice check on cases pending above under S0-14, whose refusal it reads.
 
 # NT-19: the run families (`readable-run/..`, `cells-run/..`), the readable records and `cells!` rules
 # on the run base, which K7 runs. A twin of a pending machine-base case deviates exactly as its twin

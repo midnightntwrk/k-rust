@@ -19,7 +19,9 @@
 //!   in a matched position over evaluated terms it describes a term that never occurs, and in a
 //!   static clause's subject, matched against a program as written, it would stand for its
 //!   spelling rather than its value (decision NT-11-5); a notation form is moreover no pattern,
-//!   so a matched position refuses it by its spelling;
+//!   so a matched position refuses it by its spelling, but in a key, which holds the application
+//!   a notation form denotes, and where the key selects an entry, never matches it whatever its
+//!   spelling ([`refusals`]);
 //! - a value (a binder, a constructor application, a literal, a token island) may stand
 //!   anywhere, except for the whole subject of an equation or a simplification, which is a
 //!   function's application, and of a static clause, which is the production it expands;
@@ -315,13 +317,19 @@ pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
                     .or(Some(resolution(Class::CollectionInStaticSubject)));
             }
             match in_selection(node.construct) {
-                // Below `@` or `|` the key is matched already, by the construct's own entry. A
-                // `let` block or `k::matches!` its entry refuses by placement (a `cells!` cell
-                // value) is refused there, before its key's names are known.
+                // Below `@` or `|` the key is matched already, and the construct's own entry
+                // tells what the selection does, but for a notation form, whose entry refuses its
+                // spelling where a pattern is read: a key holds notation as the application it
+                // denotes, computed where the key is computed, so its spelling is no mistake
+                // there, and where the key selects, below `@` or `|` as beside a fresh name, the
+                // application never matches, spelled as notation or as the call. A `let` block or
+                // `k::matches!` its entry refuses by placement (a `cells!` cell value) is refused
+                // there, before its key's names are known.
                 Some(refusal)
                     if selection
                         && in_key_reading(position)
-                        && position.kind == Kind::Evaluated =>
+                        && (position.kind == Kind::Evaluated
+                            || matches!(node.construct, Construct::Notation(_))) =>
                 {
                     match admits(node.construct, position) {
                         Some(own)

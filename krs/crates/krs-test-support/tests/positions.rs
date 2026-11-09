@@ -278,9 +278,10 @@ enum Read {
 ///   whole root ([`root_rule`]);
 /// - `krs_syntax::notation::notation_in_pattern`: where a pattern is parsed, a subject or a local
 ///   pattern, a notation form is no pattern; elsewhere it is the application it denotes, which
-///   the table's application row decides, in a key too (a readable map read parses its key as an
-///   expression, and a `cells!` map's as a pattern or else an expression, as a braced collection
-///   instance's cells are, a Set's or a Map's, which only resolution tells apart); an index or a
+///   the table's application row decides, in a key too (a subject's map key is read as a pattern
+///   whose leaves the pattern grammar does not read are the terms they compute, below `@` and `|`
+///   too, and a braced collection instance's cells as a pattern or else an expression, a Set's or
+///   a Map's, which only resolution tells apart); an index or a
 ///   collection method is the application it denotes in a pattern too;
 /// - a constant's value reader refuses an operator as no ground term, and reads an index, a
 ///   collection method or a collection literal as the calls it denotes;
@@ -298,7 +299,13 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
     // an expression where no pattern parses: `x | 1` is alternatives there, `x + 1` the call. So
     // is a braced collection instance's cell, a Set's or a Map's.
     let braced = position.nesting.entries.contains(Entry::Instance);
-    let parsed_as_pattern = position.kind == Kind::Matched && !braced;
+    // A subject's map key is read by the one key reader, which reads the leaves the pattern
+    // grammar does not read, notation included, as the terms they compute, below `@` or `|`
+    // too, where the table's application row decides them.
+    let in_key = position.nesting.entries.contains(Entry::MapKey)
+        && position.slot == model::Slot::Subject
+        && position.nesting.local.is_none();
+    let parsed_as_pattern = position.kind == Kind::Matched && !braced && !in_key;
     let or_is_alternatives = position.kind == Kind::Matched
         || (position.kind == Kind::Evaluated && (position.form.writes_cells() || braced));
     let readable_value = matches!(

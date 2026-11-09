@@ -69,11 +69,12 @@ pub(crate) fn expression(tokens: &TokenStream) -> Option<Expr> {
 }
 
 /// Whether `expression`, read where a pattern stands, holds `|` where a pattern's alternatives
-/// stand: at its root, or below constructors, parentheses and list items only. There `|` joins
+/// stand: at its root as the pattern grammar reads it ([`bar_at_level`]), or below constructors,
+/// parentheses and list items only. There `|` joins
 /// alternatives, which the expression grammar would read as the bitwise operator.
 pub(crate) fn holds_alternatives(expression: &Expr) -> bool {
     match expression {
-        Expr::Binary(binary) => matches!(binary.op, syn::BinOp::BitOr(_)),
+        Expr::Binary(_) => bar_at_level(expression),
         Expr::Call(call) => {
             matches!(call.func.as_ref(), Expr::Path(_)) && call.args.iter().any(holds_alternatives)
         }
@@ -85,6 +86,29 @@ pub(crate) fn holds_alternatives(expression: &Expr) -> bool {
         Expr::Group(group) => holds_alternatives(&group.expr),
         Expr::Array(array) => array.elems.iter().any(holds_alternatives),
         Expr::Tuple(tuple) => tuple.elems.iter().any(holds_alternatives),
+        _ => false,
+    }
+}
+
+/// Whether the binary `expression` has a `|` at its own level of the tokens: its operator, or an
+/// operand's, unparenthesized, below an operator that binds looser than `|` (a comparison, `&&`,
+/// `||`). The expression grammar reads `x < 1 | y` as `x < (1 | y)`; the pattern grammar's
+/// alternatives bind loosest, so where a pattern stands its `|` joins `x < 1` and `y`.
+fn bar_at_level(expression: &Expr) -> bool {
+    use syn::BinOp;
+    let Expr::Binary(binary) = expression else {
+        return false;
+    };
+    match binary.op {
+        BinOp::BitOr(_) => true,
+        BinOp::Lt(_)
+        | BinOp::Le(_)
+        | BinOp::Gt(_)
+        | BinOp::Ge(_)
+        | BinOp::Eq(_)
+        | BinOp::Ne(_)
+        | BinOp::And(_)
+        | BinOp::Or(_) => bar_at_level(&binary.left) || bar_at_level(&binary.right),
         _ => false,
     }
 }
@@ -645,5 +669,25 @@ mod tests {
             "for Machine; a: { k: [Cmd::C(y, _), ..], env: { { let k::builtin::list::item(x).len() = y; y } -> v, .. } } => { k: [..] };",
         )
         .expect("a key's let pattern reads");
+    }
+
+    #[test]
+    fn a_bar_below_a_looser_operator_joins_alternatives() {
+        // Where a pattern stands, alternatives bind loosest: `x < 1 | y` is `x < 1` or `y`, which
+        // the expression grammar reads as `x < (1 | y)`. A parenthesized `|` is an operand's own.
+        for (source, holds) in [
+            ("x < 1 | y", true),
+            ("x == 1 | y", true),
+            ("x && true | y", true),
+            ("x || true | y", true),
+            ("x + 1 | y", true),
+            ("x << 1 | y", true),
+            ("x < 1", false),
+            ("x == (1 | y)", false),
+            ("Cmd::Hold(x < 1 | y)", true),
+        ] {
+            let expression = syn::parse_str::<Expr>(source).expect("an expression");
+            assert_eq!(holds_alternatives(&expression), holds, "{source}");
+        }
     }
 }

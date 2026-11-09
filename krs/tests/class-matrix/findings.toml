@@ -15,7 +15,7 @@
 #   `generator` (the test's own data or harness is wrong).
 # - `by_test`: the owners of the finding's entries of one test (`k2`, `k3`, `k7`, `k8`, ..), where
 #   another than `owner` owns them, or where an owner of one test's entries is stated explicitly
-#   (S0-9's and S0-14's K8 entries, whose advice is on S5's cell-entry messages).
+#   (S0-9's K8 entries, whose advice is on S5's cell-entry messages).
 # - `risk`: required on a finding that holds an under-refusal (the table refuses, KRS accepts), and
 #   only there: what the K KRS writes means, and how it differs from what the spelling says.
 #
@@ -36,12 +36,6 @@ what = "a map read's key below a function's application (`Wk(x | 1)`, `Wk(Cmd::G
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"
 what = "a constant's whole value that rustc cannot parse gets no KRS answer, and rustc then expands nothing in the crate, so every other KRS diagnostic of it waits on that error"
-
-["S0-14"]
-owner = "S5"
-kind = "diagnostic"
-what = "a readable map read's key at depth 2, below `@` or `|` (`map-key/as-body`, `map-key/or-branch`, `beside-fresh`), is answered by a true reason met before the table's (a function in a pattern before notation in a pattern), and its advice by that reason's; `@` and `|` in a map key are accepted as documented (TRI, 2026-11-07)"
-by_test = { k8 = "S5" }
 
 ["S0-9"]
 owner = "S5"

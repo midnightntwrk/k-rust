@@ -311,7 +311,7 @@ advice = "none"
 
 [class.function-in-pattern]
 code = "krs::analysis::function-in-pattern"
-doc = "a function application at a matched position of a rewrite rule's, an equation's or a context's pattern, or of a `let` or `k::matches!` pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key or a set element, which is computed and looked up: a pattern matches terms as written, and an application is evaluated; or a function application (a collection literal that builds, an index or a method included) below an alias's or a desugar's subject root, which static expansion matches against a program's terms as written, before anything evaluates, so the application would stand for its spelling rather than its value (decision NT-11-5); or a collection's unit, a set's singleton or a concatenation (`set::item(x)`, `set![]`, `map![]`, `set::concat(..)`) as the whole subject of a `#[k::rule]` fn or a context, where it is the application of the collection's function (`SetItem`, `.Set`, `.Map`): a rule rooted at a function is that function's equation, and a context is rooted at the production it heats (decision NT-11-2)"
+doc = "a function application at a matched position of a rewrite rule's, an equation's or a context's pattern, or of a `let` or `k::matches!` pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key or a set element, which is computed and looked up, unless the key selects an entry by matching (below `@` or `|`, or beside a name nothing else binds), notation included: a pattern matches terms as written, and an application is evaluated; or a function application (a collection literal that builds, an index or a method included) below an alias's or a desugar's subject root, which static expansion matches against a program's terms as written, before anything evaluates, so the application would stand for its spelling rather than its value (decision NT-11-5); or a collection's unit, a set's singleton or a concatenation (`set::item(x)`, `set![]`, `map![]`, `set::concat(..)`) as the whole subject of a `#[k::rule]` fn or a context, where it is the application of the collection's function (`SetItem`, `.Set`, `.Map`): a rule rooted at a function is that function's equation, and a context is rooted at the production it heats (decision NT-11-2)"
 advice = ["notation/rule/guard/k::builtin::map::empty()[x]", "terms/simplification/subject/k::builtin::int::add(x, 1)", "terms/equation/subject/x", "readable/subject/env/{ y -> x, .. }"]
 
 [class.group-and-descendant]
@@ -506,7 +506,7 @@ advice = "init/counter/k::absent!(0)"
 
 [class.notation-in-pattern]
 code = "krs::syntax::invalid-expression-notation"
-doc = "a notation form (an operator, `&&`, `||`, `!`, a method call) where a pattern is read: it denotes a builtin application but is no pattern, so a pattern spells the call"
+doc = "a notation form (an operator, `&&`, `||`, `!`, a method call) where a pattern is read: it denotes a builtin application but is no pattern, so a pattern spells the call; not in a map key, which holds the application a notation form denotes: computed there, its spelling is no mistake, and where the key selects an entry (below `@` or `|`, or beside a name nothing else binds) the application never matches, spelled either way (`function-in-pattern`, S0-14)"
 advice = "terms/simplification/subject/k::builtin::int::add(x, 1)"
 
 [class.object-term-as-predicate]
@@ -2243,11 +2243,12 @@ match = '{import,notation,terms}/local-rule/subject-root/*'
 class = "single-body-without-rewrite"
 at = "item"
 
-# alternatives-bind-unequally (NT-2 review): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first
+# alternatives-bind-unequally (NT-2 review, KEYS): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first;
+# the mistake is the alternative that binds no `y`, the opener's `Cmd::Go()`, outside the case's spelling, as in a rule's subject
 [[refuse]]
 match = 'terms/readable/map-key/or-branch/y @ Cmd::Hold(_)'
 class = "alternatives-bind-unequally"
-at = "spelling"
+at = "entry"
 
 # binder-bound-twice (NT-2 review): a name bound twice in one pattern, at a sibling whose product refuses it for another reason first
 [[refuse]]
