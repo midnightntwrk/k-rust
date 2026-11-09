@@ -1696,13 +1696,15 @@ fn rule_pattern(sentence: &Sentence, text: &str, start: usize, cells: &Cells) ->
 /// its left-hand side as a pattern (`pattern`, [`left_side_text`]; `null` otherwise).
 ///
 /// The statuses partition the rules with the precedence [`OUT_OF_SCOPE`],
-/// [`NO_COVERAGE_SIGNAL`], [`CLAIM_HELPER`], [`FIRED`], [`MATCHED`], [`UNMATCHED`]; firing
-/// implies matching. The first three are the scope every family shares ([`scope::Scope`]), so
-/// they are read from the definition and the front end's marks alone: a claim helper
-/// (`FlowManifest::claim_helpers`), an equation of a function only claims apply, is no
-/// obligation whatever the programs did, and one a typed input applied keeps the programs that
-/// matched and fired it as information. No program text reaches a function nothing applies
-/// either, but such a sentence stays `unmatched`, since neither a run nor a claim accounts for it.
+/// [`NO_COVERAGE_SIGNAL`], [`CLAIM_HELPER`], [`INVARIANT`], [`FIRED`], [`MATCHED`],
+/// [`UNMATCHED`]; firing implies matching. The first four are the scope every family shares
+/// ([`scope::Scope`]), so they are read from the definition, the front end's marks and the
+/// manifest's `[[coverage.invariant]]` tables alone: a claim helper
+/// (`FlowManifest::claim_helpers`), an equation of a function only claims apply, and an
+/// equation of a function only the invariants reach, are no obligations whatever the programs
+/// did, and one a typed input applied keeps the programs that matched and fired it as
+/// information. No program text reaches a function nothing applies either, but such a sentence
+/// stays `unmatched`, since neither a run, a claim nor an invariant accounts for it.
 ///
 /// Each such item has `kind` [`RULE`]; each `strict` or `seqstrict` production and each
 /// `context` gives its heating items ([`HEATING`], [`heating_item`]) at its own place in that
