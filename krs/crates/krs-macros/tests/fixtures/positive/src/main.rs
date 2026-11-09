@@ -658,6 +658,33 @@ impl TwoComputationMachine {
     }
 }
 
+/// A configuration with no computation cell: `computation` is a plain leaf of sort `K`
+/// (`Cell<KSequence>`), not a `KCell`, so a rule over the computation's head has no cell to
+/// rewrite.
+#[language_host::configuration]
+pub struct NoComputationMachine {
+    pub computation: language_host::configuration::Cell<language_host::builtin::KSequence>,
+    pub env: language_host::configuration::Cell<
+        language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
+    >,
+}
+
+impl NoComputationMachine {
+    #[language_host::init]
+    pub fn init(
+        #[language_host::config_var(name = "SAVED")] saved: language_host::builtin::KSequence,
+        #[language_host::config_var(name = "ENV")] env: language_host::builtin::Map<
+            language_host::builtin::Id,
+            readable_sorts::ReadableValue,
+        >,
+    ) -> Self {
+        Self {
+            computation: language_host::configuration::Cell::new(saved),
+            env: language_host::configuration::Cell::new(env),
+        }
+    }
+}
+
 #[language_host::configuration]
 pub struct ExplicitEquivalentMachine {
     pub k: language_host::configuration::KCell<language_host::builtin::KSequence>,
@@ -893,6 +920,10 @@ mod tests {
         let _: fn(Term<dyn KItemSort>) -> Secondary = Secondary::init;
         let _: fn() -> TwoComputationMachine = TwoComputationMachine::init;
         let _: fn(
+            language_host::builtin::KSequence,
+            language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
+        ) -> NoComputationMachine = NoComputationMachine::init;
+        let _: fn(
             readable_sorts::ReadableStmt,
             language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
         ) -> ExplicitEquivalentMachine = ExplicitEquivalentMachine::init;
@@ -916,7 +947,7 @@ mod tests {
     #[test]
     fn registry_counts_and_provenance() {
         let descriptors = sorted_descriptors();
-        assert_eq!(descriptors.len(), 158);
+        assert_eq!(descriptors.len(), 159);
         assert_eq!(kind_count(&descriptors, ItemKind::Sort), 14);
         assert_eq!(kind_count(&descriptors, ItemKind::Constructor), 35);
         assert_eq!(kind_count(&descriptors, ItemKind::Grammar), 49);
@@ -927,7 +958,7 @@ mod tests {
                 .iter()
                 .filter(|descriptor| descriptor.id.item_kind() == ItemKind::Configuration)
                 .count(),
-            8
+            9
         );
         assert_eq!(kind_count(&descriptors, ItemKind::Cell), 1);
         assert!(
@@ -1133,29 +1164,8 @@ mod tests {
         let descriptors = sorted_descriptors();
         let context = package_context();
         let implicit_head_rules = implicit_head_rules(&descriptors);
-        let local_configuration =
-            descriptor(&descriptors, "ReadableRuleMachine", ItemKind::Configuration).clone();
-        let mut no_computation = local_configuration.clone();
-        let HostDescriptorPayload::FixedConfiguration(configuration) = &mut no_computation.payload
-        else {
-            unreachable!()
-        };
-        let language_host::ProtocolCellContent::Leaf { wrapper, .. } =
-            &mut configuration.declaration.fields[0].content
-        else {
-            unreachable!()
-        };
-        *wrapper = language_host::CellWrapper::Cell;
-        let language_host::ProtocolInitializerCellContent::Leaf { wrapper, value, .. } =
-            &mut configuration.initializer.cells[0].content
-        else {
-            unreachable!()
-        };
-        *wrapper = language_host::CellWrapper::Cell;
-        let language_host::ProtocolInitializerStateTerm::KSequence(sequence) = value else {
-            unreachable!()
-        };
-        *value = language_host::ProtocolInitializerStateTerm::Term(sequence.items[0].value.clone());
+        let no_computation =
+            descriptor(&descriptors, "NoComputationMachine", ItemKind::Configuration).clone();
         let sort_descriptors = vocabulary(&descriptors);
         let no_computation = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
