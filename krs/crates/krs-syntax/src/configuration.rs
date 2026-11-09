@@ -319,6 +319,12 @@ impl ConfigurationDeclaration {
             ));
         }
 
+        // The declaration's surface: one that writes a leaf's wrapper (`Cell<T>`, `KCell<T>`)
+        // reads every field of a plain type as a group, which needs neither `#[k::cell]` nor
+        // `nested` there (`store: Store`); one that writes none reads such a field as a leaf
+        // whose wrapper is inferred, and a group is marked `nested`. A plain type's kind is the
+        // surface's, so the two are not mixed: a configuration that writes one wrapper writes
+        // every leaf's.
         let explicit_wrapper_surface = named.named.iter().any(|field| {
             matches!(option_content(&field.ty).unwrap_or(&field.ty), Type::Path(path)
             if path.path.segments.last().is_some_and(|segment| {
@@ -345,7 +351,12 @@ impl ConfigurationDeclaration {
         let mut cells = Vec::with_capacity(named.named.len());
         let mut emitted_names = BTreeSet::new();
         for field in &named.named {
-            let parsed = parse_cell_field(field.clone(), !explicit_wrapper_surface)?;
+            let reading = if explicit_wrapper_surface {
+                PlainReading::Wrapped
+            } else {
+                PlainReading::Inferred
+            };
+            let parsed = parse_cell_field(field.clone(), reading)?;
             if !emitted_names.insert(parsed.emitted_name.clone()) {
                 return Err(unsupported_field(
                     "two sibling fields cannot emit the same cell name",
@@ -487,7 +498,18 @@ impl KrsSyntax for ConfigurationDeclaration {
     }
 }
 
-fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellField, SyntaxError> {
+/// How a declaration reads a field of a plain type (`k: KSequence`, `store: Store`), which its
+/// surface decides ([`ConfigurationDeclaration::from_item`]).
+#[derive(Clone, Copy)]
+enum PlainReading {
+    /// The declaration writes no wrapper: a field with `#[k::cell]` is a leaf whose wrapper is
+    /// inferred, and a group is marked `nested`.
+    Inferred,
+    /// The declaration writes a leaf's wrapper: a field of a plain type is a group.
+    Wrapped,
+}
+
+fn parse_cell_field(field: Field, reading: PlainReading) -> Result<FixedCellField, SyntaxError> {
     let name = field
         .ident
         .clone()
@@ -515,9 +537,11 @@ fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellFie
             ));
         }
     };
+    let infer_plain_leaf = matches!(reading, PlainReading::Inferred);
     let content = parse_cell_type(
         ty,
         cell_helper_present && infer_plain_leaf && !attribute.is_nested(),
+        GroupReason::of(reading, attribute.is_nested()),
     )?;
     Ok(FixedCellField {
         field,
@@ -590,9 +614,47 @@ fn parse_cell_helper(
     Ok((parsed, true))
 }
 
+/// Why a field of a plain type is read as a group, for the refusal of one whose type is a
+/// computation's (`KSequence`), which is no group.
+#[derive(Clone, Copy)]
+enum GroupReason {
+    /// The declaration writes its leaves' wrappers.
+    Wrapped,
+    /// The field is marked `nested`.
+    Nested,
+    /// The field has no `#[k::cell]` helper, in a declaration that writes no wrapper.
+    NoHelper,
+}
+
+impl GroupReason {
+    fn of(reading: PlainReading, nested: bool) -> Self {
+        match reading {
+            PlainReading::Wrapped => Self::Wrapped,
+            PlainReading::Inferred if nested => Self::Nested,
+            // A field with `#[k::cell]` and without `nested` is a leaf whose wrapper is
+            // inferred, so this reason is read only for a field without the helper.
+            PlainReading::Inferred => Self::NoHelper,
+        }
+    }
+
+    /// The refusal of a `KSequence` field read as a group.
+    const fn computation(self) -> &'static str {
+        match self {
+            Self::Wrapped => {
+                "this declaration writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `KSequence` is not: write every leaf here with its wrapper, the computation cell as `KCell<KSequence>` and a leaf of sort `KSequence` as `Cell<KSequence>`"
+            }
+            Self::Nested => {
+                "`nested` declares a group, which `KSequence` is not: a `KSequence` field is the computation cell, declared without `nested`"
+            }
+            Self::NoHelper => "plain leaf fields require a `#[k::cell]` helper",
+        }
+    }
+}
+
 fn parse_cell_type(
     ty: &Type,
     cell_helper_present: bool,
+    group: GroupReason,
 ) -> Result<ConfigurationCellContent, SyntaxError> {
     let Type::Path(type_path) = ty else {
         return Err(unsupported_field(
@@ -672,19 +734,17 @@ fn parse_cell_type(
     if cell_helper_present {
         return parse_inferred_leaf(ty, type_path, computation);
     }
-    parse_nested_cell(ty, type_path, computation)
+    parse_nested_cell(ty, type_path, computation, group)
 }
 
 fn parse_nested_cell(
     ty: &Type,
     type_path: &syn::TypePath,
     computation: bool,
+    group: GroupReason,
 ) -> Result<ConfigurationCellContent, SyntaxError> {
     if computation {
-        return Err(unsupported_field(
-            "plain leaf fields require a `#[k::cell]` helper",
-            ty.span(),
-        ));
+        return Err(unsupported_field(group.computation(), ty.span()));
     }
     if !is_plain_path(&type_path.path) {
         return Err(unsupported_field(

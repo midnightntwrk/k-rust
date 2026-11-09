@@ -158,6 +158,56 @@ fn readable_plain_fields_require_cell_helpers_on_every_field() {
     assert_eq!(error.span().start().column, source.find("Map").unwrap());
 }
 
+/// A declaration writes its leaves all with their wrappers or all without: its surface decides
+/// whether a field of a plain type is a group (where a leaf's wrapper is written) or a leaf
+/// (where none is), so `KSequence` beside a `Cell<..>` is read as a group, which it cannot be,
+/// and the refusal says that, at the plain field, rather than that its helper is missing. A
+/// `KSequence` field marked `nested` is refused for `nested`, and one without any helper in a
+/// declaration that writes none still for the missing helper.
+#[test]
+fn a_declaration_writes_every_leaf_with_its_wrapper_or_none() {
+    let cases = [
+        (
+            "struct Machine { #[k::cell] k: KSequence, #[k::cell] saved: Cell<KSequence> }",
+            "writes its leaves with their wrappers",
+        ),
+        (
+            "struct Machine { #[k::cell] saved: Cell<KSequence>, k: KSequence }",
+            "writes its leaves with their wrappers",
+        ),
+        (
+            "struct Machine { #[k::cell(nested)] k: KSequence, #[k::cell] pc: Int }",
+            "`nested` declares a group",
+        ),
+        (
+            "struct Machine { k: KSequence }",
+            "require a `#[k::cell]` helper",
+        ),
+    ];
+    for (source, expected) in cases {
+        let error = krs_syntax::ConfigurationDeclaration::parse_source(source).unwrap_err();
+        assert!(
+            matches!(
+                error.kind(),
+                SyntaxErrorKind::UnsupportedConfigurationField { reason }
+                    if reason.contains(expected)
+            ),
+            "{source}: {error:?}"
+        );
+        assert_eq!(
+            error.span().start().column,
+            source.find("k: KSequence").unwrap() + "k: ".len(),
+            "{source}"
+        );
+    }
+    // Every leaf with its wrapper, and every plain field a group: accepted.
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
+        "struct Machine { k: KCell<KSequence>, saved: Cell<KSequence>, frame: Frame }",
+    )
+    .unwrap();
+    assert!(declaration.cells()[2].wrapper().is_none());
+}
+
 #[test]
 fn unsupported_struct_and_multiplicity_shapes_are_local_errors() {
     let cases = [

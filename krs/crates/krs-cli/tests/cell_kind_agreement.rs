@@ -338,3 +338,79 @@ fn an_explicit_cell_of_ksequence_is_a_leaf_in_both_views() {
         )]
     );
 }
+
+/// A declaration that writes one leaf's wrapper reads every field of a plain type as a group
+/// (`store: Store` needs neither `#[k::cell]` nor `nested` there), so it writes every leaf with
+/// its wrapper: a plain `k: KSequence` beside `saved: Cell<KSequence>` is refused at that field
+/// for what is true, that this declaration writes wrappers and `KSequence` is no group, where it
+/// was told that the `#[k::cell]` helper it has is missing. The declaration with every leaf
+/// wrapped is the accepted form; it runs.
+#[test]
+fn a_declaration_that_writes_one_wrapper_writes_every_leaf_s() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mixed = EXPLICIT_WRAPPERS
+        .replace(
+            "pub k: k::configuration::KCell<KSequence>",
+            "pub k: KSequence",
+        )
+        .replace(
+            "k: k::configuration::KCell::new(k::k![pgm])",
+            "k: k::k![pgm]",
+        );
+    assert_ne!(mixed, EXPLICIT_WRAPPERS);
+    let manifest = write_package(&temporary.path().join("mixed"), "cell-kinds-mixed", &mixed);
+    let check = |manifest: &Path, package: &str, command: &str, extra: &[&str]| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, target.path());
+        let output = process
+            .args([command, "--manifest-path"])
+            .arg(manifest)
+            .args(["--package", package, "--definition", "main"])
+            .args(extra)
+            .env("NO_COLOR", "1")
+            .env("KRS_STAGE_CACHE_DIR", target.path().join("stages"))
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let (success, _, stderr) = check(&manifest, "cell-kinds-mixed", "check", &[]);
+    assert!(!success, "{stderr}");
+    let refusal = stderr
+        .lines()
+        .filter(|line| line.starts_with("error") || line.trim_start().starts_with("--> "))
+        .map(|line| {
+            line.trim()
+                .replace(&format!("{}/", temporary.path().display()), "")
+        })
+        .take(2)
+        .collect::<Vec<_>>();
+    let manifest = write_package(
+        &temporary.path().join("wrapped"),
+        "cell-kinds-wrapped",
+        EXPLICIT_WRAPPERS,
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "bump").unwrap();
+    let (success, stdout, stderr) = check(
+        &manifest,
+        "cell-kinds-wrapped",
+        "run",
+        &[program.to_str().unwrap(), "-c", "SAVED=bump"],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    let run = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    expect_test::expect![[r#"
+        (
+            [
+                "error[krs::syntax::unsupported-configuration-field]: unsupported fixed configuration field: this declaration writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `KSequence` is not: write every leaf here with its wrapper, the computation cell as `KCell<KSequence>` and a leaf of sort `KSequence` as `Cell<KSequence>`",
+                "--> mixed/src/lib.rs:20:12",
+            ],
+            "<generatedTop> <k> bump ~> .K </k> <stack> .List </stack> <saved> bump ~> .K </saved> </generatedTop>",
+        )
+    "#]].assert_debug_eq(&(refusal, run));
+}
