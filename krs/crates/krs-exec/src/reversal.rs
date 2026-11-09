@@ -197,7 +197,20 @@ fn computes(term: &DefinitionTerm, functions: &BTreeSet<SymbolId>) -> bool {
         DefinitionTermKind::Map(operands) => match &**operands {
             MapOperands::Empty => false,
             MapOperands::Items(entries) => entries.len() > 1,
-            _ => true,
+            // Items joined with a rest are two or more maps joined: the partial `_Map_`. Every
+            // variant is named, so a new one is classified here, not by a default.
+            MapOperands::ItemsWithRest { .. }
+            | MapOperands::Update { .. }
+            | MapOperands::Get { .. }
+            | MapOperands::InKeys { .. }
+            | MapOperands::Remove { .. }
+            | MapOperands::RemoveAll { .. }
+            | MapOperands::Keys { .. }
+            | MapOperands::KeysList { .. }
+            | MapOperands::Values { .. }
+            | MapOperands::Size { .. }
+            | MapOperands::UpdateAll { .. }
+            | MapOperands::GetOrDefault { .. } => true,
         },
         DefinitionTermKind::Let { .. } | DefinitionTermKind::Matches { .. } => true,
         DefinitionTermKind::Variable { .. }
