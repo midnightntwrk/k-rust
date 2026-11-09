@@ -59,16 +59,6 @@ kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`). The computation result's fit, a list rest's place, `[..]` naming no element, an item after a k result's `..`, a map read in a collection's result and a subject map read of a written non-Map cell wait for the kind too; on a Map leaf that map read is the M3 limit, which answers only once every entry, the result's too, is admitted (a limit never hides a principle). Left: a `Some(..)`/`None` on a `?` child inside a group record term (`unmatched-optional-result`), a map read in a group record's Map child (`M { mm: { y -> x, .. }, .. }`, beside S5-B1), the `cells!` fragment-child and `KCell` messages, the initializer route, and K8 advice that follows a subject's `Some([..])`"
 by_test = { k8 = "S5" }
 
-["S5-F2"]
-owner = "S5"
-kind = "bug"
-what = "a `cells!` group fragment's child is its cell's entry (ruling R4, TRI-D). Since TRI-D2 a fragment with a `k::map![..]` child is the group record of its children's entries, so a pattern child's map read and a map child on either side are admitted, as the readable twins are; a result child's `k::map![y -> x, ..]` answers the literal's `invalid-expression-notation`, and a result child's `Some(..)`/`None` is read without the child and refused as not supported yet after the table answers (`collection-entry`). Open: a nested group record's `..` in a result (`wg: Gw { wa: x, .. }`, c28; `wg: Gw { wa: x, wb: y, .. }`, c30, which the table admits as it admits the same `..` at a fragment's root): the macro refuses any `..` inside a `cells!` result fragment's child term by spelling (`positions.rs`, `OpenRecord` in a `cells!` value), before the child's kind answers"
-
-["S5-G3"]
-owner = "S5"
-kind = "bug"
-what = "an instance record naming a `?` child (`acounter: Some(y)`, `acounter: None`) or a group child's `*` collection (`aqueue: Aqueue { ajob: [..] }`) has a meaning (P1, P2; the orchestrator's G3 ruling) and no lowering: the limit instance-child-multiplicity (TRI-B2). TRI-L: the macros carry such a child as its presence and the collector says the limit at the child once the sentence's entries are admitted, so the principles of the same entry answer first (`absence-test-without-creation`, g3-b and the g6 contexts; `record-update-base`, g1-f; `record-remainder-in-cells-term`, `cells!` g1-a); a `Some(..)` or `None` inside a group record an instance child writes, or in a List collection's bracket reading, is a term rustc reads, so the macros say the limit there, and the compiler's instance-child and group-child checks say it by the declaration. Open: a `cells!` update `..j` of a `*` grandchild's instance an instance record labels is refused `invalid-record-update` (`cells!` g4-c); since CHILDREN the table answers g4-c with this limit, as it does g3-d, whose construct g4-c's subject holds, and the macro's spelling refusal of `..j` inside the instance child's term (`positions.rs`, `RecordUpdate` in a `cells!` value) comes before the child's kind can answer"
-
 ["S5-U1"]
 owner = "S5"
 kind = "diagnostic"

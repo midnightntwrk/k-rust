@@ -891,6 +891,10 @@ pub enum Rule {
     /// `record-update-in-pattern`: whether a record update in a braced collection instance
     /// stands in a Set collection's instance a pattern looks up.
     RecordUpdateInPattern,
+    /// `record-remainder-in-cells-term`: whether a record's `..` or `..base` in a `cells!` value
+    /// closes a group record, a cell's entry, which the entry's admission judges as it judges a
+    /// fragment's, or a constructor's record, which a `cells!` term writes whole.
+    RecordRemainderInCellsTerm,
     /// `sort-test-in-pattern`: whether a sort test in a key over evaluated terms stands in a key
     /// that selects an entry by matching, and one in a braced collection instance in a Set
     /// collection's instance a pattern looks up.
@@ -899,7 +903,7 @@ pub enum Rule {
 
 impl Rule {
     /// Every rule.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::AlternativesOutsidePattern,
         Self::ConstantAppliesFunction,
         Self::LetOutsideTerm,
@@ -908,6 +912,7 @@ impl Rule {
         Self::MlInCondition,
         Self::MlPredicateAsTerm,
         Self::RecordUpdateInPattern,
+        Self::RecordRemainderInCellsTerm,
         Self::SortTestInPattern,
     ];
 
@@ -923,6 +928,7 @@ impl Rule {
             Self::MlInCondition => "ml-in-condition",
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
             Self::RecordUpdateInPattern => "record-update-in-pattern",
+            Self::RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
             Self::SortTestInPattern => "sort-test-in-pattern",
         }
     }
@@ -1120,9 +1126,18 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         }
         // `..base` takes the fields an update leaves out from a matched record, which a built
         // term can do and a pattern cannot: it matches records and leaves fields out with `..`.
-        // A Set collection's instance a pattern looks up computes it, as a key does.
+        // A Set collection's instance a pattern looks up computes it, as a key does. Where a
+        // `cells!` value is built, only the record's head tells a group record, a cell's entry
+        // (ruling R4) whose update the entry's admission judges, from a constructor's record,
+        // which a `cells!` term writes whole ([`Rule::RecordRemainderInCellsTerm`]); where it
+        // matches, `..base` denotes no record of either, so the head is not needed.
         Construct::RecordUpdate => {
-            if cells_value(position) {
+            if cells_value(position)
+                && matches!(position.slot, Slot::Result)
+                && !position.in_local_pattern()
+            {
+                After(Rule::RecordRemainderInCellsTerm)
+            } else if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
             } else if position.reads_by_collection_type() {
                 After(Rule::RecordUpdateInPattern)
@@ -1141,8 +1156,13 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // unconstrained, as a pattern's open record leaves its other fields (records follow
         // Rust): its children are the group's entries, and K frames the ones it leaves out. A
         // `cells!` result builds the group, which has no value for them; elsewhere it is an open
-        // record.
+        // record. A record `G { c: e, .. }` written inside a `cells!` value without `k::fragment!`
+        // is a group record when its head is a group's struct, and then a cell's entry as a
+        // fragment's child is (ruling R4), which the entry's admission judges by the group's
+        // children; only resolution tells it from a constructor's record, which a `cells!` term
+        // writes whole ([`Rule::RecordRemainderInCellsTerm`]).
         Construct::OpenFragment if cells_value(position) && pattern => Admit,
+        Construct::OpenRecord if cells_value(position) => After(Rule::RecordRemainderInCellsTerm),
         Construct::OpenRecord | Construct::OpenFragment => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)

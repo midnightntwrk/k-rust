@@ -35,7 +35,7 @@ use krs_test_support::class_matrix::{self, Case, Family};
 /// glob matches is a disagreement no pending entry and no table override accounts for. A
 /// disagreement that is red is accounted for by its pending entry (`pending.toml`, under its
 /// finding), and one the table decides by its override (`expected.toml`), so neither is listed.
-const NOT_RED: [(&str, &str); 2] = [
+const NOT_RED: [(&str, &str); 4] = [
     (
         r"terms/{claim/result,claim/result-item-root,readable/result,readable/result-item-root,readable/result-list-element}/Cmd::Pair \{ a: x\, .. \}",
         "a readable result also creates cell instances, whose `..` gives the other cells their defaults, and the table cannot tell an instance's record from a constructor's before resolution: the compiler refuses a constructor's open record there, with the class's code at the record (NT-28)",
@@ -43,6 +43,14 @@ const NOT_RED: [(&str, &str); 2] = [
     (
         r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0)),y @ Cmd::Hold(_)}",
         "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives, `@` and a closure first",
+    ),
+    (
+        r"terms/{cells-claim/item-root,cells-claim/result-item-root,cells-claim/result,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-key/beside-fresh,cells/map-value,cells/result-item-root,cells/result-map-key,cells/result-map-value,cells/result,cells/subject,context-alias/item-root,context-alias/subject}/Cmd::Pair \{ a: x\, .. \}",
+        "a record written without `k::fragment!` in a `cells!` value is a group record, a cell's entry the entry's admission judges, when its head is a group's struct, and the table cannot tell it from a constructor's before resolution: the collector refuses a constructor's open record there once its head resolves, with the class's code at the record (C30)",
+    ),
+    (
+        r"terms/{cells-claim/result-item-root,cells-claim/result,cells/result-item-root,cells/result-map-key,cells/result-map-value,cells/result}/Cmd::Pair \{ a: x\, ..x \}",
+        "where a `cells!` value is built, a record update is a group record's, which the entry's admission judges, when its head is a group's struct, and the table cannot tell it from a constructor's before resolution: the collector refuses a constructor's update there once its head resolves, with the class's code at the base (C30)",
     ),
 ];
 

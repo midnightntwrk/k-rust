@@ -100,6 +100,9 @@ pub enum CollectionErrorKind {
     CellKindDisagreement,
     /// A `cells!` entry the entry-admission table refuses, with its class (design S5, §2.3).
     CellEntry(krs_syntax::cell_entries::Refusal),
+    /// A constructor's record that a `cells!` value writes with `..` or `..base`
+    /// (`record-remainder-in-cells-term`), told from a group record once its head resolves.
+    RecordRemainderInCellsTerm,
     /// A refusal the shared parser left until the sentence's entries are admitted (a readable
     /// cell whose result is refused by its own notation or pairs with no subject entry, an item
     /// after a computation's rest), with the parser's registered code, by its place in
@@ -290,6 +293,9 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::RecordUpdateInMatchedField => codes::syntax::INVALID_RECORD_UPDATE,
             CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
             CollectionErrorKind::CellEntry(refusal) => refusal.code(),
+            CollectionErrorKind::RecordRemainderInCellsTerm => {
+                krs_syntax::positions::Class::RecordRemainderInCellsTerm.code()
+            }
             CollectionErrorKind::DeferredSyntax(place) => codes::REGISTRY
                 .get(usize::from(place))
                 .map_or(codes::collect::SOURCE_SYNTAX, |info| info.code.clone()),
@@ -491,6 +497,10 @@ mod tests {
             (
                 CollectionErrorKind::RecordUpdateInMatchedField,
                 codes::syntax::INVALID_RECORD_UPDATE,
+            ),
+            (
+                CollectionErrorKind::RecordRemainderInCellsTerm,
+                codes::analysis::INVALID_RECORD_UPDATE,
             ),
         ] {
             let error = CollectionError::new(kind, "detail");

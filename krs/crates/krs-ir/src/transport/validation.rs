@@ -669,7 +669,8 @@ pub(crate) fn let_pattern_names<S: Stage>(term: &Term<S>, names: &mut BTreeSet<S
 }
 
 /// The direct subterms of `term`, in source order.
-pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
+#[must_use]
+pub fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
     match term {
         Term::Application {
             arguments, update, ..

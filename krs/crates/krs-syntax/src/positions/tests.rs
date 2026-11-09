@@ -531,13 +531,22 @@ fn a_record_update_is_built_and_an_open_record_matched() {
             "{built}"
         );
     }
-    // A `cells!` value names every field, whether it matches or builds.
+    // A `cells!` pattern holds no update of any record; where a `cells!` value is built, only
+    // the record's head tells a constructor's record, written whole, from a group record, a
+    // cell's entry.
     assert_eq!(
         admits(
             Position::root(Form::CellsRule, Slot::Subject),
             Construct::RecordUpdate
         ),
         Admission::Refuse(Class::RecordRemainderInCellsTerm)
+    );
+    assert_eq!(
+        admits(
+            Position::root(Form::CellsRule, Slot::Result),
+            Construct::RecordUpdate
+        ),
+        Admission::After(Rule::RecordRemainderInCellsTerm)
     );
 }
 
@@ -752,15 +761,28 @@ fn an_initializer_builds_concrete_values() {
 
 #[test]
 fn a_cells_value_names_every_field_and_computes_only_where_built() {
-    for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {
+    // A constructor's record is written whole; a record whose head is a group's struct is a
+    // cell's entry, which the entry's admission judges: only resolution tells them apart.
+    for form in [
+        Form::CellsRule,
+        Form::CellsLocalRule,
+        Form::CellsClaim,
+        Form::ContextAlias,
+    ] {
         for slot in [Slot::Subject, Slot::Result] {
             let position = Position::root(form, slot);
-            for construct in [Construct::RecordUpdate, Construct::OpenRecord] {
-                assert_eq!(
-                    admits(position, construct),
+            assert_eq!(
+                admits(position, Construct::OpenRecord),
+                Admission::After(Rule::RecordRemainderInCellsTerm)
+            );
+            assert_eq!(
+                admits(position, Construct::RecordUpdate),
+                if matches!(slot, Slot::Result) {
+                    Admission::After(Rule::RecordRemainderInCellsTerm)
+                } else {
                     Admission::Refuse(Class::RecordRemainderInCellsTerm)
-                );
-            }
+                }
+            );
         }
     }
     // A result value is built, so a `let` or a test computes it, as in a readable result; a

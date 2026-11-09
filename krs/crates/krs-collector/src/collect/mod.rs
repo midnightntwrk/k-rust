@@ -601,6 +601,13 @@ fn resolve_pending_descriptors(
                 break;
             }
         };
+        if let Err(error) = constructor_record_remainder(&payload) {
+            loop_failure = Some((
+                "collector.resolve.payload",
+                error.with_provenance(&provenance).with_item(&pending.id),
+            ));
+            break;
+        }
         declaration_metadata.push(DescriptorDeclaration::new(
             pending.id.clone(),
             visibility,
@@ -720,6 +727,165 @@ fn with_group_records(descriptors: Vec<Descriptor>) -> Result<Vec<Descriptor>, C
         .map_err(|failure| descriptor_contract_error(*failure, false))?;
     }
     Ok(descriptors)
+}
+
+/// The refusal of a constructor's record that `payload`'s `cells!` values write with `..` or
+/// `..base` (`record-remainder-in-cells-term`), at the first in reading order, subject before
+/// result.
+///
+/// `cells!` is the reference notation, which writes a constructor's record whole: `..` would
+/// leave fields open and `..base` take them from another record, readable-record notation. A
+/// record written there whose head is a group's struct is instead a group record, a cell's entry
+/// (ruling R4), which resolution has read as the group's cell term
+/// (`resolve.rs`, `group_record_term`) and the entry's admission judges as it judges a fragment's:
+/// a `..` after every child leaves nothing open. The parser cannot tell the two apart, since only
+/// the head's resolution does ([`krs_syntax::positions::Rule::RecordRemainderInCellsTerm`]), so
+/// every application still a record with a remainder here is a constructor's. It is refused
+/// before the entries are judged, where the position table refused it before resolution was
+/// needed to tell.
+fn constructor_record_remainder(
+    payload: &krs_ir::DescriptorPayload,
+) -> Result<(), CollectionError> {
+    use krs_syntax::positions::{Form, Position, Slot};
+    let sides = match payload {
+        krs_ir::DescriptorPayload::ConfigurationRule(rule) => {
+            let form = match (&rule.result, rule.sentence_kind) {
+                (_, krs_ir::ConfigurationSentenceKind::Claim) => Form::CellsClaim,
+                (None, _) => Form::CellsLocalRule,
+                (Some(_), _) => Form::CellsRule,
+            };
+            std::iter::once((Position::root(form, Slot::Subject), &rule.subject))
+                .chain(
+                    rule.result
+                        .iter()
+                        .map(|result| (Position::root(form, Slot::Result), result)),
+                )
+                .collect::<Vec<_>>()
+        }
+        krs_ir::DescriptorPayload::ContextAlias(alias) => vec![(
+            Position::root(Form::ContextAlias, Slot::Subject),
+            &alias.pattern,
+        )],
+        _ => return Ok(()),
+    };
+    for (position, cells) in sides {
+        for cell in &cells.cells {
+            state_record_remainder(&cell.value, position)?;
+        }
+    }
+    Ok(())
+}
+
+/// [`constructor_record_remainder`] over one entry's state at `position`.
+fn state_record_remainder(
+    state: &krs_ir::ProtocolRuleStateTerm<krs_ir::DescriptorTerm>,
+    position: krs_syntax::positions::Position,
+) -> Result<(), CollectionError> {
+    use krs_ir::{ProtocolRuleMapBody, ProtocolRuleStateTerm as State};
+    let mut key = position;
+    key.nesting.in_map_key = true;
+    match state {
+        State::Map(map) => match &map.body {
+            ProtocolRuleMapBody::Empty { .. } => Ok(()),
+            ProtocolRuleMapBody::Items { items, .. } => items.iter().try_for_each(|item| {
+                term_record_remainder(&item.key, key)?;
+                term_record_remainder(&item.value, position)
+            }),
+            ProtocolRuleMapBody::Update {
+                base,
+                key: at,
+                value,
+                ..
+            } => {
+                term_record_remainder(base, position)?;
+                term_record_remainder(at, key)?;
+                term_record_remainder(value, position)
+            }
+        },
+        State::Record(record) => record
+            .fields
+            .iter()
+            .try_for_each(|field| state_record_remainder(&field.value, position)),
+        State::Present { value } => state_record_remainder(value, position),
+        State::Instances(instances) => instances
+            .front
+            .iter()
+            .chain(&instances.back)
+            .flat_map(|instance| &instance.fields)
+            .try_for_each(|field| state_record_remainder(&field.value, position)),
+        State::Term(_) | State::Group(_) | State::KSequence(_) | State::Absent => state
+            .terms()
+            .into_iter()
+            .try_for_each(|term| term_record_remainder(term, position)),
+    }
+}
+
+/// [`constructor_record_remainder`] over one term at `position`, outermost first.
+fn term_record_remainder(
+    term: &krs_ir::DescriptorTerm,
+    position: krs_syntax::positions::Position,
+) -> Result<(), CollectionError> {
+    use krs_ir::Term;
+    use krs_syntax::positions::Class;
+    if let Term::Application {
+        reference,
+        update,
+        open,
+        ..
+    } = term
+        && (*open || update.is_some())
+    {
+        // The refusal stands at the base of an update and at the head of an open record.
+        let at = match update.as_deref() {
+            Some(Term::Variable { key, .. }) => key.clone(),
+            _ => reference.key.clone(),
+        };
+        return Err(CollectionError::new(
+            CollectionErrorKind::RecordRemainderInCellsTerm,
+            Class::RecordRemainderInCellsTerm.message(position),
+        )
+        .with_reference_key(at));
+    }
+    let inner = |term: &krs_ir::DescriptorTerm, nested| term_record_remainder(term, nested);
+    match term {
+        Term::Matches {
+            subject, pattern, ..
+        } => {
+            inner(subject, position)?;
+            let mut nested = position;
+            nested.nesting.in_matches_pattern = true;
+            inner(pattern, nested)
+        }
+        Term::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => {
+            let mut nested = position;
+            nested.nesting.in_let_pattern = true;
+            inner(pattern, nested)?;
+            inner(value, position)?;
+            inner(body, position)
+        }
+        Term::MapEntries { entries, rest, .. } => {
+            let mut key = position;
+            key.nesting.in_map_key = true;
+            for entry in entries {
+                inner(&entry.key, key)?;
+                inner(&entry.value, position)?;
+            }
+            rest.as_deref().map_or(Ok(()), |rest| inner(rest, position))
+        }
+        Term::Rewrite { from, to, .. } => {
+            inner(from, position.rewrite_left())?;
+            to.as_deref()
+                .map_or(Ok(()), |to| inner(to, position.rewrite_right()))
+        }
+        _ => krs_ir::term_children(term)
+            .into_iter()
+            .try_for_each(|child| inner(child, position)),
+    }
 }
 
 /// The provenance of a resolved descriptor: the anchors of a reading the

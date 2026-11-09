@@ -308,14 +308,6 @@ match = 'k8/sweep-paths/*/subject/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,
 finding = "S0-9"
 kind = "k8"
 
-# S5-F2, diagnostic: 1 reds
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: x\, .. \}\, wn: 0 \}]'
-finding = "S5-F2"
-kind = "diagnostic"
-
 # S5-Q1, diagnostic: 4 reds
 
 # S5-U1, diagnostic: 5 reds
@@ -704,10 +696,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 # S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
 # the first mistake the compiler meets.
 
-["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
-finding = "S5-G3"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
 ["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
 deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
@@ -730,10 +718,6 @@ deviation = "krs::expand::parse @ spelling"
 # refusal, where readable answers `group-and-descendant`.
 # S5.0g item 3a: the compiled sweep's reds (shard `sweep`), each owned by the finding whose `what` covers its
 # pattern (the progress log's "Part (b), item 3a" lists the patterns and their kinds).
-
-["sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
 
 # S5.3 part 5: the path sweep's reds (shard `sweep-paths`): a red takes its root twin's finding (the root sweep's case of the same
 # form, side, stack and spelling, pending with the same deviation), and every other

@@ -181,7 +181,6 @@ pub use transport::head_rule::{
 pub use transport::main_cell::{
     MainCell, ambiguous_main_cell_refusal, initializer_state_reads, select_main_cell,
 };
-pub use transport::names_set_element;
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
     DescriptorClaimBinder, DescriptorConfigurationReference, DescriptorConfigurationRule,
@@ -200,6 +199,7 @@ pub use transport::rule::{
 };
 pub use transport::subject;
 pub use transport::subject::{CellTree, DescriptorSubject, SubjectError, SubjectScope, TreeCell};
+pub use transport::{names_set_element, term_children};
 
 use serde::{Deserialize, Serialize};
 

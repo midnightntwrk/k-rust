@@ -567,7 +567,7 @@ advice = "none"
 
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
-doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field; an open group record (`k::fragment![crate::G { a: x, .. }]`) only in a result, since a pattern's leaves the group's other children unconstrained (S5-F2); and, judged at pairing, a `cells!` result's group record update (`k::fragment![crate::G { a: x, ..saved }]`) or instance update whose label names no subject instance of its cell (`..me` of a record matched in another cell): Sebastien ruled (2026-11-06) that `cells!` stays explicit, so its one update rewrites in place the instance its subject labels `me @` (R10), and readable keeps `..base` as record notation"
+doc = "a constructor's record update (`Ctor { f: e, ..t }`) or open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field (a record there whose head is a group's struct is a group record, a cell's entry, judged as a fragment's is, C30); an open group record (`k::fragment![crate::G { a: x, .. }]`) only in a result, since a pattern's leaves the group's other children unconstrained (S5-F2); and, judged at pairing, a `cells!` result's group record update (`k::fragment![crate::G { a: x, ..saved }]`) or instance update whose label names no subject instance of its cell (`..me` of a record matched in another cell): Sebastien ruled (2026-11-06) that `cells!` stays explicit, so its one update rewrites in place the instance its subject labels `me @` (R10), and readable keeps `..base` as record notation"
 examples = ["cells ; result ; - ; group H ; k::fragment![crate::H { b: x, ..y }] ; _"]
 advice = "none"
 
@@ -7194,11 +7194,13 @@ class = "instance-child-multiplicity"
 at = "spelling"
 
 # CHILDREN: g4-c's subject names the group child's `*` collection as g3-d's does, a limit whatever
-# its result writes; the result's `..j` is the one update of an instance `ajob`'s list labels
+# its result writes; the result's `..j` is the one update of an instance `ajob`'s list labels.
+# C30: the limit is met first in the subject (`ajob: [j @ .., jobs @ ..]`), which the sentence
+# reads before its result, so it stands in the case's item, outside the result's spelling
 [[refuse]]
 match = 'cells/g4-c/kinds/account/\{ k::fragment![crate::Acct \{ aqueue: Aqueue \{ ajob: [Ajob \{ apay: x\, ..j \}\, ..jobs] \}\, ..me \}]\, ..instances0 \}'
 class = "instance-child-multiplicity"
-at = "spelling"
+at = "item"
 
 # TRI-B2: a `cells!` fragment's child is read as a term, so a result's anonymous `..` there keeps
 # no rest, the limit its readable twins already meet (S5-F2's message half)
@@ -13226,6 +13228,13 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
 k = """
