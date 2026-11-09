@@ -1449,7 +1449,7 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             family["counts"],
             json!({"fired": 4, "matched": 2, "unmatched": 4, "out_of_scope": 0,
-                   "claim_helper": 0, "no_coverage_signal": 1, "argued": 0,
+                   "claim_helper": 0, "no_coverage_signal": 1, "invariant": 0, "argued": 0,
                    "heating": {"obligations": 4, "fired": 0}})
         );
     }
